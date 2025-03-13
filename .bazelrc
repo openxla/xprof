@@ -8,6 +8,7 @@ build --copt=-Wno-gnu-offsetof-extensions
 build --copt=-Wno-error=array-parameter
 build --copt=-Wno-error=unused-command-line-argument
 build --copt=-w
+build --noenable_bzlmod
 
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD

@@ -20,11 +20,12 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "tensorflow/core/lib/monitoring/collected_metrics.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 struct TfStreamzSnapshot {
   std::unique_ptr<monitoring::CollectedMetrics> metrics;

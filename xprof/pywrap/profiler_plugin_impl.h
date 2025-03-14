@@ -23,8 +23,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/platform/types.h"
-#include "tensorflow/core/profiler/convert/tool_options.h"
-
+#include "xprof/convert/tool_options.h"
 
 namespace xprof {
 namespace pywrap {

@@ -22,14 +22,20 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "xla/tsl/lib/gtl/map_util.h"
+#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/lib/gtl/map_util.h"
-#include "tensorflow/core/platform/logging.h"
+#include "xla/tsl/platform/logging.h"
 
 namespace tensorflow {
 namespace profiler {
 
 namespace {
+
+using tsl::uint32;
+using tsl::uint64;
+using tsl::kuint64max;
+using tsl::kuint32max;
 
 // Returns the timespan in this step (across all cores).
 tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
@@ -261,7 +267,7 @@ std::vector<uint32> StepIntersection::DstStepNumbers() const {
 }
 
 uint32 StepIntersection::FirstStepIndex(uint32 host_id) const {
-  const auto* alignment = gtl::FindOrNull(perhost_alignment_, host_id);
+  const auto* alignment = tsl::gtl::FindOrNull(perhost_alignment_, host_id);
   if (alignment == nullptr) return 0;
   DCHECK(alignment->begin_chief_idx <= begin_chief_idx_);
   uint32 shift = begin_chief_idx_ - alignment->begin_chief_idx;
@@ -287,7 +293,7 @@ std::string StepIntersection::DebugString() const {
 
   absl::StrAppend(&str, "perhost_alignment:\n");
   for (const auto host_id : host_ids) {
-    const auto* ptr = gtl::FindOrNull(perhost_alignment_, host_id);
+    const auto* ptr = tsl::gtl::FindOrNull(perhost_alignment_, host_id);
     if (ptr == nullptr) continue;
     absl::StrAppend(&str, "host: ", host_id,
                     ", step-alignment: ", StringStepsAlignment(*ptr), "\n");

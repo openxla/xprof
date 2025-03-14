@@ -25,7 +25,6 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
-#include "absl/types/optional.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
@@ -71,7 +70,7 @@ class TraceViewerVisibility {
     // Returns the nesting depth for an event at begin_timestamp_ps.
     size_t Depth(uint64_t begin_timestamp_ps) const;
 
-    // Returns the end_timestamp_ps of the last visibile event at the given
+    // Returns the end_timestamp_ps of the last visible event at the given
     // nesting depth.
     std::optional<uint64_t> LastEndTimestampPs(size_t depth) const {
       std::optional<uint64_t> result;

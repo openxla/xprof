@@ -19,7 +19,7 @@ pytype_extension(
         "@local_xla//xla/pjrt:status_casters",
         "@local_xla//xla/tsl/platform:types",
         "@local_xla//xla/tsl/profiler/rpc/client:capture_profile",
-        "@org_tensorflow//tensorflow/core/profiler/convert:tool_options",
+        "@org_xprof//xprof/convert:tool_options",
         "@pybind11",
     ],
 )
@@ -52,8 +52,8 @@ cc_library(
         "@local_xla//xla/tsl/profiler/rpc/client:capture_profile",
         "@local_xla//xla/tsl/profiler/rpc/client:profiler_client_impl",
         "@local_xla//xla/tsl/profiler/utils:session_manager",
-        "@org_tensorflow//tensorflow/core/profiler/convert:repository",
-        "@org_tensorflow//tensorflow/core/profiler/convert:tool_options",
-        "@org_tensorflow//tensorflow/core/profiler/convert:xplane_to_tools_data",
+        "@org_xprof//xprof/convert:repository",
+        "@org_xprof//xprof/convert:tool_options",
+        "@org_xprof//xprof/convert:xplane_to_tools_data",
     ],
 )

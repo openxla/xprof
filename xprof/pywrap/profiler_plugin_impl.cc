@@ -27,11 +27,10 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/tsl/profiler/utils/session_manager.h"
-#include "tensorflow/core/profiler/convert/repository.h"
-#include "tensorflow/core/profiler/convert/tool_options.h"
-#include "tensorflow/core/profiler/convert/xplane_to_tools_data.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-
+#include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
+#include "xprof/convert/xplane_to_tools_data.h"
 
 namespace xprof {
 namespace pywrap {

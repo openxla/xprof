@@ -23,7 +23,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tensorflow/core/grappler/costs/cost_estimator.h"
 #include "tensorflow/core/grappler/costs/op_level_cost_estimator.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 
 namespace tensorflow {
 namespace profiler {

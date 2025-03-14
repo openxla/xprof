@@ -25,11 +25,12 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 // The name of OpMetrics to represent the idle time.
 TF_CONST_INIT extern const absl::string_view kIdle;

@@ -23,12 +23,14 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint32;
+using tsl::uint64;
 
 // The various event types. Enumerations are numbered such that a bigger number
 // has a higher priority than a smaller number when used in execution-time

@@ -27,12 +27,13 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "tensorflow/core/platform/logging.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/logging.h"
+#include "xla/tsl/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint32;
 
 namespace {
 

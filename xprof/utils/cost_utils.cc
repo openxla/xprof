@@ -25,6 +25,8 @@ limitations under the License.
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "xla/tsl/platform/logging.h"
+#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
@@ -34,12 +36,11 @@ limitations under the License.
 #include "tensorflow/core/grappler/costs/cost_estimator.h"
 #include "tensorflow/core/grappler/costs/op_context.h"
 #include "tensorflow/core/grappler/costs/op_performance_data.pb.h"
-#include "tensorflow/core/platform/logging.h"
-#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 namespace profiler {
 
+using ::tsl::uint64;
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XStatVisitor;
 

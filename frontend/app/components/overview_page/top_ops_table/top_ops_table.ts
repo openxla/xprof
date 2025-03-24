@@ -56,6 +56,7 @@ export class TopOpsTable implements AfterViewInit, OnChanges {
       cumulativeTimePercent: 0,
       category: 0,
       operation: 0,
+      // flopRate here is the bf16 normalized flop rate.
       flopRate: 0,
       tcEligibility: 0,
       tcUtilization: 0,

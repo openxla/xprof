@@ -81,6 +81,8 @@ message Metrics {
   // The raw stats below are aggregated across all occurrences.
   double raw_time = 11;   // Elapsed core-time in picoseconds.
   double raw_flops = 12;  // Total floating-point operations performed.
+  // Total FLOPs Normalized to the bf16 (default) devices peak bandwidth.
+  double bf16_flops = 18;
   // Total bytes accessed for each memory type.
   // Index into array using MemBwType enum.
   repeated double raw_bytes_accessed_array = 15;

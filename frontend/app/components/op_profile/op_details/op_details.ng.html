@@ -87,9 +87,17 @@
             </div>
           </div>
         </div>
-        <div class="info" [hidden]="!flopsRate">
+        <div class="info" [hidden]="!flopsRate" matTooltip="Raw FLOP rate." matTooltipPosition="above">
           <div class="title">{{getTitleByDeviceType('FLOP rate', ':')}}</div>
           <code class="expression">{{flopsRate}}</code>
+        </div>
+        <div
+          class="info"
+          [hidden]="!bf16FlopsRate || deviceType !== 'TPU'"
+          matTooltip="Normalized FLOP rate to bf16 given the device type and operand data type."
+          matTooltipPosition="above">
+          <div class="title">bf16 normalized FLOP rate (per core):</div>
+          <code class="expression">{{bf16FlopsRate}}</code>
         </div>
         <div class="info" [hidden]="!bandwidths[memBwType.MEM_BW_TYPE_HBM_RW]">
           <div class="title">{{getTitleByDeviceType('HBM bandwidth', ':')}}</div>

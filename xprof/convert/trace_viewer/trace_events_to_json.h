@@ -166,7 +166,7 @@ class JsonEventWriter {
     // "%.17g" is the default double format in proto2::util::JsonFormat.
     absl::Format(output_, R"(,"ts":%.17g)", PicosToMicros(span.begin_ps()));
     JsonEventCounter::EventType event_type = JsonEventCounter::kCounterEvent;
-    if (event.has_resource_id()) {
+    if (event.type() == TraceEvent::EVENT_TYPE_COMPLETE) {
       event_type = event.has_flow_id()
                        ? JsonEventCounter::kCompleteEventWithFlow
                        : JsonEventCounter::kCompleteEvent;
@@ -208,38 +208,34 @@ class JsonEventWriter {
         }
       }
       output_->Append(R"(,"ph":"X")");
-    } else {
-      event_type = event.has_flow_id() ? JsonEventCounter::kAsyncEvent
-                                       : JsonEventCounter::kCounterEvent;
-      if (event_type == JsonEventCounter::kCounterEvent) {
-        output_->Append(R"(,"ph":"C")");
-      } else {  // async events
-        output_->Append(R"(,"id":)", event.flow_id());
-        if (event.has_flow_category()) {
-          tsl::profiler::ContextType type =
-              tsl::profiler::GetSafeContextType(event.flow_category());
-          const char* category = tsl::profiler::GetContextTypeString(type);
-          output_->Append(R"(,"cat":")", category, R"(")");
-        }
-        switch (event.flow_entry_type()) {
-          case TraceEvent::FLOW_NONE:
-            // The caller prevents this case from happening.
-            break;
-          case TraceEvent::FLOW_START:
-            output_->Append(R"(,"ph":"b")");
-            break;
-          case TraceEvent::FLOW_END:
-            output_->Append(R"(,"ph":"e")");
-            break;
-          case TraceEvent::FLOW_MID:
-            output_->Append(R"(,"ph":"b")");
-            async_event.emplace(event);
-            async_event->set_flow_entry_type(TraceEvent::FLOW_END);
-            async_event->set_timestamp_ps(event.timestamp_ps() +
-                                          event.duration_ps());
-            async_event->clear_raw_data();
-            break;
-        }
+    } else if (event.type() == TraceEvent::EVENT_TYPE_COUNTER) {
+      output_->Append(R"(,"ph":"C")");
+    } else if (event.type() == TraceEvent::EVENT_TYPE_ASYNC) {
+      output_->Append(R"(,"id":)", event.flow_id());
+      if (event.has_flow_category()) {
+        tsl::profiler::ContextType type =
+            tsl::profiler::GetSafeContextType(event.flow_category());
+        const char* category = tsl::profiler::GetContextTypeString(type);
+        output_->Append(R"(,"cat":")", category, R"(")");
+      }
+      switch (event.flow_entry_type()) {
+        case TraceEvent::FLOW_NONE:
+          // The caller prevents this case from happening.
+          break;
+        case TraceEvent::FLOW_START:
+          output_->Append(R"(,"ph":"b")");
+          break;
+        case TraceEvent::FLOW_END:
+          output_->Append(R"(,"ph":"e")");
+          break;
+        case TraceEvent::FLOW_MID:
+          output_->Append(R"(,"ph":"b")");
+          async_event.emplace(event);
+          async_event->set_flow_entry_type(TraceEvent::FLOW_END);
+          async_event->set_timestamp_ps(event.timestamp_ps() +
+                                        event.duration_ps());
+          async_event->clear_raw_data();
+          break;
       }
     }
     WriteArgs(event);

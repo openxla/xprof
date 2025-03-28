@@ -120,6 +120,7 @@ class TraceEventsContainerBase {
                         std::optional<int64_t> serial = std::nullopt) {
     TraceEvent* event = CreateArenaEvent();
     MaybeInternEventName(event, name);
+    event->set_type(TraceEvent::EVENT_TYPE_COMPLETE);
     event->set_resource_id(resource_id);
     event->set_device_id(device_id);
     event->set_timestamp_ps(timespan.begin_ps());
@@ -152,6 +153,7 @@ class TraceEventsContainerBase {
                     std::optional<int64_t> serial = std::nullopt) {
     TraceEvent* event = CreateArenaEvent();
     MaybeInternEventName(event, name);
+    event->set_type(TraceEvent::EVENT_TYPE_COMPLETE);
     event->set_resource_id(resource_id);
     event->set_device_id(device_id);
     event->set_timestamp_ps(timespan.begin_ps());
@@ -189,6 +191,7 @@ class TraceEventsContainerBase {
                      std::optional<int64_t> serial = std::nullopt) {
     TraceEvent* event = CreateArenaEvent();
     MaybeInternEventName(event, name);
+    event->set_type(TraceEvent::EVENT_TYPE_ASYNC);
     event->set_device_id(device_id);
     event->set_timestamp_ps(timespan.begin_ps());
     if (timespan.duration_ps() != 0) {
@@ -214,13 +217,16 @@ class TraceEventsContainerBase {
   // Similar to above, but the TraceEvent also has an associated counter name
   // and value in RawData.args. Counter events are per device, so no resource_id
   // is passed.
-  void AddCounterEvent(absl::string_view name, uint32_t device_id,
-                       uint64_t timestamp_ps, const RawData& raw_data,
+  void AddCounterEvent(absl::string_view name, uint32_t resource_id,
+                       uint32_t device_id, uint64_t timestamp_ps,
+                       const RawData& raw_data,
                        std::optional<int64_t> serial = std::nullopt) {
     TraceEvent* event = CreateArenaEvent();
+    event->set_type(TraceEvent::EVENT_TYPE_COUNTER);
     event->set_name(name.data(), name.size());
     event->set_device_id(device_id);
     // Do not set resource_id for counter events, they are per device.
+    event->set_resource_id(resource_id);
     event->set_timestamp_ps(timestamp_ps);
     DCHECK(raw_data.has_args());
     DCHECK_EQ(raw_data.args().arg_size(), 1);

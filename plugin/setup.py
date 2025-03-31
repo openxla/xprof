@@ -49,7 +49,7 @@ setuptools.setup(
     long_description_content_type='text/markdown',
     author='Google Inc.',
     author_email='packages@tensorflow.org',
-    url='https://github.com/tensorflow/profiler',
+    url='https://github.com/openxla/xprof',
     packages=setuptools.find_packages()
     + setuptools.find_namespace_packages(
         include=['tensorboard_plugin_profile.*'],

@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tensorflow/profiler.git"
+    "url": "git+https://github.com/openxla/xprof.git"
   },
   "keywords": [
     "ml",
@@ -24,9 +24,9 @@
   "author": "TensorFlow authors",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/tensorflow/profiler/issues"
+    "url": "https://github.com/openxla/xprof/issues"
   },
-  "homepage": "https://github.com/tensorflow/profiler#readme",
+  "homepage": "https://github.com/openxla/xprof#readme",
   "devDependencies": {
     "@angular/cli": "^15.2.7",
     "@angular/compiler": "^15.2.9",

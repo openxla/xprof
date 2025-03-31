@@ -47,7 +47,7 @@ try:
   tf.enable_v2_behavior()
 except ImportError:
   logger.info(
-      'Disabling remote capture features as tensorflow is not available'
+      'Disabling remote capture features as tensorflow is not available.'
   )
   tf = None
   profiler_client = None

@@ -18,7 +18,6 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -26,16 +25,18 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_cost_analysis.h"
-#include "xla/shape.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
+#include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -56,11 +57,14 @@ class HloInstructionInterface {
   virtual bool isRoot() const = 0;
   virtual bool IsFusion() const = 0;
   virtual const std::string& Expression() const = 0;
+  virtual std::string_view DeduplicatedName() const = 0;
 
   virtual void ProcessXlaCostAnalysis(
       const xla::HloCostAnalysis* cost_analysis) = 0;
   virtual std::string OpLocationStack(int32_t frame_id) const = 0;
   virtual tsl::profiler::OpSourceInfo SourceInfo() const = 0;
+  virtual const ::tensorflow::profiler::PerformanceInfoWrapper*
+  GetPerformanceInfoWrapper() const = 0;
 };
 
 // This wrapper allows caching the results of HloInstruction methods.
@@ -69,7 +73,8 @@ class HloInstructionWrapper : public HloInstructionInterface {
  public:
   explicit HloInstructionWrapper(
       const xla::HloInstruction* instr,
-      const xla::HloCostAnalysis* cost_analysis = nullptr);
+      const tensorflow::profiler::HloCostAnalysisWrapper* cost_analysis =
+          nullptr);
 
   // Non copyable
   HloInstructionWrapper(const HloInstructionWrapper&) = delete;
@@ -101,6 +106,9 @@ class HloInstructionWrapper : public HloInstructionInterface {
 
   bool isRoot() const override { return instr_->IsRoot(); }
   bool IsFusion() const override { return !fused_children_.empty(); };
+  std::string_view DeduplicatedName() const override {
+    return deduplicated_name_;
+  }
 
   void ProcessXlaCostAnalysis(
       const xla::HloCostAnalysis* cost_analysis) override {
@@ -127,6 +135,11 @@ class HloInstructionWrapper : public HloInstructionInterface {
     return GetSourceInfo(instr_);
   }
 
+  const ::tensorflow::profiler::PerformanceInfoWrapper*
+  GetPerformanceInfoWrapper() const override {
+    return performance_info_wrapper_.get();
+  }
+
  private:
   const xla::HloInstruction* instr_;
   std::vector<const HloInstructionWrapper*> fused_children_;
@@ -136,6 +149,9 @@ class HloInstructionWrapper : public HloInstructionInterface {
   size_t bytes_accessed_ = 0;
   std::string category_;
   std::string expression_;
+  std::string deduplicated_name_;
+  std::unique_ptr<tensorflow::profiler::PerformanceInfoWrapper>
+      performance_info_wrapper_;
 };
 
 // Helper class for accessing HloModule.
@@ -156,11 +172,11 @@ class HloModuleWrapper : public HloModuleInterface {
  public:
   explicit HloModuleWrapper(
       const xla::HloProto& hlo_proto,
-      std::function<int64_t(const xla::Shape&)> shape_func = nullptr);
+      std::unique_ptr<HloCostAnalysisWrapper> cost_analysis = nullptr);
 
   explicit HloModuleWrapper(
       std::unique_ptr<xla::HloModule> module,
-      std::function<int64_t(const xla::Shape&)> shape_func);
+      std::unique_ptr<HloCostAnalysisWrapper> cost_analysis = nullptr);
 
   const HloInstructionWrapper* GetHloInstruction(
       absl::string_view hlo_name) const;
@@ -184,12 +200,16 @@ class HloModuleWrapper : public HloModuleInterface {
 using HloModuleMap =
     absl::flat_hash_map<uint64_t /*program_id*/, HloModuleWrapper>;
 
-void AddHloProto(HloModuleMap& hlo_module_map, uint64_t program_id,
-                 const xla::HloProto& hlo_proto);
+void AddHloProto(
+    HloModuleMap& hlo_module_map, uint64_t program_id,
+    const xla::HloProto& hlo_proto,
+    std::unique_ptr<HloCostAnalysisWrapper> cost_analysis = nullptr);
 
 // Process HloModuleMap from single XSpace.
-void ProcessHloModuleMapFromXSpace(HloModuleMap& hlo_module_map,
-                                   const XSpace* space);
+void ProcessHloModuleMapFromXSpace(
+    HloModuleMap& hlo_module_map, const XSpace* space,
+    tensorflow::profiler::HloCostAnalysisWrapper::Factory&
+        create_cost_analysis);
 
 // WARNING: The returned pointer will be invalidated if HloModuleMap is mutated.
 inline const HloModuleWrapper* GetHloModule(const HloModuleMap* hlo_module_map,
@@ -208,6 +228,10 @@ inline const HloInstructionWrapper* GetHloInstruction(
   if (hlo_module == nullptr) return nullptr;
   return hlo_module->GetHloInstruction(hlo_name);
 }
+
+// Initialize HloCostAnalysis for the given HloModule.
+absl::Status InitializeHloCostAnalysis(const xla::HloModule& hlo_module,
+                                       xla::HloCostAnalysis& cost_analysis);
 
 }  // namespace profiler
 }  // namespace tensorflow

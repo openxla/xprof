@@ -18,8 +18,10 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
@@ -28,30 +30,53 @@ limitations under the License.
 #include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/platform/errors.h"
+#include "tensorflow/core/profiler/protobuf/op_metrics.pb.h"
+#include "xprof/utils/cost_utils.h"
+#include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
 
 namespace {
 
-std::vector<uint32_t> GetInputBitwidths(const xla::HloInstruction& hlo) {
-  std::vector<uint32_t> input_bitwidths;
-  for (const auto& operand : hlo.operands()) {
-    switch (operand->shape().element_type()) {
-      case xla::PRIMITIVE_TYPE_INVALID:
-      case xla::TUPLE:
-      case xla::OPAQUE_TYPE:
-      case xla::TOKEN:
-        break;
-      default:
-        input_bitwidths.push_back(
-            xla::primitive_util::BitWidth(operand->shape().element_type()));
-    }
+class XprofGpuCostAnalysisWrapper : public HloCostAnalysisWrapper {
+ public:
+  explicit XprofGpuCostAnalysisWrapper(
+      std::unique_ptr<XProfGpuCostAnalysis> cost_analysis)
+      : gpu_cost_analysis_(std::move(cost_analysis)) {
+    DCHECK(gpu_cost_analysis_ != nullptr) << "Gpu cost analysis is null";
   }
-  return input_bitwidths;
-}
+
+  xla::HloCostAnalysis* GetXlaCostAnalysis() const override {
+    return gpu_cost_analysis_.get();
+  }
+
+  int64_t GetDeviceFlopsAdjustment(
+      const xla::HloInstruction& hlo) const override {
+    return gpu_cost_analysis_->GetDeviceFlopsAdjustment(hlo);
+  }
+
+  HloCostAnalysisWrapper::MemorySpaceMap GetMemorySpaceMapping()
+      const override {
+    return {{PerformanceInfo::MemoryAccessed::HBM, /*memory_space_xla=*/0}};
+  }
+
+  HloCostAnalysisWrapper::CostAdjustmentFn GetCostAdjustmentFunction(
+      const xla::HloInstruction& hlo) const override {
+    return tensorflow::profiler::ValidHloCost;
+  }
+
+ private:
+  std::unique_ptr<XProfGpuCostAnalysis> gpu_cost_analysis_;
+};
 
 }  // namespace
+
+std::unique_ptr<HloCostAnalysisWrapper> CreateXprofGpuCostAnalysis(
+    xla::HloCostAnalysis::Options options) {
+  return std::make_unique<XprofGpuCostAnalysisWrapper>(
+      std::make_unique<XProfGpuCostAnalysis>(options));
+}
 
 absl::Status XProfGpuCostAnalysis::HandleCustomCall(
     const xla::HloInstruction* hlo) {
@@ -139,7 +164,7 @@ XProfGpuCostAnalysis::CreateNestedCostAnalysis() {
 }
 
 int64_t XProfGpuCostAnalysis::GetDeviceFlopsAdjustment(
-    const xla::HloInstruction& hlo) {
+    const xla::HloInstruction& hlo) const {
   return GetPropertyForHlo(hlo, kDeviceFlopsAdjustment, hlo_properties_);
 }
 

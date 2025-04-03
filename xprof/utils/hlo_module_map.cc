@@ -16,7 +16,6 @@ limitations under the License.
 #include "xprof/utils/hlo_module_map.h"
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -24,87 +23,71 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "xla/service/hlo_cost_analysis.h"
-#include "xla/shape.h"
-#include "xla/tsl/profiler/convert/xla_op_utils.h"
-#include "tsl/profiler/lib/traceme_encode.h"
-
-#if GOOGLE_CUDA
-#include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
-#endif
-#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
+#include "xla/service/hlo_cost_analysis.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "tensorflow/core/platform/path.h"
+#include "tsl/profiler/lib/traceme_encode.h"
+#include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/hlo_proto_to_module.h"
+#include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
 
-namespace {
-
-#if GOOGLE_CUDA
-int64_t ShapeSize(const xla::Shape& shape) {
-  constexpr int64_t kPointerSize = 8;
-  return xla::ShapeUtil::ByteSizeOf(shape, kPointerSize);
-}
-#endif
-
-}  // namespace
-
 HloInstructionWrapper::HloInstructionWrapper(
-    const xla::HloInstruction* instr, const xla::HloCostAnalysis* cost_analysis)
+    const xla::HloInstruction* instr,
+    const HloCostAnalysisWrapper* cost_analysis)
     : instr_(instr),
       op_full_name_(
           tsl::profiler::TraceMeOp(Metadata().op_name(), Metadata().op_type())),
       tf_op_name_(tsl::profiler::TfOpFullname(Metadata().op_type(),
                                               Metadata().op_name())),
       category_(instr_->ToCategory()),
-      expression_(UncachedExpression(instr_, false, kMaxHlolNameSize)) {
-  ProcessXlaCostAnalysis(cost_analysis);
+      expression_(UncachedExpression(instr_, false, kMaxHlolNameSize)),
+      deduplicated_name_(instr_->metadata().deduplicated_name()){
+  if (cost_analysis != nullptr) {
+    performance_info_wrapper_ =
+        tensorflow::profiler::PerformanceInfoWrapper::Create(cost_analysis,
+                                                             instr);
+    ProcessXlaCostAnalysis(cost_analysis->GetXlaCostAnalysis());
+  }
 }
 
 HloModuleWrapper::HloModuleWrapper(
     const xla::HloProto& hlo_proto,
-    std::function<int64_t(const xla::Shape&)> shape_func)
+    std::unique_ptr<HloCostAnalysisWrapper> cost_analysis_wrapper)
     : HloModuleWrapper(ConvertHloProtoToModuleIgnoringErrors(hlo_proto),
-                       shape_func) {}
+                       std::move(cost_analysis_wrapper)) {}
 
 HloModuleWrapper::HloModuleWrapper(
     std::unique_ptr<xla::HloModule> module,
-    std::function<int64_t(const xla::Shape&)> shape_func)
+    std::unique_ptr<HloCostAnalysisWrapper> cost_analysis_wrapper)
     : module_(std::move(module)) {
   if (module_ == nullptr) return;
 
-  const xla::HloCostAnalysis* cost_analysis = nullptr;
-#if GOOGLE_CUDA
-  if (shape_func == nullptr) shape_func = ShapeSize;
-  xla::HloCostAnalysis::Options options;
-  options.shape_size = shape_func;
-  xla::gpu::GpuHloCostAnalysis gpu_cost_analysis(options);
-
-  const xla::HloComputation* hlo_computation = module_->entry_computation();
-  gpu_cost_analysis.ReserveVisitStates(hlo_computation->instruction_count());
-  tsl::Status analysis_status = hlo_computation->Accept(&gpu_cost_analysis);
-  if (analysis_status.ok()) {
-    // Clear the visit state as it isn't used by anybody and it uses a lot of
-    // memory.
-    gpu_cost_analysis.DestroyVisitState();
-  } else {
-    LOG(ERROR) << "Failed to create cost analysis: " << analysis_status;
+  if (cost_analysis_wrapper &&
+      !tensorflow::profiler::InitializeHloCostAnalysis(
+           *module_, *cost_analysis_wrapper->GetXlaCostAnalysis())
+           .ok()) {
+    LOG(ERROR) << "Failed to initialize xla::HloCostAnalysis for module: "
+               << module_->name();
+    cost_analysis_wrapper.reset();
   }
-  cost_analysis = &gpu_cost_analysis;
-#endif
 
   // Populate instructions_by_name_ with module.
   for (const xla::HloComputation* computation : module_->computations()) {
     for (const xla::HloInstruction* instr : computation->instructions()) {
       instructions_by_name_.try_emplace(
-          instr->name(), HloInstructionWrapper(instr, cost_analysis));
+          instr->name(),
+          HloInstructionWrapper(instr, cost_analysis_wrapper.get()));
     }
   }
   // Gather nested fusion instructions.
@@ -158,7 +141,8 @@ std::string HloInstructionWrapper::source_info() const {
 }
 
 void AddHloProto(HloModuleMap& hlo_module_map, uint64_t program_id,
-                 const xla::HloProto& hlo_proto) {
+                 const xla::HloProto& hlo_proto,
+                 std::unique_ptr<HloCostAnalysisWrapper> cost_analysis) {
   auto hlo_module = ConvertHloProtoToModule(hlo_proto);
   if (!hlo_module.ok()) {
     LOG(ERROR) << hlo_module.status();
@@ -166,14 +150,27 @@ void AddHloProto(HloModuleMap& hlo_module_map, uint64_t program_id,
   }
   hlo_module_map.try_emplace(program_id,
                              HloModuleWrapper(std::move(hlo_module).value(),
-                                              /*shape_func=*/nullptr));
+                                              std::move(cost_analysis)));
 }
 
-void ProcessHloModuleMapFromXSpace(HloModuleMap& hlo_module_map,
-                                   const XSpace* space) {
+void ProcessHloModuleMapFromXSpace(
+    HloModuleMap& hlo_module_map, const XSpace* space,
+    tensorflow::profiler::HloCostAnalysisWrapper::Factory&
+        create_cost_analysis) {
   for (auto& [program_id, hlo_proto] : ParseHloProtosFromXSpace(*space)) {
-    AddHloProto(hlo_module_map, program_id, *hlo_proto);
+    AddHloProto(hlo_module_map, program_id, *hlo_proto, create_cost_analysis());
   }
+}
+
+absl::Status InitializeHloCostAnalysis(const xla::HloModule& hlo_module,
+                                       xla::HloCostAnalysis& cost_analysis) {
+  const xla::HloComputation* hlo_computation = hlo_module.entry_computation();
+  cost_analysis.ReserveVisitStates(hlo_computation->instruction_count());
+  absl::Status analysis_status = hlo_computation->Accept(&cost_analysis);
+  if (analysis_status.ok()) {
+    cost_analysis.DestroyVisitState();
+  }
+  return analysis_status;
 }
 
 }  // namespace profiler

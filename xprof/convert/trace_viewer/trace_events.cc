@@ -40,7 +40,7 @@ limitations under the License.
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
@@ -49,6 +49,7 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+using tsl::kint64max;
 
 namespace {
 

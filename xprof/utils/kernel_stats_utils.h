@@ -21,11 +21,12 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/string_view.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 // Populates kernel launch information from a kKernelDetails XStat.
 void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,

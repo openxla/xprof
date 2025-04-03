@@ -13,12 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xprof/pywrap/profiler_plugin_impl.h"
 #include "pybind11/pybind11.h"  // from @pybind11
-#include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/pjrt/status_casters.h"
-#include "tensorflow/core/profiler/convert/tool_options.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/rpc/client/capture_profile.h"
+#include "xprof/convert/tool_options.h"
+#include "xprof/pywrap/profiler_plugin_impl.h"
 
 namespace py = ::pybind11;
 

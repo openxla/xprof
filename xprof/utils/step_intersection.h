@@ -20,11 +20,12 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint32;
 
 // Description of how two step sequences are aligned.
 struct StepsAlignment {

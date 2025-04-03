@@ -18,13 +18,15 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "xla/tsl/platform/types.h"
 #include "tensorflow/core/platform/test.h"
-#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
 
+using tsl::uint32;
+using tsl::uint64;
 using PerHostStepDb =
     absl::flat_hash_map<uint32 /*=host_id*/, StepDatabaseResult>;
 

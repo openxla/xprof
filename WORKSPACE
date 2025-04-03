@@ -187,9 +187,9 @@ http_archive(
         "//third_party:tensorflow.patch",
         "//third_party:tensorflow_add_grpc_cares_darwin_arm64_support.patch",
     ],
-    strip_prefix = "tensorflow-master",
+    strip_prefix = "tensorflow-520a4d94620dd55273f4745d6d5a830503c212b0",
     urls = [
-        "https://github.com/tensorflow/tensorflow/archive/refs/heads/master.zip",
+        "https://github.com/tensorflow/tensorflow/archive/520a4d94620dd55273f4745d6d5a830503c212b0.zip",  # TODO(matthurd) Un-pin this once protos are moved.
     ],
 )
 

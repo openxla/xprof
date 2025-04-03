@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "xla/tsl/lib/gtl/map_util.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/device_utils.h"
 #include "xla/tsl/profiler/utils/group_events.h"
@@ -44,7 +45,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xla/tsl/util/stats_calculator.h"
-#include "tensorflow/core/lib/gtl/map_util.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/hlo_module_map.h"
@@ -417,7 +417,7 @@ void DerivedXLineBuilder::AddStatToLevelEvent(int level,
 // This function will shrink the stack of events with the same timespan when
 // necessary. Event at top of stack might shrink more than event at the
 // bottom. Because the time unit in trace viewer is nanosecond, therefore the
-// minimum difference is 1ns. However to prevent shrink induced inconsitency,
+// minimum difference is 1ns. However to prevent shrink induced inconsistency,
 // we can not shrink more than the duration of event at the top of the stack.
 void DerivedXLineBuilder::AdjustDurationForTraceViewer(int level) {
   if (level >= last_event_by_level_.size() || !last_event_by_level_[level])
@@ -599,7 +599,7 @@ void DeriveEventsFromHostTrace(
       int64_t group_id = kv.first;
       const GroupLaunchInfo& group_info = kv.second;
       if (const tsl::profiler::GroupMetadata* group_metadata =
-              gtl::FindOrNull(group_metadata_map, group_id)) {
+              tsl::gtl::FindOrNull(group_metadata_map, group_id)) {
         XEventBuilder device_event =
             launch_line.AddEvent(*device_plane.GetOrCreateEventMetadata(
                 absl::StrCat("Launch Stats for ", group_metadata->name)));

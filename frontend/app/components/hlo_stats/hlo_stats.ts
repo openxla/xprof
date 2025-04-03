@@ -158,10 +158,10 @@ export class HloStats extends Dashboard implements OnDestroy {
     const updatedData = {
       ...data,
       rows: data?.rows!.map((row, index) => {
-        const programId = (row.c![programIdColumnIdx].v as string).trim() || '';
-        const hloOpName = (row.c![hloOpNameColumnIdx].v as string).trim() || '';
+        const programId = row.c![programIdColumnIdx].v?.toString() || '';
+        const hloOpName = row.c![hloOpNameColumnIdx].v?.toString() || '';
         const hloOpExpression =
-          (row.c![hloOpExpressionColumnIdx].v as string) || '';
+            row.c![hloOpExpressionColumnIdx].v?.toString() || '';
         const graphViewerLink = `/graph_viewer/${this.sessionId}?program_id=${programId}&node_name=${hloOpName}`;
         return {
           ...row,

@@ -57,7 +57,6 @@ class HloInstructionInterface {
   virtual bool isRoot() const = 0;
   virtual bool IsFusion() const = 0;
   virtual const std::string& Expression() const = 0;
-  virtual std::string_view DeduplicatedName() const = 0;
 
   virtual void ProcessXlaCostAnalysis(
       const xla::HloCostAnalysis* cost_analysis) = 0;
@@ -106,9 +105,6 @@ class HloInstructionWrapper : public HloInstructionInterface {
 
   bool isRoot() const override { return instr_->IsRoot(); }
   bool IsFusion() const override { return !fused_children_.empty(); };
-  std::string_view DeduplicatedName() const override {
-    return deduplicated_name_;
-  }
 
   void ProcessXlaCostAnalysis(
       const xla::HloCostAnalysis* cost_analysis) override {
@@ -149,7 +145,6 @@ class HloInstructionWrapper : public HloInstructionInterface {
   size_t bytes_accessed_ = 0;
   std::string category_;
   std::string expression_;
-  std::string deduplicated_name_;
   std::unique_ptr<tensorflow::profiler::PerformanceInfoWrapper>
       performance_info_wrapper_;
 };
@@ -206,10 +201,8 @@ void AddHloProto(
     std::unique_ptr<HloCostAnalysisWrapper> cost_analysis = nullptr);
 
 // Process HloModuleMap from single XSpace.
-void ProcessHloModuleMapFromXSpace(
-    HloModuleMap& hlo_module_map, const XSpace* space,
-    tensorflow::profiler::HloCostAnalysisWrapper::Factory&
-        create_cost_analysis);
+void ProcessHloModuleMapFromXSpace(HloModuleMap& hlo_module_map,
+                                   const XSpace* space);
 
 // WARNING: The returned pointer will be invalidated if HloModuleMap is mutated.
 inline const HloModuleWrapper* GetHloModule(const HloModuleMap* hlo_module_map,

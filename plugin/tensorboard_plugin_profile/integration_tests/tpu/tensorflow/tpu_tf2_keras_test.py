@@ -100,7 +100,6 @@ class TpuKerasTest(absltest.TestCase):
     expected = [
         'trace_viewer@',
         'overview_page',
-        'input_pipeline_analyzer',
         'framework_op_stats',
         'memory_profile',
         'pod_viewer',

@@ -28,7 +28,16 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+using ::tensorflow::profiler::OpMetrics;
+using ::tensorflow::profiler::OpMetrics_MemoryAccessed;
 using tsl::uint64;
+
+// Converts the memory access breakdown into OpMetrics's format.
+proto2::RepeatedPtrField<OpMetrics::MemoryAccessed> ConvertPerformanceInfo(
+    const proto2::RepeatedPtrField<
+        tensorflow::profiler::PerformanceInfoWrapper::PerfInfoType::
+            MemoryAccessed>& memory_accessed_breakdown,
+    uint64_t occurrences);
 
 // Annotate the op_metrics with the metadata from the instr_wrapper.
 void EnterOpMetadata(OpMetrics* op_metrics,
@@ -91,7 +100,7 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
                int64_t flops, int64_t bytes_accessed,
                const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
                    memory_accessed_breakdown = {},
-               int64_t model_flops = 0);
+               int64_t model_flops = 0, absl::string_view long_name = "");
 
   void EnterOpMetadata(uint64 program_id, absl::string_view program_name,
                        absl::string_view category, absl::string_view provenance,

@@ -28,12 +28,28 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 #include "xprof/utils/hlo_module_map.h"
+#include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
 using tsl::uint64;
 
-namespace {}  // namespace
+proto2::RepeatedPtrField<OpMetrics::MemoryAccessed> ConvertPerformanceInfo(
+    const proto2::RepeatedPtrField<
+        tensorflow::profiler::PerformanceInfoWrapper::PerfInfoType::
+            MemoryAccessed>& memory_accessed_breakdown,
+    uint64_t occurrences) {
+  proto2::RepeatedPtrField<OpMetrics::MemoryAccessed> memory_access_breakdown;
+  for (const auto& m : memory_accessed_breakdown) {
+    auto* memory_access = memory_access_breakdown.Add();
+    memory_access->set_operation_type(m.is_read()
+                                          ? OpMetrics::MemoryAccessed::READ
+                                          : OpMetrics::MemoryAccessed::WRITE);
+    memory_access->set_memory_space(m.memory_space());
+    memory_access->set_bytes_accessed(m.bytes_accessed() * occurrences);
+  }
+  return memory_access_breakdown;
+}
 
 // Annotate the op_metrics with the metadata from the instr_wrapper.
 void EnterOpMetadata(OpMetrics* op_metrics,
@@ -153,7 +169,7 @@ void DeviceOpMetricsDbBuilder::EnterOp(
     // NOLINTNEXTLINE: clang-tidy missing-includes false positive
     const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
         memory_accessed_breakdown,
-    int64_t model_flops) {
+    int64_t model_flops, absl::string_view long_name) {
   EnterOpMetadata(program_id, name, category, provenance, deduplicated_name,
                   is_eager);
   uint64 self_time_ps = time_ps - children_time_ps;

@@ -15,6 +15,8 @@ limitations under the License.
 #ifndef XPROF_UTILS_COST_UTILS_H_
 #define XPROF_UTILS_COST_UTILS_H_
 
+#include <algorithm>
+#include <cstdint>
 #include <string>
 
 #include "absl/container/flat_hash_set.h"
@@ -27,6 +29,10 @@ namespace tensorflow {
 namespace profiler {
 
 using ::tsl::profiler::XEventVisitor;
+
+// Returns 0 in case a cost returned by HloCostAnalysis is -1.
+// HloCostAnalysis returns -1 if the instruction does not have a cost.
+inline int64_t ValidHloCost(int64_t cost) { return std::max<int64_t>(0, cost); }
 
 // This is a wrapper of tensorflow::grappler::OpLevelCostEstimator and use
 // tracing time information to estimate the roof line stats for each traced

@@ -70,7 +70,6 @@ class PerformanceInfoWrapper {
   }
 
   // Convert XLA's memory access breakdown into TF's counterpart.
-  // TODO(b/408280338) code cleanup.
   tensorflow::profiler::MemoryAccessBreakdown GetMemmoryAccessBreakdown() const;
 
  private:

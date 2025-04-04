@@ -124,7 +124,6 @@ cc_library(
     deps = [
         ":hlo_module_map",
         ":op_metrics_db_utils",
-        ":performance_info_wrapper",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@local_tsl//tsl/platform:protobuf",

@@ -50,6 +50,9 @@ message Node {
     uint32 computation_primitive_size = 6;
     uint64 fingerprint = 7;
     uint64 program_id = 8;
+    string source_file = 9;  // Name of the file.
+    sint32 source_line = 10;  // Line number in the file (could be `-1`).
+    string source_stack = 11;  // One stack frame per line.
     message LayoutAnalysis {
       // The physical data layout, from most-minor to most-major dimensions.
       repeated Dimension dimensions = 1;

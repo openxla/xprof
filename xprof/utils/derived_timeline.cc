@@ -619,9 +619,9 @@ void DeriveEventsFromHostTrace(
 }
 
 void GenerateDerivedTimeLines(
-    const tsl::profiler::GroupMetadataMap& group_metadata_map, XSpace* space) {
-  HloModuleMap hlo_module_map;
-  {
+    const tsl::profiler::GroupMetadataMap& group_metadata_map, XSpace* space,
+    HloModuleMap& hlo_module_map) {
+  if (hlo_module_map.empty()) {
     HloProtoMap hlo_proto_map;
     hlo_proto_map.AddHloProtosFromXSpace(*space);
     for (const auto& [program_id, hlo_proto] : hlo_proto_map) {

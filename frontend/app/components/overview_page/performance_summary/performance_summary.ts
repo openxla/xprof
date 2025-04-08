@@ -282,9 +282,22 @@ export class PerformanceSummary implements OnChanges, OnInit {
           NON_TPU_SUMMARY_INFO, this.inputPipelineProps,
           this.summaryInfoCombined, 1);
     }
-    this.parseDataFromConfig(
-        GENERIC_SUMMARY_INFO_AFTER, this.generalProps, this.summaryInfoCombined,
-        1);
+    // We don't support 'Device Compute Precisions' For TPUs right now so
+    // remove it for TPUs.
+    // This can be removed once b/339911086 is done.
+    if (this.isTpu) {
+      const GENERIC_SUMMARY_INFO_AFTER_WITHOUT_DEVICE_COMPUTE_PRECISION =
+          GENERIC_SUMMARY_INFO_AFTER.filter(
+              obj => obj.title !== undefined &&
+                  obj.title !== 'Device Compute Precisions');
+      this.parseDataFromConfig(
+          GENERIC_SUMMARY_INFO_AFTER_WITHOUT_DEVICE_COMPUTE_PRECISION,
+          this.generalProps, this.summaryInfoCombined, 1);
+    } else {
+      this.parseDataFromConfig(
+          GENERIC_SUMMARY_INFO_AFTER, this.generalProps,
+          this.summaryInfoCombined, 1);
+    }
   }
 
   readSummaryInfoFromConfig(

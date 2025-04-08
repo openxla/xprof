@@ -20,9 +20,15 @@ limitations under the License.
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
@@ -46,6 +52,43 @@ constexpr uint64_t kRootSymbolId = 0;
 using tsl::profiler::StatType;
 using tsl::profiler::XEventMetadataVisitor;
 using tsl::profiler::XStatVisitor;
+
+// Extracts the source filename and line from the input `source_top_line`, which
+// is in the format of `<source_filename>:<source_line_number>`.
+absl::StatusOr<std::pair<std::string, int32_t>>
+ExtractSourceFileNameAndLineNumber(absl::string_view source_top_line) {
+  const auto delimiterPos = source_top_line.find(':');
+  if (delimiterPos == std::string_view::npos) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source info expression: '",
+                     std::string(source_top_line), "'"));
+  }
+  const auto source_file = source_top_line.substr(0, delimiterPos);
+  const auto lineStr = source_top_line.substr(delimiterPos + 1);
+  int32_t source_line;
+  if (!absl::SimpleAtoi(lineStr, &source_line)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source line: '", std::string(lineStr), "'"));
+  }
+  return std::make_pair(std::string(source_file), source_line);
+}
+
+// Populates the source filename and line in the `op_metrics` from the input
+// `source_top_line`, which is expected to be in the format of
+// `<source_filename>:<source_line_number>`. If the `source_top_line` is not in
+// the expected format, then `op_metrics` will not be populated.`
+void PopulateSourceFileNameAndLineNumber(absl::string_view source_top_line,
+                                         OpMetrics& op_metrics) {
+  const auto source_info = ExtractSourceFileNameAndLineNumber(source_top_line);
+  if (source_info.ok()) {
+    op_metrics.set_source_file(std::move(source_info->first));
+    op_metrics.set_source_line(source_info->second);
+  } else {
+    LOG(ERROR) << "Failed to extract source filename and line from the input "
+                  "source_top_line: '"
+               << source_top_line << "' with status: " << source_info.status();
+  }
+}
 
 class DeviceTfOpMetricsDbBuilder : public OpMetricsDbBuilder {
  public:
@@ -118,6 +161,13 @@ void SetOpMetadataFromHloEventMetadata(
         }
         case StatType::kDeduplicatedName:
           op_metrics->set_deduplicated_name(std::string(stat.StrOrRefValue()));
+          break;
+        case StatType::kSourceInfo:
+          PopulateSourceFileNameAndLineNumber(stat.StrOrRefValue(),
+                                              *op_metrics);
+          break;
+        case StatType::kSourceStack:
+          op_metrics->set_source_stack(std::string(stat.StrOrRefValue()));
           break;
         default:
           break;

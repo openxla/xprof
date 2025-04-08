@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
@@ -101,12 +102,14 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
                int64_t flops, int64_t bytes_accessed,
                const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
                    memory_accessed_breakdown = {},
-               int64_t model_flops = 0, absl::string_view long_name = "");
+               int64_t model_flops = 0, absl::string_view long_name = "",
+               const tsl::profiler::OpSourceInfo& op_source_info = {});
 
   void EnterOpMetadata(uint64 program_id, absl::string_view program_name,
                        absl::string_view category, absl::string_view provenance,
                        absl::string_view deduplicated_name, bool is_eager,
-                       absl::string_view long_name = "");
+                       absl::string_view long_name = "",
+                       const tsl::profiler::OpSourceInfo& op_source_info = {});
 
   void EnterOpMetadataFromHloModuleMap(uint64 program_id,
                                        absl::string_view op_name,

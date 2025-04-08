@@ -11,7 +11,7 @@ message HloStatsDatabase {
 }
 
 // There is one HloStatsRecord for each HLO operation profiled.
-// Next ID: 39
+// Next ID: 42
 message HloStatsRecord {
   // The rank by self time
   optional uint64 rank = 1;
@@ -119,6 +119,15 @@ message HloStatsRecord {
 
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 33;
+
+  // Name of the file.
+  optional string source_file = 39;
+
+  // Line number in the file (could be `-1`).
+  optional sint32 source_line = 40;
+
+  // One stack frame per line.
+  optional string source_stack = 41;
 
   reserved 11, 12, 18, 19;
 }

@@ -51,6 +51,9 @@ export class OpDetails {
   programId = '';
   expression: string = '';
   provenance: string = '';
+  sourceFile = '';
+  sourceLine = -1;
+  sourceStack = '';
   rawTimeMs = '';
   occurrences = 0;
   avgTime = '';
@@ -236,6 +239,9 @@ export class OpDetails {
     this.programId = this.node.xla?.programId || '';
     this.expression = this.node.xla?.expression || '';
     this.provenance = this.node.xla?.provenance || '';
+    this.sourceFile = this.node.xla?.sourceFile || '';
+    this.sourceLine = this.node.xla?.sourceLine || -1;
+    this.sourceStack = this.node.xla?.sourceStack || '';
 
     if (this.node.metrics && this.node.metrics.rawTime) {
       this.rawTimeMs = utils.humanReadableText(
@@ -264,6 +270,15 @@ export class OpDetails {
         ((this.node?.xla?.computationPrimitiveSize) ?
              `${this.node.xla.computationPrimitiveSize} bits` :
              '');
+  }
+
+  /**
+   * Returns an address to the first source line of this op if available.
+   */
+  protected get sourceTopLine(): string {
+    return this.sourceFile && this.sourceLine !== -1 ?
+        `${this.sourceFile}:${this.sourceLine}` :
+        '';
   }
 
   ngOnDestroy() {

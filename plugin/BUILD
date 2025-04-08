@@ -33,7 +33,6 @@ sh_binary(
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
     tags = [
-        "local",
         "manual",
     ],
 )

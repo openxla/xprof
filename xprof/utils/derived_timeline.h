@@ -28,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -189,7 +190,8 @@ void DeriveEventsFromHostTrace(
 // Loops through XPlanes of input XSpace, if it is "device" XPlane, generating
 // derived timelines for the plane by calling DeriveEventsFromAnnotations.
 void GenerateDerivedTimeLines(
-    const tsl::profiler::GroupMetadataMap& group_metadata_map, XSpace* space);
+    const tsl::profiler::GroupMetadataMap& group_metadata_map, XSpace* space,
+    HloModuleMap& hlo_module_map);
 
 // Derives `Tensorflow Ops`, `Tensorflow Name Scope` and `Source Code` lines
 // from device_trace.

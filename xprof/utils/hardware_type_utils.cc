@@ -254,6 +254,12 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
           {2000, &kComputeCap_PerSM_PerCycle_2_0},
       };
 
+  // TODO(b/409612464): - Need more discussion on how to handle the case when
+  // the compute cap is not found in above table. Currently we back off to the
+  // highest compute cap less than the given compute cap, or the oldest compute
+  // cap in the table if the given compute cap is even older than it. Another
+  // way is to just report not found and return 0 in GpuFlopCapabilities. Also
+  // more fine-grained back off also could be used.
   const int normalized_compute_cap =
       major_comp_cap * 1000 + minor_comp_cap * 10;
   auto it = kPerSMFlopCapsTable.lower_bound(normalized_compute_cap);

@@ -37,7 +37,7 @@ export class HloStats extends Dashboard implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   sessionId = '';
-  data: SimpleDataTable | null = null;
+  data: SimpleDataTable|null = null;
   hloOpNameSelected = '';
   programIdSelected = '';
   // Flop rate chart properties.
@@ -98,9 +98,9 @@ export class HloStats extends Dashboard implements OnDestroy {
   tableColumns: Array<{index: number; label: string}> = [];
 
   constructor(
-    route: ActivatedRoute,
-    private readonly dataService: DataService,
-    private readonly store: Store<{}>,
+      route: ActivatedRoute,
+      private readonly dataService: DataService,
+      private readonly store: Store<{}>,
   ) {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
@@ -131,25 +131,24 @@ export class HloStats extends Dashboard implements OnDestroy {
 
   onCheckInputParams() {
     this.hloOpNameSelected =
-      this.dataService.searchParams?.get('hlo_op_name') || '';
+        this.dataService.searchParams?.get('hlo_op_name') || '';
     // Assumption: the program_id is in format like 'main(<program_id>)'
     // parsing with a regex to match content in the bracket
-    const programIdParsed = this.dataService.searchParams
-      ?.get('program_id')
-      ?.match(/\((.*)\)/);
+    const programIdParsed =
+        this.dataService.searchParams?.get('program_id')?.match(/\((.*)\)/);
     this.programIdSelected =
-      programIdParsed?.length === 2 ? programIdParsed[1] : '';
+        programIdParsed?.length === 2 ? programIdParsed[1] : '';
   }
 
   // Iterate through the table data
   // and inject graph link to the hlo op text cell
   addGraphViewerLinkInTableData(data: SimpleDataTable) {
     const programIdColumnIdx =
-      data.cols?.findIndex((col) => col.id === PROGRAM_ID) ?? -1;
+        data.cols?.findIndex((col) => col.id === PROGRAM_ID) ?? -1;
     const hloOpExpressionColumnIdx =
-      data.cols?.findIndex((col) => col.id === OP_EXPRESSION_ID) ?? -1;
+        data.cols?.findIndex((col) => col.id === OP_EXPRESSION_ID) ?? -1;
     const hloOpNameColumnIdx =
-      data.cols?.findIndex((col) => col.id === OP_NAME_ID) ?? -1;
+        data.cols?.findIndex((col) => col.id === OP_NAME_ID) ?? -1;
     if (programIdColumnIdx === -1 || hloOpExpressionColumnIdx === -1 ||
         hloOpNameColumnIdx === -1) {
       return data;
@@ -161,15 +160,17 @@ export class HloStats extends Dashboard implements OnDestroy {
         const programId = (row.c![programIdColumnIdx].v as string).trim() || '';
         const hloOpName = (row.c![hloOpNameColumnIdx].v as string).trim() || '';
         const hloOpExpression =
-          (row.c![hloOpExpressionColumnIdx].v as string) || '';
-        const graphViewerLink = `/graph_viewer/${this.sessionId}?program_id=${programId}&node_name=${hloOpName}`;
+            (row.c![hloOpExpressionColumnIdx].v as string) || '';
+        const graphViewerLink = `/graph_viewer/${this.sessionId}?program_id=${
+            programId}&node_name=${hloOpName}`;
         return {
           ...row,
           c: [
             ...row.c!.slice(0, hloOpExpressionColumnIdx),
             {
               ...row.c![hloOpExpressionColumnIdx],
-              v: `<a href="${graphViewerLink}" target="_blank">${hloOpExpression}</a>`,
+              v: `<a href="${graphViewerLink}" target="_blank">${
+                  hloOpExpression}</a>`,
             },
             ...row.c!.slice(hloOpExpressionColumnIdx + 1),
           ],
@@ -179,7 +180,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     return updatedData;
   }
 
-  private process(data: SimpleDataTable | null) {
+  private process(data: SimpleDataTable|null) {
     if (!data) return;
 
     this.parseData(data);
@@ -201,11 +202,9 @@ export class HloStats extends Dashboard implements OnDestroy {
   }
 
   updateOpReplicaGroupChart() {
-    if (
-      !this.replicaGroupDataProvider.opCategoryIndex ||
-      !this.replicaGroupDataProvider.hloOpNameIndex ||
-      !this.replicaGroupDataProvider.selfTimeIndex
-    ) {
+    if (!this.replicaGroupDataProvider.opCategoryIndex ||
+        !this.replicaGroupDataProvider.hloOpNameIndex ||
+        !this.replicaGroupDataProvider.selfTimeIndex) {
       return;
     }
 
@@ -217,11 +216,11 @@ export class HloStats extends Dashboard implements OnDestroy {
     ];
 
     this.dataInfoOpReplicaGroupChart.customChartDataProcessor =
-      new CategoryTableDataProcessor(
-        filtersForReplicaGroup,
-        this.replicaGroupDataProvider.hloOpNameIndex,
-        this.replicaGroupDataProvider.selfTimeIndex,
-      );
+        new CategoryTableDataProcessor(
+            filtersForReplicaGroup,
+            this.replicaGroupDataProvider.hloOpNameIndex,
+            this.replicaGroupDataProvider.selfTimeIndex,
+        );
 
     // Since the DataInfo has not been updated, the notifyCharts function is
     // called to redraw the graph.
@@ -248,7 +247,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     this.dataInfoForTable.dataProvider.notifyCharts();
   }
 
-  override parseData(data: SimpleDataTable | null) {
+  override parseData(data: SimpleDataTable|null) {
     if (!data) return;
     // Five charts share one DataProvider. In order to prevent DataTable from
     // being created multiple times, it calls DataProvider function directly.
@@ -265,30 +264,30 @@ export class HloStats extends Dashboard implements OnDestroy {
     const selfTimeIndex = dataTable.getColumnIndex(SELF_TIME_ID);
     const hloRematIndex = dataTable.getColumnIndex(HLO_REMAT_ID);
     const outsideCompilationIndex = dataTable.getColumnIndex(
-      OUTSIDE_COMPILATION_ID,
+        OUTSIDE_COMPILATION_ID,
     );
 
     const filtersForRemat = [{column: hloRematIndex, value: 'Yes'}];
 
     this.dataInfoCategoryChart.customChartDataProcessor =
-      new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
+        new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
     this.dataInfoOpChart.customChartDataProcessor =
-      new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
+        new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
     this.dataInfoRematerializationChart.customChartDataProcessor =
-      new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
+        new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
     this.dataInfoRematerializationCategoryChart.customChartDataProcessor =
-      new CategoryTableDataProcessor(
-        filtersForRemat,
-        opCategoryIndex,
-        selfTimeIndex,
-      );
+        new CategoryTableDataProcessor(
+            filtersForRemat,
+            opCategoryIndex,
+            selfTimeIndex,
+        );
     this.dataInfoOutsideCompilationChart.customChartDataProcessor =
-      new CategoryTableDataProcessor(
-        [],
-        outsideCompilationIndex,
-        selfTimeIndex,
-        false,
-      );
+        new CategoryTableDataProcessor(
+            [],
+            outsideCompilationIndex,
+            selfTimeIndex,
+            false,
+        );
 
     // Since the DataInfo has not been updated, the notifyCharts function is
     // called to redraw the graph.
@@ -309,7 +308,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (!this.dataTable || !this.dataTable.getColumnIndex) return;
     this.flopRateChartXColumn = this.dataTable.getColumnIndex(OP_EXPRESSION_ID);
     this.flopRateChartYColumn = this.dataTable.getColumnIndex(
-      MEASURED_FLOP_RATE_ID,
+        MEASURED_FLOP_RATE_ID,
     );
   }
 

@@ -221,6 +221,15 @@ export function flopsRate(node: OpProfileNode): number {
 }
 
 /**
+ *  Computes the normalized flops rate for operations.
+ */
+export function normalizeToBf16FlopsRate(node: OpProfileNode): number {
+  if (!node || !node.metrics || !node.metrics.rawTime) return NaN;
+  // The unit of normalized bf16 flops is picoseconds.
+  return (node.metrics.bf16Flops || 0) * 1E12 / node.metrics.rawTime;
+}
+
+/**
  * Computes a memory bandwidth utilization.
  */
 export function memoryBandwidthUtilization(

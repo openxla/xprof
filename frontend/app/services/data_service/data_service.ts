@@ -41,17 +41,24 @@ export class DataService {
       options: {[key: string]: any} = {},
       notifyError = true,
       ): Observable<T|null> {
+    // Clear error message before making a new request.
+    // Currently only 1 error message is displayed at a time, this may cause
+    // issue for multi-request pages.
+    this.store.dispatch(setErrorMessageStateAction({errorMessage: ''}));
     return this.httpClient.get<T>(url, options)
         .pipe(
             catchError((error: HttpErrorResponse) => {
-              console.log(error);
+              console.error(error);
               const url = new URL(error.url || '');
+              const errorString = typeof error.error === 'object' ?
+                  String(error.error?.error?.message) :
+                  String(error.error);
               const errorMessage = 'There was an error in the requested URL ' +
                   url.pathname + url.search + '.<br><br>' +
                   '<b>message:</b> ' + error.message + '<br>' +
                   '<b>status:</b> ' + String(error.status) + '<br>' +
                   '<b>statusText:</b> ' + error.statusText + '<br>' +
-                  '<b>error:</b> ' + String(error.error);
+                  '<b>error:</b> ' + errorString;
               if (notifyError) {
                 this.store.dispatch(setErrorMessageStateAction({errorMessage}));
               }

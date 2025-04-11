@@ -731,7 +731,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       return respond(
           {'error': 'TensorFlow is not installed.'},
           'application/json',
-          code=200,
+          code=500,
       )
 
     def get_worker_list(
@@ -771,12 +771,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
         )
         master_grpc_addr = tpu_cluster_resolver.get_master()
       except (ImportError, RuntimeError) as err:
-        return respond({'error': repr(err)}, 'application/json', code=200)
+        return respond({'error': repr(err)}, 'application/json', code=500)
       except (ValueError, TypeError):
         return respond(
             {'error': 'no TPUs with the specified names exist.'},
             'application/json',
-            code=200,
+            code=500,
         )
       if not worker_list:
         worker_list = get_worker_list(tpu_cluster_resolver)
@@ -817,7 +817,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       return respond(
           {'error': str(e)},
           'application/json',
-          code=200,
+          code=500,
       )
 
   def _get_graph_viewer_options(

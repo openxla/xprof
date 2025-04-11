@@ -11,16 +11,26 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 export class MemoryViewerControl implements OnChanges {
   /** The hlo module list. */
   @Input() moduleList: string[] = [];
+  @Input() firstLoadSelectedModule = '';
+  @Input() firstLoadSelectedMemorySpaceColor = '';
 
   /** The event when the controls are changed. */
   @Output() readonly changed = new EventEmitter<NavigationEvent>();
 
   selectedModule = '';
-  selectedMemorySpaceColor = '0';
+  selectedMemorySpaceColor = '';
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['moduleList'].currentValue.length > 0) {
-      this.selectedModule = this.selectedModule || this.moduleList[0];
+    if (changes['firstLoadSelectedModule'].currentValue !==
+            changes['firstLoadSelectedModule'].previousValue &&
+        this.selectedModule === '') {
+      this.selectedModule = changes['firstLoadSelectedModule'].currentValue;
+    }
+    if (changes['firstLoadSelectedMemorySpaceColor'].currentValue !==
+            changes['firstLoadSelectedMemorySpaceColor'].previousValue &&
+        this.selectedMemorySpaceColor === '') {
+      this.selectedMemorySpaceColor =
+          changes['firstLoadSelectedMemorySpaceColor'].currentValue;
     }
   }
 

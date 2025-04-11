@@ -22,11 +22,13 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tensorflow/core/profiler/convert/op_metrics_db_combiner.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/source_info.pb.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/performance_info_wrapper.h"
 
@@ -143,7 +145,8 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(
     uint64 program_id, absl::string_view program_name,
     absl::string_view category, absl::string_view provenance,
     absl::string_view deduplicated_name, bool is_eager,
-    absl::string_view long_name) {
+    absl::string_view long_name,
+    const tsl::profiler::OpSourceInfo& op_source_info) {
   // We only need to add xla metadata once to each new op, as they are the
   // same across occurrences.
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, program_name);
@@ -161,6 +164,11 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(
     op_metrics->set_long_name(std::string(long_name));
   }
   op_metrics->set_is_eager(op_metrics->is_eager() || is_eager);
+  op_metrics->mutable_source_info()->set_file_name(op_source_info.source_file);
+  op_metrics->mutable_source_info()->set_line_number(
+      op_source_info.source_line);
+  op_metrics->mutable_source_info()->set_stack_frame(
+      op_source_info.stack_frame);
 }
 
 void DeviceOpMetricsDbBuilder::EnterOp(
@@ -171,9 +179,10 @@ void DeviceOpMetricsDbBuilder::EnterOp(
     // NOLINTNEXTLINE: clang-tidy missing-includes false positive
     const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
         memory_accessed_breakdown,
-    int64_t model_flops, absl::string_view long_name) {
+    int64_t model_flops, absl::string_view long_name,
+    const tsl::profiler::OpSourceInfo& op_source_info) {
   EnterOpMetadata(program_id, name, category, provenance, deduplicated_name,
-                  is_eager, long_name);
+                  is_eager, long_name, op_source_info);
   uint64 self_time_ps = time_ps - children_time_ps;
   DCHECK_GE(time_ps, self_time_ps);
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, name);

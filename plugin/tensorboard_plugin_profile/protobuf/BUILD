@@ -44,6 +44,7 @@ xprof_proto_library(
 xprof_proto_library(
     name = "hlo_stats_proto",
     srcs = ["hlo_stats.proto"],
+    protodeps = [":source_info_proto"],
 )
 
 xprof_proto_library(
@@ -73,13 +74,20 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "source_info_proto",
+    srcs = ["source_info.proto"],
+)
+
+xprof_proto_library(
     name = "op_metrics_proto",
     srcs = ["op_metrics.proto"],
+    protodeps = [":source_info_proto"],
 )
 
 xprof_proto_library(
     name = "op_profile_proto",
     srcs = ["op_profile.proto"],
+    protodeps = [":source_info_proto"],
 )
 
 xprof_proto_library(
@@ -210,6 +218,7 @@ xprof_proto_library(
         ":kernel_stats_proto",
         ":memory_profile_proto",
         ":memory_viewer_preprocess_proto",
+        ":source_info_proto",
         ":op_metrics_proto",
         ":op_profile_proto",
         ":op_stats_proto",
@@ -252,6 +261,7 @@ exports_files(
         "pod_viewer.proto",
         "power_metrics.proto",
         "roofline_model.proto",
+        "source_info.proto",
         "steps_db.proto",
         "task.proto",
         "tf_data_stats.proto",

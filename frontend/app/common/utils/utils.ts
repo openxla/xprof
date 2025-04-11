@@ -427,3 +427,18 @@ export function formatDurationPs(durationPs: number, dp = 2) {
   }
   return `${durationPs.toFixed(dp)} ${units[i]}`;
 }
+
+/**
+ * Returns the source top line in the format of
+ * `<source_filename>:<source_line_number>`.
+ *
+ * If the `sourceFileName` is `undefined` or if `sourceLine` is `undefined` or
+ * `-1`, then `undefined` is returned.
+ */
+export function convertToSourceTopLine(
+    sourceFileName: string|unknown, sourceLine: number|unknown): string|
+    undefined {
+  return sourceFileName && sourceLine !== undefined && sourceLine !== -1 ?
+      `${sourceFileName}:${sourceLine}` :
+      undefined;
+}

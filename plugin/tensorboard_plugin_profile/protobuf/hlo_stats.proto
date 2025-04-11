@@ -4,6 +4,8 @@ syntax = "proto2";
 
 package tensorflow.profiler.hlo_stats;
 
+import "plugin/tensorboard_plugin_profile/protobuf/source_info.proto";
+
 // A database of HloStats records.
 message HloStatsDatabase {
   // All HloStats records, one for each HLO operation.
@@ -11,7 +13,7 @@ message HloStatsDatabase {
 }
 
 // There is one HloStatsRecord for each HLO operation profiled.
-// Next ID: 39
+// Next ID: 40
 message HloStatsRecord {
   // The rank by self time
   optional uint64 rank = 1;
@@ -119,6 +121,9 @@ message HloStatsRecord {
 
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 33;
+
+  // Infrmation about the corresponding source code.
+  optional SourceInfo source_info = 39;
 
   reserved 11, 12, 18, 19;
 }

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tensorflow.profiler.op_profile;
 
+import "plugin/tensorboard_plugin_profile/protobuf/source_info.proto";
+
 // Profile is the top-level data that summarizes a program.
 message Profile {
   reserved 2;
@@ -50,6 +52,7 @@ message Node {
     uint32 computation_primitive_size = 6;
     uint64 fingerprint = 7;
     uint64 program_id = 8;
+    optional SourceInfo source_info = 9;
     message LayoutAnalysis {
       // The physical data layout, from most-minor to most-major dimensions.
       repeated Dimension dimensions = 1;

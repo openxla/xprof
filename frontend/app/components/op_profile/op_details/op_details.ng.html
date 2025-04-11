@@ -156,6 +156,14 @@
           <p>Utilization may have been capped at 100% as accurate bandwidth could not be determined.</p>
           <ng-content select="[utilWarningBug]"></ng-content>
         </div>
+        <div class="info" [hidden]="!sourceTopLine">
+          <div class="title">Source:</div>
+          <code class="expression">{{sourceTopLine}}</code>
+        </div>
+        <div class="info" [hidden]="!sourceStack">
+          <div class="title">Source Stack:</div>
+          <code class="expression">{{sourceStack}}</code>
+        </div>
       </div>
     </mat-card-content>
   </mat-card>

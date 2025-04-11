@@ -33,12 +33,12 @@ export class OpDetails {
 
   rootNode?: Node;
   node?: Node;
-  color: string = '';
-  name: string = '';
-  subheader: string = '';
-  flopsRate: string = '';
-  flopsUtilization: string = '';
-  flopsColor: string = '';
+  color = '';
+  name = '';
+  subheader = '';
+  flopsRate = '';
+  flopsUtilization = '';
+  flopsColor = '';
   bandwidths: string[] =
       Array.from<string>({length: utils.MemBwType.MEM_BW_TYPE_MAX + 1})
           .fill('');
@@ -49,16 +49,19 @@ export class OpDetails {
       Array.from<string>({length: utils.MemBwType.MEM_BW_TYPE_MAX + 1})
           .fill('');
   programId = '';
-  expression: string = '';
-  provenance: string = '';
+  expression = '';
+  provenance = '';
+  sourceFile = '';
+  sourceLine = -1;
+  sourceStack = '';
   rawTimeMs = '';
   occurrences = 0;
   avgTime = '';
-  fused: boolean = false;
-  hasCategory: boolean = false;
-  hasLayout: boolean = false;
+  fused = false;
+  hasCategory = false;
+  hasLayout = false;
   dimensions: Node.XLAInstruction.LayoutAnalysis.Dimension[] = [];
-  computationPrimitiveSize: string = '';
+  computationPrimitiveSize = '';
   selectedOpNodeChain: string[] = [];
   memBwType = utils.MemBwType;
   currentRun = '';
@@ -236,6 +239,9 @@ export class OpDetails {
     this.programId = this.node.xla?.programId || '';
     this.expression = this.node.xla?.expression || '';
     this.provenance = this.node.xla?.provenance || '';
+    this.sourceFile = this.node.xla?.sourceInfo?.fileName || '';
+    this.sourceLine = this.node.xla?.sourceInfo?.lineNumber || -1;
+    this.sourceStack = this.node.xla?.sourceInfo?.stackFrame || '';
 
     if (this.node.metrics && this.node.metrics.rawTime) {
       this.rawTimeMs = utils.humanReadableText(
@@ -264,6 +270,13 @@ export class OpDetails {
         ((this.node?.xla?.computationPrimitiveSize) ?
              `${this.node.xla.computationPrimitiveSize} bits` :
              '');
+  }
+
+  /**
+   * Returns an address to the first source line of this op if available.
+   */
+  get sourceTopLine(): string {
+    return utils.convertToSourceTopLine(this.sourceFile, this.sourceLine) || '';
   }
 
   ngOnDestroy() {

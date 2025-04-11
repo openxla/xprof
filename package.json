@@ -47,7 +47,7 @@
     "prettier": "1.18.2",
     "sinon": "^7.4.2",
     "typescript": "4.8.2",
-    "rollup": "^2.56.2",
+    "rollup": "^2.79.2",
     "@rollup/plugin-commonjs": "^20.0.0",
     "@rollup/plugin-node-resolve": "^13.0.4",
     "jasmine": "^2.99.0",

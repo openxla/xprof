@@ -16,12 +16,14 @@ limitations under the License.
 #include "xprof/utils/op_utils.h"
 
 #include <cstdint>
+#include <stack>
 #include <string>
 
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tensorflow/core/profiler/convert/op_metrics_db_combiner.h"
@@ -33,6 +35,35 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 using tsl::uint64;
+
+namespace {
+void EnterSourceInfoFromHloModuleMap(OpMetrics* op_metrics,
+                                     const HloModuleMap& hlo_module_map) {
+  // We don't know how deep the tree is, so we need to avoid recursive calls.
+  // We assume that every child in `op_metrics` has at most one parent. That is
+  // we are dealing with a tree. If children form a DAG, we need to remember
+  // visited nodes.
+  std::stack<OpMetrics*> op_metrics_stack;
+  op_metrics_stack.push(op_metrics);
+  while (!op_metrics_stack.empty()) {
+    OpMetrics* top_op_metrics = op_metrics_stack.top();
+    op_metrics_stack.pop();
+    const HloInstructionWrapper* instr_wrapper =
+        GetHloInstruction(hlo_module_map, top_op_metrics->hlo_module_id(),
+                          top_op_metrics->name());
+    if (instr_wrapper != nullptr) {
+      const auto source_info = instr_wrapper->SourceInfo();
+      top_op_metrics->set_source_file(source_info.source_file);
+      top_op_metrics->set_source_line(source_info.source_line);
+      top_op_metrics->set_source_stack(source_info.stack_frame);
+    }
+    for (auto& child :
+         *top_op_metrics->mutable_children()->mutable_metrics_db()) {
+      op_metrics_stack.push(&child);
+    }
+  }
+}
+}  // namespace
 
 tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>
 ConvertPerformanceInfo(
@@ -95,6 +126,7 @@ void EnterOpMetadataFromHloModuleMap(OpMetrics* op_metrics,
       hlo_module_map, op_metrics->hlo_module_id(), op_metrics->name());
   if (instr_wrapper != nullptr) {
     AddFusionChildrenToOpMetricsFromHloInstruction(op_metrics, instr_wrapper);
+    EnterSourceInfoFromHloModuleMap(op_metrics, hlo_module_map);
   }
 }
 
@@ -143,7 +175,8 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(
     uint64 program_id, absl::string_view program_name,
     absl::string_view category, absl::string_view provenance,
     absl::string_view deduplicated_name, bool is_eager,
-    absl::string_view long_name) {
+    absl::string_view long_name,
+    const tsl::profiler::OpSourceInfo& op_source_info) {
   // We only need to add xla metadata once to each new op, as they are the
   // same across occurrences.
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, program_name);
@@ -161,6 +194,9 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(
     op_metrics->set_long_name(std::string(long_name));
   }
   op_metrics->set_is_eager(op_metrics->is_eager() || is_eager);
+  op_metrics->set_source_file(op_source_info.source_file);
+  op_metrics->set_source_line(op_source_info.source_line);
+  op_metrics->set_source_stack(op_source_info.stack_frame);
 }
 
 void DeviceOpMetricsDbBuilder::EnterOp(
@@ -171,9 +207,10 @@ void DeviceOpMetricsDbBuilder::EnterOp(
     // NOLINTNEXTLINE: clang-tidy missing-includes false positive
     const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
         memory_accessed_breakdown,
-    int64_t model_flops, absl::string_view long_name) {
+    int64_t model_flops, absl::string_view long_name,
+    const tsl::profiler::OpSourceInfo& op_source_info) {
   EnterOpMetadata(program_id, name, category, provenance, deduplicated_name,
-                  is_eager, long_name);
+                  is_eager, long_name, op_source_info);
   uint64 self_time_ps = time_ps - children_time_ps;
   DCHECK_GE(time_ps, self_time_ps);
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, name);

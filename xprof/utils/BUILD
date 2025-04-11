@@ -88,7 +88,10 @@ cc_library(
     copts = tf_profiler_copts(),
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@local_xla//xla/tsl/profiler/utils:math_utils",
         "@local_xla//xla/tsl/profiler/utils:tf_op_utils",
@@ -130,6 +133,7 @@ cc_library(
         "@local_tsl//tsl/platform:protobuf",
         "@local_xla//xla/hlo/ir:hlo",
         "@local_xla//xla/tsl/platform:types",
+        "@local_xla//xla/tsl/profiler/convert:xla_op_utils",
         "@local_xla//xla/tsl/profiler/utils:tf_op_utils",
         "@local_xla//xla/tsl/profiler/utils:timespan",
         "@org_tensorflow//tensorflow/core/profiler/convert:op_metrics_db_combiner",

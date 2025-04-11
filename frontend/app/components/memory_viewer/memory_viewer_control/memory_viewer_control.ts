@@ -11,15 +11,11 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 export class MemoryViewerControl {
   /** The hlo module list. */
   @Input() moduleList: string[] = [];
+  @Input() selectedModule = '';
+  @Input() selectedMemorySpaceColor = '0';
 
   /** The event when the controls are changed. */
   @Output() readonly changed = new EventEmitter<NavigationEvent>();
-
-  selectedMemorySpaceColor = '0';
-
-  get selectedModule(): string {
-    return this.moduleList.length ? this.moduleList[0] : '';
-  }
 
   emitUpdateEvent() {
     this.changed.emit({

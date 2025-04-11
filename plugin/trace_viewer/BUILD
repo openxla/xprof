@@ -1,5 +1,4 @@
-load("@org_tensorflow_tensorboard//tensorboard/defs:vulcanize.bzl", "tensorboard_html_binary")
-load("@org_tensorflow_tensorboard//tensorboard/defs:web.bzl", "tf_web_library")
+load("@org_tensorflow_tensorboard//tensorboard/defs:web.bzl", "tb_combine_html", "tf_web_library")
 
 package(default_visibility = ["//plugin:internal"])
 
@@ -16,7 +15,7 @@ tf_web_library(
     ],
 )
 
-tensorboard_html_binary(
+tb_combine_html(
     name = "trace_viewer_index",
     input_path = "/trace_viewer.html",
     js_path = "/trace_viewer_index.js",

@@ -9,7 +9,6 @@ licenses(["notice"])  # Apache 2.0
 py_library(
     name = "profile_plugin",
     srcs = ["profile_plugin.py"],
-    srcs_version = "PY2AND3",
     deps = [
         "//:expect_tensorflow_installed",
         "@org_pocoo_werkzeug",
@@ -26,7 +25,6 @@ py_library(
 py_library(
     name = "profile_plugin_test_utils",
     srcs = ["profile_plugin_test_utils.py"],
-    srcs_version = "PY2AND3",
     visibility = [
         "//perftools/accelerators/xprof/xprofilez/integration_tests:__pkg__",
     ],
@@ -98,7 +96,6 @@ py_library(
 py_library(
     name = "version",
     srcs = ["version.py"],
-    srcs_version = "PY2AND3",
 )
 
 filegroup(

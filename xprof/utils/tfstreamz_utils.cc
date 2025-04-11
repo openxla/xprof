@@ -30,12 +30,13 @@ limitations under the License.
 #include "tensorflow/core/lib/monitoring/collected_metrics.h"
 #include "tensorflow/core/lib/monitoring/metric_def.h"
 #include "tensorflow/core/lib/monitoring/types.h"
-#include "tensorflow/core/platform/types.h"
+#include "xla/tsl/platform/types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/tfstreamz.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 namespace {
 

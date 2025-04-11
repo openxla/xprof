@@ -24,16 +24,17 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/logging.h"
+#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
-#include "tensorflow/core/platform/logging.h"
-#include "tensorflow/core/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 const absl::string_view kIdle = "IDLE";
 const uint32_t kSparseCoreIndexStart = 1000000;

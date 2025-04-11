@@ -25,13 +25,14 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/lib/gtl/map_util.h"
+#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/lib/gtl/map_util.h"
-#include "tensorflow/core/platform/types.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
+using tsl::uint64;
 
 namespace {
 
@@ -218,7 +219,7 @@ std::string PrintStepEvents(const StepEvents& step_events) {
   std::string result = "{";
   for (auto id : step_ids) {
     absl::StrAppend(&result, "\n");
-    auto* details = gtl::FindOrNull(step_events, id);
+    auto* details = tsl::gtl::FindOrNull(step_events, id);
     std::string details_str = details ? details->DebugString() : "()";
     absl::StrAppend(&result, id, ":", details_str);
   }
@@ -414,7 +415,7 @@ bool operator==(const StepEvents& a, const StepEvents& b) {
   for (const auto& id_details : a) {
     const auto a_id = id_details.first;
     const auto& a_details = id_details.second;
-    const auto* b_details = gtl::FindOrNull(b, a_id);
+    const auto* b_details = tsl::gtl::FindOrNull(b, a_id);
     if (b_details == nullptr) return false;
     if (a_details != *b_details) return false;
   }

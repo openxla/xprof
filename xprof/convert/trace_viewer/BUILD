@@ -5,6 +5,7 @@ package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
     default_visibility = [
         "//perftools/gputools/profiler/collector:__pkg__",
+        "//xprof:__subpackages__",
         "@org_tensorflow//tensorflow/core/profiler:internal",
     ],
     licenses = ["notice"],
@@ -27,7 +28,6 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/types:optional",
         "@local_xla//xla/tsl/profiler/utils:timespan",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
     ],
@@ -135,6 +135,7 @@ cc_library(
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/profiler/lib:context_types_hdrs",
         "@local_xla//xla/tsl/lib/io:iterator",
+        "@local_xla//xla/tsl/platform:types",
         "@local_xla//xla/tsl/profiler/utils:timespan",
         "@org_tensorflow//tensorflow/core:lib",
         "@org_tensorflow//tensorflow/core/profiler/lib:context_types_hdrs",

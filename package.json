@@ -21,7 +21,7 @@
     "ml",
     "visualization"
   ],
-  "author": "TensorFlow authors",
+  "author": "XProf authors",
   "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/openxla/xprof/issues"

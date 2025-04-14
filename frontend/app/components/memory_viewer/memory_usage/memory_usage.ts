@@ -96,7 +96,7 @@ export class MemoryUsage {
       // redirecting memory allocation timeline to this url on TensorBoard
       this.timelineUrl =
           `${window.parent.location.origin}/data/plugin/profile/data?run=${
-              currentRun}&tag=memory_viewer%5E&host=${
+              currentRun}&tag=memory_viewer&host=${
               currentHost}&view_memory_allocation_timeline=true`;
     }
     this.peakHeapSizeBytes =

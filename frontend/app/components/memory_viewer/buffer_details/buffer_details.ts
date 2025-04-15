@@ -1,6 +1,7 @@
 import {Component, Input, OnDestroy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
+import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls.d';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {getActiveHeapObjectState} from 'org_xprof/frontend/app/store/selectors';
 import {ReplaySubject} from 'rxjs';
@@ -33,7 +34,7 @@ export class BufferDetails implements OnDestroy {
   tfOpName?: string;
   groupName?: string;
   color?: string;
-  sourceInfo?: string;
+  sourceInfo?: SourceInfo;
 
   constructor(private readonly store: Store<{}>) {
     this.store.select(getActiveHeapObjectState)
@@ -83,6 +84,27 @@ export class BufferDetails implements OnDestroy {
       this.expansion = '';
       this.color = 'rgb(192,192,192)';
     }
+  }
+
+  /**
+   * Returns an address to the first source line of this op if available.
+   *
+   * If the address is not available, returns an empty string. If the address
+   * is available but incomplete, the function might return a partial address
+   * (e.g., instead of `file.h:123`, when the line number is not available, it
+   * returns `file.h`).
+   */
+  get sourceTopLine(): string {
+    return utils.convertToSourceTopLine(
+               this.sourceInfo?.fileName, this.sourceInfo?.lineNumber) ||
+        '';
+  }
+
+  /**
+   * Returns stack frames of this op (an empty string if not available).
+   */
+  get sourceStack(): string {
+    return this.sourceInfo?.stackFrame || '';
   }
 
   ngOnDestroy() {

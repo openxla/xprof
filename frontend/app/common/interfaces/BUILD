@@ -90,6 +90,7 @@ ts_library(
         "hosts.ts",
         "navigation_event.ts",
         "roofline_model.ts",
+        "source_info.jsonpb_decls.d.ts",
         "summary_info.ts",
         "tool.ts",
         "window.ts",

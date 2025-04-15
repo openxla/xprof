@@ -22,6 +22,7 @@ limitations under the License.
 #include <list>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,6 +45,7 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "xla/xla_data.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/memory_viewer_preprocess.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -59,6 +61,7 @@ using ::xla::LayoutUtil;
 using ::xla::LogicalBufferProto;
 using ::xla::Shape;
 using ::xla::ShapeUtil;
+using ::xla::StackFrameIndexProto;
 
 Shape ResolveShapeIndex(const xla::ShapeProto& shape_proto,
                         absl::Span<const int64_t> shape_index) {
@@ -406,7 +409,76 @@ HeapObject MakeHeapObjectCommon(std::string label, int32_t color,
   return result;
 }
 
-HeapObject MakeHeapObject(const LogicalBufferStruct& logical_buffer,
+struct StackFrameInfo {
+  std::string file_name;
+  int32_t line_number;
+  int32_t column_number;
+};
+
+// Joins the elements of the input `stack_frames` into a single string.
+//
+// The result is a newline-separated list of file names, line, and column
+// numbers (numbers could be negative). Each line is of the form:
+// `<file_name>:<line_number>:<column_number>`. Order of stack frames in the
+// result is the opposite of their order in the input.
+std::string JoinStackFrames(const std::vector<StackFrameInfo>& stack_frames) {
+  std::stringstream result;
+  for (auto end = stack_frames.crend(), it = stack_frames.crbegin(); it != end;
+       ++it) {
+    if (result.tellp() > 0) {
+      result << '\n';
+    }
+    result << it->file_name << ':' << it->line_number << ':'
+           << it->column_number;
+  }
+  return result.str();
+}
+
+// Extracts the stack frames from the input `stack_frame_index` starting from
+// the input `frame_id` (1-based) and going up the stack. `StackFrameInfo` for
+// the input `frame_id`, if not zero, will be the first element in the result.
+//
+// Frames for which we cannot find all the information remain included in the
+// result. If a file name is not found, then an empty string is used instead.
+// If a line or column number is not found, then `-1` is used instead.
+std::vector<StackFrameInfo> ExtractStackFrames(
+    const StackFrameIndexProto& stack_frame_index, int32_t frame_id) {
+  std::vector<StackFrameInfo> result;
+  while (frame_id != 0) {
+    const StackFrameIndexProto::StackFrame& frame =
+        stack_frame_index.stack_frames(frame_id - 1);
+    frame_id = frame.parent_frame_id();
+    std::string file_name;
+    int32_t line_number = -1;
+    int32_t column_number = -1;
+    if (const auto file_location_id = frame.file_location_id();
+        file_location_id != 0) {
+      const StackFrameIndexProto::FileLocation& file_location =
+          stack_frame_index.file_locations(file_location_id - 1);
+      line_number = file_location.line();
+      column_number = file_location.column();
+      if (const auto file_name_id = file_location.file_name_id();
+          file_name_id != 0) {
+        file_name = stack_frame_index.file_names(file_name_id - 1);
+      }
+    }
+    result.emplace_back(StackFrameInfo{.file_name = std::move(file_name),
+                                       .line_number = line_number,
+                                       .column_number = column_number});
+  }
+  return result;
+}
+
+// Builds the stack frames string for the input `frame_id` (1-based) from the
+// input `stack_frame_index`. Stack frame for the input `frame_id`, if not zero,
+// will be the last line in the returned value.
+std::string BuildStackFrames(const StackFrameIndexProto& stack_frame_index,
+                             int32_t frame_id) {
+  return JoinStackFrames(ExtractStackFrames(stack_frame_index, frame_id));
+}
+
+HeapObject MakeHeapObject(const StackFrameIndexProto& stack_frame_index,
+                          const LogicalBufferStruct& logical_buffer,
                           int32_t color) {
   const HloInstructionProto& hlo_instruction = logical_buffer.hlo_instruction;
   std::string shape_string = ShapeDescription(logical_buffer.shape);
@@ -422,6 +494,12 @@ HeapObject MakeHeapObject(const LogicalBufferStruct& logical_buffer,
   result.set_tf_op_name(hlo_instruction.metadata().op_name());
   result.set_shape_string(shape_string);
   result.set_op_code(hlo_instruction.opcode());
+  result.mutable_source_info()->set_file_name(
+      hlo_instruction.metadata().source_file());
+  result.mutable_source_info()->set_line_number(
+      hlo_instruction.metadata().source_line());
+  result.mutable_source_info()->set_stack_frame(BuildStackFrames(
+      stack_frame_index, hlo_instruction.metadata().stack_frame_id()));
   return result;
 }
 
@@ -738,7 +816,9 @@ struct PeakUsageSnapshot {
       total_small_buffer_size_bytes += logical_buffer.size();
     } else {
       // Make a new HeapObject, assign a new color to visualize it.
-      max_heap_objects.push_back(MakeHeapObject(logical_buffer, colorno++));
+      max_heap_objects.push_back(
+          MakeHeapObject(wrapper.GetHloProto().hlo_module().stack_frame_index(),
+                         logical_buffer, colorno++));
     }
   }
 

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package tensorflow.profiler;
+
+message SourceInfo {
+  string file_name = 1;
+
+  int32 line_number = 2;  // could be `-1`
+
+  string stack_frame = 3;  // One stack frame per line.
+}

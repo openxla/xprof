@@ -6,6 +6,8 @@ syntax = "proto3";
 
 package tensorflow.profiler;
 
+import "plugin/tensorboard_plugin_profile/protobuf/source_info.proto";
+
 // Describes a heap object that is displayed in a plot in the memory
 // visualization HTML.
 message HeapObject {
@@ -22,6 +24,7 @@ message HeapObject {
   string tf_op_name = 9;
   string group_name = 10;
   string op_code = 11;
+  SourceInfo source_info = 12;
 }
 
 // Describes the start / exclusive limit HLO program points for a given buffer

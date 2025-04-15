@@ -29,6 +29,7 @@ limitations under the License.
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/roofline_model.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/source_info.pb.h"
 #include "xprof/utils/diagnostics.h"
 
 namespace tensorflow {
@@ -57,6 +58,7 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
   record.set_hlo_module_id(metrics.hlo_module_id());
   record.set_record_type(record_type);
   record.set_step_num(step_num);
+  *record.mutable_source_info() = metrics.source_info();
   SetExecutionTimes(metrics, &record);
   if (record_type == RecordType::AVERAGE_STEP) {
     // For RecordType::AVERAGE_STEP, divide by num_steps to show per-step

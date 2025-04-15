@@ -25,6 +25,24 @@ from __future__ import print_function
 import gviz_api
 
 from tensorboard_plugin_profile.protobuf import roofline_model_pb2
+from tensorboard_plugin_profile.protobuf import source_info_pb2
+
+
+def _source_info_formatted_text(source_info: source_info_pb2.SourceInfo) -> str:
+  if (
+      not source_info.file_name
+      or not source_info.line_number
+      or source_info.line_number == -1
+  ):
+    return ""
+  # `title` attribute is used to show the full stack trace in the tooltip.
+  # We assume that the interpolated strings do not contain any HTML tags. In
+  # other words, we assume that they don't need to be escaped.
+  return (
+      f"<div title='{source_info.stack_frame}'>"
+      f"{source_info.file_name}:{source_info.line_number}"
+      "</div>"
+  )
 
 
 def get_step_string(record_type, step_num):
@@ -114,6 +132,7 @@ def get_roofline_model_table_args_for_gpu(roofline_model_db):
       ),
       ("include_infeed_outfeed", "boolean", "Include Infeed/Outfeed"),
       ("hlo_module_id", "string", "Program ID"),
+      ("source_info", "string", "Source Info"),
   ]
 
   data = []
@@ -148,6 +167,7 @@ def get_roofline_model_table_args_for_gpu(roofline_model_db):
         record.memory_bw_relative_to_hw_limit,
         record.include_infeed_outfeed,
         record.hlo_module_id,
+        _source_info_formatted_text(record.source_info),
     ]
     data.append(row)
   custom_properties = {
@@ -246,6 +266,7 @@ def get_roofline_model_table_args(roofline_model_db):
       ),
       ("include_infeed_outfeed", "boolean", "Include Infeed/Outfeed"),
       ("hlo_module_id", "string", "Program ID"),
+      ("source_info", "string", "Source Info"),
   ]
 
   data = []
@@ -287,6 +308,7 @@ def get_roofline_model_table_args(roofline_model_db):
         record.memory_bw_relative_to_hw_limit,
         record.include_infeed_outfeed,
         record.hlo_module_id,
+        _source_info_formatted_text(record.source_info),
     ]
     data.append(row)
   custom_properties = {

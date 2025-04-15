@@ -304,6 +304,7 @@ export class RooflineModel implements OnDestroy {
       'model_flop_rate',
       'bound_by',
       'hbm_bw',
+      'source_info',
     ];
     this.columnsIdxOp = this.getColumnIdx(baseColumnIds);
   }

@@ -5,6 +5,7 @@ syntax = "proto2";
 package tensorflow.profiler.roofline_model;
 
 import "plugin/tensorboard_plugin_profile/protobuf/diagnostics.proto";
+import "plugin/tensorboard_plugin_profile/protobuf/source_info.proto";
 
 // The record type which describes the scope this record captures.
 enum RecordType {
@@ -66,7 +67,7 @@ message RooflineModelDatabase {
 }
 
 // There is one RooflineModelRecord for each HLO operation profiled.
-// Next ID: 43
+// Next ID: 44
 message RooflineModelRecord {
   // The record type.
   optional RecordType record_type = 18;
@@ -191,6 +192,9 @@ message RooflineModelRecord {
 
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 37;
+
+  // Infrmation about the corresponding source code.
+  optional SourceInfo source_info = 43;
 
   reserved 11, 12, 23;
 }

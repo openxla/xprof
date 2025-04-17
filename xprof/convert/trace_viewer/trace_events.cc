@@ -26,7 +26,6 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "absl/base/internal/endian.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -46,6 +45,7 @@ limitations under the License.
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/trace_events_raw.pb.h"
+#include "util/endian/endian.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -76,7 +76,7 @@ std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
   ptr[0] = kLevelKey[zoom_level];
   // The big-endianness preserve the monotonic order of timestamp when convert
   // to lexigraphical order (of Sstable key namespace).
-  uint64_t timestamp_bigendian = absl::big_endian::FromHost64(timestamp);
+  uint64_t timestamp_bigendian = BigEndian::FromHost64(timestamp);
   memcpy(ptr + 1, &timestamp_bigendian, sizeof(uint64_t));
   ptr[9] = repetition;
   return output;
@@ -86,7 +86,7 @@ uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key) {
   DCHECK_EQ(level_db_table_key.size(), kLevelDbKeyLength);
   uint64_t value;  // big endian representation of timestamp.
   memcpy(&value, level_db_table_key.data() + 1, sizeof(uint64_t));
-  return absl::big_endian::ToHost64(value);
+  return BigEndian::ToHost64(value);
 }
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,

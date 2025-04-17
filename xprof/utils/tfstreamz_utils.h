@@ -19,7 +19,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/status.h"
-#include "tensorflow/core/lib/monitoring/collected_metrics.h"
+#include "xla/tsl/lib/monitoring/collected_metrics.h"
 #include "xla/tsl/platform/types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
@@ -28,7 +28,7 @@ namespace profiler {
 using tsl::uint64;
 
 struct TfStreamzSnapshot {
-  std::unique_ptr<monitoring::CollectedMetrics> metrics;
+  std::unique_ptr<tsl::monitoring::CollectedMetrics> metrics;
   uint64 start_time_ns;  // time before collection.
   uint64 end_time_ns;    // time after collection.
 };

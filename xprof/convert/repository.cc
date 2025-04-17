@@ -32,7 +32,6 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
@@ -51,12 +50,12 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
     std::vector<std::string> xspace_paths,
     std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces) {
   if (xspace_paths.empty()) {
-    return errors::InvalidArgument("Can not find XSpace path.");
+    return tsl::errors::InvalidArgument("Can not find XSpace path.");
   }
 
   if (xspaces.has_value()) {
     if (xspaces->size() != xspace_paths.size()) {
-      return errors::InvalidArgument(
+      return tsl::errors::InvalidArgument(
           "The size of the XSpace paths: ", xspace_paths.size(),
           " is not equal ",
           "to the size of the XSpace proto: ", xspaces->size());
@@ -65,7 +64,7 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
       auto host_name = GetHostnameByPath(xspace_paths.at(i));
       if (xspaces->at(i)->hostnames_size() > 0 && !host_name.empty()) {
         if (!absl::StrContains(host_name, xspaces->at(i)->hostnames(0))) {
-          return errors::InvalidArgument(
+          return tsl::errors::InvalidArgument(
               "The hostname of xspace path and preloaded xpace don't match at "
               "index: ",
               i, ". \nThe host name of xpace path is ", host_name,
@@ -82,15 +81,15 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
 absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpace(
     size_t index) const {
   if (index >= xspace_paths_.size()) {
-    return errors::InvalidArgument("Can not get the ", index,
-                                   "th XSpace. The total number of XSpace is ",
-                                   xspace_paths_.size());
+    return tsl::errors::InvalidArgument(
+        "Can not get the ", index, "th XSpace. The total number of XSpace is ",
+        xspace_paths_.size());
   }
 
   // Return the pre-loaded XSpace proto.
   if (xspaces_.has_value()) {
     if (xspaces_->at(index) == nullptr) {
-      return errors::Internal("");
+      return tsl::errors::Internal("");
     }
     return std::move(xspaces_->at(index));
   }
@@ -108,9 +107,9 @@ absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpaceByName(
     return GetXSpace(it->second);
   }
 
-  return errors::InvalidArgument("Can not find the XSpace by name: ", name,
-                                 ". The total number of XSpace is ",
-                                 xspace_paths_.size());
+  return tsl::errors::InvalidArgument("Can not find the XSpace by name: ", name,
+                                      ". The total number of XSpace is ",
+                                      xspace_paths_.size());
 }
 
 std::string SessionSnapshot::GetHostname(size_t index) const {

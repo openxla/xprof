@@ -25,10 +25,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/substitute.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "tensorflow/core/util/proto/proto_utils.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events_raw.pb.h"
+#include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -39,7 +36,7 @@ using ::testing::UnorderedElementsAre;
 
 TEST(XPlaneToTraceContainerTest, CounterLine) {
   XSpace xspace;
-  CHECK_OK(tensorflow::proto_utils::ParseTextFormatFromString(
+  CHECK_OK(ParseTextFormatFromString(
       absl::Substitute(
           "planes {"
           "  name: \"/device:GPU:0\""

@@ -19,7 +19,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/tsl/platform/test.h"
-#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 namespace profiler {

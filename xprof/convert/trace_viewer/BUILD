@@ -1,12 +1,9 @@
-load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_cc_test")
-load("@org_tensorflow//tensorflow/core/platform:rules_cc.bzl", "cc_library")
-
 package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
     default_visibility = [
         "//perftools/gputools/profiler/collector:__pkg__",
+        # copybara:uncomment "@org_tensorflow//tensorflow/core/profiler:internal",
         "//xprof:__subpackages__",
-        "@org_tensorflow//tensorflow/core/profiler:internal",
     ],
     licenses = ["notice"],
 )
@@ -28,20 +25,20 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
-tf_cc_test(
+cc_test(
     name = "trace_viewer_visibility_test",
     srcs = ["trace_viewer_visibility_test.cc"],
     deps = [
         ":trace_viewer_visibility",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core:test",
-        "@org_tensorflow//tensorflow/core:test_main",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
@@ -71,13 +68,13 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
-        "@local_tsl//tsl/platform:protobuf",
-        "@local_tsl//tsl/profiler/lib:context_types_hdrs",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core/profiler/lib:context_types",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
+        "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/profiler/lib:context_types",
+        "@tsl//tsl/profiler/lib:context_types_hdrs",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
@@ -98,8 +95,8 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings:string_view",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
@@ -110,7 +107,7 @@ cc_test(
         ":trace_events_util",
         "//base:types",
         "@com_google_googletest//:gtest_main",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
 
@@ -132,15 +129,21 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@local_tsl//tsl/platform:status",
-        "@local_tsl//tsl/profiler/lib:context_types_hdrs",
-        "@local_xla//xla/tsl/lib/io:iterator",
-        "@local_xla//xla/tsl/platform:types",
-        "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core:lib",
-        "@org_tensorflow//tensorflow/core/profiler/lib:context_types_hdrs",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
+        "@tsl//tsl/platform:env",
+        "@tsl//tsl/platform:errors",
+        "@tsl//tsl/platform:status",
+        "@tsl//tsl/profiler/lib:context_types_hdrs",
+        "@xla//xla/tsl/lib/io:block",
+        "@xla//xla/tsl/lib/io:iterator",
+        "@xla//xla/tsl/lib/io:table",
+        "@xla//xla/tsl/lib/io:table_options",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:macros",
+        "@xla//xla/tsl/platform:types",
+        "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )

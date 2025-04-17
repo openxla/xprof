@@ -21,7 +21,6 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "xla/tsl/platform/test_benchmark.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 namespace profiler {

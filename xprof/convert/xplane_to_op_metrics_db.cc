@@ -327,7 +327,9 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
   int64_t first_op_offset_ps = tsl::kint64max;
   int64_t last_op_offset_ps = 0;
 
+  #ifdef XPROF_IN_GOOGLE3
   TfOpRoofLineCostEstimator op_level_cost_estimator;
+  #endif
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
   HLOTracker current;
   plane.ForEachLine([&](const XLineVisitor& line) {
@@ -360,12 +362,14 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
         tsl::profiler::TfOp tf_op =
             tsl::profiler::ParseTfOpFullname(stats.tf_op_fullname);
         PerformanceInfo perf_info;
+        #ifdef XPROF_IN_GOOGLE3
         if (tf_op.category != tsl::profiler::Category::kUnknown) {
           auto costs = op_level_cost_estimator.Predict(event);
           // NOTE: events are per kernel, but costs are per tf-ops.
           perf_info.set_flops(costs.flops);
           perf_info.set_bytes_accessed(costs.bytes_accessed);
         }
+        #endif
         std::string name = absl::StrCat(tf_op.name, "/", event.Name());
         device_op_metrics_db_builder.EnterOp(
             /*program_id=*/0,

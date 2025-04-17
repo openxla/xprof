@@ -30,7 +30,7 @@ limitations under the License.
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "tensorflow/core/platform/file_system.h"
+#include "xla/tsl/platform/file_system.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
@@ -59,7 +59,7 @@ SessionSnapshot CreateSessionSnapshot(bool create_cache_file,
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   std::string path = absl::StrCat("ram://", test_name, "/");
-  std::unique_ptr<WritableFile> xplane_file;
+  std::unique_ptr<tsl::WritableFile> xplane_file;
   std::vector<std::string> paths = {absl::StrCat(path, "hostname.xplane.pb")};
 
   auto xspace = std::make_unique<XSpace>();

@@ -36,9 +36,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/profiler/lib/context_types.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
@@ -163,7 +161,7 @@ class JsonEventWriter {
                              : event.name();
     output_->Append(R"(,"name":)", JsonEscape(event_name));
     tsl::profiler::Timespan span = EventSpan(event);
-    // "%.17g" is the default double format in proto2::util::JsonFormat.
+    // "%.17g" is the default double format in google::protobuf::util::JsonFormat.
     absl::Format(output_, R"(,"ts":%.17g)", PicosToMicros(span.begin_ps()));
     JsonEventCounter::EventType event_type = JsonEventCounter::kCounterEvent;
     if (event.has_resource_id()) {
@@ -361,7 +359,7 @@ class JsonEventWriter {
   void WriteArg(absl::string_view name, double value) const {
     if (std::isfinite(value)) {
       output_->Append(JsonEscape(name));
-      // "%.17g" is the default double format in proto2::util::JsonFormat.
+      // "%.17g" is the default double format in google::protobuf::util::JsonFormat.
       absl::Format(output_, ":%.17g", value);
     } else if (std::isinf(value)) {
       output_->Append(JsonEscape(name), R"(:"Infinity")");

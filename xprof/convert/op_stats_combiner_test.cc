@@ -19,7 +19,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"

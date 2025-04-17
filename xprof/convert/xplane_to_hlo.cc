@@ -28,7 +28,6 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 #include "xprof/utils/hlo_proto_map.h"
@@ -72,7 +71,7 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
   for (const absl::string_view module_name : module_list) {
     auto hlo_proto_or = hlo_proto_map.GetHloProtoByModuleName(module_name);
     if (!hlo_proto_or.ok()) {
-      return errors::Internal(hlo_proto_or.status().message());
+      return tsl::errors::Internal(hlo_proto_or.status().message());
     }
     std::string file_name =
         ProfilerJoinPath(session_snapshot.GetSessionRunDir(),

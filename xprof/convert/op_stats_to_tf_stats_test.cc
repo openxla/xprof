@@ -25,7 +25,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/xplane_to_op_stats.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"

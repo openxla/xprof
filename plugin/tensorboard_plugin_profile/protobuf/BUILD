@@ -226,6 +226,7 @@ xprof_proto_library(
         ":pod_viewer_proto",
         ":power_metrics_proto",
         ":roofline_model_proto",
+        ":source_info_proto",
         ":steps_db_proto",
         ":task_proto",
         ":tf_data_stats_proto",

@@ -16,7 +16,7 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "xla/tests/test_utils.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
 
 namespace tensorflow::profiler {

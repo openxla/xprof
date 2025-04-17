@@ -156,6 +156,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "tensorflow_datatypes_proto",
+    srcs = ["tensorflow_datatypes.proto"],
+)
+
+xprof_proto_library(
     name = "tf_data_stats_proto",
     srcs = ["tf_data_stats.proto"],
 )

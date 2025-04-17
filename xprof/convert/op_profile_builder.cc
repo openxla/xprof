@@ -17,7 +17,6 @@ limitations under the License.
 
 #include <algorithm>
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -29,7 +28,6 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "tensorflow/core/lib/gtl/top_n.h"
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_metrics_to_record.h"
@@ -73,14 +71,25 @@ void PopulateSymbolNode(const OpMetrics& op_metrics, Node* node) {
 // Sort the children and only keep the top K children.
 template <typename Cmp>
 Node TopKChildren(const Node* root, int k, Cmp cmp) {
-  tensorflow::gtl::TopN<const Node*, decltype(cmp)> top_n(k, cmp);
+  std::vector<const Node*> children_ptrs;
+  children_ptrs.reserve(root->children_size());
   for (const Node& node : root->children()) {
-    top_n.push(&node);
+    children_ptrs.push_back(&node);
   }
+
+  // Ensure k is not larger than the number of children
+  const int actual_k = std::min(k, static_cast<int>(children_ptrs.size()));
+
+  if (actual_k > 0) {
+      std::partial_sort(children_ptrs.begin(),
+                        children_ptrs.begin() + actual_k,
+                        children_ptrs.end(),
+                        cmp);
+  }
+
   Node output;
-  std::unique_ptr<std::vector<const Node*>> extracted_nodes(top_n.Extract());
-  for (const Node* node : *extracted_nodes) {
-    *output.add_children() = *node;
+  for (int i = 0; i < actual_k; ++i) {
+    *output.add_children() = *children_ptrs[i];
   }
   return output;
 }

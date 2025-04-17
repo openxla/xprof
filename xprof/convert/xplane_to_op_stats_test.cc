@@ -32,7 +32,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
-#include "tensorflow/core/platform/test.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"

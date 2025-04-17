@@ -24,7 +24,6 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 namespace profiler {

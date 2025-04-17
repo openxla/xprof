@@ -17,9 +17,9 @@ limitations under the License.
 
 #include <vector>
 
+#include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
-#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 namespace profiler {

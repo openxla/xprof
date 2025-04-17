@@ -19,10 +19,11 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "xla/service/hlo_graph_dumper.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tensorflow/core/platform/test.h"
-#include "tensorflow/core/protobuf/error_codes.pb.h"
+#include "<gtest/gtest.h>"
+#include "xla/tsl/protobuf/error_codes.pb.h"
 #include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
@@ -108,13 +109,13 @@ TEST(GraphViewerParamsTest, LongTxtType) {
 TEST(GraphViewerParamsTest, OtherTypes) {
   ToolOptions options1;
   EXPECT_THAT(ParseGraphViewerParams(options1),
-              StatusIs(error::INVALID_ARGUMENT,
+              StatusIs(tsl::error::INVALID_ARGUMENT,
                        HasSubstr("Graph viewer must provide a type option")));
 
   ToolOptions options2;
   options2["type"] = "abcd";
   EXPECT_THAT(ParseGraphViewerParams(options2),
-              StatusIs(error::INVALID_ARGUMENT,
+              StatusIs(tsl::error::INVALID_ARGUMENT,
                        HasSubstr("Unknown graph viewer type option: abcd")));
 }
 

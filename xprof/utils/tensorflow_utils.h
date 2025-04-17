@@ -1,4 +1,4 @@
-/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2025 The XProf Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,31 +12,28 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef XPROF_UTILS_TFSTREAMZ_UTILS_H_
-#define XPROF_UTILS_TFSTREAMZ_UTILS_H_
 
-#include <memory>
-#include <vector>
+#ifndef THIRD_PARTY_XPROF_UTILS_TENSORFLOW_UTILS_H_
+#define THIRD_PARTY_XPROF_UTILS_TENSORFLOW_UTILS_H_
+
+#include <string>
 
 #include "absl/status/status.h"
-#include "xla/tsl/lib/monitoring/collected_metrics.h"
+#include "google/protobuf/message.h"
 #include "xla/tsl/platform/types.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/tensorflow_datatypes.pb.h"
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
-
-struct TfStreamzSnapshot {
-  std::unique_ptr<tsl::monitoring::CollectedMetrics> metrics;
-  uint64 start_time_ns;  // time before collection.
-  uint64 end_time_ns;    // time after collection.
-};
-
-absl::Status SerializeToXPlane(const std::vector<TfStreamzSnapshot>& snapshots,
-                               XPlane* plane, uint64 line_start_time_ns);
-
+enum { kDataTypeRefOffset = 100 };
+inline bool IsRefType(TensorflowDataType dtype) {
+  return dtype > static_cast<TensorflowDataType>(kDataTypeRefOffset);
+}
+tsl::string DataTypeString(TensorflowDataType dtype);
+tsl::string DataTypeStringInternal(TensorflowDataType dtype);
+absl::Status ParseTextFormatFromString(std::string input,
+                                       google::protobuf::Message* output);
 }  // namespace profiler
 }  // namespace tensorflow
 
-#endif  // XPROF_UTILS_TFSTREAMZ_UTILS_H_
+#endif  // THIRD_PARTY_XPROF_UTILS_TENSORFLOW_UTILS_H_

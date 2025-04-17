@@ -27,11 +27,10 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "tensorflow/core/platform/file_system.h"
-#include "tensorflow/core/platform/test.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 
@@ -53,7 +52,7 @@ SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   std::string path = absl::StrCat("ram://", test_name, "/");
-  std::unique_ptr<WritableFile> xplane_file;
+  std::unique_ptr<tsl::WritableFile> xplane_file;
   tsl::Env::Default()
       ->NewAppendableFile(absl::StrCat(path, "hostname.xplane.pb"),
                           &xplane_file)

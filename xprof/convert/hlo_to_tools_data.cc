@@ -23,8 +23,8 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "xla/service/hlo.pb.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
@@ -45,7 +45,7 @@ absl::StatusOr<PreprocessResult> GetMemoryViewerPreprocessResult(
   auto result_or = ConvertHloProtoToPreprocessResult(
       hlo_proto, kSmallBufferSize, memory_space_color);
   if (!result_or.ok()) {
-    return errors::Internal(
+    return tsl::errors::Internal(
         "Failed to convert HLO proto to memory viewer result: ",
         result_or.status().message());
   }
@@ -67,7 +67,7 @@ absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
       result_or.value(), &json_output, options);
   if (!encoded_status.ok()) {
     const auto& error_message = encoded_status.message();
-    return errors::Internal(
+    return tsl::errors::Internal(
         "Failed to convert memory viewer result to JSON format: ",
         absl::string_view(error_message.data(), error_message.length()));
   }
@@ -110,7 +110,7 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
   std::optional<std::string> hlo_module_name =
       GetParam<std::string>(options, "module_name");
   if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "Can not find HLO module name from options.");
   }
 
@@ -135,7 +135,7 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
   } else if (tool_name == "graph_viewer") {
     return ConvertHloProtoToGraphViewer(hlo_proto, options);
   } else {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "Can not find tool: ", tool_name,
         ". Please update to the latest version of Tensorflow.");
   }

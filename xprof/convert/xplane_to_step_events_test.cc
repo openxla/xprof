@@ -20,12 +20,15 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/profiler/utils/group_events.h"
+#include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "tensorflow/core/platform/test.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -187,6 +190,46 @@ TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneToStepEvents) {
   ASSERT_TRUE(step_2.PerCoreOpMetricsDb().contains(device_id));
   EXPECT_EQ(step_2.PerCoreOpMetricsDb().at(device_id).metrics_db_size(), 1);
   EXPECT_EQ(step_2.Markers().size(), 1);
+}
+
+// TODO(b/397774568): Update this test to include SparseCore ops and assert
+// their proper inclusion.
+TEST(ConvertXPlaneToStepEvents, SparseCoreShouldHaveStepMarkers) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  int64_t device_id = 1;
+  plane.SetId(device_id);
+  plane.SetName("/device:TPU:0 SparseCore 0");
+  XLineBuilder step_line = plane.GetOrCreateLine(0);
+  step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  const XStatMetadata& group_id_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kGroupId));
+  const XStatMetadata& step_idle_time_stat =
+      *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kStepIdleTimePs));
+  {
+    XEventMetadata* event_metadata = plane.CreateEventMetadata();
+    XStatsBuilder<XEventMetadata> stats(event_metadata, &plane);
+    {
+      XEventBuilder event = step_line.AddEvent(*event_metadata);
+      event.SetOffsetPs(0);
+      event.SetDurationPs(100);
+      event.AddStatValue(group_id_stat, 1);
+      event.AddStatValue(step_idle_time_stat, 10);
+    }
+  }
+  StepEvents step_events = ConvertDeviceTraceXPlaneToStepEvents(raw_plane);
+  EXPECT_EQ(step_events.size(), 1);
+  EXPECT_TRUE(step_events.contains(1));
+  StepDetails step_1 = step_events[/*group_id=*/1];
+  EXPECT_EQ(step_1.Markers().size(), 1);
+  EXPECT_EQ(step_1.StepTime(), tsl::profiler::Timespan(0, 100));
+  OpMetricsDb op_metrics_db =
+      step_1
+          .PerCoreOpMetricsDb()[/*core_id=*/device_id + kSparseCoreIndexStart];
+  ASSERT_EQ(op_metrics_db.metrics_db_size(), 1);
+  const OpMetrics& sparse_core_busy_op = op_metrics_db.metrics_db()[0];
+  EXPECT_EQ(sparse_core_busy_op.time_ps(), 100);
+  EXPECT_EQ(sparse_core_busy_op.self_time_ps(), 90);
 }
 
 }  // namespace

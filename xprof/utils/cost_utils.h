@@ -32,7 +32,8 @@ using ::tsl::profiler::XEventVisitor;
 
 // Returns 0 in case a cost returned by HloCostAnalysis is -1.
 // HloCostAnalysis returns -1 if the instruction does not have a cost.
-inline int64_t ValidHloCost(int64_t cost) { return std::max<int64_t>(0, cost); }
+// Other negative costs could be adjustment for higher precision cost analysis.
+inline int64_t ValidHloCost(int64_t cost) { return cost == -1 ? 0 : cost; }
 
 // This is a wrapper of tensorflow::grappler::OpLevelCostEstimator and use
 // tracing time information to estimate the roof line stats for each traced

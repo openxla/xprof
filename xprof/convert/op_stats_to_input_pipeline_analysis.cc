@@ -853,6 +853,8 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map,
     const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map) {
+  LOG(INFO) << "ComputeTpuPerStepDataAcrossCores: "
+            << coreid_stepinfo_map.step_num();
   PerTpuStepDetails per_step_data;
 
   PerCoreAllReduceBreakdown all_reduce_breakdown =
@@ -885,15 +887,6 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
   auto process_step_for_sc =
       [&](const tensorflow::profiler::StepInfoResult& step_info,
           const SparseCoreStepBreakdown& sc_step) {
-        if (per_step_data.step_number() < 0) {
-          per_step_data.set_step_number(step_info.step_num());
-        } else {
-          if (per_step_data.step_number() != step_info.step_num()) {
-            VLOG(1) << "Inconsistent step numbers across cores ("
-                    << per_step_data.step_number() << " vs. "
-                    << step_info.step_num() << ").";
-          }
-        }
         sc_step_stats_in_ps.UpdateStat(step_info.duration_ps());
         sc_outfeed_time_in_ps.UpdateStat(sc_step.sc_outfeed_ps());
         sc_infeed_time_in_ps.UpdateStat(sc_step.sc_infeed_ps());
@@ -902,8 +895,26 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
                                       sc_step.sc_outfeed_ps());
         sc_idle_time_in_ps.UpdateStat(sc_step.sc_idle_ps());
       };
+  LOG_IF(ERROR, coreid_stepinfo_map.step_info_per_core().empty())
+      << "coreid_stepinfo_map.step_info_per_core().empty()";
   for (const auto& [core_id, step_info] :
        coreid_stepinfo_map.step_info_per_core()) {
+    LOG_IF(ERROR, step_info.step_num() < 0)
+        << "step_info.step_num(): " << step_info.step_num();
+    if (per_step_data.step_number() < 0) {
+      // Sets the step number of the current step from the first core.
+      per_step_data.set_step_number(step_info.step_num());
+    } else {
+      // The step number of the current step is already set. Checks if it is
+      // the same across cores. In case of multi-host tracing, we may have
+      // some inconsistent steps as tracing is not exactly guaranteed to be
+      // synchronized across all hosts.
+      if (per_step_data.step_number() != step_info.step_num()) {
+        VLOG(1) << "Inconsistent step numbers across cores ("
+                << per_step_data.step_number() << " vs. "
+                << step_info.step_num() << ").";
+      }
+    }
     // iterates over each core.
     TpuStepBreakdown tpu;
     if (!step_info.step_breakdown().UnpackTo(&tpu)) {
@@ -967,20 +978,6 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
                                     WaitForHostOrScV0DurationPs(tpu));
     host_send_recv_time_ps.UpdateStat(HostSendRecvDurationPs(tpu));
 
-    if (per_step_data.step_number() < 0) {
-      // Sets the step number of the current step from the first core.
-      per_step_data.set_step_number(step_info.step_num());
-    } else {
-      // The step number of the current step is already set. Checks if it is
-      // the same across cores. In case of multi-host tracing, we may have
-      // some inconsistent steps as tracing is not exactly guaranteed to be
-      // synchronized across all hosts.
-      if (per_step_data.step_number() != step_info.step_num()) {
-        VLOG(1) << "Inconsistent step numbers across cores ("
-                << per_step_data.step_number() << " vs. "
-                << step_info.step_num() << ").";
-      }
-    }
     if (tpu.infeed_duration_ps() > max_infeed.duration_ps) {
       max_infeed.core_id = core_id;
       max_infeed.duration_ps = tpu.infeed_duration_ps();

@@ -22,6 +22,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tensorflow/core/platform/test.h"
 #include "tsl/platform/protobuf.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/op_metrics_db_utils.h"
@@ -198,6 +199,33 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(
       updated_category_ps.at(xla::HloOpcodeString(xla::HloOpcode::kInfeed)),
       50);
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest, EnsureSparseCoreStepsSetStepNumber) {
+  PerCoreStepInfo per_core_step_info;
+  per_core_step_info.set_step_num(1);
+  tsl::protobuf::Map<uint32_t, StepInfoResult>& step_info_per_core =
+      *per_core_step_info.mutable_step_info_per_core();
+  StepInfoResult& step_info =
+      step_info_per_core[/* core_id= */ kSparseCoreIndexStart + 1];
+  step_info.set_step_num(1);
+  step_info.set_begin_ps(100);
+  step_info.set_duration_ps(1000);
+  GenericStepBreakdown sparse_core_step_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& category_ps =
+      *sparse_core_step_breakdown.mutable_category_ps();
+  category_ps[tensorflow::profiler::kIdle] = 500;
+  category_ps["sparse_core_busy_ops"] = 500;
+  step_info.mutable_step_breakdown()->PackFrom(sparse_core_step_breakdown);
+
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  CoreDetails& core_details =
+      core_details_map[/* core_id= */ kSparseCoreIndexStart + 1];
+  core_details.set_is_sparse_core(true);
+
+  PerTpuStepDetails per_step_data =
+      ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+  EXPECT_EQ(per_step_data.step_number(), 1);
 }
 
 }  // namespace

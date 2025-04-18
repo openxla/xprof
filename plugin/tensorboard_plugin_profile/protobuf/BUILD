@@ -2,7 +2,7 @@
 #  Protobufs used by TensorBoard profile plugin.
 
 load("@com_google_protobuf//:protobuf.bzl", "py_proto_library")
-load("@local_xla//xla/tsl/platform:build_config.bzl", xprof_proto_library = "tf_proto_library")
+load("@xla//xla/tsl/platform:build_config.bzl", xprof_proto_library = "tf_proto_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -152,6 +152,11 @@ xprof_proto_library(
 xprof_proto_library(
     name = "task_proto",
     srcs = ["task.proto"],
+)
+
+xprof_proto_library(
+    name = "tensorflow_datatypes_proto",
+    srcs = ["tensorflow_datatypes.proto"],
 )
 
 xprof_proto_library(

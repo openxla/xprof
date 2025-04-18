@@ -16,7 +16,6 @@ limitations under the License.
 
 #include "<gtest/gtest.h>"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/platform/test.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 
 namespace tensorflow {

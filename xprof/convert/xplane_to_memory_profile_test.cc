@@ -20,7 +20,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/memory_profile.pb.h"
 

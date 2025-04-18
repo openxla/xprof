@@ -34,8 +34,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "tensorflow/core/platform/env.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/compute_inference_latency.h"
@@ -97,7 +95,7 @@ absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
   if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution) ||
       !absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
       !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms)) {
-    return errors::InvalidArgument("wrong arguments");
+    return tsl::errors::InvalidArgument("wrong arguments");
   }
   return trace_options;
 }
@@ -106,7 +104,7 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
     const ToolOptions& options) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "Trace events tool expects only 1 XSpace path but gets ",
         session_snapshot.XSpaceSize());
   }
@@ -123,10 +121,10 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     std::string host_name = session_snapshot.GetHostname(0);
     auto sstable_path = session_snapshot.GetFilePath(tool_name, host_name);
     if (!sstable_path) {
-      return errors::Unimplemented(
+      return tsl::errors::Unimplemented(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
-    if (!Env::Default()->FileExists(*sstable_path).ok()) {
+    if (!tsl::Env::Default()->FileExists(*sstable_path).ok()) {
       ProcessMegascaleDcn(xspace.get());
       TraceEventsContainer trace_container;
       ConvertXSpaceToTraceEventsContainer(host_name, *xspace, &trace_container);
@@ -222,7 +220,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToKernelStats(
 absl::StatusOr<std::string> ConvertXSpaceToMemoryProfile(
     const SessionSnapshot& session_snapshot) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "Memory profile tool expects only 1 XSpace path but gets ",
         session_snapshot.XSpaceSize());
   }
@@ -249,7 +247,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPodViewer(
       ConvertOpStatsToPodViewer(combined_op_stats), &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return errors::Internal(
+    return tsl::errors::Internal(
         "Could not convert pod viewer to json. Error: ",
         absl::string_view(error_message.data(), error_message.length()));
   }
@@ -271,7 +269,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToTfDataBottleneckAnalysis(
         xspace.get(), tsl::profiler::kHostThreadsPlaneName);
     std::string host_name_from_file = session_snapshot.GetHostname(idx);
     if (host_plane == nullptr) {
-      return errors::InvalidArgument(
+      return tsl::errors::InvalidArgument(
           "Could not find host XPlane for tf data stats: ",
           host_name_from_file);
     }
@@ -326,7 +324,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
       tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return errors::Internal(
+    return tsl::errors::Internal(
         "Could not convert op profile proto to json. Error: ",
         absl::string_view(error_message.data(), error_message.length()));
   }
@@ -336,7 +334,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
 absl::StatusOr<std::string> PreprocessXSpace(
     const SessionSnapshot& session_snapshot) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "PreprocessXSpace tool expects only 1 XSpace path but gets ",
         session_snapshot.XSpaceSize());
   }
@@ -414,7 +412,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
   } else if (tool_name == "inference_profile") {
     return ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else {
-    return errors::InvalidArgument(
+    return tsl::errors::InvalidArgument(
         "Can not find tool: ", tool_name,
         ". Please update to the latest version of Tensorflow.");
   }

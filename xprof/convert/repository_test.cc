@@ -22,8 +22,8 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow {
@@ -130,7 +130,8 @@ TEST(Repository, MismatchedXSpaceAndPath) {
   auto error =
       R"(The hostname of xspace path and preloaded xpace don't match at index: 0.
 The host name of xpace path is hostname0 but the host name of preloaded xpace is hostname1.)";
-  EXPECT_THAT(session_snapshot_or.status(), Eq(errors::InvalidArgument(error)));
+  EXPECT_THAT(session_snapshot_or.status(),
+              Eq(tsl::errors::InvalidArgument(error)));
 }
 
 }  // namespace

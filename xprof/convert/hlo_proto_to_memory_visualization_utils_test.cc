@@ -17,12 +17,12 @@ limitations under the License.
 
 #include <string>
 
+#include "<gtest/gtest.h>"
 #include "absl/strings/str_format.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tensorflow/core/platform/test.h"
-#include "tensorflow/core/util/proto/proto_utils.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/memory_viewer_preprocess.pb.h"
+#include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -82,8 +82,7 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_1) {
   )pb";
   std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
   xla::HloProto hlo_proto;
-  ASSERT_TRUE(
-      proto_utils::ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
   TF_ASSERT_OK_AND_ASSIGN(
       PreprocessResult preprocess_result,
       ConvertHloProtoToPreprocessResult(hlo_proto, /*small_buffer_size=*/0));
@@ -100,8 +99,7 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
   )pb";
   std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
   xla::HloProto hlo_proto;
-  ASSERT_TRUE(
-      proto_utils::ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
   TF_ASSERT_OK_AND_ASSIGN(
       PreprocessResult preprocess_result,
       ConvertHloProtoToPreprocessResult(hlo_proto, /*small_buffer_size=*/0));

@@ -525,12 +525,15 @@ tf_cc_test(
         "@com_google_absl//absl/container:flat_hash_map",
         "@local_tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@local_xla//xla/tsl/profiler/utils:group_events",
+        "@local_xla//xla/tsl/profiler/utils:timespan",
         "@local_xla//xla/tsl/profiler/utils:xplane_builder",
         "@local_xla//xla/tsl/profiler/utils:xplane_schema",
         "@local_xla//xla/tsl/profiler/utils:xplane_test_utils",
         "@org_tensorflow//tensorflow/core:test",
         "@org_tensorflow//tensorflow/core:test_main",
+        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_metrics_proto_cc",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:op_metrics_db_utils",
     ],
 )
 

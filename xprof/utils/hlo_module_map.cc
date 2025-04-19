@@ -22,6 +22,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -31,7 +32,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
-#include "tensorflow/core/platform/path.h"
+#include "tsl/platform/path.h"
 #include "tsl/profiler/lib/traceme_encode.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
@@ -133,7 +134,7 @@ const HloInstructionWrapper* HloModuleWrapper::GetHloInstruction(
 
 std::string HloInstructionWrapper::source_info() const {
   if (!Metadata().source_file().empty()) {
-    return absl::StrCat(io::Basename(Metadata().source_file()), ":",
+    return absl::StrCat(tsl::io::Basename(Metadata().source_file()), ":",
                         Metadata().source_line());
   } else {
     return std::string();

@@ -20,7 +20,6 @@ limitations under the License.
 #include "testing/base/public/gmock.h"
 #include "absl/strings/string_view.h"
 #include "xla/backends/profiler/gpu/cupti_buffer_events.h"
-#include "tensorflow/core/platform/test.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
 
 namespace tensorflow {

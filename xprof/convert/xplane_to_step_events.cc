@@ -374,9 +374,12 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
             ConvertTpuDeviceTraceXLineToStepEvents(plane.Id(), line);
         IntersectCombineStepEvents(stream_step_events, &device_step_events);
       } else if (sc_core_id.has_value()) {
-        // TODO(b/397774568): Switch to IsOpLineName once SparseCore OpMetricsDb
-        // is implemented.
+        // TODO(b/397774568): Switch to IsOpLineName and remove step marker
+        // processing once SparseCore OpMetricsDb is implemented.
         if (line.Name() != tsl::profiler::kSparseCoreStepLineName) return;
+        StepEvents step_marker_events =
+            ConvertDeviceStepInfoToStepMarkers(line);
+        UnionCombineStepEvents(step_marker_events, &device_step_events);
         stream_step_events = ConvertTpuDeviceTraceXLineToStepEvents(
             kSparseCoreIndexStart + plane.Id(), line);
         IntersectCombineStepEvents(stream_step_events, &device_step_events);

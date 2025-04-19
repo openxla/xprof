@@ -867,6 +867,7 @@ cc_library(
         "@local_xla//xla/tsl/platform:types",
         "@org_tensorflow//tensorflow/core/platform:errors",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:memory_viewer_preprocess_proto_cc",
+        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:source_info_proto_cc",
     ],
 )
 

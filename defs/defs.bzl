@@ -82,3 +82,15 @@ def xprof_ng_module(name, srcs, assets = [], allow_warnings = None, **kwargs):
         srcs = srcs,
         **kwargs
     )
+
+def if_oss(oss_value, google_value = []):
+    """Returns one of the arguments based on the non-configurable build env.
+
+    Specifically, it does not return a `select`, and can be used to e.g.
+    compute elements of list attributes.
+    """
+    _ = (google_value, oss_value)  # buildifier: disable=unused-variable
+    return oss_value  # copybara:comment_replace return oss_value
+
+def tf_profiler_alias(target_dir, name):
+    return target_dir + "oss:" + name

@@ -25,12 +25,11 @@ limitations under the License.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
-#include "xla/tsl/profiler/utils/xplane_builder.h"
-#include "tensorflow/core/framework/summary.pb.h"
-#include "tensorflow/core/lib/monitoring/collected_metrics.h"
-#include "tensorflow/core/lib/monitoring/metric_def.h"
-#include "tensorflow/core/lib/monitoring/types.h"
+#include "xla/tsl/lib/monitoring/collected_metrics.h"
+#include "xla/tsl/lib/monitoring/metric_def.h"
+#include "xla/tsl/lib/monitoring/types.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/tfstreamz.pb.h"
 
@@ -41,7 +40,7 @@ using tsl::uint64;
 namespace {
 
 std::string ConstructXStatName(absl::string_view name,
-                               const monitoring::Point& point) {
+                               const tsl::monitoring::Point& point) {
   if (point.labels.empty()) {
     return std::string(name);
   }
@@ -49,12 +48,13 @@ std::string ConstructXStatName(absl::string_view name,
       "$0{$1}", name,
       absl::StrJoin(
           point.labels, ", ",
-          [](std::string* out, const monitoring::Point::Label& label) {
+          [](std::string* out, const tsl::monitoring::Point::Label& label) {
             absl::StrAppend(out, label.name, "=", label.value);
           }));
 }
 
-tfstreamz::Percentiles ToProto(const monitoring::Percentiles& percentiles) {
+tfstreamz::Percentiles ToProto(
+    const tsl::monitoring::Percentiles& percentiles) {
   tfstreamz::Percentiles output;
   output.set_unit_of_measure(
       static_cast<tfstreamz::UnitOfMeasure>(percentiles.unit_of_measure));
@@ -104,23 +104,23 @@ absl::Status SerializeToXPlane(const std::vector<TfStreamzSnapshot>& snapshots,
           metadata->set_description(it->second->description);
         }
         switch (point->value_type) {
-          case monitoring::ValueType::kInt64:
+          case tsl::monitoring::ValueType::kInt64:
             xevent.AddStatValue(*metadata, point->int64_value);
             break;
-          case monitoring::ValueType::kBool:
+          case tsl::monitoring::ValueType::kBool:
             xevent.AddStatValue(*metadata, point->bool_value);
             break;
-          case monitoring::ValueType::kString:
+          case tsl::monitoring::ValueType::kString:
             xevent.AddStatValue(*metadata, *xplane.GetOrCreateStatMetadata(
                                                point->string_value));
             break;
-          case monitoring::ValueType::kDouble:
+          case tsl::monitoring::ValueType::kDouble:
             xevent.AddStatValue(*metadata, point->double_value);
             break;
-          case monitoring::ValueType::kHistogram:
+          case tsl::monitoring::ValueType::kHistogram:
             xevent.AddStatValue(*metadata, point->histogram_value);
             break;
-          case monitoring::ValueType::kPercentiles:
+          case tsl::monitoring::ValueType::kPercentiles:
             xevent.AddStatValue(*metadata, ToProto(point->percentiles_value));
             break;
         }

@@ -17,7 +17,7 @@ limitations under the License.
 
 #include "google/protobuf/any.pb.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "plugin/tensorboard_plugin_profile/protobuf/diagnostics.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"

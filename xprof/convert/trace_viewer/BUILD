@@ -1,6 +1,3 @@
-load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_cc_test")
-load("@org_tensorflow//tensorflow/core/platform:rules_cc.bzl", "cc_library")
-
 package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
     default_visibility = [
@@ -33,14 +30,14 @@ cc_library(
     ],
 )
 
-tf_cc_test(
+cc_test(
     name = "trace_viewer_visibility_test",
     srcs = ["trace_viewer_visibility_test.cc"],
     deps = [
         ":trace_viewer_visibility",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
         "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core:test",
-        "@org_tensorflow//tensorflow/core:test_main",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
     ],
 )
@@ -72,9 +69,9 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@local_tsl//tsl/platform:protobuf",
+        "@local_tsl//tsl/profiler/lib:context_types",
         "@local_tsl//tsl/profiler/lib:context_types_hdrs",
         "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core/profiler/lib:context_types",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
@@ -132,13 +129,19 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
+        "@local_tsl//tsl/platform:env",
+        "@local_tsl//tsl/platform:errors",
         "@local_tsl//tsl/platform:status",
         "@local_tsl//tsl/profiler/lib:context_types_hdrs",
+        "@local_xla//xla/tsl/lib/io:block",
         "@local_xla//xla/tsl/lib/io:iterator",
+        "@local_xla//xla/tsl/lib/io:table",
+        "@local_xla//xla/tsl/lib/io:table_options",
+        "@local_xla//xla/tsl/platform:env",
+        "@local_xla//xla/tsl/platform:errors",
+        "@local_xla//xla/tsl/platform:macros",
         "@local_xla//xla/tsl/platform:types",
         "@local_xla//xla/tsl/profiler/utils:timespan",
-        "@org_tensorflow//tensorflow/core:lib",
-        "@org_tensorflow//tensorflow/core/profiler/lib:context_types_hdrs",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",

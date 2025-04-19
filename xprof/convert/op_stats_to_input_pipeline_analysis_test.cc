@@ -20,7 +20,7 @@ limitations under the License.
 #include "google/protobuf/any.pb.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tensorflow/core/platform/test.h"
+#include "<gtest/gtest.h>"
 #include "tsl/platform/protobuf.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"

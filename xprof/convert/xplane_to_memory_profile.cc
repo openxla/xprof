@@ -35,11 +35,10 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "tensorflow/core/framework/types.h"
-#include "tensorflow/core/framework/types.pb.h"
-#include "tensorflow/core/platform/errors.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/memory_profile.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/tensorflow_datatypes.pb.h"
+#include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -154,8 +153,8 @@ MemoryProfile GenerateMemoryProfile(const XPlane* host_trace) {
             metadata.set_region_type(std::string(stat.StrOrRefValue()));
             break;
           case StatType::kDataType:
-            metadata.set_data_type(tensorflow::DataTypeString(
-                static_cast<tensorflow::DataType>(stat.IntValue())));
+            metadata.set_data_type(DataTypeString(
+                static_cast<TensorflowDataType>(stat.IntValue())));
             break;
           case StatType::kTensorShapes:
             metadata.set_tensor_shape(std::string(stat.StrOrRefValue()));
@@ -291,7 +290,7 @@ void InsertSpecialAllocations(int64_t unmapped_allocation_bytes,
     special_allocation->set_step_id(step_id);
     special_allocation->set_region_type("persist/dynamic");
     special_allocation->set_data_type(
-        tensorflow::DataTypeString(static_cast<tensorflow::DataType>(0)));
+        DataTypeString(static_cast<TensorflowDataType>(0)));
     special_allocation->set_tensor_shape("unknown");
     active_allocs->push_back({--index, special_allocation});
   }
@@ -308,7 +307,7 @@ void InsertSpecialAllocations(int64_t unmapped_allocation_bytes,
     special_allocation->set_step_id(step_id);
     special_allocation->set_region_type("stack");
     special_allocation->set_data_type(
-        tensorflow::DataTypeString(static_cast<tensorflow::DataType>(0)));
+        DataTypeString(static_cast<TensorflowDataType>(0)));
     special_allocation->set_tensor_shape("unknown");
     active_allocs->push_back({--index, special_allocation});
   }
@@ -541,7 +540,7 @@ absl::Status ConvertProtoToJson(const Proto& proto_output,
     // Convert error_msg google::protobuf::StringPiece (or absl::string_view) to
     // tensorflow::StringPiece.
     auto error_msg = status.message();
-    return errors::Internal(
+    return tsl::errors::Internal(
         "Could not convert proto to JSON string: ",
         absl::string_view(error_msg.data(), error_msg.length()));
   }

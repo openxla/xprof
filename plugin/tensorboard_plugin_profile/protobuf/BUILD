@@ -71,6 +71,7 @@ xprof_proto_library(
 xprof_proto_library(
     name = "memory_viewer_preprocess_proto",
     srcs = ["memory_viewer_preprocess.proto"],
+    protodeps = [":source_info_proto"],
 )
 
 xprof_proto_library(

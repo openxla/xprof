@@ -1,4 +1,4 @@
-import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls';
+import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info';
 
 /** Profile is the top-level data that summarizes a program. */
 export interface Profile {

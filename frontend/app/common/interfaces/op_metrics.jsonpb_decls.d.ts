@@ -1,6 +1,6 @@
 // DO NOT modify and only change in sync with the proto changes.
 
-import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls';
+import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info';
 
 /** */
 export type MemBwType =

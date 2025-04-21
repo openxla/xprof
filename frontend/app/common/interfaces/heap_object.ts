@@ -1,4 +1,6 @@
 
+import {SourceInfo} from './source_info';
+
 /** The base interface for a heap object. */
 export interface HeapObject {
   instructionName?: string;
@@ -6,7 +8,7 @@ export interface HeapObject {
   unpaddedSizeMiB?: number;
   tfOpName?: string;
   opcode?: string;
-  sourceInfo?: string;
+  sourceInfo?: SourceInfo;
   sizeMiB?: number;
   color?: number;
   shape?: string;

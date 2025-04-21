@@ -38,7 +38,7 @@ genrule(
 ts_library(
     name = "source_info_proto_defs",
     srcs = [
-        ":source_info.jsonpb_decls.d.ts",
+        ":source_info.ts",
     ],
 )
 
@@ -90,6 +90,7 @@ ts_library(
         "hosts.ts",
         "navigation_event.ts",
         "roofline_model.ts",
+        "source_info.ts",
         "summary_info.ts",
         "tool.ts",
         "window.ts",

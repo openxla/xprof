@@ -33,6 +33,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -52,8 +53,9 @@ using ::tsl::profiler::XStatVisitor;
 
 TEST(DerivedTimelineTest, EmptySpaceTest) {
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   EXPECT_EQ(space.planes_size(), 0);
 }
 
@@ -62,6 +64,7 @@ TEST(DerivedTimelineTest, HloModuleNameTest) {
   const absl::string_view kHloModuleName = "hlo_module";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -72,7 +75,7 @@ TEST(DerivedTimelineTest, HloModuleNameTest) {
   CreateXEvent(&plane_builder, &line_builder, "op2", 200, 300,
                {{StatType::kHloModule, kHloModuleName},
                 {StatType::kKernelDetails, kKernelDetails}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // Only the hlo module line is added and other empty lines are removed at the
   // end.
@@ -94,6 +97,7 @@ TEST(DerivedTimelineTest, HloModuleNameSameScopeRangeIdTest) {
   const absl::string_view kHloModuleName = "hlo_module";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -106,7 +110,7 @@ TEST(DerivedTimelineTest, HloModuleNameSameScopeRangeIdTest) {
                {{StatType::kHloModule, XStatValue{kHloModuleName}},
                 {StatType::kKernelDetails, XStatValue{kKernelDetails}},
                 {StatType::kScopeRangeId, XStatValue{int64_t{10}}}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // Only the hlo module line is added and other empty lines are removed at the
   // end.
@@ -127,6 +131,7 @@ TEST(DerivedTimelineTest, HloModuleNameDifferentScopeRangeIdTest) {
   const absl::string_view kHloModuleName = "hlo_module";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -139,7 +144,7 @@ TEST(DerivedTimelineTest, HloModuleNameDifferentScopeRangeIdTest) {
                {{StatType::kHloModule, XStatValue{kHloModuleName}},
                 {StatType::kKernelDetails, XStatValue{kKernelDetails}},
                 {StatType::kScopeRangeId, XStatValue{int64_t{20}}}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // Only the hlo module line is added and other empty lines are removed at the
   // end.
@@ -159,6 +164,7 @@ TEST(DerivedTimelineTest, NoHloModuleNameTest) {
   const absl::string_view kKernelDetails = "kernel_details";
   const uint64_t kCudaGraphExecId = 1;
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane& plane = *GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(&plane);
@@ -170,7 +176,7 @@ TEST(DerivedTimelineTest, NoHloModuleNameTest) {
   // Also add a CudaGraph Execution event.
   CreateXEvent(&plane_builder, &line_builder, "op3", 500, 100,
                {{StatType::kCudaGraphExecId, kCudaGraphExecId}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(&plane);
   // Only the hlo module line is added and other empty lines are removed at the
   // end.
@@ -188,6 +194,7 @@ TEST(DerivedTimelineTest, TfOpLineTest) {
   const absl::string_view kKernelDetails = "kernel_details";
   const uint64_t kCudaGraphExecId = 1;
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -202,7 +209,7 @@ TEST(DerivedTimelineTest, TfOpLineTest) {
   CreateXEvent(&plane_builder, &line_builder, "op3", 500, 100,
                {{StatType::kTfOp, kTfOpName},
                 {StatType::kCudaGraphExecId, kCudaGraphExecId}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // Only the tf op line is added and other empty lines are removed at the end.
   EXPECT_EQ(plane_visitor.NumLines(), 2);
@@ -227,6 +234,7 @@ TEST(DerivedTimelineTest, DependencyTest) {
   const absl::string_view kTfOpName = "mul:Mul";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map(
       {{0, {"train 0"}}, {1, {"train 1"}}});
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
@@ -240,7 +248,7 @@ TEST(DerivedTimelineTest, DependencyTest) {
                {{StatType::kGroupId, kSecondGroupId},
                 {StatType::kTfOp, kTfOpName},
                 {StatType::kKernelDetails, kKernelDetails}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // The step line and the TF op line are added.
   EXPECT_EQ(plane_visitor.NumLines(), 3);
@@ -257,6 +265,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeTest) {
   const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -267,7 +276,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeTest) {
   CreateXEvent(&plane_builder, &line_builder, "op2", 200, 300,
                {{StatType::kTfOp, kTfOpName},
                 {StatType::kKernelDetails, kKernelDetails}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // The TF name scope line and the TF op line are added.
   EXPECT_EQ(plane_visitor.NumLines(), 3);
@@ -297,6 +306,7 @@ TEST(DerivedTimelineTest, TfNameScopeMaintainsOrder) {
   const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = tsl::profiler::GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, "TPU V4", 0, 0);
@@ -305,7 +315,7 @@ TEST(DerivedTimelineTest, TfNameScopeMaintainsOrder) {
   CreateXEvent(&plane_builder, &line_builder, "op1", 0, 10000,
                {{StatType::kTfOp, kTfOpName},
                 {StatType::kKernelDetails, kKernelDetails}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // The TF name scope line and the TF op line are added.
   EXPECT_EQ(plane_visitor.NumLines(), 3);
@@ -328,6 +338,7 @@ TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
   const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
@@ -345,7 +356,7 @@ TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
                {{StatType::kTfOp, kTfOpName},
                 {StatType::kKernelDetails, kKernelDetails}});
   // Derive lines for the plane.
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // The TF name scope line and the TF op line are added.
   EXPECT_EQ(plane_visitor.NumLines(), 4);
@@ -380,6 +391,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
   {
     // Case 1: shirnk is possible.
     XSpace space;
+    HloModuleMap hlo_module_map;
     tsl::profiler::GroupMetadataMap group_metadata_map;
     XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
     XPlaneBuilder plane_builder(plane);
@@ -390,7 +402,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
     CreateXEvent(
         &plane_builder, &line_builder, "op2", 20000, 30000,
         {{StatType::kTfOp, "a/d/Mul:Mul"}, {StatType::kKernelDetails, "blah"}});
-    GenerateDerivedTimeLines(group_metadata_map, &space);
+    GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
     XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
     // The TF name scope line and the TF op line are added.
     EXPECT_EQ(plane_visitor.NumLines(), 3);
@@ -414,6 +426,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
   {
     // Case 2: shirnk is impossible due to top event is too small.
     XSpace space;
+    HloModuleMap hlo_module_map;
     tsl::profiler::GroupMetadataMap group_metadata_map;
     XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
     XPlaneBuilder plane_builder(plane);
@@ -427,7 +440,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
     CreateXEvent(
         &plane_builder, &line_builder, "op3", 20000, 30000,
         {{StatType::kTfOp, "a/g/Mul:Mul"}, {StatType::kKernelDetails, "blah"}});
-    GenerateDerivedTimeLines(group_metadata_map, &space);
+    GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
     XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
     // The TF name scope line and the TF op line are added.
     EXPECT_EQ(plane_visitor.NumLines(), 3);
@@ -465,6 +478,7 @@ TEST(DerivedTimelineTest, XloOpHasCudaGraphStats) {
   constexpr int64_t kCorrelationIdValue = 10000;
   const uint64_t kCudaGraphIdValue = 20;
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
 
   // Build Input Plane/Line/Events and derive events from them.
@@ -485,7 +499,7 @@ TEST(DerivedTimelineTest, XloOpHasCudaGraphStats) {
                 {StatType::kHloOp, kHloOpName},
                 {StatType::kCorrelationId, kCorrelationIdValue},
                 {StatType::kCudaGraphId, kCudaGraphIdValue}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
 
   // Check that the HLO op line is added and has the extra stats for the first
   // derived event.
@@ -551,6 +565,7 @@ TEST(DerivedTimelineTest, MergeAndNoMerge) {
   constexpr absl::string_view kHloModuleName = "Framework Ops";
   static constexpr absl::string_view kTfOpName = "abc:model/layer/MatMul_1";
   XSpace space;
+  HloModuleMap hlo_module_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = tsl::profiler::GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, "DummyTPU", 1.0, 1.0);
@@ -567,7 +582,7 @@ TEST(DerivedTimelineTest, MergeAndNoMerge) {
   CreateXEvent(
       &plane_builder, &line_builder, "op3", 1501, 300,
       {{StatType::kHloModule, kHloModuleName}, {StatType::kTfOp, kTfOpName}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
+  GenerateDerivedTimeLines(group_metadata_map, &space, hlo_module_map);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
   // Only the hlo module line is added and other empty lines are removed at the
   // end.

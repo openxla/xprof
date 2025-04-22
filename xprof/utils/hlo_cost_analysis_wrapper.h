@@ -16,8 +16,10 @@ limitations under the License.
 #ifndef XPROF_UTILS_HLO_COST_ANALYSIS_WRAPPER_H_
 #define XPROF_UTILS_HLO_COST_ANALYSIS_WRAPPER_H_
 
+#include <any>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -25,12 +27,16 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "xprof/utils/function_registry.h"
 #include "xprof/utils/cost_utils.h"
 
 namespace tensorflow {
 namespace profiler {
 
 using ::tensorflow::profiler::ValidHloCost;
+
+// Using a simple map for usage data for demonstration
+using UsageData = absl::flat_hash_map<std::string, std::any>;
 
 // Returns the input bitwidths of the given HLO instruction.
 std::vector<uint32_t> GetInputBitwidths(const xla::HloInstruction& hlo);
@@ -86,6 +92,12 @@ class HloCostAnalysisWrapper {
   virtual int64_t GetDeviceFlopsAdjustment(
       const xla::HloInstruction& hlo) const = 0;
 };
+using HloCostAnalysisWrapperRegistry =
+    util_registration::XprofFunctionRegistry<
+        std::string,
+        std::unique_ptr<HloCostAnalysisWrapper>(const UsageData& usage_data)>;
+
+HloCostAnalysisWrapperRegistry& GetHloCostAnalysisWrapperRegistry();
 
 }  // namespace profiler
 }  // namespace tensorflow

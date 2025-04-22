@@ -2,6 +2,7 @@
  * @fileoverview Data service interface meant to accommodate different implementations
  */
 
+import {HttpParams} from '@angular/common/http';
 import {InjectionToken} from '@angular/core';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
@@ -43,6 +44,8 @@ export interface DataServiceV2Interface {
       ): Observable<string|Blob|null>|null;
 
   setSearchParams(params: URLSearchParams): void;
+
+  getHttpParams(sessionId: string|null, tool: string): HttpParams;
 }
 
 /** Injection token for the data service interface. */

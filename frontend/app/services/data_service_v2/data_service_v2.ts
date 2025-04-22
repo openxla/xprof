@@ -114,4 +114,24 @@ export class DataServiceV2 implements DataServiceV2Interface {
   setSearchParams(params: URLSearchParams) {
     this.searchParams = params;
   }
+
+  getHttpParams(sessionId: string|null, tool: string): HttpParams {
+    let params = new HttpParams();
+    if (sessionId !== null) {
+      params = params.set('session_id', sessionId);
+    }
+    params = params.set('tool', tool);
+    if (this.searchParams) {
+      this.searchParams.forEach((value, key) => {
+        params = params.set(key, value);
+      });
+    }
+    if (window.location.search) {
+      const searchParams = new URLSearchParams(window.location.search);
+      searchParams.forEach((value, key) => {
+        params = params.set(key, value);
+      });
+    }
+    return params;
+  }
 }

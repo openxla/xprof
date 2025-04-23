@@ -1,9 +1,11 @@
-import {Component, NgModule, OnDestroy} from '@angular/core';
+import {Component, inject, NgModule, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
+import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
+import * as commonDataStoreActions from 'org_xprof/frontend/app/store/common_data_store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -16,23 +18,37 @@ import {KernelStatsModule} from './kernel_stats_module';
   template: '<kernel-stats></kernel-stats>',
 })
 export class KernelStatsAdapter implements OnDestroy {
+  readonly tool = 'kernel_stats';
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  sessionId = '';
+  private readonly dataService: DataServiceV2Interface =
+      inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+      this.sessionId = (params || {})['sessionId'] || '';
       this.update(params as NavigationEvent);
     });
+    this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
   update(event: NavigationEvent) {
     const params = {
-      run: event.run || '',
-      tag: event.tag || 'kernel_stats',
       host: event.host || '',
+      sessionId: this.sessionId || event.run || '',
+      tool: this.tool,
     };
-    this.store.dispatch(setDataRequestStateAction(
-        {dataRequest: {type: DataRequestType.KERNEL_STATS, params}}));
+    this.dataService.getData(params.sessionId, params.tool, params.host)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(data => {
+          this.parseData(data as DataTable[]);
+        });
+  }
+
+  parseData(data?: DataTable[]) {
+    this.store.dispatch(commonDataStoreActions.setKernelStatsDataAction(
+        {kernelStatsData: data ? data[0] : null}));
   }
 
   ngOnDestroy() {

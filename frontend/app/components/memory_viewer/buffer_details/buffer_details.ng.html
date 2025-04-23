@@ -52,13 +52,17 @@
           <div class="title">Framework Op: </div>
           <div>{{tfOpName}}</div>
         </div>
-        <div class="info" [hidden]="!sourceInfo">
-          <div class="title">Source File/Line: </div>
-          <div>{{sourceInfo}}</div>
-        </div>
         <div class="info" [hidden]="!groupName">
           <div class="title">Allocation Type: </div>
           <div>{{groupName}}</div>
+        </div>
+        <div class="info" [hidden]="!sourceTopLine">
+          <div class="title">Source:</div>
+          <code class="expression">{{sourceTopLine}}</code>
+        </div>
+        <div class="info" [hidden]="!sourceStack">
+          <div class="title">Source Stack:</div>
+          <code class="expression">{{sourceStack}}</code>
         </div>
       </div>
     </mat-card-content>

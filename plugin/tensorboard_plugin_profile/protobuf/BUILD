@@ -68,14 +68,13 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
-    name = "source_info_proto",
-    srcs = ["source_info.proto"],
+    name = "memory_viewer_preprocess_proto",
+    srcs = ["memory_viewer_preprocess.proto"],
 )
 
 xprof_proto_library(
-    name = "memory_viewer_preprocess_proto",
-    srcs = ["memory_viewer_preprocess.proto"],
-    protodeps = [":source_info_proto"],
+    name = "source_info_proto",
+    srcs = ["source_info.proto"],
 )
 
 xprof_proto_library(

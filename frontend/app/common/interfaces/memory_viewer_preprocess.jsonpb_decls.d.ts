@@ -1,7 +1,5 @@
 // This file must be kept in sync with the corresponding proto file.
 
-import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls';
-
 /** See corresponding proto */
 export interface HeapObject {
   numbered?: /* int32 */ number;
@@ -15,7 +13,6 @@ export interface HeapObject {
   tfOpName?: string;
   groupName?: string;
   opCode?: string;
-  sourceInfo?: SourceInfo;
 }
 
 /** See corresponding proto */

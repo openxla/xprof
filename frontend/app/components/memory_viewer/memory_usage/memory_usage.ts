@@ -136,7 +136,6 @@ export class MemoryUsage {
         groupName: heapObject.groupName,
         opcode: heapObject.opCode,
         logicalBufferId: heapObject.logicalBufferId,
-        sourceInfo: heapObject.sourceInfo,
       });
     }
     this.createMaxHeapIndex();

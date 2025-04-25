@@ -1,0 +1,44 @@
+/** CSS for an hlo-text-view component. */
+
+@import 'frontend/app/styles/common';
+
+.hlo-text-area {
+  position: relative;
+  height: 40vh; /* Viewport-relative units */
+  width: 100%;
+}
+
+.hlo-text-view-panel {
+  box-shadow: none;
+  border-bottom: 0.5px solid silver;
+  border-radius: 0;
+}
+
+.hlo-text-load-button-container {
+  margin-bottom: 10px;
+}
+
+.hlo-text-load-button {
+  margin-right: 10px;
+}
+
+mat-progress-bar {
+  width: 300px;
+  margin: 0 auto;
+}
+
+.loading-message {
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.progress-container {
+  position: absolute;
+  width: 100%;
+  margin: 300 0;
+  z-index: 1;
+}
+
+.hlo-text-load-status {
+  padding: 10px;
+}

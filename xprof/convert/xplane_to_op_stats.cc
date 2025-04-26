@@ -17,6 +17,8 @@ limitations under the License.
 
 #include <sys/types.h>
 
+#include <cstddef>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -27,6 +29,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/env.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -328,28 +331,43 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     }
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
-  for (const XPlane* device_trace : device_planes) {
-    if (options.generate_op_metrics_db) {
-      if (!op_stats.has_perf_env()) {
-        *op_stats.mutable_perf_env() = GetPerfEnvFromXPlane(*device_trace);
-      }
-      if (!is_tpu) {
-        OpMetricsDb device_op_metrics_db =
-            ConvertDeviceTraceXPlaneToOpMetricsDb(*device_trace,
-                                                  hlo_module_map);
-        op_metrics_db_combiner.Combine(device_op_metrics_db);
-      } else {
-        // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb is
-        // implemented.
-        if (!tsl::profiler::GetSparseCoreId(device_trace->name()).has_value()) {
-          OpMetricsDb device_op_metrics_db =
-              ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_trace);
-          UpdateOpMetricsDbFromHloModuleMap(device_op_metrics_db,
-                                            hlo_module_map);
-          op_metrics_db_combiner.Combine(device_op_metrics_db);
-        }
-      }
+
+  if (options.generate_op_metrics_db) {
+    std::vector<std::unique_ptr<tsl::Thread>> threads(device_planes.size());
+    tsl::ThreadOptions thread_options;
+    std::vector<OpMetricsDb> all_op_metrics_dbs(device_planes.size());
+    if (!device_planes.empty() && !op_stats.has_perf_env()) {
+      *op_stats.mutable_perf_env() = GetPerfEnvFromXPlane(*device_planes[0]);
     }
+    for (size_t i = 0; i < device_planes.size(); ++i) {
+      auto& device_plane = device_planes[i];
+      auto& op_metrics_db = all_op_metrics_dbs[i];
+      threads.emplace_back(tsl::Env::Default()->StartThread(
+          thread_options, "op_metrics_db_events",
+          [device_plane, &hlo_module_map, is_tpu, &op_metrics_db]() {
+            if (!is_tpu) {
+              op_metrics_db = ConvertDeviceTraceXPlaneToOpMetricsDb(
+                  *device_plane, hlo_module_map);
+            } else {
+              // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb
+              // is implemented.
+              if (!tsl::profiler::GetSparseCoreId(device_plane->name())
+                       .has_value()) {
+                op_metrics_db =
+                    ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_plane);
+                UpdateOpMetricsDbFromHloModuleMap(op_metrics_db,
+                                                  hlo_module_map);
+              }
+            }
+          }));
+    }
+    threads.clear();
+    for (auto& op_metrics_db : all_op_metrics_dbs) {
+      op_metrics_db_combiner.Combine(op_metrics_db);
+    }
+  }
+
+  for (const XPlane* device_trace : device_planes) {
     if (options.generate_step_db) {
       StepEvents device_step_events =
           ConvertDeviceTraceXPlaneToStepEvents(*device_trace);

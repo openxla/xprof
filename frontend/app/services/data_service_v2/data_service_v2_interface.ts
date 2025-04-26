@@ -40,7 +40,7 @@ export interface DataServiceV2Interface {
       moduleName: string,
       type: string,
       showMetadata: boolean,
-      ): Observable<string|Blob|null>|null;
+      ): Observable<string|Blob|null>;
 
   setSearchParams(params: URLSearchParams): void;
 }

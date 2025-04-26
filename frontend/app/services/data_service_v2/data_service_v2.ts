@@ -3,6 +3,7 @@ import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {API_PREFIX, DATA_API, HLO_MODULE_LIST_API, LOCAL_URL, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
+import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
@@ -56,6 +57,16 @@ export class DataServiceV2 implements DataServiceV2Interface {
         );
   }
 
+  getHttpParams(): HttpParams {
+    let params = new HttpParams();
+    if (this.searchParams) {
+      this.searchParams.forEach((value, key) => {
+        params = params.set(key, value);
+      });
+    }
+    return params;
+  }
+
   getData(
       sessionId: string, tool: string, host: string,
       parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
@@ -107,8 +118,24 @@ export class DataServiceV2 implements DataServiceV2Interface {
       moduleName: string,
       type: string,
       showMetadata: boolean,
-      ): Observable<string|Blob|null>|null {
-    return null;
+      ): Observable<string|Blob|null> {
+    const tool = 'graph_viewer';
+    const responseType =
+        type === FileExtensionType.PROTO_BINARY ? 'blob' : 'text';
+    // Host is not specified for hlo text view now, as we assume metadata the
+    // same across all hosts.
+    const host = '';
+    const params = this.getHttpParams()
+                       .set('run', sessionId)
+                       .set('tag', tool)
+                       .set('host', host)
+                       .set('module_name', moduleName)
+                       .set('type', type)
+                       .set('show_metadata', String(showMetadata));
+    return this.get(this.pathPrefix + DATA_API, {
+      'params': params,
+      'responseType': responseType,
+    }) as Observable<string|Blob|null>;
   }
 
   setSearchParams(params: URLSearchParams) {

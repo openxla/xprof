@@ -17,6 +17,8 @@ limitations under the License.
 
 #include <sys/types.h>
 
+#include <cstddef>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -27,6 +29,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/platform/env.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -70,7 +73,6 @@ using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
 using tsl::profiler::Timespan;
-using ::tsl::profiler::XPlaneBuilder;
 
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";
@@ -328,31 +330,57 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     }
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
-  for (const XPlane* device_trace : device_planes) {
-    if (options.generate_op_metrics_db) {
-      if (!op_stats.has_perf_env()) {
-        *op_stats.mutable_perf_env() = GetPerfEnvFromXPlane(*device_trace);
-      }
-      if (!is_tpu) {
-        OpMetricsDb device_op_metrics_db =
-            ConvertDeviceTraceXPlaneToOpMetricsDb(*device_trace,
-                                                  hlo_module_map);
-        op_metrics_db_combiner.Combine(device_op_metrics_db);
-      } else {
-        // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb is
-        // implemented.
-        if (!tsl::profiler::GetSparseCoreId(device_trace->name()).has_value()) {
-          OpMetricsDb device_op_metrics_db =
-              ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_trace);
-          UpdateOpMetricsDbFromHloModuleMap(device_op_metrics_db,
-                                            hlo_module_map);
-          op_metrics_db_combiner.Combine(device_op_metrics_db);
-        }
-      }
+
+  if (options.generate_op_metrics_db) {
+    std::vector<std::unique_ptr<tsl::Thread>> threads(device_planes.size());
+    tsl::ThreadOptions thread_options;
+    std::vector<OpMetricsDb> all_op_metrics_dbs(device_planes.size());
+    if (!device_planes.empty() && !op_stats.has_perf_env()) {
+      *op_stats.mutable_perf_env() = GetPerfEnvFromXPlane(*device_planes[0]);
     }
-    if (options.generate_step_db) {
-      StepEvents device_step_events =
-          ConvertDeviceTraceXPlaneToStepEvents(*device_trace);
+    for (size_t i = 0; i < device_planes.size(); ++i) {
+      auto& device_plane = device_planes[i];
+      auto& op_metrics_db = all_op_metrics_dbs[i];
+      threads.emplace_back(tsl::Env::Default()->StartThread(
+          thread_options, "op_metrics_db_events",
+          [device_plane, &hlo_module_map, is_tpu, &op_metrics_db]() {
+            if (!is_tpu) {
+              op_metrics_db = ConvertDeviceTraceXPlaneToOpMetricsDb(
+                  *device_plane, hlo_module_map);
+            } else {
+              // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb
+              // is implemented.
+              if (!tsl::profiler::GetSparseCoreId(device_plane->name())
+                       .has_value()) {
+                op_metrics_db =
+                    ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_plane);
+                UpdateOpMetricsDbFromHloModuleMap(op_metrics_db,
+                                                  hlo_module_map);
+              }
+            }
+          }));
+    }
+    threads.clear();
+    for (auto& op_metrics_db : all_op_metrics_dbs) {
+      op_metrics_db_combiner.Combine(op_metrics_db);
+    }
+  }
+
+  if (options.generate_step_db) {
+    std::vector<std::unique_ptr<tsl::Thread>> step_events_threads(
+        device_planes.size());
+    std::vector<StepEvents> all_step_events(device_planes.size());
+    tsl::ThreadOptions thread_options;
+    for (size_t i = 0; i < device_planes.size(); ++i) {
+      const XPlane* device_trace = device_planes[i];
+      auto& step_events = all_step_events[i];
+      step_events_threads.emplace_back(tsl::Env::Default()->StartThread(
+          thread_options, "step_events_events", [device_trace, &step_events]() {
+            step_events = ConvertDeviceTraceXPlaneToStepEvents(*device_trace);
+          }));
+    }
+    step_events_threads.clear();
+    for (auto& device_step_events : all_step_events) {
       if (is_tpu) {
         // In TPU, we take the intersection of step events across cores as well
         // as hosts.see b/158249775 and cl/331842545.
@@ -361,6 +389,8 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
         UnionCombineStepEvents(device_step_events, &step_events);
       }
     }
+  }
+  for (const XPlane* device_trace : device_planes) {
     if (options.generate_kernel_stats_db) {
       ConvertDeviceTraceXPlaneToKernelReports(
           *device_trace,
@@ -383,33 +413,60 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
           },
           &reports);
     }
-    XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_trace);
-    DutyCycleTracker duty_cycle_tracker = ConstructDutyCycleTracker(visitor);
-    if (std::optional<XStatVisitor> core_details_stat =
-            visitor.GetStat(StatType::kCoreDetails)) {
-      CoreDetails core_details;
-      absl::string_view core_details_bytes = core_details_stat->BytesValue();
-      if (core_details.ParseFromArray(core_details_bytes.data(),
-                                      core_details_bytes.size())) {
-        core_details.set_hostname(hostname);
-        // This is a backfill for XPlanes that were create before this field was
-        // added.
-        core_details.set_is_sparse_core(
-            tsl::profiler::GetSparseCoreId(device_trace->name()).has_value());
-        core_id_to_details_map[device_trace->id()] = core_details;
-      }
-    }
-    if (core_id_to_details_map.contains(device_trace->id())) {
-      CoreDetails& core_details = core_id_to_details_map[device_trace->id()];
-      duty_cycle_combiner.CombineCore(duty_cycle_tracker,
-                                      core_details.local_chip_id());
+  }
+  struct DeviceTraceResult {
+    DutyCycleTracker duty_cycle_tracker;
+    std::optional<CoreDetails> core_details;
+  };
+  std::vector<DeviceTraceResult> device_trace_results(device_planes.size());
+  std::vector<std::unique_ptr<tsl::Thread>> device_trace_threads;
+  tsl::ThreadOptions thread_options;
+  device_trace_threads.reserve(device_planes.size());
+  for (size_t i = 0; i < device_planes.size(); ++i) {
+    const XPlane* device_trace = device_planes[i];
+    auto& device_trace_result = device_trace_results[i];
+    device_trace_threads.emplace_back(tsl::Env::Default()->StartThread(
+        thread_options, "device_trace_events",
+        [device_trace, &hostname, &device_trace_result]() {
+          XPlaneVisitor visitor =
+              tsl::profiler::CreateTfXPlaneVisitor(device_trace);
+          DutyCycleTracker duty_cycle_tracker =
+              ConstructDutyCycleTracker(visitor);
+          std::optional<CoreDetails> core_details;
+          if (std::optional<XStatVisitor> core_details_stat =
+                  visitor.GetStat(StatType::kCoreDetails)) {
+            core_details.emplace();
+            absl::string_view core_details_bytes =
+                core_details_stat->BytesValue();
+            if (core_details->ParseFromArray(core_details_bytes.data(),
+                                             core_details_bytes.size())) {
+              core_details->set_hostname(hostname);
+              // This is a backfill for XPlanes that were create before this
+              // field was added.
+              core_details->set_is_sparse_core(
+                  tsl::profiler::GetSparseCoreId(device_trace->name())
+                      .has_value());
+            } else {
+              core_details.reset();
+            }
+          }
+          device_trace_result = {duty_cycle_tracker, core_details};
+        }));
+  }
+  device_trace_threads.clear();
+  for (size_t i = 0; i < device_planes.size(); ++i) {
+    const XPlane* device_trace = device_planes[i];
+    auto result = device_trace_results[i];
+    if (result.core_details.has_value()) {
+      core_id_to_details_map[device_trace->id()] = *result.core_details;
+      duty_cycle_combiner.CombineCore(result.duty_cycle_tracker,
+                                      result.core_details->local_chip_id());
     } else {
       LOG(WARNING) << "No CoreDetails found for TPU device plane: "
                    << device_trace->name();
-      duty_cycle_combiner.CombineChip(duty_cycle_tracker);
+      duty_cycle_combiner.CombineChip(result.duty_cycle_tracker);
     }
   }
-
   if (is_tpu) {
     OpMetricsDb& op_metrics_db = *op_stats.mutable_device_op_metrics_db();
     op_metrics_db.set_idle_time_ps(duty_cycle_combiner.GetTotalIdleTimePs());

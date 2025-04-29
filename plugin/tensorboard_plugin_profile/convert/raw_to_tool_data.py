@@ -183,11 +183,18 @@ def xspace_to_tool_data(
     if success:
       data = json_data
   elif tool == 'graph_viewer':
+    download_hlo_types = ['pb', 'pbtxt', 'json', 'short_txt', 'long_txt']
+    graph_html_type = 'graph'
     options = params.get('graph_viewer_options', {})
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
-      content_type = 'text/html'
+      content_type = 'text/plain'
+      data_type = options.get('type', '')
+      if (data_type in download_hlo_types):
+        content_type = 'application/octet-stream'
+      if data_type == graph_html_type:
+        content_type = 'text/html'
     else:
       # TODO(tf-profiler) Handle errors for other tools as well,
       # to pass along the error message to client

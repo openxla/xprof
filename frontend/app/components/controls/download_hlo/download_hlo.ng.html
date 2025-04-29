@@ -1,0 +1,11 @@
+<div class="save-button" [matMenuTriggerFor]="download">
+  <mat-icon matTooltip="Download HloProto of the selected module"
+            matTooltipPosition="right">save_alt</mat-icon>
+</div>
+<mat-menu #download="matMenu">
+  <button mat-menu-item
+          *ngFor="let item of downloadMenuItems"
+          (click)="downloadHloProto(item.value)">
+    <span> {{ item.text }}</span>
+  </button>
+</mat-menu>

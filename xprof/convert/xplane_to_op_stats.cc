@@ -59,7 +59,6 @@ limitations under the License.
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_utils.h"
-#include "xprof/utils/xprof_gpu_cost_analysis.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -327,8 +326,13 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
         []() { return nullptr; };
     if (is_gpu) {
       create_cost_analysis = []() {
-        return tensorflow::profiler::CreateXprofGpuCostAnalysis();
+        return tensorflow::profiler::GetHloCostAnalysisWrapperRegistry().Get(
+          "XprofGpuCostAnalysis")(UsageData());
       };
+      if (!create_cost_analysis) {
+        LOG(ERROR)
+            << "xplane_to_op_stats: Failed to create XprofGpuCostAnalysis";
+      }
     }
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }

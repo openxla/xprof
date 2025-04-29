@@ -12,6 +12,18 @@ package_group(
 )
 
 cc_library(
+    name = "xprof_gpu_cost_analysis_registration",
+    srcs = ["xprof_gpu_cost_analysis_registration.cc"],
+    deps = [
+        ":hlo_cost_analysis_wrapper",
+        ":xprof_gpu_cost_analysis",
+        "//base:googleinit",
+        "@com_google_absl//absl/log",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "diagnostics",
     srcs = ["diagnostics.cc"],
     hdrs = ["diagnostics.h"],
@@ -458,6 +470,8 @@ cc_library(
     hdrs = ["hlo_cost_analysis_wrapper.h"],
     deps = [
         ":cost_utils",
+        ":function_registry",
+        "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log",
@@ -467,7 +481,6 @@ cc_library(
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_cost_analysis",
-        "@xla//xla/tsl/profiler/convert:xla_op_utils",
     ],
 )
 
@@ -528,5 +541,33 @@ cc_library(
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:tensorflow_datatypes_proto_cc",
         "@tsl//tsl/platform:strcat",
         "@xla//xla/tsl/platform:types",
+    ],
+)
+
+cc_library(
+    name = "function_registry",
+    hdrs = ["function_registry.h"],
+    deps = [
+        "//base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:source_location",
+    ],
+)
+
+cc_test(
+    name = "function_registry_test",
+    srcs = ["function_registry_test.cc"],
+    tags = [
+        "pg3",
+    ],
+    deps = [
+        ":function_registry",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:source_location",
+        "@com_google_googletest//:gtest_main",
     ],
 )

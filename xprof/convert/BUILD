@@ -411,7 +411,6 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:kernel_stats_utils",
         "@org_xprof//xprof/utils:op_utils",
-        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",

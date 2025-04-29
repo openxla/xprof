@@ -19,6 +19,7 @@ limitations under the License.
 #include <memory>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -28,6 +29,11 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+
+HloCostAnalysisWrapperRegistry& GetHloCostAnalysisWrapperRegistry() {
+  static absl::NoDestructor<HloCostAnalysisWrapperRegistry> registry;
+  return *registry;
+}
 
 int64_t HloCostAnalysisWrapper::GetModelFlops(
     const xla::HloInstruction& hlo) const {

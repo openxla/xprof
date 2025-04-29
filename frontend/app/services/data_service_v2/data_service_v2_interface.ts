@@ -9,6 +9,8 @@ import {Observable} from 'rxjs';
 
 /** The data service class that calls API and return response. */
 export interface DataServiceV2Interface {
+  searchParams?: URLSearchParams;
+
   getData(
       sessionId: string,
       tool: string,

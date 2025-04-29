@@ -1,9 +1,8 @@
 import {Component, NgModule, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
-import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
+import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -19,25 +18,29 @@ import {KernelStatsModule} from './kernel_stats_module';
 export class KernelStatsAdapter implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  readonly tool = 'kernel_stats';
   sessionId = '';
-  tool = '';
   host = '';
 
   constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.update(params as NavigationEvent);
+      this.processQuery(params);
+      this.update();
     });
+    this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
-  update(event: NavigationEvent) {
+  processQuery(params: Params) {
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+    this.host = params['host'] || this.host;
+  }
+
+  update() {
     const params = {
-      run: event.run || '',
-      tag: event.tag || 'kernel_stats',
-      host: event.host || '',
+      sessionId: this.sessionId,
+      tool: this.tool,
+      host: this.host,
     };
-    this.sessionId = params.run;
-    this.tool = params.tag;
-    this.host = params.host;
     this.store.dispatch(setDataRequestStateAction(
         {dataRequest: {type: DataRequestType.KERNEL_STATS, params}}));
   }

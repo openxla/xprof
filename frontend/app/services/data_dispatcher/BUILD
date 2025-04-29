@@ -13,6 +13,7 @@ ts_library(
         "@npm//@ngrx/store",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
         "@org_xprof//frontend/app/store:types",
         "@org_xprof//frontend/app/store/common_data_store",
@@ -44,6 +45,7 @@ xprof_ng_module(
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/services/data_service",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

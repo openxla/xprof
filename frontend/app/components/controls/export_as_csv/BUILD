@@ -16,10 +16,8 @@ xprof_ng_module(
     deps = [
         "@npm//@angular/common",
         "@npm//@angular/core",
-        "@npm//@ngrx/store",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
-        "@org_xprof//frontend/app/store",
     ],
 )
 

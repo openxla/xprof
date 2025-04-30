@@ -43,6 +43,8 @@ export interface DataServiceV2Interface {
       ): Observable<string|Blob|null>;
 
   setSearchParams(params: URLSearchParams): void;
+
+  exportDataAsCSV(sessionId: string, tool: string, host: string): void;
 }
 
 /** Injection token for the data service interface. */

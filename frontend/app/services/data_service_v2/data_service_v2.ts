@@ -11,6 +11,7 @@ import {DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_servi
 import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
+import {windowOpen} from 'safevalues/dom';
 
 /** The data service class that calls API and return response. */
 @Injectable()
@@ -140,5 +141,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   setSearchParams(params: URLSearchParams) {
     this.searchParams = params;
+  }
+
+  exportDataAsCSV(sessionId: string, tool: string, host: string) {
+    const params = new HttpParams()
+                       .set('run', sessionId)
+                       .set('tag', tool)
+                       .set('host', host)
+                       .set('tqx', 'out:csv;');
+    windowOpen(
+        window, this.pathPrefix + DATA_API + '?' + params.toString(), '_blank');
   }
 }

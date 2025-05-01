@@ -1,5 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "xprof_ng_module", ts_library = "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -9,7 +8,7 @@ xprof_ng_module(
         "chart.ts",
     ],
     deps = [
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/interfaces:chart",
     ],
 )
@@ -20,7 +19,7 @@ xprof_ng_module(
         "default_data_provider.ts",
     ],
     deps = [
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
     ],
@@ -47,7 +46,7 @@ ts_library(
         "chart_options.ts",
     ],
     deps = [
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
     ],
 )
 

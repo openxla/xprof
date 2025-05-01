@@ -1,5 +1,5 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:sass.bzl", "sass_binary")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,9 +14,9 @@ xprof_ng_module(
         "op_table.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@ngrx/store",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@ngrx/store",
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/components/op_profile/op_table_entry",

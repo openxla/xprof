@@ -188,6 +188,38 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
         valueKey: 'fw_max_vdd_core_pl4_power_watts',
       },
       {
+        title: 'Max VDD Core 0 FW PowerMeter PL1',
+        valueKey: 'fw_max_vdd_core_0_pl1_power_watts',
+      },
+      {
+        title: 'Max VDD Core 0 FW PowerMeter PL2',
+        valueKey: 'fw_max_vdd_core_0_pl2_power_watts',
+      },
+      {
+        title: 'Max VDD Core 0 FW PowerMeter PL3',
+        valueKey: 'fw_max_vdd_core_0_pl3_power_watts',
+      },
+      {
+        title: 'Max VDD Core 0 FW PowerMeter PL4',
+        valueKey: 'fw_max_vdd_core_0_pl4_power_watts',
+      },
+      {
+        title: 'Max VDD Core 1 FW PowerMeter PL1',
+        valueKey: 'fw_max_vdd_core_1_pl1_power_watts',
+      },
+      {
+        title: 'Max VDD Core 1 FW PowerMeter PL2',
+        valueKey: 'fw_max_vdd_core_1_pl2_power_watts',
+      },
+      {
+        title: 'Max VDD Core 1 FW PowerMeter PL3',
+        valueKey: 'fw_max_vdd_core_1_pl3_power_watts',
+      },
+      {
+        title: 'Max VDD Core 1 FW PowerMeter PL4',
+        valueKey: 'fw_max_vdd_core_1_pl4_power_watts',
+      },
+      {
         title: 'Max HBM FW PowerMeter PL1',
         valueKey: 'fw_max_hbm_pl1_power_watts',
       },
@@ -203,12 +235,46 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
         title: 'Max HBM FW PowerMeter PL4',
         valueKey: 'fw_max_hbm_pl4_power_watts',
       },
+      {
+        title: 'Max HBM 0 FW PowerMeter PL1',
+        valueKey: 'fw_max_hbm_0_pl1_power_watts',
+      },
+      {
+        title: 'Max HBM 0 FW PowerMeter PL2',
+        valueKey: 'fw_max_hbm_0_pl2_power_watts',
+      },
+      {
+        title: 'Max HBM 0 FW PowerMeter PL3',
+        valueKey: 'fw_max_hbm_0_pl3_power_watts',
+      },
+      {
+        title: 'Max HBM 0 FW PowerMeter PL4',
+        valueKey: 'fw_max_hbm_0_pl4_power_watts',
+      },
+      {
+        title: 'Max HBM 1 FW PowerMeter PL1',
+        valueKey: 'fw_max_hbm_1_pl1_power_watts',
+      },
+      {
+        title: 'Max HBM 1 FW PowerMeter PL2',
+        valueKey: 'fw_max_hbm_1_pl2_power_watts',
+      },
+      {
+        title: 'Max HBM 1 FW PowerMeter PL3',
+        valueKey: 'fw_max_hbm_1_pl3_power_watts',
+      },
+      {
+        title: 'Max HBM 1 FW PowerMeter PL4',
+        valueKey: 'fw_max_hbm_1_pl4_power_watts',
+      }
     ]
   },
   {
     title: 'SPI Sampler Power Metrics',
     tooltip:
         'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
+    description:
+        'HBM: HBM SPI Sampler PowerMeter; VDD: VDD Core SPI Sampler PowerMeter',
     getChildValues: (props) =>
         (((props as GeneralProps)['power_metrics']))?.split('##') || [],
   },

@@ -15,6 +15,18 @@ export const SCATTER_CHART_AXIS = {
   maxY: 1000000,
 };
 
+/**
+ * Set of metrics that need to be converted to TFLOP/s or TB/s
+ */
+export const CONVERT_TO_TERA_IDS = new Set<string>([
+  'peak_flop_rate',
+  'peak_hbm_bw',
+  'peak_vmem_read_bw',
+  'peak_vmem_write_bw',
+  'peak_cmem_read_bw',
+  'peak_cmem_write_bw',
+]);
+
 /** scatter base options for roofline chart */
 export const SCATTER_CHART_OPTIONS = {
   title: 'Roofline Model',
@@ -97,14 +109,14 @@ export const DEVICE_INFO = [
     id: 'peak_flop_rate',
     label: 'Peak FLOP Rate per TensorCore',
     type: 'number',
-    unit: 'GFLOP/s',
+    unit: 'TFLOP/s',
     display: true,
   },
   {
     id: 'peak_hbm_bw',
     label: 'Peak HBM Bandwidth per TensorCore',
     type: 'number',
-    unit: 'GiB/s',
+    unit: 'TB/s',
     context: '',
     display: true,
   },
@@ -112,28 +124,28 @@ export const DEVICE_INFO = [
     id: 'peak_vmem_read_bw',
     label: 'Peak VMEM Read Bandwidth per TensorCore',
     type: 'number',
-    unit: 'GiB/s',
+    unit: 'TB/s',
     display: true,
   },
   {
     id: 'peak_vmem_write_bw',
     label: 'Peak VMEM Write Bandwidth per TensorCore',
     type: 'number',
-    unit: 'GiB/s',
+    unit: 'TB/s',
     display: true,
   },
   {
     id: 'peak_cmem_read_bw',
     label: 'Peak CMEM Read Bandwidth per TensorCore',
     type: 'number',
-    unit: 'GiB/s',
+    unit: 'TB/s',
     display: true,
   },
   {
     id: 'peak_cmem_write_bw',
     label: 'Peak CMEM Write Bandwidth per TensorCore',
     type: 'number',
-    unit: 'GiB/s',
+    unit: 'TB/s',
     display: true,
   },
   {

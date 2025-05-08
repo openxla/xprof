@@ -1,7 +1,7 @@
 import {Component, inject, OnDestroy, ViewChild} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_STYLES, SCATTER_CHART_AXIS, SCATTER_CHART_OPTIONS,} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
+import {CONVERT_TO_TERA_IDS, DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_STYLES, SCATTER_CHART_AXIS, SCATTER_CHART_OPTIONS,} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
@@ -223,7 +223,12 @@ export class RooflineModel implements OnDestroy {
         acc.push({
           // convert numeric value to numbers, as some ridge numbers will be
           // used as axis values in chart
-          value: cur.type === 'number' ? Number(value) : value,
+          value: CONVERT_TO_TERA_IDS.has(cur.id) ?
+              // convert to TFLOP/s, TB/s for certain metrics
+              (cur.type === 'number' ?
+                   Number((Number(value) / 1024).toFixed(2)) :
+                   value) :
+              (cur.type === 'number' ? Number(value) : value),
           // put cur at last to overwrite with preprocessed data
           ...curInfo,
         });

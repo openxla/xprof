@@ -84,6 +84,7 @@ def get_run_environment_table_args(run_environment):
       "task_count": task_count,
       "device_type": run_environment.device_type,
       "device_core_count": device_core_count,
+      "is_training": run_environment.is_training,
   }
 
   return (table_description, data, custom_properties)

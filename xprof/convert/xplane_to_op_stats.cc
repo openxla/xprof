@@ -41,6 +41,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_combiner.h"
 #include "xprof/convert/duty_cycle_tracker.h"
+#include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "xprof/convert/xplane_to_kernel_stats_db.h"
@@ -509,6 +510,15 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     // All event generation should end in this block before we start combining
     executor->JoinAll();  // Wait for all scheduled tasks to complete.
                           // The cleanup blocks will execute after this step.
+  }
+
+  for (const auto& [program_id, hlo_module] : hlo_module_map) {
+    ModelTracker model_tracker;
+    model_tracker.ProcessHloModule(hlo_module);
+    if (model_tracker.IsTraining()) {
+      op_stats.mutable_run_environment()->set_is_training(true);
+      break;
+    }
   }
 
   // Start combining data.

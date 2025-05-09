@@ -1,7 +1,7 @@
-import {Injectable} from '@angular/core';
+import {inject, Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {DataRequest} from 'org_xprof/frontend/app/store/state';
 import {Observable} from 'rxjs';
 
@@ -16,7 +16,10 @@ export class DataDispatcher extends DataDispatcherBase {
     host: '',
   };
 
-  constructor(private readonly dataService: DataService, store: Store<{}>) {
+  private readonly dataService: DataServiceV2Interface =
+      inject(DATA_SERVICE_INTERFACE_TOKEN);
+
+  constructor(store: Store<{}>) {
     super(store);
   }
 
@@ -26,18 +29,18 @@ export class DataDispatcher extends DataDispatcherBase {
 
   // tslint:disable-next-line:no-any
   override load(dataRequest: DataRequest): Observable<any> {
-    const run = dataRequest.params.run || '';
-    const tag = dataRequest.params.tag || '';
+    const sessionId = dataRequest.params.sessionId || '';
+    const tool = dataRequest.params.tool || '';
     const host = dataRequest.params.host || '';
 
     if (dataRequest.type > DataRequestType.DATA_REQUEST_BEGIN &&
         dataRequest.type < DataRequestType.DATA_REQUEST_END) {
-      this.params.run = run;
-      this.params.tag = tag;
+      this.params.run = sessionId;
+      this.params.tag = tool;
       this.params.host = host;
     }
 
-    return this.dataService.getData(run, tag, host);
+    return this.dataService.getData(sessionId, tool, host);
   }
 
   // tslint:disable-next-line:no-any

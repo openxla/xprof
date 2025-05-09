@@ -15,7 +15,7 @@ xprof_ng_module(
         "@npm//@ngrx/store",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/constants",
-        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
         "@org_xprof//frontend/app/store/framework_op_stats",
     ],

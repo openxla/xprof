@@ -24,7 +24,9 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status.h"
+#include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -132,6 +134,40 @@ TEST(Repository, MismatchedXSpaceAndPath) {
 The host name of xpace path is hostname0 but the host name of preloaded xpace is hostname1.)";
   EXPECT_THAT(session_snapshot_or.status(),
               Eq(tsl::errors::InvalidArgument(error)));
+}
+
+TEST(Repository, ClearCacheFiles) {
+  // Create a temp directory for the test.
+  std::string temp_dir = ::testing::TempDir();
+  std::string profile_dir = tsl::io::JoinPath(temp_dir, "log/plugins/profile");
+  TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(profile_dir));
+  std::string xplane_path =
+      tsl::io::JoinPath(profile_dir, "hostname0.xplane.pb");
+
+  std::vector<std::unique_ptr<XSpace>> xspaces;
+  // prepare host 0.
+  auto space0 = std::make_unique<XSpace>();
+  *(space0->add_hostnames()) = "hostname0";
+  // with index 1 which shouldn't impact the space finding by name.
+  xspaces.push_back(std::move(space0));
+  auto session_snapshot_or =
+      SessionSnapshot::Create({xplane_path}, /*xspaces=*/std::nullopt);
+  TF_CHECK_OK(session_snapshot_or.status());
+
+  // Generate Dummy HLO OpStats file.
+  OpStats op_stats;
+  op_stats.set_allocated_run_environment(new RunEnvironment());
+  TF_CHECK_OK(session_snapshot_or.value().WriteBinaryProto(
+      StoredDataType::OP_STATS, "hostname0", op_stats));
+  auto opt_statsfile_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::OP_STATS, "hostname0");
+  EXPECT_TRUE(opt_statsfile_path.value().has_value());
+
+  // Check that the cache file should be deleted
+  TF_CHECK_OK(session_snapshot_or.value().ClearCacheFiles());
+  opt_statsfile_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::OP_STATS, "hostname0");
+  EXPECT_FALSE(opt_statsfile_path.value().has_value());
 }
 
 }  // namespace

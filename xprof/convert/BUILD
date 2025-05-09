@@ -1007,6 +1007,8 @@ cc_test(
         ":repository",
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:status",

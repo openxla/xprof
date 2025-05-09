@@ -1,3 +1,4 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 load("//defs:defs.bzl", "if_oss", "tf_profiler_alias")
 
 package(
@@ -1460,6 +1461,21 @@ cc_library(
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "model_tracker",
+    srcs = ["model_tracker.cc"],
+    hdrs = ["model_tracker.h"],
+    deps = [
+        "//base:logging",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/utils:hlo_module_map",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:tf_op_utils",
     ],
 )
 

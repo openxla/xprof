@@ -366,6 +366,7 @@ cc_library(
         ":hlo_proto_map",
         ":hlo_proto_to_module",
         ":performance_info_wrapper",
+        "//util/gtl:iterator_adaptors",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",

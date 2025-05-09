@@ -17,8 +17,11 @@ limitations under the License.
 #define XPROF_CONVERT_XPLANE_TO_KERNEL_STATS_DB_H_
 
 #include <functional>
+#include <memory>
+#include <string>
 
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/data_table_utils.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/kernel_stats_utils.h"
@@ -31,6 +34,11 @@ void ConvertDeviceTraceXPlaneToKernelReports(
     const std::function<void(const GpuEventStats&, KernelReport*)>&
         on_kernel_fn,
     KernelReportMap* reports);
+
+std::unique_ptr<DataTable> GenerateKernelStatsDataTable(
+    const KernelStatsDb& kernel_stats_db);
+
+std::string KernelStatsToDataTableJson(const KernelStatsDb& kernel_stats_db);
 
 }  // namespace profiler
 }  // namespace tensorflow

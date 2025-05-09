@@ -57,7 +57,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
         );
   }
 
-  getHttpParams(): HttpParams {
+  getHttpParams(sessionId: string|null, tool: string): HttpParams {
     let params = new HttpParams();
     if (this.searchParams) {
       this.searchParams.forEach((value, key) => {
@@ -125,7 +125,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     // Host is not specified for hlo text view now, as we assume metadata the
     // same across all hosts.
     const host = '';
-    const params = this.getHttpParams()
+    const params = this.getHttpParams('', '')
                        .set('run', sessionId)
                        .set('tag', tool)
                        .set('host', host)

@@ -171,7 +171,7 @@ py_test(
 py_library(
     name = "raw_to_tool_data",
     srcs = ["raw_to_tool_data.py"],
-    visibility = visibility,
+    visibility = visibility + ["//perftools/accelerators/xprof/benchmark/xprof_benchmarking_tools:__subpackages__"],
     deps = [
         ":csv_writer",
         ":dcn_collective_stats_proto_to_gviz",
@@ -210,8 +210,5 @@ py_library(
 py_test(
     name = "csv_writer_test",
     srcs = ["csv_writer_test.py"],
-    deps = [
-        ":csv_writer",
-        "//:expect_tensorflow_installed",
-    ],
+    deps = [":csv_writer"],
 )

@@ -32,7 +32,7 @@ export class OverviewPageBase {
   }
 
   get hasStepTimeGraphData(): boolean {
-    return !!this.inputPipelineAnalysis?.rows?.length;
+    return !!this.runEnvironment?.p && !!this.runEnvironment.p['is_training'];
   }
 }
 

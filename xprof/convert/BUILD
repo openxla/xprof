@@ -411,7 +411,7 @@ cc_library(
     deps = [
         ":duty_cycle_combiner",
         ":duty_cycle_tracker",
-        ":executor_interface",
+        ":model_tracker",
         ":op_metrics_db_combiner",
         ":step_events_to_steps_db",
         ":xplane_to_kernel_stats_db",
@@ -1460,6 +1460,21 @@ cc_library(
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "model_tracker",
+    srcs = ["model_tracker.cc"],
+    hdrs = ["model_tracker.h"],
+    deps = [
+        "//base:logging",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/utils:hlo_module_map",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:tf_op_utils",
     ],
 )
 

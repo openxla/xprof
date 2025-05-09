@@ -378,7 +378,7 @@ def validate_xplane_asset_paths(asset_paths: List[str]) -> None:
     FileNotFoundError: If any of the xplane asset paths do not exist.
   """
   for asset_path in asset_paths:
-    if asset_path.endswith(TOOLS['xplane']) and not epath.Path(
+    if str(asset_path).endswith(TOOLS['xplane']) and not epath.Path(
         asset_path
     ).exists():
       raise FileNotFoundError(f'Invalid asset path: {asset_path}')
@@ -671,9 +671,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
         data, content_type = convert.xspace_to_tool_data(
             asset_paths, tool, params)
       except AttributeError as e:
-        logger.warning('XPlane converters are available after Tensorflow 2.4')
+        logger.warning('Error generating analysis results due to %s', e)
         raise AttributeError(
-            'XPlane converters are available after Tensorflow 2.4'
+            'Error generating analysis results due to %s' % e
         ) from e
       except ValueError as e:
         logger.warning('XPlane convert to tool data failed as %s', e)

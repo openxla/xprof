@@ -1021,6 +1021,7 @@ cc_library(
         ":xplane_to_dcn_collective_stats",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:xplane_schema",

@@ -185,11 +185,13 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOverviewPage(
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
   OverviewPage overview_page = ConvertOpStatsToOverviewPage(combined_op_stats);
-  InferenceStats inference_stats;
-  TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(session_snapshot, "",
-                                                        "", &inference_stats));
-  *overview_page.mutable_inference_latency() =
-      ComputeInferenceLatencyResult(inference_stats);
+  if (!combined_op_stats.run_environment().is_training()) {
+    InferenceStats inference_stats;
+    TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(
+        session_snapshot, "", "", &inference_stats));
+    *overview_page.mutable_inference_latency() =
+        ComputeInferenceLatencyResult(inference_stats);
+  }
   return overview_page.SerializeAsString();
 }
 

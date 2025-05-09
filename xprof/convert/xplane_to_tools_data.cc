@@ -405,13 +405,15 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
   } else if (tool_name == "roofline_model") {
     return ConvertMultiXSpacesToRooflineModel(session_snapshot);
   } else if (tool_name == "memory_viewer" || tool_name == "graph_viewer") {
+    return ConvertHloProtoToToolData(session_snapshot, tool_name, options);
+  } else if (tool_name == "tool_names") {
+    // Generate the proto cache for hlo_proto tool.
+    // This is needed for getting the module list.
     TF_ASSIGN_OR_RETURN(bool hlo_proto_status,
                         ConvertMultiXSpaceToHloProto(session_snapshot));
     if (!hlo_proto_status) {
       return absl::NotFoundError("No HLO proto found in XSpace.");
     }
-    return ConvertHloProtoToToolData(session_snapshot, tool_name, options);
-  } else if (tool_name == "tool_names") {
     return GetAvailableToolNames(session_snapshot);
   } else if (tool_name == "_xplane.pb") {  // internal test only.
     return PreprocessXSpace(session_snapshot);

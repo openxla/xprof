@@ -8,11 +8,11 @@ utilizes hardware resources, identify performance bottlenecks, and optimize your
 model for faster execution. The Trace Viewer UI is based on the one used in
 `chrome://tracing` and therefore requires that you use the Chrome browser.
 
+![Trace Viewer](images/trace_viewer.png)
+
 ### Supported Platforms
 
-TPU: supported
-
-GPU: supported
+Both TPU and GPU are supported.
 
 The Trace Viewer for GPUs groups events on timelines per GPU chip and the
 streams within it, while for TPUs, it organizes events on timelines per TPU chip

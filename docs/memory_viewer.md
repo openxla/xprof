@@ -10,11 +10,11 @@ All information displayed in Memory Viewer is purely static, obtained from the
 XLA compiler; dynamic runtime information is presented in the Memory Profile
 tool.
 
+![Memory Viewer](images/memory_viewer.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Memory Viewer Components
 

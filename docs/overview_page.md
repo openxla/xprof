@@ -5,11 +5,11 @@ performed during a profile run, how well it utilized hardware resources, and so
 on. The overview page acts as a starting point to pursue more detailed analysis
 using the other tools within XProf.
 
+![Tensorboard overview page](images/tensorboard_overview.png)
+
 ### Supported Platforms
 
-TPU: supported
-
-GPU: supported
+Both TPU and GPU are supported.
 
 The overview page adapts the information it shows based on the type of
 accelerator being profiled. For TPUs, for instance, it shows a matrix-unit

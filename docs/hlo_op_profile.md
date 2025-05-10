@@ -4,11 +4,11 @@ You can use the HLO Op Profile tool to understand hardware performance for
 different categories of High Level Operation (HLO) ops executed during the
 profiling period.
 
+![HLO Op Profile](images/hlo_op_profile.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Using the HLO Op Profile tool
 

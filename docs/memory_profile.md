@@ -3,11 +3,13 @@
 You can use Memory Profile to visualize the memory usage over time of your
 accelerators.
 
+![Memory Profile](images/memory_profile.png)
+
+![Memory Profile](images/memory_profile_2.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Using the Memory Profile Tool
 

@@ -6,14 +6,14 @@ valuable for identifying potential targets for performance optimization by
 highlighting the most time-consuming operations within your HLO graph during the
 profiled period.
 
+![Tensorboard HLO Op Stats](images/hlo_op_stats.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 For GPUs, HLO ops have an N:M relationship with the kernels that actually get
-executed. For statistics at the kernel level, see the GPU Kernel Stats tool.
+executed. For statistics at the kernel level, see the _GPU Kernel Stats_ tool.
 
 ### HLO Op Stats Tool Components
 
@@ -59,6 +59,8 @@ The HLO Op Stats tool has the following key components:
         instances.
 
 ### HLO Operation Statistics Table Details
+
+![Tensorboard HLO Op Stats Table](images/hlo_op_stats_2.png)
 
 You can click any of the column headings to sort the HLO operation statistics
 table. The default order is based on the total self time of the op (labeled

@@ -5,9 +5,7 @@ It displays the High Level Operations (HLO) graph.
 
 ### Supported Platforms
 
-TPU: supported
-
-GPU: supported
+Both TPU and GPU are supported.
 
 ### Interface Components
 

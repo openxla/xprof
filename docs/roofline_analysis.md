@@ -6,11 +6,12 @@ performance. Specifically, it focuses on whether the program is memory-bound or
 compute-bound, and how close the program's performance is to the hardware's
 theoretical peak performance, represented as a "roofline".
 
+![Roofline Analysis](images/roofline_1.png)
+![Roofline Analysis](images/roofline_2.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported (in beta)
+Both TPU and GPU are supported, with GPU support in beta.
 
 ### What is the Roofline Chart
 

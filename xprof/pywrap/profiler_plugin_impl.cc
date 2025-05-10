@@ -36,9 +36,36 @@ namespace xprof {
 namespace pywrap {
 
 using ::tensorflow::profiler::ConvertMultiXSpacesToToolData;
+using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
+
+absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
+    const absl::StatusOr<SessionSnapshot>& status_or_session_snapshot,
+    const std::string& tool_name, const ToolOptions& tool_options) {
+  if (!status_or_session_snapshot.ok()) {
+    LOG(ERROR) << status_or_session_snapshot.status().message();
+    return std::make_pair("", false);
+  }
+
+  // If use_cache is False, clear the cache files before converting to tool
+  // data.
+  std::optional<bool> use_cache = GetParam<bool>(tool_options, "use_cache");
+  if (use_cache.has_value() && !use_cache.value()) {
+    TF_RETURN_IF_ERROR(status_or_session_snapshot->ClearCacheFiles());
+  }
+
+  absl::StatusOr<std::string> status_or_tool_data =
+      ConvertMultiXSpacesToToolData(status_or_session_snapshot.value(),
+                                    tool_name, tool_options);
+  if (!status_or_tool_data.ok()) {
+    LOG(ERROR) << status_or_tool_data.status().message();
+    return std::make_pair(std::string(status_or_tool_data.status().message()),
+                          false);
+  }
+  return std::make_pair(status_or_tool_data.value(), true);
+}
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,
@@ -57,20 +84,8 @@ absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
     const ToolOptions& tool_options) {
   auto status_or_session_snapshot = SessionSnapshot::Create(
       std::move(xspace_paths), /*xspaces=*/std::nullopt);
-  if (!status_or_session_snapshot.ok()) {
-    LOG(ERROR) << status_or_session_snapshot.status().message();
-    return std::make_pair("", false);
-  }
-
-  absl::StatusOr<std::string> status_or_tool_data =
-      ConvertMultiXSpacesToToolData(status_or_session_snapshot.value(),
-                                    tool_name, tool_options);
-  if (!status_or_tool_data.ok()) {
-    LOG(ERROR) << status_or_tool_data.status().message();
-    return std::make_pair(std::string(status_or_tool_data.status().message()),
-                          false);
-  }
-  return std::make_pair(status_or_tool_data.value(), true);
+  return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
+                                    tool_options);
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
@@ -96,22 +111,8 @@ absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
 
   auto status_or_session_snapshot =
       SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces));
-
-  if (!status_or_session_snapshot.ok()) {
-    LOG(ERROR) << status_or_session_snapshot.status().message();
-    return std::make_pair("", false);
-  }
-
-  absl::StatusOr<std::string> status_or_tool_data =
-      ConvertMultiXSpacesToToolData(status_or_session_snapshot.value(),
-                                    tool_name, tool_options);
-
-  if (!status_or_tool_data.ok()) {
-    LOG(ERROR) << status_or_tool_data.status().message();
-    return std::make_pair(std::string(status_or_tool_data.status().message()),
-                          false);
-  }
-  return std::make_pair(status_or_tool_data.value(), true);
+  return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
+                                    tool_options);
 }
 
 }  // namespace pywrap

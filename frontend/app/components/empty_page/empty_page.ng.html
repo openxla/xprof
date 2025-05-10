@@ -12,6 +12,23 @@
 <ng-template #no_profile_data>
   <div class="container">
     <h3>No profile data was found.</h3>
+    <p>Probable causes:</p>
+    <ul>
+      <li>You haven’t captured or uploaded any profile data.</li>
+      <li>TensorBoard can’t access your profile data.
+        <ul>
+        <li>If using Vertex AI TensorBoard, you must grant "Vertex AI Service Agent" IAM role to the
+          "cloud-tensorboard-web-app&#64;system.gserviceaccount.com"
+          <a
+            href="https://cloud.google.com/iam/docs/create-service-agents#grant-role-to-service-agent-console"
+            rel="noopener"
+            target="_blank"
+            >service account</a
+          >.
+        </li>
+        </ul>
+      </li>
+    </ul>
     <div class="horizontal-center">
       <capture-profile></capture-profile>
     </div>

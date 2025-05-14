@@ -12,6 +12,8 @@ import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 
+const USE_SAVED_RESULT = 'use_saved_result';
+
 /** The data service class that calls API and return response. */
 @Injectable()
 export class DataServiceV2 implements DataServiceV2Interface {
@@ -67,16 +69,33 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return params;
   }
 
-  getData(
-      sessionId: string, tool: string, host: string,
-      parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
-    let params = new HttpParams()
-                     .set('run', sessionId)
-                     .set('tag', tool)
-                     .set('host', host);
+  /*
+   * Prevent cache regeneration for subsequent data queries.
+   */
+  private disableCacheRegeneration() {
+    if (this.searchParams && this.searchParams.has(USE_SAVED_RESULT)) {
+      this.searchParams.delete(USE_SAVED_RESULT);
+    }
+  }
+
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host: string,
+      parameters: Map<string, string>): HttpParams {
+    let params =
+        this.getHttpParams().set('run', run).set('tag', tag).set('host', host);
     parameters.forEach((value, key) => {
       params = params.set(key, value);
     });
+
+    this.disableCacheRegeneration();
+    return params;
+  }
+
+  getData(
+      sessionId: string, tool: string, host: string,
+      parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
+    const params =
+        this.getHTTPParamsForDataQuery(sessionId, tool, host, parameters);
     return this.get(this.pathPrefix + DATA_API, {'params': params}) as
         Observable<DataTable>;
   }

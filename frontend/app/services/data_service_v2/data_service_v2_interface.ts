@@ -2,6 +2,7 @@
  * @fileoverview Data service interface meant to accommodate different implementations
  */
 
+import {HttpParams} from '@angular/common/http';
 import {InjectionToken} from '@angular/core';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
@@ -11,6 +12,10 @@ import {Observable} from 'rxjs';
 /** The data service class that calls API and return response. */
 export interface DataServiceV2Interface {
   searchParams?: URLSearchParams;
+
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host: string,
+      parameters: Map<string, string>): HttpParams;
 
   getData(
       sessionId: string,

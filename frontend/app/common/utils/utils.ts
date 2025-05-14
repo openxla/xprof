@@ -1,9 +1,10 @@
 import {Store} from '@ngrx/store';
-import {Node as OpProfileNode} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
+import {ALLOWED_NON_PERSISTENT_PARAMS} from 'org_xprof/frontend/app/common/constants/constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DataTableUnion, PodStatsRecord, SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
+import {Node as OpProfileNode} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 
 const PRIMITIVE_TYPE_BYTE_SIZE: {[key: string]: number} = {
   'BF16': 2,
@@ -454,4 +455,19 @@ export function convertToSourceTopLine(
     return fileName;
   }
   return `${fileName}:${lineNumber}`;
+}
+
+/**
+ * Returns a map of params that are allowed to be non-persistent across tools
+ * and runs. Persistent params should be part of sidenav naviation params.
+ */
+export function filterAllowedNonPersistentParams(params: URLSearchParams):
+    URLSearchParams {
+  const filteredParams = new URLSearchParams();
+  params.forEach((value, key) => {
+    if (ALLOWED_NON_PERSISTENT_PARAMS.includes(key)) {
+      filteredParams.set(key, value);
+    }
+  });
+  return filteredParams;
 }

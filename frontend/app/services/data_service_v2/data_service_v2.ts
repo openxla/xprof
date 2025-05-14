@@ -2,10 +2,11 @@ import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {API_PREFIX, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, LOCAL_URL, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
+import {API_PREFIX, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, LOCAL_URL, PLUGIN_NAME, USE_SAVED_RESULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {filterAllowedNonPersistentParams} from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
@@ -17,7 +18,7 @@ import {catchError} from 'rxjs/operators';
 export class DataServiceV2 implements DataServiceV2Interface {
   isLocalDevelopment = false;
   pathPrefix = '';
-  searchParams?: URLSearchParams;
+  nonPersistentSearchParams?: URLSearchParams;
 
   constructor(
       private readonly httpClient: HttpClient,
@@ -29,7 +30,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
       this.pathPrefix =
           String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
     }
-    this.searchParams = new URLSearchParams(window.location.search);
+    // Non-persistent search params should not be used across tools and runs.
+    if (!!window.parent.location.search) {
+      this.nonPersistentSearchParams = filterAllowedNonPersistentParams(
+          new URLSearchParams(window.parent.location.search));
+    }
   }
 
   private get<T>(
@@ -57,7 +62,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
         );
   }
 
-  getHttpParams(sessionId: string|null, tool: string): HttpParams {
+  getHttpParams(sessionId: string|null, tool: string, host?: string):
+      HttpParams {
     let params = new HttpParams();
     if (sessionId) {
       params = params.set('run', sessionId);
@@ -65,24 +71,44 @@ export class DataServiceV2 implements DataServiceV2Interface {
     if (tool) {
       params = params.set('tag', tool);
     }
-    if (this.searchParams) {
-      this.searchParams.forEach((value, key) => {
+    if (host) {
+      params = params.set('host', host);
+    }
+    if (this.nonPersistentSearchParams) {
+      this.nonPersistentSearchParams.forEach((value, key) => {
         params = params.set(key, value);
       });
     }
     return params;
   }
 
+  /*
+   * Prevent cache regeneration for subsequent data queries.
+   */
+  private disableCacheRegeneration() {
+    if (this.nonPersistentSearchParams &&
+        this.nonPersistentSearchParams.has(USE_SAVED_RESULT)) {
+      this.nonPersistentSearchParams.delete(USE_SAVED_RESULT);
+    }
+  }
+
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host?: string,
+      parameters?: Map<string, string>): HttpParams {
+    let params = this.getHttpParams(run, tag, host);
+    parameters && parameters.forEach((value, key) => {
+      params = params.set(key, value);
+    });
+
+    this.disableCacheRegeneration();
+    return params;
+  }
+
   getData(
       sessionId: string, tool: string, host: string,
       parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
-    let params = new HttpParams()
-                     .set('run', sessionId)
-                     .set('tag', tool)
-                     .set('host', host);
-    parameters.forEach((value, key) => {
-      params = params.set(key, value);
-    });
+    const params =
+        this.getHTTPParamsForDataQuery(sessionId, tool, host, parameters);
     return this.get(this.pathPrefix + DATA_API, {'params': params}) as
         Observable<DataTable>;
   }
@@ -214,11 +240,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   setSearchParams(params: URLSearchParams) {
-    this.searchParams = params;
+    this.nonPersistentSearchParams = params;
   }
 
   getSearchParams(): URLSearchParams {
-    return this.searchParams || new URLSearchParams();
+    return this.nonPersistentSearchParams || new URLSearchParams();
   }
 
   exportDataAsCSV(sessionId: string, tool: string, host: string) {

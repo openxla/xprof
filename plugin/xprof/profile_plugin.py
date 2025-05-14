@@ -32,6 +32,7 @@ from etils import epath
 import six
 from werkzeug import wrappers
 
+from xprof import version
 from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import context as tb_context
@@ -74,6 +75,7 @@ HOSTS_ROUTE = '/hosts'
 HLO_MODULE_LIST_ROUTE = '/module_list'
 CAPTURE_ROUTE = '/capture_profile'
 LOCAL_ROUTE = '/local'
+CACHE_VERSION_FILE = 'cache_version.txt'
 
 # Suffixes of "^, #, @" symbols represent different input data formats for the
 # same tool.
@@ -621,15 +623,35 @@ class ProfilePlugin(base_plugin.TBPlugin):
     host = request.args.get('host')
     module_name = request.args.get('module_name')
     tqx = request.args.get('tqx')
+    use_saved_result_str = request.args.get('use_saved_result', 'true')
+    use_saved_result = use_saved_result_str.lower() != 'false'
+    run_dir = self._run_dir(run)
+
+    # Check if the cache file exists and if the version is the same as the
+    # current version. If not, set use_saved_result to False.
+    try:
+      if epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).exists():
+        with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+            'r'
+        ) as f:
+          cache_version = f.read().strip()
+          if cache_version != version.__version__:
+            use_saved_result = False
+      else:
+        use_saved_result = False
+    except OSError as e:
+      logger.warning('Cannot read cache version file: %s', e)
+      use_saved_result = False
+
     graph_viewer_options = self._get_graph_viewer_options(request)
     # Host param is used by HLO tools to identify the module.
     params = {
         'graph_viewer_options': graph_viewer_options,
         'tqx': tqx,
         'host': host,
-        'module_name': module_name
+        'module_name': module_name,
+        'use_saved_result': use_saved_result,
     }
-    run_dir = self._run_dir(run)
     content_type = 'application/json'
 
     if tool not in TOOLS and not use_xplane(tool):
@@ -683,6 +705,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
       except FileNotFoundError as e:
         logger.warning('XPlane convert to tool data failed as %s', e)
         raise e
+
+      # Write cache version file if use_saved_result is False.
+      if not use_saved_result:
+        try:
+          with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+              'w'
+          ) as f:
+            f.write(version.__version__)
+        except OSError as e:
+          logger.warning('Cannot write cache version file: %s', e)
+
       return data, content_type, content_encoding
 
     logger.info('%s does not use xplane', tool)

@@ -174,5 +174,26 @@ absl::StatusOr<std::pair<bool, std::string>> SessionSnapshot::HasCacheFile(
   return std::pair<bool, std::string>(false, std::string());
 }
 
+absl::Status SessionSnapshot::ClearCacheFiles() const {
+  if (!has_accessible_run_dir_) return absl::OkStatus();
+
+  // Delete all the cache files in session run directory for all cache types
+  std::vector<std::string> results;
+  TF_RETURN_IF_ERROR(::tsl::Env::Default()->GetChildren(
+      std::string(GetSessionRunDir()), &results));
+
+  for (const std::string& path : results) {
+    std::string file_path = tsl::io::JoinPath(GetSessionRunDir(), path);
+    for (const auto& format : *kHostDataSuffixes) {
+      if (absl::EndsWith(path, format.second)) {
+        TF_RETURN_IF_ERROR(tsl::Env::Default()->DeleteFile(file_path));
+        break;
+      }
+    }
+  }
+
+  return absl::OkStatus();
+}
+
 }  // namespace profiler
 }  // namespace tensorflow

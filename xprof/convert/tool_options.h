@@ -40,7 +40,7 @@ static constexpr int kDefaultShowMetadata = 0;
 static constexpr int kDefaultMergeFusion = 0;
 
 using ToolOptions =
-    absl::flat_hash_map<std::string, std::variant<int, std::string>>;
+    absl::flat_hash_map<std::string, std::variant<bool, int, std::string>>;
 
 // Helper function to get parameter from tool options.
 template <typename T>

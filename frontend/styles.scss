@@ -1,6 +1,6 @@
 @use '@angular/material' as mat;
 
-$typography-config: mat.define-typography-config();
+$typography-config: mat.m2-define-typography-config();
 
 @include mat.all-component-typographies($typography-config);
 @include mat.core();
@@ -8,10 +8,10 @@ $typography-config: mat.define-typography-config();
 @include mat.typography-hierarchy($typography-config);
 @include mat.legacy-typography-hierarchy($typography-config);
 
-$primary: mat.define-palette(mat.$orange-palette, 600);
-$accent: mat.define-palette(mat.$orange-palette, 600, 100, 700);
-$warn: mat.define-palette(mat.$red-palette, 600);
-$theme: mat.define-light-theme(
+$primary: mat.m2-define-palette(mat.$m2-orange-palette, 600);
+$accent: mat.m2-define-palette(mat.$m2-orange-palette, 600, 100, 700);
+$warn: mat.m2-define-palette(mat.$m2-red-palette, 600);
+$theme: mat.m2-define-light-theme(
   (
     color: (
       primary: $primary,
@@ -89,7 +89,7 @@ body {
 overview recommendation-result-view .bottleneck-tips li a,
 overview recommendation-result-view .documentation-tips li a,
 input-pipeline host-side-analysis-detail .recommendations a {
-  color: mat.get-color-from-palette($primary, default);
+  color: mat.m2-get-color-from-palette($primary, default);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -106,7 +106,7 @@ sidenav mat-form-field.mat-primary .mat-form-field-infix {
 }
 
 sidenav mat-form-field.mat-focused .mat-form-field-infix {
-  border: 2px solid mat.get-color-from-palette($primary, default);
+  border: 2px solid mat.m2-get-color-from-palette($primary, default);
   border-bottom: none;
 }
 

@@ -46,7 +46,7 @@ The HLO Op Stats tool has the following key components:
     *   Time spent on outside compilation: Outside compilation is a TensorFlow
         feature that enables certain ops within an XLA computation to
         transparently run on the host CPU rather than the accelerator device
-        (e.g., tf.summary or tf.print that requires I/O access that the device
+        (e.g., `tf.summary` or `tf.print` that requires I/O access that the device
         does not possess).
     *   A chart plotting the GFLOPS/s for all HLO operations, ordered by total
         self time.
@@ -68,12 +68,12 @@ table. The default order is based on the total self time of the op (labeled
 
 The table includes the following information for each HLO operation:
 
-*   Operation Name: The unique name assigned to the HLO operation by the XLA
-    compiler.
 *   Program ID: An identifier for the HLO module this op is associated with
 *   HLO Op category: These are largely defined by the XLA compiler; XProf
     additionally employs heuristics to identify and categorize certain
     operations (e.g., convolution fusions).
+*   Operation Name: The unique name assigned to the HLO operation by the XLA
+    compiler.
 *   HLO Op text: Provided by the XLA compiler, and includes details such as the
     types and shapes of inputs/parameters.
 *   Framework op name: The operation at the framework level (e.g., JAX) that

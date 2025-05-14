@@ -6,8 +6,7 @@ performance. Specifically, it focuses on whether the program is memory-bound or
 compute-bound, and how close the program's performance is to the hardware's
 theoretical peak performance, represented as a "roofline".
 
-![Roofline Analysis](images/roofline_1.png)
-![Roofline Analysis](images/roofline_2.png)
+![Roofline Analysis tool](images/roofline_1.png)
 
 ### Supported Platforms
 
@@ -77,6 +76,9 @@ The Roofline Analysis tool interface has several key components:
         total time spent, etc.
 *   A program-level statistics table that provides additional details for each
     data point, such as the max memory utilization %, peak FLOP rate %, etc.
+
+    ![Roofline Analysis table](images/roofline_3.png)
+
 *   A second roofline chart that provides more granular information, with data
     points plotted for the top-1000 most time-consuming ops during the profiling
     period:
@@ -88,6 +90,9 @@ The Roofline Analysis tool interface has several key components:
         *   Filtering for specific categories of operations.
         *   Filtering for ops bound by a certain resource.
         *   Filtering for a specific named operation.
+
+    ![Roofline Operation-level analysis chart](images/roofline_2.png)
+
 *   A second statistics table, similar to the program-level table, providing
     additional details for each data point.
 

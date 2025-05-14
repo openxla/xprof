@@ -29,22 +29,24 @@ Memory Profile has the following components:
     available by the compiler to XProf. The table shows these details at the
     point of peak usage within the profiling window, to aid with debugging Out
     of Memory (OOM) situations.
-*   Allocations and deallocations are managed (and added to the profile) by
-    XLA’s runtime allocator, which owns the entire HBM memory space.
-*   Note that Memory Profile is typically more interesting and valuable for GPU
-    profiling than for TPU workloads. The TPU execution model typically involves
-    a large upfront allocation by the XLA compiler, rather than during model
-    training or inference. Therefore, you will often see that the allocation
-    chart looks like a flat horizontal line; the allocations all likely occurred
-    at the very beginning of the profile (if the profiler was active by that
-    point in the run), making them hard to see.
-*   The fragmentation metric in the memory profile summary and the memory
-    timeline graph (as a percentage) helps identify memory fragmentation issues.
-    A high fragmentation value indicates that although there might be enough
-    total free memory, it is not contiguous, and thus a large allocation request
-    might fail.
 
-Some key differences between this tool and the Memory Viewer tool:
+Allocations and deallocations are managed (and added to the profile) by XLA’s
+runtime allocator, which owns the entire HBM memory space.
+
+The fragmentation metric in the memory profile summary and the memory timeline
+graph (as a percentage) help identify memory fragmentation issues. A high
+fragmentation value indicates that although there might be enough total free
+memory, it is not contiguous, and thus a large allocation request might fail.
+
+Note that Memory Profile is typically more interesting and valuable for GPU
+profiling than for TPU workloads. The TPU execution model typically involves
+a large upfront allocation by the XLA compiler, rather than during model
+training or inference. Therefore, you will often see that the allocation
+chart looks like a flat horizontal line; the allocations all likely occurred
+at the very beginning of the profile (if the profiler was active by that
+point in the run), making them hard to see.
+
+Some key differences between this tool and the [Memory Viewer tool](memory_viewer.md):
 
 *   Memory Viewer is purely static and focuses on program order; Memory Profile
     provides a dynamic view over time during the profiling interval.

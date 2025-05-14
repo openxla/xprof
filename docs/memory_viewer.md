@@ -7,10 +7,10 @@ can help you see the global memory usage and how close the computation is to
 being out of memory.
 
 All information displayed in Memory Viewer is purely static, obtained from the
-XLA compiler; dynamic runtime information is presented in the Memory Profile
-tool.
+XLA compiler; dynamic runtime information is presented in the
+[Memory Profile tool](memory_profile.md).
 
-![Memory Viewer](images/memory_viewer.png)
+![Memory Viewer line chart](images/memory_viewer.png)
 
 ### Supported Platforms
 
@@ -28,7 +28,8 @@ Memory Viewer consists of several key components:
         SMEM, CMEM, Sync Flags (SFlag), Sparsecore, and also the Host memory.
     *   Modules: These are the XLA programs that were part of your execution. A
         good starting point is often a top-level module, labeled something like
-        “jit_train_step” or “jit_generate”.
+        `jit_train_step` or `jit_generate`. This dropdown appears at the left
+        panel.
 2.  The textual overview section provides high level information such as the
     peak memory allocation required for the program, the split between arguments
     vs. temporary variables, etc. There is overhead imposed by padding,
@@ -83,3 +84,5 @@ Memory Viewer consists of several key components:
         *   Allocation type: Categorizes the buffer allocations into the
             following types: Parameter, Output, Thread-local, and Temporary
             (e.g., buffer allocation inside a fusion).
+
+![Memory Viewer buffer charts](images/memory_viewer_2.png)

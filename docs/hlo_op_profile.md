@@ -47,6 +47,8 @@ HLO Op Profile has the following components:
     *   The number of occurrences of the op, and total time spent on the op in
         aggregate.
 
+![HLO Op Profile details for a loop fusion op](images/hlo_op_profile_details.png)
+
 Note that raw bandwidths (GB/s) or compute rates (TFLOP/s) are computed by
 combining static compiler data on FLOPs or bytes required for the op (the
 numerator) with duration information per op from the profile (the denominator).

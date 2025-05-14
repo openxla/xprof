@@ -24,13 +24,15 @@ per-thread for the host CPU that the accelerators are connected to.
 Trace Viewer provides several tools and methods for navigating and examining the
 timeline:
 
-*   Navigation: You can use the following keyboard shortcuts:
+*   Navigation: After clicking an event in the timeline, you can use the
+    following keyboard shortcuts:
     *   **W:** Zoom in.
     *   **S:** Zoom out.
     *   **A:** Pan left.
     *   **D:** Pan right.
-*   Tool selector: You can click a tool in the tool selector or use the
-    corresponding keyboard shortcut:
+*   Tool selector: A floating tool selector contains tools you can use by
+    clicking on corresponding icons, or by using the corresponding keyboard
+    shortcuts:
     *   **Selection Tool (1 or !):** Click an event to select it and view its
         details in the Details pane. Select multiple events via ctrl+click to
         see a summary.
@@ -44,6 +46,8 @@ timeline:
 *   Zoom to selected events (f): Select one or more events and press the 'f' key
     to quickly zoom into that portion of the timeline. This is useful for
     focusing on a specific training step.
+
+![Trace Viewer Tool Selector](images/trace_viewer_tool_selector.png)
 
 When handling a large number of trace events, Trace Viewer works in streaming
 mode. This means it loads data on demand as you pan and zoom across the
@@ -64,28 +68,34 @@ Here are the main UI components in Trace Viewer:
 *   Events are the colored, rectangular blocks on the timeline tracks,
     representing the duration of an operation or a meta-event like a training
     step. The color of the events does not have a specific meaning.
-*   The details pane shows additional information about the events selected in
-    the timeline pane, such as their name, start time, and duration.
+*   The details pane, which appears at the bottom of the timeline when one or
+    more events are selected, shows additional information about the selected
+    events, such as their name, start time and duration. When an XLA operation
+    is selected, you can see links to the op in the
+    [Graph Viewer](graph_viewer.md) tool and other information that can be made
+    available by the framework and compiler, including pointers to source code
+    and/or the Python stack trace, the framework op that caused this XLA op to
+    get generated, etc. It may also show FLOPS (number of floating point
+    operations executed by the op) and bytes accessed by the op. This
+    information is statically acquired from XLA during compilation, rather than
+    runtime information from the profile.
 
 ### Typical Sections and Tracks
 
 Trace Viewer provides the following sections and tracks.
 
 *   One section for each TPU node, with the following tracks:
-    *   XLA Module: the XLA program being executed.
+    *   XLA Modules: the XLA program being executed.
     *   XLA Ops: Shows the XLA HLO operations that ran on the TPU core. Each
         higher-level framework operation (JAX, Tensorflow, or PyTorch, for
         example) is translated into one or several XLA operations, which are
-        then compiled to run on the TPU. When you click an XLA operation, you
-        can see links to the op in the Graph Viewer, along with additional
-        information about the op such as the start/stop times, duration, and
-        source stack trace (if made available by the framework and compiler).
+        then compiled to run on the TPU. 
     *   XLA TraceMe: User-specified annotations in their code describing logical
         units of work they intend to track. You may still see data here even if
         you didn’t add any annotations; those are typically added by XLA (e.g.,
         barrier cores), or XProf itself (e.g., dropped trace entries).
-    *   Step: Shows the duration of the training steps running on that TPU core,
-        if appropriately annotated in the user program or framework.
+    *   Steps: Shows the duration of the training steps running on that TPU
+        core, if appropriately annotated in the user program or framework.
     *   Framework Ops: Displays framework operations (JAX, Tensorflow, or
         PyTorch, for example) executed on the TPU core, if appropriately
         annotated in the user program or framework.
@@ -148,11 +158,3 @@ lines may or may not appear in certain profiles.
     via a combination of user annotations, built-in heuristics, and by
     post-processing information it receives from different components (e.g.,
     CUPTI drivers, kernel launch IDs, TPU runtime information, etc.).
-*   Clicking on an XLA op provides additional information in the details pane.
-    For example, it links to the op in the Graph Viewer tool. It may also
-    provide pointers to source code and/or the Python stack trace, the framework
-    op that caused this XLA op to get generated, etc. (if present in the
-    profile). It may also show FLOPS (number of floating point operations
-    executed by the op) and bytes accessed by the op; this information is
-    statically acquired from XLA during compilation, rather than runtime
-    information from the profile.

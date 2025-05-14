@@ -1,6 +1,6 @@
 ## XProf (+ Tensorboard Profiler Plugin)
 
-XProf is a [Tensorboard](https://www.tensorflow.org/tensorboard) plugin that includes a suite of tools for [JAX](https://jax.readthedocs.io/), [TensorFlow](https://www.tensorflow.org/), and [PyTorch/XLA](https://github.com/pytorch/xla). These tools help you understand, debug and optimize programs to run on CPUs, GPUs and TPUs.
+XProf is a command-line application and [Tensorboard](https://www.tensorflow.org/tensorboard) plugin that includes a suite of tools for [JAX](https://jax.readthedocs.io/), [TensorFlow](https://www.tensorflow.org/), and [PyTorch/XLA](https://github.com/pytorch/xla). These tools help you understand, debug and optimize programs to run on CPUs, GPUs and TPUs.
 
 XProf offers a number of tools to analyse and visualize the
 performance of your model across multiple devices. Some of the tools include:

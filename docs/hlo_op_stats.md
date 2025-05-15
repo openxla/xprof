@@ -13,7 +13,8 @@ profiled period.
 Both TPU and GPU are supported.
 
 For GPUs, HLO ops have an N:M relationship with the kernels that actually get
-executed. For statistics at the kernel level, see the _GPU Kernel Stats_ tool.
+executed. For statistics at the kernel level, see the
+[GPU Kernel Stats](gpu_kernel_stats.md) tool.
 
 ### HLO Op Stats Tool Components
 

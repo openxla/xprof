@@ -19,6 +19,8 @@ streams within it, while for TPUs, it organizes events on timelines per TPU chip
 and core. In either case, Trace Viewer also presents events on timelines
 per-thread for the host CPU that the accelerators are connected to.
 
+![Trace Viewer for GPUs](images/trace_viewer_gpu.png)
+
 ### Interacting with the Timeline
 
 Trace Viewer provides several tools and methods for navigating and examining the

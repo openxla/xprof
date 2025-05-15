@@ -333,7 +333,11 @@ cc_library(
     srcs = ["op_stats_to_tf_stats.cc"],
     hdrs = ["op_stats_to_tf_stats.h"],
     deps = [
+        ":data_table_utils",
+        ":model_tracker",
         ":op_metrics_to_record",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:tf_stats_proto_cc",

@@ -30,7 +30,6 @@ from tensorboard_plugin_profile.convert import dcn_collective_stats_proto_to_gvi
 from tensorboard_plugin_profile.convert import inference_stats_proto_to_gviz
 from tensorboard_plugin_profile.convert import input_pipeline_proto_to_gviz
 from tensorboard_plugin_profile.convert import overview_page_proto_to_gviz
-from tensorboard_plugin_profile.convert import tf_stats_proto_to_gviz
 from tensorboard_plugin_profile.convert import trace_events_json
 from tensorboard_plugin_profile.protobuf import trace_events_old_pb2
 
@@ -138,21 +137,22 @@ def xspace_to_tool_data(
     if success:
       data = input_pipeline_proto_to_gviz.to_json(raw_data)
   elif tool == 'framework_op_stats':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:
       if tqx == 'out:csv':
-        data = tf_stats_proto_to_gviz.to_csv(raw_data)
+        data = csv_writer.json_to_csv(json_data)
       else:
-        data = tf_stats_proto_to_gviz.to_json(raw_data)
+        data = json_data
     # Try legacy tool name: Handle backward compatibility with lower TF version
     else:
+      # TODO(b/419013992): Remove this tool completely as it has been deprecated
       legacy_tool = 'tensorflow_stats'
-      raw_data, success = xspace_wrapper_func(xspace_paths, legacy_tool)
+      json_data, success = xspace_wrapper_func(xspace_paths, legacy_tool)
       if success:
         if tqx == 'out:csv':
-          data = tf_stats_proto_to_gviz.to_csv(raw_data)
+          data = csv_writer.json_to_csv(json_data)
         else:
-          data = tf_stats_proto_to_gviz.to_json(raw_data)
+          data = json_data
   elif tool == 'kernel_stats':
     json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:

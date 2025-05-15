@@ -15,8 +15,17 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_to_tf_stats.h"
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
@@ -29,6 +38,7 @@ namespace profiler {
 using tsl::uint64;
 
 namespace {
+using ::tensorflow::profiler::TfStatsTable;
 
 // The maximum number of Tensorflow Ops displayed on Tensorflow Stats page.
 // 500 device side ops and 500 host side ops.
@@ -119,6 +129,88 @@ TfStatsDatabase ConvertOpStatsToTfStats(const OpStats& op_stats) {
       perf_env, run_env, /*exclude_idle=*/true);
   tf_stats_db.set_device_type(op_stats.run_environment().device_type());
   return tf_stats_db;
+}
+
+std::unique_ptr<DataTable> TfStatsToDataTable(const TfStatsTable& table,
+                                              absl::string_view device_type) {
+  std::vector<std::vector<std::string>> kColumns = {
+      {"rank", "number", "Rank"},
+      {"host_or_device", "string", "Host/device"},
+      {"type", "string", "Operation Type"},
+      {"operation", "string", "Operation Name"},
+      {"occurrences", "number", "#Occurrences"},
+      {"total_time", "number", "Total time (us)"},
+      {"avg_time", "number", "Avg. time (us)"},
+      {"total_self_time", "number", "Total self-time (us)"},
+      {"avg_self_time", "number", "Avg. self-time (us)"},
+      {"device_total_self_time_percent", "number",
+       "Total self-time on Device (%)"},
+      {"device_cumulative_total_self_time_percent", "number",
+       "Cumulative total-self time on Device (%)"},
+      {"host_total_self_time_percent", "number", "Total self-time on Host (%)"},
+      {"Host_cumulative_total_self_time_percent", "number",
+       "Cumulative total-self time on Host (%)"},
+      {"measured_flop_rate", "number", "Normalized FLOP Rate (FLOPs/s)"},
+      {"model_flop_rate", "number", "Model FLOP Rate (GFLOP/s)"},
+      {"measured_memory_bw", "number", "Measured Memory BW (GBytes/Sec)"},
+      {"operational_intensity", "number", "Operational Intensity (FLOPs/Byte)"},
+  };
+  auto data_table = std::make_unique<DataTable>();
+  for (const std::vector<std::string>& col : kColumns) {
+    data_table->AddColumn(TableColumn(col[0], col[1], col[2]));
+  }
+  // Add GPU TensorCore utilization only when hardware device type is GPU, for
+  // other devices, the utilization number will always be 0
+  if (absl::StrContains(device_type, "GPU")) {
+    data_table->AddColumn(TableColumn("gpu_tensorcore_utilization", "number",
+                                      "GPU TensorCore utilization"));
+  }
+  data_table->AddColumn(TableColumn("bound_by", "string", "Bound by"));
+  data_table->AddColumn(TableColumn("eager", "string", "Execution mode"));
+
+  ModelTracker model;
+
+  for (const auto& record : table.tf_stats_record()) {
+    TableRow* row = data_table->AddRow();
+    row->AddNumberCell(record.rank());
+    row->AddTextCell(record.host_or_device());
+    row->AddTextCell(record.op_type());
+    row->AddTextCell(record.op_name());
+    row->AddNumberCell(record.occurrences());
+    row->AddNumberCell(record.total_time_in_us());
+    row->AddNumberCell(record.avg_time_in_us());
+    row->AddNumberCell(record.total_self_time_in_us());
+    row->AddNumberCell(record.avg_self_time_in_us());
+    row->AddNumberCell(record.device_total_self_time_as_fraction());
+    row->AddNumberCell(record.device_cumulative_total_self_time_as_fraction());
+    row->AddNumberCell(record.host_total_self_time_as_fraction());
+    row->AddNumberCell(record.host_cumulative_total_self_time_as_fraction());
+    row->AddNumberCell(record.measured_flop_rate());
+    row->AddNumberCell(record.model_flop_rate());
+    row->AddNumberCell(record.measured_memory_bw());
+    row->AddNumberCell(record.operational_intensity());
+    if (absl::StrContains(device_type, "GPU")) {
+      row->AddNumberCell(record.gpu_tensorcore_utilization());
+    }
+    row->AddTextCell(record.bound_by())
+        .AddTextCell(record.is_eager() ? "Eager" : "Function");
+
+    model.ProcessOp(record.op_name(), record.op_type());
+  }
+
+  data_table->AddCustomProperty("task_type", model.GetTaskType());
+  data_table->AddCustomProperty("architecture_type",
+                                model.GetArchitectureType());
+  return data_table;
+}
+
+std::string TfStatsToDataTableJson(const TfStatsDatabase& tf_stats_db) {
+  std::unique_ptr<DataTable> data_table_with_idle =
+      TfStatsToDataTable(tf_stats_db.with_idle(), tf_stats_db.device_type());
+  std::unique_ptr<DataTable> data_table_without_idle =
+      TfStatsToDataTable(tf_stats_db.without_idle(), tf_stats_db.device_type());
+  return absl::StrCat("[", data_table_with_idle->ToJson(), ",",
+                      data_table_without_idle->ToJson(), "]");
 }
 
 }  // namespace profiler

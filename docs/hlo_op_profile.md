@@ -36,7 +36,7 @@ HLO Op Profile has the following components:
     displaying more details about the op or the operation category. Clicking a
     table entry pins the op detail card. These cards typically include the
     following, as appropriate:
-    *   A link to the op in the Graph Viewer tool.
+    *   A link to the op in the [Graph Viewer](graph_viewer.md) tool.
     *   Average execution time.
     *   Absolute rates of usage (in contrast with utilization reported in the
         table) of the compute (TFLOP/s), HBM bandwidth (GB/s), and on-chip read

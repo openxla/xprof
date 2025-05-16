@@ -2,10 +2,14 @@
 
 You can use Memory Profile to visualize the memory usage over time of your
 accelerators.
+The Memory Profile tool monitors the memory usage of your device during the profiling interval. You can use this tool to:
+
+* Debug out of memory (OOM) issues by pinpointing peak memory usage and the
+  corresponding memory allocation to TensorFlow ops. You can also debug OOM
+  issues that may arise when you run multi-tenancy inference.
+* Debug memory fragmentation issues.
 
 ![Memory Profile](images/memory_profile.png)
-
-![Memory Profile](images/memory_profile_2.png)
 
 ### Supported Platforms
 
@@ -15,20 +19,38 @@ Both TPU and GPU are supported.
 
 Memory Profile has the following components:
 
-*   The Memory ID selector at the top of the page lets you focus on the High
+*   The **Host ID** selector at the top of the page lets you choose between
+    different hosts to profile.
+*   The **Memory ID** selector at the top of the page lets you focus on the High
     Bandwidth Memory (HBM) attached to one of the different accelerators that
     may be connected to the host being profiled, or even the host memory in
     certain cases.
-*   The “Memory Timeline Graph” and the “Memory Profile Summary” capture
+*   The **Memory Profile Summary** and the **Memory Timeline Graph** capture
     high-level information about memory allocations, deallocations, and usage
     during the profiling session, including breakdowns across stack and heap,
     and any impact of fragmentation.
-*   The memory breakdown table provides information about framework-level ops
-    that contribute the most to memory usage. There are also additional per-op
-    details such as the shape, data type, etc., if this information is made
-    available by the compiler to XProf. The table shows these details at the
-    point of peak usage within the profiling window, to aid with debugging Out
-    of Memory (OOM) situations.
+    * The **Memory Profile Summary** shows the total number of allocations and
+      deallocations during the profiling interval; the total memory capacity of
+      the memory system selected; the lifetime peak heap usage since the
+      model started running (note that this may be outside the profiling interval); and the peak memory usage within the profiling interval.
+    * The **Memory Timeline Graph** shows a plot of the memory usage over time
+      (represented by the Y-axis on the left of the graph) and the percentage of
+      fragmentation over the profiling interval (represented by the Y-axis on
+      the right of the graph). At each point in time on the X-axis, the total
+      memory is broken down into three categories: stack (in red), heap (in
+      orange), and free (in green). Hover over a specific timestamp to view the
+      details about the memory allocation/deallocation events at that point like 
+      below:
+      ![Selected timestamp in Memory Timeline Graph showing an information card
+      with details about the memory allocation/deallocation events](images/memory_profile_3.png)
+*   The **Memory Breakdown Table** provides information about framework-level
+    ops that contribute the most to memory usage. There are also additional
+    per-op details such as the shape, data type, etc., if this information is
+    made available by the compiler to XProf. The table shows these details at
+    the point of peak usage within the profiling window, to aid with debugging
+    Out of Memory (OOM) situations.
+
+![Memory Profile](images/memory_profile_2.png)
 
 Allocations and deallocations are managed (and added to the profile) by XLA’s
 runtime allocator, which owns the entire HBM memory space.

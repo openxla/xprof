@@ -5,6 +5,8 @@ suite of tools for [JAX](https://jax.readthedocs.io/), [TensorFlow](https://www.
 [PyTorch/XLA](https://github.com/pytorch/xla). These tools help you understand, debug and optimize programs to run on
 CPUs, GPUs and TPUs.
 
+![Tensorboard overview page](images/tensorboard_overview.png)
+
 XProf offers a number of tools to analyse and visualize the
 performance of your model across multiple devices. Some of the tools include:
 
@@ -20,9 +22,7 @@ performance of your model across multiple devices. Some of the tools include:
 *   **Memory Profile Viewer**: Monitors the memory usage of your model.
 *   **Graph Viewer**: A visualization of the graph structure of HLOs of your model.
 
-Each tool is described in detail 
-
-![Tensorboard overview page](images/tensorboard_overview.png)
+Each tool is described in detail in its own page.
 
 ### Get Started
 

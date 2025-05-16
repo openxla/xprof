@@ -13,20 +13,20 @@ Both TPU and GPU are supported.
 
 Graph Viewer can be controlled with the following options:
 
-1. An Op Name box, where you enter the name of an
+1. An **Op Name** box, where you enter the name of an
 operation to select it as the primary node and visualize its neighbors. Pressing
 enter after typing the op name will visualize the surrounding nodes.
 
-1. A Graph Width selector, which
+1. A **Graph Width** selector, which
 controls the maximum distance of nodes from the primary node that is included in
 the visualization.
 
-1. A Metadata selector, which you
+1. A **Metadata** selector, which you
 use to toggle the display of operation metadata included by the compiler, if
 any. Note that you need to click “Search Graph” again after selecting this
 checkbox.
 
-1. A Merge Fusion checkbox that you can use to collapse or expand the
+1. A **Merge Fusion** checkbox that you can use to collapse or expand the
 components of fused ops. Note that you will need to click “Search Graph” again
 after toggling this checkbox.
 

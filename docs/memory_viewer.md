@@ -18,7 +18,7 @@ Both TPU and GPU are supported.
 
 ### Memory Viewer Components
 
-Memory Viewer consists of several key components:
+The Memory Viewer tool consists of several key components:
 
 1.  User control dropdowns that let you customize the data that you’re
     visualizing:

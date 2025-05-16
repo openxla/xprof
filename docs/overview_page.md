@@ -8,11 +8,11 @@ detailed analysis using the other tools within XProf.
 ![Tensorboard overview page](images/tensorboard_overview.png)
 
 The Overview page shows two main sections:
-*   _Performance Summary_ displays details on the average step time, the
-    percentage of time spent on eager execution, as well as the ratio of
-    framework ops executed on the host vs. the device and device compute
-    precisions.
-*   _Step-time Graph_ displays a graph of device step time (in milliseconds)
+
+*   **Performance Summary** displays details on the average step time, the ratio
+    of framework ops executed on the host vs. the device, the percentage of time
+    spent on eager execution, and device compute precisions.
+*   **Step-time Graph** displays a graph of device step time (in milliseconds)
     over all the steps sampled. Each step is broken into the multiple categories
     (with different colors) of where time is spent.
 

@@ -26,9 +26,9 @@ from __future__ import print_function
 import logging
 
 from tensorboard_plugin_profile.convert import dcn_collective_stats_proto_to_gviz
+from tensorboard_plugin_profile.convert import format_converter
 from tensorboard_plugin_profile.convert import inference_stats_proto_to_gviz
 from tensorboard_plugin_profile.convert import input_pipeline_proto_to_gviz
-from tensorboard_plugin_profile.convert import kernel_stats_proto_to_gviz
 from tensorboard_plugin_profile.convert import overview_page_proto_to_gviz
 from tensorboard_plugin_profile.convert import tf_stats_proto_to_gviz
 from tensorboard_plugin_profile.convert import trace_events_json
@@ -154,12 +154,12 @@ def xspace_to_tool_data(
         else:
           data = tf_stats_proto_to_gviz.to_json(raw_data)
   elif tool == 'kernel_stats':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:
-      if tqx == 'out:csv;':
-        data = kernel_stats_proto_to_gviz.to_csv(raw_data)
+      if tqx == 'out:csv':
+        data = format_converter.json_to_csv(json_data)
       else:
-        data = kernel_stats_proto_to_gviz.to_json(raw_data)
+        data = json_data
   elif tool == 'memory_profile':
     # Memory profile handles one host at a time.
     assert len(xspace_paths) == 1

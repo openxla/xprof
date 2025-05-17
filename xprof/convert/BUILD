@@ -2,7 +2,7 @@ load("//defs:defs.bzl", "if_oss", "tf_profiler_alias")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
-    default_visibility = ["//visibility:public"],  # TODO(matthurd): Update to profiler:internal after xprof migration.
+    default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
 

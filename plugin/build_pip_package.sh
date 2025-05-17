@@ -16,19 +16,41 @@
 set -x
 set -e
 copy="cp"
+
+OUTPUT_DIR="/tmp/profile-pip"
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -o|--output)
+      OUTPUT_DIR="$2"
+      shift
+      shift
+      ;;
+    -*|--*)
+      echo "Unknown option $1"
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
 if [ -z "${RUNFILES}" ]; then
   if [ "$(uname)" = "MSYS_NT-10.0-20348" ]; then
     build_workspace="$(cygpath "$BUILD_WORKSPACE_DIRECTORY")"
     runfiles_dir="${build_workspace}/bazel-out/x64_windows-fastbuild/"
     RUNFILES="$(CDPATH= cd -- "$0.exe.runfiles" && pwd)"
 
-    dest="/c/tmp/profile-pip"
+    dest="/c$OUTPUT_DIR"
     PLUGIN_RUNFILE_DIR="${RUNFILES}/org_xprof/plugin"
     FRONTEND_RUNFILE_DIR="${RUNFILES}/org_xprof/frontend"
   else
     RUNFILES="$(CDPATH= cd -- "$0.runfiles" && pwd)"
     build_workspace="$BUILD_WORKSPACE_DIRECTORY"
-    dest="/tmp/profile-pip"
+    dest="$OUTPUT_DIR"
     PLUGIN_RUNFILE_DIR="${RUNFILES}/org_xprof/plugin"
     FRONTEND_RUNFILE_DIR="${RUNFILES}/org_xprof/frontend"
   fi

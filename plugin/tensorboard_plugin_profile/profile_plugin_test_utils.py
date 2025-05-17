@@ -58,13 +58,14 @@ def create_profile_plugin(logdir,
   return profile_plugin.ProfilePlugin(context)
 
 
-def make_data_request(run, tool, host=None):
+def make_data_request(run, tool, host=None, use_saved_result=None):
   """Creates a werkzeug.Request to pass as argument to ProfilePlugin.data_impl.
 
   Args:
     run: Front-end run name.
     tool: ProfilePlugin tool, e.g., 'trace_viewer'.
     host: Host that generated the profile data, e.g., 'localhost'.
+    use_saved_result: Whether to use cache.
 
   Returns:
     A werkzeug.Request to pass to ProfilePlugin.data_impl.
@@ -73,4 +74,6 @@ def make_data_request(run, tool, host=None):
   req.args = {'run': run, 'tag': tool}
   if host:
     req.args['host'] = host
+  if use_saved_result is not None:
+    req.args['use_saved_result'] = use_saved_result
   return req

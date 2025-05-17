@@ -117,9 +117,13 @@ export class SideNav implements OnInit, OnDestroy {
     const host = params.get('host') || '';
     const opName = params.get('node_name') || params.get('opName') || '';
     const moduleName = params.get('module_name') || '';
+    const useSavedResult = params.get('use_saved_result') || '';
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;
+    }
+    if (useSavedResult) {
+      this.navigationParams['use_saved_result'] = useSavedResult;
     }
     if (this.selectedRunInternal === run && this.selectedTagInternal === tag &&
         this.selectedHostInternal === host) {
@@ -293,6 +297,7 @@ export class SideNav implements OnInit, OnDestroy {
           queryParams: navigationEvent,
         });
     delete this.navigationParams['firstLoad'];
+    delete this.navigationParams['use_saved_result'];
     this.updateUrlHistory();
   }
 

@@ -14,6 +14,7 @@ import * as mockData from './mock_data';
 
 /** Delay time for milisecond for testing */
 const DELAY_TIME_MS = 1000;
+const USE_SAVED_RESULT = 'use_saved_result';
 
 /** The data service class that calls API and return response. */
 @Injectable()
@@ -118,6 +119,33 @@ export class DataService {
     return this.get(this.pathPrefix + RUN_TOOLS_API, {'params': params});
   }
 
+  /*
+   * Prevent cache regeneration for subsequent data queries.
+   */
+  private disableCacheRegeneration() {
+    if (this.searchParams && this.searchParams.has(USE_SAVED_RESULT)) {
+      this.searchParams.delete(USE_SAVED_RESULT);
+    }
+  }
+
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host: string,
+      parameters: Map<string, string>): HttpParams {
+    let params =
+        new HttpParams().set('run', run).set('tag', tag).set('host', host);
+    for (const [key, value] of parameters) {
+      params.set(key, value);
+    }
+    if (this.searchParams) {
+      this.searchParams.forEach((value, key) => {
+        params = params.set(key, value);
+      });
+    }
+
+    this.disableCacheRegeneration();
+    return params;
+  }
+
   getData(
       run: string, tag: string, host: string,
       parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
@@ -150,11 +178,7 @@ export class DataService {
         return of([]).pipe(delay(DELAY_TIME_MS));
       }
     }
-    let params =
-        new HttpParams().set('run', run).set('tag', tag).set('host', host);
-    parameters.forEach((value, key) => {
-      params = params.set(key, value);
-    });
+    const params = this.getHTTPParamsForDataQuery(run, tag, host, parameters);
     return this.get(this.pathPrefix + DATA_API, {'params': params});
   }
 

@@ -41,10 +41,10 @@ The HLO Op Stats tool has the following key components:
         access that the device does not possess).
     *   A chart plotting the GFLOPS/s for all HLO operations, ordered by total
         self time.
-*   **HLO Operation Statistics Table**: This is the primary component, presenting a
-    detailed breakdown of every HLO operation executed during the profiling
-    session in a tabular format. There is one row for each distinct HLO
-    operation, and columns that capture various details regarding that
+*   **HLO Operation Statistics Table**: This is the primary component,
+    presenting a detailed breakdown of every HLO operation executed during the
+    profiling session in a tabular format. There is one row for each distinct
+    HLO operation, and columns that capture various details regarding that
     operation.
     *   A drop-down selector lets you decide which columns you want to visualize
         for every HLO op.

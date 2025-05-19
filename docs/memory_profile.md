@@ -1,8 +1,8 @@
 ## Memory Profile Tool
 
 You can use Memory Profile to visualize the memory usage over time of your
-accelerators.
-The Memory Profile tool monitors the memory usage of your device during the profiling interval. You can use this tool to:
+accelerators. The Memory Profile tool monitors the memory usage of your device
+during the profiling interval. You can use this tool to:
 
 * Debug out of memory (OOM) issues by pinpointing peak memory usage and the
   corresponding memory allocation to TensorFlow ops. You can also debug OOM
@@ -32,7 +32,8 @@ Memory Profile has the following components:
     * The **Memory Profile Summary** shows the total number of allocations and
       deallocations during the profiling interval; the total memory capacity of
       the memory system selected; the lifetime peak heap usage since the
-      model started running (note that this may be outside the profiling interval); and the peak memory usage within the profiling interval.
+      model started running (note that this may be outside the profiling
+      interval); and the peak memory usage within the profiling interval.
     * The **Memory Timeline Graph** shows a plot of the memory usage over time
       (represented by the Y-axis on the left of the graph) and the percentage of
       fragmentation over the profiling interval (represented by the Y-axis on
@@ -41,8 +42,7 @@ Memory Profile has the following components:
       orange), and free (in green). Hover over a specific timestamp to view the
       details about the memory allocation/deallocation events at that point like 
       below:
-      ![Selected timestamp in Memory Timeline Graph showing an information card
-      with details about the memory allocation/deallocation events](images/memory_profile_3.png)
+      ![Selected timestamp in Memory Timeline Graph showing an information card with details about the memory allocation/deallocation events](images/memory_profile_3.png)
 *   The **Memory Breakdown Table** provides information about framework-level
     ops that contribute the most to memory usage. There are also additional
     per-op details such as the shape, data type, etc., if this information is
@@ -68,7 +68,8 @@ chart looks like a flat horizontal line; the allocations all likely occurred
 at the very beginning of the profile (if the profiler was active by that
 point in the run), making them hard to see.
 
-Some key differences between this tool and the [Memory Viewer tool](memory_viewer.md):
+Some key differences between this tool and the
+[Memory Viewer tool](memory_viewer.md):
 
 *   Memory Viewer is purely static and focuses on program order; Memory Profile
     provides a dynamic view over time during the profiling interval.

@@ -87,36 +87,24 @@ Here are the main UI components in Trace Viewer:
 Trace Viewer provides the following sections and tracks.
 
 *   One section for each TPU node, with the following tracks:
-    *   XLA Modules: the XLA program being executed.
-    *   XLA Ops: Shows the XLA HLO operations that ran on the TPU core. Each
+    *   **Steps**: Shows the duration of the training steps running on that TPU
+        core, if appropriately annotated in the user program or framework.
+    *   **XLA Modules**: the XLA program being executed.
+    *   **XLA Ops**: Shows the XLA HLO operations that ran on the TPU core. Each
         higher-level framework operation (JAX, Tensorflow, or PyTorch, for
         example) is translated into one or several XLA operations, which are
         then compiled to run on the TPU. 
-    *   XLA TraceMe: User-specified annotations in their code describing logical
-        units of work they intend to track. You may still see data here even if
-        you didn’t add any annotations; those are typically added by XLA (e.g.,
-        barrier cores), or XProf itself (e.g., dropped trace entries).
-    *   Steps: Shows the duration of the training steps running on that TPU
-        core, if appropriately annotated in the user program or framework.
-    *   Framework Ops: Displays framework operations (JAX, Tensorflow, or
+    *   **XLA TraceMe**: User-specified annotations in their code describing
+        logical units of work they intend to track. You may still see data here
+        even if you didn’t add any annotations; those are typically added by XLA
+        (e.g., barrier cores), or XProf itself (e.g., dropped trace entries).
+    *   **Framework Name Scope**: For each framework op, a visualization of the
+        stack trace. For brevity, this track only appears for a single device.
+    *   **Framework Ops**: Displays framework operations (JAX, Tensorflow, or
         PyTorch, for example) executed on the TPU core, if appropriately
         annotated in the user program or framework.
-    *   Framework Name Scope: For each framework op, a visualization of the
-        stack trace. For brevity, this track only appears for a single device.
-    *   Source code: Path to the source code being executed, if available in the
-        profile.
-    *   Scalar unit: For TPUs, events executing on the scalar unit, depicted if
-        present in the profile.
-    *   TensorCore Sync Flags: Synchronization mechanism on TPUs, depicted if
-        present in the profile.
-    *   Host Offload: Ops that asynchronously move data between host memory and
-        accelerator memory. There are typically corresponding start and stop ops
-        that appear on the XLA Ops line indicating the accelerator getting
-        prepared for the data transfer (e.g., marking source/destination memory
-        regions as “in use” for the duration of the transfer). There may be
-        multiple host offload rows present if there are multiple offload ops
-        executing in parallel, requiring the trace viewer to concurrently
-        display multiple events.
+    *   **Source code**: Path to the source code being executed, if available in
+        the profile.
 *   One section for each Sparsecore node: Some TPU generations (e.g., TPU v5p
     and TPU v6e) are
     equipped with one or more SparseCore units in addition to the dense compute
@@ -124,18 +112,20 @@ Trace Viewer provides the following sections and tracks.
     modules, ops, and TraceMes associated with these cores will appear in this
     section.
 *   One section for each GPU node, with the following tracks:
-    *   XLA Modules, Framework Ops, Framework Name Scope, Steps, Source code.
-        These are all similar to TPU sections.
     *   One track per stream, with the stream name also including information
         about the types of operations executed on the stream (Memcpy, Compute,
         etc.).
-    *   XLA TraceMe is not supported for GPUs.
-    *   XLA Ops do appear in GPU sections, but these are not currently always
-        accurate, since they are derived from the stream data. They therefore
-        can’t fully account for the GPU’s execution model where there may be an
-        N:M mapping of XLA Ops to the actual kernels that get executed on the
-        different streams, and the dynamic scheduling of multiple streams onto
-        different SMs in the hardware.
+    *   **Launch Stats**: Shows the max and average time spent in the launch
+        phase.
+    *   **Steps**, **XLA Modules**, **Framework Ops**, **Framework Name Scope**,
+        **Source code**: These are all similar to TPU sections.
+    *   **XLA TraceMe** is not supported for GPUs.
+    *   **XLA Ops** do appear in GPU sections, but these are not currently
+        always accurate, since they are derived from the stream data. They
+        therefore can’t fully account for the GPU’s execution model where there
+        may be an N:M mapping of XLA Ops to the actual kernels that get executed
+        on the different streams, and the dynamic scheduling of multiple streams
+        onto different SMs in the hardware.
 *   One section for each component (e.g., one threadpool) running on the host
     machine's CPU, with one track per thread, in the case of threadpools. This
     is also where you will see Python traces if these were enabled during
@@ -152,8 +142,8 @@ lines may or may not appear in certain profiles.
 *   You can search for specific event names using the “Find events..” search
     bar. Currently, this only searches within the visible time-window on screen,
     rather than the full trace.
-*   Flow Events: Enabling this option by clicking the “Flow Events” button in
-    the top bar adds visualizations, linking events in one thread or line to
+*   **Flow Events**: Enabling this option by clicking the “Flow Events” button
+    in the top bar adds visualizations, linking events in one thread or line to
     events in another thread line. For example, there may be an arrow drawn from
     the op on the host that enqueues or launches work for an accelerator, to the
     op on the accelerator that executes that work. XProf determines these links

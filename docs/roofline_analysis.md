@@ -55,7 +55,7 @@ can gain insights into performance bottlenecks:
 
 The Roofline Analysis tool interface has several key components:
 
-*   A Device Information section describes the hardware specs; these are
+*   A **Device Information** section describes the hardware specs; these are
     used to statically draw the “roofline(s)” on the chart
 *   A program-level roofline chart with data points corresponding to the
     following:

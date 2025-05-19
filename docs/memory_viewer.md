@@ -30,14 +30,15 @@ The Memory Viewer tool consists of several key components:
         good starting point is often a top-level module, labeled something like
         `jit_train_step` or `jit_generate`. This dropdown appears at the left
         panel.
+    ![Memory Viewer Memory Types dropdown](images/memory_viewer_dropdowns.png)
 2.  The textual overview section provides high level information such as the
     peak memory allocation required for the program, the split between arguments
     vs. temporary variables, etc. There is overhead imposed by padding,
     necessitated by restrictions on the supported shapes of tensors on
     accelerators. If this padding is a large fraction of the total allocation,
     that may indicate an optimization opportunity.
-3.  The “Memory Allocation Size vs. Program Order” line chart plots memory usage
-    versus program points (HLO Sequence) as scheduled by the compiler.
+3.  The **Memory Allocation Size vs. Program Order** line chart plots memory
+    usage versus program points (HLO Sequence) as scheduled by the compiler.
     *   Note that the x-axis is *not* time.
     *   The chart specifically highlights the point in the program with peak
         memory utilization *of the chosen module*. The profiler and tools are

@@ -33,6 +33,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/inference_profile",
         "@org_xprof//frontend/app/components/input_pipeline",
         "@org_xprof//frontend/app/components/kernel_stats:kernel_stats_adapter",
+        "@org_xprof//frontend/app/components/megascale_stats",
         "@org_xprof//frontend/app/components/memory_profile",
         "@org_xprof//frontend/app/components/memory_viewer",
         "@org_xprof//frontend/app/components/op_profile",

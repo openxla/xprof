@@ -162,7 +162,8 @@ export class SideNav implements OnInit, OnDestroy {
       ['graph_viewer', 'Graph Viewer'], ['hlo_stats', 'HLO Op Stats'],
       ['inference_profile', 'Inference Profile'],
       ['roofline_model', 'Roofline Model'], ['kernel_stats', 'Kernel Stats'],
-      ['trace_viewer', 'Trace Viewer']
+      ['trace_viewer', 'Trace Viewer'],
+      ['megascale_stats', 'Megascale Stats']
     ]);
     return toolsDisplayMap.get(tagName) || tagName;
   }

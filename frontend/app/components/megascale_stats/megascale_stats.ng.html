@@ -1,0 +1,41 @@
+<div class="section-container">
+  <div class="mat-h1">Megascale Stats</div>
+  <div>
+    <div class="mat-body">
+      This tool provides insights into the DCN Collective.
+    </div>
+    <div class="description">
+      (1) DCN Collective Name is the name assigned to the collective.
+    </div>
+    <div class="description">
+      (2) Recv Op Name and Send Op Name is TPU recv-done op name and send op name.
+    </div>
+    <div class="description">
+      (3) Slack Time is the network independent time the collective has to transmit the data.
+    </div>
+    <div class="description">
+      (4) Observed Duration is the interval between the start of the send op to the end of the corresponding recv-done op.
+    </div>
+    <div class="description">
+      (5) Stall Duration is the duration of time the collective spends in send/send-done/recv/recv-done ops.
+    </div>
+    <div class="description">
+      (6) Occurrences is the total number of occurrences for each collective in the profiled duration.
+    </div>
+    <div class="description">
+      (7) Aggregated Total Stall is the total stall duration of the collective in the profiled duration.
+    </div>
+    <div class="description">
+      (8) Data Transmitted Size is the total data that needs to be transmitted over the network.
+    </div>
+    <div class="description">
+      (9) Required Bandwidth is the bandwidth required to transmit the data in the provided slack.
+    </div>
+  </div>
+</div>
+
+<div>
+  <chart chartType="Table"
+         [dataInfo]="dataInfo">
+  </chart>
+</div>

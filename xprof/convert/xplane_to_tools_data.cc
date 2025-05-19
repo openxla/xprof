@@ -357,7 +357,7 @@ absl::StatusOr<std::string> ConvertDcnCollectiveStatsToToolData(
       GetParam<std::string>(options, "host_name");
   if (!hostname.has_value() || hostname->empty()) {
     return absl::InvalidArgumentError(
-        "Cannot find host_name from options for dcn_collective_stats tool.");
+        "Cannot find host_name from options for megascale_stats tool.");
   }
 
   // Load DcnSlackAnalysis for a host.
@@ -409,6 +409,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     return ConvertMultiXSpacesToRooflineModel(session_snapshot);
   } else if (tool_name == "memory_viewer" || tool_name == "graph_viewer") {
     return ConvertHloProtoToToolData(session_snapshot, tool_name, options);
+  } else if (tool_name == "megascale_stats") {
+    return ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
   } else if (tool_name == "tool_names") {
     // Generate the proto cache for hlo_proto tool.
     // This is needed for getting the module list.

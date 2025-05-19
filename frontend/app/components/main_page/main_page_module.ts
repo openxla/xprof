@@ -18,6 +18,8 @@ import {InferenceProfileModule} from 'org_xprof/frontend/app/components/inferenc
 import {InputPipeline} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline';
 import {InputPipelineModule} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline_module';
 import {KernelStatsAdapter, KernelStatsAdapterModule} from 'org_xprof/frontend/app/components/kernel_stats/kernel_stats_adapter';
+import {MegascaleStats} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats';
+import {MegascaleStatsModule} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats_module';
 import {MemoryProfile} from 'org_xprof/frontend/app/components/memory_profile/memory_profile';
 import {MemoryProfileModule} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_module';
 import {MemoryViewer} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer';
@@ -50,6 +52,7 @@ export const routes: Routes = [
   {path: 'trace_viewer', component: TraceViewer},
   {path: 'trace_viewer@', component: TraceViewer},
   {path: 'graph_viewer', component: GraphViewer},
+  {path: 'megascale_stats', component: MegascaleStats},
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
   {path: 'roofline_model', component: RooflineModel},
@@ -77,6 +80,7 @@ export const routes: Routes = [
     PodViewerModule,
     GraphViewerModule,
     FrameworkOpStatsAdapterModule,
+    MegascaleStatsModule,
     HloStatsModule,
     RooflineModelModule,
     InferenceProfileModule,

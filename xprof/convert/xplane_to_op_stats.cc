@@ -64,7 +64,7 @@ limitations under the License.
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_utils.h"
-#include "xprof/utils/xprof_gpu_cost_analysis.h"
+#include "xprof/utils/xprof_gpu_cost_analysis_types.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -326,14 +326,19 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   DutyCycleCombiner duty_cycle_combiner;
   // TODO(b/161942993) parallelize XPlane processing per thread.
   HloModuleMap hlo_module_map;
-  if (options.generate_kernel_stats_db ||
-      (is_tpu && options.generate_op_metrics_db)) {
-    tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis =
-        []() { return nullptr; };
+
+  // Generate HloModuleMap if kernel stats or op metrics for TPU are requested.
+  bool generate_hlo_module_map = options.generate_kernel_stats_db ||
+                                 (is_tpu && options.generate_op_metrics_db);
+  if (generate_hlo_module_map) {
+    tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis;
     if (is_gpu) {
       create_cost_analysis = []() {
-        return tensorflow::profiler::CreateXprofGpuCostAnalysis();
-      };
+        return GetHloCostAnalysisWrapperRegistry().Get(
+            kXprofGpuCostAnalysisName)(nullptr);};
+    } else {
+      // we pass nullptr for the cost analysis for TPU.
+      create_cost_analysis = []() { return nullptr; };
     }
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }

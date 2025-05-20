@@ -58,6 +58,71 @@ TEST(DerivedTimelineTest, EmptySpaceTest) {
   EXPECT_EQ(space.planes_size(), 0);
 }
 
+// Check HLO ops from CUDA kernels part of CUDA graph.
+TEST(DerivedTimelineTest, HloOpsFromCudaKernelsTest) {
+  const absl::string_view kHloModuleName = "hlo_module";
+  const absl::string_view kHloOpName1 = "hlo_op1";
+  const absl::string_view kHloOpName2 = "hlo_op2";
+  const absl::string_view kKernelDetails = "kernel_details";
+  constexpr int64_t kGroupIdValue = 1;
+  constexpr int64_t kCorrelationIdValue = 10000;
+  const uint64_t kCudaGraphIdValue = 20;
+  XSpace space;
+  tsl::profiler::GroupMetadataMap group_metadata_map;
+  XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(plane);
+  auto line_builder = plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&plane_builder, &line_builder, "kernel1", 0, 100,
+               {{StatType::kHloModule, kHloModuleName},
+                {StatType::kHloOp, kHloOpName1},
+                {StatType::kKernelDetails, kKernelDetails},
+                {StatType::kGroupId, kGroupIdValue},
+                {StatType::kCorrelationId, kCorrelationIdValue},
+                {StatType::kCudaGraphId, kCudaGraphIdValue}});
+  CreateXEvent(&plane_builder, &line_builder, "kernel2", 200, 150,
+               {{StatType::kHloModule, kHloModuleName},
+                {StatType::kHloOp, kHloOpName2},
+                {StatType::kKernelDetails, kKernelDetails},
+                {StatType::kGroupId, kGroupIdValue},
+                {StatType::kCorrelationId, kCorrelationIdValue},
+                {StatType::kCudaGraphId, kCudaGraphIdValue}});
+
+  GenerateDerivedTimeLines(group_metadata_map, &space);
+  XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
+  // Check that the HLO op line is added.
+  size_t num_hlo_op_line = 0;
+  size_t num_events = 0;
+  std::optional<XStatVisitor> correlation_id;
+  std::optional<XStatVisitor> cuda_graph_id;
+  plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
+    if (line_visitor.Id() == tsl::profiler::kThreadIdHloOp) {
+      num_hlo_op_line++;
+      num_events = line_visitor.NumEvents();
+      line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+        if (event_visitor.Name() ==
+            absl::StrCat(kHloModuleName, "/", kHloOpName1)) {
+          EXPECT_EQ(event_visitor.OffsetPs(), 0);
+          EXPECT_EQ(event_visitor.DurationPs(), 100);
+        } else if (event_visitor.Name() ==
+                   absl::StrCat(kHloModuleName, "/", kHloOpName2)) {
+          EXPECT_EQ(event_visitor.OffsetPs(), 200);
+          EXPECT_EQ(event_visitor.DurationPs(), 150);
+        } else {
+          FAIL() << "Unexpected HLO op event: " << event_visitor.Name();
+        }
+        correlation_id = event_visitor.GetStat(StatType::kCorrelationId);
+        cuda_graph_id = event_visitor.GetStat(StatType::kCudaGraphId);
+      });
+    }
+  });
+  EXPECT_EQ(num_hlo_op_line, 1);
+  EXPECT_EQ(num_events, 2);
+  ASSERT_TRUE(correlation_id.has_value());
+  EXPECT_EQ(correlation_id->IntValue(), kCorrelationIdValue);
+  ASSERT_TRUE(cuda_graph_id.has_value());
+  EXPECT_EQ(cuda_graph_id->UintValue(), kCudaGraphIdValue);
+}
+
 // Checks that HLO module events are expanded.
 TEST(DerivedTimelineTest, HloModuleNameTest) {
   const absl::string_view kHloModuleName = "hlo_module";

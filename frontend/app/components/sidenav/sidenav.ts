@@ -33,6 +33,8 @@ export class SideNav implements OnInit, OnDestroy {
   selectedTagInternal = '';
   selectedHostInternal = '';
   selectedModuleInternal = '';
+  // Naviation params should contain the params that are persistent across
+  // tools.
   navigationParams: {[key: string]: string|boolean} = {};
 
   constructor(

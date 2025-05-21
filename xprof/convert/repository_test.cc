@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/status/status.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -128,10 +129,12 @@ TEST(Repository, MismatchedXSpaceAndPath) {
                                "log/plugins/profile/hostname1.xplane.pb"},
                               std::move(xspaces));
   auto error =
-      R"(The hostname of xspace path and preloaded xpace don't match at index: 0.
-The host name of xpace path is hostname0 but the host name of preloaded xpace is hostname1.)";
-  EXPECT_THAT(session_snapshot_or.status(),
-              Eq(tsl::errors::InvalidArgument(error)));
+      "The hostname of xspace path and preloaded xpace don't match at index: "
+      "0. \nThe host name of xpace path is hostname0 but the host name of "
+      "preloaded xpace is hostname1.";
+  EXPECT_THAT(session_snapshot_or.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(session_snapshot_or.status().message(), error);
 }
 
 }  // namespace

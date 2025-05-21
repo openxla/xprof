@@ -35,3 +35,9 @@ toc:
     path: /xprof/trace_viewer
   - title: Roofline Analysis
     path: /xprof/roofline_analysis
+  - title: Framework Op Stats
+    path: /xprof/framework_op_stats
+  - title: GPU Kernel Stats
+    path: /xprof/gpu_kernel_stats
+  - title: DCN Collective Stats
+    path: /xprof/dcn_collective_stats

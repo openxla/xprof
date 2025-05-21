@@ -57,8 +57,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
         );
   }
 
-  private getHttpParams(): HttpParams {
+  getHttpParams(sessionId: string|null, tool: string): HttpParams {
     let params = new HttpParams();
+    if (sessionId) {
+      params = params.set('run', sessionId);
+    }
+    if (tool) {
+      params = params.set('tag', tool);
+    }
     if (this.searchParams) {
       this.searchParams.forEach((value, key) => {
         params = params.set(key, value);
@@ -82,7 +88,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   getModuleList(sessionId: string): Observable<string> {
-    let params = this.getHttpParams();
+    let params = this.getHttpParams('', '');
     params = params.set('run', sessionId);
     return this.get(this.pathPrefix + HLO_MODULE_LIST_API, {
       'params': params,
@@ -194,7 +200,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     // Host is not specified for hlo text view now, as we assume metadata the
     // same across all hosts.
     const host = '';
-    const params = this.getHttpParams()
+    const params = this.getHttpParams('', '')
                        .set('run', sessionId)
                        .set('tag', tool)
                        .set('host', host)

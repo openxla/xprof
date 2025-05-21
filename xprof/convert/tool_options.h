@@ -26,6 +26,18 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+// Default parameter constants for graph viewer.
+static constexpr char kGraphTypeName[] = "graph";
+static constexpr char kShortTxtTypeName[] = "short_txt";
+static constexpr char kLongTxtTypeName[] = "long_txt";
+static constexpr char kJsonTypeName[] = "json";
+static constexpr char kProtoTypeName[] = "pb";
+static constexpr char kProtoTextTypeName[] = "pbtxt";
+static constexpr char kDefaultFormatString[] = "url";
+static constexpr int kDefaultWidth = 3;
+static constexpr int kDefaultShowMetadata = 0;
+static constexpr int kDefaultMergeFusion = 0;
+
 using ToolOptions =
     absl::flat_hash_map<std::string, std::variant<int, std::string>>;
 

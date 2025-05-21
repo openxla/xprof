@@ -1,4 +1,4 @@
-load("//defs:defs.bzl", "if_oss", "tf_profiler_alias")
+load("//defs:backend_defs.bzl", "if_oss", "tf_profiler_alias")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
@@ -411,7 +411,7 @@ cc_library(
     deps = [
         ":duty_cycle_combiner",
         ":duty_cycle_tracker",
-        ":executor_interface",
+        ":model_tracker",
         ":op_metrics_db_combiner",
         ":step_events_to_steps_db",
         ":xplane_to_kernel_stats_db",
@@ -439,7 +439,8 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:kernel_stats_utils",
         "@org_xprof//xprof/utils:op_utils",
-        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis",
+        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_registration",
+        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_types",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
@@ -943,6 +944,8 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         # copybara:uncomment "//third_party/json",
+        "@com_google_protobuf//:protobuf",
+        # copybara:uncomment "//third_party/protobuf/util:json_util",
         # copybara:uncomment(b/360874576) "@org_tensorflow//tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter:direct_hlo_to_json_graph_convert",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_graph_dumper",
@@ -1005,6 +1008,7 @@ cc_test(
     srcs = ["repository_test.cc"],
     deps = [
         ":repository",
+        "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
@@ -1021,6 +1025,7 @@ cc_library(
         ":xplane_to_dcn_collective_stats",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
@@ -1460,6 +1465,20 @@ cc_library(
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "model_tracker",
+    srcs = ["model_tracker.cc"],
+    hdrs = ["model_tracker.h"],
+    deps = [
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/utils:hlo_module_map",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:tf_op_utils",
     ],
 )
 

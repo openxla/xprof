@@ -18,21 +18,26 @@ import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_pa
 })
 export class OverviewPageBase {
   @Input() darkTheme = false;
-  /** Whether the it's an inference profile. */
-  @Input() isInference = false;
   @Input() diagnostics: Diagnostics|null = null;
   @Input() generalAnalysis: GeneralAnalysis|null = null;
   @Input() inputPipelineAnalysis: InputPipelineAnalysis|null = null;
   @Input() runEnvironment: RunEnvironment|null = null;
   @Input() inferenceLatencyData: SimpleDataTable|null = null;
 
+  get isTrainingString(): string {
+    return this.runEnvironment?.p?.['is_training'] || '';
+  }
+
+  get isInference(): boolean {
+    return this.isTrainingString === 'false';
+  }
+
   get hasInferenceLatencyData(): boolean {
-    // Assumption: is inference session if hasInferenceLatencyData is not empty
-    return !!this.inferenceLatencyData?.rows?.length;
+    return this.isInference && !!this.inferenceLatencyData?.rows?.length;
   }
 
   get hasStepTimeGraphData(): boolean {
-    return !!this.inputPipelineAnalysis?.rows?.length;
+    return !this.isInference;
   }
 }
 

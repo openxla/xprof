@@ -41,6 +41,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_combiner.h"
 #include "xprof/convert/duty_cycle_tracker.h"
+#include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "xprof/convert/xplane_to_kernel_stats_db.h"
@@ -63,7 +64,7 @@ limitations under the License.
 #include "xprof/utils/hlo_proto_map.h"
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_utils.h"
-#include "xprof/utils/xprof_gpu_cost_analysis.h"
+#include "xprof/utils/xprof_gpu_cost_analysis_types.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -325,14 +326,19 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   DutyCycleCombiner duty_cycle_combiner;
   // TODO(b/161942993) parallelize XPlane processing per thread.
   HloModuleMap hlo_module_map;
-  if (options.generate_kernel_stats_db ||
-      (is_tpu && options.generate_op_metrics_db)) {
-    tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis =
-        []() { return nullptr; };
+
+  // Generate HloModuleMap if kernel stats or op metrics for TPU are requested.
+  bool generate_hlo_module_map = options.generate_kernel_stats_db ||
+                                 (is_tpu && options.generate_op_metrics_db);
+  if (generate_hlo_module_map) {
+    tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis;
     if (is_gpu) {
       create_cost_analysis = []() {
-        return tensorflow::profiler::CreateXprofGpuCostAnalysis();
-      };
+        return GetHloCostAnalysisWrapperRegistry().Get(
+            kXprofGpuCostAnalysisName)(nullptr);};
+    } else {
+      // we pass nullptr for the cost analysis for TPU.
+      create_cost_analysis = []() { return nullptr; };
     }
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
@@ -509,6 +515,15 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     // All event generation should end in this block before we start combining
     executor->JoinAll();  // Wait for all scheduled tasks to complete.
                           // The cleanup blocks will execute after this step.
+  }
+
+  for (const auto& [program_id, hlo_module] : hlo_module_map) {
+    ModelTracker model_tracker;
+    model_tracker.ProcessHloModule(hlo_module);
+    if (model_tracker.IsTraining()) {
+      op_stats.mutable_run_environment()->set_is_training(true);
+      break;
+    }
   }
 
   // Start combining data.

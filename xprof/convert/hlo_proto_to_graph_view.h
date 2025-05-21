@@ -82,7 +82,8 @@ absl::StatusOr<std::string> RenderGraphNeighborhoodAround(
 
 // Convert `hlo_proto` to StringView.
 absl::StatusOr<std::string> ConvertHloProtoToStringView(
-    const xla::HloProto& hlo_proto, bool verbose, bool metadata);
+    const xla::HloProto& hlo_proto, std::string type, bool verbose = false,
+    bool metadata = false);
 
 // Convert dot into certain format
 absl::StatusOr<std::string> WrapDotInFormat(std::string dot,

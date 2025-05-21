@@ -91,12 +91,13 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(GraphViewerParams params,
                       ParseGraphViewerParams(options));
-  if (params.type == "graph") {
+  if (params.type == kGraphTypeName) {
     return ConvertHloProtoToGraph(hlo_proto, params.node_name,
                                   params.graph_width, params.render_options,
                                   params.format);
   } else {
-    return ConvertHloProtoToStringView(hlo_proto, params.verbose,
+    // All other types are string view types
+    return ConvertHloProtoToStringView(hlo_proto, params.type, params.verbose,
                                        params.show_metadata);
   }
 }

@@ -111,11 +111,11 @@ TEST_P(XPlaneToToolsTest, ToolsList) {
       // "input_pipeline_analyzer",
       "framework_op_stats",
       "memory_profile",
-      "pod_viewer",
+      // "pod_viewer",
       "op_profile",
       "hlo_stats",
       "roofline_model",
-      "inference_profile",
+      // "inference_profile",
   };
   expected_tools.insert(expected_tools.end(), test_case.expected_tools.begin(),
                         test_case.expected_tools.end());

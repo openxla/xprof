@@ -101,6 +101,12 @@ class DataTableForTesting {
     }
     return this.data.p[propName];
   }
+  getTableProperties(): {[key: string]: string} {
+    if (!this.data || !this.data.p) {
+      return {};
+    }
+    return this.data.p;
+  }
   getFilteredRows(filters: google.visualization.DataTableCellFilter[]):
       number[] {
     if (!this.data || !this.data.rows) {

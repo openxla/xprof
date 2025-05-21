@@ -63,7 +63,19 @@ The Memory Viewer tool consists of several key components:
 
         Note that the colors of the buffers have no particular meaning.
 
-5.  Hovering over a buffer in any of the three charts brings up two additional
+5.  Clicking on the ``timeline" link next to the chart title brings up a
+    visualization of the memory allocations, with a series of colored boxes, one
+    per allocation. Hovering over the block brings up additional information
+    about the allocation; for example, the HLO op that created the allocation,
+    the shape of the allocation, etc. The visualization may be interpreted as
+    follows:
+
+    *   The x-axis is the program order.
+    *   The height of each block on the y-axis is the size of the allocation.
+    *   The width of each block is the lifetime of the allocation, in terms of
+        program order.
+
+6.  Hovering over a buffer in any of the three charts brings up two additional
     displays:
 
     *   An overlay on the memory usage line chart in a color that matches the

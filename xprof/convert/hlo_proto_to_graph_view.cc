@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/hlo_proto_to_graph_view.h"
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -29,6 +30,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/text_format.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/tsl/platform/statusor.h"
@@ -199,16 +201,6 @@ absl::StatusOr<std::string> Plot(std::unique_ptr<HloModule> module,
 
   return graph_handle;
 }
-
-// Default parameter constants for graph viewer.
-static constexpr char kGraphTypeName[] = "graph";
-static constexpr char kShortTxtTypeName[] = "short_txt";
-static constexpr char kLongTxtTypeName[] = "long_txt";
-static constexpr char kDefaultFormatString[] = "url";
-static constexpr int kDefaultWidth = 3;
-static constexpr int kDefaultShowMetadata = 0;
-static constexpr int kDefaultMergeFusion = 0;
-
 }  // namespace
 
 absl::StatusOr<std::string> GetNodeStyles() {
@@ -304,6 +296,15 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
   if (!type.has_value()) {
     return InvalidArgument("Graph viewer must provide a type option.");
   }
+  auto valid_types = {
+      kGraphTypeName,     kJsonTypeName,     kProtoTypeName,
+      kProtoTextTypeName, kShortTxtTypeName, kLongTxtTypeName,
+  };
+  if (std::find(valid_types.begin(), valid_types.end(), type.value()) ==
+      valid_types.end()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unknown graph viewer type option: ", type.value()));
+  }
 
   // For graph type.
   if (type == kGraphTypeName) {
@@ -326,16 +327,11 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
   }
 
   // For txt type.
-  if (type == kShortTxtTypeName || type == kLongTxtTypeName) {
-    params.type = type.value();
-    params.verbose = (type == kLongTxtTypeName);
-    params.show_metadata =
-        GetParamWithDefault(options, "show_metadata", kDefaultShowMetadata);
-    return params;
-  }
-
-  // Unknown type.
-  return InvalidArgument("Unknown graph viewer type option: ", type.value());
+  params.type = type.value();
+  params.show_metadata =
+  GetParamWithDefault(options, "show_metadata", kDefaultShowMetadata);
+  params.verbose = type == kLongTxtTypeName;
+  return params;
 }
 
 xla::RenderedGraphFormat GetRenderFormat(const std::string& format_string) {
@@ -368,8 +364,32 @@ absl::StatusOr<std::string> ConvertHloProtoToMeGraph(
   return PlotMe(std::move(hlo_module), node_name, graph_width);
 }
 
+absl::StatusOr<std::string> PrintJson(const xla::HloProto& proto) {
+  return absl::UnimplementedError("Not implemented");
+}
+
+
+absl::StatusOr<std::string> PrintPbTxt(const xla::HloProto& hlo_proto) {
+  google::protobuf::TextFormat::Printer printer;
+  printer.SetHideUnknownFields(true);
+  std::string output;
+  if (!printer.PrintToString(hlo_proto, &output)) {
+    return absl::InternalError(
+        "Unable to convert to xla.HloProto pbtxt representation");
+  }
+  return output;
+}
+
 absl::StatusOr<std::string> ConvertHloProtoToStringView(
-    const HloProto& hlo_proto, bool verbose, bool metadata) {
+    const HloProto& hlo_proto, std::string type, bool verbose, bool metadata) {
+  if (type == kJsonTypeName) {
+    return PrintJson(hlo_proto);
+  } else if (type == kProtoTypeName) {
+    return hlo_proto.SerializeAsString();
+  } else if (type == kProtoTextTypeName) {
+    return PrintPbTxt(hlo_proto);
+  }
+  // for short/long_txt
   TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
                       ConvertHloProtoToModule(hlo_proto));
   HloPrintOptions options;
@@ -523,6 +543,7 @@ std::string WrapDotInHtml(std::string dot, absl::string_view layout_engine) {
       container.innerHTML = `${svg}<style>${css_data}</style>`;
       const panZoom = svgPanZoom(container.children[0], {
         zoomEnabled: true,
+        dblClickZoomEnabled: false,
         controlIconsEnabled: true,
         maxZoom: 200,
         minZoom: 0,

@@ -28,11 +28,11 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   /** XLA memory space color */
   @Input() memorySpaceColor = '0';
 
-  /** Current run and host name */
+  /** Current run, host and hlo module name */
   @Input() currentRun = '';
   @Input() currentHost = '';
+  @Input() currentModule = '';
 
-  moduleName = '';
   peakInfo?: BufferAllocationInfo;
   activeInfo?: BufferAllocationInfo;
   peakHeapSizeMiB = '';
@@ -145,12 +145,11 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   update() {
     this.usage = new MemoryUsage(
         this.memoryViewerPreprocessResult, Number(this.memorySpaceColor),
-        this.currentRun, this.currentHost);
+        this.currentRun, this.currentHost, this.currentModule);
     if (this.usage.diagnostics.errors.length > 0) {
       return;
     }
 
-    this.moduleName = this.usage.moduleName;
     this.timelineUrl = this.usage.timelineUrl;
 
     this.peakHeapSizeMiB =

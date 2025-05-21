@@ -15,7 +15,6 @@ declare interface DownloadMenuItem {
 const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
   {text: 'Download as .pb', value: FileExtensionType.PROTO_BINARY},
   {text: 'Download as .pbtxt', value: FileExtensionType.PROTO_TEXT},
-  {text: 'Download as .json', value: FileExtensionType.JSON},
   {text: 'Download as short text', value: FileExtensionType.SHORT_TEXT},
   {text: 'Download as long text', value: FileExtensionType.LONG_TEXT},
 ];
@@ -45,7 +44,7 @@ export class DownloadHlo implements OnDestroy {
       private readonly downloader: BlobDownloader,
   ) {
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'] || '';
+      this.sessionId = params['sessionId'] || params['run'] || '';
     });
   }
 

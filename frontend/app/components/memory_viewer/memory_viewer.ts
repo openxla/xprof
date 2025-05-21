@@ -44,6 +44,10 @@ export class MemoryViewer implements OnDestroy {
         message: 'Loading data',
       }
     }));
+    this.currentRun = event.run || this.currentRun;
+    this.currentHost = event.host || this.currentHost;
+    this.currentModule = event.moduleName || this.currentModule;
+
     let params = new Map<string, string>();
     params = params.set('memory_space', event.memorySpaceColor || '0');
     params = params.set('module_name', event.moduleName || '');
@@ -63,9 +67,6 @@ export class MemoryViewer implements OnDestroy {
           if (!data) return;
           this.memoryViewerPreprocessResult =
               data as MemoryViewerPreprocessResult | null;
-          this.currentRun = event.run || this.currentRun;
-          this.currentHost = event.host || this.currentHost;
-          this.currentModule = event.moduleName || this.currentModule;
         });
   }
 

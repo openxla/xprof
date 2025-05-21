@@ -37,13 +37,16 @@ export class MemoryUsage {
   smallBufferSize: number;
 
   diagnostics: {errors: string[], warnings: string[], info: string[]};
+  // module name string in format of `<hlo_module_name>(<program_id>)`, should
+  // be consistent with the hlo proto file assets name.
   moduleName: string;
   timelineUrl: string;
 
   // Only one of hloProto or preprocess is valid to construct MemoryUsage.
   constructor(
       preprocess: MemoryViewerPreprocessResult|null, memorySpaceColor: number,
-      currentRun: string|null, currentHost: string|null) {
+      currentRun: string|null, currentHost: string|null,
+      currentModule: string|null) {
     this.nColor = 0;
 
     this.peakHeapSizeBytes = 0;
@@ -67,7 +70,7 @@ export class MemoryUsage {
     this.logicalBufferSpans = {};
     this.smallBufferSize = 16 * 1024;
     this.diagnostics = {errors: [], warnings: [], info: []};
-    this.moduleName = '';
+    this.moduleName = currentModule || '';
     this.timelineUrl = '';
 
     // Both input sources (HLOProto and preprocessed data) are invalid.
@@ -79,7 +82,8 @@ export class MemoryUsage {
 
     if (preprocess) {
       // Initialize memory viewer from preprocessed data.
-      this.initMemoryUsageFromPrecomputed(preprocess, currentRun, currentHost);
+      this.initMemoryUsageFromPrecomputed(
+          preprocess, currentRun, currentHost, currentModule);
     }
   }
 
@@ -88,16 +92,15 @@ export class MemoryUsage {
    */
   private initMemoryUsageFromPrecomputed(
       preprocess: MemoryViewerPreprocessResult, currentRun: string|null,
-      currentHost: string|null) {
+      currentHost: string|null, currentModule: string|null) {
     // Copy the fields from preprocessed result.
-    this.moduleName = preprocess.moduleName || '';
     this.timelineUrl = preprocess.allocationTimeline || '';
     if (!this.timelineUrl.startsWith('/memory_viewer.json')) {
       // redirecting memory allocation timeline to this url on TensorBoard
       this.timelineUrl =
           `${window.parent.location.origin}/data/plugin/profile/data?run=${
-              currentRun}&tag=memory_viewer&host=${
-              currentHost}&view_memory_allocation_timeline=true`;
+              currentRun}&tag=memory_viewer&module_name=${
+              currentModule}&view_memory_allocation_timeline=true`;
     }
     this.peakHeapSizeBytes =
         (preprocess.totalBufferAllocationMib || 0) * 1024 * 1024;

@@ -48,7 +48,7 @@ export class GraphViewer implements OnDestroy {
   selectedModule = '';
   opName = '';
   programId = '';
-  graphWidth = 3;
+  graphWidth = 1;
   graphType = GRAPH_TYPE_DEFAULT;
   symbolId = '';
   symbolType = '';
@@ -70,7 +70,6 @@ export class GraphViewer implements OnDestroy {
   rootNode?: Node;
   data = new OpProfileData();
   selectedNode: Node|null = null;
-  mouseMoved = false;
   runtimeDataInjected = false;
 
   // ME related variables
@@ -105,7 +104,7 @@ export class GraphViewer implements OnDestroy {
     this.opName = params['node_name'] || params['opName'] || '';
     this.selectedModule = params['module_name'] || '';
     this.programId = params['program_id'] || params['programId'] || '';
-    this.graphWidth = Number(params['graph_width']) || 3;
+    this.graphWidth = Number(params['graph_width']) || 1;
     this.showMetadata = params['show_metadata'] === 'true';
     this.mergeFusion = params['merge_fusion'] === 'true';
     this.graphType =
@@ -208,15 +207,6 @@ export class GraphViewer implements OnDestroy {
     const doc: Document|null = this.getGraphIframeDocument();
     if (!doc) return;
 
-    // Disdiguish between drag and click event.
-    // There's a mousemove in between mousedown and mouseup for drag event.
-    const mouseMoveListener = () => {
-      this.mouseMoved = true;
-    };
-    const mouseDownListener = () => {
-      this.mouseMoved = false;
-    };
-
     const nodeElements = Array.from(doc.getElementsByClassName('node'));
     for (const e of nodeElements) {
       e.addEventListener('mouseenter', this.onHoverGraphvizNode.bind(this, e));
@@ -224,12 +214,11 @@ export class GraphViewer implements OnDestroy {
           'mouseleave',
           this.onHoverGraphvizNode.bind(this, null),
       );
-      e.addEventListener('mousedown', mouseDownListener.bind(this));
-      e.addEventListener('mousemove', mouseMoveListener.bind(this));
-      e.addEventListener('click', this.onClickGraphvizNode.bind(this, e));
       e.addEventListener(
-          'contextmenu',
-          this.onRightClickGraphvizNode.bind(this, e),
+          'dblclick', this.onDoubleClickGraphvizNode.bind(this, e));
+      e.addEventListener(
+          'click',
+          this.onClickGraphvizNode.bind(this, e),
       );
     }
     const clusterElements = Array.from(doc.getElementsByClassName('cluster'));
@@ -242,12 +231,11 @@ export class GraphViewer implements OnDestroy {
           'mouseleave',
           this.onHoverGraphvizCluster.bind(this, null),
       );
-      e.addEventListener('mousedown', mouseDownListener.bind(this));
-      e.addEventListener('mousemove', mouseMoveListener.bind(this));
-      e.addEventListener('click', this.onClickGraphvizCluster.bind(this, e));
       e.addEventListener(
-          'contextmenu',
-          this.onRightClickGraphvizCluster.bind(this, e),
+          'dblclick', this.onDoubleClickGraphvizCluster.bind(this, e));
+      e.addEventListener(
+          'click',
+          this.onClickGraphvizCluster.bind(this, e),
       );
     }
   }
@@ -266,28 +254,26 @@ export class GraphViewer implements OnDestroy {
     return opNameWithAvgTime.split(' ')[0];
   }
 
-  // Right click pin the op detail to the selected node
-  onRightClickGraphvizNode(element: HTMLElement|Element, event: Event) {
+  // Single click pin the op detail to the selected node
+  onClickGraphvizNode(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
     event.preventDefault();
   }
 
-  onRightClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
+  onClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
     event.preventDefault();
   }
 
-  // Single click reload the graph centered on the selected node
-  onClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
-    if (this.mouseMoved) return;
+  // Double click reload the graph centered on the selected node
+  onDoubleClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.onRecenterOpNode(opName);
   }
 
-  onClickGraphvizNode(element: HTMLElement|Element, event: Event) {
-    if (this.mouseMoved) return;
+  onDoubleClickGraphvizNode(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.onRecenterOpNode(opName);
   }

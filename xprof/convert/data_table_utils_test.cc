@@ -50,7 +50,11 @@ std::unique_ptr<tensorflow::profiler::DataTable> CreateTestDataTable() {
   for (const nlohmann::json& row_json : GetTestRows()) {
     TableRow* row = data_table->AddRow();
     for (int i = 0; i < row_json.size(); ++i) {
-      row->AddCell(row_json[i]);
+      if (data_table->GetColumns()[i].type == "number") {
+        row->AddNumberCell(row_json[i].get<double>());
+      } else if (data_table->GetColumns()[i].type == "string") {
+        row->AddTextCell(row_json[i].get<std::string>());
+      }
     }
   }
   return data_table;

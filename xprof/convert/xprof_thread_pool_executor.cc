@@ -19,6 +19,8 @@ XprofThreadPoolExecutor::XprofThreadPoolExecutor(const std::string& name,
   if (effective_num_threads <= 0) {
     effective_num_threads = tsl::port::MaxParallelism();
   }
+  LOG(INFO) << "Creating " << name << " XprofThreadPoolExecutor with "
+            << effective_num_threads << " threads.";
   thread_pool_ = std::make_unique<tsl::thread::ThreadPool>(
       tsl::Env::Default(), tsl::ThreadOptions(), name, effective_num_threads,
       /* low_latency_hint */ true);

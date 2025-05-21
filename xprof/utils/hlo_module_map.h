@@ -155,20 +155,32 @@ class HloInstructionWrapper : public HloInstructionInterface {
 };
 
 // Helper class for accessing HloModule.
+template <class T>
 class HloModuleInterface {
  public:
-  virtual ~HloModuleInterface() = default;
-
   // If the module contains no instructions.
-  virtual bool Empty() const = 0;
-  virtual absl::string_view Name() const = 0;
+  bool Empty();
+  absl::string_view Name();
   // Function to populated nested childs= instructions in a fusion.
-  virtual void GatherFusionInstructions(xla::HloInstruction* inst) = 0;
+  void GatherFusionInstructions(xla::HloInstruction* inst);
+
+  auto Instructions() const {
+    std::vector<const T*> result;
+    for (auto& [name, instr] : instructions_by_name_) {
+      result.push_back(&instr);
+    }
+    return result;
+  }
+
+ protected:
+  // Map of HloInstructionWrappers by name.
+  using HloInstructionMap = absl::flat_hash_map<absl::string_view, T>;
+  HloInstructionMap instructions_by_name_;
 };
 
 // Wraps HLO module and provides an interface that maps HLO names to
 // HloInstructionWrappers.
-class HloModuleWrapper : public HloModuleInterface {
+class HloModuleWrapper : public HloModuleInterface<HloInstructionWrapper> {
  public:
   explicit HloModuleWrapper(
       const xla::HloProto& hlo_proto,
@@ -182,18 +194,13 @@ class HloModuleWrapper : public HloModuleInterface {
       absl::string_view hlo_name) const;
   HloInstructionWrapper* GetMutableHloInstruction(absl::string_view hlo_name);
 
-  bool Empty() const override { return instructions_by_name_.empty(); }
+  bool Empty() const { return instructions_by_name_.empty(); }
 
-  absl::string_view Name() const override { return module_->name(); }
-  void GatherFusionInstructions(xla::HloInstruction* inst) override;
+  absl::string_view Name() const { return module_->name(); }
+  void GatherFusionInstructions(xla::HloInstruction* inst);
 
  private:
   std::unique_ptr<xla::HloModule> module_;
-
-  // Map of HloInstructionWrappers by name.
-  using HloInstructionMap =
-      absl::flat_hash_map<absl::string_view, HloInstructionWrapper>;
-  HloInstructionMap instructions_by_name_;
 };
 
 // Map of HloModuleWrappers by program_id.

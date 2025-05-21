@@ -186,7 +186,8 @@ class ProfilePluginTest(absltest.TestCase):
     generate_testdata(subdir_b_c)
     write_empty_event_file(self.logdir)
     write_empty_event_file(subdir_a)
-    # Skip writing an event file for subdir_b
+    # Skip writing an event file for subdir_b, so that we can test that it is
+    # included in the runs regardless of tfevents file presence.
     write_empty_event_file(subdir_b_c)
     self.multiplexer.AddRunsFromDirectory(self.logdir)
     self.multiplexer.Reload()
@@ -195,6 +196,7 @@ class ProfilePluginTest(absltest.TestCase):
     # because it doesn't contain a tfevents file.
     expected = set(RUN_TO_TOOLS.keys())
     expected.update(set('a/' + run for run in RUN_TO_TOOLS.keys()))
+    expected.update(set('b/' + run for run in RUN_TO_TOOLS.keys()))
     expected.update(set('b/c/' + run for run in RUN_TO_TOOLS.keys()))
     self.assertSetEqual(frozenset(all_runs), expected)
 

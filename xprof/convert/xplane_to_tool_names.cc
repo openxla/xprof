@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
 
@@ -76,22 +77,22 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     bool has_hlo = false;
     bool has_dcn_collective_stats = false;
 
+    // Use only the first host, as the sessions would consist of similar
+    // devices, and the tool list can be generated from the first host itself.
     // TODO(b/413686163): Create mechanism to cache the tools list.
     // Current optimization should benefits most profiles captured in 3P
-    for (int idx = 0; idx < session_snapshot.XSpaceSize(); idx++) {
-      TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                          session_snapshot.GetXSpace(idx));
+    TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
+                        session_snapshot.GetXSpace(0));
 
-      has_kernel_stats =
-          has_kernel_stats || !tsl::profiler::FindPlanesWithPrefix(
-                                   *xspace, tsl::profiler::kGpuPlanePrefix)
-                                   .empty();
+    has_kernel_stats =
+        has_kernel_stats || !tsl::profiler::FindPlanesWithPrefix(
+                                 *xspace, tsl::profiler::kGpuPlanePrefix)
+                                 .empty();
 
-      has_hlo = has_hlo || HasHloProtoMetadata(*xspace);
+    has_hlo = has_hlo || HasHloProtoMetadata(*xspace);
 
-      has_dcn_collective_stats =
-          has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
-    }
+    has_dcn_collective_stats =
+        has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
 
     if (has_kernel_stats) {
       tools.push_back("kernel_stats");

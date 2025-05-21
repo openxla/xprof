@@ -1,17 +1,16 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy} from '@angular/core';
 import {FormControl} from '@angular/forms';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
 import {PIE_CHART_OPTIONS, TABLE_OPTIONS,} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider, ReplicaGroupDataProvider,} from 'org_xprof/frontend/app/components/chart/default_data_provider';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -40,10 +39,13 @@ const TOTAL_TIME_ID = 'total_time';
   styleUrls: ['./hlo_stats.css'],
 })
 export class HloStats extends Dashboard implements OnDestroy {
-  readonly tool = 'hlo_stats';
+  tool = 'hlo_op_stats';
+  sessionId = '';
+  host = '';
+  private readonly dataService: DataServiceV2Interface =
+      inject(DATA_SERVICE_INTERFACE_TOKEN);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
-  sessionId = '';
   data: SimpleDataTable|null = null;
   hloOpNameSelected = '';
   programIdSelected = '';
@@ -106,12 +108,12 @@ export class HloStats extends Dashboard implements OnDestroy {
 
   constructor(
       route: ActivatedRoute,
-      private readonly dataService: DataService,
       private readonly store: Store<{}>,
   ) {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.update(params as NavigationEvent);
+      this.processQuery(params);
+      this.update();
     });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.tableColumnsControl.valueChanges.subscribe((newValue) => {
@@ -119,14 +121,16 @@ export class HloStats extends Dashboard implements OnDestroy {
     });
   }
 
-  update(event: NavigationEvent) {
-    const run = event.run || '';
-    const tag = event.tag || 'hlo_stats';
-    const host = event.host || '';
+  processQuery(params: Params) {
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+    this.tool = params['tag'] || this.tool;
+    this.host = params['host'] || this.host;
+  }
 
+  update() {
     setLoadingState(true, this.store, 'Loading hlo data');
 
-    this.dataService.getData(run, tag, host)
+    this.dataService.getData(this.sessionId, this.tool, this.host)
         .pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
           setLoadingState(false, this.store);
@@ -168,16 +172,23 @@ export class HloStats extends Dashboard implements OnDestroy {
         const hloOpName = (row.c![hloOpNameColumnIdx].v as string).trim() || '';
         const hloOpExpression =
             (row.c![hloOpExpressionColumnIdx].v as string) || '';
-        const graphViewerLink = `/graph_viewer/${this.sessionId}?program_id=${
-            programId}&node_name=${hloOpName}`;
+        const graphViewerLink = this.dataService.getGraphViewerLink(
+            this.sessionId,
+            '',
+            hloOpName,
+            programId,
+        );
+        const hyperlinkValue = graphViewerLink ?
+            `<a href="${graphViewerLink}" target="_blank">${
+                hloOpExpression}</a>` :
+            hloOpExpression;
         return {
           ...row,
           c: [
             ...row.c!.slice(0, hloOpExpressionColumnIdx),
             {
               ...row.c![hloOpExpressionColumnIdx],
-              v: `<a href="${graphViewerLink}" target="_blank">${
-                  hloOpExpression}</a>`,
+              v: hyperlinkValue,
             },
             ...row.c!.slice(hloOpExpressionColumnIdx + 1),
           ],

@@ -50,26 +50,26 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
     std::vector<std::string> xspace_paths,
     std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces) {
   if (xspace_paths.empty()) {
-    return tsl::errors::InvalidArgument("Can not find XSpace path.");
+    return absl::InvalidArgumentError("Can not find XSpace path.");
   }
 
   if (xspaces.has_value()) {
     if (xspaces->size() != xspace_paths.size()) {
-      return tsl::errors::InvalidArgument(
-          "The size of the XSpace paths: ", xspace_paths.size(),
-          " is not equal ",
-          "to the size of the XSpace proto: ", xspaces->size());
+      return absl::InvalidArgumentError(
+          absl::StrCat("The size of the XSpace paths: ", xspace_paths.size(),
+                       " is not equal ",
+                       "to the size of the XSpace proto: ", xspaces->size()));
     }
     for (size_t i = 0; i < xspace_paths.size(); ++i) {
       auto host_name = GetHostnameByPath(xspace_paths.at(i));
       if (xspaces->at(i)->hostnames_size() > 0 && !host_name.empty()) {
         if (!absl::StrContains(host_name, xspaces->at(i)->hostnames(0))) {
-          return tsl::errors::InvalidArgument(
+          return absl::InvalidArgumentError(absl::StrCat(
               "The hostname of xspace path and preloaded xpace don't match at "
               "index: ",
               i, ". \nThe host name of xpace path is ", host_name,
               " but the host name of preloaded xpace is ",
-              xspaces->at(i)->hostnames(0), ".");
+              xspaces->at(i)->hostnames(0), "."));
         }
       }
     }
@@ -81,9 +81,9 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
 absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpace(
     size_t index) const {
   if (index >= xspace_paths_.size()) {
-    return tsl::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Can not get the ", index, "th XSpace. The total number of XSpace is ",
-        xspace_paths_.size());
+        xspace_paths_.size()));
   }
 
   // Return the pre-loaded XSpace proto.
@@ -107,9 +107,9 @@ absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpaceByName(
     return GetXSpace(it->second);
   }
 
-  return tsl::errors::InvalidArgument("Can not find the XSpace by name: ", name,
-                                      ". The total number of XSpace is ",
-                                      xspace_paths_.size());
+  return absl::InvalidArgumentError(
+      absl::StrCat("Can not find the XSpace by name: ", name,
+                   ". The total number of XSpace is ", xspace_paths_.size()));
 }
 
 std::string SessionSnapshot::GetHostname(size_t index) const {

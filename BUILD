@@ -35,3 +35,12 @@ compile_pip_requirements(
     requirements_in = "requirements.in",
     requirements_txt = PROFILER_REQUIREMENTS_FILE,
 )
+
+platform(
+    name = "x64_windows-clang-cl",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+        "@bazel_tools//tools/cpp:clang-cl",
+    ],
+)

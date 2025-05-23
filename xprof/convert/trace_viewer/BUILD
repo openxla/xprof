@@ -1,10 +1,6 @@
 package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
-    default_visibility = [
-        "//perftools/gputools/profiler/collector:__pkg__",
-        # copybara:uncomment "@org_tensorflow//tensorflow/core/profiler:internal",
-        "//xprof:__subpackages__",
-    ],
+    default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
 

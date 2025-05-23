@@ -150,7 +150,7 @@ INSTANTIATE_TEST_SUITE_P(
          tsl::profiler::kTpuPlanePrefix,
          false,
          true,
-         {"dcn_collective_stats"}},
+         {"megascale_stats"}},
     }),
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;

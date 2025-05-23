@@ -215,7 +215,12 @@ def xspace_to_tool_data(
       data = raw_data
       if view_memory_allocation_timeline:
         content_type = 'text/html'
-  elif tool == 'dcn_collective_stats':
+  elif tool == 'megascale_stats':
+    print('MEGASCALESTATS LMAO 1')
+    print('MEGASCALESTATS LMAO 1')
+    print('MEGASCALESTATS LMAO 1')
+    print('MEGASCALESTATS LMAO 1')
+    print('MEGASCALESTATS LMAO 1')
     options = {'host_name': params.get('host')}
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:

@@ -111,6 +111,7 @@ XPLANE_TOOLS = [
     'inference_profile',
     'memory_viewer',
     'graph_viewer',
+    'megascale_stats',
 ]
 
 # XPlane generated tools that support all host mode.
@@ -120,7 +121,7 @@ XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
     'kernel_stats',
     'overview_page',
     'pod_viewer',
-    'dcn_collective_stats',
+    'megascale_stats',
 ])
 
 # XPlane generated tools that only support all host mode.

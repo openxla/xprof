@@ -104,7 +104,7 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     }
 
     if (has_dcn_collective_stats) {
-      tools.push_back("dcn_collective_stats");
+      tools.push_back("megascale_stats");
     }
   }
 

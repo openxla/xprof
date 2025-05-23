@@ -3,55 +3,55 @@
 You can use Graph Viewer to visualize the graph structure of your XLA program.
 It displays the High Level Operations (HLO) graph.
 
+![Graph Viewer](images/graph_viewer.png)
+
 ### Supported Platforms
 
-TPU: supported
-
-GPU: supported
+Both TPU and GPU are supported.
 
 ### Interface Components
 
 Graph Viewer can be controlled with the following options:
-1. A Select XLA
-Module dropdown menu, from which you choose an HLO module from the available
-list for visualization.
 
-2. An Op Name box, where you enter the name of an
+1. An **Op Name** box, where you enter the name of an
 operation to select it as the primary node and visualize its neighbors. Pressing
 enter after typing the op name will visualize the surrounding nodes.
 
-3. A Graph
-Width selector, which controls the maximum distance of nodes from the primary
-node that is included in the visualization.
+1. A **Graph Width** selector, which
+controls the maximum distance of nodes from the primary node that is included in
+the visualization.
 
-4. A Metadata selector, which you
+1. A **Metadata** selector, which you
 use to toggle the display of operation metadata included by the compiler, if
 any. Note that you need to click “Search Graph” again after selecting this
 checkbox.
 
-5. A Merge Fusion checkbox that you can use to collapse or expand the
+1. A **Merge Fusion** checkbox that you can use to collapse or expand the
 components of fused ops. Note that you will need to click “Search Graph” again
 after toggling this checkbox.
 
-6. Zoom in/out buttons or keys, though you can
+1. Zoom in/out buttons or keys, though you can
 also use your mouse to zoom.
 
-7. Links to download the graph as SVG or dot files.
+1. Links to download the graph as SVG or dot files.
 
-8. By using the search functionality, you can quickly locate and focus on
+1. By using the search functionality, you can quickly locate and focus on
 specific operations within the potentially large graph.
 
-9. To freeze the runtime
+1. To freeze the runtime
 data panel on a particular op, right click on the op.
 
 ### Using Graph Viewer
 
 By default, no operations are selected in Graph Viewer, so you will see an empty
 screen. Search for the operation of interest to zoom into it and begin
-traversing the graph. Often, you start with one of the other tools (say, Op
-Profile to identify the most time consuming op, or Trace Viewer to identify the
-cause of a pipeline bubble). Clicking the op in those tools will give you a
-direct link into the same op within Graph Viewer.
+traversing the graph. Often, you start with one of the other tools (say,
+[Op Profile](hlo_op_profile.md) to identify the most time consuming op, or
+[Trace Viewer](trace_viewer.md) to identify the cause of a pipeline bubble).
+Clicking the op in those tools will give you a direct link into the same op
+within Graph Viewer.
+
+![Graph Viewer button appears when the reduce.111 operation is clicked on the HLO Op Profile tool](images/graph_viewer_from_op_profile.png)
 
 By hovering over a box (representing an HLO operation), you might often see the
 line of your user code corresponding to the op where the function was defined.

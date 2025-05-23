@@ -15,6 +15,10 @@ toc:
 - heading: XProf developer guide
 - title: Getting started
   section:
+  - title: XProf
+    path: /xprof/index
+  - title: Overview Page
+    path: /xprof/overview_page
   - title: Graph Viewer
     path: /xprof/graph_viewer
   - title: HLO Op Profile
@@ -25,8 +29,8 @@ toc:
     path: /xprof/memory_profile
   - title: Memory Viewer
     path: /xprof/memory_viewer
-  - title: Overview Page
-    path: /xprof/overview_page
+  - title: GPU Kernel Stats
+    path: /xprof/gpu_kernel_stats
   - title: Trace Viewer
     path: /xprof/trace_viewer
   - title: Roofline Analysis

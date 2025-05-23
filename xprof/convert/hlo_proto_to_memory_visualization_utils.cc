@@ -65,13 +65,14 @@ using ::xla::StackFrameIndexProto;
 
 Shape ResolveShapeIndex(const xla::ShapeProto& shape_proto,
                         absl::Span<const int64_t> shape_index) {
-  if (shape_index.empty()) return Shape(shape_proto);
+  if (shape_index.empty())
+    return Shape(Shape::FromProto(shape_proto).value_or(Shape()));
   // Choosing the last subshape to maintain historical behavior.
   int64_t i = shape_index.back();
   if (i >= shape_proto.tuple_shapes_size()) {
-    return Shape(shape_proto);
+    return Shape(Shape::FromProto(shape_proto).value_or(Shape()));
   }
-  return Shape(shape_proto.tuple_shapes(i));
+  return Shape(Shape::FromProto(shape_proto.tuple_shapes(i)).value_or(Shape()));
 }
 
 std::string ShapeDescription(const Shape& shape) {

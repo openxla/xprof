@@ -24,7 +24,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/memory_profile.pb.h"
+#include "plugin/xprof/protobuf/memory_profile.pb.h"
 
 namespace tensorflow {
 namespace profiler {

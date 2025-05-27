@@ -22,7 +22,7 @@ limitations under the License.
 #include "absl/hash/hash.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
+#include "plugin/xprof/protobuf/kernel_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

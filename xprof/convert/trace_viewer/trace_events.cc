@@ -44,8 +44,8 @@ limitations under the License.
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events_raw.pb.h"
+#include "plugin/xprof/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
 namespace tensorflow {
 namespace profiler {

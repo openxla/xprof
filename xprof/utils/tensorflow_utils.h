@@ -21,7 +21,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "google/protobuf/message.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/tensorflow_datatypes.pb.h"
+#include "plugin/xprof/protobuf/tensorflow_datatypes.pb.h"
 
 namespace tensorflow {
 namespace profiler {

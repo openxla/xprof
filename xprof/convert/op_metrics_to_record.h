@@ -22,9 +22,9 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

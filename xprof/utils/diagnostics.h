@@ -18,8 +18,8 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/macros.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/diagnostics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/diagnostics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

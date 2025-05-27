@@ -24,7 +24,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 
 namespace tensorflow {
 namespace profiler {

@@ -20,7 +20,7 @@ limitations under the License.
 
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hlo_proto_map.h"
 
 namespace tensorflow {

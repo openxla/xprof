@@ -29,9 +29,9 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_collective_info.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/topology.pb.h"
+#include "plugin/xprof/protobuf/dcn_collective_info.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/topology.pb.h"
 #include "xprof/utils/hlo_proto_map.h"
 
 namespace tensorflow {

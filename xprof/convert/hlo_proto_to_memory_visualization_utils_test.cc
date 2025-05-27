@@ -21,7 +21,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/statusor.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/memory_viewer_preprocess.pb.h"
+#include "plugin/xprof/protobuf/memory_viewer_preprocess.pb.h"
 #include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {

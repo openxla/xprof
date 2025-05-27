@@ -22,8 +22,8 @@ limitations under the License.
 #include <vector>
 
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
+#include "plugin/xprof/protobuf/overview_page.pb.h"
 
 namespace tensorflow::profiler {
 

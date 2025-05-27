@@ -16,8 +16,8 @@ limitations under the License.
 #ifndef XPROF_CONVERT_COMPUTE_INFERENCE_LATENCY_H_
 #define XPROF_CONVERT_COMPUTE_INFERENCE_LATENCY_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
+#include "plugin/xprof/protobuf/overview_page.pb.h"
 
 namespace tensorflow::profiler {
 

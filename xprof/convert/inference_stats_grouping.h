@@ -15,7 +15,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_INFERENCE_STATS_GROUPING_H_
 #define XPROF_CONVERT_INFERENCE_STATS_GROUPING_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
 
 namespace tensorflow::profiler {
 

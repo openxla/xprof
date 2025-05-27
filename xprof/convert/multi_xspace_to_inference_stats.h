@@ -18,7 +18,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/repository.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
 #include "xprof/utils/event_span.h"
 
 namespace tensorflow::profiler {

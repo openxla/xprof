@@ -26,7 +26,7 @@ limitations under the License.
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xplane_to_op_stats.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
 #include "xprof/utils/step_intersection.h"
 

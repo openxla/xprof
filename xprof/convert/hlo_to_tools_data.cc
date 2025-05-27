@@ -31,7 +31,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_hlo.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/memory_viewer_preprocess.pb.h"
+#include "plugin/xprof/protobuf/memory_viewer_preprocess.pb.h"
 
 namespace tensorflow {
 namespace profiler {

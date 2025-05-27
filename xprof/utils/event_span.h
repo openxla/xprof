@@ -24,8 +24,8 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {

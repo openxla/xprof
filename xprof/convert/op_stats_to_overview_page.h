@@ -20,11 +20,11 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/input_pipeline.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/overview_page.pb.h"
 
 namespace tensorflow {
 namespace profiler {

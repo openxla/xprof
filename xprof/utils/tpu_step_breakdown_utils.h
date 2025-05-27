@@ -17,7 +17,7 @@ limitations under the License.
 
 #include <cstdint>
 
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {

@@ -18,7 +18,7 @@ limitations under the License.
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {

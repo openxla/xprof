@@ -17,7 +17,7 @@ limitations under the License.
 #define XPROF_CONVERT_OP_METRICS_DB_COMBINER_H_
 
 #include "tsl/platform/protobuf.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {

@@ -22,10 +22,10 @@ limitations under the License.
 
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/roofline_model.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/roofline_model.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {

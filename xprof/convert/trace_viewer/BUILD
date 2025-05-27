@@ -8,7 +8,7 @@ cc_library(
     name = "trace_events_filter_interface",
     hdrs = ["trace_events_filter_interface.h"],
     deps = [
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
     ],
 )
 
@@ -21,7 +21,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
@@ -33,7 +33,7 @@ cc_test(
         ":trace_viewer_visibility",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
@@ -45,7 +45,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
     ],
 )
 
@@ -64,9 +64,9 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/lib:context_types",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
@@ -79,7 +79,7 @@ cc_library(
     hdrs = ["trace_event_arguments_builder.h"],
     deps = [
         "@com_google_absl//absl/strings",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
     ],
 )
 
@@ -91,7 +91,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings:string_view",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )
@@ -125,9 +125,9 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:task_proto_cc",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_proto_cc",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_raw_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@tsl//tsl/platform:env",
         "@tsl//tsl/platform:errors",
         "@tsl//tsl/platform:status",

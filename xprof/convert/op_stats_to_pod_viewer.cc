@@ -19,8 +19,8 @@ limitations under the License.
 
 #include "absl/log/check.h"
 #include "xprof/convert/op_stats_to_pod_stats.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/pod_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/pod_stats.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/diagnostics.h"
 
 namespace tensorflow {

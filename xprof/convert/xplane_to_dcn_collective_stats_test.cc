@@ -33,7 +33,7 @@ limitations under the License.
 #include "xla/tsl/platform/file_system.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {

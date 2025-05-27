@@ -34,7 +34,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/kernel_stats.pb.h"
+#include "plugin/xprof/protobuf/kernel_stats.pb.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/kernel_stats_utils.h"
 

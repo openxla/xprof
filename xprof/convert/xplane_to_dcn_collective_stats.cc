@@ -31,7 +31,7 @@ limitations under the License.
 #include "xprof/convert/dcn_slack_analysis_combiner.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xspace_to_dcn_slack_analysis.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {

@@ -20,7 +20,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

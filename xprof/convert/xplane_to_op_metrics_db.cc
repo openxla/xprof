@@ -41,7 +41,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stack.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/cost_utils.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/hlo_module_map.h"

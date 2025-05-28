@@ -25,12 +25,12 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/platform/protobuf.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/input_pipeline.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/tpu_input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
 #include "xprof/utils/event_span.h"
 
 namespace tensorflow {

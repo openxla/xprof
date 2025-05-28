@@ -1,5 +1,5 @@
 load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
-load("//plugin/tensorboard_plugin_profile/build_utils:strict.default.bzl", "py_strict_test")
+load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_test")
 
 package(default_visibility = ["//visibility:public"])
 

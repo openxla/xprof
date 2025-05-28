@@ -15,7 +15,7 @@ limitations under the License.
 #ifndef XPROF_UTILS_TPU_STEP_DETAILS_UTILS_H_
 #define XPROF_UTILS_TPU_STEP_DETAILS_UTILS_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/tpu_input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
 
 namespace tensorflow {
 namespace profiler {

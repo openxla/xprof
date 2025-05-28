@@ -26,10 +26,10 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hlo_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/source_info.pb.h"
+#include "plugin/xprof/protobuf/hlo_stats.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {

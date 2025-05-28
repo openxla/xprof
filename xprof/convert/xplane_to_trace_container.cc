@@ -32,8 +32,8 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/trace_viewer/trace_event_arguments_builder.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events_raw.pb.h"
+#include "plugin/xprof/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
 namespace tensorflow {
 namespace profiler {

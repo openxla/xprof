@@ -28,8 +28,8 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/xplane_to_op_stats.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/tf_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/tf_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

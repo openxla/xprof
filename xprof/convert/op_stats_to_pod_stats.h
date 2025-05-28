@@ -16,8 +16,8 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_POD_STATS_H_
 #define XPROF_CONVERT_OP_STATS_TO_POD_STATS_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/pod_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/pod_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

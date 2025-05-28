@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_EVENTS_FILTER_INTERFACE_H_
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_EVENTS_FILTER_INTERFACE_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events.pb.h"
 
 namespace tensorflow {
 namespace profiler {

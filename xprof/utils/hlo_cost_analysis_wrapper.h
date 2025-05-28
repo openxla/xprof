@@ -25,7 +25,7 @@ limitations under the License.
 #include "absl/functional/any_invocable.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/service/hlo_cost_analysis.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/function_registry.h"
 #include "xprof/utils/cost_utils.h"
 

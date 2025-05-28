@@ -16,9 +16,9 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 #define XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_profile.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_profile.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

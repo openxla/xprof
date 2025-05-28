@@ -21,7 +21,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {

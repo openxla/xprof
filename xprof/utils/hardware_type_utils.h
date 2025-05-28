@@ -17,7 +17,7 @@ limitations under the License.
 #define XPROF_UTILS_HARDWARE_TYPE_UTILS_H_
 
 #include "absl/strings/string_view.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
 
 namespace tensorflow {
 namespace profiler {

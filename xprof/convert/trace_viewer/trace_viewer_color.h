@@ -20,7 +20,7 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_events.pb.h"
 
 namespace tensorflow {
 namespace profiler {

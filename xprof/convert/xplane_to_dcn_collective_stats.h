@@ -20,7 +20,7 @@ limitations under the License.
 
 #include "absl/status/statusor.h"
 #include "xprof/convert/repository.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {

@@ -20,9 +20,9 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
 #include "<gtest/gtest.h>"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/step_intersection.h"
 
 namespace tensorflow {

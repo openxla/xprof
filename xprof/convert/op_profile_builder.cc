@@ -26,9 +26,9 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
+#include "google/protobuf/map.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "tsl/platform/protobuf.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
@@ -81,10 +81,8 @@ Node TopKChildren(const Node* root, int k, Cmp cmp) {
   const int actual_k = std::min(k, static_cast<int>(children_ptrs.size()));
 
   if (actual_k > 0) {
-      std::partial_sort(children_ptrs.begin(),
-                        children_ptrs.begin() + actual_k,
-                        children_ptrs.end(),
-                        cmp);
+    std::partial_sort(children_ptrs.begin(), children_ptrs.begin() + actual_k,
+                      children_ptrs.end(), cmp);
   }
 
   Node output;
@@ -444,7 +442,7 @@ void OpProfileBuilder::Finalize(
 OpProfileBuilder::OpProfileBuilder(
     const OpProfileOptions& options,
     tensorflow::profiler::op_profile::Node* root,
-    const tsl::protobuf::Map<uint64_t, std::string>* program_name_map)
+    const google::protobuf::Map<uint64_t, std::string>* program_name_map)
     : options_(options), root_(root), program_name_map_(program_name_map) {
   if (root == nullptr) {
     LOG(DFATAL) << "root is null.";

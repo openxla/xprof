@@ -29,6 +29,8 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/repeated_ptr_field.h"
+#include "google/protobuf/util/json_util.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
@@ -402,8 +404,8 @@ void ProcessActiveAllocations(int64_t peak_bytes_profile_step_id,
 // This function saves the MemoryProfileSnapshots referenced by
 // <active_allocations> max_num_snapshots.
 void SaveActiveAllocationSnapshots(
-    tsl::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* snapshots,
-    tsl::protobuf::RepeatedPtrField<ActiveAllocation>* active_allocations) {
+    google::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* snapshots,
+    google::protobuf::RepeatedPtrField<ActiveAllocation>* active_allocations) {
   std::vector<MemoryProfileSnapshot*> samples;
   // Puts the snapshots referenced by active_allocations in <samples>.
   for (const auto& allocation : *active_allocations) {
@@ -421,7 +423,7 @@ void SaveActiveAllocationSnapshots(
     new_index++;
   }
 
-  tsl::protobuf::RepeatedPtrField<MemoryProfileSnapshot> new_snapshots;
+  google::protobuf::RepeatedPtrField<MemoryProfileSnapshot> new_snapshots;
   new_snapshots.Reserve(samples.size());
   for (const auto& sample : samples) {
     *new_snapshots.Add() = std::move(*sample);
@@ -433,9 +435,9 @@ void SaveActiveAllocationSnapshots(
 // profile data.
 void SampleMemoryProfileTimeline(int64_t max_num_snapshots,
                                  PerAllocatorMemoryProfile* memory_profile) {
-  const tsl::protobuf::RepeatedPtrField<MemoryProfileSnapshot>&
-      original_snapshots = memory_profile->memory_profile_snapshots();
-  tsl::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* timeline_snapshots =
+  const google::protobuf::RepeatedPtrField<MemoryProfileSnapshot>& original_snapshots =
+      memory_profile->memory_profile_snapshots();
+  google::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* timeline_snapshots =
       memory_profile->mutable_sampled_timeline_snapshots();
   int64_t snapshot_count = original_snapshots.size();
   if (snapshot_count > max_num_snapshots) {
@@ -503,7 +505,7 @@ void ProcessMemoryProfileProto(int64_t max_num_snapshots,
        *memory_profile->mutable_memory_profile_per_allocator()) {
     PerAllocatorMemoryProfile* allocator_memory_profile =
         &id_and_allocator_profile.second;
-    tsl::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* snapshots =
+    google::protobuf::RepeatedPtrField<MemoryProfileSnapshot>* snapshots =
         allocator_memory_profile->mutable_memory_profile_snapshots();
     // Sort the memory_profile_snapshots by time_offset_ps (ascending) in proto.
     absl::c_sort(*snapshots, [](const MemoryProfileSnapshot& a,
@@ -532,10 +534,10 @@ void ProcessMemoryProfileProto(int64_t max_num_snapshots,
 template <typename Proto>
 absl::Status ConvertProtoToJson(const Proto& proto_output,
                                 std::string* json_output) {
-  tsl::protobuf::util::JsonPrintOptions json_options;
+  google::protobuf::util::JsonPrintOptions json_options;
   json_options.always_print_primitive_fields = true;
-  auto status = tsl::protobuf::util::MessageToJsonString(
-      proto_output, json_output, json_options);
+  auto status = google::protobuf::util::MessageToJsonString(proto_output, json_output,
+                                                  json_options);
   if (!status.ok()) {
     // Convert error_msg google::protobuf::StringPiece (or absl::string_view) to
     // tensorflow::StringPiece.

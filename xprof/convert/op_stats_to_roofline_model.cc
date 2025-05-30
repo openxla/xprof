@@ -172,12 +172,12 @@ RooflineModelRecord GenerateRooflineModelProgramRecord(
   return program_record;
 }
 
-tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
+google::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     bool include_infeed_outfeed) {
-  tsl::protobuf::RepeatedPtrField<RooflineModelRecord> roofline_model_records;
+  google::protobuf::RepeatedPtrField<RooflineModelRecord> roofline_model_records;
   RooflineModelRecord* program_record = roofline_model_records.Add();
   *program_record = GenerateRooflineModelProgramRecord(
       op_stats, db, record_type, step_num, roofline_model_db,

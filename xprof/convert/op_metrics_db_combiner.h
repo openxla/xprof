@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_METRICS_DB_COMBINER_H_
 #define XPROF_CONVERT_OP_METRICS_DB_COMBINER_H_
 
-#include "tsl/platform/protobuf.h"
+#include "google/protobuf/repeated_ptr_field.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
@@ -34,8 +34,8 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
 
 // Combines the memory access breakdown.
 void CombineMemoryAccessedBreakdown(
-    const tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
-    tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst);
+    const google::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
+    google::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst);
 
 // Helper to combine op metrics databases.
 class OpMetricsDbCombiner : public OpMetricsDbBuilder {

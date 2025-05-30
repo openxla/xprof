@@ -26,6 +26,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/util/json_util.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
@@ -34,7 +35,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
-#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/compute_inference_latency.h"
 #include "xprof/convert/hlo_to_tools_data.h"
@@ -221,9 +221,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPodViewer(
       session_snapshot, &combined_op_stats));
 
   std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions opts;
+  google::protobuf::util::JsonPrintOptions opts;
   opts.always_print_primitive_fields = true;
-  auto encode_status = tsl::protobuf::util::MessageToJsonString(
+  auto encode_status = google::protobuf::util::MessageToJsonString(
       ConvertOpStatsToPodViewer(combined_op_stats), &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
@@ -298,11 +298,11 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
       ParseHardwareType(combined_op_stats.run_environment().device_type()),
       profile);
   std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions opts;
+  google::protobuf::util::JsonPrintOptions opts;
   opts.always_print_primitive_fields = true;
 
   auto encode_status =
-      tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
+      google::protobuf::util::MessageToJsonString(profile, &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
     return tsl::errors::Internal(
@@ -394,8 +394,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     // TODO - b/378923777: Create only when needed.
     TF_ASSIGN_OR_RETURN(bool hlo_proto_status,
                         ConvertMultiXSpaceToHloProto(session_snapshot));
-    LOG_IF(WARNING, !hlo_proto_status)
-        << "No HLO proto found in XSpace.";
+    LOG_IF(WARNING, !hlo_proto_status) << "No HLO proto found in XSpace.";
     return GetAvailableToolNames(session_snapshot);
   } else if (tool_name == "_xplane.pb") {  // internal test only.
     return PreprocessXSpace(session_snapshot);

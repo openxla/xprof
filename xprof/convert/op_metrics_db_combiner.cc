@@ -20,9 +20,9 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
+#include "google/protobuf/repeated_ptr_field.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
-#include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"
 
@@ -94,8 +94,8 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
 }
 
 void CombineMemoryAccessedBreakdown(
-    const tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
-    tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst) {
+    const google::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
+    google::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst) {
   if (src.empty()) return;
   absl::flat_hash_map<std::pair<tsl::uint64 /*memory_space*/, OperationType>,
                       OpMetrics_MemoryAccessed*>

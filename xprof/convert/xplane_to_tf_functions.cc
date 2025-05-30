@@ -28,13 +28,13 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/text_format.h"
 #include "xla/tsl/lib/gtl/map_util.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
-#include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 
@@ -282,7 +282,7 @@ class TfFunctionExecutions {
 
 std::string DebugString(const TfFunctionDb& tf_function_db) {
   std::string str;
-  tsl::protobuf::TextFormat::PrintToString(tf_function_db, &str);
+  google::protobuf::TextFormat::PrintToString(tf_function_db, &str);
   return str;
 }
 

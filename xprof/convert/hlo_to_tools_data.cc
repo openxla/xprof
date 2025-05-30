@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/util/json_util.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -61,9 +62,9 @@ absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
   }
 
   std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions options;
+  google::protobuf::util::JsonPrintOptions options;
   options.always_print_primitive_fields = true;
-  auto encoded_status = tsl::protobuf::util::MessageToJsonString(
+  auto encoded_status = google::protobuf::util::MessageToJsonString(
       result_or.value(), &json_output, options);
   if (!encoded_status.ok()) {
     const auto& error_message = encoded_status.message();

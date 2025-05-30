@@ -137,7 +137,7 @@ inline double PicosToMicros(uint64_t ps) { return ps / 1E6; }
 // Also adds double quotes to the beginning and end of the string.
 std::string JsonEscape(absl::string_view raw);
 
-std::string ProtoString(const tsl::protobuf::Message& pb);
+std::string ProtoString(const google::protobuf::Message& pb);
 
 template <typename RawDataType, typename IOBuffer>
 void WriteTpuData(const RawDataType& data, JsonSeparator<IOBuffer>* separator,

@@ -59,7 +59,7 @@ PerCoreAllReduceBreakdown ComputePerStepAllReduceBreakdownAcrossCores(
 // of the same step across cores.
 PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map,
-    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+    const google::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map);
 
 StepSummary GetStepSummaryForSampleStats(const tsl::Stat<double>& sample_stats);
@@ -77,7 +77,7 @@ constexpr double kHostToDeviceTimePercentAsDominant = 90.0;
 
 // Computes the summary of step time in milliseconds.
 StepSummary ComputeStepTimeSummaryInMs(
-    const tsl::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step);
+    const google::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step);
 
 void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
                         InputPipelineAnalysisResult* result);
@@ -90,7 +90,7 @@ InputPipelineAnalysisRecommendation GenerateRecommendation();
 void MayFixTpuStepAnalysis(
     const StepEvents& host_step_events, const OpMetricsDb& device_op_metrics_db,
     StepDatabaseResult& step_db,
-    const tsl::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
+    const google::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
 
 // Returns a struct that describes the performance bottleneck of the
 // program executed on TPU.
@@ -100,8 +100,7 @@ TpuBottleneckAnalysis ComputeTpuBottleneckAnalysis(
 // Returns the performance bottleneck of the program executed.
 BottleneckAnalysis ComputeBottleneckAnalysis(
     const InputTimeBreakdown& input_time_breakdown,
-    const tsl::protobuf::RepeatedPtrField<::google::protobuf::Any>&
-        any_step_details);
+    const google::protobuf::RepeatedPtrField<::google::protobuf::Any>& any_step_details);
 
 InputPipelineAnalysisResult ConvertOpStatsToInputPipelineAnalysis(
     const OpStats& op_stats);

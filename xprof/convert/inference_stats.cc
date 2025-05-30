@@ -1288,7 +1288,7 @@ bool CompareByDuration(const DataType& a, const DataType& b) {
 void BuildRequestDetails(
     const RequestEventsMap& request_events_map, DeviceType device_type,
     const int32_t host_id,
-    tsl::protobuf::RepeatedPtrField<tensorflow::profiler::RequestDetail>*
+    google::protobuf::RepeatedPtrField<tensorflow::profiler::RequestDetail>*
         request_details) {
   for (auto& [group_id, request_events] : request_events_map) {
     if (request_events.request_timespan.duration_ps() == 0) continue;
@@ -1305,7 +1305,7 @@ void BuildRequestDetails(
 void BuildBatchDetails(
     BatchEventsMap batch_events_map, DeviceType device_type,
     const int32_t host_id,
-    tsl::protobuf::RepeatedPtrField<tensorflow::profiler::BatchDetail>*
+    google::protobuf::RepeatedPtrField<tensorflow::profiler::BatchDetail>*
         batch_details) {
   for (auto& [group_id, batch_events] : batch_events_map) {
     tensorflow::profiler::BatchDetail* batch_detail = batch_details->Add();

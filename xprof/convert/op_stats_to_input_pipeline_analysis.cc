@@ -210,7 +210,7 @@ GenericStepTimeBreakdown ComputeGenericStepTimeBreakdownInMs(
 }
 
 InputPipelineAnalysisResult ComputeGenericInputPipelineAnalysisResult(
-    const tsl::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step) {
+    const google::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step) {
   InputPipelineAnalysisResult result;
   result.set_tag(false);
 
@@ -621,8 +621,8 @@ TpuStepTimeBreakdown ComputeTpuStepTimeBreakdownInMs(
 // of the step that runs on that core. Elements are in the same order that the
 // steps are executed over time.
 InputPipelineAnalysisResult ComputeTpuInputPipelineAnalysisResult(
-    const tsl::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step,
-    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+    const google::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step,
+    const google::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map) {
   InputPipelineAnalysisResult result;
   bool has_sparse_core = false;
@@ -859,7 +859,7 @@ class MinMap {
 
 PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map,
-    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+    const google::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map) {
   PerTpuStepDetails per_step_data;
 
@@ -1100,7 +1100,7 @@ PerCoreAllReduceBreakdown ComputePerStepAllReduceBreakdownAcrossCores(
 void MayFixTpuStepAnalysis(
     const StepEvents& host_step_events, const OpMetricsDb& device_op_metrics_db,
     StepDatabaseResult& step_db,
-    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+    const google::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map) {
   // This code is only applicable when input is received by the tensor core
   // from the host without the use of infeed. If the tensor core receives
@@ -1366,7 +1366,7 @@ InputPipelineAnalysisRecommendation GenerateRecommendation() {
 }
 
 StepSummary ComputeStepTimeSummaryInMs(
-    const tsl::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step) {
+    const google::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step) {
   tsl::Stat<double> total_step_stats_in_ms;
   // iterates over each step.
   for (const auto& coreid_stepinfo_map : grouped_by_step) {
@@ -1501,8 +1501,7 @@ void OutputAnalysis(double output_percent, std::string* output_classification,
 
 BottleneckAnalysis ComputeBottleneckAnalysis(
     const InputTimeBreakdown& input_time_breakdown,
-    const tsl::protobuf::RepeatedPtrField<::google::protobuf::Any>&
-        any_step_details) {
+    const google::protobuf::RepeatedPtrField<::google::protobuf::Any>& any_step_details) {
   double total_step_time_ms = 0;
   double total_input_ms = 0;
   double total_output_ms = 0;

@@ -21,9 +21,9 @@ limitations under the License.
 #include <optional>
 #include <vector>
 
+#include "google/protobuf/repeated_ptr_field.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_opcode.h"
-#include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
@@ -55,7 +55,7 @@ class PerformanceInfoWrapper {
   // Get the Input bit widths for the computation.
   std::vector<uint32_t> InputBitwidths() const;
 
-  const tsl::protobuf::RepeatedPtrField<PerfInfoType::MemoryAccessed>&
+  const google::protobuf::RepeatedPtrField<PerfInfoType::MemoryAccessed>&
   MemoryAccessedBreakdown() const {
     return performance_info_->memory_accessed_breakdown();
   }
@@ -64,7 +64,7 @@ class PerformanceInfoWrapper {
   // PerformanceInfo. EG in Roofline Analysis.
   int64_t bytes_accessed() const { return BytesAccessed(); }
   int64_t flops() const { return ModelFlops(); }
-  const tsl::protobuf::RepeatedPtrField<PerfInfoType::MemoryAccessed>&
+  const google::protobuf::RepeatedPtrField<PerfInfoType::MemoryAccessed>&
   memory_accessed_breakdown() const {
     return MemoryAccessedBreakdown();
   }

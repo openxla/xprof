@@ -29,7 +29,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/input_pipeline/host_op",
         "@org_xprof//frontend/app/components/input_pipeline/host_side_analysis_detail",
         "@org_xprof//frontend/app/components/input_pipeline/max_infeed_detail",
-        "@org_xprof//frontend/app/services/data_service",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

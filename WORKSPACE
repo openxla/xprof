@@ -189,10 +189,10 @@ http_archive(
         "//third_party:xla.patch",
         "//third_party:xla_add_grpc_cares_darwin_arm64_support.patch",
     ],
-    sha256 = "26e457507da92af216814ecf334e0bf8dc9bf49eb6b812ca58c482696390098a",
-    strip_prefix = "xla-137cad68a7f2c5f4b52ad18acf4acf6056dde1f8",
+    sha256 = "42e7e836a983f1b64d4f79c546eb04ea95c0f3f4300c2eeb473dfd2dea883367",
+    strip_prefix = "xla-0c798575f45045f22ecc3613a3ae028651974882",
     urls = [
-        "https://github.com/openxla/xla/archive/137cad68a7f2c5f4b52ad18acf4acf6056dde1f8.zip",
+        "https://github.com/openxla/xla/archive/0c798575f45045f22ecc3613a3ae028651974882.zip",
     ],
 )
 

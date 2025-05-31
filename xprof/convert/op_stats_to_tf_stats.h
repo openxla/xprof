@@ -16,6 +16,11 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_TF_STATS_H_
 #define XPROF_CONVERT_OP_STATS_TO_TF_STATS_H_
 
+#include <memory>
+#include <string>
+
+#include "absl/strings/string_view.h"
+#include "xprof/convert/data_table_utils.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
 #include "plugin/tensorboard_plugin_profile/protobuf/tf_stats.pb.h"
 
@@ -23,6 +28,12 @@ namespace tensorflow {
 namespace profiler {
 
 TfStatsDatabase ConvertOpStatsToTfStats(const OpStats& op_stats);
+
+std::unique_ptr<DataTable> TfStatsToDataTable(
+    const tensorflow::profiler::TfStatsTable& table,
+    absl::string_view device_type);
+
+std::string TfStatsToDataTableJson(const TfStatsDatabase& tf_stats_db);
 
 }  // namespace profiler
 }  // namespace tensorflow

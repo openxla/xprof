@@ -20,7 +20,6 @@ py_library(
         ":input_pipeline_proto_to_gviz",
         ":overview_page_proto_to_gviz",
         ":raw_to_tool_data",
-        ":tf_stats_proto_to_gviz",
         ":trace_events_json",
     ],
 )
@@ -96,30 +95,6 @@ py_test(
         requirement("gviz_api"),
         "//:expect_tensorflow_installed",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:overview_page_proto_py",
-    ],
-)
-
-py_library(
-    name = "tf_stats_proto_to_gviz",
-    srcs = ["tf_stats_proto_to_gviz.py"],
-    deps = [
-        requirement("gviz_api"),
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:tf_stats_proto_py",
-    ],
-)
-
-py_test(
-    name = "tf_stats_proto_to_gviz_test",
-    size = "small",
-    srcs = ["tf_stats_proto_to_gviz_test.py"],
-    main = "tf_stats_proto_to_gviz_test.py",
-    deps = [
-        ":tf_stats_proto_to_gviz",
-        requirement("absl-py"),  # build_cleaner: keep; go/disable_tf2
-        "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        requirement("gviz_api"),
-        "//:expect_tensorflow_installed",
-        "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:tf_stats_proto_py",
     ],
 )
 
@@ -203,7 +178,6 @@ py_library(
         ":inference_stats_proto_to_gviz",
         ":input_pipeline_proto_to_gviz",
         ":overview_page_proto_to_gviz",
-        ":tf_stats_proto_to_gviz",
         ":trace_events_json",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",

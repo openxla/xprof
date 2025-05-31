@@ -210,7 +210,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToTfStats(
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
-  return ConvertOpStatsToTfStats(combined_op_stats).SerializeAsString();
+  TfStatsDatabase tf_stats_db = ConvertOpStatsToTfStats(combined_op_stats);
+  return TfStatsToDataTableJson(tf_stats_db);
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToKernelStats(

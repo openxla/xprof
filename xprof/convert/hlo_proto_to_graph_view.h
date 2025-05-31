@@ -45,6 +45,11 @@ struct GraphViewerParams {
   bool show_metadata;
 };
 
+// Get the adjacent nodes of the given node including operands and users.
+absl::StatusOr<std::string> GetAdjacentNodes(absl::string_view module_name,
+                                             const xla::HloProto& hlo_proto,
+                                             const std::string& node_name);
+
 // Return mapping from style key word to op names separated by comma.
 // following hlo_graph_dumper styling
 absl::StatusOr<std::string> GetNodeStyles();

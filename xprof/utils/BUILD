@@ -133,6 +133,7 @@ cc_library(
         ":hlo_module_map",
         ":op_metrics_db_utils",
         ":performance_info_wrapper",
+        "//third_party/protobuf:protobuf_lite",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_metrics_proto_cc",
@@ -507,9 +508,9 @@ cc_library(
     hdrs = ["performance_info_wrapper.h"],
     deps = [
         ":hlo_cost_analysis_wrapper",
+        "//third_party/protobuf:protobuf_lite",
         "@com_google_absl//absl/memory",
         "@org_xprof//plugin/tensorboard_plugin_profile/protobuf:op_metrics_proto_cc",
-        "@tsl//tsl/platform:protobuf",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/hlo/ir:hlo",
     ],

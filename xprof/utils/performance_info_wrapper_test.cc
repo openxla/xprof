@@ -111,7 +111,7 @@ ENTRY test {
 TEST(PerformanceInfoWrapper, TestMemoryAccessed) {
   auto performance_info =
       std::make_unique<PerformanceInfoWrapper::PerfInfoType>();
-  tsl::protobuf::TextFormat::ParseFromString(
+  google::protobuf::TextFormat::ParseFromString(
       R"pb(
         flops: 1000000
         bytes_accessed: 100

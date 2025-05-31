@@ -46,7 +46,7 @@ RooflineModelRecord GenerateRooflineModelProgramRecord(
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     bool include_infeed_outfeed);
 
-tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
+google::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,

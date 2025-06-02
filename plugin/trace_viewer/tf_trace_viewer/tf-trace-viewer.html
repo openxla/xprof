@@ -1797,6 +1797,43 @@ dashboard would integrate trace viewer app using iframe.
         }
         startUpdateModel = performance.now();
         const jsonData = JSON.parse(data);
+        // Process all the Stream # events and update its sort_index.
+        // The sort_index is used to sort the events in the UI.
+        // All the Framework and other events are added next to there respective stream events.
+        const traceEvents = jsonData['traceEvents'];
+        const DEFAULT_SORT_INDEX_MULTIPLIER = 10;
+        const STREAM_NAME_PREFIX = 'Stream #';
+        const FRAMEWORK_NAME_SCOPE_PREFIX = 'Framework Name Scope - from #';
+        const FRAMEWORK_OPS_PREFIX = 'Framework Ops - from #';
+        const XLA_MODULES_PREFIX = 'XLA Modules - from #';
+        const XLA_OPS_PREFIX = 'XLA Ops - from #';
+        const SOURCE_CODE_PREFIX = 'Source code - from #';
+        const PREFIX_TO_OFFSET = {
+          'Stream #': 0,
+          'Framework Name Scope - from #': 1,
+          'Framework Ops - from #': 2,
+          'XLA Modules - from #': 3,
+          'XLA Ops - from #': 4,
+          'Source code - from #': 5,
+        };
+
+        for (let index = 0; index < traceEvents.length; index++) {
+          const traceEvent = traceEvents[index];
+          if (traceEvent['name'] === 'thread_name') {
+            const threadName = traceEvent['args']['name'];
+            for (const prefix in PREFIX_TO_OFFSET) {
+              if (threadName.startsWith(prefix)) {
+                const match = threadName.match(`^${prefix}(\\d+)`);
+                if (match && index + 1 < traceEvents.length) {
+                  const streamId = parseInt(match[1], 10);
+                  jsonData['traceEvents'][index + 1]['args']['sort_index'] =
+                    streamId * DEFAULT_SORT_INDEX_MULTIPLIER + PREFIX_TO_OFFSET[prefix];
+                }
+                break; // Exit the loop once a prefix matches
+              }
+            }
+          }
+        }
         this._codeLink = jsonData['codeLink'];
         if (!this._model /* first load */) {
           this._collapseBigProcessTracks(jsonData);

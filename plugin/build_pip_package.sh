@@ -74,23 +74,23 @@ cd ${PLUGIN_RUNFILE_DIR}
 find . -name '*.py' -exec ${copy} --parents -Lrpv {} $dest \;
 cd $dest
 chmod -R 755 .
-cp ${build_workspace}/bazel-bin/plugin/tensorboard_plugin_profile/protobuf/*_pb2.py tensorboard_plugin_profile/protobuf/ || echo "Files already exist"
+cp ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py xprof/protobuf/ || echo "Files already exist"
 
-find tensorboard_plugin_profile/protobuf -name \*.py -exec sed -i.bak -e '
-    s/^from plugin.tensorboard_plugin_profile/from tensorboard_plugin_profile/
+find xprof/protobuf -name \*.py -exec sed -i.bak -e '
+    s/^from plugin.xprof/from xprof/
   ' {} +
 
 find . -name "*.bak" -exec rm {} \;
 
-cp ${build_workspace}/bazel-bin/xprof/pywrap/_pywrap_profiler_plugin.so tensorboard_plugin_profile/convert/
+cp ${build_workspace}/bazel-bin/xprof/pywrap/_pywrap_profiler_plugin.so xprof/convert/
 
 # Copy static files.
-cd tensorboard_plugin_profile
+cd xprof
 mkdir -p static
 cd static
-cp "$PLUGIN_RUNFILE_DIR/tensorboard_plugin_profile/static/index.html" .
-cp "$PLUGIN_RUNFILE_DIR/tensorboard_plugin_profile/static/index.js" .
-cp "$PLUGIN_RUNFILE_DIR/tensorboard_plugin_profile/static/materialicons.woff2" .
+cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .
+cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.js" .
+cp "$PLUGIN_RUNFILE_DIR/xprof/static/materialicons.woff2" .
 cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.html" .
 cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/bundle.js" .

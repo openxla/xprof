@@ -23,7 +23,7 @@ limitations under the License.
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tsl/platform/protobuf.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 

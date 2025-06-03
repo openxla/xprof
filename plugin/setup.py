@@ -19,10 +19,10 @@ from __future__ import print_function
 
 import setuptools
 
-from tensorboard_plugin_profile import version
+from xprof import version
 
 
-PROJECT_NAME = 'tensorboard_plugin_profile'
+PROJECT_NAME = 'xprof'
 VERSION = version.__version__
 REQUIRED_PACKAGES = [
     'gviz_api >= 1.9.0',
@@ -33,6 +33,7 @@ REQUIRED_PACKAGES = [
     'etils[epath] >= 1.0.0',
     'cheroot >= 10.0.1',
     'fsspec[gcs] >= 2024.10.0',
+    'packaging >= 25.0',
 ]
 
 
@@ -44,7 +45,7 @@ def get_readme():
 setuptools.setup(
     name=PROJECT_NAME,
     version=VERSION,
-    description='Profile Tensorboard Plugin',
+    description='XProf Profiler Plugin',
     long_description=get_readme(),
     long_description_content_type='text/markdown',
     author='Google Inc.',
@@ -52,22 +53,22 @@ setuptools.setup(
     url='https://github.com/openxla/xprof',
     packages=setuptools.find_packages()
     + setuptools.find_namespace_packages(
-        include=['tensorboard_plugin_profile.*'],
-        exclude=['tensorboard_plugin_profile.static'],
+        include=['xprof.*'],
+        exclude=['xprof.static'],
     ),
     package_data={
-        'tensorboard_plugin_profile': ['static/**'],
+        'xprof': ['static/**'],
         '': ['_pywrap_profiler_plugin.so'],
     },
     entry_points={
         'tensorboard_plugins': [
             (
                 'profile ='
-                ' tensorboard_plugin_profile.profile_plugin_loader:ProfilePluginLoader'
+                ' xprof.profile_plugin_loader:ProfilePluginLoader'
             ),
         ],
         'console_scripts': [
-            'xprof = tensorboard_plugin_profile.server:main',
+            'xprof = xprof.server:main',
         ],
     },
     python_requires='>= 2.7, != 3.0.*, != 3.1.*',

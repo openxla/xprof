@@ -18,7 +18,7 @@ limitations under the License.
 
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
 
 namespace tensorflow {

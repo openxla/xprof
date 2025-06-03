@@ -17,7 +17,7 @@ limitations under the License.
 #include <cstdint>
 
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/dcn_slack_analysis.pb.h"
+#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 
 namespace tensorflow {
 namespace profiler {

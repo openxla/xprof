@@ -20,8 +20,8 @@ limitations under the License.
 
 #include "absl/log/check.h"
 #include "xla/tsl/platform/logging.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hardware_types.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/step_intersection.h"
 
 namespace tensorflow {

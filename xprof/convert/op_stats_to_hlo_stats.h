@@ -20,8 +20,8 @@ limitations under the License.
 #include <string>
 
 #include "xprof/convert/data_table_utils.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/hlo_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/hlo_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

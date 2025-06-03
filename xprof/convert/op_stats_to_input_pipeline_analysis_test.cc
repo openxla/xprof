@@ -22,8 +22,8 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "<gtest/gtest.h>"
 #include "tsl/platform/protobuf.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 

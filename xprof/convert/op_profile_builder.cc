@@ -31,9 +31,9 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_metrics_to_record.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_profile.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/source_info.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_profile.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {

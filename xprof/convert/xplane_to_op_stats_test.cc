@@ -37,11 +37,11 @@ limitations under the License.
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/step_events_to_steps_db.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/diagnostics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_stats.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/steps_db.pb.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/tf_function.pb.h"
+#include "plugin/xprof/protobuf/diagnostics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "xprof/utils/hlo_proto_map.h"
 
 namespace tensorflow {

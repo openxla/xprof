@@ -26,7 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xla/tsl/platform/types.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {

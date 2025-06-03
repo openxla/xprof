@@ -16,7 +16,7 @@ limitations under the License.
 #include "xprof/convert/compute_inference_latency.h"
 
 #include "<gtest/gtest.h>"
-#include "plugin/tensorboard_plugin_profile/protobuf/inference_stats.pb.h"
+#include "plugin/xprof/protobuf/inference_stats.pb.h"
 
 namespace tensorflow::profiler {
 namespace {

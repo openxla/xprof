@@ -30,7 +30,7 @@ limitations under the License.
 #include "xla/service/gpu/model/gpu_hlo_cost_analysis.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/tsl/platform/errors.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/cost_utils.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 

@@ -33,7 +33,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "plugin/tensorboard_plugin_profile/protobuf/tf_data_stats.pb.h"
+#include "plugin/xprof/protobuf/tf_data_stats.pb.h"
 #include "xprof/utils/html_utils.h"
 
 namespace tensorflow {

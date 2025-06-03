@@ -43,7 +43,7 @@ class VirtualEnv(object):
 
   def cleanup(self):
     """Clean up all existing TF profiler related installation."""
-    self.run('pip3', 'uninstall', '-q', '-y', 'tensorboard_plugin_profile',
+    self.run('pip3', 'uninstall', '-q', '-y', 'xprof',
              'tensorboard', 'tensorflow-estimator', 'tensorflow', 'tbp-nightly',
              'tb-nightly', 'tf-estimator-nightly', 'tf-nightly', NO_CHECK)
 
@@ -74,7 +74,7 @@ def main():
     venv.run('pip3', 'install', '-q', '-U', 'tensorflow==' + args.version)
     venv.run('pip3', 'install', '-q', '-U', 'tensorboard==' + args.version)
     venv.run('pip3', 'install', '-q', '-U',
-             'tensorboard_plugin_profile==' + args.version)
+             'xprof==' + args.version)
 
   tensorboard = os.path.join(args.envdir, 'bin/tensorboard')
   # There is a bug that in Mac OS the shebang of tensorboard script is not

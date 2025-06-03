@@ -1,10 +1,23 @@
-<memory-viewer-control
-    [firstLoadSelectedMemorySpaceColor]="firstLoadMemorySpaceColor"
-    (changed)="update($event)"
-></memory-viewer-control>
-<memory-viewer-main
-    [memoryViewerPreprocessResult]="memoryViewerPreprocessResult"
-    [currentRun]="currentRun"
-    [currentHost]="currentHost"
-    [currentModule]="currentModule"
-></memory-viewer-main>
+<mat-sidenav-container>
+    <mat-sidenav mode="side" opened>
+      <memory-viewer-control
+        [moduleList]="moduleList"
+        [firstLoadSelectedModule]="moduleList[firstLoadModuleIndex]"
+        [firstLoadSelectedMemorySpaceColor]="firstLoadMemorySpaceColor"
+        (changed)="update($event)"
+      ></memory-viewer-control>
+      <buffer-details [selectedModule]="selectedModule" [sessionId]="sessionId"></buffer-details>
+    </mat-sidenav>
+    <mat-sidenav-content>
+      <div class="progress-container" *ngIf="loading">
+        <div class="loading-message">Loading module...</div>
+        <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
+        <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
+      </div>
+      <memory-viewer-main
+        *ngIf="!loading"
+        [memoryViewerPreprocessResult]="memoryViewerPreprocessResult"
+        [memorySpaceColor]="selectedMemorySpaceColor"
+      ></memory-viewer-main>
+    </mat-sidenav-content>
+</mat-sidenav-container>

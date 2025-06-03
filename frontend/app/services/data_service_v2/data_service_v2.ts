@@ -227,6 +227,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
                        .set('tag', tool)
                        .set('host', host)
                        .set('tqx', 'out:csv;');
-    window.open( this.pathPrefix + DATA_API + '?' + params.toString(), '_blank');
+    windowOpen(
+        window, this.pathPrefix + DATA_API + '?' + params.toString(), '_blank');
+  }
+
+  getIfrtMeGraphJson(sessionId: string) {
+    return {} as Observable<{}>;
   }
 }

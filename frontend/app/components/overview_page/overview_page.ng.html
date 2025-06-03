@@ -1,8 +1,49 @@
-<overview-page-base
-  [diagnostics]="diagnostics"
-  [generalAnalysis]="generalAnalysis"
-  [inputPipelineAnalysis]="inputPipelineAnalysis"
-  [runEnvironment]="runEnvironment"
-  [inferenceLatencyData]="inferenceLatencyData"
-  >
-</overview-page-base>
+<!--
+  The Overview Page is a view within the tf-profile-dashboard.
+  It is the first page that users would look at in order to understand
+  the overall performance of their TPU workloads. The page is divided into the left and right section:
+  Left section:
+    (1) Performance summary
+    (2) Run environment
+  Right section:
+    (1) Step-time graph for training / inference
+-->
+
+<div>
+  <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
+  <div class="container">
+    <div class="left-column">
+      <performance-summary
+        [isInference]="isInference"
+        [generalAnalysis]="generalAnalysis"
+        [inputPipelineAnalysis]="inputPipelineAnalysis"
+        [inferenceLatencyData]="inferenceLatencyData"
+        [class]="darkTheme ? 'dark-theme' : ''">
+      </performance-summary>
+      <ng-content select="[normalizedAcceleratorPerformanceView]"></ng-content>
+      <run-environment-view [runEnvironment]="runEnvironment" [class]="darkTheme ? 'dark-theme' : ''">
+        <ng-content taskCount select="[taskCount]"></ng-content>
+        <ng-content jobInformation select="[jobInformation]"></ng-content>
+      </run-environment-view>
+    </div>
+
+    <div class="right-column">
+      <ng-content select="[stepTimeGraphView]"></ng-content>
+      <step-time-graph
+        stepTimeGraphView
+        *ngIf="hasStepTimeGraphData"
+        id="step-time-graph"
+        [inputPipelineAnalysis]="inputPipelineAnalysis"
+        [class]="darkTheme ? 'dark-theme' : ''">
+      </step-time-graph>
+      <inference-latency-chart
+        *ngIf="hasInferenceLatencyData"
+        [inferenceLatencyData]="inferenceLatencyData"
+        [class]="darkTheme ? 'dark-theme' : ''">
+      </inference-latency-chart>
+      <ng-content select="[recommendationResultView]"></ng-content>
+      <ng-content select="[sblView]"></ng-content>
+      <ng-content select="[tfDataView]"></ng-content>
+    </div>
+  </div>
+</div>

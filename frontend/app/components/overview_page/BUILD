@@ -4,18 +4,19 @@ load("//defs:defs.bzl", "xprof_ng_module")
 package(default_visibility = ["//frontend:internal"])
 
 xprof_ng_module(
-    name = "overview_page_base",
+    name = "overview_page",
     srcs = [
-        "overview_page_base_module.ts",
+        "overview_page_module.ts",
     ],
     assets = [
         ":overview_page_css",
-        "overview_page_base.ng.html",
+        "overview_page.ng.html",
     ],
     # strict_templates = False,
     deps = [
         "@npm//@angular/common",
         "@npm//@angular/core",
+        "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//@types/google.visualization",
         "@npm//rxjs",
@@ -28,34 +29,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/overview_page/run_environment_view",
         "@org_xprof//frontend/app/components/overview_page/step_time_graph",
         "@org_xprof//frontend/app/services/data_service",
-        "@org_xprof//frontend/app/store",
-    ],
-)
-
-xprof_ng_module(
-    name = "overview_page",
-    srcs = [
-        "overview_page.ts",
-        "overview_page_common.ts",
-        "overview_page_module.ts",
-    ],
-    assets = [
-        ":overview_page_css",
-        "overview_page.ng.html",
-    ],
-    # strict_templates = False,
-    deps = [
-        ":overview_page_base",
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//@types/google.visualization",
-        "@npm//rxjs",
-        "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/utils",
-        "@org_xprof//frontend/app/components/overview_page/recommendation_result_view",
-        "@org_xprof//frontend/app/services/data_service",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

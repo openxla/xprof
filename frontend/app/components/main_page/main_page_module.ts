@@ -26,8 +26,7 @@ import {MemoryViewer} from 'org_xprof/frontend/app/components/memory_viewer/memo
 import {MemoryViewerModule} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer_module';
 import {OpProfile} from 'org_xprof/frontend/app/components/op_profile/op_profile';
 import {OpProfileModule} from 'org_xprof/frontend/app/components/op_profile/op_profile_module';
-import {OverviewPage} from 'org_xprof/frontend/app/components/overview_page/overview_page';
-import {OverviewPageModule} from 'org_xprof/frontend/app/components/overview_page/overview_page_module';
+import {OverviewPage, OverviewPageModule} from 'org_xprof/frontend/app/components/overview_page/overview_page_module';
 import {PodViewer} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer';
 import {PodViewerModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_module';
 import {RooflineModel} from 'org_xprof/frontend/app/components/roofline_model/roofline_model';

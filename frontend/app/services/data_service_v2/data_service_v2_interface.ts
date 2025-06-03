@@ -19,7 +19,7 @@ export interface DataServiceV2Interface {
       host?: string,
       parameters?: Map<string, string>,
       ignoreError?: boolean,
-      ): Observable<DataTable|null>;
+      ): Observable<DataTable|DataTable[]|null>;
 
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string): Observable<string>;

@@ -947,7 +947,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        # copybara:uncomment "//third_party/json",
+        "@com_github_nlohmann_json//:json",
         "@com_google_protobuf//:protobuf",
         # copybara:uncomment "//third_party/protobuf/util:json_util",
         # copybara:uncomment(b/360874576) "@org_tensorflow//tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter:direct_hlo_to_json_graph_convert",

@@ -35,9 +35,10 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/tsl/platform/statusor.h"
 #ifdef PLATFORM_GOOGLE
-#include "nlohmann/json.hpp"
 #include "tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter/direct_hlo_to_json_graph_convert.h"
 #endif  // PLATFORM_GOOGLE
+#include "nlohmann/json_fwd.hpp"
+#include "nlohmann/json.hpp"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -346,6 +347,41 @@ xla::RenderedGraphFormat GetRenderFormat(const std::string& format_string) {
                << ", fallback to default url";
     return xla::RenderedGraphFormat::kUrl;
   }
+}
+
+absl::StatusOr<std::string> GetAdjacentNodes(absl::string_view module_name,
+                                             const HloProto& hlo_proto,
+                                             const std::string& node_name) {
+  if (node_name.empty()) {
+    return absl::InvalidArgumentError("node_name should not be empty");
+  }
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
+                      ConvertHloProtoToModule(hlo_proto));
+  const xla::HloInstruction* hlo_instruction =
+      FindInstruction(*hlo_module, node_name);
+  const xla::HloComputation* hlo_computation =
+      FindComputation(*hlo_module, node_name);
+  if (!hlo_instruction && !hlo_computation) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Couldn't find HloInstruction or HloComputation named ",
+                     node_name, "."));
+  }
+  nlohmann::json json;
+  if (hlo_instruction) {
+    std::vector<std::string> operand_names;
+    std::vector<std::string> user_names;
+    for (const auto& operand : hlo_instruction->operands()) {
+      operand_names.push_back(absl::StrCat(operand->name()));
+    }
+    for (const auto& user : hlo_instruction->users()) {
+      user_names.push_back(absl::StrCat(user->name()));
+    }
+    json["node_name"] = node_name;
+    json["operand_names"] = operand_names;
+    json["user_names"] = user_names;
+    json["hlo_module"] = module_name;
+  }
+  return json.dump();
 }
 
 absl::StatusOr<std::string> ConvertHloProtoToGraph(

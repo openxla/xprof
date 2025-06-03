@@ -37,7 +37,7 @@ message LogicalTopology {
   // Logical metadata about a specific device.
   message LogicalDevice {
     // The id that uniquely identifies the device globally.
-    int32 global_id = 1;
+    int64 global_id = 1;
 
     // The id that uniquely identifies the device within its slice.
     int32 slice_local_id = 2;

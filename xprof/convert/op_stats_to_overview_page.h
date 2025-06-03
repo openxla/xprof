@@ -16,10 +16,12 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_OVERVIEW_PAGE_H_
 #define XPROF_CONVERT_OP_STATS_TO_OVERVIEW_PAGE_H_
 
+#include <memory>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
@@ -43,6 +45,9 @@ const double kEagerReportThresholdInPercent = 10;
 // percent of Op time on device that is for outside compilation is over
 // this threshold.
 const double kOutsideCompilationThresholdInPercent = 5;
+
+// Convert a percentage number in double to a string with one decimal place.
+std::string StrFormatToPercentage(double num);
 
 void SetCommonRecommendation(
     absl::string_view input_classification, absl::string_view input_statement,
@@ -74,6 +79,19 @@ std::string EagerRecommendationHtml(double host_op_time_eager_percent,
 std::string OutsideCompilationRecommendationHtml(
     double device_op_time_outside_compilation_percent);
 
+std::unique_ptr<DataTable> GenerateRunEnvironmentDataTable(
+    const OverviewPage& result);
+
+std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
+    const OverviewInferenceLatency& result);
+
+void GenerateRecommendationResultDataTable(
+    const OverviewPage& result, std::unique_ptr<DataTable>& data_table);
+
+std::unique_ptr<DataTable> GenerateAnalysisResultDataTable(
+    const OverviewPageAnalysis& analysis);
+
+std::string OverviewPageToJson(const OverviewPage& result);
 }  // namespace profiler
 }  // namespace tensorflow
 

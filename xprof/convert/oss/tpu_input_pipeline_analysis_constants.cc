@@ -22,6 +22,16 @@ namespace profiler {
 constexpr absl::string_view kProfileAllHostsDoc =
     "https://cloud.google.com/tpu/docs/troubleshooting/troubleshoot-multislice";
 constexpr absl::string_view kSparseCoreV0Name = "SparseCoreV0";
+constexpr absl::string_view kSparseCoreV0ComputeTimeMsId = "scv0ComputeTimeMs";
+constexpr absl::string_view kSparseCoreV0ComputeTimeMsLabel =
+    "SparseCoreV0 compute (in ms)";
+constexpr absl::string_view kSparseCoreV0InfeedTimeMsId = "scv0InfeedTimeMs";
+constexpr absl::string_view kSparseCoreV0InfeedTimeMsLabel =
+    "SparseCoreV0 input (in ms)";
+constexpr absl::string_view kSparseCoreV0ComputeMsAverage =
+    "scv0_compute_ms_average";
+constexpr absl::string_view kSparseCoreV0InfeedMsAverage =
+    "scv0_infeed_ms_average";
 
 }  // namespace profiler
 }  // namespace tensorflow

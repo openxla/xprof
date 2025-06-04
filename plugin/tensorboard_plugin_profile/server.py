@@ -53,6 +53,7 @@ def run_server(plugin, host, port):
   server = wsgi.Server((host, port), app)
 
   try:
+    print(f"XProf at http://{host}:{port}/ (Press CTRL+C to quit)")
     server.start()
   except KeyboardInterrupt:
     server.stop()
@@ -104,7 +105,6 @@ def launch_server(logdir, port):
   context = TBContext(logdir, DataProvider(logdir), TBContext.Flags(False))
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
-  print(f"Starting xprof server with logdir {logdir} on port {port}")
   run_server(plugin, _get_wildcard_address(port), port)
 
 
@@ -118,6 +118,7 @@ def main() -> int:
 
   parser.add_argument(
       "logdir",
+      "--logdir",
       metavar="<logdir>",
       type=str,
       help="The directory where profile files will be stored.",
@@ -140,7 +141,7 @@ def main() -> int:
   logdir = args.logdir
   port = args.port
 
-  print("Attempting to start server:")
+  print("Attempting to start XProf server:")
   print(f"  Log Directory: {logdir}")
   print(f"  Port: {port}")
 

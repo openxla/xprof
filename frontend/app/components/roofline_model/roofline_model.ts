@@ -163,6 +163,31 @@ export class RooflineModel implements OnDestroy {
     }
     this.dataTableRaw = new google.visualization.DataTable(data[0]);
 
+    // Convert GFLOP/s to TFLOP/s for relevant columns
+    const measuredFlopRateColIndex =
+        this.dataTableRaw.getColumnIndex('measured_flop_rate');
+    const modelFlopRateColIndex =
+        this.dataTableRaw.getColumnIndex('model_flop_rate');
+
+    if (measuredFlopRateColIndex !== -1 || modelFlopRateColIndex !== -1) {
+      for (let i = 0; i < this.dataTableRaw.getNumberOfRows(); i++) {
+        if (measuredFlopRateColIndex !== -1) {
+          const gflops =
+              this.dataTableRaw.getValue(i, measuredFlopRateColIndex);
+          if (typeof gflops === 'number') {
+            this.dataTableRaw.setValue(
+                i, measuredFlopRateColIndex, gflops / 1000);
+          }
+        }
+        if (modelFlopRateColIndex !== -1) {
+          const gflops = this.dataTableRaw.getValue(i, modelFlopRateColIndex);
+          if (typeof gflops === 'number') {
+            this.dataTableRaw.setValue(i, modelFlopRateColIndex, gflops / 1000);
+          }
+        }
+      }
+    }
+
     this.parseDeviceInfoData(this.dataTableRaw);
     this.parseBaseOpAndProgramTableData();
 
@@ -231,7 +256,12 @@ export class RooflineModel implements OnDestroy {
             curInfo.value = this.deviceIndicators.hasMegacore ? 'Yes' : 'No';
           }
         }
-        const value = this.dataTableRaw!.getTableProperty(cur.id);
+        let value = this.dataTableRaw!.getTableProperty(cur.id);
+        // convert peak_flop_rate from GFLOP/s to TFLOP/s.
+        // The unit in the dataset is GFLOP/s.
+        if (cur.id === 'peak_flop_rate' && value !== undefined) {
+          value = Number((value / 1000).toFixed(2));
+        }
         acc.push({
           // convert numeric value to numbers, as some ridge numbers will be
           // used as axis values in chart
@@ -836,18 +866,16 @@ export class RooflineModel implements OnDestroy {
     flopRate: number,
   ) {
     return (
-      '<div style="padding:5px;">' +
-      '<b>' +
-      rooflineName +
-      '</b><br/>' +
-      '<b>Operational Intensity (FLOP/Byte): </b>' +
-      operationIntensity.toLocaleString(undefined, {maximumFractionDigits: 2}) +
-      '<br/>' +
-      '<b>Flop Rate (GFLOP/s): </b>' +
-      flopRate.toLocaleString(undefined, {maximumFractionDigits: 2}) +
-      '<br/>' +
-      '</div>'
-    );
+        '<div style="padding:5px;">' +
+        '<b>' + rooflineName + '</b><br/>' +
+        '<b>Operational Intensity (FLOP/Byte): </b>' +
+        operationIntensity.toLocaleString(
+            undefined, {maximumFractionDigits: 2}) +
+        '<br/>' +
+        '<b>Flop Rate (TFLOP/s): </b>' +
+        flopRate.toLocaleString(undefined, {maximumFractionDigits: 2}) +
+        '<br/>' +
+        '</div>');
   }
 
   /** Make tooltip for the clustered series (points) in the scatter chart */
@@ -900,7 +928,7 @@ export class RooflineModel implements OnDestroy {
         id: 'total_time_per_core',
         label: 'Total Time per core (us)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 2}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 2}),
       },
       {
         id: 'total_time_in_percentage',
@@ -909,87 +937,87 @@ export class RooflineModel implements OnDestroy {
       },
       {
         id: 'measured_flop_rate',
-        label: 'Normalized FLOP Rate (GFLOP/s)',
+        label: 'Normalized FLOP Rate (TFLOP/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'model_flop_rate',
-        label: 'Model FLOP Rate (GFLOP/s)',
+        label: 'Model FLOP Rate (TFLOP/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'hbm_bw',
         label: 'HBM BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'cmem_read_bw',
         label: 'CMEM Read BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'cmem_write_bw',
         label: 'CMEM Write BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'vmem_read_bw',
         label: 'VMEM Read BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'vmem_write_bw',
         label: 'VMEM Write BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'operational_intensity',
         label: 'Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'hbm_operational_intensity',
         label: 'HBM Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'cmem_read_operational_intensity',
         label: 'CMEM Read Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'cmem_write_operational_intensity',
         label: 'CMEM Write Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'vmem_read_operational_intensity',
         label: 'VMEM Read Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'vmem_write_operational_intensity',
         label: 'VMEM Write Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'bottleneck_operational_intensity',
         label: 'Bottleneck Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {id: 'boundy_by', label: 'Bound By'},
     ];
@@ -1023,7 +1051,7 @@ export class RooflineModel implements OnDestroy {
         id: 'total_time_per_core',
         label: 'Total Time per gpu (us)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 2}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 2}),
       },
       {
         id: 'total_time_in_percentage',
@@ -1032,45 +1060,45 @@ export class RooflineModel implements OnDestroy {
       },
       {
         id: 'measured_flop_rate',
-        label: 'Normalized FLOP Rate (GFLOP/s)',
+        label: 'Normalized FLOP Rate (TFLOP/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'model_flop_rate',
-        label: 'Model FLOP Rate (GFLOP/s)',
+        label: 'Model FLOP Rate (TFLOP/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'hbm_bw',
         label: 'HBM BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'vmem_write_bw',
         label: 'Shm/L1 BW (GiB/s)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'operational_intensity',
         label: 'Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'hbm_operational_intensity',
         label: 'HBM Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'bottleneck_operational_intensity',
         label: 'Bottleneck Operational Intensity (FLOP/Byte)',
         operation: (val) =>
-          val.toLocaleString(undefined, {maximumFractionDigits: 4}),
+            val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {id: 'boundy_by', label: 'Bound By'},
     ];

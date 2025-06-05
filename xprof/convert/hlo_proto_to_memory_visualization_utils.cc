@@ -249,14 +249,13 @@ class HloProtoBufferWrapper {
     return id_to_logical_buffer_.at(logical_buffer_id).get();
   }
 
-  // Get the logical buffers with indefinite lifetime (excluding thread_local).
+  // Get the logical buffers with indefinite lifetime.
   std::vector<const LogicalBufferStruct*> LogicalBuffersWithIndefiniteLifetime(
       int64_t memory_color) const {
     std::vector<const LogicalBufferStruct*> indefinite_logical_buffers;
 
     for (const auto& buffer_assignment : GetBufferAllocations(memory_color)) {
       if (!buffer_assignment->IsIndefinite()) continue;
-      if (buffer_assignment->proto().is_thread_local()) continue;
       // A indefinite buffer allocation will contain multiple logical buffers.
       // None of them have a offset, and may have different size than the buffer
       // allocation's size. In most cases, if not all cases, one of the logical

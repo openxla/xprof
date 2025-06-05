@@ -116,29 +116,32 @@ def xspace_to_tool_data(
   content_type = 'application/json'
   # tqx: gViz output format
   tqx = params.get('tqx', '')
+  options = {}
+  options['use_saved_result'] = params.get('use_saved_result', True)
   if tool == 'trace_viewer':
     # Trace viewer handles one host at a time.
     assert len(xspace_paths) == 1
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = process_raw_trace(raw_data)
   elif tool == 'trace_viewer@':
     # Streaming trace viewer handles one host at a time.
     assert len(xspace_paths) == 1
     options = params.get('trace_viewer_options', {})
+    options['use_saved_result'] = params.get('use_saved_result', True)
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'overview_page':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = overview_page_proto_to_gviz.to_json(raw_data)
   elif tool == 'input_pipeline_analyzer':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = input_pipeline_proto_to_gviz.to_json(raw_data)
   elif tool == 'framework_op_stats':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       if tqx == 'out:csv':
         data = tf_stats_proto_to_gviz.to_csv(raw_data)
@@ -147,14 +150,16 @@ def xspace_to_tool_data(
     # Try legacy tool name: Handle backward compatibility with lower TF version
     else:
       legacy_tool = 'tensorflow_stats'
-      raw_data, success = xspace_wrapper_func(xspace_paths, legacy_tool)
+      raw_data, success = xspace_wrapper_func(
+          xspace_paths, legacy_tool, options
+      )
       if success:
         if tqx == 'out:csv':
           data = tf_stats_proto_to_gviz.to_csv(raw_data)
         else:
           data = tf_stats_proto_to_gviz.to_json(raw_data)
   elif tool == 'kernel_stats':
-    json_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       if tqx == 'out:csv':
         data = csv_writer.json_to_csv(json_data)
@@ -163,29 +168,30 @@ def xspace_to_tool_data(
   elif tool == 'memory_profile':
     # Memory profile handles one host at a time.
     assert len(xspace_paths) == 1
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'pod_viewer':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'op_profile':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'hlo_stats':
-    json_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'roofline_model':
-    json_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'graph_viewer':
     download_hlo_types = ['pb', 'pbtxt', 'json', 'short_txt', 'long_txt']
     graph_html_type = 'graph'
     options = params.get('graph_viewer_options', {})
+    options['use_saved_result'] = params.get('use_saved_result', True)
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
@@ -221,7 +227,7 @@ def xspace_to_tool_data(
     if success:
       data = dcn_collective_stats_proto_to_gviz.to_json(raw_data)
   elif tool == 'inference_profile':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = inference_stats_proto_to_gviz.to_json(raw_data)
   else:

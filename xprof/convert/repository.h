@@ -108,6 +108,8 @@ class SessionSnapshot {
   absl::StatusOr<std::pair<bool, std::string>> HasCacheFile(
       StoredDataType data_type) const;
 
+  absl::Status ClearCacheFiles() const;
+
   template <typename T>
   absl::Status WriteBinaryProto(const StoredDataType data_type,
                                 const std::string host, T& proto) const {

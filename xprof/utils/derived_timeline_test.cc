@@ -324,8 +324,8 @@ TEST(DerivedTimelineTest, TfNameScopeMaintainsOrder) {
   });
 }
 
-// Checks only derived events from line with most events for gpu trace.
-TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
+// Checks only derived events from all lines for gpu trace.
+TEST(DerivedTimelineTest, OnlyDerivedEventsFromAllLines) {
   const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
   const absl::string_view kKernelDetails = "kernel_details";
   XSpace space;
@@ -348,8 +348,9 @@ TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
   // Derive lines for the plane.
   GenerateDerivedTimeLines(group_metadata_map, &space);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
-  // The TF name scope line and the TF op line are added.
-  EXPECT_EQ(plane_visitor.NumLines(), 4);
+  // Two Event Lines and the TF name scope line and the TF op line are added
+  // for each line making 6 lines in total.
+  EXPECT_EQ(plane_visitor.NumLines(), 6);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     int64_t line_id = line_visitor.Id();
     if (line_id == 0 || line_id == 1) {
@@ -358,19 +359,16 @@ TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
       EXPECT_EQ(line_visitor.NumEvents(), 2);
       line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
         EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        // When derived from first line only, we should get single event which
-        // starts from op1' start (0), end at op2's end (200 + 300),
-        // duration is 500.
-        // If derived from both lines, the derived event duration will be
-        // (50 + 850) - 0 = 900.
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
+        // Check that the derived events cover the entire time span of events
+        // from all lines.
+        EXPECT_EQ(event_visitor.DurationPs(), 900);
       });
     } else if (line_id == kThreadIdTfOp) {
       EXPECT_EQ(line_visitor.NumEvents(), 1);
       line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
         EXPECT_EQ(event_visitor.Name(), kTfOpName);
         EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
+        EXPECT_EQ(event_visitor.DurationPs(), 900);
       });
     }
   });

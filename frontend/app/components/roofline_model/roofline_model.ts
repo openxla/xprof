@@ -843,7 +843,7 @@ export class RooflineModel implements OnDestroy {
       '<b>Operational Intensity (FLOP/Byte): </b>' +
       operationIntensity.toLocaleString(undefined, {maximumFractionDigits: 2}) +
       '<br/>' +
-      '<b>Flop Rate (GFLOP/s): </b>' +
+      '<b>Flop Rate (TFLOP/s): </b>' +
       flopRate.toLocaleString(undefined, {maximumFractionDigits: 2}) +
       '<br/>' +
       '</div>'
@@ -909,13 +909,13 @@ export class RooflineModel implements OnDestroy {
       },
       {
         id: 'measured_flop_rate',
-        label: 'Normalized FLOP Rate (GFLOP/s)',
+        label: 'Normalized FLOP Rate (TFLOP/s)',
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'model_flop_rate',
-        label: 'Model FLOP Rate (GFLOP/s)',
+        label: 'Model FLOP Rate (TFLOP/s)',
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
@@ -1032,13 +1032,13 @@ export class RooflineModel implements OnDestroy {
       },
       {
         id: 'measured_flop_rate',
-        label: 'Normalized FLOP Rate (GFLOP/s)',
+        label: 'Normalized FLOP Rate (TFLOP/s)',
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },
       {
         id: 'model_flop_rate',
-        label: 'Model FLOP Rate (GFLOP/s)',
+        label: 'Model FLOP Rate (TFLOP/s)',
         operation: (val) =>
           val.toLocaleString(undefined, {maximumFractionDigits: 4}),
       },

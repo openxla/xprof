@@ -1,5 +1,6 @@
 /**
- * @fileoverview Data service interface meant to accommodate different implementations
+ * @fileoverview Data service interface meant to accommodate different
+ * implementations
  */
 
 import {HttpParams} from '@angular/common/http';
@@ -77,6 +78,8 @@ export interface DataServiceV2Interface {
   exportDataAsCSV(sessionId: string, tool: string, host: string): void;
 
   getHttpParams(sessionId: string, tool: string): HttpParams;
+
+  getIfrtMeGraphJson(sessionId: string): Observable<{}>;
 }
 
 /** Injection token for the data service interface. */

@@ -104,7 +104,7 @@ std::string JsonEscape(absl::string_view raw) {
 }
 
 // Converts the given proto to text format and escapes it for JSON.
-std::string ProtoString(const tsl::protobuf::Message& pb) {
+std::string ProtoString(const google::protobuf::Message& pb) {
   return JsonEscape(pb.DebugString());
 }
 

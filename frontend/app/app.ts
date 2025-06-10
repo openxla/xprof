@@ -2,7 +2,7 @@ import {Component, OnInit} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import * as actions from 'org_xprof/frontend/app/store/actions';
 import {firstValueFrom} from 'rxjs';
 
@@ -20,7 +20,7 @@ export class App implements OnInit {
   constructor(
       // tslint:disable-next-line:no-unused-variable declare to instantiate
       private readonly dataDispatcher: DataDispatcher,
-      private readonly dataService: DataService,
+      private readonly dataService: DataServiceV2,
       private readonly store: Store<{}>) {
     document.addEventListener('tensorboard-reload', () => {
       if (!this.loading) {

@@ -5,7 +5,7 @@ import {DEFAULT_HOST, HLO_TOOLS} from 'org_xprof/frontend/app/common/constants/c
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {setCurrentRunAction, updateRunToolsMapAction} from 'org_xprof/frontend/app/store/actions';
 import {getCurrentRun, getRunToolsMap} from 'org_xprof/frontend/app/store/selectors';
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
@@ -37,7 +37,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   constructor(
       private readonly router: Router,
-      private readonly dataService: DataService,
+      // Using DataServiceV2 because methods used in sidenav is not defined in
+      // the interface. (b/423713470)
+      private readonly dataService: DataServiceV2,
       private readonly communicationService: CommunicationService,
       private readonly store: Store<{}>) {
     this.runToolsMap$ =
@@ -203,9 +205,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   async getModuleListForSelectedTag() {
     if (!this.selectedRun || !this.selectedTag) return [];
-    const response = await firstValueFrom(
-        this.dataService.getModuleList(this.selectedRun, this.selectedTag)
-            .pipe(takeUntil(this.destroyed)));
+    const response =
+        await firstValueFrom(this.dataService.getModuleList(this.selectedRun)
+                                 .pipe(takeUntil(this.destroyed)));
     return response.split(',');
   }
 

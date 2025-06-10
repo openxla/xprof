@@ -95,6 +95,7 @@ export interface AppState {
   currentTool: CurrentToolState;
   exportAsCsv: ExportAsCsvState;
   errorMessage: ErrorMessageState;
+  searchParams: Record<string, string>;
   // OSS only
   dataRequest: DataRequest;
   runToolsMap: RunToolsMap;
@@ -169,6 +170,9 @@ const INIT_CURRENT_RUN = '';
 /** Initial state of hosts list */
 const INIT_HOSTS_STATE: HostMetadata[] = [];
 
+/** Initial state of search params */
+const INIT_SEARCH_PARAMS_STATE: Record<string, string> = {};
+
 /** Initial state object */
 export const INIT_APP_STATE: AppState = {
   memoryViewerState: INIT_MEMORY_VIEWER_STATE,
@@ -185,6 +189,7 @@ export const INIT_APP_STATE: AppState = {
   runToolsMap: INIT_RUN_TOOLS_MAP,
   currentRun: INIT_CURRENT_RUN,
   profilingGeneralState: INIT_PROFILING_GENERAL_STATE,
+  searchParams: INIT_SEARCH_PARAMS_STATE,
 };
 
 /** Feature key for store */

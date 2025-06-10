@@ -113,3 +113,9 @@ export const updateRunToolsMapAction: ActionCreatorAny = createAction(
     '[App State] Update run - tools map state',
     props<{run: string, tools: string[]}>(),
 );
+
+/** Action to set initial search params */
+export const setInitialSearchParamsAction: ActionCreatorAny = createAction(
+    '[App State] Set initial search params',
+    props<{searchParams: Record<string, string>}>(),
+);

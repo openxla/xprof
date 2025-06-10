@@ -2,13 +2,16 @@ import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {API_PREFIX, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, LOCAL_URL, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
+import {API_PREFIX, CAPTURE_PROFILE_API, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
+import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
+import {setErrorMessageStateAction, setInitialSearchParamsAction} from 'org_xprof/frontend/app/store/actions';
+import {getSearchParams} from 'org_xprof/frontend/app/store/selectors';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 
@@ -20,6 +23,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
   isLocalDevelopment = false;
   pathPrefix = '';
   searchParams?: URLSearchParams;
+  disableCacheRefresh = false;
 
   constructor(
       private readonly httpClient: HttpClient,
@@ -31,7 +35,13 @@ export class DataServiceV2 implements DataServiceV2Interface {
       this.pathPrefix =
           String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
     }
-    this.searchParams = new URLSearchParams(window.location.search);
+    const searchParams = this.store.select(getSearchParams);
+    if (!searchParams) {
+      this.store.dispatch(
+          setInitialSearchParamsAction(
+              {searchParams: new URLSearchParams(window.location.search)}),
+      );
+    }
   }
 
   private get<T>(
@@ -59,7 +69,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
         );
   }
 
-  getHttpParams(sessionId: string|null, tool: string): HttpParams {
+  private getHttpParams(sessionId: string|null, tool: string): HttpParams {
     let params = new HttpParams();
     if (sessionId) {
       params = params.set('run', sessionId);
@@ -67,8 +77,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
     if (tool) {
       params = params.set('tag', tool);
     }
-    if (this.searchParams) {
-      this.searchParams.forEach((value, key) => {
+    if (this.getSearchParams()) {
+      this.getSearchParams().forEach((value, key) => {
+        if (this.disableCacheRefresh && key === USE_SAVED_RESULT) {
+          return;
+        }
         params = params.set(key, value);
       });
     }
@@ -170,6 +183,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return of([]);
   }
 
+  getHosts(run: string, tool: string): Observable<HostMetadata[]> {
+    const params = new HttpParams().set('run', run).set('tag', tool);
+    return this.httpClient.get(this.pathPrefix + HOSTS_API, {params}) as
+        Observable<HostMetadata[]>;
+  }
+
   getOpProfileData(
       sessionId: string, host: string,
       params: Map<string, string>): Observable<DataTable|null> {
@@ -217,12 +236,13 @@ export class DataServiceV2 implements DataServiceV2Interface {
     }) as Observable<string|Blob|null>;
   }
 
-  setSearchParams(params: URLSearchParams) {
-    this.searchParams = params;
-  }
-
   getSearchParams(): URLSearchParams {
-    return this.searchParams || new URLSearchParams();
+    if (!this.searchParams) {
+      this.searchParams = new URLSearchParams(
+          this.store.select(getSearchParams),
+      );
+    }
+    return this.searchParams;
   }
 
   exportDataAsCSV(sessionId: string, tool: string, host: string) {
@@ -248,8 +268,36 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   disableCacheRegeneration() {
-    if (this.searchParams && this.searchParams.has(USE_SAVED_RESULT)) {
-      this.searchParams.delete(USE_SAVED_RESULT);
+    this.disableCacheRefresh = true;
+  }
+
+  /** Methods below are for 3P only */
+  getRuns() {
+    return this.get(this.pathPrefix + RUNS_API);
+  }
+
+  getRunTools(run: string): Observable<string[]> {
+    const params = new HttpParams().set('run', run);
+    return this.get(this.pathPrefix + RUN_TOOLS_API, {'params': params}) as
+        Observable<string[]>;
+  }
+
+  captureProfile(options: CaptureProfileOptions):
+      Observable<CaptureProfileResponse> {
+    if (this.isLocalDevelopment) {
+      return of({result: 'Done'});
     }
+    const params =
+        new HttpParams()
+            .set('service_addr', options.serviceAddr)
+            .set('is_tpu_name', options.isTpuName.toString())
+            .set('duration', options.duration.toString())
+            .set('num_retry', options.numRetry.toString())
+            .set('worker_list', options.workerList)
+            .set('host_tracer_level', options.hostTracerLevel.toString())
+            .set('device_tracer_level', options.deviceTracerLevel.toString())
+            .set('python_tracer_level', options.pythonTracerLevel.toString())
+            .set('delay', options.delay.toString());
+    return this.httpClient.get(this.pathPrefix + CAPTURE_PROFILE_API, {params});
   }
 }

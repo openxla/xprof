@@ -1,10 +1,10 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {PodViewerDatabase} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
-import {setActivePodViewerInfoAction, setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -20,9 +20,14 @@ import {PodViewerCommon} from './pod_viewer_common';
 export class PodViewer extends PodViewerCommon implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly dataService: DataServiceV2Interface = inject(
+      DATA_SERVICE_INTERFACE_TOKEN,
+  );
+
   constructor(
-      route: ActivatedRoute, private readonly dataService: DataService,
-      override readonly store: Store<{}>) {
+      route: ActivatedRoute,
+      override readonly store: Store<{}>,
+  ) {
     super(store);
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.update(params as NavigationEvent);

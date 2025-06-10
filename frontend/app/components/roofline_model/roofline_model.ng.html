@@ -8,7 +8,7 @@
   </div>
   <div class="block-content">
     <div *ngFor="let info of deviceInfoArray" style="font-size:16px">
-      <div *ngIf="info.display"><b>{{info.label}}:</b> <span> {{info.value}} {{info.unit}} {{info.context}}</span></div>
+      <div *ngIf="info.display"><b>{{info.label}}:</b> <span> {{deviceInfoText(info)}}</span></div>
     </div>
   </div>
 </div>

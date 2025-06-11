@@ -17,8 +17,6 @@ py_library(
     deps = [
         ":dcn_collective_stats_proto_to_gviz",
         ":diagnostics",
-        ":input_pipeline_proto_to_gviz",
-        ":overview_page_proto_to_gviz",
         ":raw_to_tool_data",
         ":trace_events_json",
     ],
@@ -41,60 +39,6 @@ py_test(
         "//:expect_tensorflow_installed",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
         "@org_xprof//plugin/xprof/protobuf:diagnostics_proto_py",
-    ],
-)
-
-py_library(
-    name = "input_pipeline_proto_to_gviz",
-    srcs = ["input_pipeline_proto_to_gviz.py"],
-    deps = [
-        ":diagnostics",
-        requirement("gviz_api"),
-        "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_py",
-        "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_py",
-    ],
-)
-
-py_test(
-    name = "input_pipeline_proto_to_gviz_test",
-    size = "small",
-    srcs = ["input_pipeline_proto_to_gviz_test.py"],
-    main = "input_pipeline_proto_to_gviz_test.py",
-    deps = [
-        ":input_pipeline_proto_to_gviz",
-        "//google/protobuf:any_py_pb2",
-        requirement("absl-py"),  # build_cleaner: keep; go/disable_tf2
-        "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        requirement("gviz_api"),
-        "//:expect_tensorflow_installed",
-        "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_py",
-        "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_py",
-    ],
-)
-
-py_library(
-    name = "overview_page_proto_to_gviz",
-    srcs = ["overview_page_proto_to_gviz.py"],
-    deps = [
-        ":diagnostics",
-        ":input_pipeline_proto_to_gviz",
-        requirement("gviz_api"),
-        "@org_xprof//plugin/xprof/protobuf:overview_page_proto_py",
-    ],
-)
-
-py_test(
-    name = "overview_page_proto_to_gviz_test",
-    size = "small",
-    srcs = ["overview_page_proto_to_gviz_test.py"],
-    main = "overview_page_proto_to_gviz_test.py",
-    deps = [
-        ":overview_page_proto_to_gviz",
-        requirement("absl-py"),  # build_cleaner: keep; go/disable_tf2
-        "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        requirement("gviz_api"),
-        "//:expect_tensorflow_installed",
-        "@org_xprof//plugin/xprof/protobuf:overview_page_proto_py",
     ],
 )
 
@@ -176,8 +120,6 @@ py_library(
         ":csv_writer",
         ":dcn_collective_stats_proto_to_gviz",
         ":inference_stats_proto_to_gviz",
-        ":input_pipeline_proto_to_gviz",
-        ":overview_page_proto_to_gviz",
         ":trace_events_json",
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",

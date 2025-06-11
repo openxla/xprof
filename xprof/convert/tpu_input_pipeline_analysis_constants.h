@@ -23,6 +23,12 @@ namespace profiler {
 
 TF_CONST_INIT extern const absl::string_view kProfileAllHostsDoc;
 TF_CONST_INIT extern const absl::string_view kSparseCoreV0Name;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0ComputeTimeMsId;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0ComputeTimeMsLabel;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0InfeedTimeMsId;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0InfeedTimeMsLabel;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0ComputeMsAverage;
+TF_CONST_INIT extern const absl::string_view kSparseCoreV0InfeedMsAverage;
 
 }  // namespace profiler
 }  // namespace tensorflow

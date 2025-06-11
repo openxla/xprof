@@ -193,7 +193,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOverviewPage(
     *overview_page.mutable_inference_latency() =
         ComputeInferenceLatencyResult(inference_stats);
   }
-  return overview_page.SerializeAsString();
+  return OverviewPageToJson(overview_page);
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToInputPipeline(
@@ -201,8 +201,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInputPipeline(
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
-  return ConvertOpStatsToInputPipelineAnalysis(combined_op_stats)
-      .SerializeAsString();
+  InputPipelineAnalysisResult result =
+      ConvertOpStatsToInputPipelineAnalysis(combined_op_stats);
+  return InputPipelineAnalysisResultToDataTableJson(result);
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToTfStats(

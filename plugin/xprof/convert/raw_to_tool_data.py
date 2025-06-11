@@ -28,8 +28,6 @@ import logging
 from xprof.convert import csv_writer
 from xprof.convert import dcn_collective_stats_proto_to_gviz
 from xprof.convert import inference_stats_proto_to_gviz
-from xprof.convert import input_pipeline_proto_to_gviz
-from xprof.convert import overview_page_proto_to_gviz
 from xprof.convert import trace_events_json
 from xprof.protobuf import trace_events_old_pb2
 
@@ -129,13 +127,13 @@ def xspace_to_tool_data(
     if success:
       data = raw_data
   elif tool == 'overview_page':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:
-      data = overview_page_proto_to_gviz.to_json(raw_data)
+      data = json_data
   elif tool == 'input_pipeline_analyzer':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:
-      data = input_pipeline_proto_to_gviz.to_json(raw_data)
+      data = json_data
   elif tool == 'framework_op_stats':
     json_data, success = xspace_wrapper_func(xspace_paths, tool)
     if success:

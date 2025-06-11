@@ -19,6 +19,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -31,6 +32,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -42,6 +44,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/platform/protobuf.h"
+#include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "xprof/convert/profile_time_breakdown.h"
 #include "xprof/convert/step_events_to_steps_db.h"
@@ -63,8 +66,13 @@ namespace profiler {
 
 namespace {
 
+using absl::StrFormat;
+using tensorflow::profiler::TableColumn;
+using tensorflow::profiler::TableRow;
 using tsl::uint64;
 using tsl::profiler::OneDigit;
+using tsl::profiler::ThreeDigits;
+using tsl::profiler::TwoDigits;
 
 // If the percentage of step time that spends on SparseCoreV0 is more than
 // kModeratelySparseCoreV0BoundThresholdInPercent, it is considered highly
@@ -1632,6 +1640,512 @@ double HostToDeviceTransferAsPercentOfInputTime(
       breakdown.unclassified_non_enqueue_us();
   return 100.0 *
          tsl::profiler::SafeDivide(breakdown.enqueue_us(), total_input_time_us);
+}
+
+// Add the breakdown of step time as table properties in Data table.
+void AddTpuStepTimeBreakdown(const TpuStepTimeBreakdown& breakdown,
+                             DataTable* data_table) {
+  const StepSummary& scv0_compute_summary = breakdown.scv0_compute_ms_summary();
+  const StepSummary& scv0_infeed_summary = breakdown.scv0_infeed_ms_summary();
+  const StepSummary& tc_compute_summary = breakdown.tc_compute_ms_summary();
+  const StepSummary& tc_infeed_summary = breakdown.tc_infeed_ms_summary();
+  const StepSummary& tc_outfeed_summary = breakdown.tc_outfeed_ms_summary();
+  const StepSummary& tc_idle_summary = breakdown.tc_idle_ms_summary();
+  // TODO b/325489135 - Clean this to get the info from TPU details.
+  bool has_sc = breakdown.has_sparse_core_step_summary();
+  const StepSummary& sc_compute_summary =
+      breakdown.sparse_core_step_summary().sc_compute_ms_summary();
+  const StepSummary& sc_infeed_summary =
+      breakdown.sparse_core_step_summary().sc_infeed_ms_summary();
+  const StepSummary& sc_outfeed_summary =
+      breakdown.sparse_core_step_summary().sc_outfeed_ms_summary();
+  const StepSummary& sc_idle_summary =
+      breakdown.sparse_core_step_summary().sc_idle_ms_summary();
+  const StepSummary& sc_step_summary =
+      breakdown.sparse_core_step_summary().sc_step_time_ms_summary();
+  const StepSummary& host_transfer_summary =
+      breakdown.host_transfer_ms_summary();
+
+  if (!has_sc) {
+    data_table->AddCustomProperty(std::string(kSparseCoreV0ComputeMsAverage),
+                                  TwoDigits(scv0_compute_summary.average()));
+    data_table->AddCustomProperty(std::string(kSparseCoreV0InfeedMsAverage),
+                                  TwoDigits(scv0_infeed_summary.average()));
+  }
+  data_table->AddCustomProperty("tc_compute_ms_average",
+                                TwoDigits(tc_compute_summary.average()));
+  data_table->AddCustomProperty("tc_infeed_ms_average",
+                                TwoDigits(tc_infeed_summary.average()));
+  data_table->AddCustomProperty("tc_outfeed_ms_average",
+                                TwoDigits(tc_outfeed_summary.average()));
+  data_table->AddCustomProperty("tc_idle_ms_average",
+                                TwoDigits(tc_idle_summary.average()));
+  data_table->AddCustomProperty("host_transfer_ms_average",
+                                TwoDigits(host_transfer_summary.average()));
+  if (sc_step_summary.minimum() > 0) {
+    data_table->AddCustomProperty("sc_compute_ms_average",
+                                  TwoDigits(sc_compute_summary.average()));
+    data_table->AddCustomProperty("sc_infeed_ms_average",
+                                  TwoDigits(sc_infeed_summary.average()));
+    data_table->AddCustomProperty("sc_outfeed_ms_average",
+                                  TwoDigits(sc_outfeed_summary.average()));
+    data_table->AddCustomProperty("sc_idle_ms_average",
+                                  TwoDigits(sc_idle_summary.average()));
+    data_table->AddCustomProperty("sc_step_time_ms_average",
+                                  OneDigit(sc_step_summary.average()));
+  }
+}
+
+// Adds a summary of input-pipeline analysis for TPU to table.  The output
+// analysis is also included.
+void AddInputAnalysisTPUSummary(const InputPipelineAnalysisResult& result,
+                                DataTable* data_table) {
+  if (result.recommendation()
+          .bottleneck_analysis()
+          .Is<TpuBottleneckAnalysis>()) {
+    TpuBottleneckAnalysis bottleneck;
+    result.recommendation().bottleneck_analysis().UnpackTo(&bottleneck);
+    data_table->AddCustomProperty("input_conclusion",
+                                  bottleneck.input_statement());
+    data_table->AddCustomProperty("output_conclusion",
+                                  bottleneck.output_statement());
+  }
+
+  data_table->AddCustomProperty("summary_nextstep",
+                                result.recommendation().summary_next_step());
+}
+
+// Adds a summary of input-pipeline analysis for generic hardware to table.  The
+// output analysis is also included.
+void AddInputAnalysisGenericSummary(const InputPipelineAnalysisResult& result,
+                                    DataTable* data_table) {
+  if (result.recommendation().bottleneck_analysis().Is<BottleneckAnalysis>()) {
+    BottleneckAnalysis bottleneck;
+    result.recommendation().bottleneck_analysis().UnpackTo(&bottleneck);
+    data_table->AddCustomProperty("input_conclusion",
+                                  bottleneck.input_statement());
+    data_table->AddCustomProperty("device_collectives_bottleneck",
+                                  bottleneck.device_collectives_statement());
+    data_table->AddCustomProperty("device_collectives_statement",
+                                  bottleneck.device_collectives_statement());
+    data_table->AddCustomProperty("kernel_launch_bottleneck",
+                                  bottleneck.kernel_launch_statement());
+    data_table->AddCustomProperty("kernel_launch_statement",
+                                  bottleneck.kernel_launch_statement());
+    data_table->AddCustomProperty("all_other_bottleneck",
+                                  bottleneck.all_other_statement());
+    data_table->AddCustomProperty("all_other_statement",
+                                  bottleneck.all_other_statement());
+  }
+  data_table->AddCustomProperty("summary_nextstep",
+                                result.recommendation().summary_next_step());
+}
+
+std::unique_ptr<DataTable> GenerateTpuInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result) {
+  auto data_table = std::make_unique<DataTable>();
+  TpuStepTimeBreakdown breakdown;
+  bool has_breakdown = result.step_time_breakdown().Is<TpuStepTimeBreakdown>();
+  if (!result.step_time_breakdown().UnpackTo(&breakdown)) {
+    LOG(WARNING) << "Could not unpack to TpuStepBreakdown";
+  }
+
+  std::vector<std::string> step_time_graph_column_ids = {"stepnum"};
+  data_table->AddColumn(TableColumn("stepnum", "string", "stepnum"));
+  data_table->AddColumn(
+      TableColumn("tcComputeTimeMs", "number", "TensorCore compute (in ms)"));
+  step_time_graph_column_ids.push_back("tcComputeTimeMs");
+  if (!breakdown.has_sparse_core_step_summary()) {
+    data_table->AddColumn(
+        TableColumn(std::string(kSparseCoreV0ComputeTimeMsId), "number",
+                    std::string(kSparseCoreV0ComputeTimeMsLabel)));
+    data_table->AddColumn(
+        TableColumn(std::string(kSparseCoreV0InfeedTimeMsId), "number",
+                    std::string(kSparseCoreV0InfeedTimeMsLabel)));
+    step_time_graph_column_ids.insert(
+        step_time_graph_column_ids.end(),
+        {std::string(kSparseCoreV0ComputeTimeMsId),
+         std::string(kSparseCoreV0InfeedTimeMsId)});
+  }
+  data_table->AddColumn(
+      TableColumn("tcInfeedTimeMs", "number", "TensorCore input (in ms)"));
+  data_table->AddColumn(
+      TableColumn("tcOutfeedTimeMs", "number", "TensorCore output (in ms)"));
+  data_table->AddColumn(
+      TableColumn("tcIdleTimeMs", "number", "TensorCore idle (in ms)"));
+  data_table->AddColumn(
+      TableColumn("hostTransferTimeMs", "number", "Host transfer (in ms)"));
+  step_time_graph_column_ids.insert(step_time_graph_column_ids.end(),
+                                    {"tcInfeedTimeMs", "tcOutfeedTimeMs",
+                                     "tcIdleTimeMs", "hostTransferTimeMs"});
+  data_table->AddColumn(
+      TableColumn("tooltip", "string", "tooltip", {{"role", "tooltip"}}));
+  step_time_graph_column_ids.push_back("tooltip");
+  data_table->AddColumn(TableColumn("infeedPercentAverage", "number",
+                                    "% step time waiting for input data"));
+  data_table->AddColumn(TableColumn("infeedPercentMin", "number",
+                                    "Infeed percent min",
+                                    {{"role", "interval"}}));
+  data_table->AddColumn(TableColumn("infeedPercentMax", "number",
+                                    "Infeed percent max",
+                                    {{"role", "interval"}}));
+
+  const StepSummary& step_time_summary = result.step_time_summary();
+  data_table->AddCustomProperty("hardware_type", result.hardware_type());
+  data_table->AddCustomProperty("steptime_ms_average",
+                                OneDigit(step_time_summary.average()));
+  data_table->AddCustomProperty(
+      "steptime_ms_standard_deviation",
+      OneDigit(step_time_summary.standard_deviation()));
+  data_table->AddCustomProperty("steptime_ms_minimum",
+                                OneDigit(step_time_summary.minimum()));
+  data_table->AddCustomProperty("steptime_ms_maximum",
+                                OneDigit(step_time_summary.maximum()));
+
+  const StepSummary& input_percent_summary = result.input_percent_summary();
+  data_table->AddCustomProperty("infeed_percent_average",
+                                OneDigit(input_percent_summary.average()));
+
+  data_table->AddCustomProperty(
+      "infeed_percent_standard_deviation",
+      OneDigit(input_percent_summary.standard_deviation()));
+  data_table->AddCustomProperty("infeed_percent_minimum",
+                                OneDigit(input_percent_summary.minimum()));
+  data_table->AddCustomProperty("infeed_percent_maximum",
+                                OneDigit(input_percent_summary.maximum()));
+  data_table->AddCustomProperty("step_time_graph_column_ids",
+                                absl::StrJoin(step_time_graph_column_ids, ","));
+
+  if (has_breakdown) {
+    AddTpuStepTimeBreakdown(breakdown, data_table.get());
+  }
+
+  AddInputAnalysisTPUSummary(result, data_table.get());
+
+  for (const google::protobuf::Any& step_details : result.step_details()) {
+    PerTpuStepDetails details;
+    if (!step_details.UnpackTo(&details)) {
+      LOG(DFATAL) << "Could not unpack to PerTpuStepDetails";
+      continue;
+    }
+    std::string tooltip = absl::StrCat(
+        "step ", details.step_number(),
+        ":\nTime waiting for input data = ", ThreeDigits(InfeedTimeMs(details)),
+        " ms, Step time = ",
+        ThreeDigits(StepTimeMs(details) - AllReduceTimeMs(details)), " ms");
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell(absl::StrCat(details.step_number()));
+    row->AddNumberCell(details.tc_compute_time_ms());
+    if (!breakdown.has_sparse_core_step_summary()) {
+      row->AddNumberCell(details.scv0_compute_time_ms());
+      row->AddNumberCell(details.scv0_infeed_time_ms());
+    }
+    row->AddNumberCell(details.tc_infeed_time_ms());
+    row->AddNumberCell(details.tc_outfeed_time_ms());
+    row->AddNumberCell(details.tc_idle_time_ms());
+    row->AddNumberCell(details.host_transfer_ms());
+    row->AddTextCell(tooltip);
+    row->AddNumberCell(details.infeed_percent_average());
+    row->AddNumberCell(details.infeed_percent_minimum());
+    row->AddNumberCell(details.infeed_percent_maximum());
+  }
+
+  return data_table;
+}
+
+void AddGenericStepTimeBreakdown(const GenericStepTimeBreakdown& breakdown,
+                                 DataTable* data_table) {
+  const StepSummary& device_compute_summary =
+      breakdown.device_compute_ms_summary();
+  const StepSummary& device_to_device_summary =
+      breakdown.device_to_device_ms_summary();
+  const StepSummary& device_collectives_summary =
+      breakdown.device_collectives_ms_summary();
+  const StepSummary& input_summary = breakdown.input_ms_summary();
+  const StepSummary& output_summary = breakdown.output_ms_summary();
+  const StepSummary& host_compute_summary = breakdown.host_compute_ms_summary();
+  const StepSummary& host_prepare_summary = breakdown.host_prepare_ms_summary();
+  const StepSummary& host_compile_summary = breakdown.host_compile_ms_summary();
+  const StepSummary& unknown_summary = breakdown.unknown_time_ms_summary();
+  data_table->AddCustomProperty("device_compute_time_ms_avg",
+                                OneDigit(device_compute_summary.average()));
+  data_table->AddCustomProperty(
+      "device_compute_time_ms_sdv",
+      OneDigit(device_compute_summary.standard_deviation()));
+  data_table->AddCustomProperty("device_to_device_time_ms_avg",
+                                OneDigit(device_to_device_summary.average()));
+  data_table->AddCustomProperty(
+      "device_to_device_time_ms_sdv",
+      OneDigit(device_to_device_summary.standard_deviation()));
+  data_table->AddCustomProperty("device_collectives_time_ms_avg",
+                                OneDigit(device_collectives_summary.average()));
+  data_table->AddCustomProperty(
+      "device_collectives_time_ms_sdv",
+      OneDigit(device_collectives_summary.standard_deviation()));
+  data_table->AddCustomProperty("infeed_time_ms_avg",
+                                OneDigit(input_summary.average()));
+  data_table->AddCustomProperty("infeed_time_ms_sdv",
+                                OneDigit(input_summary.standard_deviation()));
+  data_table->AddCustomProperty("outfeed_time_ms_avg",
+                                OneDigit(output_summary.average()));
+  data_table->AddCustomProperty("outfeed_time_ms_sdv",
+                                OneDigit(output_summary.standard_deviation()));
+  data_table->AddCustomProperty("host_compute_time_ms_avg",
+                                OneDigit(host_compute_summary.average()));
+  data_table->AddCustomProperty(
+      "host_compute_time_ms_sdv",
+      OneDigit(host_compute_summary.standard_deviation()));
+  data_table->AddCustomProperty("kernel_launch_time_ms_avg",
+                                OneDigit(host_prepare_summary.average()));
+  data_table->AddCustomProperty(
+      "kernel_launch_time_ms_sdv",
+      OneDigit(host_prepare_summary.standard_deviation()));
+  data_table->AddCustomProperty("compile_time_ms_avg",
+                                OneDigit(host_compile_summary.average()));
+  data_table->AddCustomProperty(
+      "compile_time_ms_sdv",
+      OneDigit(host_compile_summary.standard_deviation()));
+  data_table->AddCustomProperty("other_time_ms_avg",
+                                OneDigit(unknown_summary.average()));
+  data_table->AddCustomProperty("other_time_ms_sdv",
+                                OneDigit(unknown_summary.standard_deviation()));
+}
+
+std::unique_ptr<DataTable> GenerateGenericInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result) {
+  auto data_table = std::make_unique<DataTable>();
+  data_table->AddColumn(TableColumn("stepnum", "string", "Step number"));
+  data_table->AddColumn(
+      TableColumn("deviceComputeTimeMs", "number", "Device compute"));
+  data_table->AddColumn(
+      TableColumn("deviceToDeviceTimeMs", "number", "Device to device"));
+  data_table->AddColumn(TableColumn("deviceCollectivesTimeMs", "number",
+                                    "Device collective communication"));
+  data_table->AddColumn(
+      TableColumn("hostComputeTimeMs", "number", "Host compute"));
+  data_table->AddColumn(
+      TableColumn("kernelLaunchTimeMs", "number", "Kernel launch"));
+  data_table->AddColumn(TableColumn("infeedTimeMs", "number", "Input"));
+  data_table->AddColumn(TableColumn("outfeedTimeMs", "number", "Output"));
+  data_table->AddColumn(TableColumn("compileTimeMs", "number", "Compilation"));
+  data_table->AddColumn(TableColumn("otherTimeMs", "number", "All others"));
+  data_table->AddColumn(
+      TableColumn("tooltip", "string", "tooltip", {{"role", "tooltip"}}));
+  data_table->AddColumn(TableColumn("stepTimeMs", "number", "Step time"));
+
+  const StepSummary& step_time_summary = result.step_time_summary();
+  data_table->AddCustomProperty(
+      "step_time_graph_column_ids",
+      "stepnum,deviceComputeTimeMs,deviceToDeviceTimeMs,"
+      "deviceCollectivesTimeMs,hostComputeTimeMs,kernelLaunchTimeMs,"
+      "infeedTimeMs,outfeedTimeMs,compileTimeMs,otherTimeMs, tooltip");
+  data_table->AddCustomProperty("hardware_type", result.hardware_type());
+  data_table->AddCustomProperty("steptime_ms_average",
+                                OneDigit(step_time_summary.average()));
+  data_table->AddCustomProperty(
+      "steptime_ms_standard_deviation",
+      OneDigit(step_time_summary.standard_deviation()));
+  data_table->AddCustomProperty("steptime_ms_minimum",
+                                OneDigit(step_time_summary.minimum()));
+  data_table->AddCustomProperty("steptime_ms_maximum",
+                                OneDigit(step_time_summary.maximum()));
+  GenericStepTimeBreakdown breakdown;
+  if (!result.step_time_breakdown().UnpackTo(&breakdown)) {
+    LOG(DFATAL) << "Could not unpack to GenericStepBreakdown";
+  } else {
+    AddGenericStepTimeBreakdown(breakdown, data_table.get());
+  }
+
+  AddInputAnalysisGenericSummary(result, data_table.get());
+
+  for (const google::protobuf::Any& step_details : result.step_details()) {
+    PerGenericStepDetails details;
+    if (!step_details.UnpackTo(&details)) {
+      LOG(DFATAL) << "Could not unpack to PerGenericStepDetails";
+      continue;
+    }
+    std::string tooltip = absl::StrCat(
+        "Step ", details.step_name(),
+        ", duration: ", TwoDigits(details.step_time_ms()), " ms",
+        "\n-All others: ", TwoDigits(details.unknown_time_ms()), " ms",
+        "\n-Compilation: ", TwoDigits(details.host_compile_ms()), " ms",
+        "\n-Output: ", TwoDigits(details.output_ms()), " ms", "\n-Input: ",
+        TwoDigits(details.host_wait_input_ms() + details.host_to_device_ms()),
+        " ms", "\n-Kernel launch: ", TwoDigits(details.host_prepare_ms()),
+        " ms", "\n-Host compute: ", TwoDigits(details.host_compute_ms()), " ms",
+        "\n-Device collectives: ", TwoDigits(details.device_collectives_ms()),
+        " ms",
+        "\n-Device to device: ", TwoDigits(details.device_to_device_ms()),
+        " ms", "\n-Device compute: ", TwoDigits(details.device_compute_ms()),
+        " ms");
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell(details.step_name());
+    row->AddNumberCell(details.device_compute_ms());
+    row->AddNumberCell(details.device_to_device_ms());
+    row->AddNumberCell(details.device_collectives_ms());
+    row->AddNumberCell(details.host_compute_ms());
+    row->AddNumberCell(details.host_prepare_ms());
+    row->AddNumberCell(details.host_wait_input_ms() +
+                       details.host_to_device_ms());
+    row->AddNumberCell(details.output_ms());
+    row->AddNumberCell(details.host_compile_ms());
+    row->AddNumberCell(details.unknown_time_ms());
+    row->AddTextCell(tooltip);
+    row->AddNumberCell(details.step_time_ms());
+  }
+  return data_table;
+}
+
+// Converts an InputPipelineAnalysisResult proto to a DataTable
+// (which has "rows x columns" of data items plus some table properties).
+// The infeed_percent_summary part of the result proto are stored as table
+// properties; the step_details part are stored as table rows with one row for
+// each step.
+std::unique_ptr<DataTable> GenerateInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result) {
+  auto input_pipeline_data_table =
+      result.tag() ? GenerateTpuInputPipelineAnalysisDataTable(result)
+                   : GenerateGenericInputPipelineAnalysisDataTable(result);
+  return input_pipeline_data_table;
+}
+
+std::unique_ptr<DataTable> GenerateDiagnosticsDataTable(
+    const tensorflow::profiler::Diagnostics& diag) {
+  std::vector<std::vector<std::string>> kColumns = {
+      {"severity", "string", "Severity"}, {"message", "string", "Message"}};
+  auto data_table = std::make_unique<DataTable>();
+  for (const std::vector<std::string>& col : kColumns) {
+    data_table->AddColumn(TableColumn(col[0], col[1], col[2]));
+  }
+  for (const auto& info : diag.info()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("INFO");
+    row->AddTextCell(info);
+  }
+  for (const auto& warning : diag.warnings()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("WARNING");
+    row->AddTextCell(warning);
+  }
+  for (const auto& error : diag.errors()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("ERROR");
+    row->AddTextCell(error);
+  }
+  return data_table;
+}
+
+std::unique_ptr<DataTable> GenerateRecommendationDataTable(
+    const InputPipelineAnalysisResult& result) {
+  auto data_table = std::make_unique<DataTable>();
+  data_table->AddColumn(TableColumn("link", "string", "link"));
+  for (const auto& detail : result.recommendation().details()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell(detail);
+  }
+  return data_table;
+}
+
+std::unique_ptr<DataTable> GenerateHostTable(
+    const InputPipelineAnalysisResult& result) {
+  std::vector<std::vector<std::string>> kColumns = {
+      {"opName", "string", "Input Op"},
+      {"count", "number", "Count"},
+      {"timeInMs", "number", "Total Time (in ms)"},
+      {"timeInPercent", "number",
+       "Total Time (as % of total input-processing time)"},
+      {"selfTimeInMs", "number", "Total Self Time (in ms)"},
+      {"selfTimeInPercent", "number",
+       "Total Self Time (as % of total input-processing time)"},
+      {"category", "string", "Category"}};
+
+  auto data_table = std::make_unique<DataTable>();
+
+  for (const std::vector<std::string>& col : kColumns) {
+    data_table->AddColumn(TableColumn(col[0], col[1], col[2]));
+  }
+
+  for (const auto& details : result.input_op_details()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell(details.op_name());
+    row->AddNumberCell(details.count());
+    row->AddNumberCell(details.time_in_ms());
+    row->AddNumberCell(details.time_in_percent() / 100.0);
+    row->AddNumberCell(details.self_time_in_ms());
+    row->AddNumberCell(details.self_time_in_percent() / 100.0);
+    row->AddTextCell(details.category());
+  }
+
+  const InputTimeBreakdown& input_time_breakdown =
+      result.input_time_breakdown();
+
+  std::vector<std::vector<std::string>> kCustomProperties = {
+      {"enqueue_us", StrFormat("%.3lf", input_time_breakdown.enqueue_us())},
+      {"demanded_file_read_us",
+       StrFormat("%.3lf", input_time_breakdown.demanded_file_read_us())},
+      {"advanced_file_read_us",
+       StrFormat("%.3lf", input_time_breakdown.advanced_file_read_us())},
+      {"preprocessing_us",
+       StrFormat("%.3lf", input_time_breakdown.preprocessing_us())},
+      {"unclassified_nonequeue_us",
+       StrFormat("%.3lf", input_time_breakdown.unclassified_non_enqueue_us())}};
+
+  for (const std::vector<std::string>& property : kCustomProperties) {
+    data_table->AddCustomProperty(property[0], property[1]);
+  }
+
+  return data_table;
+}
+
+std::unique_ptr<DataTable> GenerateMaxInfeedCoreTable(
+    const InputPipelineAnalysisResult& result) {
+  auto data_table = std::make_unique<DataTable>();
+  if (result.hardware_type() != HardwareType_Name(tensorflow::profiler::TPU)) {
+    return data_table;
+  }
+  data_table->AddColumn(TableColumn("index", "string", "Index"));
+  for (int i = 0; i < result.step_details().size(); i++) {
+    std::string index = absl::StrCat(i);
+    data_table->AddColumn(TableColumn(index, "string", index));
+  }
+
+  TableRow* row0 = data_table->AddRow();
+  TableRow* row1 = data_table->AddRow();
+
+  // Adds the headings.
+  row0->AddTextCell("Step number");
+  row1->AddTextCell("Core name");
+
+  for (const google::protobuf::Any& step_details : result.step_details()) {
+    PerTpuStepDetails details;
+    if (!step_details.UnpackTo(&details)) {
+      LOG(DFATAL) << "Could not unpack to PerTpuStepDetails";
+      continue;
+    }
+    row0->AddTextCell(absl::StrCat(details.step_number()));
+    std::string corename_max_infeed_time(details.max_infeed_time_core_name());
+    if (corename_max_infeed_time.empty()) {
+      corename_max_infeed_time = "unknown";
+    }
+    row1->AddTextCell(corename_max_infeed_time);
+  }
+  return data_table;
+}
+
+std::string InputPipelineAnalysisResultToDataTableJson(
+    const InputPipelineAnalysisResult& result) {
+  std::string input_pipeline_json =
+      GenerateInputPipelineAnalysisDataTable(result)->ToJson();
+  std::string max_infeed_core_json =
+      GenerateMaxInfeedCoreTable(result)->ToJson();
+  std::string host_json = GenerateHostTable(result)->ToJson();
+  std::string recommendation_json =
+      GenerateRecommendationDataTable(result)->ToJson();
+  std::string diagnostics_json =
+      GenerateDiagnosticsDataTable(result.diagnostics())->ToJson();
+  return absl::StrCat(max_infeed_core_json, ",", input_pipeline_json, ",",
+                      host_json, ",", recommendation_json, ",",
+                      diagnostics_json);
 }
 
 }  // namespace profiler

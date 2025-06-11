@@ -17,6 +17,7 @@ limitations under the License.
 #define XPROF_CONVERT_OP_STATS_TO_INPUT_PIPELINE_ANALYSIS_H_
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "google/protobuf/any.pb.h"
@@ -25,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/platform/protobuf.h"
+#include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
@@ -123,6 +125,33 @@ double HostToDeviceTransferAsPercentOfInputTime(
 
 void AddErrorMessages(const OpStats& op_stats,
                       InputPipelineAnalysisResult* result);
+
+void AddInputAnalysisTPUSummary(const InputPipelineAnalysisResult& result,
+                                DataTable* data_table);
+
+std::unique_ptr<DataTable> GenerateTpuInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateGenericInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateInputPipelineAnalysisDataTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateHostTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateRecommendationDataTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateMaxInfeedCoreTable(
+    const InputPipelineAnalysisResult& result);
+
+std::unique_ptr<DataTable> GenerateDiagnosticsDataTable(
+    const tensorflow::profiler::Diagnostics& diag);
+
+std::string InputPipelineAnalysisResultToDataTableJson(
+    const InputPipelineAnalysisResult& result);
 
 }  // namespace profiler
 }  // namespace tensorflow

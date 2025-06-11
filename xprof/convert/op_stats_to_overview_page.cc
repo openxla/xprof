@@ -16,6 +16,8 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_overview_page.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -23,11 +25,15 @@ limitations under the License.
 #include "google/protobuf/any.pb.h"
 #include "absl/algorithm/container.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/format_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
+#include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
@@ -400,6 +406,267 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
   overview_page.mutable_analysis()->set_mxu_utilization_percent(
       op_stats.performance_counter_result().matrix_unit_utilization_percent());
   return overview_page;
+}
+
+std::string StrFormatToPercentage(double num) {
+  return (num >= 0) ? absl::StrFormat("%.1lf%%", num) : "unknown";
+}
+
+std::unique_ptr<DataTable> GenerateRunEnvironmentDataTable(
+    const OverviewPage& result) {
+  const auto& run_environment = result.run_environment();
+  const auto& host_dependent_job_info =
+      run_environment.host_dependent_job_info();
+
+  auto run_environment_data_table = std::make_unique<DataTable>();
+
+  const std::string host_count =
+      (run_environment.host_count() >= 0)
+          ? absl::StrCat(run_environment.host_count())
+          : "unknown";
+  run_environment_data_table->AddCustomProperty("host_count", host_count);
+
+  std::string task_count = (run_environment.task_count() >= 0)
+                               ? absl::StrCat(run_environment.task_count())
+                               : "unknown";
+  if (run_environment.task_count() > 0 && run_environment.host_count() > 0) {
+    int32_t tasks_per_host =
+        run_environment.task_count() / run_environment.host_count();
+    absl::StrAppend(&task_count, " (num tasks per host = ", tasks_per_host,
+                    ")");
+  }
+  run_environment_data_table->AddCustomProperty("task_count", task_count);
+
+  run_environment_data_table->AddCustomProperty("device_type",
+                                                run_environment.device_type());
+  std::string device_core_count =
+      (run_environment.device_core_count() >= 0)
+          ? absl::StrCat(run_environment.device_core_count())
+          : "unknown";
+  if (run_environment.replica_count() > 0 &&
+      run_environment.num_cores_per_replica() > 0) {
+    absl::StrAppend(&device_core_count,
+                    " (Replica count = ", run_environment.replica_count(),
+                    ", num cores per replica = ",
+                    run_environment.num_cores_per_replica(), ")");
+  }
+  run_environment_data_table->AddCustomProperty("device_core_count",
+                                                device_core_count);
+
+  // For each host, adds one row to the table.
+  run_environment_data_table->AddColumn(
+      TableColumn("host_id", "string", "host_id"));
+  run_environment_data_table->AddColumn(
+      TableColumn("command_line", "string", "command_line"));
+  run_environment_data_table->AddColumn(
+      TableColumn("start_time", "string", "start_time"));
+  run_environment_data_table->AddColumn(
+      TableColumn("bns_address", "string", "bns_address"));
+  for (const auto& host_dependent_job : host_dependent_job_info) {
+    TableRow* row = run_environment_data_table->AddRow();
+    row->AddTextCell(host_dependent_job.host_id());
+    row->AddTextCell(host_dependent_job.command_line());
+    row->AddTextCell(
+        absl::FormatTime(absl::FromUnixNanos(host_dependent_job.start_time()),
+                         absl::UTCTimeZone()));
+    row->AddTextCell(host_dependent_job.bns_address());
+  }
+
+  run_environment_data_table->AddCustomProperty(
+      "is_training", absl::StrFormat("%v", run_environment.is_training()));
+
+  return run_environment_data_table;
+}
+
+void AddLatencyRow(DataTable* data_table, absl::string_view label,
+                   const OverviewLatencyBreakdown& breakdown) {
+  TableRow* row = data_table->AddRow();
+  row->AddTextCell(label);
+  row->AddNumberCell(tsl::profiler::MicroToMilli(breakdown.host_latency_us()));
+  row->AddNumberCell(
+      tsl::profiler::MicroToMilli(breakdown.device_latency_us()));
+  row->AddNumberCell(
+      tsl::profiler::MicroToMilli(breakdown.communication_latency_us()));
+  row->AddNumberCell(tsl::profiler::MicroToMilli(breakdown.total_latency_us()));
+}
+
+// Converts an OverViewInferenceLatency proto to a DataTable
+// (which has "rows x columns" of data items plus some table properties).
+// #rows = #percentile numbers, #columns = #breakdown items.
+std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
+    const OverviewInferenceLatency& result) {
+  auto data_table = std::make_unique<DataTable>();
+  data_table->AddColumn(TableColumn("percentile", "string", "percentile"));
+  data_table->AddColumn(
+      TableColumn("hostTimeMs", "number", "Host time (in ms)"));
+  data_table->AddColumn(
+      TableColumn("deviceTimeMs", "number", "Device time (in ms)"));
+  data_table->AddColumn(TableColumn("communicationTimeMs", "number",
+                                    "Host-device communication time (in ms)"));
+  data_table->AddColumn(
+      TableColumn("totalTimeMs", "number", "Total latency (in ms)"));
+
+  if (result.latency_breakdowns_size() > 0) {
+    AddLatencyRow(data_table.get(), "Avg",
+                  *result.latency_breakdowns().begin());
+  }
+  for (int i = 0; i < result.percentile_numbers_size(); i++) {
+    AddLatencyRow(
+        data_table.get(),
+        absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
+        result.latency_breakdowns().Get(i));
+  }
+
+  return data_table;
+}
+
+void GenerateRecommendationResultDataTable(
+    const OverviewPage& result, std::unique_ptr<DataTable>& data_table) {
+  data_table->AddColumn(TableColumn("tip_type", "string", "tip_type"));
+  data_table->AddColumn(TableColumn("link", "string", "link"));
+  data_table->AddColumn(TableColumn("description", "string", "description"));
+
+  const auto& recommendation = result.recommendation();
+
+  // For each FAQ tip, adds one row to the table.
+  for (const auto& faq_tip : recommendation.faq_tips()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("faq");
+    row->AddTextCell(faq_tip.link());
+    row->AddTextCell("Tool troubleshooting / FAQ");
+  }
+
+  // For each host tip, adds one row to the table.
+  for (const auto& host_tip : recommendation.host_tips()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("host");
+    row->AddTextCell(host_tip.link());
+    row->AddTextCell("Next steps for reducing the Host time");
+  }
+  // For each device tip, adds one row to the table.
+  for (const auto& device_tip : recommendation.device_tips()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("device");
+    row->AddTextCell(device_tip.link());
+    row->AddTextCell("Next steps for reducing the Device time");
+  }
+  // For each documentation tip, adds one row to the table.
+  for (const auto& doc_tip : recommendation.documentation_tips()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("doc");
+    row->AddTextCell(doc_tip.link());
+    row->AddTextCell("Other useful resources");
+  }
+
+  // For each inference tip, adds one row to the table.
+  for (const auto& inference_tip : recommendation.inference_tips()) {
+    TableRow* row = data_table->AddRow();
+    row->AddTextCell("inference");
+    row->AddTextCell(inference_tip.link());
+    row->AddTextCell("Recommendations for inference run");
+  }
+
+  data_table->AddCustomProperty("bottleneck", recommendation.bottleneck());
+  data_table->AddCustomProperty("statement", recommendation.statement());
+
+  GenericRecommendation generic;
+  if (recommendation.recommendation().UnpackTo(&generic)) {
+    data_table->AddCustomProperty("kernel_launch_bottleneck",
+                                  generic.kernel_launch_bottleneck());
+    data_table->AddCustomProperty("kernel_launch_statement",
+                                  generic.kernel_launch_statement());
+    data_table->AddCustomProperty("all_other_bottleneck",
+                                  generic.all_other_bottleneck());
+    data_table->AddCustomProperty("all_other_statement",
+                                  generic.all_other_statement());
+    data_table->AddCustomProperty("precision_statement",
+                                  generic.precision_statement());
+    data_table->AddCustomProperty("device_collectives_bottleneck",
+                                  generic.device_collectives_bottleneck());
+    data_table->AddCustomProperty("device_collectives_statement",
+                                  generic.device_collectives_statement());
+  }
+
+  // Prop used to filter out tips on frontend given bottleneck.
+  std::vector<std::string> non_bottleneck_tip_types;
+  if (recommendation.bottleneck() == "host") {
+    non_bottleneck_tip_types.push_back("device");
+  } else if (recommendation.bottleneck() == "device") {
+    non_bottleneck_tip_types.push_back("host");
+  }
+  data_table->AddCustomProperty("non_bottleneck_tip_types",
+                                absl::StrJoin(non_bottleneck_tip_types, ","));
+}
+
+std::unique_ptr<DataTable> GenerateAnalysisResultDataTable(
+    const OverviewPageAnalysis& analysis) {
+  auto data_table = std::make_unique<DataTable>();
+  data_table->AddCustomProperty(
+      "host_tf_op_percent",
+      StrFormatToPercentage(analysis.host_tf_op_percent()));
+  data_table->AddCustomProperty(
+      "device_tf_op_percent",
+      StrFormatToPercentage(analysis.device_tf_op_percent()));
+  data_table->AddCustomProperty(
+      "host_op_time_eager_percent",
+      StrFormatToPercentage(analysis.host_op_time_eager_percent()));
+  data_table->AddCustomProperty(
+      "device_op_time_eager_percent",
+      StrFormatToPercentage(analysis.device_op_time_eager_percent()));
+  data_table->AddCustomProperty(
+      "device_compute_16bit_percent",
+      StrFormatToPercentage(analysis.device_compute_16bit_percent()));
+  data_table->AddCustomProperty(
+      "device_compute_32bit_percent",
+      StrFormatToPercentage(analysis.device_compute_32bit_percent()));
+  data_table->AddCustomProperty("remark_text", analysis.remark_text());
+  data_table->AddCustomProperty("remark_color", analysis.remark_color());
+  data_table->AddCustomProperty(
+      "mxu_utilization_percent",
+      StrFormatToPercentage(analysis.mxu_utilization_percent()));
+
+  data_table->AddColumn(TableColumn("selfTimePercent", "number", "Time (%)"));
+  data_table->AddColumn(
+      TableColumn("cumulativeTimePercent", "number", "Cumulative time (%)"));
+  data_table->AddColumn(TableColumn("category", "string", "Category"));
+  data_table->AddColumn(TableColumn("operation", "string", "Operation"));
+  data_table->AddColumn(TableColumn("flopRate", "number", "GFLOPs/Sec"));
+  data_table->AddColumn(
+      TableColumn("tcEligibility", "boolean", "TensorCore eligibility"));
+  data_table->AddColumn(
+      TableColumn("tcUtilization", "boolean", "Op is using TensorCore"));
+
+  for (const auto& op : analysis.top_device_ops()) {
+    TableRow* row = data_table->AddRow();
+    row->AddNumberCell(op.self_time_fraction());
+    row->AddNumberCell(op.cumulative_time_fraction());
+    row->AddTextCell(op.category());
+    row->AddTextCell(op.name());
+    row->AddNumberCell(op.flop_rate());
+    row->AddBooleanCell(op.is_op_tensorcore_eligible());
+    row->AddBooleanCell(op.is_op_using_tensorcore());
+  }
+
+  return data_table;
+}
+
+std::string OverviewPageToJson(const OverviewPage& result) {
+  auto analysis_data_table = GenerateAnalysisResultDataTable(result.analysis());
+  auto steptime_data_table =
+      GenerateInputPipelineAnalysisDataTable(result.input_analysis());
+  auto run_environment_data_table = GenerateRunEnvironmentDataTable(result);
+  auto recommendation_data_table = std::make_unique<DataTable>();
+  GenerateRecommendationResultDataTable(result, recommendation_data_table);
+  auto inference_latency_data_table =
+      GenerateInferenceLatencyDataTable(result.inference_latency());
+  auto diagnostics_data_table =
+      GenerateDiagnosticsDataTable(result.diagnostics());
+  return absl::StrCat("[", analysis_data_table->ToJson(), ",",
+                      steptime_data_table->ToJson(), ",",
+                      run_environment_data_table->ToJson(), ",",
+                      recommendation_data_table->ToJson(), ",",
+                      inference_latency_data_table->ToJson(), ", {},",
+                      diagnostics_data_table->ToJson(), "]");
 }
 
 }  // namespace profiler

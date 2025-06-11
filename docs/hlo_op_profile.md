@@ -4,11 +4,11 @@ You can use the HLO Op Profile tool to understand hardware performance for
 different categories of High Level Operation (HLO) ops executed during the
 profiling period.
 
+![HLO Op Profile](images/hlo_op_profile.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Using the HLO Op Profile tool
 
@@ -36,7 +36,7 @@ HLO Op Profile has the following components:
     displaying more details about the op or the operation category. Clicking a
     table entry pins the op detail card. These cards typically include the
     following, as appropriate:
-    *   A link to the op in the Graph Viewer tool.
+    *   A link to the op in the [Graph Viewer](graph_viewer.md) tool.
     *   Average execution time.
     *   Absolute rates of usage (in contrast with utilization reported in the
         table) of the compute (TFLOP/s), HBM bandwidth (GB/s), and on-chip read
@@ -46,6 +46,8 @@ HLO Op Profile has the following components:
     *   The provenance of the XLA op at the framework level.
     *   The number of occurrences of the op, and total time spent on the op in
         aggregate.
+
+![HLO Op Profile details for a loop fusion op](images/hlo_op_profile_details.png)
 
 Note that raw bandwidths (GB/s) or compute rates (TFLOP/s) are computed by
 combining static compiler data on FLOPs or bytes required for the op (the

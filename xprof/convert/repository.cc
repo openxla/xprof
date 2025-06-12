@@ -22,12 +22,14 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "net/proto2/arena/arena_safe_unique_ptr.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -78,8 +80,8 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
   return SessionSnapshot(std::move(xspace_paths), std::move(xspaces));
 }
 
-absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpace(
-    size_t index) const {
+absl::StatusOr<google::protobuf::ArenaSafeUniquePtr<XSpace>> SessionSnapshot::GetXSpace(
+    size_t index, google::protobuf::Arena* arena) const {
   if (index >= xspace_paths_.size()) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Can not get the ", index, "th XSpace. The total number of XSpace is ",
@@ -95,16 +97,17 @@ absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpace(
   }
 
   // Return the XSpace proto from file.
-  auto xspace_from_file = std::make_unique<XSpace>();
+  auto xspace_from_file = google::protobuf::MakeArenaSafeUnique<XSpace>(arena);
   TF_RETURN_IF_ERROR(tsl::ReadBinaryProto(
       tsl::Env::Default(), xspace_paths_.at(index), xspace_from_file.get()));
   return xspace_from_file;
 }
 
-absl::StatusOr<std::unique_ptr<XSpace>> SessionSnapshot::GetXSpaceByName(
-    absl::string_view name) const {
+absl::StatusOr<google::protobuf::ArenaSafeUniquePtr<XSpace>>
+SessionSnapshot::GetXSpaceByName(absl::string_view name,
+                                 google::protobuf::Arena* arena) const {
   if (auto it = hostname_map_.find(name); it != hostname_map_.end()) {
-    return GetXSpace(it->second);
+    return GetXSpace(it->second, arena);
   }
 
   return absl::InvalidArgumentError(

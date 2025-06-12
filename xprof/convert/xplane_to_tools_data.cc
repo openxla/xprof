@@ -21,6 +21,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "net/proto2/arena/arena_safe_unique_ptr.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -111,8 +112,9 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
         session_snapshot.XSpaceSize());
   }
 
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                      session_snapshot.GetXSpace(0));
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                      session_snapshot.GetXSpace(0, &arena));
   PreprocessSingleHostXSpace(xspace.get(), /*step_grouping=*/true,
                              /*derived_timeline=*/true);
   std::string content;
@@ -231,8 +233,9 @@ absl::StatusOr<std::string> ConvertXSpaceToMemoryProfile(
   }
 
   std::string json_output;
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                      session_snapshot.GetXSpace(0));
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                      session_snapshot.GetXSpace(0, &arena));
   PreprocessSingleHostXSpace(xspace.get(), /*step_grouping=*/true,
                              /*derived_timeline=*/false);
   TF_RETURN_IF_ERROR(ConvertXSpaceToMemoryProfileJson(*xspace, &json_output));
@@ -265,8 +268,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToTfDataBottleneckAnalysis(
   CombinedTfDataStatsBuilder builder(&combined_tf_data_stats);
 
   for (int idx = 0; idx < session_snapshot.XSpaceSize(); ++idx) {
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                        session_snapshot.GetXSpace(idx));
+    google::protobuf::Arena arena;
+    TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                        session_snapshot.GetXSpace(idx, &arena));
 
     PreprocessSingleHostXSpace(xspace.get(), /*step_grouping=*/true,
                                /*derived_timeline=*/false);
@@ -344,8 +348,9 @@ absl::StatusOr<std::string> PreprocessXSpace(
         session_snapshot.XSpaceSize());
   }
 
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                      session_snapshot.GetXSpace(0));
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                      session_snapshot.GetXSpace(0, &arena));
   PreprocessSingleHostXSpace(xspace.get(), /*step_grouping=*/true,
                              /*derived_timeline=*/true);
   return xspace->SerializeAsString();

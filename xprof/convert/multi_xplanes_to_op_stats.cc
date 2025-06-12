@@ -18,7 +18,9 @@ limitations under the License.
 #include <memory>
 #include <vector>
 
+#include "net/proto2/arena/arena_safe_unique_ptr.h"
 #include "absl/status/status.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -43,8 +45,9 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
   std::vector<OpStats> all_op_stats;
   all_op_stats.reserve(session_snapshot.XSpaceSize());
   for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                        session_snapshot.GetXSpace(i));
+    google::protobuf::Arena arena;
+    TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                        session_snapshot.GetXSpace(i, &arena));
     PreprocessSingleHostXSpace(xspace.get(), /*step_grouping=*/true,
                                /*derived_timeline=*/true);
     all_op_stats.push_back(ConvertXSpaceToOpStats(*xspace, options));

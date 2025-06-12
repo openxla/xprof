@@ -17,8 +17,10 @@ limitations under the License.
 #include <memory>
 #include <vector>
 
+#include "net/proto2/arena/arena_safe_unique_ptr.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/device_utils.h"
 #include "xla/tsl/profiler/utils/group_events.h"
@@ -102,8 +104,9 @@ absl::Status ConvertMultiXSpaceToInferenceStats(
     const SessionSnapshot& session_snapshot, absl::string_view request_column,
     absl::string_view batch_column, InferenceStats* inference_stats) {
   for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<XSpace> xspace,
-                        session_snapshot.GetXSpace(i));
+    google::protobuf::Arena arena;
+    TF_ASSIGN_OR_RETURN(google::protobuf::ArenaSafeUniquePtr<XSpace> xspace,
+                        session_snapshot.GetXSpace(i, &arena));
     tsl::profiler::GroupMetadataMap metadata_map;
     InferenceStats inference_stats_per_host;
     std::vector<XPlane*> device_traces =

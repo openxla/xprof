@@ -23,6 +23,7 @@ limitations under the License.
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -72,9 +73,13 @@ TEST(Repository, GetSpaceByHostName) {
                                "log/plugins/profile/hostname0.xplane.pb"},
                               std::move(xspaces));
   TF_CHECK_OK(session_snapshot_or.status());
-  auto xspace0_or = session_snapshot_or.value().GetXSpaceByName("hostname0");
+  google::protobuf::Arena arena;
+  auto xspace0_or =
+      session_snapshot_or.value().GetXSpaceByName("hostname0", &arena);
   TF_CHECK_OK(xspace0_or.status());
-  auto xspace1_or = session_snapshot_or.value().GetXSpaceByName("hostname1");
+  google::protobuf::Arena arena2;
+  auto xspace1_or =
+      session_snapshot_or.value().GetXSpaceByName("hostname1", &arena2);
   EXPECT_FALSE(session_snapshot_or.value().HasAccessibleRunDir());
   TF_CHECK_OK(xspace1_or.status());
   EXPECT_THAT(xspace0_or.value()->hostnames(0), Eq("hostname0"));

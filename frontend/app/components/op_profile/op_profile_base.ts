@@ -1,12 +1,14 @@
-import {Component, inject, Input, OnDestroy, SimpleChanges} from '@angular/core';
-import {Params} from '@angular/router';
+import {Component, inject, Input, OnDestroy, OnInit, SimpleChanges} from '@angular/core';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction, setOpProfileRootNodeAction} from 'org_xprof/frontend/app/store/actions';
+import {getActiveOpProfileNodeState} from 'org_xprof/frontend/app/store/selectors';
+import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 
 import {OpProfileData, OpProfileSummary} from './op_profile_data';
 
@@ -17,10 +19,11 @@ import {OpProfileData, OpProfileSummary} from './op_profile_data';
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss']
 })
-export class OpProfileBase implements OnDestroy {
+export class OpProfileBase implements OnInit, OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly route: ActivatedRoute = inject(ActivatedRoute);
   profile: OpProfileProto|null = null;
   rootNode?: Node;
   data = new OpProfileData();
@@ -32,6 +35,9 @@ export class OpProfileBase implements OnDestroy {
   childrenCount = 10;
   deviceType = 'TPU';
   summary: OpProfileSummary[] = [];
+  stackTrace = '';
+  useNewAnalysis: boolean|undefined = undefined;
+  showStackTrace = true;
 
   @Input() opProfileData: OpProfileProto|null = null;
 
@@ -53,6 +59,15 @@ export class OpProfileBase implements OnDestroy {
     this.store.dispatch(
         setCurrentToolStateAction({currentTool: 'hlo_op_profile'}),
     );
+    this.store.select(getActiveOpProfileNodeState)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((node: Node|null) => {
+          this.updateActiveNode(node);
+        });
+  }
+
+  private updateActiveNode(node: Node|null) {
+    this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
   }
 
   ngOnChanges(changes: SimpleChanges) {
@@ -109,6 +124,10 @@ export class OpProfileBase implements OnDestroy {
     this.data.update(this.rootNode);
   }
 
+  updateShowStackTrace() {
+    this.showStackTrace = !this.showStackTrace;
+  }
+
   updateByWasted() {
     this.byWasted = !this.byWasted;
   }
@@ -122,5 +141,15 @@ export class OpProfileBase implements OnDestroy {
     this.store.dispatch(setOpProfileRootNodeAction({rootNode: undefined}));
     this.destroyed.next();
     this.destroyed.complete();
+  }
+
+  ngOnInit() {
+    if (this.route.queryParams) {
+      this.route.queryParams.pipe(takeUntil(this.destroyed))
+          .subscribe((params) => {
+            this.useNewAnalysis =
+                ['1', 'true'].includes(params['use_new_analysis']);
+          });
+    }
   }
 }

@@ -3,83 +3,94 @@
     <ng-content select="[opDetails]"></ng-content>
   </mat-sidenav>
   <mat-sidenav-content>
-    <div class="container" tabindex="0">
-      <div class="mat-headline">
-        <div>
-          Overall {{deviceType}} FLOPS utilization is
-          <span [style.color]="data.flopsColor">{{data.flopsUtilizationPercent}}</span>
-        </div>
-        <div>
-          Memory bandwidth utilizations:
-          <span *ngFor="let metric of summary">{{metric.name}} <span [style.color]="metric.color">{{metric.value}}</span></span>
-        </div>
-      </div>
-      <div class="description">
-        <div>
-          Modifying your model's architecture, data dimensions, and improving
-          the efficiency of CPU operations may help reach the {{deviceType}}'s FLOPS
-          potential.
-        </div>
-        <div>
-          "IDLE" represents the portion of the total execution time on device
-          that is idle.
-        </div>
-      </div>
-      <div class="control-container">
-        <div class="control" [hidden]="!hasMultiModules">
-          <div class="control-title">Group by Category</div>
-          <mat-slide-toggle [checked]="isByCategory" (toggleChange)="updateToggle()" matTooltip="Group by xla module by default."></mat-slide-toggle>
-        </div>
-        <div class="control">
-          <div class="control-title">
-            Order by wasted time
-            <mat-icon
-              class="tooltip-icon"
-              matTooltip="Wasted time is defined by RuntimeFraction *(1 - max(FlopsUtilization, MemoryBandwidthUtilization))."
-              matTooltipPosition="above">
-              info
-            </mat-icon>
+    <as-split direction="vertical">
+      <as-split-area [size]="80">
+        <div class="container" tabindex="0">
+          <div class="mat-headline">
+            <div>
+              Overall {{deviceType}} FLOPS utilization is
+              <span [style.color]="data.flopsColor">{{data.flopsUtilizationPercent}}</span>
+            </div>
+            <div>
+              Memory bandwidth utilizations:
+              <span *ngFor="let metric of summary">{{metric.name}} <span [style.color]="metric.color">{{metric.value}}</span></span>
+            </div>
           </div>
-          <mat-slide-toggle [checked]="byWasted" (toggleChange)="updateByWasted()" matTooltip="Order by Time% by default."></mat-slide-toggle>
-        </div>
-        <div class="control">
-          <div class="control-title">Top 90%
-            <mat-icon
-              class="tooltip-icon"
-              matTooltip="Ops will be capped by the limit."
-              matTooltipPosition="above">
-              info
-            </mat-icon>
+          <div class="description">
+            <div>
+              Modifying your model's architecture, data dimensions, and improving
+              the efficiency of CPU operations may help reach the {{deviceType}}'s FLOPS
+              potential.
+            </div>
+            <div>
+              "IDLE" represents the portion of the total execution time on device
+              that is idle.
+            </div>
           </div>
-          <mat-slide-toggle [checked]="showP90" (toggleChange)="updateShowP90()"></mat-slide-toggle>
+          <div class="control-container">
+            <div class="control" [hidden]="!hasMultiModules">
+              <div class="control-title">Group by Category</div>
+              <mat-slide-toggle [checked]="isByCategory" (toggleChange)="updateToggle()" matTooltip="Group by xla module by default."></mat-slide-toggle>
+            </div>
+            <div class="control">
+              <div class="control-title">
+                Order by wasted time
+                <mat-icon
+                  class="tooltip-icon"
+                  matTooltip="Wasted time is defined by RuntimeFraction *(1 - max(FlopsUtilization, MemoryBandwidthUtilization))."
+                  matTooltipPosition="above">
+                  info
+                </mat-icon>
+              </div>
+              <mat-slide-toggle [checked]="byWasted" (toggleChange)="updateByWasted()" matTooltip="Order by Time% by default."></mat-slide-toggle>
+            </div>
+            <div class="control">
+              <div class="control-title">Top 90%
+                <mat-icon
+                  class="tooltip-icon"
+                  matTooltip="Ops will be capped by the limit."
+                  matTooltipPosition="above">
+                  info
+                </mat-icon>
+              </div>
+              <mat-slide-toggle [checked]="showP90" (toggleChange)="updateShowP90()"></mat-slide-toggle>
+            </div>
+            <div class="control">
+              <div class="control-title">Exclude Idle</div>
+              <mat-slide-toggle [checked]="excludeIdle" (toggleChange)="updateExcludeIdle()"></mat-slide-toggle>
+            </div>
+            <div class="control" *ngIf="useNewAnalysis">
+              <div class="control-title">Show Stack Trace</div>
+              <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="updateShowStackTrace()"/>
+            </div>
+            <div class="control">
+              <mat-form-field class="children-count-input" appearance="outline">
+                <mat-label>Ops Limit</mat-label>
+                <input
+                      matInput
+                      type="number"
+                      [min]="10"
+                      [max]="100"
+                      [step]="10"
+                      [value]="childrenCount"
+                      matTooltip="Number of ops to show per layer. 10 ~ 100 with increment of 10."
+                      (change)="updateChildrenCount($event)" />
+              </mat-form-field>
+            </div>
+          </div>
         </div>
-        <div class="control">
-          <div class="control-title">Exclude Idle</div>
-          <mat-slide-toggle [checked]="excludeIdle" (toggleChange)="updateExcludeIdle()"></mat-slide-toggle>
-        </div>
-        <div class="control">
-          <mat-form-field class="children-count-input" appearance="outline">
-            <mat-label>Ops Limit</mat-label>
-            <input
-                  matInput
-                  type="number"
-                  [min]="10"
-                  [max]="100"
-                  [step]="10"
-                  [value]="childrenCount"
-                  matTooltip="Number of ops to show per layer. 10 ~ 100 with increment of 10."
-                  (change)="updateChildrenCount($event)" />
-          </mat-form-field>
-        </div>
-      </div>
-    </div>
 
-    <op-table
-      #opTable
-      [rootNode]="rootNode"
-      [byWasted]="byWasted"
-      [showP90]="showP90"
-      [childrenCount]="childrenCount">
-    </op-table>
+        <op-table
+          #opTable
+          [rootNode]="rootNode"
+          [byWasted]="byWasted"
+          [showP90]="showP90"
+          [childrenCount]="childrenCount">
+        </op-table>
+      </as-split-area>
+      <as-split-area [size]="20" [visible]="showStackTrace" *ngIf="useNewAnalysis">
+        <stack-trace-snippet [stackTrace]="stackTrace"/>
+      </as-split-area>
+    </as-split>
   </mat-sidenav-content>
 </mat-sidenav-container>

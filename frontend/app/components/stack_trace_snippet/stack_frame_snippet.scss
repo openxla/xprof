@@ -1,0 +1,93 @@
+@import 'frontend/app/styles/common';
+
+@import 'third_party/javascript/highlightjs/styles/atom-one-dark.css';
+
+.stack-frame-snippet {
+  border-radius: 0;
+  padding: 0;
+  margin: 2px; // Vertical distance between frames
+}
+
+.stack-frame-snippet .stack-frame-snippet-address:not(.mat-expanded):hover {
+  background-color: #ccc;
+}
+
+.stack-frame-snippet .stack-frame-snippet-address {
+  padding: 2px 5px;
+  background-color: #ccc;
+  border-radius: 0;
+  min-height: 20px;
+  max-height: 20px;
+  font-family: 'Roboto Mono', monospace;
+  white-space: nowrap;
+}
+
+.stack-frame-snippet .stack-frame-snippet-title {
+  display: flex;
+  align-items: center; // Vertically aligns items in the middle
+  justify-content: space-between; // Pushes the first group to the left, last to the right
+  width: 100%; // Ensure it takes full width of its parent
+}
+
+.stack-frame-snippet .stack-frame-snippet-file-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+mat-progress-bar {
+  width: 80px; // Example fixed width
+  flex-shrink: 0; // Prevent it from shrinking too much
+}
+
+.stack-frame-snippet .stack-frame-snippet-address .external-link-icon {
+  margin-left: auto; // Icon to the right
+  color: #0000008f; // Darker than its backgrond
+  padding: 0;
+}
+
+:host ::ng-deep .stack-frame-snippet .mat-expansion-panel-body {
+  padding: 0 0 0 2px; // Distance between the panel and the content start
+  margin: 0;
+  white-space: nowrap;
+  overflow-x: auto; // Horizontal scroll if needed
+}
+
+.stack-frame-snippet table {
+  margin: 0;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stack-frame-snippet td:first-child {
+  width: 0.1%; // Smallest possible width for the line number column
+  border-right: 1px solid #4a505b; // Separator line
+}
+
+.stack-frame-snippet td {
+  padding: 0;
+  margin: 0;
+}
+
+.stack-frame-snippet tr {
+  padding: 0;
+  margin: 0;
+}
+
+.stack-frame-snippet .stack-frame-snippet-line-number {
+  flex-shrink: 0; // Don't let it shrink
+  padding: 0 5px; // Horizontal padding
+  text-align: right; // Align numbers to the right
+  color: #636d83; // A slightly lighter gray than the code text
+  user-select: none; // Prevent selection of line numbers
+  font-size: 0.9em; // Slightly smaller than code font
+}
+
+.stack-frame-snippet .stack-frame-snippet-line-content {
+  padding: 0 0 0 2px; // Distance between the line number and source code
+  margin: 0;
+}
+
+.stack-frame-snippet .stack-frame-snippet-line-selected {
+  background-color: #fff6e6;
+}

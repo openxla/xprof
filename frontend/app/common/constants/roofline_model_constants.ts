@@ -248,3 +248,9 @@ export const NUMERIC_DATA_FORMAT:
         digit: 1,
       },
     };
+
+/**
+ * The limit for peak flop rate to be considered as readable.
+ * If the peak flop rate is above this limit, it will be converted to TFLOP/s.
+ */
+export const PEAK_FLOP_RATE_READABLE_LIMIT = 1000.0;

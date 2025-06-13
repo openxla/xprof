@@ -455,3 +455,36 @@ export function convertToSourceTopLine(
   }
   return `${fileName}:${lineNumber}`;
 }
+
+/**
+ * Formats a value with an optional unit and context string.
+ * @param value The value to display.
+ * @param unit Optional unit for the value.
+ * @param context Optional context for the value.
+ * @returns A string representation of the value, unit, and context.
+ */
+export function displayValueWithUnitAndContext(
+    value: string|number, unit?: string, context?: string): string {
+  const parts: string[] = [];
+  parts.push(String(value));
+  if (unit) {
+    parts.push(unit);
+  }
+  if (context) {
+    parts.push(context);
+  }
+  return parts.join(' ').trim();
+}
+
+/**
+ * Converts a value from Gigaflops to Teraflops and formats it as a string.
+ * @param value The value in Gigaflops (can be a string or a number).
+ * @param options Optional. An object with a `dp` property specifying the number
+ *     of decimal places (defaults to 2).
+ * @returns The value in Teraflops, formatted to the specified number of decimal
+ *     places.
+ */
+export function convertGigaflopsToTeraflops(
+    value: number, {dp = 2} = {}): number {
+  return Number((value / 1000).toFixed(dp));
+}

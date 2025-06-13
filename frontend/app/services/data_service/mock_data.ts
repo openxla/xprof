@@ -566,8 +566,8 @@ export const DATA_PLUGIN_PROFILE_INPUT_PIPELINE_DATA = [
   },
 ];
 
-/** Mock data for data API with tensorflow_stats tag */
-export const DATA_PLUGIN_PROFILE_TENSORFLOW_STATS_DATA = [
+/** Mock data for data API with framework_op_stats tag */
+export const DATA_PLUGIN_PROFILE_FRAMEWORK_OP_STATS_DATA = [
   {
     'cols': [
       {'id': 'rank', 'label': 'Rank', 'type': 'number'},

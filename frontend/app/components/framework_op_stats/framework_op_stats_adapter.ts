@@ -65,7 +65,7 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
     };
     this.store.dispatch(
         setDataRequestStateAction({
-          dataRequest: {type: DataRequestType.TENSORFLOW_STATS, params},
+          dataRequest: {type: DataRequestType.FRAMEWORK_OP_STATS, params},
         }),
     );
 
@@ -76,7 +76,8 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
       };
       this.store.dispatch(
           setDataRequestStateAction({
-            dataRequest: {type: DataRequestType.TENSORFLOW_STATS_DIFF, params},
+            dataRequest:
+                {type: DataRequestType.FRAMEWORK_OP_STATS_DIFF, params},
           }),
       );
     }

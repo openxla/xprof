@@ -13,6 +13,10 @@ import {Observable} from 'rxjs';
 export interface DataServiceV2Interface {
   searchParams?: URLSearchParams;
 
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host?: string,
+      parameters?: Map<string, string>): HttpParams;
+
   getData(
       sessionId: string,
       tool: string,

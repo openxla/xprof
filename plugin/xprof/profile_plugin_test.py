@@ -33,6 +33,7 @@ from absl.testing import absltest
 
 from xprof import profile_plugin
 from xprof import profile_plugin_test_utils as utils
+from xprof import version
 from xprof.protobuf import trace_events_pb2
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.standalone.tensorboard_shim import plugin_event_multiplexer
@@ -115,8 +116,12 @@ class ProfilePluginTest(absltest.TestCase):
   def get_temp_dir(self):
     """Return a temporary directory for tests to use."""
     if not self._temp_dir:
-      if os.environ.get('TEST_TMPDIR'):
-        temp_dir = tempfile.mkdtemp(prefix=os.environ['TEST_TMPDIR'])
+      # If the test is running on Forge, use the TEST_UNDECLARED_OUTPUTS_DIR
+      # environment variable to store the temporary directory for Sponge.
+      if os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR'):
+        temp_dir = tempfile.mkdtemp(
+            dir=os.environ['TEST_UNDECLARED_OUTPUTS_DIR']
+        )
       else:
         frame = inspect.stack()[-1]
         filename = frame.filename
@@ -286,6 +291,71 @@ class ProfilePluginTest(absltest.TestCase):
     with self.assertRaises(FileNotFoundError):
       self.plugin.data_impl(utils.make_data_request(
           run='a', tool='trace_viewer', host=''))
+
+  def testDataWithCache(self):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    run_dir = os.path.join(
+        plugin_asset_util.PluginDirectory(
+            self.logdir, profile_plugin.ProfilePlugin.plugin_name
+        ),
+        'abc',
+    )
+    cache_version_file_path = os.path.join(
+        run_dir, profile_plugin.CACHE_VERSION_FILE
+    )
+
+    # Check if the cache_version.txt file doesn't exist.
+    self.assertFalse(os.path.exists(cache_version_file_path))
+
+    # Check if first run generates a cache file.
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+    )
+    self.assertTrue(os.path.exists(cache_version_file_path))
+    with open(cache_version_file_path, 'r') as f:
+      self.assertEqual(f.read(), version.__version__)
+    cache_file_first_run_timestamp = os.path.getmtime(cache_version_file_path)
+
+    # Check if the second run generates a cache file.
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+    )
+    self.assertTrue(os.path.exists(cache_version_file_path))
+    with open(cache_version_file_path, 'r') as f:
+      self.assertEqual(f.read(), version.__version__)
+    self.assertEqual(
+        cache_file_first_run_timestamp,
+        os.path.getmtime(cache_version_file_path),
+    )
+
+    # Check if the use_saved_result=False generates a cache file.
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            run='abc',
+            tool='overview_page',
+            host='host1',
+            use_saved_result='False',
+        )
+    )
+    self.assertTrue(os.path.exists(cache_version_file_path))
+    with open(cache_version_file_path, 'r') as f:
+      self.assertEqual(f.read(), version.__version__)
+    self.assertLess(
+        cache_file_first_run_timestamp,
+        os.path.getmtime(cache_version_file_path),
+    )
+
+    # Overwrite the cache_version.txt file with an old version.
+    with open(cache_version_file_path, 'w') as f:
+      f.write('1.0.0')
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+    )
+    self.assertTrue(os.path.exists(cache_version_file_path))
+    with open(cache_version_file_path, 'r') as f:
+      self.assertEqual(f.read(), version.__version__)
 
   def testActive(self):
 

@@ -21,11 +21,15 @@ limitations under the License.
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
 
 #include "<gtest/gtest.h>"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
@@ -324,56 +328,143 @@ TEST(DerivedTimelineTest, TfNameScopeMaintainsOrder) {
   });
 }
 
-// Checks only derived events from line with most events for gpu trace.
-TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
-  const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
+// Checks derived events from each lines for gpu trace.
+TEST(DerivedTimelineTest, OnlyDerivedEventsFromAllLines) {
+  const std::string StreamName1 = "stream1";
+  const std::string StreamName2 = "stream2";
+  const std::string ScopeName1 = "scope1";
+  const std::string ScopeName2 = "scope2";
+  const std::string OpName1 = "mul:Mul1";
+  const std::string OpName2 = "mul:Mul2";
+  const std::string Stream1Scope1 = absl::StrCat(StreamName1, ScopeName1);
+  const std::string Stream1Scope2 = absl::StrCat(StreamName1, ScopeName2);
+  const std::string Stream2Scope1 = absl::StrCat(StreamName2, ScopeName1);
+  const std::string Stream2Scope2 = absl::StrCat(StreamName2, ScopeName2);
+  const std::string FramWorkScopeName = "Framework Name Scope";
+  const std::string FromWorkeOpsName = "Framework Ops";
+  // Adding the stream name and scope name to the tf op name to make it unique
+  // and easier to identify.
+  const std::string kTfOpName1 =
+      absl::StrCat(Stream1Scope1, "/", Stream1Scope2, "/",
+                   OpName1);  // "stream1scope1/stream1scope2/mul:Mul1"
+  const std::string kTfOpName2 =
+      absl::StrCat(Stream2Scope1, "/", Stream2Scope2, "/",
+                   OpName2);  // "stream2scope1/stream2scope2/mul:Mul2"
   const absl::string_view kKernelDetails = "kernel_details";
+  constexpr int64_t kEventLine0 = 0;
+  constexpr int64_t kEventLine1 = 1;
+
   XSpace space;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
-  auto line_builder = plane_builder.GetOrCreateLine(0);
+  auto line_builder = plane_builder.GetOrCreateLine(kEventLine0);
   // Add first line with two events.
   CreateXEvent(&plane_builder, &line_builder, "op1", 0, 100,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName1},
                 {StatType::kKernelDetails, kKernelDetails}});
   CreateXEvent(&plane_builder, &line_builder, "op2", 200, 300,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName1},
                 {StatType::kKernelDetails, kKernelDetails}});
   // Add second line with only one event.
-  auto line_builder_2 = plane_builder.GetOrCreateLine(1);
+  auto line_builder_2 = plane_builder.GetOrCreateLine(kEventLine1);
   CreateXEvent(&plane_builder, &line_builder_2, "op3", 50, 850,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName2},
                 {StatType::kKernelDetails, kKernelDetails}});
   // Derive lines for the plane.
   GenerateDerivedTimeLines(group_metadata_map, &space);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
-  // The TF name scope line and the TF op line are added.
-  EXPECT_EQ(plane_visitor.NumLines(), 4);
+  // Two Events {op1, op2 in line 0} and {op3 in line 1} are added to the plane.
+  // For each event, two lines are added, one for the TF name scope and one for
+  // the TF op, making 6 lines in total.
+  EXPECT_EQ(plane_visitor.NumLines(), 6);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     int64_t line_id = line_visitor.Id();
-    if (line_id == 0 || line_id == 1) {
-      return;
-    } else if (line_id == kThreadIdTfNameScope) {
-      EXPECT_EQ(line_visitor.NumEvents(), 2);
-      line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
-        EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        // When derived from first line only, we should get single event which
-        // starts from op1' start (0), end at op2's end (200 + 300),
-        // duration is 500.
-        // If derived from both lines, the derived event duration will be
-        // (50 + 850) - 0 = 900.
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
-      });
-    } else if (line_id == kThreadIdTfOp) {
-      EXPECT_EQ(line_visitor.NumEvents(), 1);
-      line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
-        EXPECT_EQ(event_visitor.Name(), kTfOpName);
-        EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
-      });
-    }
-  });
+    switch (line_id) {
+      case kEventLine0:
+        // Event 1: op1 0 to 100
+        // Event 2: op2 200 to 300
+        line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+          if (event_visitor.Name() == "op1") {
+            EXPECT_EQ(event_visitor.OffsetPs(), 0);
+            EXPECT_EQ(event_visitor.DurationPs(), 100);
+          } else if (event_visitor.Name() == "op2") {
+            EXPECT_EQ(event_visitor.OffsetPs(), 200);
+            EXPECT_EQ(event_visitor.DurationPs(), 300);
+          }
+        });
+        break;
+      case kEventLine1:
+        // Event 3: op3 50 to 850
+        line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+          if (event_visitor.Name() == "op3") {
+            EXPECT_EQ(event_visitor.OffsetPs(), 50);
+            EXPECT_EQ(event_visitor.DurationPs(), 850);
+          }
+        });
+        break;
+      default:
+        // Framework Name Scope/Ops line for {op1, op2, op3}
+        if (absl::StartsWith(line_visitor.Name(), FramWorkScopeName)) {
+          uint64_t stream_id = UINT64_MAX;
+          std::string stream_name =
+              absl::StrCat(FramWorkScopeName, " - from #");
+          absl::string_view name =
+              absl::StripPrefix(line_visitor.Name(), stream_name);
+          ASSERT_TRUE(absl::SimpleAtoi(name, &stream_id));
+          EXPECT_NE(stream_id, UINT64_MAX);
+          if (stream_id != 0 && stream_id != 1) {
+            FAIL() << "Unexpected stream_id: " << stream_id;
+          }
+          // Two Scoped events for both streams 0 and 1
+          EXPECT_EQ(line_visitor.NumEvents(), 2);
+
+          // Check correct scope event name and offset/duration for each stream.
+          if (stream_id == 0) {
+            line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+              if (event_visitor.Name() == Stream1Scope1 ||
+                  event_visitor.Name() == Stream1Scope2) {
+                EXPECT_EQ(event_visitor.OffsetPs(), 0);
+                EXPECT_EQ(event_visitor.DurationPs(), 500);
+              }
+            });
+          } else if (stream_id == 1) {
+            // This will iterate over both scoped events for each stream.
+            line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+              if (event_visitor.Name() == Stream2Scope1 ||
+                  event_visitor.Name() == Stream2Scope2) {
+                EXPECT_EQ(event_visitor.OffsetPs(), 50);
+                EXPECT_EQ(event_visitor.DurationPs(), 850);
+              }
+            });
+          }
+        } else if (absl::StartsWith(line_visitor.Name(), FromWorkeOpsName)) {
+          // One event for the entire Framework Ops.
+          EXPECT_EQ(line_visitor.NumEvents(), 1);
+          uint64_t stream_id = UINT64_MAX;
+          std::string stream_name = absl::StrCat(FromWorkeOpsName, " - from #");
+          absl::string_view name =
+              absl::StripPrefix(line_visitor.Name(), stream_name);
+          ASSERT_TRUE(absl::SimpleAtoi(name, &stream_id));
+          EXPECT_NE(stream_id, UINT64_MAX);
+          if (stream_id != 0 && stream_id != 1) {
+            FAIL() << "Unexpected stream_id: " << stream_id;
+          }
+          line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
+            if (stream_id == 0) {
+              EXPECT_EQ(event_visitor.Name(), kTfOpName1);
+              EXPECT_EQ(event_visitor.OffsetPs(), 0);
+              EXPECT_EQ(event_visitor.DurationPs(), 500);
+            } else if (stream_id == 1) {
+              EXPECT_EQ(event_visitor.Name(), kTfOpName2);
+              EXPECT_EQ(event_visitor.OffsetPs(), 50);
+              EXPECT_EQ(event_visitor.DurationPs(), 850);
+            }
+          });
+        }
+        break;
+    }  // End of switch statement.
+  });  // End of forEachLine statement.
 }
 
 // Checks that the TF op events are expanded.

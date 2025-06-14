@@ -1,1 +1,30 @@
 /** CSS for a memory viewer component. */
+
+@import 'frontend/app/styles/common';
+
+mat-sidenav-container {
+  background-color: #fff;
+}
+
+mat-sidenav {
+  background: transparent;
+  width: 340px;
+  @include border-right-gray;
+}
+
+mat-progress-bar {
+  width: 200px;
+  margin: 0 auto;
+}
+
+.loading-message {
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.progress-container {
+  position: absolute;
+  width: 100%;
+  margin: 300px 0;
+  z-index: 1;
+}

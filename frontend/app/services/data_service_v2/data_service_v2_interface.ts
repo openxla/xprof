@@ -77,6 +77,16 @@ export interface DataServiceV2Interface {
   exportDataAsCSV(sessionId: string, tool: string, host: string): void;
 
   getHttpParams(sessionId: string, tool: string): HttpParams;
+
+  getDataByModuleNameAndMemorySpace(
+      tool: string,
+      sessionId: string,
+      host: string,
+      moduleName: string,
+      memorySpace: number,
+      ): Observable<DataTable>;
+
+  disableCacheRegeneration(): void;
 }
 
 /** Injection token for the data service interface. */

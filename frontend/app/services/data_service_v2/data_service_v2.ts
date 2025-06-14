@@ -12,6 +12,8 @@ import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 
+const USE_SAVED_RESULT = 'use_saved_result';
+
 /** The data service class that calls API and return response. */
 @Injectable()
 export class DataServiceV2 implements DataServiceV2Interface {
@@ -230,5 +232,24 @@ export class DataServiceV2 implements DataServiceV2Interface {
                        .set('host', host)
                        .set('tqx', 'out:csv;');
     window.open( this.pathPrefix + DATA_API + '?' + params.toString(), '_blank');
+  }
+
+  getDataByModuleNameAndMemorySpace(
+      tool: string,
+      sessionId: string,
+      host: string,
+      moduleName: string,
+      memorySpace: number,
+      ): Observable<DataTable> {
+    return this.getData(sessionId, tool, host, new Map([
+                          ['module_name', moduleName],
+                          ['memory_space', memorySpace.toString()],
+                        ])) as Observable<DataTable>;
+  }
+
+  disableCacheRegeneration() {
+    if (this.searchParams && this.searchParams.has(USE_SAVED_RESULT)) {
+      this.searchParams.delete(USE_SAVED_RESULT);
+    }
   }
 }

@@ -260,7 +260,7 @@ void SamplePerModelInferenceStats(
     absl::string_view request_percentile_column,
     absl::string_view batch_percentile_column,
     const PerModelInferenceStats& per_model_stats,
-    SampledPerModelInferenceStats* sampled_per_model_stats) {
+    SampledPerModelInferenceStatsProto* sampled_per_model_stats) {
   // Select a subset of requests and batches based on percentile and generate
   // final result.
   std::vector<const RequestDetail*> requests(
@@ -274,8 +274,14 @@ void SamplePerModelInferenceStats(
     std::sort(requests.begin(), requests.end(),
               GetRequestCompareFunction(request_percentile_column));
   }
-  sampled_per_model_stats->sampled_requests =
+  const auto selected_requests =
       PercentileSelector<RequestDetail>::Select(requests);
+  for (const auto& [request, percentile] : selected_requests) {
+    RequestDetail* sampled_request =
+        sampled_per_model_stats->add_sampled_requests();
+    *sampled_request = *request;
+    sampled_request->set_percentile(percentile);
+  }
 
   std::vector<const BatchDetail*> batches(per_model_stats.batch_details_size());
   for (size_t i = 0; i < per_model_stats.batch_details_size(); i++) {
@@ -287,22 +293,28 @@ void SamplePerModelInferenceStats(
     std::sort(batches.begin(), batches.end(),
               GetBatchCompareFunction(batch_percentile_column));
   }
-  sampled_per_model_stats->sampled_batches =
+  const auto selected_batches =
       PercentileSelector<BatchDetail>::Select(batches);
+  for (const auto& [batch, percentile] : selected_batches) {
+    BatchDetail* sampled_batch = sampled_per_model_stats->add_sampled_batches();
+    *sampled_batch = *batch;
+    sampled_batch->set_percentile(percentile);
+  }
 }
 
 }  // namespace
 
-SampledInferenceStats SampleInferenceStats(
+SampledInferenceStatsProto SampleInferenceStats(
     absl::string_view request_percentile_column,
     absl::string_view batch_percentile_column,
     const InferenceStats& inference_stats) {
-  SampledInferenceStats result;
+  SampledInferenceStatsProto result;
   for (const auto& [model_index, model_inference_stats] :
        inference_stats.inference_stats_per_model()) {
-    SamplePerModelInferenceStats(request_percentile_column,
-                                 batch_percentile_column, model_inference_stats,
-                                 &(result[model_index]));
+    SamplePerModelInferenceStats(
+        request_percentile_column, batch_percentile_column,
+        model_inference_stats,
+        &(*result.mutable_sampled_inference_stats_per_model())[model_index]);
   }
 
   return result;

@@ -27,7 +27,6 @@ import logging
 
 from xprof.convert import csv_writer
 from xprof.convert import dcn_collective_stats_proto_to_gviz
-from xprof.convert import inference_stats_proto_to_gviz
 from xprof.convert import input_pipeline_proto_to_gviz
 from xprof.convert import overview_page_proto_to_gviz
 from xprof.convert import trace_events_json
@@ -227,9 +226,9 @@ def xspace_to_tool_data(
     if success:
       data = dcn_collective_stats_proto_to_gviz.to_json(raw_data)
   elif tool == 'inference_profile':
-    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      data = inference_stats_proto_to_gviz.to_json(raw_data)
+      data = json_data
   else:
     logger.warning('%s is not a known xplane tool', tool)
   return data, content_type

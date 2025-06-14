@@ -43,7 +43,7 @@ using SampledInferenceStats =
 
 // Samples a subset of InferenceStats from <inference_stats> based on sampling
 // column <request_percentile_column> and <batch_percentile_column>.
-SampledInferenceStats SampleInferenceStats(
+SampledInferenceStatsProto SampleInferenceStats(
     absl::string_view request_percentile_column,
     absl::string_view batch_percentile_column,
     const tensorflow::profiler::InferenceStats& inference_stats);

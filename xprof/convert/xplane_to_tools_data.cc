@@ -378,7 +378,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
       GetParamWithDefault<std::string>(options, "batch_column", "");
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(
       session_snapshot, request_column, batch_column, &inference_stats));
-  return inference_stats.SerializeAsString();
+  return InferenceStatsToDataTableJson(inference_stats);
 }
 
 }  // namespace

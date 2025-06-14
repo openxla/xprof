@@ -1319,6 +1319,7 @@ cc_library(
     srcs = ["multi_xspace_to_inference_stats.cc"],
     hdrs = ["multi_xspace_to_inference_stats.h"],
     deps = [
+        ":data_table_utils",
         ":inference_stats",
         ":inference_stats_combiner",
         ":inference_stats_grouping",
@@ -1326,14 +1327,21 @@ cc_library(
         ":preprocess_single_host_xplane",
         ":repository",
         ":xplane_to_step_events",
+        "//third_party/protobuf:protobuf_lite",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "@org_xprof//xprof/convert:url_utils",
         "@org_xprof//xprof/utils:event_span",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:device_utils",
         "@xla//xla/tsl/profiler/utils:group_events",
+        "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:tpu_xplane_utils",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
@@ -1501,5 +1509,16 @@ cc_test(
         "@com_github_nlohmann_json//:json",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "url_utils",
+    srcs = [tf_profiler_alias("@org_xprof//xprof/convert/", "url_utils.cc")],
+    hdrs = ["url_utils.h"],
+    visibility = ["@xla//xla/tsl/profiler:friends"],
+    deps = [
+        "//third_party/protobuf:protobuf_lite",
+        "@com_google_absl//absl/strings",
     ],
 )

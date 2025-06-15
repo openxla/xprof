@@ -306,7 +306,7 @@ class ProfilePluginTest(absltest.TestCase):
         run_dir, profile_plugin.CACHE_VERSION_FILE
     )
 
-    # Check if the cache_version.txt file doesn't exists.
+    # Check if the cache_version.txt file doesn't exist.
     self.assertFalse(os.path.exists(cache_version_file_path))
 
     # Check if first run generates a cache file.

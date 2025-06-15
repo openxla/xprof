@@ -2,10 +2,11 @@ import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {API_PREFIX, CAPTURE_PROFILE_API, DATA_API, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API} from 'org_xprof/frontend/app/common/constants/constants';
+import {API_PREFIX, CAPTURE_PROFILE_API, DATA_API, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API, USE_SAVED_RESULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {filterAllowedNonPersistentParams} from 'org_xprof/frontend/app/common/utils/utils';
 import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError, delay} from 'rxjs/operators';
@@ -20,7 +21,7 @@ const DELAY_TIME_MS = 1000;
 export class DataService {
   isLocalDevelopment = false;
   pathPrefix = '';
-  searchParams?: URLSearchParams;
+  nonPersistentSearchParams?: URLSearchParams;
 
   constructor(
       private readonly httpClient: HttpClient,
@@ -32,7 +33,11 @@ export class DataService {
       this.pathPrefix =
           String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
     }
-    this.searchParams = new URLSearchParams(window.location.search);
+    // Non-persistent search params should not be used across tools and runs.
+    if (!!window.parent.location.search) {
+      this.nonPersistentSearchParams = filterAllowedNonPersistentParams(
+          new URLSearchParams(window.parent.location.search));
+    }
   }
 
   private get<T>(
@@ -118,6 +123,34 @@ export class DataService {
     return this.get(this.pathPrefix + RUN_TOOLS_API, {'params': params});
   }
 
+  /*
+   * Prevent cache regeneration for subsequent data queries.
+   */
+  private disableCacheRegeneration() {
+    if (this.nonPersistentSearchParams &&
+        this.nonPersistentSearchParams.has(USE_SAVED_RESULT)) {
+      this.nonPersistentSearchParams.delete(USE_SAVED_RESULT);
+    }
+  }
+
+  getHTTPParamsForDataQuery(
+      run: string, tag: string, host: string,
+      parameters: Map<string, string>): HttpParams {
+    let params =
+        new HttpParams().set('run', run).set('tag', tag).set('host', host);
+    parameters.forEach((value, key) => {
+      params = params.set(key, value);
+    });
+    if (this.nonPersistentSearchParams) {
+      this.nonPersistentSearchParams.forEach((value, key) => {
+        params = params.set(key, value);
+      });
+    }
+
+    this.disableCacheRegeneration();
+    return params;
+  }
+
   getData(
       run: string, tag: string, host: string,
       parameters: Map<string, string> = new Map()): Observable<DataTable|null> {
@@ -150,11 +183,7 @@ export class DataService {
         return of([]).pipe(delay(DELAY_TIME_MS));
       }
     }
-    let params =
-        new HttpParams().set('run', run).set('tag', tag).set('host', host);
-    parameters.forEach((value, key) => {
-      params = params.set(key, value);
-    });
+    const params = this.getHTTPParamsForDataQuery(run, tag, host, parameters);
     return this.get(this.pathPrefix + DATA_API, {'params': params});
   }
 

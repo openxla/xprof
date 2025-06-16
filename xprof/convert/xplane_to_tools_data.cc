@@ -120,8 +120,9 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     return content;
   } else {  // streaming trace viewer.
     std::string host_name = session_snapshot.GetHostname(0);
-    auto sstable_path = session_snapshot.GetFilePath(tool_name, host_name);
-    if (!sstable_path) {
+    auto sstable_path = session_snapshot.GetHostDataFilePath(
+        StoredDataType::TRACE_EVENTS, host_name);
+    if (!sstable_path.ok()) {
       return tsl::errors::Unimplemented(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
@@ -131,7 +132,7 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
       ConvertXSpaceToTraceEventsContainer(host_name, *xspace, &trace_container);
       std::unique_ptr<tsl::WritableFile> file;
       TF_RETURN_IF_ERROR(
-          tsl::Env::Default()->NewWritableFile(*sstable_path, &file));
+          tsl::Env::Default()->NewWritableFile(*sstable_path.value(), &file));
       TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTable(std::move(file)));
     }
     TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
@@ -144,7 +145,7 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     // Trace smaller than threshold will be disabled from streaming.
     constexpr int64_t kDisableStreamingThreshold = 500000;
     TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
-        *sstable_path, /*filter=*/nullptr, std::move(visibility_filter),
+        *sstable_path.value(), /*filter=*/nullptr, std::move(visibility_filter),
         kDisableStreamingThreshold));
     JsonTraceOptions options;
     IOBufferAdapter adapter(&content);

@@ -42,15 +42,13 @@ namespace profiler {
 constexpr char kAllHostsIdentifier[] = "ALL_HOSTS";
 constexpr char kNoHostIdentifier[] = "NO_HOST";
 
-enum StoredDataType {
-  DCN_COLLECTIVE_STATS,
-  OP_STATS,
-};
+enum StoredDataType { DCN_COLLECTIVE_STATS, OP_STATS, TRACE_EVENTS };
 
 static auto* kHostDataSuffixes =
     new std::vector<std::pair<StoredDataType, const char*>>(
         {{StoredDataType::DCN_COLLECTIVE_STATS, ".dcn_collective_stats.pb"},
-         {StoredDataType::OP_STATS, ".op_stats.pb"}});
+         {StoredDataType::OP_STATS, ".op_stats.pb"},
+         {StoredDataType::TRACE_EVENTS, ".SSTABLE"}});
 
 // File system directory snapshot of a profile session.
 class SessionSnapshot {
@@ -84,10 +82,6 @@ class SessionSnapshot {
   // Gets whether the session has an accessible run dir. If false, any
   // path-based file read will be disabled in this mode.
   bool HasAccessibleRunDir() const { return has_accessible_run_dir_; }
-
-  // Gets the path of the fast file for a given tool.
-  std::optional<std::string> GetFilePath(absl::string_view toolname,
-                                         absl::string_view host) const;
 
   // Gets the name of the host data file.
   absl::StatusOr<std::string> GetHostDataFileName(StoredDataType data_type,

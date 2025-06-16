@@ -357,6 +357,16 @@ class ProfilePluginTest(absltest.TestCase):
     with open(cache_version_file_path, 'r') as f:
       self.assertEqual(f.read(), version.__version__)
 
+    # Don't overwrite the cache_version.txt file with an newer version.
+    with open(cache_version_file_path, 'w') as f:
+      f.write('99.99.99')
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+    )
+    self.assertTrue(os.path.exists(cache_version_file_path))
+    with open(cache_version_file_path, 'r') as f:
+      self.assertEqual(f.read(), '99.99.99')
+
   def testActive(self):
 
     def wait_for_thread():

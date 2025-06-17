@@ -1,0 +1,35 @@
+@import 'frontend/app/styles/common';
+
+.center-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.message-container {
+  border: 1px solid #ddd;
+  background-color: #fbfbfb;
+  padding: 15px;
+  margin: 20px;
+  border-radius: 4px;
+  max-width: 400px;
+  font-family: Arial, sans-serif;
+  overflow-x: hidden;  // Prevents horizontal scroll if some content inside is too wide
+}
+
+.main-message {
+  font-weight: bold;
+  color: #333;
+  margin-top: 0;
+  margin-bottom: 5px;
+}
+
+.sub-message {
+  font-size: 0.9em;
+  color: #666;
+  margin-top: 0;
+  margin-bottom: 0;
+  word-wrap: break-word;     // Breaks words at arbitrary points to prevent overflow
+  overflow-wrap: break-word; // Modern equivalent of word-wrap
+  white-space: normal;       // Explicitly ensures text will wrap. This is default for block elements, but good to be explicit.
+}

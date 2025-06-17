@@ -92,3 +92,14 @@ export const TRACE_VIEWER_QUERY_PARAMS_KEYS = {
 
 /** The query parameter keys used in graph viewer */
 export const GRAPHVIZ_PAN_ZOOM_CONTROL = '&pan_zoom=1&pan_zoom_controls=1';
+
+/** The query parameter key to use IR from the cache */
+export const USE_SAVED_RESULT = 'use_saved_result';
+
+/**
+ * The query parameter keys that are allowed to be non-persistent across
+ * tools and runs
+ */
+export const ALLOWED_NON_PERSISTENT_PARAMS = [
+  USE_SAVED_RESULT,
+];

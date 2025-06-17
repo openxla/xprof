@@ -1016,6 +1016,7 @@ cc_test(
     srcs = ["repository_test.cc"],
     deps = [
         ":repository",
+        ":xplane_to_trace_container",
         "//testing/lib/sponge:undeclared_outputs",
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",

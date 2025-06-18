@@ -1,0 +1,9 @@
+<mat-accordion class="stack-trace-snippet" multi="true">
+  @for (addr of sourceCodeSnippetAddresses; track $index) {
+    <stack-frame-snippet [sourceCodeSnippetAddress]="addr"/>
+  } @empty {
+    <message
+      title="Stack Trace Not Found"
+      content="Please select an HLO operation with stacktrace."/>
+  }
+</mat-accordion>

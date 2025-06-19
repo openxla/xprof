@@ -53,7 +53,7 @@ def run_server(plugin, host, port):
   server = wsgi.Server((host, port), app)
 
   try:
-    print(f"XProf at http://{host}:{port}/ (Press CTRL+C to quit)")
+    print(f"XProf at http://localhost:{port}/ (Press CTRL+C to quit)")
     server.start()
   except KeyboardInterrupt:
     server.stop()

@@ -1,0 +1,53 @@
+<mat-expansion-panel class="stack-frame-snippet" expanded="{{!failure}}" *ngIf="address">
+  <mat-expansion-panel-header class="stack-frame-snippet-address">
+    <mat-panel-title>
+      <div class="stack-frame-snippet-file-line">
+        {{address.fileName}}:{{address.lineNumber}}
+        @if (!loaded()) {
+          <mat-progress-bar mode="indeterminate"/>
+        }
+        @else if (failure) {
+          <mat-icon
+            class="external-link-icon"
+            matTooltip="Failed to load the file">
+            error</mat-icon>
+        }
+      </div>
+      <a
+          href="{{codeSearchLink}}"
+          target="_blank"
+          class="external-link-icon"
+          (click)="$event.stopPropagation()"
+          matTooltip="{{codeSearchLinkTooltip}}"
+          *ngIf="codeSearchLink">
+        <mat-icon>open_in_new</mat-icon>
+      </a>
+    </mat-panel-title>
+  </mat-expansion-panel-header>
+  <div>
+    @if (frame) {
+      <table>
+        <tbody>
+          @for (line of frame.lines; track $index ; let lineIndex = $index) {
+            <tr [class.stack-frame-snippet-line-selected]="frame.firstLine + lineIndex === frame.address.lineNumber">
+              <td><pre class="stack-frame-snippet-line-number"><code>{{ frame.firstLine + lineIndex }}</code></pre></td>
+              <td><pre class="stack-frame-snippet-line-content"><code [innerHTML]="line"></code></pre></td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="2">There are no lines to display.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+    @else if (failure) {
+      <message
+        title="Failed to load the file"
+        content="{{failure}}"/>
+    }
+    @else {
+      <div>Loading...</div>
+    }
+  </div>
+</mat-expansion-panel>

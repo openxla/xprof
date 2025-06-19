@@ -27,7 +27,7 @@ declare interface DeviceIndicators {
   hasMegacore: boolean;
   isGpu: boolean;
 }
-type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
+type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
 
 interface TooltipRow {
   id: string;
@@ -157,7 +157,6 @@ export class RooflineModel implements OnDestroy {
   }
 
   update() {
-
     setLoadingState(true, this.store, 'Loading roofline model data');
     this.refreshDashboards();
 
@@ -335,10 +334,14 @@ export class RooflineModel implements OnDestroy {
     ];
 
     const getColumnIdxes = (columnIds: string[]) => {
-      return columnIds.reduce((acc: ColumnIdxArr, cur: string) => {
-        acc.push(this.dataTableRaw!.getColumnIndex(cur));
-        return acc;
-      }, [] as ColumnIdxArr);
+      return columnIds.reduce(
+          (acc: ColumnIdxArr, cur: string): ColumnIdxArr => {
+            const columnIndex = this.dataTableRaw!.getColumnIndex(cur);
+            if (columnIndex >= 0) {
+              acc.push(columnIndex);
+            }
+            return acc;
+          }, [] as ColumnIdxArr);
     };
     return getColumnIdxes(columnsIds);
   }
@@ -461,9 +464,8 @@ export class RooflineModel implements OnDestroy {
     yVal: number,
     tooltip: string,
   ) {
-    const newRow = Array.from<number | string | null>({
-      length: numColumns,
-    }).fill(null);
+    const newRow: Array<number|string|null> =
+        Array.from<number|string|null>({length: numColumns}).fill(null);
     newRow[xIndex] = xVal;
     newRow[yIndex] = yVal;
     newRow[yIndex + 1] = tooltip;
@@ -597,7 +599,7 @@ export class RooflineModel implements OnDestroy {
     this.addScatterDataColumns(programSeries, this.scatterDataProgram);
     this.addRooflinesSeriesRows(this.scatterDataProgram);
     this.addProgramSeriesRows(programSeries, filteredDataTableProgram);
-    this.updateProgramScatterStyles(programSeries.length);
+    this.updateProgramScatterStyles();
   }
 
   /**
@@ -622,7 +624,7 @@ export class RooflineModel implements OnDestroy {
     this.addScatterDataColumns(opSeries, this.scatterDataOp);
     this.addRooflinesSeriesRows(this.scatterDataOp);
     this.addOpSeriesRows(opSeries, filteredDataTableOp);
-    this.updateOpScatterStyles(opSeries.length);
+    this.updateOpScatterStyles(opSeries);
   }
 
   /**
@@ -1111,77 +1113,65 @@ export class RooflineModel implements OnDestroy {
     return `<div style="padding: 5px">${tooltipBodyHtml}</div>`;
   }
 
-  // TODO(yinzz) remove the style updating dependency on the series order
-  // make it a k-v based format
-  formatRooflineSeriesStyle(
-    seriesIndex: number,
-    chartOptions: google.visualization.ScatterChartOptions,
-  ) {
+  getRooflineSeriesStyles() {
+    const styles:
+        {[key: string]: google.visualization.ScatterChartOptions} = {};
+    styles['HBM Roofline'] = ROOFLINE_STYLES.hbm;
     if (this.deviceIndicators.isGpu) {
-      chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.write;
+      styles['Shared Mem / L1 Roofline'] = ROOFLINE_STYLES.write;
     } else {
       if (this.deviceIndicators.hasMergedVmem) {
-        chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.read;
-        chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.write;
+        styles['VMEM Read Roofline'] = ROOFLINE_STYLES.read;
+        styles['VMEM Write Roofline'] = ROOFLINE_STYLES.write;
       }
       if (this.deviceIndicators.hasCmem) {
-        chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.read;
-        chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.write;
+        styles['CMEM Read Roofline'] = ROOFLINE_STYLES.read;
+        styles['CMEM Write Roofline'] = ROOFLINE_STYLES.write;
       }
     }
-    chartOptions.series[seriesIndex++] = ROOFLINE_STYLES.hbm;
-    return seriesIndex;
+    return styles;
   }
 
-  updateProgramScatterStyles(numSeries: number) {
-    let seriesIndex = 0;
-    seriesIndex = this.formatRooflineSeriesStyle(
-      seriesIndex,
-      this.scatterChartOptionsProgram,
-    );
-    for (; seriesIndex < numSeries; ++seriesIndex) {
-      this.scatterChartOptionsProgram.series[seriesIndex] = {pointSize: 4};
+  updateProgramScatterStyles() {
+    const styles = this.getRooflineSeriesStyles();
+    const programSeries = this.getProgramSeries();
+    for (let i = 0; i < programSeries.length; i++) {
+      const seriesName = programSeries[i] || '';
+      if (seriesName in styles) {
+        this.scatterChartOptionsProgram.series[i] = styles[seriesName];
+      } else {
+        this.scatterChartOptionsProgram.series[i] = {pointSize: 4};
+      }
     }
   }
 
-  // TODO(yinzz) remove the style updating dependency on the series order
-  updateOpScatterStyles(numSeries: number) {
-    let seriesIndex = 0;
-    seriesIndex = this.formatRooflineSeriesStyle(
-      seriesIndex,
-      this.scatterChartOptionsOp,
-    );
-    // extra series style record for the Program legend
-    this.scatterChartOptionsOp.series[seriesIndex++] = {
-      pointSize: 20,
-      color: '#FF0000',
-      pointShape: 'star',
-    };
-    // Other ops are colored in the same order as in the pie chart, cmem, vmem,
-    // hbm, program
-    const numSeriesBeforeOps =
-      2 * (this.deviceIndicators.hasCmem ? 1 : 0) +
-      2 * (this.deviceIndicators.hasMergedVmem ? 1 : 0) +
-      2;
-    for (; seriesIndex < numSeries - 1; ++seriesIndex) {
-      this.scatterChartOptionsOp.series[seriesIndex] = {
-        pointSize: 3,
-        // make sure the color of series matches the pie chart
-        color:
-          PIE_CHART_PALETTE[
-            (seriesIndex - numSeriesBeforeOps) % PIE_CHART_PALETTE.length
-          ],
-      };
+  updateOpScatterStyles(opSeries: string[]) {
+    const styles = this.getRooflineSeriesStyles();
+    const numRooflineSeries = Object.keys(styles).length;
+    for (let i = 0; i < opSeries.length; i++) {
+      const seriesName = opSeries[i] || '';
+      if (seriesName === 'Program') {
+        this.scatterChartOptionsOp.series[i] = {
+          pointSize: 20,
+          color: '#FF0000',
+          pointShape: 'star',
+        };
+        if (i === opSeries.length - 1) {
+          this.scatterChartOptionsOp.series[i].visibleInLegend = false;
+        }
+      } else if (seriesName in styles) {
+        this.scatterChartOptionsOp.series[i] = styles[seriesName];
+      } else {
+        this.scatterChartOptionsOp.series[i] = {
+          pointSize: 3,
+          // Use the same color palette as the pie chart for the scatter chart
+          // numRooflineSeries is also the number of colors are used for the
+          // roofline series, and another color is used for the 'Program' series
+          color: PIE_CHART_PALETTE
+              [(i - (numRooflineSeries + 1)) % PIE_CHART_PALETTE.length],
+        };
+      }
     }
-    // Real series for program which does not show in the legend.
-    // This is added at the end to make it plotted at the top and not buried by
-    // other op points.
-    this.scatterChartOptionsOp.series[numSeries - 1] = {
-      pointSize: 20,
-      color: '#FF0000',
-      pointShape: 'star',
-      visibleInLegend: false,
-    };
   }
 
   ngOnDestroy() {

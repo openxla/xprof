@@ -153,7 +153,8 @@ export class GraphViewer implements OnDestroy {
         .subscribe((moduleList) => {
           this.throbber.stop();
           if (moduleList) {
-            this.moduleList = moduleList.split(',');
+            const modules = moduleList.split(',');
+            this.moduleList = this.sortModules(modules);
             if (!this.selectedModule) {
               // If moduleName not set in url, use default and try plot
               // again
@@ -171,6 +172,26 @@ export class GraphViewer implements OnDestroy {
           }
           this.loadingModuleList = false;
         });
+  }
+
+  private sortModules(modules: string[]): string[] {
+    return modules.sort((a, b) => {
+      const nameA = this.getModuleName(a);
+      const nameB = this.getModuleName(b);
+      return nameA.localeCompare(nameB);
+    });
+  }
+
+  // Helper function to extract the module name without the program ID
+  private getModuleName(fullName: string): string {
+    if (!fullName) {
+      return '';
+    }
+    const openParenIndex = fullName.indexOf('(');
+    if (openParenIndex > -1) {
+      return fullName.substring(0, openParenIndex).trim();
+    }
+    return fullName.trim();
   }
 
   loadHloOpProfileData() {

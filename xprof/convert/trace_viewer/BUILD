@@ -56,8 +56,10 @@ cc_library(
     deps = [
         ":trace_events_util",
         ":trace_viewer_color",
+        "//util/gtl:flat_map",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
@@ -71,6 +73,7 @@ cc_library(
         "@tsl//tsl/profiler/lib:context_types",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
         "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 

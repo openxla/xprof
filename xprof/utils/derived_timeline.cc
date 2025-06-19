@@ -66,6 +66,7 @@ using ::tsl::profiler::FindMutableTensorCorePlanes;
 using ::tsl::profiler::GetDeviceType;
 using ::tsl::profiler::kThreadIdHloModule;
 using ::tsl::profiler::kThreadIdHloOp;
+using ::tsl::profiler::kThreadIdHostXlaRegionStart;
 using ::tsl::profiler::kThreadIdSource;
 using ::tsl::profiler::kThreadIdTfNameScope;
 using ::tsl::profiler::kThreadIdTfOp;
@@ -518,39 +519,26 @@ void DeriveStepEventsFromGroups(
 void DeriveEventsFromAnnotations(const SymbolResolver& symbol_resolver,
                                  XPlane* device_trace,
                                  const ScopeRangeIdTree* scope_range_id_tree) {
-  if (tsl::profiler::GetDeviceType(*device_trace) !=
+  int64_t first_derived_line_id = kThreadIdHostXlaRegionStart;
+  if (tsl::profiler::GetDeviceType(*device_trace) ==
       tsl::profiler::DeviceType::kGpu) {
+    // We need to iterate over all the lines
+    std::vector<int64_t> line_ids;
+    XPlaneVisitor plane_visitor =
+        tsl::profiler::CreateTfXPlaneVisitor(device_trace);
+    plane_visitor.ForEachLine([&](const XLineVisitor& line) {
+      if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
+      line_ids.push_back(line.Id());
+    });
+    for (int64_t line_id : line_ids) {
+      DeriveEventsFromAnnotationsForLines(symbol_resolver, device_trace,
+                                          {line_id}, first_derived_line_id,
+                                          scope_range_id_tree);
+      first_derived_line_id += (kThreadIdSource - kThreadIdTfNameScope) + 1;
+    }
+  } else {
     DeriveEventsFromAnnotationsForLines(symbol_resolver, device_trace, {},
                                         kThreadIdTfNameScope);
-  } else {
-    // TODO: Currently we derive events only from the line with the most number
-    // of events. We should consider deriving events from all lines in the
-    // future, also then we need to utilize the derived relation provided by
-    // DeriveEventsFromAnnotationsForLines(), and find solid way to sort all
-    // lines.
-    int64_t line_id_with_most_events = -1;
-    int64_t max_num_events_per_line = -1;
-    {
-      XPlaneVisitor plane_visitor =
-          tsl::profiler::CreateTfXPlaneVisitor(device_trace);
-      plane_visitor.ForEachLine([&](const XLineVisitor& line) {
-        if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
-        int num_events = line.NumEvents();
-        // make sure strong ordering
-        if (num_events > max_num_events_per_line ||
-            (num_events == max_num_events_per_line &&
-             line.Id() < line_id_with_most_events)) {
-          max_num_events_per_line = num_events;
-          line_id_with_most_events = line.Id();
-        }
-      });
-    }
-
-    if (line_id_with_most_events >= 0) {
-      DeriveEventsFromAnnotationsForLines(
-          symbol_resolver, device_trace, {line_id_with_most_events},
-          kThreadIdTfNameScope, scope_range_id_tree);
-    }
   }
   tsl::profiler::RemoveEmptyLines(device_trace);
 }

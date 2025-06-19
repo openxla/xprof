@@ -175,7 +175,6 @@ py_library(
     deps = [
         ":csv_writer",
         ":dcn_collective_stats_proto_to_gviz",
-        ":inference_stats_proto_to_gviz",
         ":input_pipeline_proto_to_gviz",
         ":overview_page_proto_to_gviz",
         ":trace_events_json",
@@ -190,15 +189,6 @@ py_test(
     deps = [
         ":raw_to_tool_data",
         "//:expect_tensorflow_installed",
-    ],
-)
-
-py_library(
-    name = "inference_stats_proto_to_gviz",
-    srcs = ["inference_stats_proto_to_gviz.py"],
-    deps = [
-        requirement("gviz_api"),
-        "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_py",
     ],
 )
 

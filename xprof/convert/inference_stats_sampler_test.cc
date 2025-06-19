@@ -85,46 +85,40 @@ TEST(ConvertInferenceStatsToInferenceProfileTest, TestSort) {
 
   // Sort by latency, the result does not change.
   auto result_1 = SampleInferenceStats("Latency", "Latency", inference_stats);
-  const auto& per_model_1 = result_1.at(1);
-  EXPECT_EQ(per_model_1.sampled_requests.at(0).first->request_id(), 0);
-  EXPECT_EQ(per_model_1.sampled_requests.at(1).first->request_id(), 1);
-  EXPECT_EQ(per_model_1.sampled_requests.at(2).first->request_id(), 2);
-  EXPECT_EQ(per_model_1.sampled_batches.at(0).first->batch_id(), 3);
-  EXPECT_EQ(per_model_1.sampled_batches.at(1).first->batch_id(), 4);
-  EXPECT_EQ(per_model_1.sampled_batches.at(2).first->batch_id(), 5);
+  const auto& per_model_1 = result_1.sampled_inference_stats_per_model().at(1);
+  EXPECT_EQ(per_model_1.sampled_requests().at(0).request_id(), 0);
+  EXPECT_EQ(per_model_1.sampled_requests().at(1).request_id(), 1);
+  EXPECT_EQ(per_model_1.sampled_requests().at(2).request_id(), 2);
+  EXPECT_EQ(per_model_1.sampled_batches().at(0).batch_id(), 3);
+  EXPECT_EQ(per_model_1.sampled_batches().at(1).batch_id(), 4);
+  EXPECT_EQ(per_model_1.sampled_batches().at(2).batch_id(), 5);
 
   // Sort requests by Request size, sort batches by Padding amount.
   // Verifies the values are in increasing order.
   auto result_2 =
       SampleInferenceStats("Request size", "Padding amount", inference_stats);
-  const auto& per_model_2 = result_2.at(1);
-  EXPECT_EQ(per_model_2.sampled_requests.at(0).first->batching_request_size(),
-            100);
-  EXPECT_EQ(per_model_2.sampled_requests.at(1).first->batching_request_size(),
-            200);
-  EXPECT_EQ(per_model_2.sampled_requests.at(2).first->batching_request_size(),
-            300);
-  EXPECT_EQ(per_model_2.sampled_batches.at(0).first->padding_amount(), 10);
-  EXPECT_EQ(per_model_2.sampled_batches.at(1).first->padding_amount(), 20);
-  EXPECT_EQ(per_model_2.sampled_batches.at(2).first->padding_amount(), 30);
+  const auto& per_model_2 = result_2.sampled_inference_stats_per_model().at(1);
+  EXPECT_EQ(per_model_2.sampled_requests().at(0).batching_request_size(), 100);
+  EXPECT_EQ(per_model_2.sampled_requests().at(1).batching_request_size(), 200);
+  EXPECT_EQ(per_model_2.sampled_requests().at(2).batching_request_size(), 300);
+  EXPECT_EQ(per_model_2.sampled_batches().at(0).padding_amount(), 10);
+  EXPECT_EQ(per_model_2.sampled_batches().at(1).padding_amount(), 20);
+  EXPECT_EQ(per_model_2.sampled_batches().at(2).padding_amount(), 30);
 
   // Sort requests by Request delay for batching, sort batches by
   // Batching delay. Verifies the values are in increasing order.
   auto result_3 = SampleInferenceStats("Request delay for batching",
                                        "Batching delay", inference_stats);
-  const auto& per_model_3 = result_3.at(1);
-  EXPECT_EQ(
-      per_model_3.sampled_requests.at(0).first->batching_request_delay_ps(),
-      1000);
-  EXPECT_EQ(
-      per_model_3.sampled_requests.at(1).first->batching_request_delay_ps(),
-      2000);
-  EXPECT_EQ(
-      per_model_3.sampled_requests.at(2).first->batching_request_delay_ps(),
-      3000);
-  EXPECT_EQ(per_model_3.sampled_batches.at(0).first->batch_delay_ps(), 1000);
-  EXPECT_EQ(per_model_3.sampled_batches.at(1).first->batch_delay_ps(), 2000);
-  EXPECT_EQ(per_model_3.sampled_batches.at(2).first->batch_delay_ps(), 3000);
+  const auto& per_model_3 = result_3.sampled_inference_stats_per_model().at(1);
+  EXPECT_EQ(per_model_3.sampled_requests().at(0).batching_request_delay_ps(),
+            1000);
+  EXPECT_EQ(per_model_3.sampled_requests().at(1).batching_request_delay_ps(),
+            2000);
+  EXPECT_EQ(per_model_3.sampled_requests().at(2).batching_request_delay_ps(),
+            3000);
+  EXPECT_EQ(per_model_3.sampled_batches().at(0).batch_delay_ps(), 1000);
+  EXPECT_EQ(per_model_3.sampled_batches().at(1).batch_delay_ps(), 2000);
+  EXPECT_EQ(per_model_3.sampled_batches().at(2).batch_delay_ps(), 3000);
 }
 
 }  // namespace

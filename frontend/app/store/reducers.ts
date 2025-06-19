@@ -194,6 +194,15 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
             runToolsMap: action.runToolsMap,
           };
         },
+        ),
+    on(
+        actions.setInitialSearchParamsAction,
+        (state: AppState, action: ActionCreatorAny) => {
+          return {
+            ...state,
+            searchParams: action.searchParams,
+          };
+        },
         ));
 
 /** Reducer */

@@ -1,8 +1,9 @@
 import * as hloProto from 'org_xprof/frontend/app/common/interfaces/hlo.jsonpb_decls';
+import * as diagnosticsProto from 'org_xprof/frontend/app/common/interfaces/diagnostics';
+import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
 import * as memoryProfileProto from 'org_xprof/frontend/app/common/interfaces/memory_profile.jsonpb_decls';
 import * as memoryViewerPreprocess from 'org_xprof/frontend/app/common/interfaces/memory_viewer_preprocess.jsonpb_decls';
 import * as opProfileProto from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
-import * as diagnosticsProto from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 
 /** Constant of empty data in SimpleDataTable typing */
 export const DEFAULT_SIMPLE_DATA_TABLE = {
@@ -306,10 +307,10 @@ export type InputPipelineDataTable = InputPipelineDeviceAnalysis|
 export type PrimitiveTypeNumberStringOrUndefined = number|string|undefined;
 
 /** All data type from tool response data. */
-export type DataTable =
-    SimpleDataTable|OverviewPageDataTable[]|InputPipelineDataTable[]|
-    FrameworkOpStatsData[]|HloProto|MemoryViewerPreprocessResult|
-    MemoryProfileProto|OpProfileProto|PodViewerDatabase;
+export type DataTable = SimpleDataTable|OverviewPageDataTable[]|
+    InputPipelineDataTable[]|FrameworkOpStatsData[]|HloProto|
+    MemoryViewerPreprocessResult|MemoryProfileProto|OpProfileProto|
+    PodViewerDatabase|RooflineModelData[]|InferenceProfileTable[];
 
 /**
  * All DataTable types extended from google.visualization.DataTable.

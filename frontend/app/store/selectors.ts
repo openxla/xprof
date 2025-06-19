@@ -86,3 +86,7 @@ export const getRunToolsMap: MemoizedSelectorAny =
 /** Selector for current run */
 export const getCurrentRun: MemoizedSelectorAny =
     createSelector(appState, (appState: AppState) => appState.currentRun);
+
+/** Selector for searchString */
+export const getSearchParams: MemoizedSelectorAny =
+    createSelector(appState, (appState: AppState) => appState.searchParams);

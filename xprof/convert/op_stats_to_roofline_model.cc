@@ -221,8 +221,7 @@ RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
   roofline_model_db.set_device_type(op_stats.run_environment().device_type());
 
   // Set peak flop rate in GFLOPs/s.
-  roofline_model_db.set_peak_flop_rate(
-      tsl::profiler::TeraToGiga((perf_env.peak_tera_flops_per_second())));
+  roofline_model_db.set_peak_flop_rate(perf_env.peak_tera_flops_per_second());
   roofline_model_db.set_peak_hbm_bw(
       tsl::profiler::GigaToGibi(GetMemoryPeakBandwidth(perf_env, 0)));
 
@@ -326,8 +325,8 @@ std::unique_ptr<DataTable> GetRooflineModelDataTableForGpu(
           "number",
           "Cumulative total self time (%)",
       },
-      {"measured_flop_rate", "number", "Normalized FLOP Rate (GFLOP/s)"},
-      {"model_flop_rate", "number", "Model FLOP Rate (GFLOP/s)"},
+      {"measured_flop_rate", "number", "Normalized FLOP Rate (TFLOP/s)"},
+      {"model_flop_rate", "number", "Model FLOP Rate (TFLOP/s)"},
       {"measured_memory_bw", "number", "Memory BW (GiB/s)"},
       {"hbm_bw", "number", "HBM BW (GiB/s)"},
       // For nvidia gpu, currently no vmem_read_bw field, and
@@ -354,7 +353,7 @@ std::unique_ptr<DataTable> GetRooflineModelDataTableForGpu(
       {"bound_by", "string", "Bound by"},
       {"total_time_per_core", "number", "Total Time per core (us)"},
       {"total_time_in_percentage", "number", "Total Time (%)"},
-      {"optimal_flop_rate", "number", "Optimal FLOP Rate (GFLOP/s)"},
+      {"optimal_flop_rate", "number", "Optimal FLOP Rate (TFLOP/s)"},
       {"roofline_efficiency", "number", "Roofline efficiency (%)"},
       {"compute_efficiency", "number", "FLOP Rate / Peak (%)"},
       {
@@ -447,8 +446,8 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
           "Cumulative total self time (%)",
       },
       {"dma_stall_percent", "number", "%time stalled by DMA"},
-      {"measured_flop_rate", "number", "Normalized FLOP Rate (GFLOP/s)"},
-      {"model_flop_rate", "number", "Model FLOP Rate (GFLOP/s)"},
+      {"measured_flop_rate", "number", "Normalized FLOP Rate (TFLOP/s)"},
+      {"model_flop_rate", "number", "Model FLOP Rate (TFLOP/s)"},
       {"measured_memory_bw", "number", "Memory BW (GiB/s)"},
       {"hbm_bw", "number", "HBM BW (GiB/s)"},
       {"cmem_read_bw", "number", "CMEM Read BW (GiB/s)"},
@@ -489,7 +488,7 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
       {"bound_by", "string", "Bound by"},
       {"total_time_per_core", "number", "Total Time per core (us)"},
       {"total_time_in_percentage", "number", "Total Time (%)"},
-      {"optimal_flop_rate", "number", "Optimal FLOP Rate (GFLOP/s)"},
+      {"optimal_flop_rate", "number", "Optimal FLOP Rate (TFLOP/s)"},
       {"roofline_efficiency", "number", "Roofline efficiency (%)"},
       {"compute_efficiency", "number", "FLOP Rate / Peak (%)"},
       {

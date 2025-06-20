@@ -41,8 +41,10 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/pod_viewer",
         "@org_xprof//frontend/app/components/roofline_model",
         "@org_xprof//frontend/app/components/sidenav",
+        "@org_xprof//frontend/app/components/stack_trace_page",
         "@org_xprof//frontend/app/components/trace_viewer",
         "@org_xprof//frontend/app/services/communication_service",
+        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

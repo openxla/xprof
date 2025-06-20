@@ -1,6 +1,7 @@
 import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
 import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSidenavModule} from '@angular/material/sidenav';
@@ -10,6 +11,7 @@ import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnosti
 import {GraphConfigModule} from 'org_xprof/frontend/app/components/graph_viewer/graph_config/graph_config_module';
 import {HloTextViewModule} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view_module';
 import {OpDetailsModule} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details_module';
+import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet_module';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 
 import {GraphViewer} from './graph_viewer';
@@ -19,7 +21,7 @@ import {GraphViewer} from './graph_viewer';
     CommonModule, DiagnosticsViewModule, MatOptionModule, MatProgressBarModule,
     MatSidenavModule, PipesModule, GraphConfigModule, HloTextViewModule,
     OpDetailsModule, MatProgressSpinnerModule, MatSnackBarModule,
-    DownloadHloModule,
+    DownloadHloModule, MatExpansionModule, StackTraceSnippetModule,
   ],
   declarations: [GraphViewer],
   exports: [GraphViewer]

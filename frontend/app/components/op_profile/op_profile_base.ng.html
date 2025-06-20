@@ -3,6 +3,8 @@
     <ng-content select="[opDetails]"></ng-content>
   </mat-sidenav>
   <mat-sidenav-content>
+    <as-split direction="vertical">
+    <as-split-area [size]="80">
     <div class="container" tabindex="0">
       <div class="mat-headline">
         <div>
@@ -57,6 +59,17 @@
           <div class="control-title">Exclude Idle</div>
           <mat-slide-toggle [checked]="excludeIdle" (toggleChange)="updateExcludeIdle()"></mat-slide-toggle>
         </div>
+        <div class="control" *ngIf="sourceCodeServiceIsAvailable">
+          <div class="control-title">Show Source Code
+            <mat-icon
+              class="tooltip-icon"
+              matTooltip="Show snippets of source code around frames of the stack trace."
+              matTooltipPosition="above">
+              info
+            </mat-icon>
+          </div>
+          <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="updateShowStackTrace()"/>
+        </div>
         <div class="control">
           <mat-form-field class="children-count-input" appearance="outline">
             <mat-label>Ops Limit</mat-label>
@@ -81,5 +94,10 @@
       [showP90]="showP90"
       [childrenCount]="childrenCount">
     </op-table>
+    </as-split-area>
+    <as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">
+      <stack-trace-snippet [stackTrace]="stackTrace"/>
+    </as-split-area>
+    </as-split>
   </mat-sidenav-content>
 </mat-sidenav-container>

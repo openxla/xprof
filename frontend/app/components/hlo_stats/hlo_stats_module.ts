@@ -4,13 +4,16 @@ import {FormsModule, ReactiveFormsModule} from '@angular/forms';
 import {MatDividerModule} from '@angular/material/divider';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
 import {MatSelectModule} from '@angular/material/select';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {CategoryFilterModule} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter_module';
 import {ExportAsCsvModule} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv_module';
 import {StringFilterModule} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter_module';
 import {FlopRateChartModule} from 'org_xprof/frontend/app/components/framework_op_stats/flop_rate_chart/flop_rate_chart_module';
+import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet_module';
 
 import {HloStats} from './hlo_stats';
 
@@ -31,6 +34,9 @@ import {HloStats} from './hlo_stats';
     MatFormFieldModule,
     FormsModule,
     ReactiveFormsModule,
+    MatIconModule,
+    MatSlideToggleModule,
+    StackTraceSnippetModule,
   ],
   exports: [HloStats],
 })

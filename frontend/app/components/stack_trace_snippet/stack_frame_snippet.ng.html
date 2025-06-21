@@ -1,0 +1,57 @@
+<mat-expansion-panel class="stack-frame-snippet" [expanded]="!failure" *ngIf="sourceCodeSnippetAddress">
+
+  <mat-expansion-panel-header class="stack-frame-snippet-address">
+    <mat-panel-title>
+      <div class="stack-frame-snippet-file-line">
+        {{sourceCodeSnippetAddress.fileName}}:{{sourceCodeSnippetAddress.lineNumber}}
+        <mat-progress-bar *ngIf="!loaded" mode="indeterminate"></mat-progress-bar>
+        <mat-icon
+          *ngIf="loaded && failure"
+          class="external-link-icon"
+          matTooltip="Failed to load the file">
+          error
+        </mat-icon>
+      </div>
+      <a
+          [href]="codeSearchLink"
+          target="_blank"
+          class="external-link-icon"
+          (click)="$event.stopPropagation()"
+          [matTooltip]="codeSearchLinkTooltip"
+          *ngIf="codeSearchLink">
+        <mat-icon>open_in_new</mat-icon>
+      </a>
+    </mat-panel-title>
+  </mat-expansion-panel-header>
+
+  <div>
+    <ng-container *ngIf="frame">
+      <table>
+        <tbody>
+          <ng-container *ngIf="frame.lines && frame.lines.length > 0; else noLines">
+            <tr
+              *ngFor="let line of frame.lines; let lineIndex = index; trackBy: trackByIndex"
+              [class.stack-frame-snippet-line-selected]="frame.firstLine + lineIndex === sourceCodeSnippetAddress.lineNumber">
+              <td><pre class="stack-frame-snippet-line-number"><code>{{ frame.firstLine + lineIndex }}</code></pre></td>
+              <td><pre class="stack-frame-snippet-line-content"><code [innerHTML]="line"></code></pre></td>
+            </tr>
+          </ng-container>
+
+          <ng-template #noLines>
+            <tr>
+              <td colspan="2">There are no lines to display.</td>
+            </tr>
+          </ng-template>
+        </tbody>
+      </table>
+    </ng-container>
+
+    <message
+      *ngIf="!frame && failure"
+      title="Failed to load the file"
+      [content]="failure">
+    </message>
+
+    <div *ngIf="!frame && !failure">Loading...</div>
+  </div>
+</mat-expansion-panel>

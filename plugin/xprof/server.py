@@ -108,6 +108,27 @@ def launch_server(logdir, port):
   run_server(plugin, _get_wildcard_address(port), port)
 
 
+def _get_absolute_log_path(log_dir: str) -> str:
+  """Gets the absolute path for a given log directory string.
+
+  This function correctly handles both Google Cloud Storage (GCS) paths and
+  local filesystem paths.
+
+  - GCS paths (e.g., "gs://bucket/log") are returned as is.
+  - Local filesystem paths (e.g., "~/logs", "log", ".") are made absolute.
+
+  Args:
+      log_dir: The path string.
+
+  Returns:
+      The corresponding absolute path as a string.
+  """
+  if log_dir.startswith("gs://"):
+    return log_dir
+
+  return str(epath.Path(log_dir).expanduser().resolve())
+
+
 def main() -> int:
   """Parses command-line arguments and launches the XProf server."""
   parser = argparse.ArgumentParser(
@@ -155,6 +176,7 @@ def main() -> int:
 
   logdir = args.logdir_opt or args.logdir_pos
   port = args.port
+  logdir = _get_absolute_log_path(logdir)
 
   print("Attempting to start XProf server:")
   print(f"  Log Directory: {logdir}")

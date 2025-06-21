@@ -35,6 +35,16 @@
         [showMetadata]="showMetadata"
       ></hlo-text-view>
     </div>
+    <mat-expansion-panel class="hlo-text-view-panel" *ngIf="sourceCodeServiceIsAvailable">
+      <mat-expansion-panel-header>
+        <mat-panel-title>Stack Trace Source Code Snippets</mat-panel-title>
+      </mat-expansion-panel-header>
+      <ng-template matExpansionPanelContent>
+        <div class="stack-trace-snippet-container">
+          <stack-trace-snippet [stackTrace]="stackTrace" />
+        </div>
+      </ng-template>
+    </mat-expansion-panel>
     <div *ngIf="!showMeGraph" class="graph-container">
       <iframe #iframe id="graph-html"></iframe>
     </div>

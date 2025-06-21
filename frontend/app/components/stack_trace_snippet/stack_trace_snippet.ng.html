@@ -1,0 +1,15 @@
+<mat-accordion class="stack-trace-snippet" multi="true">
+  <ng-container *ngIf="sourceCodeSnippetAddresses && sourceCodeSnippetAddresses.length > 0; else emptyState">
+    <stack-frame-snippet
+      *ngFor="let addr of sourceCodeSnippetAddresses; trackBy: trackByIndex"
+      [sourceCodeSnippetAddress]="addr">
+    </stack-frame-snippet>
+  </ng-container>
+
+  <ng-template #emptyState>
+    <message
+      title="Stack Trace Not Found"
+      content="Please select an HLO operation with stacktrace.">
+    </message>
+  </ng-template>
+</mat-accordion>

@@ -35,10 +35,12 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   peakInfo?: BufferAllocationInfo;
   activeInfo?: BufferAllocationInfo;
+  totalBufferAllocationMiB = '';
   peakHeapSizeMiB = '';
   paddingOverhead = '';
   totalArgumentSizeBytes = '';
-  hloTempSizeBytes = '';
+  hloTempSizeWithoutFragmentationMiB = '';
+  hloTempSizeWithFragmentationMiB = '';
   hloTempFragmentation = '';
   timelineUrl = '';
   usage?: MemoryUsage;
@@ -152,14 +154,20 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
     this.timelineUrl = this.usage.timelineUrl;
 
+    this.totalBufferAllocationMiB =
+        utils.bytesToMiB(this.usage.totalBufferAllocationBytes).toFixed(2);
     this.peakHeapSizeMiB =
         utils.bytesToMiB(this.usage.peakHeapSizeBytes).toFixed(2);
     this.paddingOverhead =
         utils.bytesToMiB(this.usage.paddingOverhead).toFixed(2);
     this.totalArgumentSizeBytes =
         utils.bytesToMiB(this.usage.totalArgumentSizeBytes).toFixed(2);
-    this.hloTempSizeBytes =
-        utils.bytesToMiB(this.usage.hloTempSizeBytes).toFixed(2);
+    this.hloTempSizeWithoutFragmentationMiB =
+        utils.bytesToMiB(this.usage.hloTempSizeWithoutFragmentationBytes)
+            .toFixed(2);
+    this.hloTempSizeWithFragmentationMiB =
+        utils.bytesToMiB(this.usage.hloTempSizeWithFragmentationBytes)
+            .toFixed(2);
     this.hloTempFragmentation =
         (this.usage.hloTempFragmentation * 100.0).toFixed(2);
     this.heapSizes = this.usage.heapSizes || [];

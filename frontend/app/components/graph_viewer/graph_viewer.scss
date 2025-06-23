@@ -76,3 +76,9 @@ mat-progress-bar {
 .progress-container-graphviz {
   display: flex;
 }
+
+.stack-trace-snippet-container {
+  min-height: 400px;
+  max-height: 400px;
+  overflow-y: auto;
+}

@@ -284,9 +284,9 @@ std::string SourceInfoFormattedText(
   // `title` attribute is used to show the full stack trace in the tooltip.
   // We assume that the interpolated strings do not contain any HTML tags. In
   // other words, we assume that they don't need to be escaped.
-  return absl::StrCat("<div title='", source_info.stack_frame(), "'>",
-                      source_info.file_name(), ":", source_info.line_number(),
-                      "</div>");
+  return absl::StrCat("<div class='source-info-cell' title='",
+                      source_info.stack_frame(), "'>", source_info.file_name(),
+                      ":", source_info.line_number(), "</div>");
 }
 
 // Helper function to get step string

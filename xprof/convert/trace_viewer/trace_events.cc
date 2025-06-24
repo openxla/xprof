@@ -133,17 +133,15 @@ uint64_t LayerResolutionPs(unsigned level) {
 }
 
 std::pair<uint64_t, uint64_t> GetLevelBoundsForDuration(uint64_t duration_ps) {
-  int i = 0;
-  for (; i < NumLevels(); ++i) {
+  if (duration_ps == 0 || duration_ps > kLayerResolutions[0]) {
+    return std::make_pair(kLayerResolutions[0], kint64max);
+  }
+  for (int i = 1; i < NumLevels(); ++i) {
     if (duration_ps > kLayerResolutions[i]) {
-      if (i == 0) {
-        return std::make_pair(kLayerResolutions[i], kint64max);
-      } else {
-        return std::make_pair(kLayerResolutions[i], kLayerResolutions[i - 1]);
-      }
+      return std::make_pair(kLayerResolutions[i], kLayerResolutions[i - 1]);
     }
   }
-  // Tiny event. Put it in the bottom bucket. ([0, 1ps])
+  // Tiny (non-zero) event. Put it in the bottom bucket. ([0, 1ps])
   return std::make_pair(0, 1);
 }
 

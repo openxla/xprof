@@ -1,4 +1,4 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, OnInit, OnDestroy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
@@ -7,6 +7,7 @@ import {getErrorMessage, getLoadingState} from 'org_xprof/frontend/app/store/sel
 import {LoadingState} from 'org_xprof/frontend/app/store/state';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /** A main page component. */
 @Component({
@@ -15,9 +16,14 @@ import {takeUntil} from 'rxjs/operators';
   templateUrl: './main_page.ng.html',
   styleUrls: ['./main_page.scss']
 })
-export class MainPage implements OnDestroy {
+export class MainPage implements OnDestroy, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly injector = inject(Injector);
+  // LINT.IfChange(source_code_service_availability_key)
+  private readonly sourceCodeServiceAvailabilityKey =
+      'source_code_service_availability';
+  // LINT.ThenChange(//depot/org_xprof/plugin/trace_viewer/tf_trace_viewer/tf-trace-viewer.html:source_code_service_availability_key)
 
   loading = true;
   loadingMessage = '';
@@ -64,9 +70,27 @@ export class MainPage implements OnDestroy {
     };
   }
 
+  ngOnInit() {
+    this.initializeSourceCodeServiceAvailability();
+  }
+
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();
     this.destroyed.complete();
+    window.localStorage.removeItem(this.sourceCodeServiceAvailabilityKey);
+  }
+
+  private initializeSourceCodeServiceAvailability() {
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService = this.injector.get(
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
+    );
+    const availability = sourceCodeService?.isAvailable() === true;
+    window.localStorage.setItem(
+      this.sourceCodeServiceAvailabilityKey, String(availability));
   }
 }

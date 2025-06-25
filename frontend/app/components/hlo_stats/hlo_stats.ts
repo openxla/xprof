@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, ElementRef, inject, Injector, OnDestroy, OnInit, Renderer2, ViewChild} from '@angular/core';
 import {FormControl} from '@angular/forms';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -7,10 +7,12 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
-import {PIE_CHART_OPTIONS, TABLE_OPTIONS,} from 'org_xprof/frontend/app/components/chart/chart_options';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
+import {PIE_CHART_OPTIONS, TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
-import {DefaultDataProvider, ReplicaGroupDataProvider,} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {DefaultDataProvider, ReplicaGroupDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -38,10 +40,11 @@ const TOTAL_TIME_ID = 'total_time';
   templateUrl: './hlo_stats.ng.html',
   styleUrls: ['./hlo_stats.css'],
 })
-export class HloStats extends Dashboard implements OnDestroy {
+export class HloStats extends Dashboard implements OnDestroy, OnInit {
   tool = 'hlo_op_stats';
   sessionId = '';
   host = '';
+  private readonly injector = inject(Injector);
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -97,7 +100,7 @@ export class HloStats extends Dashboard implements OnDestroy {
       ...TABLE_OPTIONS,
       showRowNumber: false,
       page: 'enable',
-      pageSize: 100,
+      pageSize: 10,
       sortAscending: true,
       sortColumn: 0,
     },
@@ -105,6 +108,16 @@ export class HloStats extends Dashboard implements OnDestroy {
   showChartSection = true;
   tableColumnsControl = new FormControl<number[]>([]);
   tableColumns: Array<{index: number; label: string}> = [];
+
+  // `Chart.elementRef` is private. So we use `ViewChild` instead.
+  @ViewChild('table', {read: Chart, static: false})
+  chartRef: Chart|undefined = undefined;
+  @ViewChild('table', {read: ElementRef, static: false})
+  chartElementRef: ElementRef|undefined = undefined;
+  private readonly renderer: Renderer2 = inject(Renderer2);
+  stackTrace = '';
+  showStackTrace = false;
+  sourceCodeServiceIsAvailable = false;
 
   constructor(
       route: ActivatedRoute,
@@ -235,7 +248,8 @@ export class HloStats extends Dashboard implements OnDestroy {
         // We show the source stack in a tooltip. Also, we assume that neither
         // `sourceStack` nor `sourceInfo` contains HTML tags. In other words,
         // we don't need to escape them.
-        f: `<div title="${sourceStack}">${sourceInfo}</div>`,
+        f: `<div title="${sourceStack}" class="source-info-cell">${
+            sourceInfo}</div>`,
       };
     }
 
@@ -257,6 +271,42 @@ export class HloStats extends Dashboard implements OnDestroy {
       }),
     };
     return updatedData;
+  }
+
+  ngOnInit(): void {
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService =
+        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
+    this.sourceCodeServiceIsAvailable =
+        sourceCodeService?.isAvailable() === true;
+    if (this.sourceCodeServiceIsAvailable) {
+      this.addSourceInfoClickListener();
+    }
+  }
+
+  private addSourceInfoClickListener() {
+    const chart = this.chartRef?.chart;
+    const chartElement = this.chartElementRef?.nativeElement;
+    if (!chart || !chartElement) {
+      setTimeout(() => {
+        this.addSourceInfoClickListener();
+      }, 100);
+      return;
+    }
+    google.visualization.events.addListener(chart, 'ready', () => {
+      chartElement.querySelectorAll('.source-info-cell')
+          .forEach((element: Element) => {
+            this.renderer.listen(element, 'click', () => {
+              this.stackTrace = element.getAttribute('title') || '';
+            });
+          });
+    });
+  }
+
+  updateShowStackTrace() {
+    this.showStackTrace = !this.showStackTrace;
   }
 
   private process(data: SimpleDataTable|null) {

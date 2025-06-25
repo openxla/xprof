@@ -709,6 +709,30 @@ dashboard would integrate trace viewer app using iframe.
         });
     },
 
+    createStackTraceSnippetLink: function(text) {
+      if (!text) return;
+      const tooName = 'stack_trace_page';
+      // LINT.IfChange(stack_trace_key)
+      const stackTraceKey = 'stack_trace';
+      // LINT.ThenChange(//depot/google3/third_party/xprof/frontend/app/components/stack_trace_page/stack_trace_page.ts:stack_trace_key)
+      // LINT.IfChange(source_code_service_availability_key)
+      const sourceCodeServiceAvailabilityKey = 'source_code_service_availability';
+      // LINT.ThenChange(//depot/google3/third_party/xprof/frontend/app/components/main_page/main_page.ts:source_code_service_availability_key)
+      if (window.sessionStorage.getItem(sourceCodeServiceAvailabilityKey) !== 'true') {
+        return;
+      }
+      const toolLink = new URL(`${window.location.origin}/${tooName}/${this._sessionId}`);
+      const toolLinkElement = document.createElement('div');
+      toolLinkElement.innerHTML = `Stack Trace Source Code Snippet: <a href="${
+          toolLink.href}" target="_blank">Open in a new page</a>`;
+      this._eventDetails.appendChild(toolLinkElement);
+      toolLinkElement.addEventListener('click', (event) => {
+        event.preventDefault();
+        window.sessionStorage.setItem(stackTraceKey, text);
+        window.open(toolLink.href, '_blank');
+      });
+    },
+
     createCrossToolLink: function(toolName, toolLabel, params, text) {
       const toolLink =
             new URL(`${window.location.origin}/${toolName}/${this._sessionId}`);
@@ -829,6 +853,9 @@ dashboard would integrate trace viewer app using iframe.
           }
           if (event.args?.source && this._codeLink) {
             this.createCodeSearchLink(event.args?.source);
+          }
+          if (event.args?.source_stack) {
+            this.createStackTraceSnippetLink(event.args?.source_stack);
           }
         } else if ('Source code' === event.parentContainer.name && event.title && this._codeLink) {
           this.createCodeSearchLink(event.title);

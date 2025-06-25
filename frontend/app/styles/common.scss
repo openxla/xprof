@@ -1,3 +1,5 @@
+@import url(//fonts.googleapis.com/css2?family=Google+Sans+Code);
+
 $card-title-background-color: #fff;
 $card-title-focus-background-color: #eee;
 $card-title-color: #000;
@@ -8,6 +10,7 @@ $content-secondary-color: #5f6368;
 $dark-theme-card-title-background-color: #3f51b5;
 $dark-theme-card-title-focus-background-color: #7885cb;
 $dark-theme-card-title-color: #fff;
+$code-font-family: 'Google Sans Code', monospace;
 
 .goog-tooltip {
   z-index: 10;

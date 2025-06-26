@@ -1,8 +1,39 @@
 /** CSS for megascale_stats component. */
 @import 'frontend/app/styles/common';
 
+.page-container {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.top-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.megascale-stats {
+    margin-right: 20px;
+}
+
+.export-button-container {
+    flex-shrink: 0;
+}
+
 .section-container {
   padding: 20px;
+  margin-top: 20px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.flex-space {
+  flex: 1;
 }
 
 chart {

@@ -9,8 +9,8 @@ xprof_ng_module(
         "safe_pipe.ts",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/platform-browser",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
     ],
 )

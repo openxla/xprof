@@ -1,4 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("//defs:defs.bzl", ts_library = "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -8,7 +8,7 @@ ts_library(
         "dashboard.ts",
     ],
     deps = [
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )

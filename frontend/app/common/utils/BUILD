@@ -1,4 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("//defs:defs.bzl", ts_library = "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -18,7 +18,7 @@ ts_library(
         "utils.ts",
     ],
     deps = [
-        "@npm//@ngrx/store",
+        "//:node_modules/@ngrx/store",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",

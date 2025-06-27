@@ -1,4 +1,4 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, Input, Output} from '@angular/core';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 
 /** A side navigation component. */
@@ -8,30 +8,22 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
   templateUrl: './memory_viewer_control.ng.html',
   styleUrls: ['./memory_viewer_control.scss'],
 })
-export class MemoryViewerControl implements OnChanges {
+export class MemoryViewerControl {
   /** The hlo module list. */
   @Input() moduleList: string[] = [];
-  @Input() firstLoadSelectedModule = '';
-  @Input() firstLoadSelectedMemorySpaceColor = '';
+  @Input() selectedModule = '';
+  @Input() selectedMemorySpaceColor = '';
 
   /** The event when the controls are changed. */
   @Output() readonly changed = new EventEmitter<NavigationEvent>();
 
-  selectedModule = '';
-  selectedMemorySpaceColor = '';
-
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['firstLoadSelectedModule']?.currentValue !==
-            changes['firstLoadSelectedModule']?.previousValue &&
-        this.selectedModule === '') {
-      this.selectedModule = changes['firstLoadSelectedModule'].currentValue;
-    }
-    if (changes['firstLoadSelectedMemorySpaceColor']?.currentValue !==
-            changes['firstLoadSelectedMemorySpaceColor']?.previousValue &&
-        this.selectedMemorySpaceColor === '') {
-      this.selectedMemorySpaceColor =
-          changes['firstLoadSelectedMemorySpaceColor'].currentValue;
-    }
+  onSelectionChanged() {
+    const navigationEvent: NavigationEvent = {
+      // These now read directly from the @Input properties.
+      moduleName: this.selectedModule,
+      memorySpaceColor: this.selectedMemorySpaceColor,
+    };
+    this.changed.emit(navigationEvent);
   }
 
   emitUpdateEvent() {

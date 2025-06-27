@@ -2,7 +2,7 @@ import {Component, inject, NgModule, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
-import {FrameworkOpStatsModule} from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats_module';
+import {FrameworkOpStats} from 'org_xprof/frontend/app/components/framework_op_stats/framework_op_stats';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
 import * as actions from 'org_xprof/frontend/app/store/framework_op_stats/actions';
@@ -11,10 +11,11 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An overview adapter component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'framework-op-stats-adapter',
   template:
       '<framework-op-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></framework-op-stats>',
+  imports: [FrameworkOpStats],
 })
 export class FrameworkOpStatsAdapter implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -98,8 +99,7 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
 }
 
 @NgModule({
-  declarations: [FrameworkOpStatsAdapter],
-  imports: [FrameworkOpStatsModule],
+  imports: [FrameworkOpStatsAdapter],
   exports: [FrameworkOpStatsAdapter],
 })
 export class FrameworkOpStatsAdapterModule {

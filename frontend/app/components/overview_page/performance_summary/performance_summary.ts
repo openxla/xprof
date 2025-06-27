@@ -1,4 +1,8 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {type GeneralAnalysis, type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GeneralProps, SummaryInfo, SummaryInfoConfig} from 'org_xprof/frontend/app/common/interfaces/summary_info';
 
@@ -196,10 +200,16 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
 
 /** A performance summary view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'performance-summary',
-  templateUrl: './performance_summary.ng.html',
-  styleUrls: ['./performance_summary.scss']
+  templateUrl: 'performance_summary.ng.html',
+  styleUrls: ['performance_summary.scss'],
+  imports: [
+    CommonModule,
+    MatCardModule,
+    MatIconModule,
+    MatTooltipModule,
+  ],
 })
 export class PerformanceSummary implements OnChanges, OnInit {
   /** Identify if this is an inference or training session */

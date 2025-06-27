@@ -6,14 +6,15 @@ import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/fr
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
-import {KernelStatsModule} from './kernel_stats_module';
+import {KernelStats} from './kernel_stats';
 
 /** A kernel stats adapter component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'kernel-stats-adapter',
   template:
       '<kernel-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></kernel-stats>',
+  imports: [KernelStats]
 })
 export class KernelStatsAdapter implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -53,8 +54,7 @@ export class KernelStatsAdapter implements OnDestroy {
 }
 
 @NgModule({
-  declarations: [KernelStatsAdapter],
-  imports: [KernelStatsModule],
+  imports: [KernelStatsAdapter],
   exports: [KernelStatsAdapter]
 })
 export class KernelStatsAdapterModule {

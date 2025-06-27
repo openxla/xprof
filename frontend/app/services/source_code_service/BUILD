@@ -8,6 +8,8 @@ xprof_ng_module(
         "syntax_highlight_service.ts",
     ],
     deps = [
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
         "//third_party/javascript/highlightjs:highlightjs_bash",
         "//third_party/javascript/highlightjs:highlightjs_c",
         "//third_party/javascript/highlightjs:highlightjs_cpp",
@@ -20,8 +22,6 @@ xprof_ng_module(
         "//third_party/javascript/highlightjs:highlightjs_raw",
         "//third_party/javascript/highlightjs:highlightjs_sql",
         "//third_party/javascript/highlightjs:highlightjs_typescript",
-        "@npm//@angular/common",
-        "@npm//@angular/core",
     ],
 )
 
@@ -31,8 +31,8 @@ xprof_ng_module(
         "source_code_service_interface.ts",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )
@@ -44,8 +44,8 @@ xprof_ng_module(
     ],
     deps = [
         ":source_code_service_interface",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/store",
     ],

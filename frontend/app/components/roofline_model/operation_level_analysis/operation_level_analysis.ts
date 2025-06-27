@@ -1,4 +1,11 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, EventEmitter, inject, Input, NgZone, OnChanges, OnInit, Output, Renderer2, SimpleChanges, ViewChild} from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
+import {StackTraceSnippet} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {PIE_CHART_PALETTE} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -14,10 +21,20 @@ type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
  * An operation level analysis table view component (step appregation: total).
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'operation-level-analysis',
-  templateUrl: './operation_level_analysis.ng.html',
-  styleUrls: ['./operation_level_analysis.scss'],
+  templateUrl: 'operation_level_analysis.ng.html',
+  styleUrls: ['operation_level_analysis.scss'],
+  imports: [
+    CategoryFilter,
+    Chart,
+    CommonModule,
+    MatIconModule,
+    MatSlideToggleModule,
+    StackTraceSnippet,
+    StringFilter,
+    Table,
+  ],
 })
 export class OperationLevelAnalysis extends Dashboard implements OnInit,
                                                                  OnChanges {

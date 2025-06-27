@@ -1,4 +1,6 @@
+import {CommonModule} from '@angular/common';
 import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild} from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -17,10 +19,11 @@ const COLORS_FOR_GPU = [
 
 /** A step-time graph view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'step-time-graph',
-  templateUrl: './step_time_graph.ng.html',
-  styleUrls: ['./step_time_graph.scss']
+  templateUrl: 'step_time_graph.ng.html',
+  styleUrls: ['step_time_graph.scss'],
+  imports: [CommonModule, MatCardModule],
 })
 export class StepTimeGraph implements AfterViewInit, OnChanges {
   /** The input pipeline analyis data. */

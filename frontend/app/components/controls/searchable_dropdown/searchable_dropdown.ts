@@ -13,8 +13,8 @@ import {MatSelectModule} from '@angular/material/select';
 @Component({
   standalone: true,
   selector: 'app-searchable-dropdown',
-  templateUrl: './searchable_dropdown.ng.html',
-  styleUrls: ['./searchable_dropdown.scss'],
+  templateUrl: 'searchable_dropdown.ng.html',
+  styleUrls: ['searchable_dropdown.scss'],
   imports: [
     CommonModule,
     FormsModule,

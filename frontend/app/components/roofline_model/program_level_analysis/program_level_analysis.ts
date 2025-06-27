@@ -11,16 +11,21 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {SCATTER_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
+import {CommonModule} from '@angular/common';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
+import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
 /** An program level analysis table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'program-level-analysis',
-  templateUrl: './program_level_analysis.ng.html',
-  styleUrls: ['./program_level_analysis.scss'],
+  templateUrl: 'program_level_analysis.ng.html',
+  styleUrls: ['program_level_analysis.scss'],
+  imports: [CommonModule, CategoryFilter, ChartModule, Table],
 })
 export class ProgramLevelAnalysis
   extends Dashboard

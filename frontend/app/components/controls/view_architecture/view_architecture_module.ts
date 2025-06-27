@@ -1,6 +1,4 @@
-import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
-import {MatIconModule} from '@angular/material/icon';
 
 import {ViewArchitecture} from './view_architecture';
 
@@ -10,8 +8,7 @@ import {ViewArchitecture} from './view_architecture';
  * utilization viewer based on the used device architecture in the program code
  */
 @NgModule({
-  declarations: [ViewArchitecture],
-  imports: [CommonModule, MatIconModule],
+  imports: [ViewArchitecture],
   exports: [ViewArchitecture],
 })
 export class ViewArchitectureModule {}

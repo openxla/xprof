@@ -1,4 +1,8 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {Message} from './message';
+import {StackFrameSnippet} from './stack_frame_snippet';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /**
@@ -6,10 +10,16 @@ import {Address} from 'org_xprof/frontend/app/services/source_code_service/sourc
  * stack trace.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'stack-trace-snippet',
-  templateUrl: './stack_trace_snippet.ng.html',
-  styleUrls: ['./stack_trace_snippet.scss'],
+  templateUrl: 'stack_trace_snippet.ng.html',
+  styleUrls: ['stack_trace_snippet.scss'],
+  imports: [
+    CommonModule,
+    MatExpansionModule,
+    Message,
+    StackFrameSnippet,
+  ],
 })
 export class StackTraceSnippet implements OnChanges {
   /**

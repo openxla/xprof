@@ -1,4 +1,14 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {Message} from 'org_xprof/frontend/app/components/stack_trace_snippet/message';
+import {StackTraceSnippet} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet';
 import {Store} from '@ngrx/store';
 import {GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -24,10 +34,22 @@ enum CompilerPass {
  * TPU operations can be HLO or LLO.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'source-mapper',
-  templateUrl: './source_mapper.ng.html',
-  styleUrls: ['./source_mapper.css'],
+  templateUrl: 'source_mapper.ng.html',
+  styleUrls: ['source_mapper.css'],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatExpansionModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MatTooltipModule,
+    Message,
+    StackTraceSnippet,
+  ],
 })
 export class SourceMapper implements OnDestroy, OnChanges {
   private readonly destroyed = new ReplaySubject<void>(1);

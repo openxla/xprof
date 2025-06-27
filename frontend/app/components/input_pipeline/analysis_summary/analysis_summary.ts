@@ -1,12 +1,14 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input} from '@angular/core';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineDeviceAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A summary of input pipeline analysis component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'analysis-summary',
-  templateUrl: './analysis_summary.ng.html',
-  styleUrls: ['./analysis_summary.scss']
+  templateUrl: 'analysis_summary.ng.html',
+  styleUrls: ['analysis_summary.scss'],
+  imports: [CommonModule],
 })
 export class AnalysisSummary {
   /** The input pipeline device anaysis data. */

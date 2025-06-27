@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -9,6 +10,10 @@ import {BAR_CHART_OPTIONS, PIE_CHART_OPTIONS, } from 'org_xprof/frontend/app/com
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {FilterDataProcessor} from 'org_xprof/frontend/app/components/chart/filter_data_processor';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {ViewArchitecture} from 'org_xprof/frontend/app/components/controls/view_architecture/view_architecture';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -58,10 +63,17 @@ declare interface NodeFilterDataProcessorMap {
  * node in a TPU chip.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'utilization-viewer',
-  templateUrl: './utilization_viewer.ng.html',
-  styleUrls: ['./utilization_viewer.scss'],
+  templateUrl: 'utilization_viewer.ng.html',
+  styleUrls: ['utilization_viewer.scss'],
+  imports: [
+    CategoryFilter,
+    Chart,
+    CommonModule,
+    ExportAsCsv,
+    ViewArchitecture,
+  ],
 })
 export class UtilizationViewer extends Dashboard implements OnDestroy {
   readonly tool = 'utilization_viewer';

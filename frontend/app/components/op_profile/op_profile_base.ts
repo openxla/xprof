@@ -1,8 +1,19 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, inject, Injector, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges} from '@angular/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {OpTable} from 'org_xprof/frontend/app/components/op_profile/op_table/op_table';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction, setOpAnalysisScalingFactorAction, setOpProfileRootNodeAction} from 'org_xprof/frontend/app/store/actions';
@@ -18,10 +29,23 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** Base class of Op Profile component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'op-profile-base',
-  templateUrl: './op_profile_base.ng.html',
-  styleUrls: ['./op_profile_common.scss']
+  templateUrl: 'op_profile_base.ng.html',
+  styleUrls: ['op_profile_common.scss'],
+  imports: [
+    AngularSplitModule,
+    CommonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatSelectModule,
+    MatSidenavModule,
+    MatSlideToggleModule,
+    MatTooltipModule,
+    OpTable,
+    SourceMapper,
+  ],
 })
 export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   /** Handles on-destroy Subject, used to unsubscribe. */

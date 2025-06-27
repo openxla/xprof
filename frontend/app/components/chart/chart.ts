@@ -1,12 +1,14 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, EventEmitter, Input, NgModule, OnChanges, OnInit, Output, SimpleChanges} from '@angular/core';
 import {ChartClass, type ChartDataInfo, ChartType, CustomChartDataProcessor, DataTableOrDataView} from 'org_xprof/frontend/app/common/interfaces/chart';
 
 /** A common chart component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'chart',
   template: '',
   styles: [':host {display: block;}'],
+  imports: [CommonModule],
 })
 export class Chart implements OnChanges, OnInit {
   /** The type of chart. */
@@ -16,7 +18,7 @@ export class Chart implements OnChanges, OnInit {
   @Input() dataInfo?: ChartDataInfo;
 
   /** The event for the number of rows of processed data. */
-  @Output() processedNumberOfRows = new EventEmitter<number>();
+  @Output() readonly processedNumberOfRows = new EventEmitter<number>();
 
   chart?: ChartClass;
 
@@ -160,6 +162,6 @@ export class Chart implements OnChanges, OnInit {
   }
 }
 
-@NgModule({declarations: [Chart], exports: [Chart]})
+@NgModule({ imports: [Chart], exports: [Chart] })
 export class ChartModule {
 }

@@ -1,4 +1,12 @@
+
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatMenuModule} from '@angular/material/menu';
+import {MatSliderModule} from '@angular/material/slider';
 import {Store} from '@ngrx/store';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord, type PodViewerTopology, StepBreakdownEvent} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -46,10 +54,19 @@ const NODE_COLORS = [
 
 /** A topology graph view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'topology-graph',
-  templateUrl: './topology_graph.ng.html',
-  styleUrls: ['./topology_graph.scss']
+  templateUrl: 'topology_graph.ng.html',
+  styleUrls: ['topology_graph.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatMenuModule,
+    MatSliderModule,
+  ],
 })
 export class TopologyGraph implements OnChanges, OnDestroy {
   /** The channel dababase. */
@@ -72,7 +89,7 @@ export class TopologyGraph implements OnChanges, OnDestroy {
   @Input() deviceType?: string;
 
   /** The event when the selection of the channel is changed. */
-  @Output() selected = new EventEmitter<number>();
+  @Output() readonly selected = new EventEmitter<number>();
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);

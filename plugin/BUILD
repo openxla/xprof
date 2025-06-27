@@ -19,9 +19,9 @@ sh_binary(
     data = [
         "setup.py",
         "//:README.md",
-        "@org_xprof//frontend:bundle.js",
-        "@org_xprof//frontend:css",
-        "@org_xprof//frontend:zone.js",
+        "//frontend:bundle",
+        "//frontend:css",
+        "//frontend:zone",
         "@org_xprof//plugin/xprof:resources",
         "@org_xprof//plugin/xprof:server",
         "@org_xprof//plugin/xprof:version",

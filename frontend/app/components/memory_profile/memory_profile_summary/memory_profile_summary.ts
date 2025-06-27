@@ -1,13 +1,18 @@
+import {CommonModule} from '@angular/common';
 import {AfterViewInit, ChangeDetectorRef, Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {humanReadableText} from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A memory profile summary view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-profile-summary',
-  templateUrl: './memory_profile_summary.ng.html',
-  styleUrls: ['./memory_profile_summary.scss']
+  templateUrl: 'memory_profile_summary.ng.html',
+  styleUrls: ['memory_profile_summary.scss'],
+  imports: [CommonModule, MatCardModule, MatIconModule, MatTooltipModule],
 })
 export class MemoryProfileSummary implements AfterViewInit, OnChanges {
   /** The memory profile summary data. */

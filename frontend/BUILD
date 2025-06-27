@@ -1,6 +1,8 @@
-load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary", "npm_sass_library")
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@aspect_bazel_lib//lib:directory_path.bzl", "directory_path")
+load("@aspect_rules_rollup//rollup:defs.bzl", "rollup")
 load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:sass.bzl", "sass_workaround")
 
 package(default_visibility = [
     "//frontend:__subpackages__",
@@ -22,67 +24,65 @@ xprof_ng_module(
         "main.ts",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@angular/localize",
-        "@npm//@angular/platform-browser-dynamic",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/localize",
+        "//:node_modules/@angular/platform-browser-dynamic",
         "@org_xprof//frontend/app",
     ],
 )
 
-rollup_bundle(
+directory_path(
+    name = "zone_dir",
+    directory = "//:node_modules/zone.js/dir",
+    path = "dist/zone.js",
+)
+
+copy_file(
+    name = "zone_file",
+    src = ":zone_dir",
+    out = "zone_out.js",
+)
+
+rollup(
     name = "zone",
-    srcs = ["@npm//:node_modules/zone.js/dist/zone.js"],
-    config_file = "//:rollup.config.js",
-    entry_point = "@npm//:node_modules/zone.js/dist/zone.js",
+    config_file = ":rollup.config.js",
+    data = [":zone_file"],
+    entry_point = "zone_out.js",
     format = "iife",
-    link_workspace_root = True,
+    node_modules = "//:node_modules",
     deps = [
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
+        "//:node_modules/@rollup/plugin-commonjs",
+        "//:node_modules/@rollup/plugin-node-resolve",
     ],
 )
 
-rollup_bundle(
+rollup(
     name = "bundle",
-    config_file = "//:rollup.config.js",
-    entry_point = "main.ts",
+    config_file = ":rollup.config.js",
+    entry_point = "main.js",
     format = "iife",
-    link_workspace_root = True,
+    node_modules = "//:node_modules",
     deps = [
         ":main",
-        "@npm//@angular/animations",
-        "@npm//@angular/cdk",
-        "@npm//@angular/core",
-        "@npm//@angular/forms",
-        "@npm//@angular/material",
-        "@npm//@angular/platform-browser-dynamic",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
+        "//:node_modules/@angular/animations",
+        "//:node_modules/@angular/cdk",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/forms",
+        "//:node_modules/@angular/material",
+        "//:node_modules/@angular/platform-browser-dynamic",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/@rollup/plugin-commonjs",
+        "//:node_modules/@rollup/plugin-node-resolve",
+        "//:org_xprof",
     ],
 )
 
-npm_sass_library(
-  name = "angular_material_sass_deps",
-  deps = ["@npm//@angular/material"],
-)
-
-sass_binary(
+sass_workaround(
     name = "css",
     src = "styles.scss",
-    # @use was very different in angular v13.x using a relative path @use '../../../cdk/a11y'
-    # instead to the new one in v14.x @use '@angular/cdk'
-    # need to include the node_modules path to enable sass to find the theming file
-    include_paths = [
-      "node_modules",
-      # used for resolve the external @npm dependencies
-      "external/npm/node_modules",
-    ],
-    output_name = "styles.css",
-    sourcemap = False,
     deps = [
-        ":angular_material_sass_deps",
+        "//:node_modules/@angular/material",
     ],
 )
 
@@ -92,9 +92,9 @@ py_binary(
     srcs = ["server.py"],
     data = [
         "index.html",
-        ":bundle.js",
+        ":bundle",
         ":css",
-        ":zone.js",
+        ":zone",
     ],
     python_version = "PY3",
 )

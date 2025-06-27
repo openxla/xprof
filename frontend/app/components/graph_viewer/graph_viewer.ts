@@ -1,7 +1,22 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild} from '@angular/core';
-import {MatSnackBar} from '@angular/material/snack-bar';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipsModule} from '@angular/material/chips';
+import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -11,7 +26,13 @@ import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_tabl
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {GraphTypeObject, GraphViewerQueryParams} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {DownloadHlo} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {HloTextView} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
+import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveOpProfileNodeAction, setCurrentToolStateAction, setOpProfileRootNodeAction, setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
@@ -31,10 +52,34 @@ interface DefaultGraphOption {
 
 /** A graph viewer component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'graph-viewer',
-  templateUrl: './graph_viewer.ng.html',
-  styleUrls: ['./graph_viewer.scss'],
+  templateUrl: 'graph_viewer.ng.html',
+  styleUrls: ['graph_viewer.scss'],
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    DownloadHlo,
+    FormsModule,
+    HloTextView,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatChipsModule,
+    MatExpansionModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatProgressSpinnerModule,
+    MatSelectModule,
+    MatSidenavModule,
+    MatSnackBarModule,
+    MatTooltipModule,
+    OpDetails,
+    PipesModule,
+    SourceMapper,
+  ],
 })
 export class GraphViewer implements OnDestroy {
   readonly tool = 'graph_viewer';

@@ -1,4 +1,10 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, inject, Input, Output} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCardModule} from '@angular/material/card';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {NgxJsonViewerModule} from 'ngx-json-viewer';
 import {Store} from '@ngrx/store';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -11,10 +17,18 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op details view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'op-details',
-  templateUrl: './op_details.ng.html',
-  styleUrls: ['./op_details.scss']
+  templateUrl: 'op_details.ng.html',
+  styleUrls: ['op_details.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatCardModule,
+    MatIconModule,
+    MatTooltipModule,
+    NgxJsonViewerModule,
+  ],
 })
 export class OpDetails {
   /** Handles on-destroy Subject, used to unsubscribe. */

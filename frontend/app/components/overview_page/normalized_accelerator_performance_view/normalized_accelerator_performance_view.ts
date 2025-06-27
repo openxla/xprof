@@ -5,8 +5,8 @@ import {DEFAULT_SIMPLE_DATA_TABLE, type NormalizedAcceleratorPerformance} from '
 @Component({
   standalone: false,
   selector: 'normalized-accelerator-performance-view',
-  templateUrl: './normalized_accelerator_performance_view.ng.html',
-  styleUrls: ['./normalized_accelerator_performance_view.scss']
+  templateUrl: 'normalized_accelerator_performance_view.ng.html',
+  styleUrls: ['normalized_accelerator_performance_view.scss']
 })
 export class NormalizedAcceleratorPerformanceView {
   /** The run environment data. */

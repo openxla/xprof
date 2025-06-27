@@ -8,14 +8,28 @@ import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
+import {CommonModule} from '@angular/common';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatSliderModule} from '@angular/material/slider';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
 import {PodViewerCommon} from './pod_viewer_common';
+import {StackBarChart} from './stack_bar_chart/stack_bar_chart';
+import {TopologyGraph} from './topology_graph/topology_graph';
 
 /** A pod viewer component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'pod-viewer',
-  templateUrl: './pod_viewer.ng.html',
-  styleUrls: ['./pod_viewer.css']
+  templateUrl: 'pod_viewer.ng.html',
+  styleUrls: ['pod_viewer.css'],
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    MatDividerModule,
+    MatSliderModule,
+    StackBarChart,
+    TopologyGraph,
+  ],
 })
 export class PodViewer extends PodViewerCommon implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

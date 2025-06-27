@@ -1,4 +1,15 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {FlopRateChart} from 'org_xprof/frontend/app/components/framework_op_stats/flop_rate_chart/flop_rate_chart';
+import {ModelProperties} from 'org_xprof/frontend/app/components/framework_op_stats/model_properties/model_properties';
+import {OperationsTable} from 'org_xprof/frontend/app/components/framework_op_stats/operations_table/operations_table';
+import {StatsTable} from 'org_xprof/frontend/app/components/framework_op_stats/stats_table/stats_table';
 import {Store} from '@ngrx/store';
 import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
@@ -17,10 +28,23 @@ const MEASURED_FLOP_RATE_ID = 'measured_flop_rate';
 
 /** A TensorFlow Stats component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'framework-op-stats',
-  templateUrl: './framework_op_stats.ng.html',
-  styleUrls: ['./framework_op_stats.css']
+  templateUrl: 'framework_op_stats.ng.html',
+  styleUrls: ['framework_op_stats.css'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatDividerModule,
+    MatIconModule,
+    MatMenuModule,
+    ChartModule,
+    ExportAsCsv,
+    FlopRateChart,
+    ModelProperties,
+    OperationsTable,
+    StatsTable,
+  ],
 })
 export class FrameworkOpStats {
   @Input() sessionId = '';

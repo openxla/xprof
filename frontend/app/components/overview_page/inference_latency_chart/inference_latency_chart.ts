@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   Component,
@@ -8,16 +9,18 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 const MAX_CHART_WIDTH = 800;
 
 /** An inference latency chart view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'inference-latency-chart',
-  templateUrl: './inference_latency_chart.ng.html',
-  styleUrls: ['./inference_latency_chart.scss'],
+  templateUrl: 'inference_latency_chart.ng.html',
+  styleUrls: ['inference_latency_chart.scss'],
+  imports: [CommonModule, MatCardModule],
 })
 export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   /** The inference latency data. */

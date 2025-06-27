@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   Component,
@@ -7,18 +8,20 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {MatDividerModule} from '@angular/material/divider';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A max-infeed-detail view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'max-infeed-detail',
-  templateUrl: './max_infeed_detail.ng.html',
-  styleUrls: ['./max_infeed_detail.scss'],
+  templateUrl: 'max_infeed_detail.ng.html',
+  styleUrls: ['max_infeed_detail.scss'],
+  imports: [CommonModule, MatDividerModule],
 })
 export class MaxInfeedDetail implements AfterViewInit, OnChanges {
   /** Whether it is a TPU profile. */
-  @Input() isTpu: boolean = false;
+  @Input() isTpu = false;
 
   /** The table of the core with the maximum infeed at each step. */
   @Input() maxInfeedCoreTable: SimpleDataTable | null = null;

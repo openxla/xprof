@@ -3,7 +3,7 @@ import {NgModule} from '@angular/core';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
-import {EmptyPageModule} from 'org_xprof/frontend/app/components/empty_page/empty_page_module';
+import {EmptyPage} from 'org_xprof/frontend/app/components/empty_page/empty_page';
 import {MainPageModule} from 'org_xprof/frontend/app/components/main_page/main_page_module';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
@@ -22,7 +22,7 @@ import {App} from './app';
     BrowserModule,
     HttpClientModule,
     MatProgressBarModule,
-    EmptyPageModule,
+    EmptyPage,
     MainPageModule,
     BrowserAnimationsModule,
     PipesModule,

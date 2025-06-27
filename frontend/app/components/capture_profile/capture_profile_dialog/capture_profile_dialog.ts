@@ -1,12 +1,33 @@
+import {CommonModule} from '@angular/common';
 import {Component} from '@angular/core';
-import {MatDialogRef} from '@angular/material/dialog';
+import {FormsModule} from '@angular/forms';
+import {MatButtonModule} from '@angular/material/button';
+import {MatDialogModule, MatDialogRef} from '@angular/material/dialog';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
+import {MatRadioModule} from '@angular/material/radio';
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
 
 /** A capture profile dialog component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'capture-profile-dialog',
-  templateUrl: './capture_profile_dialog.ng.html',
-  styleUrls: ['./capture_profile_dialog.scss']
+  templateUrl: 'capture_profile_dialog.ng.html',
+  styleUrls: ['capture_profile_dialog.scss'],
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatButtonModule,
+    MatDialogModule,
+    MatExpansionModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatRadioModule,
+    MatSelectModule,
+    MatTooltipModule,
+  ],
 })
 export class CaptureProfileDialog {
   captureButtonLabel = 'Capture';

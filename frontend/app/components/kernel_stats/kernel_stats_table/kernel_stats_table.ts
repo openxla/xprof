@@ -1,4 +1,7 @@
 import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 declare interface KernelStatsColumn {
@@ -31,10 +34,15 @@ const OP_NAME_COLUMN_ID = 'op_name';
 
 /** A kernel stats table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'kernel-stats-table',
-  templateUrl: './kernel_stats_table.ng.html',
-  styleUrls: ['./kernel_stats_table.scss']
+  templateUrl: 'kernel_stats_table.ng.html',
+  styleUrls: ['kernel_stats_table.scss'],
+  imports: [
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+  ]
 })
 export class KernelStatsTable implements OnChanges, OnInit {
   /** The kernel stats data. */

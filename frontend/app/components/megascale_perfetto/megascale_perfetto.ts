@@ -1,4 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {Component, OnDestroy} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSidenavModule} from '@angular/material/sidenav';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -8,15 +13,24 @@ import {
   setCurrentToolStateAction,
   setErrorMessageStateAction,
 } from 'org_xprof/frontend/app/store/actions';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {ReplaySubject, combineLatest} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A megascale perfetto viewer component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'megascale-perfetto',
-  templateUrl: './megascale_perfetto.ng.html',
-  styleUrls: ['./megascale_perfetto.scss'],
+  templateUrl: 'megascale_perfetto.ng.html',
+  styleUrls: ['megascale_perfetto.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    MatSidenavModule,
+    SafePipe,
+  ],
 })
 export class MegascalePerfetto implements OnDestroy {
   readonly tool = 'megascale_perfetto';

@@ -27,7 +27,6 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/main_page",
         "@org_xprof//frontend/app/pipes",
         "@org_xprof//frontend/app/services/data_dispatcher",
-        "@org_xprof//frontend/app/services/data_service",
         "@org_xprof//frontend/app/services/data_service_v2",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/services/source_code_service",

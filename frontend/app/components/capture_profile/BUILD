@@ -25,7 +25,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_snack_bar",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/capture_profile/capture_profile_dialog",
-        "@org_xprof//frontend/app/services/data_service",
+        "@org_xprof//frontend/app/services/data_service_v2",
         "@org_xprof//frontend/app/store",
     ],
 )

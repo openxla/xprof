@@ -1,4 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_library")
+load("@rules_sass//src:index.bzl", "sass_library")
 
 package(default_visibility = ["//frontend:internal"])
 

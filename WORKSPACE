@@ -289,6 +289,6 @@ http_archive(
     urls = ["https://github.com/tensorflow/tensorboard/archive/refs/tags/2.19.0.tar.gz"],
 )
 
-load("@org_tensorflow_tensorboard//third_party:workspace.bzl", "tensorboard_workspace")
+load("@org_tensorflow_tensorboard//third_party:js.bzl", "tensorboard_js_workspace")
 
-tensorboard_workspace()
+tensorboard_js_workspace()

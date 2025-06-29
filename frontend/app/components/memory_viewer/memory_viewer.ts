@@ -56,6 +56,7 @@ export class MemoryViewer implements OnDestroy {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;
+    this.selectedModule = params['moduleName'] || this.selectedModule;
   }
 
   load() {
@@ -82,8 +83,13 @@ export class MemoryViewer implements OnDestroy {
               // No need to regenerate modules.
               this.dataService.disableCacheRegeneration();
               // By default, use memory space 0, which is HBM.
+              if (!this.selectedModule ||
+                  !this.moduleList.includes(this.selectedModule)) {
+                this.selectedModule =
+                    this.moduleList[this.firstLoadModuleIndex];
+              }
               this.loadModule(
-                  this.moduleList[this.firstLoadModuleIndex],
+                  this.selectedModule,
                   this.firstLoadMemorySpaceColor,
                   true,
               );

@@ -132,6 +132,13 @@ class OpProfileBuilder {
   Category* LookupOrAddCategoryNode(const OpMetrics& op_metrics,
                                     Program* program);
 
+  // Returns a node for op_metrics.provenance().
+  // Adds a node to the tree if necessary.
+  // If program is not null, the provenance node is added under program.
+  // Otherwise, the provenance node is added under root.
+  op_profile::Node* GetOrAddProvenanceParentNode(const OpMetrics& op_metrics,
+                                                 Program* program);
+
   // Returns a node for op_metrics.hlo_module_id().
   // Adds a node to the Node tree if necessary.
   Program* LookupOrAddProgramNode(const OpMetrics& op_metrics);
@@ -146,6 +153,18 @@ class OpProfileBuilder {
   // already been added to the tree.
   absl::flat_hash_map<uint64_t, Program> programs_map_;
   absl::flat_hash_map<std::string, Category> category_map_;
+
+  // Maps to look up if a child node has already been added to a provenance
+  // node, keyed by name.
+  absl::node_hash_map<op_profile::Node*,
+                      absl::flat_hash_map<std::string, op_profile::Node*>>
+      provenance_children_map_;
+
+  // Maps to look up if a category node has already been added to a provenance
+  // node.
+  absl::node_hash_map<op_profile::Node*,
+                      absl::flat_hash_map<std::string, Category>>
+      provenance_category_map_;
 
   // Map to look up program names by id.
   const tsl::protobuf::Map<uint64_t, std::string>* program_name_map_ = nullptr;

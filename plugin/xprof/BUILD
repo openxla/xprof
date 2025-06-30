@@ -10,8 +10,7 @@ py_library(
     name = "profile_plugin",
     srcs = ["profile_plugin.py"],
     deps = [
-        "@org_pocoo_werkzeug",
-        "@org_pythonhosted_six",
+        requirement("six"),
         requirement("etils"),
         requirement("werkzeug"),
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
@@ -31,7 +30,6 @@ py_library(
     ],
     deps = [
         ":profile_plugin",
-        "@org_pocoo_werkzeug",
         requirement("werkzeug"),
         "@org_xprof//plugin/xprof/protobuf:protos_all_py",
         "@org_xprof//plugin/xprof/standalone:tensorboard_shim",

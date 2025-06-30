@@ -54,6 +54,8 @@ void DcnSlackAnalysisCombiner::Combine(const DcnSlackAnalysis& slack_analysis) {
     summary.set_recv_op_name(slack.recv_op_name());
     summary.set_send_op_name(slack.send_op_name());
     summary.set_transfer_type(slack.transfer_type());
+    summary.set_host_events_count(summary.host_events_count() +
+                                  slack.host_events_count() * occurrences);
   }
 }
 
@@ -83,6 +85,7 @@ DcnSlackAnalysis DcnSlackAnalysisCombiner::Finalize() {
     slack->set_occurrences(summary.occurrences());
     slack->set_bytes_transmitted_over_network(
         summary.bytes_transmitted_over_network());
+    slack->set_host_events_count(summary.host_events_count());
   }
 
   return analysis;

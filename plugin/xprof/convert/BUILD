@@ -15,7 +15,6 @@ package(
 py_library(
     name = "all_libs",
     deps = [
-        ":dcn_collective_stats_proto_to_gviz",
         ":raw_to_tool_data",
         ":trace_events_json",
     ],
@@ -69,35 +68,11 @@ py_test(
 )
 
 py_library(
-    name = "dcn_collective_stats_proto_to_gviz",
-    srcs = ["dcn_collective_stats_proto_to_gviz.py"],
-    deps = [
-        requirement("gviz_api"),
-        "@org_xprof//plugin/xprof/protobuf:dcn_slack_analysis_proto_py",
-    ],
-)
-
-py_test(
-    name = "dcn_collective_stats_proto_to_gviz_test",
-    size = "small",
-    srcs = ["dcn_collective_stats_proto_to_gviz_test.py"],
-    main = "dcn_collective_stats_proto_to_gviz_test.py",
-    deps = [
-        ":dcn_collective_stats_proto_to_gviz",
-        "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        requirement("gviz_api"),
-        "//:expect_tensorflow_installed",
-        "@org_xprof//plugin/xprof/protobuf:dcn_slack_analysis_proto_py",
-    ],
-)
-
-py_library(
     name = "raw_to_tool_data",
     srcs = ["raw_to_tool_data.py"],
     visibility = visibility + ["//perftools/accelerators/xprof/benchmark/xprof_benchmarking_tools:__subpackages__"],
     deps = [
         ":csv_writer",
-        ":dcn_collective_stats_proto_to_gviz",
         ":trace_events_json",
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",

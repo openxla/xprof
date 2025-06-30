@@ -1,11 +1,12 @@
 /**
- * @fileoverview Data service interface meant to accommodate different implementations
+ * @fileoverview Data service interface meant to accommodate different
+ * implementations
  */
 
-import {HttpParams} from '@angular/common/http';
 import {InjectionToken} from '@angular/core';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
+import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {Observable} from 'rxjs';
 
@@ -47,6 +48,7 @@ export interface DataServiceV2Interface {
       Observable<string>;
 
   getTags(sessionId: string): Observable<string[]>;
+  getHosts(sessionId: string, tool?: string): Observable<HostMetadata[]>;
 
   // host is needed to fetch the corresponding <host>.xplane.pb data
   // params: op_profile_limit to control the numbe of op displayed in each layer
@@ -71,12 +73,9 @@ export interface DataServiceV2Interface {
       showMetadata: boolean,
       ): Observable<string|Blob|null>;
 
-  setSearchParams(params: URLSearchParams): void;
   getSearchParams(): URLSearchParams;
 
   exportDataAsCSV(sessionId: string, tool: string, host: string): void;
-
-  getHttpParams(sessionId: string, tool: string): HttpParams;
 
   getDataByModuleNameAndMemorySpace(
       tool: string,

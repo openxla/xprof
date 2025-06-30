@@ -3,7 +3,7 @@ import {MatDialog} from '@angular/material/dialog';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {Store} from '@ngrx/store';
 import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {setCapturingProfileAction} from 'org_xprof/frontend/app/store/actions';
 import {getCapturingProfileState} from 'org_xprof/frontend/app/store/selectors';
 import {Observable, ReplaySubject} from 'rxjs';
@@ -30,7 +30,7 @@ export class CaptureProfile implements OnDestroy {
   constructor(
       private readonly dialog: MatDialog,
       private readonly snackBar: MatSnackBar,
-      private readonly dataService: DataService,
+      private readonly dataService: DataServiceV2,
       private readonly store: Store<{}>) {
     this.capturingProfile = this.store.select(getCapturingProfileState);
   }

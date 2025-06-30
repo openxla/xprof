@@ -1,4 +1,4 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
@@ -7,7 +7,7 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
-import {DataService} from 'org_xprof/frontend/app/services/data_service/data_service';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -24,6 +24,9 @@ const MEGASCALE_STATS_INDEX = 0;
 export class MegascaleStats extends Dashboard implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly dataService: DataServiceV2Interface = inject(
+      DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
   dataInfo: ChartDataInfo = {
     data: null,
@@ -35,9 +38,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
     },
   };
 
-  constructor(
-      route: ActivatedRoute, private readonly dataService: DataService,
-      private readonly store: Store<{}>) {
+  constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.update(params as NavigationEvent);

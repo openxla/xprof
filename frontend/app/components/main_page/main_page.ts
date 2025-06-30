@@ -3,7 +3,7 @@ import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
-import {getErrorMessage, getLoadingState} from 'org_xprof/frontend/app/store/selectors';
+import {getErrorMessage, getLoadingState, } from 'org_xprof/frontend/app/store/selectors';
 import {LoadingState} from 'org_xprof/frontend/app/store/state';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -29,6 +29,10 @@ export class MainPage implements OnDestroy {
       store: Store<{}>,
       private readonly communicationService: CommunicationService,
   ) {
+    window.sessionStorage.setItem(
+        'searchParams',
+        new URLSearchParams(window.location.search).toString(),
+    );
     store.select(getLoadingState)
         .pipe(takeUntil(this.destroyed))
         .subscribe((loadingState: LoadingState) => {

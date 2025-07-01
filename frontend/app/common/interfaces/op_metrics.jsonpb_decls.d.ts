@@ -128,13 +128,13 @@ export namespace OpMetrics {
 }
 
 /** */
-export interface PrecisionStats extends {
+export interface PrecisionStats {
   compute16bitPs?: /* uint64 */ string;
   compute32bitPs?: /* uint64 */ string;
 }
 
 /** */
-export interface OpMetricsDb extends {
+export interface OpMetricsDb {
   metricsDb?: OpMetrics[];
   totalHostInfeedEnqDurationPs?: /* uint64 */ string;
   totalHostInfeedEnqStartTimestampPsDiff?: /* uint64 */ string;

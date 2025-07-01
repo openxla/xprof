@@ -1,6 +1,11 @@
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config")
+load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@python//:defs.bzl", "compile_pip_requirements")
-load("@python_deps//:requirements.bzl", "requirement")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
+
+npm_link_all_packages(
+    name = "node_modules",
+)
 
 # Description
 # XProf, ML Performance Toolbox (for TPU, GPU, CPU).
@@ -13,8 +18,13 @@ exports_files(["README.md"])  # Needed for pip package description
 
 exports_files([
     "tsconfig.json",
-    "rollup.config.js",
 ])
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = [":__subpackages__"],
+)
 
 py_library(
     name = "expect_tensorflow_installed",
@@ -34,4 +44,13 @@ compile_pip_requirements(
     generate_hashes = True,
     requirements_in = "requirements.in",
     requirements_txt = PROFILER_REQUIREMENTS_FILE,
+)
+
+platform(
+    name = "x64_windows-clang-cl",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:windows",
+        "@bazel_tools//tools/cpp:clang-cl",
+    ],
 )

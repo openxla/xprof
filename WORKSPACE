@@ -133,54 +133,71 @@ http_archive(
     urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/5.8.5/rules_nodejs-core-5.8.5.tar.gz"],
 )
 
-load("@rules_nodejs//nodejs:repositories.bzl", "nodejs_register_toolchains")
-
-nodejs_register_toolchains(
-    name = "nodejs",
-    node_version = "20.14.0",
-)
-
 http_archive(
     name = "build_bazel_rules_nodejs",
     sha256 = "a1295b168f183218bc88117cf00674bcd102498f294086ff58318f830dd9d9d1",
     urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/5.8.5/rules_nodejs-5.8.5.tar.gz"],
 )
 
-load("@build_bazel_rules_nodejs//:repositories.bzl", "build_bazel_rules_nodejs_dependencies")
-
-build_bazel_rules_nodejs_dependencies()
-
-load("@build_bazel_rules_nodejs//:index.bzl", "yarn_install")
-
-yarn_install(
-    name = "npm",
-    # "Some rules only work by referencing labels nested inside npm packages
-    # and therefore require turning off exports_directories_only."
-    # This includes "ts_library".
-    # See: https://github.com/bazelbuild/rules_nodejs/wiki/Migrating-to-5.0#exports_directories_only
-    exports_directories_only = False,
-    package_json = "//:package.json",
-    yarn_lock = "//:yarn.lock",
+http_archive(
+    name = "aspect_rules_rollup",
+    sha256 = "0b8ac7d97cd660eb9a275600227e9c4268f5904cba962939d1a6ce9a0a059d2e",
+    strip_prefix = "rules_rollup-2.0.1",
+    url = "https://github.com/aspect-build/rules_rollup/releases/download/v2.0.1/rules_rollup-v2.0.1.tar.gz",
 )
 
-# rules_sass release information is difficult to find but it does seem to
-# regularly release with same cadence and version as core sass.
-# We typically upgrade this library whenever we upgrade rules_nodejs.
-#
-# rules_sass 1.55.0: https://github.com/bazelbuild/rules_sass/tree/1.55.0
+load("@aspect_rules_rollup//rollup:dependencies.bzl", "rules_rollup_dependencies")
+
+rules_rollup_dependencies()
+
 http_archive(
-    name = "io_bazel_rules_sass",
-    sha256 = "1ea0103fa6adcb7d43ff26373b5082efe1d4b2e09c4f34f8a8f8b351e9a8a9b0",
-    strip_prefix = "rules_sass-1.55.0",
+    name = "aspect_rules_ts",
+    sha256 = "6b15ac1c69f2c0f1282e41ab469fd63cd40eb2e2d83075e19b68a6a76669773f",
+    strip_prefix = "rules_ts-3.6.0",
+    url = "https://github.com/aspect-build/rules_ts/releases/download/v3.6.0/rules_ts-v3.6.0.tar.gz",
+)
+
+load("@aspect_rules_ts//ts:repositories.bzl", "rules_ts_dependencies")
+
+rules_ts_dependencies(
+    ts_version_from = "//:package.json",
+)
+
+load("@aspect_rules_js//js:repositories.bzl", "rules_js_dependencies")
+
+rules_js_dependencies()
+
+load("@aspect_rules_js//js:toolchains.bzl", "DEFAULT_NODE_VERSION", "rules_js_register_toolchains")
+
+rules_js_register_toolchains(node_version = DEFAULT_NODE_VERSION)
+
+load("@aspect_rules_js//npm:repositories.bzl", "npm_translate_lock")
+load("//defs:sass_workaround.bzl", "SASS_DEPS")
+
+npm_translate_lock(
+    name = "npm",
+    data = ["//:package.json"],
+    npmrc = "//:.npmrc",
+    pnpm_lock = "//:pnpm-lock.yaml",
+    public_hoist_packages = {p: [""] for p in SASS_DEPS},
+    quiet = False,
+)
+
+load("@npm//:repositories.bzl", "npm_repositories")
+
+npm_repositories()
+
+http_archive(
+    name = "rules_sass",
+    strip_prefix = "rules_sass-cc1e845339fc45d3c8390445014d5824b85a0948",
     urls = [
-        "http://mirror.tensorflow.org/github.com/bazelbuild/rules_sass/archive/1.55.0.zip",
-        "https://github.com/bazelbuild/rules_sass/archive/1.55.0.zip",
+        "https://github.com/devversion/rules_sass/archive/cc1e845339fc45d3c8390445014d5824b85a0948.tar.gz",
     ],
 )
 
-load("@io_bazel_rules_sass//:defs.bzl", "sass_repositories")
+load("@rules_sass//src/toolchain:repositories.bzl", "setup_rules_sass")
 
-sass_repositories()
+setup_rules_sass()
 
 http_archive(
     name = "xla",
@@ -289,6 +306,6 @@ http_archive(
     urls = ["https://github.com/tensorflow/tensorboard/archive/refs/tags/2.19.0.tar.gz"],
 )
 
-load("@org_tensorflow_tensorboard//third_party:workspace.bzl", "tensorboard_workspace")
+load("@org_tensorflow_tensorboard//third_party:js.bzl", "tensorboard_js_workspace")
 
-tensorboard_workspace()
+tensorboard_js_workspace()

@@ -1,5 +1,5 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:sass.bzl", "sass_binary")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -15,8 +15,8 @@ xprof_ng_module(
     ],
     # strict_templates = False,
     deps = [
-        "@npm//@angular/core",
-        "@npm//@types/google.visualization",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",

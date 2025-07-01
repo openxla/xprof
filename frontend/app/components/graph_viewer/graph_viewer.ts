@@ -1,4 +1,4 @@
-import {Component, ElementRef, inject, NgZone, OnDestroy, ViewChild} from '@angular/core';
+import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild} from '@angular/core';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -12,6 +12,7 @@ import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {GraphConfig} from 'org_xprof/frontend/app/components/graph_viewer/graph_config/graph_config';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveOpProfileNodeAction, setCurrentToolStateAction, setOpProfileRootNodeAction, setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {ReplaySubject} from 'rxjs';
@@ -75,6 +76,10 @@ export class GraphViewer implements OnDestroy {
   // ME related variables
   showMeGraph = false;
 
+  private readonly injector: Injector = inject(Injector);
+  sourceCodeServiceIsAvailable = false;
+  stackTrace = '';
+
   constructor(
       public zone: NgZone,
       private readonly route: ActivatedRoute,
@@ -95,6 +100,14 @@ export class GraphViewer implements OnDestroy {
           this.updateView();
         });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
+
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService =
+        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
+    this.sourceCodeServiceIsAvailable =
+        sourceCodeService?.isAvailable() === true;
   }
 
   // process query params from in component navigation event
@@ -198,6 +211,8 @@ export class GraphViewer implements OnDestroy {
     this.loadingOpProfile = true;
     const params = new Map<string, string>();
     params.set('op_profile_limit', this.opProfileLimit.toString());
+    // TODO: b/428756831 - Remove once `use_xplane=1` becomes the default.
+    params.set('use_xplane', '1');
     this.dataService.getOpProfileData(this.sessionId, this.host, params)
         .pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
@@ -280,12 +295,14 @@ export class GraphViewer implements OnDestroy {
   onClickGraphvizNode(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
+    this.updateStackTrace(this.selectedNode);
     event.preventDefault();
   }
 
   onClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
+    this.updateStackTrace(this.selectedNode);
     event.preventDefault();
   }
 
@@ -306,6 +323,12 @@ export class GraphViewer implements OnDestroy {
     this.zone.run(() => {
       this.opName = opName;
       this.onSearchGraph();
+    });
+  }
+
+  private updateStackTrace(node: Node|null) {
+    this.zone.run(() => {
+      this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
     });
   }
 

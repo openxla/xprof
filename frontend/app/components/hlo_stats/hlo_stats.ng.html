@@ -98,12 +98,30 @@
     <string-filter [dataTable]="dataTable" column="tf_op_name"
                    all="All" (changed)="updateFilters($event)">
     </string-filter>
+    <div class="control" *ngIf="sourceCodeServiceIsAvailable">
+      <div class="control-title">Show Source Code
+        <mat-icon
+          class="tooltip-icon"
+          matTooltip=
+            "Click on the source info text to see snippets of source code around frames of the
+            stack trace at the bottom of the page."
+          matTooltipPosition="above">
+          info
+        </mat-icon>
+      </div>
+      <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
+    </div>
   </div>
 </div>
 
 <div>
-  <chart chartType="Table"
+  <chart #table
+         chartType="Table"
          class="table"
          [dataInfo]="dataInfoForTable">
   </chart>
 </div>
+
+<stack-trace-snippet
+    [stackTrace]="stackTrace"
+    *ngIf="sourceCodeServiceIsAvailable && showStackTrace"/>

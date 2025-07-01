@@ -549,6 +549,7 @@ dashboard would integrate trace viewer app using iframe.
       // Store the async track's state to keep persistent per model import.
       // Hashmap from async track name to expanded boolean.
       _asyncTrackState: {type: Object, value: new Map()},
+      _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
     },
 
     ready: function() {
@@ -632,6 +633,8 @@ dashboard would integrate trace viewer app using iframe.
           this.hostsDataUrl = value;
         } else if (key === 'resolution') {
           this._resolution = Number(value);
+        } else if (key === 'source_code_service') {
+          this._sourceCodeServiceIsAvailable = value === 'true';
         }
       }.bind(this));
 
@@ -707,6 +710,24 @@ dashboard would integrate trace viewer app using iframe.
             'event_label': 'code_search_link'
           });
         });
+    },
+
+    createStackTraceSnippetLink: function(hloModule, hloOp, stackTrace) {
+      if (!stackTrace || !this._sourceCodeServiceIsAvailable) return;
+      // LINT.IfChange(stack_trace_page_keys)
+      const hloModuleKey = 'hlo_module';
+      const hloOpKey = 'hlo_op';
+      const stackTraceKey = 'stack_trace';
+      // LINT.ThenChange(//depot/google3/third_party/xprof/frontend/app/components/stack_trace_page/stack_trace_page.ts:keys)
+      this.createCrossToolLink(
+          'stack_trace_page',
+          'Stack Trace Source Code Snippet',
+          {
+            [hloModuleKey]: hloModule,
+            [hloOpKey]: hloOp,
+            [stackTraceKey]: stackTrace,
+          },
+          'Open in a new page');
     },
 
     createCrossToolLink: function(toolName, toolLabel, params, text) {
@@ -829,6 +850,9 @@ dashboard would integrate trace viewer app using iframe.
           }
           if (event.args?.source && this._codeLink) {
             this.createCodeSearchLink(event.args?.source);
+          }
+          if (event.args?.source_stack) {
+            this.createStackTraceSnippetLink(hloModule, hloOp,event.args?.source_stack);
           }
         } else if ('Source code' === event.parentContainer.name && event.title && this._codeLink) {
           this.createCodeSearchLink(event.title);

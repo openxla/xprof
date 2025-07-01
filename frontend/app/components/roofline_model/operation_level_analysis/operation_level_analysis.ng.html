@@ -3,10 +3,27 @@
   <category-filter [dataTable]="dataTable" column="Category" (changed)="onUpdateFilters($event)" all="All"></category-filter>
   <category-filter [dataTable]="dataTable" column="Bound by" (changed)="onUpdateFilters($event)" all="All"></category-filter>
   <string-filter [dataTable]="dataTable" column="Operation" [value]="selectedOp" (changed)="onUpdateFilters($event)" all="All"></string-filter>
+  <div class="control" *ngIf="sourceCodeServiceIsAvailable">
+    <div class="control-title">Show Source Code
+      <mat-icon
+        class="tooltip-icon"
+        matTooltip=
+          "Click on the source info text to see snippets of source code around frames of the
+          stack trace at the bottom of the page."
+        matTooltipPosition="above">
+        info
+      </mat-icon>
+    </div>
+    <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
+  </div>
 </div>
 <div class="row">
   <chart chartType="ScatterChart" [dataInfo]="dataInfoRooflineScatterChart"></chart>
   <div class="flex-space"></div>
   <chart chartType="PieChart" [dataInfo]="dataInfoCategoryPieChart"></chart>
 </div>
-<table [dataView]="dataView" [showRowNumber]="true"></table>
+<table #table [dataView]="dataView" [showRowNumber]="true"></table>
+
+<stack-trace-snippet
+    [stackTrace]="stackTrace"
+    *ngIf="sourceCodeServiceIsAvailable && showStackTrace"/>

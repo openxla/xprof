@@ -1,9 +1,10 @@
 import {PlatformLocation} from '@angular/common';
 import {HttpParams} from '@angular/common/http';
-import {Component, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -17,6 +18,7 @@ import {takeUntil} from 'rxjs/operators';
 export class TraceViewer implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly injector = inject(Injector);
 
   url = '';
   pathPrefix = '';
@@ -44,7 +46,19 @@ export class TraceViewer implements OnDestroy {
     this.url = this.pathPrefix + API_PREFIX + PLUGIN_NAME +
         '/trace_viewer_index.html' +
         '?is_streaming=' + isStreaming.toString() + '&is_oss=true' +
-        '&trace_data_url=' + encodeURIComponent(traceDataUrl);
+        '&trace_data_url=' + encodeURIComponent(traceDataUrl) +
+        '&source_code_service=' + String(this.isSourceCodeServiceAvailable());
+  }
+
+  private isSourceCodeServiceAvailable() {
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService = this.injector.get(
+        SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+        null,
+    );
+    return sourceCodeService?.isAvailable() === true;
   }
 
   ngOnDestroy() {

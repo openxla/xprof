@@ -1,3 +1,6 @@
+<as-split direction="vertical">
+<as-split-area [size]="80">
+
 <diagnostics-view [diagnostics]="diagnostics"></diagnostics-view>
 
 <div class="section-container">
@@ -66,3 +69,21 @@
 <div class="section-container" [hidden]="hasTrace">
   There is no data to display.
 </div>
+
+<div class="control" *ngIf="sourceCodeServiceIsAvailable">
+  <div class="control-title">Show Source Code
+    <mat-icon
+      class="tooltip-icon"
+      matTooltip= "Hover on HLO Ops to see snippets of source code around frames of its stack trace."
+      matTooltipPosition="above">
+      info
+    </mat-icon>
+  </div>
+  <mat-slide-toggle [checked]="showStackTrace" (toggleChange)="toggleShowStackTrace()"/>
+</div>
+</as-split-area>
+
+<as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">
+  <stack-trace-snippet [stackTrace]="stackTrace" />
+</as-split-area>
+</as-split>

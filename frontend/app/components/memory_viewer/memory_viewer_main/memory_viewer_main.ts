@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, Input, OnChanges, OnDestroy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -6,6 +6,7 @@ import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics'
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 
 interface BufferSpan {
@@ -33,6 +34,9 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   @Input() currentHost = '';
   @Input() currentModule = '';
 
+  private readonly store: Store<{}> = inject(Store);
+  private readonly injector = inject(Injector);
+
   peakInfo?: BufferAllocationInfo;
   activeInfo?: BufferAllocationInfo;
   totalBufferAllocationMiB = '';
@@ -55,8 +59,19 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   hloInstructionNames: string[] = [];
   hasTrace = false;
   diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
+  stackTrace = '';
+  showStackTrace = false;
+  sourceCodeServiceIsAvailable = false;
 
-  constructor(private readonly store: Store<{}>) {}
+  constructor() {
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService =
+        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
+    this.sourceCodeServiceIsAvailable =
+        sourceCodeService?.isAvailable() === true;
+  }
 
   ngOnChanges() {
     this.update();
@@ -64,6 +79,10 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   ngOnDestroy() {
     this.dispatchActiveHeapObject();
+  }
+
+  toggleShowStackTrace() {
+    this.showStackTrace = !this.showStackTrace;
   }
 
   private dispatchActiveHeapObject(heapObject: HeapObject|null = null) {
@@ -77,11 +96,13 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
         free: span.free,
         color: utils.getChartItemColorByIndex(heapObject.color || 0),
       };
+      this.stackTrace = heapObject.sourceInfo?.stackFrame || '';
     } else {
       this.activeInfo = undefined;
       this.selectedIndex = -1;
       this.selectedIndexBySize = -1;
       this.selectedIndexByPaddingSize = -1;
+      this.stackTrace = '';
     }
   }
 

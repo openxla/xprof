@@ -3,9 +3,10 @@ build --repo_env=TF_PYTHON_VERSION=3.10
 build --experimental_repo_remote_exec
 build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
-build --copt=-Wno-error=array-parameter
-build --copt=-w
 build --noenable_bzlmod
+
+common --@aspect_rules_ts//ts:skipLibCheck=always
+common --@aspect_rules_ts//ts:default_to_tsc_transpiler
 
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD
@@ -64,6 +65,8 @@ build:resultstore --bes_timeout=600s
 
 build:avx_linux --copt=-mavx
 build:avx_linux --host_copt=-mavx
+build:avx_linux --copt=-Wno-error=array-parameter
+build:avx_linux --copt=-w
 
 # Flag to enable remote config
 common --experimental_repo_remote_exec

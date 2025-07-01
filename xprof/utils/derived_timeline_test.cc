@@ -21,8 +21,12 @@ limitations under the License.
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <string>
+#include <utility>
 
+#include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -39,6 +43,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::UnorderedElementsAreArray;
 using ::tsl::profiler::GetOrCreateGpuXPlane;
 using ::tsl::profiler::kThreadIdHloModule;
 using ::tsl::profiler::kThreadIdTfNameScope;
@@ -324,56 +329,83 @@ TEST(DerivedTimelineTest, TfNameScopeMaintainsOrder) {
   });
 }
 
-// Checks only derived events from line with most events for gpu trace.
-TEST(DerivedTimelineTest, OnlyDerivedEventsFromLineWithMostEvents) {
-  const absl::string_view kTfOpName = "scope1/scope2/mul:Mul";
+// Checks derived events from each lines for gpu trace.
+TEST(DerivedTimelineTest, OnlyDerivedEventsFromAllLines) {
+  const std::string kStreamName1 = "stream1";
+  const std::string kStreamName2 = "stream2";
+  const std::string kScopeName1 = "scope1";
+  const std::string kScopeName2 = "scope2";
+  const std::string kOpName1 = "mul:Mul1";
+  const std::string kOpName2 = "mul:Mul2";
+  const std::string kStream1Scope1 = absl::StrCat(kStreamName1, kScopeName1);
+  const std::string kStream1Scope2 = absl::StrCat(kStreamName1, kScopeName2);
+  const std::string kStream2Scope1 = absl::StrCat(kStreamName2, kScopeName1);
+  const std::string kStream2Scope2 = absl::StrCat(kStreamName2, kScopeName2);
+  const std::string kFramWorkScopeName = "Framework Name Scope";
+  const std::string kFromWorkeOpsName = "Framework Ops";
+  // Adding the stream name and scope name to the tf op name to make it unique
+  // and easier to identify.
+  const std::string kTfOpName1 =
+      absl::StrCat(kStream1Scope1, "/", kStream1Scope2, "/",
+                   kOpName1);  // "stream1scope1/stream1scope2/mul:Mul1"
+  const std::string kTfOpName2 =
+      absl::StrCat(kStream2Scope1, "/", kStream2Scope2, "/",
+                   kOpName2);  // "stream2scope1/stream2scope2/mul:Mul2"
   const absl::string_view kKernelDetails = "kernel_details";
+  constexpr int64_t kEventLine0 = 0;
+  constexpr int64_t kEventLine1 = 1;
+
   XSpace space;
   tsl::profiler::GroupMetadataMap group_metadata_map;
   XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
   XPlaneBuilder plane_builder(plane);
-  auto line_builder = plane_builder.GetOrCreateLine(0);
+  auto line_builder = plane_builder.GetOrCreateLine(kEventLine0);
   // Add first line with two events.
   CreateXEvent(&plane_builder, &line_builder, "op1", 0, 100,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName1},
                 {StatType::kKernelDetails, kKernelDetails}});
   CreateXEvent(&plane_builder, &line_builder, "op2", 200, 300,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName1},
                 {StatType::kKernelDetails, kKernelDetails}});
   // Add second line with only one event.
-  auto line_builder_2 = plane_builder.GetOrCreateLine(1);
+  auto line_builder_2 = plane_builder.GetOrCreateLine(kEventLine1);
   CreateXEvent(&plane_builder, &line_builder_2, "op3", 50, 850,
-               {{StatType::kTfOp, kTfOpName},
+               {{StatType::kTfOp, kTfOpName2},
                 {StatType::kKernelDetails, kKernelDetails}});
   // Derive lines for the plane.
   GenerateDerivedTimeLines(group_metadata_map, &space);
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
-  // The TF name scope line and the TF op line are added.
-  EXPECT_EQ(plane_visitor.NumLines(), 4);
+  // Two Events {op1, op2 in line 0} and {op3 in line 1} are added to the plane.
+  // For each event, two lines are added, one for the TF name scope and one for
+  // the TF op, making 6 lines in total.
+  EXPECT_EQ(plane_visitor.NumLines(), 6);
+  absl::flat_hash_map<
+      std::string,
+      absl::flat_hash_map<std::string, std::pair<uint64_t, uint64_t>>>
+      expected_framework_values = {
+          {"Framework Name Scope - from #0",
+           {{kStream1Scope1, {0, 500}}, {kStream1Scope2, {0, 500}}}},
+          {"Framework Ops - from #0", {{kTfOpName1, {0, 500}}}},
+          {"Framework Name Scope - from #1",
+           {{kStream2Scope1, {50, 850}}, {kStream2Scope2, {50, 850}}}},
+          {"Framework Ops - from #1", {{kTfOpName2, {50, 850}}}}};
+  absl::flat_hash_map<
+      std::string,
+      absl::flat_hash_map<std::string, std::pair<uint64_t, uint64_t>>>
+      actual_framework_values;
+
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
-    int64_t line_id = line_visitor.Id();
-    if (line_id == 0 || line_id == 1) {
-      return;
-    } else if (line_id == kThreadIdTfNameScope) {
-      EXPECT_EQ(line_visitor.NumEvents(), 2);
+    if (expected_framework_values.contains(line_visitor.Name())) {
+      auto& actual_events = actual_framework_values[line_visitor.Name()];
       line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
-        EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        // When derived from first line only, we should get single event which
-        // starts from op1' start (0), end at op2's end (200 + 300),
-        // duration is 500.
-        // If derived from both lines, the derived event duration will be
-        // (50 + 850) - 0 = 900.
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
-      });
-    } else if (line_id == kThreadIdTfOp) {
-      EXPECT_EQ(line_visitor.NumEvents(), 1);
-      line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
-        EXPECT_EQ(event_visitor.Name(), kTfOpName);
-        EXPECT_EQ(event_visitor.OffsetPs(), 0);
-        EXPECT_EQ(event_visitor.DurationPs(), 500);
+        actual_events[event_visitor.Name()] = {event_visitor.OffsetPs(),
+                                               event_visitor.DurationPs()};
       });
     }
   });
+  // Check that every line is matched.
+  EXPECT_THAT(actual_framework_values,
+              UnorderedElementsAreArray(expected_framework_values));
 }
 
 // Checks that the TF op events are expanded.

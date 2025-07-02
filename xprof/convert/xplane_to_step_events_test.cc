@@ -20,11 +20,14 @@ limitations under the License.
 
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/group_events.h"
+#include "xla/tsl/profiler/utils/preprocess_xplane.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/derived_timeline.h"
@@ -296,6 +299,115 @@ TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneNoStepLine) {
   EXPECT_EQ(step_events.size(), 0);
 }
 
+TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
+  XSpace space;
+  XPlane* host_plane = tsl::profiler::GetOrCreateHostXPlane(&space);
+  XPlaneBuilder host_plane_builder(host_plane);
+  host_plane_builder.ReserveLines(5);
+  auto main_thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(
+      &host_plane_builder, &main_thread, "read_data 1", 0, 100,
+      {{StatType::kStepNum, int64_t{1}}, {StatType::kIsRoot, int64_t{1}}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "_BatchDatasetIterator.__next__", 1, 90,
+               {{StatType::kInputPipelineStageName, "Batch"}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "FirstFitPackDatasetIterator.__next__", 2, 88,
+               {{StatType::kInputPipelineStageName, "FirstFitPack"}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "PrefetchDatasetIterator.__next__", 3, 9,
+               {{StatType::kInputPipelineStageName, "Prefetch"},
+                {StatType::kProducerType, int64_t{9999}},
+                {StatType::kProducerId, int64_t{1}}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "PrefetchDatasetIterator.__next__", 13, 9,
+               {{StatType::kInputPipelineStageName, "Prefetch"},
+                {StatType::kProducerType, int64_t{9999}},
+                {StatType::kProducerId, int64_t{2}}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "PrefetchDatasetIterator.__next__", 23, 50,
+               {{StatType::kInputPipelineStageName, "Prefetch"},
+                {StatType::kProducerType, int64_t{9999}},
+                {StatType::kProducerId, int64_t{3}}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "PrefetchDatasetIterator.__next__", 74, 10,
+               {{StatType::kInputPipelineStageName, "Prefetch"},
+                {StatType::kProducerType, int64_t{9999}},
+                {StatType::kProducerId, int64_t{4}}});
+  CreateXEvent(&host_plane_builder, &main_thread,
+               "PrefetchDatasetIterator.__next__", 85, 5,
+               {{StatType::kInputPipelineStageName, "Prefetch"},
+                {StatType::kProducerType, int64_t{9999}},
+                {StatType::kProducerId, int64_t{5}}});
+  CreateXEvent(
+      &host_plane_builder, &main_thread, HostEventType::kTpuSystemExecute, 92,
+      1,
+      {{StatType::kProducerType,
+        static_cast<int64_t>(tsl::profiler::ContextType::kTfrtTpuRuntime)},
+       {StatType::kProducerId, int64_t{1}}});
+  auto runtime_thread = host_plane_builder.GetOrCreateLine(1);
+  CreateXEvent(
+      &host_plane_builder, &runtime_thread,
+      "tpu::System::Execute=>IssueSequencedEvent", 94, 4,
+      {{StatType::kConsumerType,
+        static_cast<int64_t>(tsl::profiler::ContextType::kTfrtTpuRuntime)},
+       {StatType::kConsumerId, int64_t{1}}});
+  CreateXEvent(
+      &host_plane_builder, &runtime_thread, HostEventType::kDoEnqueueProgram,
+      95, 2,
+      {{StatType::kRunId, int64_t{1}}, {StatType::kQueueId, int64_t{0}}});
+  for (int i = 1; i <= 5; ++i) {
+    auto worker_thread = host_plane_builder.GetOrCreateLine(i + 2);
+    worker_thread.SetName(absl::StrCat("WorkerThread-", i));
+    CreateXEvent(&host_plane_builder, &worker_thread, "MapDataset.__getitem__",
+                 2, 2,
+                 {{StatType::kInputPipelineStageName, "MapDataset"},
+                  {StatType::kConsumerType, int64_t{9999}},
+                  {StatType::kConsumerId, int64_t{i}}});
+  }
+
+  XPlane* device_plane = space.add_planes();
+  XPlaneBuilder device_plane_builder(device_plane);
+  device_plane_builder.SetName("/device:TPU:0");
+  device_plane_builder.ReserveLines(3);
+
+  auto steps = device_plane_builder.GetOrCreateLine(0);
+  steps.SetName(tsl::profiler::kStepLineName);
+  auto modules = device_plane_builder.GetOrCreateLine(1);
+  modules.SetName(tsl::profiler::kXlaModuleLineName);
+  auto ops = device_plane_builder.GetOrCreateLine(2);
+  ops.SetName(tsl::profiler::kXlaOpLineName);
+  CreateXEvent(&device_plane_builder, &steps, "read_data 1", 0, 100, {});
+  CreateXEvent(&device_plane_builder, &modules, "jit_multiply(1)", 97, 2,
+               {{StatType::kRunId, int64_t{1}},
+                {StatType::kReplicaId, int64_t{0}},
+                {StatType::kQueueId, int64_t{0}}});
+  CreateXEvent(&device_plane_builder, &ops, "multiply.1", 98, 1, {});
+
+  tsl::profiler::EventForest event_forest;
+  tsl::profiler::PreprocessXSpace(&space);
+  tsl::profiler::GroupTpuEventsOSS(&space, {device_plane}, &event_forest);
+  StepEvents device_step_events =
+      ConvertDeviceTraceXPlaneToStepEvents(*device_plane);
+  EXPECT_EQ(device_step_events.size(), 1);
+  StepEvents host_step_events =
+      ConvertHostThreadsXPlaneToStepEvents(*host_plane, &device_step_events);
+  // Should contain only the step which is also present on the device.
+  EXPECT_EQ(host_step_events.size(), 1);
+  // TraceContext should be added as a step marker.
+  EXPECT_EQ(host_step_events[0].Markers().size(), 1);
+  // FunctionRun shouldn't be added.
+  EXPECT_EQ(host_step_events[0].Events().size(), 15);
+  // Check that the new event is classified as HOST_WAIT_INPUT
+  std::vector<const EventTypeSpan*> host_wait_input_events;
+  for (const auto& event : host_step_events[0].Events()) {
+    if (event.type == EventType::HOST_WAIT_INPUT) {
+      host_wait_input_events.push_back(&event);
+    }
+  }
+  ASSERT_EQ(host_wait_input_events.size(), 1);
+  EXPECT_EQ(host_wait_input_events[0]->span, tsl::profiler::Timespan(1, 90));
+}
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

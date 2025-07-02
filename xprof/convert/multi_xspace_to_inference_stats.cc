@@ -97,14 +97,12 @@ StepEvents GetNonOverlappedStepEvents(XSpace* xspace) {
     UnionCombineStepEvents(events, &device_step_events);
   }
 
-  XPlaneVisitor host_plane = tsl::profiler::CreateTfXPlaneVisitor(
-      FindMutablePlaneWithName(xspace, tsl::profiler::kHostThreadsPlaneName));
-
-  host_plane.ForEachLine([&](const XLineVisitor& line) {
-    StepEvents events =
-        ConvertHostThreadsXLineToStepEvents(line, &device_step_events);
-    UnionCombineStepEvents(events, &host_step_events);
-  });
+  XPlane* host_plane =
+      FindMutablePlaneWithName(xspace, tsl::profiler::kHostThreadsPlaneName);
+  if (host_plane != nullptr) {
+    host_step_events =
+        ConvertHostThreadsXPlaneToStepEvents(*host_plane, &device_step_events);
+  }
   StepEvents overlapped_step_events;
   UnionCombineStepEvents(device_step_events, &overlapped_step_events);
   UnionCombineStepEvents(host_step_events, &overlapped_step_events);

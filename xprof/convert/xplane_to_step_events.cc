@@ -136,7 +136,7 @@ EventType ClassifyGpuEvent(absl::string_view event_name,
 }
 
 EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
-                           bool has_correlation_id) {
+                           bool has_correlation_id, bool is_ipl_output_node) {
   tsl::profiler::TfOp tf_op = tsl::profiler::ParseTfOpFullname(event_name);
   if (tsl::profiler::IsInfeedEnqueueOp(tf_op) ||
       tsl::profiler::IsMemcpyHToDOp(tf_op)) {
@@ -149,7 +149,8 @@ EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
     // TODO(b/150420972): Separate runtime overhead from actual compute for
     // CPU-only.
     return HOST_PREPARE;
-  } else if (absl::StartsWithIgnoreCase(event_name, "IteratorGetNext")) {
+  } else if (absl::StartsWithIgnoreCase(event_name, "IteratorGetNext") ||
+             is_ipl_output_node) {
     return HOST_WAIT_INPUT;
   } else {
     return HOST_COMPUTE;
@@ -164,6 +165,7 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
   line.ForEachEvent([&](const XEventVisitor& event) {
     int64_t correlation_id = -1;
     int64_t group_id = -1;
+    bool is_ipl_output_node = false;
     absl::string_view step_name;
     event.ForEachStat([&](const XStatVisitor& stat) {
       if (!stat.Type().has_value()) return;
@@ -176,6 +178,9 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
           break;
         case StatType::kStepName:
           step_name = stat.StrOrRefValue();
+          break;
+        case StatType::kIPLIsOutputStage:
+          is_ipl_output_node = stat.BoolValue();
           break;
       }
     });
@@ -197,7 +202,8 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
                      event.GetTimespan()));
     } else if (IsRealCpuCompute(event.Name())) {
       result[group_id].AddEvent(EventTypeSpan(
-          ClassifyCpuEvent(event.Name(), has_device, correlation_id >= 0),
+          ClassifyCpuEvent(event.Name(), has_device, correlation_id >= 0,
+                           is_ipl_output_node),
           event.GetTimespan()));
     }
     if (!step_name.empty()) {

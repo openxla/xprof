@@ -56,7 +56,7 @@ export interface DataServiceV2Interface {
       params: Map<string, string>): Observable<DataTable|null>;
 
   getOpProfileSummary(data: OpProfileData): OpProfileSummary[];
-
+  // TODO(b/429042977): Do not include Custom Call text for provenance nodes.
   getCustomCallTextLink(
       sessionId: string,
       moduleName: string,

@@ -3,9 +3,10 @@ build --repo_env=TF_PYTHON_VERSION=3.10
 build --experimental_repo_remote_exec
 build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
-build --copt=-Wno-error=array-parameter
-build --copt=-w
 build --noenable_bzlmod
+
+common --@aspect_rules_ts//ts:skipLibCheck=always
+common --@aspect_rules_ts//ts:default_to_tsc_transpiler
 
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD
@@ -17,36 +18,47 @@ build:macos --copt=-DGRPC_BAZEL_BUILD
 build:macos --linkopt=-Wl,-undefined,dynamic_lookup
 build:macos --host_linkopt=-Wl,-undefined,dynamic_lookup
 
-build:windows --compiler=clang-cl
-build:windows --copt=/W0
-build:windows --host_copt=/W0
-build:windows --copt=/Zc:__cplusplus
-build:windows --host_copt=/Zc:__cplusplus
-build:windows --copt=/D_USE_MATH_DEFINES
-build:windows --host_copt=/D_USE_MATH_DEFINES
+# Windows has a relatively short command line limit, which JAX has begun to hit.
+# See https://docs.bazel.build/versions/main/windows.html
 build:windows --features=compiler_param_file
 build:windows --features=archive_param_file
-build:windows --cxxopt=/std:c++17
-build:windows --host_cxxopt=/std:c++17
+build:windows --enable_runfiles
+
+# XLA uses M_* math constants that only get defined by MSVC headers if
+# _USE_MATH_DEFINES is defined.
+build:windows --copt=/D_USE_MATH_DEFINES
+build:windows --host_copt=/D_USE_MATH_DEFINES
+# Make sure to include as little of windows.h as possible
 build:windows --copt=-DWIN32_LEAN_AND_MEAN
 build:windows --host_copt=-DWIN32_LEAN_AND_MEAN
 build:windows --copt=-DNOGDI
 build:windows --host_copt=-DNOGDI
+# https://devblogs.microsoft.com/cppblog/announcing-full-support-for-a-c-c-conformant-preprocessor-in-msvc/
+# otherwise, there will be some compiling error due to preprocessing.
+build:windows --copt=/Zc:preprocessor
+build:windows --cxxopt=/std:c++17
+build:windows --host_cxxopt=/std:c++17
+# Generate PDB files, to generate useful PDBs, in opt compilation_mode
+# --copt /Z7 is needed.
 build:windows --linkopt=/DEBUG
 build:windows --host_linkopt=/DEBUG
 build:windows --linkopt=/OPT:REF
 build:windows --host_linkopt=/OPT:REF
 build:windows --linkopt=/OPT:ICF
 build:windows --host_linkopt=/OPT:ICF
+build:windows --incompatible_strict_action_env=true
+build:windows --action_env=BAZEL_SH
 
 # Windows x86 CI configs
 build:avx_windows --copt=/arch:AVX
 build:ci_windows_amd64 --config=avx_windows
-build:ci_windows_amd64 --compiler=clang-cl --verbose_failures=true
 build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"
 build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
 build:ci_windows_amd64 --host_linkopt=/FORCE:MULTIPLE --linkopt=/FORCE:MULTIPLE
 build:ci_windows_amd64 --color=yes
+build:ci_windows_amd64 --host_platform="@xla//tools/toolchains/win2022:windows_ltsc2022_clang"
+build:ci_windows_amd64 --extra_execution_platforms="@xla//tools/toolchains/win2022:windows_ltsc2022_clang"
+build:ci_windows_amd64 --platforms="@xla//tools/toolchains/win2022:windows_ltsc2022_clang"
 
 # #############################################################################
 # RBE config options below. These inherit the CI configs above and set the
@@ -62,8 +74,13 @@ build:resultstore --bes_instance_name="tensorflow-testing"
 build:resultstore --bes_results_url="https://source.cloud.google.com/results/invocations"
 build:resultstore --bes_timeout=600s
 
+build:linux --copt=-Wno-error=array-parameter
+build:linux --copt=-w
+
 build:avx_linux --copt=-mavx
 build:avx_linux --host_copt=-mavx
+build:avx_linux --copt=-Wno-error=array-parameter
+build:avx_linux --copt=-w
 
 # Flag to enable remote config
 common --experimental_repo_remote_exec
@@ -119,9 +136,10 @@ build:rbe_windows_amd64 --host_platform="@xla//tools/toolchains/win2022:windows_
 build:rbe_windows_amd64 --extra_execution_platforms="@xla//tools/toolchains/win2022:windows_ltsc2022_clang"
 build:rbe_windows_amd64 --platforms="@xla//tools/toolchains/win2022:windows_ltsc2022_clang"
 
-build:rbe_windows_amd64 --shell_executable=C:\\tools\\msys64\\usr\\bin\\bash.exe
-build:rbe_windows_amd64 --enable_runfiles
 build:rbe_windows_amd64 --define=override_eigen_strong_inline=true
+
+build:rbe_windows_amd64 --strategy=SassCompiler=local
+build:rbe_windows_amd64 --strategy=Rollup=local
 
 # Don't build the python zip archive in the RBE build.
 build:rbe_windows_amd64 --nobuild_python_zip

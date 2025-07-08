@@ -8,7 +8,7 @@ xprof_ng_module(
         "communication_service.ts",
     ],
     deps = [
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )

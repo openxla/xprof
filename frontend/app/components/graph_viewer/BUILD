@@ -1,5 +1,5 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:sass.bzl", "sass_binary")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,12 +14,12 @@ xprof_ng_module(
         "graph_viewer.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
-        "@npm//safevalues",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
+        "//:node_modules/safevalues",
         "@org_xprof//frontend/app/common/angular:angular_material_core",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",

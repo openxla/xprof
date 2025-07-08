@@ -23,8 +23,10 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {
@@ -115,6 +117,42 @@ TEST(XPlaneToTraceContainerTest, CounterLine) {
           Pair("Counter 2",
                UnorderedElementsAre(Pair(tsl::profiler::UniToPico(1), 300),
                                     Pair(tsl::profiler::UniToPico(2), 400)))));
+}
+
+TEST(XPlaneToTraceContainerTest, AsyncLine) {
+  XSpace xspace;
+  constexpr absl::string_view kAsyncOpEventName = "Async Op";
+  CHECK_OK(ParseTextFormatFromString(
+      absl::Substitute(
+          "planes {"
+          "  name: \"/device:GPU:0\""
+          "  lines {"
+          "    id: 15"
+          "    name: \"$2\""
+          "    timestamp_ns: $0"
+          "    events {"
+          "      metadata_id: 11"
+          "      offset_ps: 0"
+          "      duration_ps: $1"
+          "    }"
+          "  }"
+          "  event_metadata {key: 11 value: { id: 11 name: \"$3\" }}"
+          "}",
+          tsl::profiler::UniToNano(2), tsl::profiler::UniToPico(1),
+          tsl::profiler::kXlaAsyncOpLineName, kAsyncOpEventName),
+      &xspace));
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+  bool async_event_found = false;
+  container.ForAllEvents(
+      [&async_event_found, &kAsyncOpEventName](const TraceEvent& event) {
+        if (event.name() == kAsyncOpEventName) {
+          async_event_found = true;
+          EXPECT_EQ(event.timestamp_ps(), tsl::profiler::UniToPico(2));
+          EXPECT_EQ(event.duration_ps(), tsl::profiler::UniToPico(1));
+        }
+      });
+  EXPECT_TRUE(async_event_found);
 }
 
 }  // namespace

@@ -272,6 +272,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/utils:tensorflow_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
 
@@ -788,6 +789,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:tf_data_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_stats_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
+        "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@tsl//tsl/platform:protobuf",

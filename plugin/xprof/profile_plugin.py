@@ -402,6 +402,23 @@ def validate_xplane_asset_paths(asset_paths: List[str]) -> None:
       raise FileNotFoundError(f'Invalid asset path: {asset_path}')
 
 
+def _get_bool_arg(args: dict[str, Any], arg_name: str, default: bool) -> bool:
+  """Helper function to get a boolean argument from a request.
+
+  Args:
+    args: The werkzeug request arguments.
+    arg_name: The name of the argument.
+    default: The default value if the argument is not present.
+
+  Returns:
+    The boolean value of the argument.
+  """
+  arg_str = args.get(arg_name)
+  if arg_str is None:
+    return default
+  return arg_str.lower() == 'true'
+
+
 class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
 
@@ -637,8 +654,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     host = request.args.get('host')
     module_name = request.args.get('module_name')
     tqx = request.args.get('tqx')
-    use_saved_result_str = request.args.get('use_saved_result', 'true')
-    use_saved_result = use_saved_result_str.lower() != 'false'
+    use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
+    full_dma = _get_bool_arg(request.args, 'full_dma', False)
     run_dir = self._run_dir(run)
 
     # Check if the cache file exists and if the version is the same as the
@@ -680,6 +697,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if tool == 'trace_viewer@':
       options = {}
       options['resolution'] = request.args.get('resolution', 8000)
+      options['full_dma'] = full_dma
       if request.args.get('start_time_ms') is not None:
         options['start_time_ms'] = request.args.get('start_time_ms')
       if request.args.get('end_time_ms') is not None:

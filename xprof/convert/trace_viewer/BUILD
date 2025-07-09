@@ -141,6 +141,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
+        "@org_xprof//xprof/convert:xprof_thread_pool_executor",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
         "@xla//xla/tsl/lib/io:block",
         "@xla//xla/tsl/lib/io:iterator",

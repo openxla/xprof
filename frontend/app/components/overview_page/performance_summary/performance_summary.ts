@@ -178,7 +178,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
     tooltip:
         'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
     description:
-        'HBM: HBM SPI Sampler PowerMeter; Core: VDD Core SPI Sampler PowerMeter',
+        'HBM: HBM SPI Sampler Power Meter; Core: VDD Core SPI Sampler Power Meter',
     getChildValues: (props) =>
         (((props as GeneralProps)['spi_power_metrics']))?.split('##') || [],
   },

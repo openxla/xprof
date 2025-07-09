@@ -128,8 +128,8 @@ export class DataService {
       } else if (tag.startsWith('input_pipeline_analyzer')) {
         return of(mockData.DATA_PLUGIN_PROFILE_INPUT_PIPELINE_DATA)
             .pipe(delay(DELAY_TIME_MS));
-      } else if (tag.startsWith('tensorflow_stats')) {
-        return of(mockData.DATA_PLUGIN_PROFILE_TENSORFLOW_STATS_DATA)
+      } else if (tag.startsWith('framework_op_stats')) {
+        return of(mockData.DATA_PLUGIN_PROFILE_FRAMEWORK_OP_STATS_DATA)
             .pipe(delay(DELAY_TIME_MS));
       } else if (tag.startsWith('memory_viewer')) {
         return of(mockData.DATA_PLUGIN_PROFILE_MEMORY_VIEWER_DATA)

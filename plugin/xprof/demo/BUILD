@@ -31,7 +31,7 @@ py_binary(
         "//net/proto2/python/public",
         "//third_party/py/absl:app",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
+        "//third_party/tensorboard/backend/event_processing:plugin_asset_util",
         "@org_xprof//plugin/xprof:profile_plugin",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_py",
     ],

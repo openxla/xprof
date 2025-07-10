@@ -19,7 +19,6 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/op_profile:op_profile_data",
-        "@org_xprof//frontend/app/services/data_service:mock_data",
         "@org_xprof//frontend/app/store",
     ],
 )

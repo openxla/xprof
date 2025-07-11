@@ -14,6 +14,7 @@ xprof_ng_module(
         "op_details.ng.html",
     ],
     deps = [
+        "//third_party/javascript/ngx_json_viewer",
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@ngrx/store",

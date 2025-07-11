@@ -65,6 +65,9 @@ message Node {
         string semantics = 3;  // What the dimension represents, e.g. "spatial".
       }
     }
+    // Xprof kernel metadata extracted from the HLO expression's frontend
+    // attributes.
+    optional string xprof_kernel_metadata = 10;
   }
 }
 

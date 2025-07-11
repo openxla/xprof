@@ -342,7 +342,7 @@ absl::StatusOr<std::string> ConvertDcnCollectiveStatsToToolData(
       DcnSlackAnalysis dcnSlackAnalysis,
       GetDcnSlackAnalysisByHostName(session_snapshot, hostname.value()));
 
-  return dcnSlackAnalysis.SerializeAsString();
+  return GenerateMegaScaleJson(dcnSlackAnalysis);
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(

@@ -49,13 +49,19 @@ export class DataServiceV2 implements DataServiceV2Interface {
         .pipe(
             catchError((error: HttpErrorResponse) => {
               console.log(error);
-              const url = new URL(error.url || '');
-              const errorMessage = 'There was an error in the requested URL ' +
-                  url.pathname + url.search + '.<br><br>' +
-                  '<b>message:</b> ' + error.message + '<br>' +
-                  '<b>status:</b> ' + String(error.status) + '<br>' +
-                  '<b>statusText:</b> ' + error.statusText + '<br>' +
-                  '<b>error:</b> ' + String(error.error);
+              let errorMessage = '';
+              if (error.status === 0) {
+                errorMessage = 'Something is wrong with the backend.';
+              } else {
+                const urlObj = new URL(error.url || '');
+                errorMessage = 'There was an error in the requested URL ' +
+                    urlObj.pathname + urlObj.search + '.<br><br>' +
+                    '<b>message:</b> ' + error.message + '<br>' +
+                    '<b>status:</b> ' + String(error.status) + '<br>' +
+                    '<b>statusText:</b> ' + error.statusText + '<br>' +
+                    '<b>error:</b> ' + String(error.error);
+              }
+
               if (notifyError) {
                 this.store.dispatch(setErrorMessageStateAction({errorMessage}));
               }

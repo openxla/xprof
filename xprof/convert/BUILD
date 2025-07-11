@@ -1,3 +1,4 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("//defs:backend_defs.bzl", "if_oss", "tf_profiler_alias")
 
 package(

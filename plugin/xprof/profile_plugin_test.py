@@ -34,15 +34,21 @@ from absl.testing import absltest
 from xprof import profile_plugin
 from xprof import profile_plugin_test_utils as utils
 from xprof import version
+from xprof.convert import raw_to_tool_data as convert
 from xprof.protobuf import trace_events_pb2
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.standalone.tensorboard_shim import plugin_event_multiplexer
 
 RUN_TO_TOOLS = {
-    'foo': ['trace_viewer'],
+    'foo': ['trace_viewer', 'trace_viewer@'],
     'bar': ['unsupported'],
-    'baz': ['overview_page', 'op_profile', 'trace_viewer'],
-    'qux': ['overview_page', 'input_pipeline_analyzer', 'trace_viewer'],
+    'baz': ['overview_page', 'op_profile', 'trace_viewer', 'trace_viewer@'],
+    'qux': [
+        'overview_page',
+        'input_pipeline_analyzer',
+        'trace_viewer',
+        'trace_viewer@',
+    ],
     'abc': ['xplane'],
     'empty': [],
 }
@@ -81,12 +87,16 @@ def generate_testdata(logdir):
     run_dir = os.path.join(plugin_logdir, run)
     os.mkdir(run_dir)
     for tool in RUN_TO_TOOLS[run]:
-      if tool not in profile_plugin.TOOLS:
+      if (
+          tool not in profile_plugin.XPLANE_TOOLS
+          and tool not in profile_plugin.HLO_TOOLS
+          and tool not in profile_plugin.TOOLS
+      ):
         continue
       for host in RUN_TO_HOSTS[run]:
         filename = profile_plugin.make_filename(host, tool)
         tool_file = os.path.join(run_dir, filename)
-        if tool == 'trace_viewer':
+        if tool == 'trace_viewer' or tool == 'trace_viewer@':
           trace = trace_events_pb2.Trace()
           trace.devices[0].name = run
           data = trace.SerializeToString()
@@ -168,10 +178,6 @@ class ProfilePluginTest(absltest.TestCase):
     self.assertSetEqual(frozenset(all_runs), frozenset(RUN_TO_HOSTS.keys()))
 
     self.assertEmpty(list(self.plugin.generate_tools_of_run('bar')))
-    self.assertEmpty(
-        list(self.plugin.generate_tools_of_run('baz')), RUN_TO_TOOLS['baz'])
-    self.assertEmpty(
-        list(self.plugin.generate_tools_of_run('qux')), RUN_TO_TOOLS['qux'])
     self.assertEmpty(list(self.plugin.generate_tools_of_run('empty')))
 
   def testRuns_logdirWithEventFIle(self):
@@ -267,30 +273,66 @@ class ProfilePluginTest(absltest.TestCase):
     self.multiplexer.Reload()
 
     # Invalid tool/run/host.
-    data, _, _ = self.plugin.data_impl(utils.make_data_request(
-        run='foo', tool='invalid_tool', host='host0'))
+    data, _, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='foo', tool='invalid_tool', host='host0'
+            )
+        )
+    )
     self.assertIsNone(data)
-    data, _, _ = self.plugin.data_impl(utils.make_data_request(
-        run='foo', tool='memory_viewer', host='host0'))
+    data, _, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='foo', tool='memory_viewer', host='host0'
+            )
+        )
+    )
     self.assertIsNone(data)
     with self.assertRaises(FileNotFoundError):
-      self.plugin.data_impl(utils.make_data_request(
-          run='foo', tool='trace_viewer', host=''))
-    data, _, _ = self.plugin.data_impl(utils.make_data_request(
-        run='bar', tool='unsupported', host='host1'))
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(run='foo', tool='trace_viewer', host='')
+          )
+      )
+    data, _, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='bar', tool='unsupported', host='host1'
+            )
+        )
+    )
     self.assertIsNone(data)
     with self.assertRaises(FileNotFoundError):
-      self.plugin.data_impl(utils.make_data_request(
-          run='bar', tool='trace_viewer', host='host0'))
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(
+                  run='bar', tool='trace_viewer', host='host0'
+              )
+          )
+      )
     with self.assertRaises(FileNotFoundError):
-      self.plugin.data_impl(utils.make_data_request(
-          run='qux', tool='trace_viewer', host='host'))
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(
+                  run='qux', tool='trace_viewer', host='host'
+              )
+          )
+      )
     with self.assertRaises(FileNotFoundError):
-      self.plugin.data_impl(utils.make_data_request(
-          run='empty', tool='trace_viewer', host=''))
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(
+                  run='empty', tool='trace_viewer', host=''
+              )
+          )
+      )
     with self.assertRaises(FileNotFoundError):
-      self.plugin.data_impl(utils.make_data_request(
-          run='a', tool='trace_viewer', host=''))
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(run='a', tool='trace_viewer', host='')
+          )
+      )
 
   def testDataWithCache(self):
     generate_testdata(self.logdir)
@@ -300,7 +342,7 @@ class ProfilePluginTest(absltest.TestCase):
         plugin_asset_util.PluginDirectory(
             self.logdir, profile_plugin.ProfilePlugin.plugin_name
         ),
-        'abc',
+        'baz',
     )
     cache_version_file_path = os.path.join(
         run_dir, profile_plugin.CACHE_VERSION_FILE
@@ -311,7 +353,11 @@ class ProfilePluginTest(absltest.TestCase):
 
     # Check if first run generates a cache file.
     _, _, _ = self.plugin.data_impl(
-        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='baz', tool='overview_page', host='host2'
+            )
+        )
     )
     self.assertTrue(os.path.exists(cache_version_file_path))
     with open(cache_version_file_path, 'r') as f:
@@ -320,7 +366,11 @@ class ProfilePluginTest(absltest.TestCase):
 
     # Check if the second run generates a cache file.
     _, _, _ = self.plugin.data_impl(
-        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='baz', tool='overview_page', host='host2'
+            )
+        )
     )
     self.assertTrue(os.path.exists(cache_version_file_path))
     with open(cache_version_file_path, 'r') as f:
@@ -333,10 +383,12 @@ class ProfilePluginTest(absltest.TestCase):
     # Check if the use_saved_result=False generates a cache file.
     _, _, _ = self.plugin.data_impl(
         utils.make_data_request(
-            run='abc',
-            tool='overview_page',
-            host='host1',
-            use_saved_result='False',
+            utils.DataRequestOptions(
+                run='baz',
+                tool='overview_page',
+                host='host2',
+                use_saved_result='False',
+            )
         )
     )
     self.assertTrue(os.path.exists(cache_version_file_path))
@@ -351,11 +403,67 @@ class ProfilePluginTest(absltest.TestCase):
     with open(cache_version_file_path, 'w') as f:
       f.write('1.0.0')
     _, _, _ = self.plugin.data_impl(
-        utils.make_data_request(run='abc', tool='overview_page', host='host1')
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='baz', tool='overview_page', host='host2'
+            )
+        )
     )
     self.assertTrue(os.path.exists(cache_version_file_path))
     with open(cache_version_file_path, 'r') as f:
       self.assertEqual(f.read(), version.__version__)
+
+  @mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+  def testDataImplTraceViewerOptions(self, mock_xspace_to_tool_data):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    # Mock the return value to avoid errors during the call
+    mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    expected_asset_path = os.path.join(
+        self.plugin._run_dir('foo'),
+        profile_plugin.make_filename('host1', 'trace_viewer@'),
+    )
+    expected_params = {
+        'graph_viewer_options': {
+            'node_name': None,
+            'module_name': None,
+            'graph_width': 3,
+            'show_metadata': 0,
+            'merge_fusion': 0,
+            'format': None,
+            'type': None,
+        },
+        'tqx': None,
+        'host': 'host1',
+        'module_name': None,
+        'use_saved_result': False,
+        'memory_space': '0',
+        'trace_viewer_options': {
+            'resolution': '10000',
+            'full_dma': True,
+            'start_time_ms': '100',
+            'end_time_ms': '200',
+        },
+    }
+
+    _, _, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='foo',
+                tool='trace_viewer@',
+                host='host1',
+                full_dma='true',
+                resolution='10000',
+                start_time_ms='100',
+                end_time_ms='200',
+            )
+        )
+    )
+
+    mock_xspace_to_tool_data.assert_called_once_with(
+        [expected_asset_path], 'trace_viewer@', expected_params
+    )
 
   def testActive(self):
 

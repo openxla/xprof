@@ -117,16 +117,6 @@ std::string SessionSnapshot::GetHostname(size_t index) const {
   return GetHostnameByPath(xspace_paths_.at(index));
 }
 
-std::optional<std::string> SessionSnapshot::GetFilePath(
-    absl::string_view toolname, absl::string_view hostname) const {
-  if (!has_accessible_run_dir_) return std::nullopt;
-  std::string file_name = "";
-  if (toolname == "trace_viewer@")
-    file_name = absl::StrCat(hostname, ".", "SSTABLE");
-  if (!file_name.empty()) return tsl::io::JoinPath(session_run_dir_, file_name);
-  return std::nullopt;
-}
-
 absl::StatusOr<std::string> SessionSnapshot::GetHostDataFileName(
     const StoredDataType data_type, const std::string host) const {
   for (const auto& format : *kHostDataSuffixes) {

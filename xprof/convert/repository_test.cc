@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,7 @@ limitations under the License.
 #include "xla/tsl/platform/status.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/xplane_to_trace_container.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
@@ -37,6 +39,21 @@ namespace profiler {
 namespace {
 
 using ::testing::Eq;
+
+// Create a temp directory and a dummy Xplane file for the run_dir and hostname.
+// Return the full directory path.
+std::string CreateXPlaneTestFile(std::string run_dir, std::string hostname) {
+  // Create a temp directory for the test.
+  auto temp_dir = testing::sponge::GetUndeclaredOutputDirectory().value_or(
+      ::testing::TempDir());
+  auto profile_dir = tsl::io::JoinPath(temp_dir, run_dir);
+  TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(profile_dir));
+  std::unique_ptr<tsl::WritableFile> xplane_file;
+  TF_CHECK_OK(tsl::Env::Default()->NewWritableFile(
+      profile_dir + "/" + hostname + ".xplane.pb", &xplane_file));
+
+  return profile_dir;
+}
 
 TEST(Repository, GetHostName) {
   auto session_snapshot_or =
@@ -90,18 +107,6 @@ TEST(Repository, GetSpaceByHostName) {
   EXPECT_THAT(xspace1_or.value()->hostnames(0), Eq("hostname1"));
 }
 
-TEST(Repository, GetSSTableFile) {
-  auto session_snapshot_or =
-      SessionSnapshot::Create({"log/plugins/profile/hostname0.xplane.pb"},
-                              /*xspaces=*/std::nullopt);
-  TF_CHECK_OK(session_snapshot_or.status());
-  auto sstable_path =
-      session_snapshot_or.value().GetFilePath("trace_viewer@", "hostname0");
-  auto not_found_path =
-      session_snapshot_or.value().GetFilePath("memory_viewer", "hostname0");
-  EXPECT_THAT(sstable_path, Eq("log/plugins/profile/hostname0.SSTABLE"));
-  EXPECT_THAT(not_found_path, Eq(std::nullopt));
-}
 
 TEST(Repository, GetSSTableFileWithXSpace) {
   std::vector<std::unique_ptr<XSpace>> xspaces;
@@ -114,9 +119,11 @@ TEST(Repository, GetSSTableFileWithXSpace) {
       {"log/plugins/profile/hostname0.xplane.pb"}, std::move(xspaces));
   TF_CHECK_OK(session_snapshot_or.status());
   auto file_path_init_by_xspace =
-      session_snapshot_or.value().GetFilePath("trace_viewer@", "hostname0");
+      session_snapshot_or.value().GetHostDataFilePath(
+          StoredDataType::TRACE_EVENTS, "hostname0");
   // The file path should be disabled in this mode.
-  EXPECT_THAT(file_path_init_by_xspace, Eq(std::nullopt));
+  EXPECT_THAT(file_path_init_by_xspace,
+              testing::status::IsOkAndHolds(Eq(std::nullopt)));
 }
 
 TEST(Repository, MismatchedXSpaceAndPath) {
@@ -147,24 +154,12 @@ TEST(Repository, MismatchedXSpaceAndPath) {
 }
 
 TEST(Repository, ClearCacheFiles) {
-  // Create a temp directory for the test.
-  auto temp_dir = testing::sponge::GetUndeclaredOutputDirectory().value_or(
-      ::testing::TempDir());
-  auto profile_dir = tsl::io::JoinPath(temp_dir, "log/plugins/profile");
-  TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(profile_dir));
-  auto xplane_path = tsl::io::JoinPath(profile_dir, "hostname0.xplane.pb");
-  std::unique_ptr<tsl::WritableFile> xplane_file;
-  TF_CHECK_OK(
-      tsl::Env::Default()->NewAppendableFile(xplane_path, &xplane_file));
+  std::string run_dir = "log/plugins/profile";
+  run_dir = CreateXPlaneTestFile(run_dir, "hostname0");
+  std::string xplane_path = run_dir + "/hostname0.xplane.pb";
 
-  std::vector<std::unique_ptr<XSpace>> xspaces;
-  // prepare host 0.
-  auto space0 = std::make_unique<XSpace>();
-  *(space0->add_hostnames()) = "hostname0";
-  // with index 1 which shouldn't impact the space finding by name.
-  xspaces.push_back(std::move(space0));
-  auto session_snapshot_or =
-      SessionSnapshot::Create({xplane_path}, /*xspaces=*/std::nullopt);
+  auto session_snapshot_or = SessionSnapshot::Create(
+      {xplane_path}, /*xspaces=*/std::nullopt);
   TF_CHECK_OK(session_snapshot_or.status());
   EXPECT_TRUE(session_snapshot_or.value().HasAccessibleRunDir());
 
@@ -177,11 +172,24 @@ TEST(Repository, ClearCacheFiles) {
       StoredDataType::OP_STATS, "hostname0");
   EXPECT_TRUE(opt_statsfile_path.value().has_value());
 
+  // Generate Dummy SSTable file.
+  TraceEventsContainer container;
+  std::unique_ptr<tsl::WritableFile> sstable_file;
+  TF_CHECK_OK(tsl::Env::Default()->NewWritableFile(
+      run_dir + "/hostname0.SSTABLE", &sstable_file));
+  TF_CHECK_OK(container.StoreAsLevelDbTable(std::move(sstable_file)));
+  auto sstable_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::TRACE_EVENTS, "hostname0");
+  EXPECT_TRUE(sstable_path.value().has_value());
+
   // Check that the cache file should be deleted
   TF_CHECK_OK(session_snapshot_or.value().ClearCacheFiles());
   opt_statsfile_path = session_snapshot_or.value().GetHostDataFilePath(
       StoredDataType::OP_STATS, "hostname0");
   EXPECT_FALSE(opt_statsfile_path.value().has_value());
+  sstable_path = session_snapshot_or.value().GetHostDataFilePath(
+      StoredDataType::TRACE_EVENTS, "hostname0");
+  EXPECT_FALSE(sstable_path.value().has_value());
   EXPECT_TRUE(tsl::Env::Default()->FileExists(xplane_path).ok());
 }
 

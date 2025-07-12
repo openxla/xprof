@@ -51,6 +51,7 @@ limitations under the License.
 #include "xprof/convert/process_megascale_dcn.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/trace_viewer/trace_options.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
@@ -136,20 +137,32 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     }
     TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
                         GetTraceViewOption(options));
+    tensorflow::profiler::TraceOptions profiler_trace_options =
+        TraceOptionsFromToolOptions(options);
     auto visibility_filter = std::make_unique<TraceVisibilityFilter>(
         tsl::profiler::MilliSpan(trace_option.start_time_ms,
                                  trace_option.end_time_ms),
-        trace_option.resolution);
+        trace_option.resolution, profiler_trace_options);
     TraceEventsContainer trace_container;
     // Trace smaller than threshold will be disabled from streaming.
     constexpr int64_t kDisableStreamingThreshold = 500000;
+    auto trace_events_filter =
+        TraceEventsFilterFromTraceOptions(profiler_trace_options);
     TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
-        *sstable_path, /*filter=*/nullptr, std::move(visibility_filter),
-        kDisableStreamingThreshold));
-    JsonTraceOptions options;
+        *sstable_path, std::move(trace_events_filter),
+        std::move(visibility_filter), kDisableStreamingThreshold));
+    JsonTraceOptions json_trace_options;
+
+    tensorflow::profiler::TraceDeviceType device_type =
+        tensorflow::profiler::TraceDeviceType::kUnknownDevice;
+    if (IsTpuTrace(trace_container.trace())) {
+      device_type = TraceDeviceType::kTpu;
+    }
+    json_trace_options.details = TraceOptionsToDetails(
+        device_type, profiler_trace_options);
     IOBufferAdapter adapter(&content);
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
-        options, trace_container, &adapter);
+        json_trace_options, trace_container, &adapter);
     return content;
   }
 }

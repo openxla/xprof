@@ -24,9 +24,12 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/log.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
+#include "xprof/convert/trace_viewer/trace_utils.h"
+#include "xprof/convert/trace_viewer/trace_options.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 
 namespace tensorflow {
@@ -130,6 +133,12 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
   tsl::profiler::Timespan VisibleSpan() const {
     return visibility_.VisibleSpan();
   }
+  explicit TraceVisibilityFilter(tsl::profiler::Timespan visible_span,
+                                 double resolution, const TraceOptions& options)
+      : options_(options),
+        resolution_(resolution),
+        visibility_(visible_span, ResolutionPs(visible_span.duration_ps())) {}
+
   uint64_t ResolutionPs() const { return visibility_.ResolutionPs(); }
 
   void SetUp(const Trace& trace) override {
@@ -154,6 +163,13 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
         tsl::profiler::Timespan::FromEndPoints(start_time_ps, end_time_ps);
     visibility_ = TraceViewerVisibility(
         visible_span, ResolutionPs(visible_span.duration_ps()));
+    for (const auto& [device_id, device] : trace.devices()) {
+      if (IsTpuCoreDeviceName(device.name())) {
+        tpu_core_devices_.insert(device_id);
+      } else if (MaybeTpuNonCoreDeviceName(device.name())) {
+        tpu_noncore_devices_.insert(device_id);
+      }
+    }
   }
 
   // Updates the visibility based on `resolution`.
@@ -165,10 +181,17 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
   }
 
   bool Filter(const TraceEvent& event) override {
+    // Filter intermediate DMA flow events unless "Full DMA" is checked.
+    if (IsFlowMid(event) &&
+        (tpu_core_devices_.contains(event.device_id()) ||
+         tpu_noncore_devices_.contains(event.device_id()))) {
+      return !options_.full_dma;
+    }
     return !visibility_.Visible(event);
   }
 
  private:
+  const TraceOptions options_;
   // Returns the minimum duration in picoseconds that an event must have in
   // order to be visible.
   uint64_t ResolutionPs(uint64_t duration_ps) {
@@ -177,6 +200,8 @@ class TraceVisibilityFilter : public TraceEventsFilterInterface {
 
   double resolution_;  // number of visible events per row
   TraceViewerVisibility visibility_;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_core_devices_;
 };
 
 }  // namespace profiler

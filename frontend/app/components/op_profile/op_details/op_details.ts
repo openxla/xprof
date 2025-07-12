@@ -1,11 +1,11 @@
 import {Component, EventEmitter, inject, Input, Output} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {getActiveOpProfileNodeState, getCurrentRun, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState} from 'org_xprof/frontend/app/store/selectors';
 import {ProfilingGeneralState} from 'org_xprof/frontend/app/store/state';
+import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {Observable, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -51,6 +51,7 @@ export class OpDetails {
           .fill('');
   programId = '';
   expression = '';
+  xprofKernelMetadata: unknown = null;
   provenance = '';
   sourceFile = '';
   sourceLine = -1;
@@ -250,6 +251,14 @@ export class OpDetails {
 
     this.programId = this.node.xla?.programId || '';
     this.expression = this.node.xla?.expression || '';
+    if (!!this.node.xla?.xprofKernelMetadata) {
+      try {
+        this.xprofKernelMetadata =
+            JSON.parse(this.node.xla?.xprofKernelMetadata);
+      } catch (e) {
+        this.xprofKernelMetadata = this.node.xla?.xprofKernelMetadata;
+      }
+    }
     this.provenance = this.node.xla?.provenance || '';
     this.sourceFile = this.node.xla?.sourceInfo?.fileName || '';
     this.sourceLine = this.node.xla?.sourceInfo?.lineNumber || -1;

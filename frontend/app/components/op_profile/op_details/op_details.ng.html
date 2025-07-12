@@ -119,6 +119,10 @@
           <div class="title">Long Op Name:</div>
           <code class="expression">{{provenance}}</code>
         </div>
+        <div class="info" *ngIf="xprofKernelMetadata">
+          <div class="title">Xprof Kernel Metadata:</div>
+          <ngx-json-viewer [json]="xprofKernelMetadata"></ngx-json-viewer>
+        </div>
         <div class="info" [hidden]="!rawTimeMs">
           <div class="title">Total Time Sum:</div>
           <code class="expression">{{rawTimeMs}}</code>

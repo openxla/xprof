@@ -641,15 +641,15 @@ class ProfilePlugin(base_plugin.TBPlugin):
     use_saved_result = use_saved_result_str.lower() != 'false'
     run_dir = self._run_dir(run)
 
-    # Check if the cache file exists and if the version is the same as the
-    # current version. If not, set use_saved_result to False.
+    # Check if the cache file exists and if the cache file version is less
+    # than the current plugin version, clear the cache.
     try:
       if epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).exists():
         with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
             'r'
         ) as f:
           cache_version = f.read().strip()
-          if cache_version != version.__version__:
+          if cache_version < version.__version__:
             use_saved_result = False
       else:
         use_saved_result = False

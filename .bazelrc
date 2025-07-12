@@ -5,6 +5,9 @@ build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
 build --noenable_bzlmod
 
+common --@aspect_rules_ts//ts:skipLibCheck=always
+common --@aspect_rules_ts//ts:default_to_tsc_transpiler
+
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD
 

@@ -28,3 +28,6 @@ MODULE.bazel.lock
 /lib/
 /share/
 
+# Typescript
+node_modules
+.aspect

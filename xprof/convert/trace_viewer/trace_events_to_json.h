@@ -71,6 +71,7 @@ struct JsonTraceOptions {
   bool generate_stack_frames = true;
   bool use_new_backend = false;
   std::string code_link;
+  bool use_grouped_json_counter_events = true;
 };
 
 // Counts generated JSON events by type.
@@ -150,10 +151,11 @@ class JsonEventWriter {
   JsonEventWriter(const TraceEventsColorerInterface* colorer,
                   const Trace& trace,
                   const std::map<uint64_t, uint64_t>& references,
-                  IOBuffer* output)
+                  bool use_grouped_json_counter_events, IOBuffer* output)
       : colorer_(colorer),
         trace_(trace),
         references_(references),
+        use_grouped_json_counter_events_(use_grouped_json_counter_events),
         output_(output) {}
 
   void WriteEvent(const TraceEvent& event) const {
@@ -261,6 +263,87 @@ class JsonEventWriter {
 
   size_t GetCounterEventCount() const {
     return counter_.GetCounterEventCount();
+  }
+
+  bool isMatchingLastCounterEvent(const TraceEvent& event) const {
+    const std::string& event_name =
+        event.has_name_ref() ? trace_.name_table().at(event.name_ref())
+                             : event.name();
+    auto key = std::make_pair(event.device_id(), event_name);
+    return last_counter_event_key_ == key;
+  }
+
+  void AddCounterEvent(const TraceEvent& event) {
+    counter_.Inc(JsonEventCounter::kCounterEvent);
+    const std::string& event_name =
+        event.has_name_ref() ? trace_.name_table().at(event.name_ref())
+                             : event.name();
+    auto key = std::make_pair(event.device_id(), event_name);
+    bool last_counter_event_match = true;
+    if (last_counter_event_key_ != key) {
+      last_counter_event_key_.first = event.device_id();
+      last_counter_event_key_.second = event_name;
+      last_counter_event_match = false;
+      std::string pid_str = absl::StrFormat(R"({"pid":%d)", event.device_id());
+      output_->Append(pid_str);
+      std::string name_str = absl::StrFormat(R"(,"name":"%s")", event_name);
+      output_->Append(name_str);
+      std::string ph_str = absl::StrFormat(R"(,"ph":"C")");
+      if (event.has_raw_data()) {
+        RawDataType data;
+        data.ParseFromString(event.raw_data());
+        if (data.has_args()) {
+          for (const auto& arg : data.args().arg()) {
+            ph_str = absl::StrFormat(R"(,"ph":"C","event_stats":["%s"])",
+                                     arg.name());
+            break;
+          }
+        }
+      }
+      output_->Append(ph_str);
+      std::string entries = absl::StrFormat(R"(,"entries":[)");
+      output_->Append(entries);
+    }
+    std::string entry_values =
+        absl::StrFormat(R"(%.17g,)", PicosToMicros(event.timestamp_ps()));
+    if (event.has_raw_data()) {
+      RawDataType data;
+      data.ParseFromString(event.raw_data());
+      if (data.has_args()) {
+        for (const auto& arg : data.args().arg()) {
+          switch (arg.value_case()) {
+            case TraceEventArguments::Argument::kStrValue:
+              absl::StrAppend(&entry_values, JsonEscape(arg.str_value()));
+              break;
+            case TraceEventArguments::Argument::kIntValue:
+              absl::StrAppend(&entry_values, arg.int_value());
+              break;
+            case TraceEventArguments::Argument::kUintValue:
+              absl::StrAppend(&entry_values, arg.uint_value());
+              break;
+            case TraceEventArguments::Argument::kDoubleValue:
+              absl::StrAppendFormat(&entry_values, "%.17g", arg.double_value());
+              break;
+            case TraceEventArguments::Argument::kRefValue: {
+              const auto& it = trace_.name_table().find(arg.ref_value());
+              if (it != trace_.name_table().end()) {
+                absl::StrAppend(&entry_values, JsonEscape(it->second));
+              }
+              break;
+            }
+            case TraceEventArguments::Argument::VALUE_NOT_SET:
+              LOG(WARNING) << "Value not set for argument: " << arg.name();
+              break;
+            default:
+              LOG(WARNING) << "Unexpected value type for argument: "
+                           << arg.name();
+              break;
+          }
+        }
+      }
+    }
+    std::string entry_str = absl::StrFormat(R"([%s])", entry_values);
+    output_->Append(entry_str);
   }
 
  private:
@@ -381,6 +464,8 @@ class JsonEventWriter {
   const std::map<uint64_t, uint64_t>& references_;
   IOBuffer* output_;
   mutable JsonEventCounter counter_;
+  bool use_grouped_json_counter_events_ = false;
+  std::pair<uint32_t, std::string> last_counter_event_key_ = {0, ""};
 };
 
 template <typename IOBuffer>
@@ -619,17 +704,35 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   colorer->SetUp(trace);
 
   // Write events.
-  JsonEventWriter<IOBuffer, RawDataType> writer(colorer, trace, references,
-                                                output);
+  JsonEventWriter<IOBuffer, RawDataType> writer(
+      colorer, trace, references, options.use_grouped_json_counter_events,
+      output);
+  bool prev_was_counter = false;
   events.ForAllEvents([&](const TraceEvent& event) {
+    bool is_counter_event = options.use_grouped_json_counter_events &&
+                            !event.has_resource_id() && !event.has_flow_id();
+    if ((prev_was_counter && !is_counter_event) ||
+        (!writer.isMatchingLastCounterEvent(event) && is_counter_event &&
+         prev_was_counter)) {
+      output->Append("]}");
+    }
     separator.Add();
-    writer.WriteEvent(event);
+    if (options.use_grouped_json_counter_events && !event.has_resource_id() &&
+        !event.has_flow_id()) {
+      writer.AddCounterEvent(event);
+    } else {
+      writer.WriteEvent(event);
+    }
+    prev_was_counter = is_counter_event;
   });
+  if (prev_was_counter) {
+    output->Append("]}");
+  }
   size_t counter_event_count = writer.GetCounterEventCount();
   VLOG(1) << "Counter event count: " << counter_event_count;
-  if (counter_event_count == 2000000) {
+  if (counter_event_count == 14000000) {
     output->Append(
-        R"(], "showCounterMessage": "Only 2M counter events are shown. Zoom in or pan to see more." })");
+        R"(], "showCounterMessage": "Only 14M counter events are shown. Zoom in or pan to see more." })");
   } else {
     output->Append(R"(], "showCounterMessage": "" })");
   }

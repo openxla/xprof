@@ -135,6 +135,7 @@ cc_library(
         ":performance_info_wrapper",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//xprof/convert:op_metrics_db_combiner",
@@ -509,8 +510,8 @@ cc_library(
     deps = [
         ":hlo_cost_analysis_wrapper",
         "@com_google_absl//absl/memory",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
-        "@tsl//tsl/platform:protobuf",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/hlo/ir:hlo",
     ],

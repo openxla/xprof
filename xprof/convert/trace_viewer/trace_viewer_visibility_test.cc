@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "<gtest/gtest.h>"
+#include "xprof/convert/trace_viewer/trace_options.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 
 namespace tensorflow {
@@ -144,6 +145,48 @@ TEST(TraceViewerVisibilityTest, FlowEventsDownsampling) {
   EXPECT_TRUE(v.Visible(Flow(Timespan(1600, 50), 4, kResourceId)));
   EXPECT_TRUE(v.Visible(Flow(Timespan(1700, 52), 5, kResourceId)));
   EXPECT_FALSE(v.Visible(Flow(Timespan(1752, 10), 6, kResourceId)));
+}
+
+TEST(TraceViewerVisibilityTest, TestTraceVisibilityFilter) {
+  Trace trace;
+  trace.set_min_timestamp_ps(1000);
+  trace.set_max_timestamp_ps(2000);
+
+  Device& device = (*trace.mutable_devices())[kDeviceId];
+  device.set_device_id(kDeviceId);
+  device.set_name("/device:TPU:0");
+  TraceOptions options;
+  options.full_dma = false;
+
+  TraceVisibilityFilter filter(Timespan(1000, 1000), 100, options);
+  filter.SetUp(trace);
+
+  TraceEvent event = Complete(Timespan(1000, 100));
+  EXPECT_FALSE(filter.Filter(event));
+
+  TraceEvent event2 = Complete(Timespan(2000, 100));
+  EXPECT_FALSE(filter.Filter(event2));
+
+  TraceEvent event3 = Complete(Timespan(900, 50));
+  EXPECT_TRUE(filter.Filter(event3));
+
+  TraceEvent event4 = Flow(Timespan(1000, 100), 1, kSrcResourceId);
+  event4.set_flow_entry_type(TraceEvent::FLOW_MID);
+  EXPECT_TRUE(filter.Filter(event4));
+
+  options.full_dma = true;
+  TraceVisibilityFilter filter2(Timespan(1000, 1000), 100, options);
+  filter2.SetUp(trace);
+  EXPECT_FALSE(filter2.Filter(event4));
+
+  device.set_name("GPU");
+  filter2.SetUp(trace);
+  EXPECT_FALSE(filter2.Filter(event4));
+  EXPECT_TRUE(filter2.Filter(event3));
+
+  device.set_name("#Chip TPU Non-Core HBM");
+  filter.SetUp(trace);
+  EXPECT_TRUE(filter.Filter(event4));
 }
 
 }  // namespace

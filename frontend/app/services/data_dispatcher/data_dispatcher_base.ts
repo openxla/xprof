@@ -52,17 +52,17 @@ export class DataDispatcherBase {
     if (dataRequest.type === DataRequestType.KERNEL_STATS) {
       return commonDataStoreActions.setKernelStatsDataAction(
           {kernelStatsData: data});
-    } else if (dataRequest.type === DataRequestType.TENSORFLOW_STATS) {
+    } else if (dataRequest.type === DataRequestType.FRAMEWORK_OP_STATS) {
       return frameworkOpStatsActions.setDataAction({data});
-    } else if (dataRequest.type === DataRequestType.TENSORFLOW_STATS_DIFF) {
+    } else if (dataRequest.type === DataRequestType.FRAMEWORK_OP_STATS_DIFF) {
       return frameworkOpStatsActions.setDiffDataAction({diffData: data});
     }
     return doNothingAction();
   }
 
   getDefaultData(dataRequest: DataRequest): []|{} {
-    if (dataRequest.type === DataRequestType.TENSORFLOW_STATS ||
-        dataRequest.type === DataRequestType.TENSORFLOW_STATS_DIFF) {
+    if (dataRequest.type === DataRequestType.FRAMEWORK_OP_STATS ||
+        dataRequest.type === DataRequestType.FRAMEWORK_OP_STATS_DIFF) {
       return [];
     }
     return {};

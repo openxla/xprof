@@ -7,6 +7,7 @@ import "plugin/xprof/protobuf/hardware_types.proto";
 import "plugin/xprof/protobuf/kernel_stats.proto";
 import "plugin/xprof/protobuf/op_metrics.proto";
 import "plugin/xprof/protobuf/power_metrics.proto";
+import "plugin/xprof/protobuf/source_stats.proto";
 import "plugin/xprof/protobuf/steps_db.proto";
 import "plugin/xprof/protobuf/tf_function.proto";
 import "plugin/xprof/protobuf/topology.proto";
@@ -128,7 +129,7 @@ message PerformanceCounterResult {
   double matrix_unit_utilization_percent = 1;
 }
 
-// Next ID: 14
+// Next ID: 15
 // Operator Statistics.
 message OpStats {
   // The database for the op metrics collected from the host over the entire
@@ -157,5 +158,7 @@ message OpStats {
   map<uint64, string> program_id_to_name_map = 12;
   // Performance counters.
   PerformanceCounterResult performance_counter_result = 13;
+  // Source level metrics.
+  SourceStats source_stats = 14;
   reserved 7;
 }

@@ -375,6 +375,7 @@ export function setLoadingState(
     loading: boolean, store: Store<{}>, message: string = '') {
   if (loading) {
     message = message || 'Loading data';
+    message = message + '. First-time session loads may take up to a few minutes.';
   }
   store.dispatch(setLoadingStateAction({
     loadingState: {

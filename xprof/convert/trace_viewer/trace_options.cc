@@ -1,5 +1,6 @@
 #include "xprof/convert/trace_viewer/trace_options.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "absl/container/flat_hash_set.h"
@@ -10,7 +11,23 @@
 
 namespace tensorflow {
 namespace profiler {
+namespace filter_internal {
 
+class TraceEventsFilter : public TraceEventsFilterInterface {
+ public:
+  explicit TraceEventsFilter(const TraceOptions& options) : options_(options) {}
+
+  void SetUp(const Trace& trace) override;
+
+  bool Filter(const TraceEvent& event) override;
+
+ private:
+  const TraceOptions options_;
+
+  TraceDeviceType device_type_ = TraceDeviceType::kUnknownDevice;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_core_devices_;
+};
 void TraceEventsFilter::SetUp(const Trace& trace) {
   for (const auto& [device_id, device] : trace.devices()) {
     if (IsTpuCoreDeviceName(device.name())) {
@@ -39,6 +56,8 @@ bool TraceEventsFilter::Filter(const TraceEvent& event) {
   return false;
 }
 
+}  // namespace filter_internal
+
 TraceOptions TraceOptionsFromToolOptions(const ToolOptions& tool_options) {
   TraceOptions options;
   options.full_dma =
@@ -61,8 +80,8 @@ JsonTraceOptions::Details TraceOptionsToDetails(TraceDeviceType device_type,
 }
 
 std::unique_ptr<tensorflow ::profiler::TraceEventsFilterInterface>
-TraceEventsFilterFromTraceOptions(const TraceOptions& options) {
-  return std::make_unique<TraceEventsFilter>(options);
+CreateTraceEventsFilterFromTraceOptions(const TraceOptions& options) {
+  return std::make_unique<filter_internal::TraceEventsFilter>(options);
 }
 
 }  // namespace profiler

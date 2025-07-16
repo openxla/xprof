@@ -5,6 +5,8 @@
 import {InjectionToken} from '@angular/core';
 import {Observable} from 'rxjs';
 
+import {LineMetric} from './source_stats';
+
 /**
  * Address of a source code line and a few lines around it.
  *
@@ -37,6 +39,7 @@ export class Address {
  *     be very different from `address.lineNumber - address.linesBefore`.
  * @param lines The lines of the source code snippet. There must be at least
  *     `address.lineNumber - firstLine + 1` lines in the array.
+ * @param metrics The available metrics for the source code snippet.
  *
  * @throws {Error} If the input `lines` does not contain the line requested in
  *     the address.
@@ -44,7 +47,8 @@ export class Address {
 export class Content {
   constructor(
       readonly address: Address, readonly firstLine: number,
-      readonly lines: readonly string[]) {
+      readonly lines: readonly string[],
+      readonly metrics: readonly LineMetric[]) {
     if (firstLine > address.lineNumber) {
       throw new Error(
           `The first line number ${firstLine} must be less than or equal to ` +

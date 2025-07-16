@@ -55,6 +55,11 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+// The JSON parser's 700MB limit is tested empirically to hold up to 18M
+// counter events. (go/xprof-event-counter-fix). Conservatively setting
+// this to 14M toward room for other events.
+inline constexpr size_t kMaxCounterEvents = 14000000;
+
 // JSON generation options.
 struct JsonTraceOptions {
   using Details = std::vector<std::pair<std::string, bool>>;
@@ -73,6 +78,7 @@ struct JsonTraceOptions {
   bool use_new_backend = false;
   std::string code_link;
   bool use_grouped_json_counter_events = true;
+  uint64_t counter_events_offset = 0;
 };
 
 // Counts generated JSON events by type.
@@ -725,15 +731,16 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     output->Append("]}");
   }
   size_t counter_event_count = writer.GetCounterEventCount();
-  VLOG(1) << "Counter event count: " << counter_event_count;
-  if (counter_event_count == 14000000) {
-    output->Append(
-        R"(], "showCounterMessage": "Only 14M counter events are shown. Zoom in or pan to see more." )");
+  size_t counter_event_offset = options.counter_events_offset;
+  if (counter_event_count == kMaxCounterEvents) {
+    counter_event_offset += kMaxCounterEvents;
   } else {
-    output->Append(R"(], "showCounterMessage": "" )");
+    counter_event_offset = 0;
   }
-  output->Append(R"(,"totalCounterEvents":)", counter_event_count);
-  output->Append(R"(,"counterEventsOffset":)", 0);
+  VLOG(1) << "Counter event offset: " << counter_event_offset;
+  VLOG(1) << "Counter event count: " << counter_event_count;
+  output->Append(R"(],"totalCounterEvents":)", counter_event_count);
+  output->Append(R"(,"counterEventsOffset":)", counter_event_offset);
   output->Append(R"(})");
 }
 

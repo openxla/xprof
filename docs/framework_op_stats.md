@@ -8,9 +8,7 @@ time-consuming operations during the profiled period.
 
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Framework Op Stats Components
 
@@ -24,6 +22,9 @@ Framework Op Stats has the following key components:
     *   Search boxes let you filter by host/device, the operation type, or the
         operation name; the filters select for the provided string that appears
         anywhere within the respective column.
+
+    ![Framework Op Stats table](images/framework_op_stats-operations.png)
+
 *   Summarized charts section: This section has charts that summarize the
     detailed per-op table, in the following ways:
     *   A pair of pie charts (one for the accelerator and one for the host) that
@@ -32,12 +33,17 @@ Framework Op Stats has the following key components:
     *   A pie chart that shows the fraction of time consumed by different
         individual framework ops (truncated to the top-N ops, with the remaining
         classified as “Other” to improve readability)
+
+    ![Framework Op Stats pie charts](images/framework_op_stats.png)
+
 *   Summarized tables section: This section has a pair of tables (one for the
     accelerator and one for the host), with the number of occurrences, and total
     time consumed (both in absolute terms and as a fraction of total session
     time) by different categories of framework ops.
 *   A drop-down selector lets you decide whether or not to include any idle time
     within the pie charts and summary tables.
+
+    ![Framework Op Stats summarized tables](images/framework_op_stats-summarized.png)
 
 ### Framework Operation Statistics Table Details
 

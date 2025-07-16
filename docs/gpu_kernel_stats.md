@@ -5,11 +5,11 @@ originating framework operation for every GPU-accelerated kernel that was
 launched during a profiling session. This tool helps identify potential
 bottlenecks at a low level and surfaces optimization opportunities.
 
+![XProf GPU Kernel Stats](images/gpu_kernel_stats.png)
+
 ### Supported Platforms
 
-GPU: Supported
-
-TPU: Not supported
+The GPU Kernel Stats tool is only supported on GPUs.
 
 ### Interface Components
 
@@ -18,7 +18,7 @@ kernel-framework operation pair. You can click any of the column headings to
 sort the table accordingly. The default order is based on the total duration of
 the kernel-op pair.
 
-The table includes the following information for each kernel-op pair:
+The GPU Kernel Statistics Table includes the following information for each kernel-op pair:
 
 *   Kernel name: The name of the kernel that was launched.
 *   Registers per thread: The number of GPU
@@ -52,3 +52,5 @@ The table includes the following information for each kernel-op pair:
     kernel-operation pair.
 *   Maximum duration (us): The longest execution time observed for this
     kernel-operation pair.
+*   Search boxes let you filter rows by GPU Kernel Name or by Op Name.
+*   You can export the table to a CSV file by clicking the "Export as CSV" button.

@@ -1,5 +1,7 @@
 import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
+import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
+import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {Address, Content, SOURCE_CODE_SERVICE_INTERFACE_TOKEN, SourceCodeServiceInterface} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {Subject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -27,6 +29,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   failure: string|undefined = undefined;
   codeSearchLink: string|undefined = undefined;
   codeSearchLinkTooltip: string|undefined = undefined;
+  lineNumberToMetricMap: Map<number, Metric>|undefined = undefined;
 
   constructor() {
     this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {
@@ -52,6 +55,10 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     return index;
   }
 
+  lineMetric(lineNumber: number): Metric|undefined {
+    return this.lineNumberToMetricMap?.get(lineNumber);
+  }
+
   get loaded() {
     return this.frame !== undefined || this.failure !== undefined;
   }
@@ -74,6 +81,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     this.frame = undefined;
     this.failure = undefined;
     this.codeSearchLink = undefined;
+    this.lineNumberToMetricMap = undefined;
     if (!this.sessionId || !this.sourceCodeSnippetAddress) {
       return;
     }
@@ -84,6 +92,8 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
           next: (frame) => {
             this.frame = frame;
             this.codeSearchLinkTooltip = 'Open in Code Search';
+            this.lineNumberToMetricMap = new Map(frame.metrics.map(
+                lineMetric => [lineMetric.lineNumber, lineMetric.metric]));
           },
           error: (err) => {
             this.codeSearchLinkTooltip =
@@ -112,4 +122,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
           }
         });
   }
+
+  percent = utils.percent;
+  formatDurationPs = utils.formatDurationPs;
 }

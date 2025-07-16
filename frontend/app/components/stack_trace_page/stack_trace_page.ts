@@ -22,14 +22,10 @@ export class StackTracePage implements OnDestroy {
   private readonly injector = inject(Injector);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyed = new ReplaySubject<void>(1);
-  // LINT.IfChange(keys)
   private readonly hloModuleKey = 'hlo_module';
   private readonly hloOpKey = 'hlo_op';
   private readonly sourceKey = 'source';
   private readonly stackTraceKey = 'stack_trace';
-  // LINT.ThenChange(
-  //   //depot/google3/perftools/accelerators/xprof/frontend/app/common/constants/constants.ts:stack_trace_page_keys,
-  //   //depot/org_xprof/plugin/trace_viewer/tf_trace_viewer/tf-trace-viewer.html:stack_trace_page_keys)
 
   hloModule = '';
   hloOp = '';

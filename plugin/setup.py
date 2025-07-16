@@ -33,7 +33,8 @@ REQUIRED_PACKAGES = [
     'werkzeug >= 0.11.15',
     'etils[epath] >= 1.0.0',
     'cheroot >= 10.0.1',
-    'fsspec[gcs] >= 2024.10.0',
+    'fsspec >= 2024.3.1',
+    'gcsfs >= 2024.3.1',
     'packaging >= 25.0',
 ]
 

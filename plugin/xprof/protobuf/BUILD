@@ -74,6 +74,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "source_stats_proto",
+    srcs = ["source_stats.proto"],
+)
+
+xprof_proto_library(
     name = "memory_viewer_preprocess_proto",
     srcs = ["memory_viewer_preprocess.proto"],
     protodeps = [":source_info_proto"],
@@ -98,6 +103,7 @@ xprof_proto_library(
         ":hardware_types_proto",
         ":op_metrics_proto",
         ":power_metrics_proto",
+        ":source_stats_proto",
         ":steps_db_proto",
         ":tf_function_proto",
         ":topology_proto",
@@ -233,6 +239,7 @@ xprof_proto_library(
         ":memory_profile_proto",
         ":memory_viewer_preprocess_proto",
         ":source_info_proto",
+        ":source_stats_proto",
         ":op_metrics_proto",
         ":op_profile_proto",
         ":op_stats_proto",
@@ -278,6 +285,7 @@ exports_files(
         "roofline_model.proto",
         "smart_suggestion.proto",
         "source_info.proto",
+        "source_stats.proto",
         "steps_db.proto",
         "task.proto",
         "tf_data_stats.proto",

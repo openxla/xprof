@@ -72,7 +72,6 @@ struct JsonTraceOptions {
   bool generate_stack_frames = true;
   bool use_new_backend = false;
   std::string code_link;
-  bool use_grouped_json_counter_events = true;
 };
 
 // Counts generated JSON events by type.
@@ -152,11 +151,10 @@ class JsonEventWriter {
   JsonEventWriter(const TraceEventsColorerInterface* colorer,
                   const Trace& trace,
                   const std::map<uint64_t, uint64_t>& references,
-                  bool use_grouped_json_counter_events, IOBuffer* output)
+                  IOBuffer* output)
       : colorer_(colorer),
         trace_(trace),
         references_(references),
-        use_grouped_json_counter_events_(use_grouped_json_counter_events),
         output_(output) {}
 
   void WriteEvent(const TraceEvent& event) const {
@@ -460,7 +458,6 @@ class JsonEventWriter {
   const std::map<uint64_t, uint64_t>& references_;
   IOBuffer* output_;
   mutable JsonEventCounter counter_;
-  bool use_grouped_json_counter_events_ = false;
   std::pair<uint32_t, std::string> last_counter_event_key_ = {0, ""};
 };
 
@@ -700,21 +697,18 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   colorer->SetUp(trace);
 
   // Write events.
-  JsonEventWriter<IOBuffer, RawDataType> writer(
-      colorer, trace, references, options.use_grouped_json_counter_events,
-      output);
+  JsonEventWriter<IOBuffer, RawDataType> writer(colorer, trace, references,
+                                                output);
   bool prev_was_counter = false;
   events.ForAllEvents([&](const TraceEvent& event) {
-    bool is_counter_event = options.use_grouped_json_counter_events &&
-                            !event.has_resource_id() && !event.has_flow_id();
+    bool is_counter_event = !event.has_resource_id() && !event.has_flow_id();
     if ((prev_was_counter && !is_counter_event) ||
         (!writer.isMatchingLastCounterEvent(event) && is_counter_event &&
          prev_was_counter)) {
       output->Append("]}");
     }
     separator.Add();
-    if (options.use_grouped_json_counter_events && !event.has_resource_id() &&
-        !event.has_flow_id()) {
+    if (is_counter_event) {
       writer.AddCounterEvent(event);
     } else {
       writer.WriteEvent(event);

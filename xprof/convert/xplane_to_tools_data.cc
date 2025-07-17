@@ -50,6 +50,7 @@ limitations under the License.
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/process_megascale_dcn.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/smart_suggestion/smart_suggestion_engine.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
@@ -370,6 +371,25 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
   return InferenceStatsToDataTableJson(inference_stats);
 }
 
+absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
+    const SessionSnapshot& session_snapshot) {
+  SmartSuggestionEngine engine;
+  TF_ASSIGN_OR_RETURN(SmartSuggestionReport report,
+                      engine.Run(session_snapshot));
+  std::string json_output;
+  tsl::protobuf::util::JsonPrintOptions opts;
+  opts.always_print_primitive_fields = true;
+  auto encode_status =
+      tsl::protobuf::util::MessageToJsonString(report, &json_output, opts);
+  if (!encode_status.ok()) {
+    const auto& error_message = encode_status.message();
+    return tsl::errors::Internal(
+        "Could not convert smart suggestion report to json. Error: ",
+        absl::string_view(error_message.data(), error_message.length()));
+  }
+  return json_output;
+}
+
 }  // namespace
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
@@ -414,6 +434,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     return PreprocessXSpace(session_snapshot);
   } else if (tool_name == "inference_profile") {
     return ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
+  } else if (tool_name == "smart_suggestion") {
+    return ConvertMultiXSpacesToSmartSuggestion(session_snapshot);
   } else {
     return tsl::errors::InvalidArgument(
         "Can not find tool: ", tool_name,

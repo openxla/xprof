@@ -2,8 +2,8 @@
     <mat-sidenav mode="side" opened>
       <memory-viewer-control
         [moduleList]="moduleList"
-        [firstLoadSelectedModule]="moduleList[firstLoadModuleIndex]"
-        [firstLoadSelectedMemorySpaceColor]="firstLoadMemorySpaceColor"
+        [selectedMemorySpaceColor]="selectedMemorySpaceColor"
+        [selectedModule]="selectedModule"
         (changed)="update($event)"
       ></memory-viewer-control>
       <buffer-details [selectedModule]="selectedModule" [sessionId]="sessionId"></buffer-details>

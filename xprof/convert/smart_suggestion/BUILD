@@ -11,11 +11,11 @@ cc_library(
     hdrs = ["signal_provider.h"],
     deps = [
         ":tool_data_provider",
-        "//util/task:status",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -44,7 +44,6 @@ cc_library(
     hdrs = ["tool_data_provider_impl.h"],
     deps = [
         ":tool_data_provider",
-        "//util/task:status",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -53,6 +52,7 @@ cc_library(
         "@org_xprof//xprof/convert:op_stats_to_input_pipeline_analysis",
         "@org_xprof//xprof/convert:op_stats_to_overview_page",
         "@org_xprof//xprof/convert:repository",
+        "@xla//xla/tsl/platform:errors",
     ],
 )
 
@@ -74,11 +74,11 @@ cc_library(
         ":input_bound_rule",
         ":signal_provider",
         ":smart_suggestion_rule",
-        "//util/task:status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -89,11 +89,44 @@ cc_library(
         ":input_bound_rule",
         ":signal_provider",
         ":smart_suggestion_rule",
-        "//util/task:status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_rule_factory",
+    hdrs = ["smart_suggestion_rule_factory.h"],
+    deps = [
+        ":smart_suggestion_rule",
+    ],
+)
+
+cc_library(
+    name = "all_rules",
+    hdrs = ["all_rules.h"],
+    deps = [
+        ":data_transfer_bound_rule",
+        ":host_processing_bound_rule",
+        ":input_bound_rule",
+        ":smart_suggestion_rule_factory",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_engine",
+    srcs = ["smart_suggestion_engine.cc"],
+    hdrs = ["smart_suggestion_engine.h"],
+    deps = [
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        ":smart_suggestion_rule_factory",
+        "@com_google_absl//absl/status:statusor",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 

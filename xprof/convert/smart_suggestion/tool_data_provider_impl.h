@@ -20,6 +20,7 @@ limitations under the License.
 #include <utility>
 
 #include "absl/status/statusor.h"
+#include "xla/tsl/platform/errors.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/op_stats_to_overview_page.h"
@@ -28,7 +29,6 @@ limitations under the License.
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
-#include "util/task/status_macros.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -42,7 +42,7 @@ class ToolDataProviderImpl : public ToolDataProvider {
   absl::StatusOr<const OverviewPage*> GetOverviewPage() override {
     if (!overview_page_cache_) {
       OpStats combined_op_stats;
-      RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
+      TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
           session_snapshot_, &combined_op_stats));
       OverviewPage overview_page =
           ConvertOpStatsToOverviewPage(combined_op_stats);
@@ -56,7 +56,7 @@ class ToolDataProviderImpl : public ToolDataProvider {
   GetInputPipelineAnalysisResult() override {
     if (!input_pipeline_analysis_cache_) {
       OpStats combined_op_stats;
-      RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
+      TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
           session_snapshot_, &combined_op_stats));
       InputPipelineAnalysisResult input_pipeline_analysis =
           ConvertOpStatsToInputPipelineAnalysis(combined_op_stats);

@@ -22,11 +22,11 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/smart_suggestion/input_bound_rule.h"
 #include "xprof/convert/smart_suggestion/signal_provider.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule.h"
 #include "plugin/xprof/protobuf/smart_suggestion.pb.h"
-#include "util/task/status_macros.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -61,7 +61,7 @@ class HostProcessingBoundRule : public SmartSuggestionRule {
     SmartSuggestion suggestion;
     suggestion.set_rule_name("HostProcessingBoundRule");
 
-    ASSIGN_OR_RETURN(double non_enqueue_percent_of_input,
+    TF_ASSIGN_OR_RETURN(double non_enqueue_percent_of_input,
                      signal_provider.GetNonEnqueuePercentOfInput());
 
     std::string suggestion_text = absl::StrCat(

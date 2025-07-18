@@ -26,11 +26,17 @@ xprof_ng_module(
 )
 
 xprof_ng_module(
+    name = "source_stats",
+    srcs = ["source_stats.ts"],
+)
+
+xprof_ng_module(
     name = "source_code_service_interface",
     srcs = [
         "source_code_service_interface.ts",
     ],
     deps = [
+        ":source_stats",
         "@npm//@angular/core",
         "@npm//rxjs",
     ],

@@ -2011,25 +2011,23 @@ dashboard would integrate trace viewer app using iframe.
       if (jsonData.traceEvents.length > 0) {
         let eventsToAdd = [];
         jsonData.traceEvents.forEach(event => {
-          if (event.entries) {
-            // Handle Grouped Counter Events
-            let argName = event.event_stats;
+          if (!event.entries) {
+            throw new Error("Event must have 'entries' property for counter events.");
+          }
+          // Handle Grouped Counter Events
+          let argName = event.event_stats;
             event.entries.forEach(entry => {
               const newEvent = {
-                pid: event.pid,
-                name: event.name,
-                ph: event.ph,
-                ts: entry[0],
-                args: {
-                  [argName]: entry[1],
-                },
+              pid: event.pid,
+              name: event.name,
+              ph: event.ph,
+              ts: entry[0],
+              args: {
+                [argName]: entry[1],
+              },
               };
               eventsToAdd.push(newEvent);
             });
-          } else {
-            // Handle Regular Events
-            eventsToAdd.push(event);
-          }
         });
         var opt = new tr.importer.ImportOptions();
         opt.shiftWorldToZero = false;

@@ -55,7 +55,23 @@ std::vector<TraceEvent*> MergeEventTracks(
 
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
+    const std::vector<std::vector<const TraceEvent*>>& events_by_level,
+    std::function<TraceEvent(const TraceEvent*)> generate_event_copy_fn);
+
+absl::Status DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+    std::unique_ptr<tsl::WritableFile>& trace_events_file,
+    std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
+    const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level);
+
+TraceEvent GenerateTraceEventCopyForPersistingFullEvent(
+    const TraceEvent* event);
+
+TraceEvent GenerateTraceEventCopyForPersistingEventWithoutMetadata(
+    const TraceEvent* event);
+
+TraceEvent GenerateTraceEventCopyForPersistingOnlyMetadata(
+    const TraceEvent* event);
 
 absl::Status DoLoadFromLevelDbTable(
     const std::string& filename,
@@ -63,6 +79,14 @@ absl::Status DoLoadFromLevelDbTable(
     std::unique_ptr<TraceVisibilityFilter> visibility_filter,
     int64_t filter_by_visibility_threshold, Trace& trace,
     bool& filter_by_visibility,
+    const std::function<TraceEvent*(const TraceEvent&)>& copy_event_to_arena,
+    const std::function<void(TraceEvent*)>& add_arena_event,
+    bool trace_events_metadata_file_exists);
+
+absl::Status DoReadFullEventFromLevelDbTable(
+    const std::string& trace_events_metadata_filename,
+    const std::string& trace_events_filename, absl::string_view event_name,
+    int64_t timestamp_ps, int64_t duration_ps, int64_t unique_id, Trace& trace,
     const std::function<TraceEvent*(const TraceEvent&)>& copy_event_to_arena,
     const std::function<void(TraceEvent*)>& add_arena_event);
 
@@ -273,7 +297,18 @@ class TraceEventsContainerBase {
     Trace trace = trace_;
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
-    return DoStoreAsLevelDbTable(file, trace, events_by_level);
+    return DoStoreAsLevelDbTable(file, trace, events_by_level,
+                                 GenerateTraceEventCopyForPersistingFullEvent);
+  }
+
+  absl::Status StoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+      std::unique_ptr<tsl::WritableFile> trace_events_file,
+      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file) const {
+    Trace trace = trace_;
+    trace.set_num_events(NumEvents());
+    auto events_by_level = EventsByLevel();
+    return DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+        trace_events_file, trace_events_metadata_file, trace, events_by_level);
   }
 
   std::vector<std::vector<const TraceEvent*>> GetTraceEventsByLevel() const {
@@ -287,10 +322,23 @@ class TraceEventsContainerBase {
       const std::string& filename,
       std::unique_ptr<TraceEventsFilterInterface> filter = nullptr,
       std::unique_ptr<TraceVisibilityFilter> visibility = nullptr,
-      int64_t filter_by_visibility_threshold = -1LL) {
+      int64_t filter_by_visibility_threshold = -1LL,
+      bool trace_events_metadata_file_exists = false) {
     return DoLoadFromLevelDbTable(
         filename, std::move(filter), std::move(visibility),
         filter_by_visibility_threshold, trace_, filter_by_visibility_,
+        absl::bind_front(&TraceEventsContainerBase::CopyEventToArena, this),
+        absl::bind_front(&TraceEventsContainerBase::AddArenaEvent, this),
+        trace_events_metadata_file_exists);
+  }
+
+  absl::Status ReadFullEventFromLevelDbTable(
+      const std::string& trace_events_metadata_filename,
+      const std::string& trace_events_filename, absl::string_view event_name,
+      int64_t timestamp_ps, int64_t duration_ps, int64_t unique_id) {
+    return DoReadFullEventFromLevelDbTable(
+        trace_events_metadata_filename, trace_events_filename, event_name,
+        timestamp_ps, duration_ps, unique_id, trace_,
         absl::bind_front(&TraceEventsContainerBase::CopyEventToArena, this),
         absl::bind_front(&TraceEventsContainerBase::AddArenaEvent, this));
   }

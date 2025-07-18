@@ -55,7 +55,23 @@ std::vector<TraceEvent*> MergeEventTracks(
 
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
+    const std::vector<std::vector<const TraceEvent*>>& events_by_level,
+    std::function<TraceEvent(const TraceEvent*)> generate_event_copy_fn);
+
+absl::Status DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+    std::unique_ptr<tsl::WritableFile>& trace_events_file,
+    std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
+    const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level);
+
+TraceEvent GenerateTraceEventCopyForPersistingFullEvent(
+    const TraceEvent* event);
+
+TraceEvent GenerateTraceEventCopyForPersistingEventWithoutMetadata(
+    const TraceEvent* event);
+
+TraceEvent GenerateTraceEventCopyForPersistingOnlyMetadata(
+    const TraceEvent* event);
 
 absl::Status DoLoadFromLevelDbTable(
     const std::string& filename,
@@ -273,7 +289,18 @@ class TraceEventsContainerBase {
     Trace trace = trace_;
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
-    return DoStoreAsLevelDbTable(file, trace, events_by_level);
+    return DoStoreAsLevelDbTable(file, trace, events_by_level,
+                                 GenerateTraceEventCopyForPersistingFullEvent);
+  }
+
+  absl::Status StoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+      std::unique_ptr<tsl::WritableFile> trace_events_file,
+      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file) const {
+    Trace trace = trace_;
+    trace.set_num_events(NumEvents());
+    auto events_by_level = EventsByLevel();
+    return DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+        trace_events_file, trace_events_metadata_file, trace, events_by_level);
   }
 
   std::vector<std::vector<const TraceEvent*>> GetTraceEventsByLevel() const {

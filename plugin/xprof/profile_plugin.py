@@ -36,23 +36,20 @@ from xprof import version
 from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
+from xprof.pywrap import _pywrap_profiler_plugin
 
 
 logger = logging.getLogger('tensorboard')
 
 try:
   import tensorflow.compat.v2 as tf  # pylint: disable=g-import-not-at-top
-  from tensorflow.python.profiler import profiler_client  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-  from tensorflow.python.profiler import profiler_v2 as profiler  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
 
   tf.enable_v2_behavior()
 except ImportError:
   logger.info(
-      'Disabling remote capture features as tensorflow is not available'
+      'Disabling some remote capture features as tensorflow is not available'
   )
   tf = None
-  profiler_client = None
-  profiler = None
 
 
 # The prefix of routes provided by this plugin.
@@ -418,6 +415,60 @@ def _get_bool_arg(
   return arg_str.lower() == 'true'
 
 
+class _TfProfiler:
+  """A helper class to encapsulate all TensorFlow-dependent profiler logic."""
+
+  def __init__(self, tf_module):
+    if not tf_module:
+      raise ImportError('TensorFlow module is not available.')
+    self.tf = tf_module
+
+  def _get_worker_list(self, cluster_resolver) -> str:
+    """Parses TPU workers list from the cluster resolver."""
+    cluster_spec = cluster_resolver.cluster_spec()
+    task_indices = cluster_spec.task_indices('worker')
+    worker_list = [
+        cluster_spec.task_address('worker', i).replace(':8470', ':8466')
+        for i in task_indices
+    ]
+    return ','.join(worker_list)
+
+  def resolve_tpu_name(
+      self, tpu_name: str, worker_list: str | None
+  ) -> tuple[str, str, str]:
+    """Resolves a TPU name to its master IP, service address, and worker list.
+
+    Args:
+      tpu_name: The name of the TPU to resolve.
+      worker_list: A comma-separated list of worker addresses.
+
+    Returns:
+      A tuple containing (service_addr, worker_list, master_ip).
+    """
+    try:
+      resolver = self.tf.distribute.cluster_resolver.TPUClusterResolver(
+          tpu_name
+      )
+      master_grpc_addr = resolver.get_master()
+    except RuntimeError as err:
+      # Propagate error to be handled by the caller.
+      raise RuntimeError(
+          f'Error initializing TPUClusterResolver: {err}'
+      ) from err
+    except (ValueError, TypeError) as e:
+      # Handle cases where the TPU name is invalid.
+      raise ValueError(f'No TPU found with the name: {tpu_name}') from e
+
+    if not worker_list:
+      worker_list = self._get_worker_list(resolver)
+
+    # TPU cluster resolver always returns port 8470. Replace it with 8466
+    # on which profiler service is running.
+    master_ip = master_grpc_addr.replace('grpc://', '').replace(':8470', '')
+    service_addr = f'{master_ip}:8466'
+    return service_addr, worker_list, master_ip
+
+
 class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
 
@@ -441,6 +492,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self._is_active_lock = threading.Lock()
     # Cache to map profile run name to corresponding tensorboard dir name
     self._run_to_profile_run_dir = {}
+    self._tf_profiler = _TfProfiler(tf) if tf else None
 
   def is_active(self) -> bool:
     """Whether this plugin is active and has any profile data to show.
@@ -809,98 +861,60 @@ class ProfilePlugin(base_plugin.TBPlugin):
   def capture_route_impl(self, request: wrappers.Request) -> wrappers.Response:
     """Runs the client trace for capturing profiling information."""
 
-    if not tf or not profiler or not profiler_client:
-      return respond(
-          {'error': 'TensorFlow is not installed.'},
-          'application/json',
-          code=500,
-      )
-
-    def get_worker_list(
-        cluster_resolver: tf.distribute.cluster_resolver.ClusterResolver,
-    ) -> str:
-      """Parses TPU workers list from the cluster resolver."""
-      cluster_spec = cluster_resolver.cluster_spec()
-      task_indices = cluster_spec.task_indices('worker')
-      worker_list = [
-          cluster_spec.task_address('worker', i).replace(':8470', ':8466')
-          for i in task_indices
-      ]
-      return ','.join(worker_list)
-
     service_addr = request.args.get('service_addr')
     duration = int(request.args.get('duration', '1000'))
     is_tpu_name = request.args.get('is_tpu_name') == 'true'
     worker_list = request.args.get('worker_list')
     num_tracing_attempts = int(request.args.get('num_retry', '0')) + 1
-    options = None
-    try:
-      options = profiler.ProfilerOptions(
-          host_tracer_level=int(request.args.get('host_tracer_level', '2')),
-          device_tracer_level=int(request.args.get('device_tracer_level', '1')),
-          python_tracer_level=int(request.args.get('python_tracer_level', '0')),
-      )
-      # For preserving backwards compatibility with TensorFlow 2.3 and older.
-      if 'delay_ms' in options._fields:
-        options.delay_ms = int(request.args.get('delay', '0'))
-    except AttributeError:
-      logger.warning('ProfilerOptions are available after tensorflow 2.3')
+    options = {
+        'host_tracer_level': int(request.args.get('host_tracer_level', '2')),
+        'device_tracer_level': int(
+            request.args.get('device_tracer_level', '1')
+        ),
+        'python_tracer_level': int(
+            request.args.get('python_tracer_level', '0')
+        ),
+        'delay_ms': int(request.args.get('delay', '0')),
+    }
 
     if is_tpu_name:
-      try:
-        tpu_cluster_resolver = (
-            tf.distribute.cluster_resolver.TPUClusterResolver(service_addr)
-        )
-        master_grpc_addr = tpu_cluster_resolver.get_master()
-      except (ImportError, RuntimeError) as err:
-        return respond({'error': repr(err)}, 'application/json', code=500)
-      except (ValueError, TypeError):
+      if not self._tf_profiler:
         return respond(
-            {'error': 'no TPUs with the specified names exist.'},
+            {
+                'error': (
+                    'TensorFlow is not installed, but is required to use TPU'
+                    ' names.'
+                )
+            },
             'application/json',
             code=500,
         )
-      if not worker_list:
-        worker_list = get_worker_list(tpu_cluster_resolver)
-      # TPU cluster resolver always returns port 8470. Replace it with 8466
-      # on which profiler service is running.
-      master_ip = master_grpc_addr.replace('grpc://', '').replace(':8470', '')
-      service_addr = master_ip + ':8466'
-      # Set the master TPU for streaming trace viewer.
-      self.master_tpu_unsecure_channel = master_ip
-    try:
-      if options:
-        profiler_client.trace(
-            service_addr,
-            self.logdir,
-            duration,
-            worker_list,
-            num_tracing_attempts,
-            options=options)
-      else:
-        profiler_client.trace(
-            service_addr,
-            self.logdir,
-            duration,
-            worker_list,
-            num_tracing_attempts,
+      try:
+        # Delegate to the helper class for all TF-related logic.
+        service_addr, worker_list, master_ip = (
+            self._tf_profiler.resolve_tpu_name(service_addr, worker_list)
         )
+        self.master_tpu_unsecure_channel = master_ip
+      except (RuntimeError, ValueError) as err:
+        return respond({'error': str(err)}, 'application/json', code=500)
+
+    try:
+      # The core trace call remains, now with cleanly resolved parameters.
+      _pywrap_profiler_plugin.trace(
+          service_addr.removeprefix('grpc://'),
+          str(self.logdir),
+          worker_list,
+          True,
+          duration,
+          num_tracing_attempts,
+          options,
+      )
       return respond(
           {'result': 'Capture profile successfully. Please refresh.'},
           'application/json',
       )
-    except tf.errors.UnavailableError:
-      return respond(
-          {'error': 'empty trace result.'},
-          'application/json',
-          code=200,
-      )
     except Exception as e:  # pylint: disable=broad-except
-      return respond(
-          {'error': str(e)},
-          'application/json',
-          code=500,
-      )
+      return respond({'error': str(e)}, 'application/json', code=500)
 
   def _get_graph_viewer_options(
       self, request: wrappers.Request

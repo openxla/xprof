@@ -526,8 +526,10 @@ dashboard would integrate trace viewer app using iframe.
       _loadedTraceEents: Object,
       _fullBounds: Object,
       _isLoading: {type: Boolean, value: false},
+      _isCounterEventsLoading: {type: Boolean, value: false},
       _dirty: {type: Boolean, value: false},
       _tasks: Object,
+      _counterEventsOffset: {type: Number, value: 0},
       _model: Object,
       _resolution: {type: Number, value: 1000},
       _filteredByVisibility: {type: Boolean, value: false},
@@ -1815,13 +1817,14 @@ dashboard would integrate trace viewer app using iframe.
       let startUpdateView;
 
       try {
-        const data = await this._loadJSON(requestedRange)
+        const data = await this._loadJSON(requestedRange);
         if (!this._isOss) {
           this._addInitialResponseDataLatency(performance.now());
           this._addDataResponseSize(data.length);
         }
         startUpdateModel = performance.now();
         const jsonData = JSON.parse(data);
+        this._maybeFetchMoreCounterEvents(jsonData);
         this._codeLink = jsonData['codeLink'];
         if (!this._model /* first load */) {
           this._collapseBigProcessTracks(jsonData);
@@ -1947,9 +1950,6 @@ dashboard would integrate trace viewer app using iframe.
         if (!jsonData['returnedEventsSize']) {
           this._displayOverlay('Trace Viewer', 'No trace events data returned.');
         }
-        if (jsonData['showCounterMessage'].length > 0) {
-          this._displayOverlay('Counters: ', jsonData['showCounterMessage']);
-        }
         this._dirty = true;
         this._model = new tr.Model();
         this._loadedTraceEvents = new Set();
@@ -2012,6 +2012,7 @@ dashboard would integrate trace viewer app using iframe.
         let eventsToAdd = [];
         jsonData.traceEvents.forEach(event => {
           if (event.entries) {
+            let groupedCounterEventsStartTime = performance.now();
             // Handle Grouped Counter Events
             let argName = event.event_stats;
             event.entries.forEach(entry => {
@@ -2026,6 +2027,7 @@ dashboard would integrate trace viewer app using iframe.
               };
               eventsToAdd.push(newEvent);
             });
+            this._addProcessGroupCouterLatency(performance.now() - groupedCounterEventsStartTime);
           } else {
             // Handle Regular Events
             eventsToAdd.push(event);
@@ -2047,9 +2049,63 @@ dashboard would integrate trace viewer app using iframe.
       }
       window.parent.postMessage({'type': 'processes-list','data': processList,}, '*');
     },
+    // Some sessions may have counter events that are not returned in the initial response.
+    // This function sends a request to fetch more counter events if the offset is set in the
+    // response. This is done using the counter events offset returned in the initial response.
+    // The counter events offset is set to 0 from the backend, which will stop subsequent fetches.
+    _maybeFetchMoreCounterEvents: function(jsonData) {
+      if (!jsonData['counterEventsOffset'] || jsonData['counterEventsOffset'] === 0) {
+        // console.log("Progressive loading: No more counter events available.");
+        return;
+      }
+      // console.log("Progressive loading: More counter events available. Offset:", jsonData['counterEventsOffset']);
+      this._counterEventsOffset = jsonData['counterEventsOffset'];
+      this._replaceModel = false;
+      const requestURL = this._buildBaseURL();
+      const requestedRange = null;
+      let retries = 5;
+      let moreCounterEventsStartTime = performance.now();
+      const fetchWithRetry = async () => {
+        try {
+          const data = await this._loadJSON(requestedRange);
+          this._addFetchCounterEventsLatency(performance.now() - moreCounterEventsStartTime);
+          const jsonData = JSON.parse(data);
+          // console.log("Progressive loading: Counter events fetched. New offset:", jsonData['counterEventsOffset']);
+          // console.log("Progressive loading: All counter events loaded. Updating view.");
+          return jsonData;
+        } catch (error) {
+          if (retries > 0) {
+            retries--;
+            console.error('Failed to fetch more counter events, retrying...', error);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+            return fetchWithRetry();
+          } else {
+            console.error('Failed to fetch more counter events after multiple retries:', error);
+            this._displayOverlay('Error', 'Failed to fetch more counter events.');
+            return null;
+          }
+        }
+      };
+      this._isCounterEventsLoading = true; // Set loading to true
+      fetchWithRetry().then(jsonData => {
+        this._isCounterEventsLoading = false; // Set loading to false
+        if (jsonData) {
+          this._updateModel(jsonData, /* replaceModel= */ false);
+          if (jsonData['counterEventsOffset'] === 0) {
+            this._updateView(this._loadedRange);
+          }
+          window.parent.gtag && window.parent.gtag('event', 'tv-counter-events-reload', {
+            'screen_name': 'trace viewer',
+            'event_category': 'reload',
+            'event_label': 'counter_events_reload',
+            'event_variable': requestURL.toString()});
+        }
+      });
+    },
 
     // Updates the view based on the current model.
     _updateView: async function(requestedRange) {
+      // console.log("updateView: requestedRange:", requestedRange);
       if (requestedRange == null) {
         this._loadedRange = tf_component_traceviewer.expand(
           this._fullBounds,
@@ -2097,6 +2153,16 @@ dashboard would integrate trace viewer app using iframe.
 
     _addUpdateViewLatency: function(latency) {
       const node = parent.document.getElementById('update-view-latency');
+      node.value = latency;
+    },
+
+    _addProcessGroupCouterLatency: function(latency) {
+      const node = parent.document.getElementById('process-group-counter-latency');
+      node.value = latency;
+    },
+
+    _addFetchCounterEventsLatency: function(latency) {
+      const node = parent.document.getElementById('fetch-counter-events-latency');
       node.value = latency;
     },
 
@@ -2182,6 +2248,7 @@ dashboard would integrate trace viewer app using iframe.
       }
       requestURL.searchParams.set('replace_model', this._replaceModel);
       requestURL.searchParams.set('new_backend', this._useNewBackend);
+      requestURL.searchParams.set('counter_events_offset', this._counterEventsOffset);
       return requestURL;
     },
 

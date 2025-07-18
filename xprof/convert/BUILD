@@ -750,6 +750,7 @@ cc_library(
     name = "xplane_to_tools_data",
     srcs = ["xplane_to_tools_data.cc"],
     hdrs = ["xplane_to_tools_data.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":compute_inference_latency",
         ":hlo_to_tools_data",
@@ -788,6 +789,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_data_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_stats_proto_cc",
+        "@org_xprof//xprof/convert/smart_suggestion:smart_suggestion_engine",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",

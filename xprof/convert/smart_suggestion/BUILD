@@ -9,6 +9,7 @@ package(
 cc_library(
     name = "signal_provider",
     hdrs = ["signal_provider.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":tool_data_provider",
         "//util/task:status",
@@ -22,6 +23,7 @@ cc_library(
 cc_library(
     name = "smart_suggestion_rule",
     hdrs = ["smart_suggestion_rule.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":signal_provider",
         "@com_google_absl//absl/status:statusor",
@@ -32,6 +34,7 @@ cc_library(
 cc_library(
     name = "tool_data_provider",
     hdrs = ["tool_data_provider.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -42,6 +45,7 @@ cc_library(
 cc_library(
     name = "tool_data_provider_impl",
     hdrs = ["tool_data_provider_impl.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":tool_data_provider",
         "//util/task:status",
@@ -59,6 +63,7 @@ cc_library(
 cc_library(
     name = "input_bound_rule",
     hdrs = ["input_bound_rule.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":signal_provider",
         ":smart_suggestion_rule",
@@ -70,6 +75,7 @@ cc_library(
 cc_library(
     name = "host_processing_bound_rule",
     hdrs = ["host_processing_bound_rule.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":input_bound_rule",
         ":signal_provider",
@@ -85,6 +91,7 @@ cc_library(
 cc_library(
     name = "data_transfer_bound_rule",
     hdrs = ["data_transfer_bound_rule.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         ":input_bound_rule",
         ":signal_provider",
@@ -94,6 +101,45 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_rule_factory",
+    hdrs = ["smart_suggestion_rule_factory.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
+    deps = [
+        ":smart_suggestion_rule",
+    ],
+)
+
+cc_library(
+    name = "all_rules",
+    hdrs = ["all_rules.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
+    deps = [
+        ":data_transfer_bound_rule",
+        ":host_processing_bound_rule",
+        ":input_bound_rule",
+        ":smart_suggestion_rule_factory",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_engine",
+    srcs = ["smart_suggestion_engine.cc"],
+    hdrs = ["smart_suggestion_engine.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
+    deps = [
+        ":all_rules",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        ":smart_suggestion_rule_factory",
+        ":tool_data_provider_impl",
+        "//util/task:status",
+        "@com_google_absl//absl/status:statusor",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@org_xprof//xprof/convert:repository",
     ],
 )
 

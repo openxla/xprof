@@ -2,6 +2,7 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
 package(
+    default_compatible_with = ["//buildenv/target:non_prod"],
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
@@ -62,6 +63,7 @@ cc_library(
     deps = [
         ":signal_provider",
         ":smart_suggestion_rule",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
     ],
@@ -93,6 +95,39 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_rule_factory",
+    hdrs = ["smart_suggestion_rule_factory.h"],
+    deps = [
+        ":smart_suggestion_rule",
+    ],
+)
+
+cc_library(
+    name = "all_rules",
+    hdrs = ["all_rules.h"],
+    deps = [
+        ":data_transfer_bound_rule",
+        ":host_processing_bound_rule",
+        ":input_bound_rule",
+        ":smart_suggestion_rule_factory",
+    ],
+)
+
+cc_library(
+    name = "smart_suggestion_engine",
+    srcs = ["smart_suggestion_engine.cc"],
+    hdrs = ["smart_suggestion_engine.h"],
+    deps = [
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        ":smart_suggestion_rule_factory",
+        "//util/task:status",
+        "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
     ],
 )

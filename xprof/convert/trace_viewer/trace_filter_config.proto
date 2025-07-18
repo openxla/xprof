@@ -1,0 +1,62 @@
+edition = "2023";
+
+package tensorflow.profiler;
+
+option features.field_presence = IMPLICIT;
+
+// TraceEventFilter is a boolean expression on a particular field on the
+// TraceEvent. If all TraceEventFilters (AND condition between each) evaluate
+// as True on a TraceFilter, it means we filter the TraceEvent out.
+message TraceEventFilter {
+  enum Operator {
+    OP_EQ = 0;  // Equal
+
+    OP_LT = 1;  // Less than
+
+    OP_GT = 2;  // Greater than
+
+    OP_LE = 3;  // Less than and equal
+
+    OP_GE = 4;  // Greater than and equal
+
+    OP_REGEX = 5;  // Regex match
+  }
+
+  // The name of a field on the TraceEvent.
+  string field_name = 5;
+  Operator op_id = 6;
+
+  // Whether NOT proposition is set or not.
+  bool negation = 7;
+
+  oneof value {
+    string str_value = 8;
+    string regex_value = 9;  // Only allows using OP_EQ.
+
+    uint64 uint_value = 10;
+    int64 int_value = 12;
+    double double_value = 11;
+  }
+}
+
+message TraceFilterConfig {
+  // List of regexes for device/resource we should match this filter on.
+  // A device/resource is included if it matches any one of the regex.
+  // If empty, assume it means include all.
+  // Device & Resource here matches its definition in the TraceEvent proto
+  // http://google3/third_party/tensorflow/core/profiler/protobuf/trace_events.proto;l=127-137;rcl=590742687
+  repeated string device_regexes = 1;
+  repeated string resource_regexes = 2;
+
+  // Match an event based on the filters below.
+  // Between all the Event Filters (trace_event_filters &
+  // trace_event_arg_filters) it is AND condition. Filters are functionally
+  // complete since they support {AND, NOT} bool operators.
+  repeated TraceEventFilter trace_event_filters = 3;
+  repeated TraceEventFilter trace_event_arg_filters = 4;
+
+  // Whether NOT proposition is set or not on this TraceFilter.
+  // By default False so TraceFilter will filter out events that match it.
+  // When set to True, TraceFilter will only keep events that match it.
+  bool negation = 5;
+}

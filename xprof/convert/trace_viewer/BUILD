@@ -1,3 +1,6 @@
+load("//third_party/protobuf/bazel:cc_proto_library.bzl", "cc_proto_library")
+load("//third_party/protobuf/bazel:proto_library.bzl", "proto_library")
+
 default_visibility = [
     "//perftools/gputools/profiler/collector:__pkg__",
     "@org_tensorflow//tensorflow/core/profiler:internal",
@@ -8,6 +11,16 @@ package(
     # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
+)
+
+proto_library(
+    name = "trace_filter_config_proto",
+    srcs = ["trace_filter_config.proto"],
+)
+
+cc_proto_library(
+    name = "trace_filter_config_cc_proto",
+    deps = [":trace_filter_config_proto"],
 )
 
 cc_library(
@@ -161,6 +174,7 @@ cc_library(
     deps = [
         ":trace_events_filter_interface",
         ":trace_events_to_json",
+        ":trace_filter_config_cc_proto",
         ":trace_utils",
         "@com_google_absl//absl/container:flat_hash_set",
         "@org_xprof//xprof/convert:tool_options",
@@ -173,6 +187,7 @@ cc_test(
     deps = [
         ":trace_events_filter_interface",
         ":trace_options",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/convert:tool_options",

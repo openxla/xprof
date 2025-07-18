@@ -3,11 +3,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include "absl/container/flat_hash_set.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
+#include "xprof/convert/trace_viewer/trace_filter_config.pb.h"
 #include "xprof/convert/trace_viewer/trace_utils.h"
 
 namespace tensorflow {
@@ -29,6 +31,9 @@ inline constexpr const char* kShowHloCostModel = "show_hlo_cost_model";
 // Options used to select TraceEvents (e.g., for visualization or further
 // processing).
 struct TraceOptions {
+  // TraceFilterConfig is a filtering config written by the user for filtering
+  // trace events.
+  std::optional<tensorflow::profiler::TraceFilterConfig> trace_filter_config;
   // Visualize tensor core overlays. This is low-level debug information for
   // XLA and xprof devs. so don't show by default.
   bool overlay = false;
@@ -58,22 +63,6 @@ struct TraceOptions {
   bool show_hlo_cost_model = false;
 };
 
-class TraceEventsFilter : public TraceEventsFilterInterface {
- public:
-  explicit TraceEventsFilter(const TraceOptions& options) : options_(options) {}
-
-  void SetUp(const Trace& trace) override;
-
-  bool Filter(const TraceEvent& event) override;
-
- private:
-  const TraceOptions options_;
-
-  TraceDeviceType device_type_ = TraceDeviceType::kUnknownDevice;
-  absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;
-  absl::flat_hash_set<uint32_t /*device_id*/> tpu_core_devices_;
-};
-
 // Returns TraceOptions for use when the generated events will be visualized.
 // Parses the tool options from a request.
 TraceOptions TraceOptionsFromToolOptions(const ToolOptions& options);
@@ -85,7 +74,7 @@ JsonTraceOptions::Details TraceOptionsToDetails(TraceDeviceType device_type,
 // Returns a trace events filter configured to filter events according to the
 // given options.
 std::unique_ptr<tensorflow::profiler::TraceEventsFilterInterface>
-TraceEventsFilterFromTraceOptions(const TraceOptions& options);
+CreateTraceEventsFilterFromTraceOptions(const TraceOptions& options);
 
 inline bool IsTpuTrace(const Trace& trace) {
   for (const auto& [device_id, device] : trace.devices()) {

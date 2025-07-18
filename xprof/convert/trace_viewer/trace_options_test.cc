@@ -1,14 +1,35 @@
 #include "xprof/convert/trace_viewer/trace_options.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/container/flat_hash_set.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
 
 namespace tensorflow {
 namespace profiler {
+namespace filter_internal {
+// Test Peer Class for TraceEventsFilter.
+class TraceEventsFilter : public TraceEventsFilterInterface {
+ public:
+  explicit TraceEventsFilter(const TraceOptions& options) : options_(options) {}
+
+  void SetUp(const Trace& trace) override;
+
+  bool Filter(const TraceEvent& event) override;
+
+ private:
+  const TraceOptions options_;
+
+  TraceDeviceType device_type_ = TraceDeviceType::kUnknownDevice;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_noncore_devices_;
+  absl::flat_hash_set<uint32_t /*device_id*/> tpu_core_devices_;
+};
+}  // namespace filter_internal
+
 namespace {
 
 using ::testing::IsEmpty;
@@ -62,14 +83,14 @@ TEST(TraceOptionsTest, IsTpuTraceTest) {
 TEST(TraceOptionsTest, TraceEventsFilterFromTraceOptionsTest) {
   TraceOptions options;
   std::unique_ptr<TraceEventsFilterInterface> filter =
-      TraceEventsFilterFromTraceOptions(options);
+      CreateTraceEventsFilterFromTraceOptions(options);
   EXPECT_NE(filter, nullptr);
 }
 
 TEST(TraceEventsFilterTest, FilterTest) {
   TraceOptions options;
   options.full_dma = false;
-  TraceEventsFilter filter(options);
+  filter_internal::TraceEventsFilter filter(options);
 
   Trace trace;
   Device& tpu_device = (*trace.mutable_devices())[0];
@@ -95,7 +116,7 @@ TEST(TraceEventsFilterTest, FilterTest) {
 
   // With full_dma=true, no events should be filtered.
   options.full_dma = true;
-  TraceEventsFilter full_dma_filter(options);
+  filter_internal::TraceEventsFilter full_dma_filter(options);
   full_dma_filter.SetUp(trace);
   EXPECT_FALSE(full_dma_filter.Filter(flow_event));
   EXPECT_FALSE(full_dma_filter.Filter(non_flow_event));
@@ -103,7 +124,7 @@ TEST(TraceEventsFilterTest, FilterTest) {
 
 TEST(TraceEventsFilterTest, NonTpuTraceTest) {
   TraceOptions options;
-  TraceEventsFilter filter(options);
+  filter_internal::TraceEventsFilter filter(options);
 
   Trace trace;
   Device& gpu_device = (*trace.mutable_devices())[0];

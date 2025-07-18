@@ -147,7 +147,7 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     // Trace smaller than threshold will be disabled from streaming.
     constexpr int64_t kDisableStreamingThreshold = 500000;
     auto trace_events_filter =
-        TraceEventsFilterFromTraceOptions(profiler_trace_options);
+        CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);
     TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
         *sstable_path, std::move(trace_events_filter),
         std::move(visibility_filter), kDisableStreamingThreshold));

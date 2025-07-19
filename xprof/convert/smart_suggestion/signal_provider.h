@@ -28,7 +28,6 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-// Concrete class to provide signals from a SessionSnapshot.
 class SignalProvider {
  public:
   explicit SignalProvider(std::unique_ptr<ToolDataProvider> tool_data_provider)

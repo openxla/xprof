@@ -22,7 +22,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
-#include "tsl/platform/protobuf.h"
+#include "google/protobuf/map.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 
@@ -81,9 +81,9 @@ struct OpProfileOptions {
 // group, to avoid double counting
 class OpProfileBuilder {
  public:
-  OpProfileBuilder(const OpProfileOptions& options, op_profile::Node* root,
-                   const tsl::protobuf::Map<uint64_t, std::string>*
-                       program_name_map = nullptr);
+  OpProfileBuilder(
+      const OpProfileOptions& options, op_profile::Node* root,
+      const google::protobuf::Map<uint64_t, std::string>* program_name_map = nullptr);
 
   // Accumulate the op_metrics to the op_profile node tree
   void AddOp(const OpMetrics& op_metrics);
@@ -181,7 +181,7 @@ class OpProfileBuilder {
       provenance_category_map_;
 
   // Map to look up program names by id.
-  const tsl::protobuf::Map<uint64_t, std::string>* program_name_map_ = nullptr;
+  const google::protobuf::Map<uint64_t, std::string>* program_name_map_ = nullptr;
 };
 }  // namespace profiler
 }  // namespace tensorflow

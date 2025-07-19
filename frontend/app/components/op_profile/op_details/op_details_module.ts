@@ -4,6 +4,7 @@ import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatIconModule} from '@angular/material/icon';
 import {MatTooltipModule} from '@angular/material/tooltip';
+import {NgxJsonViewerModule} from 'google3/third_party/javascript/ngx_json_viewer/src/ngx-json-viewer.module';
 
 import {OpDetails} from './op_details';
 
@@ -16,6 +17,7 @@ import {OpDetails} from './op_details';
     MatIconModule,
     MatButtonModule,
     MatTooltipModule,
+    NgxJsonViewerModule,
   ],
   exports: [OpDetails]
 })

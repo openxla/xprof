@@ -28,7 +28,9 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-// Concrete class to provide signals from a SessionSnapshot.
+// SignalProvider is a helper class to provide signals for smart suggestion
+// rules. It wraps a ToolDataProvider and provides methods to extract specific
+// signals from the tool data.
 class SignalProvider {
  public:
   explicit SignalProvider(std::unique_ptr<ToolDataProvider> tool_data_provider)

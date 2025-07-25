@@ -1,0 +1,52 @@
+/** CSS for a smart suggestion view component. */
+
+@import 'frontend/app/styles/common';
+
+:host {
+  @include border-bottom-gray;
+  @include border-right-gray;
+  ::ng-deep ul {
+    list-style-type: none;
+    padding-left: 0;
+    li {
+      margin-bottom: 10px;
+      margin-left: 10px;
+    }
+    li::before {
+      content: "\2022";
+      color: #000;
+      display: inline-block;
+      width: 1em;
+      margin-left: -1em;
+    }
+  }
+}
+
+:host:not(.dark-theme) {
+  mat-card {
+    @include overview-card;
+  }
+}
+
+mat-card {
+  @include overview-card-height;
+}
+
+mat-card-title {
+  @include overview-card-title;
+}
+
+:host.dark-theme {
+  border: none;
+
+  mat-card {
+    @include overview-card-dark-theme;
+  }
+
+  mat-card-title {
+    background-color: $dark-theme-card-title-background-color;
+    color: $dark-theme-card-title-color;
+    padding: 16px;
+    margin: -16px -16px 16px;
+  }
+}

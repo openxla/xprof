@@ -1,0 +1,8 @@
+<mat-card>
+  <mat-card-title>{{title}}</mat-card-title>
+  <mat-card-content>
+    <div *ngIf="suggestionReport && suggestionReport.suggestions && suggestionReport.suggestions.length > 0">
+      <span *ngFor="let suggestion of suggestionReport.suggestions" [innerHtml]="suggestion.suggestionText"></span>
+    </div>
+  </mat-card-content>
+</mat-card>

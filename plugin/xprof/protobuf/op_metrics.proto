@@ -107,8 +107,9 @@ message OpMetrics {
   string name = 6;
   // Long name of this op (e.g., HLO expression).
   string long_name = 20;
-  // Category of this op. (e.g. Hlo op category, Framework op type)
-  // Could be parsed from provenance if it is a framework op.
+  // Category of this op. (e.g. Hlo op category, Framework op type, input
+  // pipeline stage category) Could be parsed from provenance if it is a
+  // framework op.
   string category = 11;
   // Provenance of this op if it is an HLO Op. (e.g. TF Op name, JAX Op name)
   // TODO(b/310434797) Extends this for JAX as now only TF Op is populated.

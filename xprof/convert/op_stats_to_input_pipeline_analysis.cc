@@ -45,6 +45,7 @@ limitations under the License.
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/host_op_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "xprof/convert/profile_time_breakdown.h"
 #include "xprof/convert/step_events_to_steps_db.h"
@@ -287,7 +288,8 @@ enum class InputOpCategory {
   kDemandedFileRead,  // demanded read from file.
   kAdvancedFileRead,  // advanced read from file (including cached,
                       // prefetch, parallel-map, interleave).
-  kPreprocessing      // data preprocessing.
+  kPreprocessing,     // data preprocessing.
+  kUnknown,           // unknown category.
 };
 
 std::string InputOpCategoryString(InputOpCategory category) {
@@ -300,7 +302,30 @@ std::string InputOpCategoryString(InputOpCategory category) {
       return "Advanced file read";
     case InputOpCategory::kPreprocessing:
       return "Preprocessing";
+    case InputOpCategory::kUnknown:
+      return "Unknown";
   }
+}
+
+inline std::string MapToLegacyCategoryString(const OpMetricsDb& host_op_metrics,
+                                             std::string category) {
+  if (input_op::GetInputOpCategory(category) ==
+      input_op::InputOpCategory::kRead) {
+    return InputOpCategoryString(InputOpCategory::kDemandedFileRead);
+  } else if (input_op::GetInputOpCategory(category) ==
+             input_op::InputOpCategory::kPreprocessing) {
+    return InputOpCategoryString(InputOpCategory::kPreprocessing);
+  } else if (input_op::GetInputOpCategory(category) ==
+             input_op::InputOpCategory::kEnqueue) {
+    return InputOpCategoryString(InputOpCategory::kEnqueue);
+  }
+  return category;
+}
+
+inline bool IsInputOpNew(absl::string_view category) {
+  input_op::InputOpCategory input_category =
+      input_op::GetInputOpCategory(category);
+  return input_category != input_op::InputOpCategory::kUnknown;
 }
 
 inline bool IsInputOp(absl::string_view category) {
@@ -352,7 +377,10 @@ struct InputOpMetrics {
 InputOpMetrics SelectInputOpMetrics(const OpMetricsDb& all_op_metrics) {
   InputOpMetrics input_op_metrics;
   for (const OpMetrics* op_metrics : SortedOpMetricsDb(all_op_metrics)) {
-    if (IsInputOp(op_metrics->category())) {
+    auto select_func = all_op_metrics.use_new_input_pipeline_analysis()
+                           ? IsInputOpNew
+                           : IsInputOp;
+    if (select_func(op_metrics->category())) {
       input_op_metrics.input_op_metrics.push_back(op_metrics);
       input_op_metrics.input_op_time_ps += op_metrics->self_time_ps();
     }
@@ -362,7 +390,7 @@ InputOpMetrics SelectInputOpMetrics(const OpMetricsDb& all_op_metrics) {
 
 InputOpDetails ConvertOpMetricsToInputOpDetails(const OpMetrics& op_metrics,
                                                 uint64 input_op_time_ps,
-                                                InputOpCategory category) {
+                                                std::string category) {
   InputOpDetails details;
   details.set_op_name(op_metrics.name());
   details.set_count(op_metrics.occurrences());
@@ -375,7 +403,7 @@ InputOpDetails ConvertOpMetricsToInputOpDetails(const OpMetrics& op_metrics,
   details.set_self_time_in_percent(
       100.0 *
       tsl::profiler::SafeDivide(op_metrics.self_time_ps(), input_op_time_ps));
-  details.set_category(InputOpCategoryString(category));
+  details.set_category(category);
   return details;
 }
 
@@ -1263,32 +1291,40 @@ TpuBottleneckAnalysis ComputeTpuBottleneckAnalysis(
   return analysis;
 }
 
-void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
+void GenerateHostResult(const OpMetricsDb& host_metrics_db,
                         InputPipelineAnalysisResult* result) {
-  InputOpMetrics input_op_metrics = SelectInputOpMetrics(host_tf_metrics_db);
+  InputOpMetrics input_op_metrics = SelectInputOpMetrics(host_metrics_db);
   // Returns if the program is not using an input pipeline with
   // instrumentation and hence no input ops are found.
   if (input_op_metrics.input_op_metrics.empty()) return;
 
-  absl::flat_hash_map<InputOpCategory, double> aggregated_input_op_times_us;
+  absl::flat_hash_map<std::string, double> aggregated_input_op_times_us;
   for (const OpMetrics* op_metrics : input_op_metrics.input_op_metrics) {
-    InputOpCategory category =
-        CategorizeInputOp(op_metrics->name(), op_metrics->category());
+    std::string category_str = op_metrics->category();
+    if (host_metrics_db.use_new_input_pipeline_analysis()) {
+      category_str = MapToLegacyCategoryString(host_metrics_db, category_str);
+    } else {
+      InputOpCategory category_legacy =
+          CategorizeInputOp(op_metrics->name(), op_metrics->category());
+      category_str = InputOpCategoryString(category_legacy);
+    }
     *result->add_input_op_details() = ConvertOpMetricsToInputOpDetails(
-        *op_metrics, input_op_metrics.input_op_time_ps, category);
-    aggregated_input_op_times_us[category] +=
+        *op_metrics, input_op_metrics.input_op_time_ps, category_str);
+    aggregated_input_op_times_us[category_str] +=
         tsl::profiler::PicoToMicro(op_metrics->self_time_ps());
   }
-
-  double enqueue_time_us =
-      aggregated_input_op_times_us[InputOpCategory::kEnqueue];
+  double enqueue_time_us = aggregated_input_op_times_us[InputOpCategoryString(
+      InputOpCategory::kEnqueue)];
   double total_input_op_time_us =
-      aggregated_input_op_times_us[InputOpCategory::kDemandedFileRead] +
-      aggregated_input_op_times_us[InputOpCategory::kAdvancedFileRead] +
-      aggregated_input_op_times_us[InputOpCategory::kPreprocessing];
+      aggregated_input_op_times_us[InputOpCategoryString(
+          InputOpCategory::kDemandedFileRead)] +
+      aggregated_input_op_times_us[InputOpCategoryString(
+          InputOpCategory::kAdvancedFileRead)] +
+      aggregated_input_op_times_us[InputOpCategoryString(
+          InputOpCategory::kPreprocessing)];
 
   double ratio = std::min(
-      1.0, RatioOfHostToDeviceTimeToStepTime(host_tf_metrics_db, *result));
+      1.0, RatioOfHostToDeviceTimeToStepTime(host_metrics_db, *result));
   DCHECK_GE(ratio, 0.0);
   double non_enqueue_time_us = (ratio != 0.0)
                                    ? (enqueue_time_us * (1.0 - ratio) / ratio)
@@ -1296,16 +1332,16 @@ void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
 
   // Scales the various input-time components wrt to non_enqueue_time_us.
   double scaled_demanded_fileread_time_us = tsl::profiler::SafeDivide(
-      non_enqueue_time_us *
-          aggregated_input_op_times_us[InputOpCategory::kDemandedFileRead],
+      non_enqueue_time_us * aggregated_input_op_times_us[InputOpCategoryString(
+                                InputOpCategory::kDemandedFileRead)],
       total_input_op_time_us);
   double scaled_advanced_fileread_time_us = tsl::profiler::SafeDivide(
-      non_enqueue_time_us *
-          aggregated_input_op_times_us[InputOpCategory::kAdvancedFileRead],
+      non_enqueue_time_us * aggregated_input_op_times_us[InputOpCategoryString(
+                                InputOpCategory::kAdvancedFileRead)],
       total_input_op_time_us);
   double scaled_preprocessing_time_us = tsl::profiler::SafeDivide(
-      non_enqueue_time_us *
-          aggregated_input_op_times_us[InputOpCategory::kPreprocessing],
+      non_enqueue_time_us * aggregated_input_op_times_us[InputOpCategoryString(
+                                InputOpCategory::kPreprocessing)],
       total_input_op_time_us);
   double unclassified_non_enqueue_time_us = std::max(
       0.0, non_enqueue_time_us - scaled_demanded_fileread_time_us -

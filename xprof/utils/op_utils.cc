@@ -97,6 +97,24 @@ void EnterOpMetadataFromHloModuleMap(OpMetrics* op_metrics,
   }
 }
 
+void HostOpMetricsDbBuilder::EnterOp(int64_t thread_id,
+                                     absl::string_view name,
+                                     absl::string_view type,
+                                     absl::string_view category, uint64 time_ps,
+                                     uint64 children_time_ps) {
+  uint64 self_time_ps = time_ps - children_time_ps;
+  DCHECK_GE(time_ps, self_time_ps);
+  OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(thread_id, name);
+  if (op_metrics->category().empty())
+    op_metrics->set_category(category.data(), category.size());
+  op_metrics->set_time_ps(op_metrics->time_ps() + time_ps);
+  op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_time_ps);
+  op_metrics->set_occurrences(op_metrics->occurrences() + 1);
+  op_metrics->set_num_cores(1);
+  // Total op time here sum over all threads.
+  db()->set_total_op_time_ps(db()->total_op_time_ps() + self_time_ps);
+}
+
 void HostOpMetricsDbBuilder::EnterOp(absl::string_view name,
                                      absl::string_view category, bool is_eager,
                                      uint64 time_ps, uint64 children_time_ps) {

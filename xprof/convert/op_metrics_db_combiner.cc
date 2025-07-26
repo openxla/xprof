@@ -130,6 +130,9 @@ void OpMetricsDbCombiner::Combine(const OpMetricsDb& src,
   dst->set_total_host_infeed_enq_start_timestamp_ps_diff(
       src.total_host_infeed_enq_start_timestamp_ps_diff() +
       dst->total_host_infeed_enq_start_timestamp_ps_diff());
+  dst->set_use_new_input_pipeline_analysis(
+      src.use_new_input_pipeline_analysis() ||
+      dst->use_new_input_pipeline_analysis());
   dst->set_total_time_ps(src.total_time_ps() + dst->total_time_ps());
   dst->set_total_op_time_ps(src.total_op_time_ps() + dst->total_op_time_ps());
   dst->set_idle_time_ps(src.idle_time_ps() + dst->idle_time_ps());

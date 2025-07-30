@@ -1,0 +1,51 @@
+diff --git a/closure/defs.bzl b/closure/defs.bzl
+index 0ba7317..72fc540 100644
+--- a/closure/defs.bzl
++++ b/closure/defs.bzl
+@@ -20,16 +20,11 @@ load("//closure/compiler:closure_js_binary.bzl", _closure_js_binary = "closure_j
+ load("//closure/compiler:closure_js_library.bzl", _closure_js_library = "closure_js_library", _create_closure_js_library = "create_closure_js_library")
+ load("//closure/private:defs.bzl", _CLOSURE_JS_TOOLCHAIN_ATTRS = "CLOSURE_JS_TOOLCHAIN_ATTRS", _ClosureJsLibraryInfo = "ClosureJsLibraryInfo")
+ load("//closure/private:files_equal_test.bzl", _files_equal_test = "files_equal_test")
+-load("//closure/protobuf:closure_js_proto_library.bzl", _closure_js_proto_library = "closure_js_proto_library")
+-load("//closure/protobuf:closure_proto_library.bzl", _closure_proto_library = "closure_proto_library")
+ load("//closure/stylesheets:closure_css_binary.bzl", _closure_css_binary = "closure_css_binary")
+ load("//closure/stylesheets:closure_css_library.bzl", _closure_css_library = "closure_css_library")
+-load("//closure/templates:closure_java_template_library.bzl", _closure_java_template_library = "closure_java_template_library")
+ load("//closure/templates:closure_js_template_library.bzl", _closure_js_template_library = "closure_js_template_library")
+ load("//closure/templates:closure_templates_plugin.bzl", _closure_templates_plugin = "closure_templates_plugin")
+-load("//closure/testing:closure_js_test.bzl", _closure_js_test = "closure_js_test")
+ load("//closure/testing:phantomjs_test.bzl", _phantomjs_test = "phantomjs_test")
+-load("//closure/testing:web_test_repositories.bzl", _setup_web_test_repositories = "setup_web_test_repositories")
+
+ closure_js_aspect = _closure_js_aspect
+ closure_js_binary = _closure_js_binary
+@@ -38,16 +33,11 @@ create_closure_js_library = _create_closure_js_library
+ ClosureJsLibraryInfo = _ClosureJsLibraryInfo
+ CLOSURE_JS_TOOLCHAIN_ATTRS = _CLOSURE_JS_TOOLCHAIN_ATTRS
+ files_equal_test = _files_equal_test
+-closure_js_proto_library = _closure_js_proto_library
+-closure_proto_library = _closure_proto_library
+ closure_css_binary = _closure_css_binary
+ closure_css_library = _closure_css_library
+-closure_java_template_library = _closure_java_template_library
+ closure_js_template_library = _closure_js_template_library
+ closure_templates_plugin = _closure_templates_plugin
+-closure_js_test = _closure_js_test
+ phantomjs_test = _phantomjs_test
+-setup_web_test_repositories = _setup_web_test_repositories
+ filegroup_external = _filegroup_external
+ web_library = _web_library
+ web_library_external = _web_library_external
+diff --git a/closure/templates/closure_java_template_library.bzl b/closure/templates/closure_java_template_library.bzl
+index 35f8d03..d1d8f23 100644
+--- a/closure/templates/closure_java_template_library.bzl
++++ b/closure/templates/closure_java_template_library.bzl
+@@ -15,7 +15,7 @@
+ """Utilities for compiling Closure Templates to Java.
+ """
+
+-load("@rules_java//java:defs.bzl", "java_library")
++load("@rules_java//java:java_library.bzl", "java_library")
+
+ _SOY_COMPILER_BIN = "@com_google_template_soy//:SoyParseInfoGenerator"
+ _SOY_LIBRARY = "@com_google_template_soy//:com_google_template_soy"

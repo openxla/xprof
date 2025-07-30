@@ -23,7 +23,6 @@ Public submodules:
 
 from importlib import metadata
 import warnings
-import packaging.version
 
 
 def _get_current_package_name():
@@ -39,15 +38,14 @@ def _get_current_package_name():
 
     # Look up our import name to find the list of distributions that provide it.
     # In a standard environment, this list will have one item.
-    dist_names = dist_map.get(current_import_name)
+    dist_names = set(dist_map.get(current_import_name))
 
     if dist_names:
       if len(dist_names) > 1:
-        # Both xprof and xprof-nightly are installed.
-        raise RuntimeError(
-            "Multiple distributions found for package:"
-            f" {current_import_name} ({dist_names})\n"
-            "Please uninstall one of the conflicting packages."
+        warnings.warn(
+            f"Multiple distributions found for package '{current_import_name}':"
+            f" {dist_names}. Please uninstall one of them.",
+            UserWarning,
         )
       return dist_names[0]
 
@@ -57,30 +55,24 @@ def _get_current_package_name():
   return current_import_name
 
 
-def _check_for_conflicts(current_package_name):
-  """Checks for conflicting legacy packages and raises an error if found."""
-  # These are the legacy packages that conflict with ANY new version.
+def _check_for_conflicts():
+  """Checks for conflicting legacy packages and raises an error if any are found."""
+  current_package_name = _get_current_package_name()
+
   conflicting_packages = ["tensorboard-plugin-profile", "tbp-nightly"]
-  conflict_version_ceiling = "2.20.0"
+
   for conflicting_pkg in conflicting_packages:
     try:
-      installed_version_str = metadata.version(conflicting_pkg)
-      installed_version = packaging.version.Version(installed_version_str)
-      conflict_version_ceiling_version = packaging.version.Version(
-          conflict_version_ceiling
+      installed_version = metadata.version(conflicting_pkg)
+
+      raise RuntimeError(
+          f"Installation Conflict: The package '{current_package_name}'"
+          f" cannot be used while '{conflicting_pkg}=={installed_version}' is"
+          " installed.\n\nTo fix this, please uninstall the conflicting package"
+          f" by running:\n\n  pip uninstall {conflicting_pkg}"
       )
-      if installed_version < conflict_version_ceiling_version:
-        raise RuntimeError(
-            f"Installation Conflict: The package '{current_package_name}'"
-            " cannot be used while"
-            f" '{conflicting_pkg}=={installed_version_str}' is"
-            f" installed.\n\n'{current_package_name}' is entirely backwards-"
-            "compatible with Tensorboard. \nTo fix this, please uninstall"
-            f" {conflicting_pkg} by running:\n\n  pip uninstall"
-            f" {conflicting_pkg}"
-        )
     except metadata.PackageNotFoundError:
-      # No conflicting package installed.
       continue
 
-_check_for_conflicts(_get_current_package_name())
+
+_check_for_conflicts()

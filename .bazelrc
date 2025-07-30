@@ -69,15 +69,8 @@ build:avx_linux --copt=-w
 # Flag to enable remote config
 common --experimental_repo_remote_exec
 
-# Linux cpu and cuda builds share the same toolchain now.
-build:ci_linux_x86_64 --host_crosstool_top="@local_config_cuda//crosstool:toolchain"
-build:ci_linux_x86_64 --crosstool_top="@local_config_cuda//crosstool:toolchain"
-build:ci_linux_x86_64 --extra_toolchains="@local_config_cuda//crosstool:toolchain-linux-x86_64"
 build:ci_linux_x86_64 --action_env=CLANG_CUDA_COMPILER_PATH="/usr/lib/llvm-18/bin/clang"
 build:ci_linux_x86_64 --repo_env=TF_SYSROOT="/dt9"
-build:ci_linux_x86_64 --extra_execution_platforms="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
-build:ci_linux_x86_64 --host_platform="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
-build:ci_linux_x86_64 --platforms="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
 
 # Make Bazel not try to probe the host system for a C++ toolchain.
 build:rbe_base --config=resultstore
@@ -92,6 +85,12 @@ build:rbe_base --spawn_strategy=remote,worker,standalone,local
 build:rbe_base --remote_download_toplevel
 test:rbe_base --test_env=USER=anon
 
+build:rbe_linux --host_crosstool_top="@local_config_cuda//crosstool:toolchain"
+build:rbe_linux --crosstool_top="@local_config_cuda//crosstool:toolchain"
+build:rbe_linux --extra_toolchains="@local_config_cuda//crosstool:toolchain-linux-x86_64"
+build:rbe_linux --extra_execution_platforms="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
+build:rbe_linux --host_platform="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
+build:rbe_linux --platforms="@ubuntu20.04-clang_manylinux2014-cuda12.3-cudnn9.1_config_platform//:platform"
 build:rbe_linux --config=rbe_base
 build:rbe_linux --action_env=PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin"
 # Non-rbe settings we should include because we do not run configure

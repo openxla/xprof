@@ -16,9 +16,9 @@ profiler_test(
         "//plugin/xprof/convert:raw_to_tool_data",
         "//plugin/xprof/integration_tests:tf_mnist",
         "//plugin/xprof/integration_tests:tf_profiler_session",
-        "@com_google_absl_py//absl/flags",
-        "@com_google_absl_py//absl/logging",
-        "@com_google_absl_py//absl/testing:absltest",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/logging",
+        "@absl_py//absl/testing:absltest",
     ],
 )
 
@@ -31,8 +31,8 @@ py_strict_library(
         "//plugin/xprof/convert:raw_to_tool_data",
         "//plugin/xprof/integration_tests:tf_mnist",
         "//plugin/xprof/integration_tests:tf_profiler_session",
-        "@com_google_absl_py//absl/flags",
-        "@com_google_absl_py//absl/logging",
-        "@com_google_absl_py//absl/testing:absltest",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/logging",
+        "@absl_py//absl/testing:absltest",
     ],
 )

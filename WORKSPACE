@@ -10,77 +10,10 @@ load("@repository_configuration//:repository_config.bzl", "PROFILER_PYTHON_VERSI
 print("Using Python Version = {}".format(PROFILER_PYTHON_VERSION))
 
 http_archive(
-    name = "bazel_skylib",
-    sha256 = "74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
-    urls = [
-        "https://storage.googleapis.com/mirror.tensorflow.org/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
-        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
-    ],
-)
-
-load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
-
-bazel_skylib_workspace()
-
-http_archive(
-    name = "rules_python",
-    sha256 = "690e0141724abb568267e003c7b6d9a54925df40c275a870a4d934161dc9dd53",
-    strip_prefix = "rules_python-0.40.0",
-    url = "https://github.com/bazelbuild/rules_python/releases/download/0.40.0/rules_python-0.40.0.tar.gz",
-)
-
-load("@rules_python//python:repositories.bzl", "py_repositories", "python_register_toolchains")
-
-py_repositories()
-
-python_register_toolchains(
-    name = "python",
-    ignore_root_user_error = True,
-    # Available versions are listed in @rules_python//python:versions.bzl.
-    # We recommend using the same version your team is already standardized on.
-    python_version = PROFILER_PYTHON_VERSION,
-)
-
-load("@python//:defs.bzl", "interpreter")
-load("@rules_python//python:pip.bzl", "pip_parse")
-
-pip_parse(
-    name = "python_deps",
-    experimental_requirement_cycles = {
-        "fsspec": [
-            "fsspec",
-            "gcsfs",
-        ],
-    },
-    python_interpreter_target = interpreter,
-    requirements_lock = PROFILER_REQUIREMENTS_FILE,
-)
-
-load("@python_deps//:requirements.bzl", "install_deps")
-
-install_deps()
-
-http_archive(
     name = "io_bazel_rules_webtesting",
     sha256 = "6e104e54c283c94ae3d5c6573cf3233ce478e89e0f541a869057521966a35b8f",
     strip_prefix = "rules_webtesting-b6fc79c5a37cd18a5433fd080c9d2cc59548222c",
     urls = ["https://github.com/bazelbuild/rules_webtesting/archive/b6fc79c5a37cd18a5433fd080c9d2cc59548222c.tar.gz"],
-)
-
-http_archive(
-    name = "com_google_absl",
-    sha256 = "0ddd37f347c58d89f449dd189a645bfd97bcd85c5284404a3af27a3ca3476f39",
-    strip_prefix = "abseil-cpp-fad946221cec37175e762c399760f54b9de9a9fa",
-    url = "https://github.com/abseil/abseil-cpp/archive/fad946221cec37175e762c399760f54b9de9a9fa.tar.gz",
-)
-
-http_archive(
-    name = "com_google_absl_py",
-    sha256 = "a7c51b2a0aa6357a9cbb2d9437e8cd787200531867dc02565218930b6a32166e",
-    strip_prefix = "abseil-py-1.0.0",
-    urls = [
-        "https://github.com/abseil/abseil-py/archive/refs/tags/v1.0.0.tar.gz",
-    ],
 )
 
 http_archive(
@@ -96,7 +29,7 @@ http_archive(
 
 http_archive(
     name = "six_archive",
-    build_file = "@com_google_absl_py//third_party:six.BUILD",
+    build_file = "@absl_py//third_party:six.BUILD",
     sha256 = "105f8d68616f8248e24bf0e9372ef04d3cc10104f1980f54d57b2ce73a5ad56a",
     strip_prefix = "six-1.10.0",
     urls = [
@@ -107,24 +40,25 @@ http_archive(
 
 http_archive(
     name = "rules_java",
-    sha256 = "a9690bc00c538246880d5c83c233e4deb83fe885f54c21bb445eb8116a180b83",
-    url = "https://github.com/bazelbuild/rules_java/releases/download/7.12.2/rules_java-7.12.2.tar.gz",
+    sha256 = "5449ed36d61269579dd9f4b0e532cd131840f285b389b3795ae8b4d717387dd8",
+    url = "https://github.com/bazelbuild/rules_java/releases/download/8.7.0/rules_java-8.7.0.tar.gz",
 )
+
+load("@rules_java//java:rules_java_deps.bzl", "rules_java_dependencies")
+
+rules_java_dependencies()
 
 http_archive(
     name = "io_bazel_rules_closure",
-    sha256 = "ae060075a7c468eee42e6a08ddbb83f5a6663bdfdbd461261a465f4a3ae8598c",
-    strip_prefix = "rules_closure-7f3d3351a8cc31fbaa403de7d35578683c17b447",
-    urls = [
-        "https://github.com/bazelbuild/rules_closure/archive/7f3d3351a8cc31fbaa403de7d35578683c17b447.tar.gz",  # 2024-03-11
+    patch_args = ["-p1"],
+    patches = [
+        "//third_party:rules_closure.patch",
     ],
-)
-
-load("@io_bazel_rules_closure//closure:repositories.bzl", "rules_closure_dependencies")
-
-rules_closure_dependencies(
-    omit_com_google_protobuf = True,
-    omit_com_google_protobuf_js = True,
+    sha256 = "d413ca7b0e95650efd87d3d030188e5666b10357b2a7e22bd14c042a3e0f6380",
+    strip_prefix = "rules_closure-1f6bda75fd129c64a5cdb5535f2265de0eabe8f7",
+    urls = [
+        "https://github.com/bazelbuild/rules_closure/archive/1f6bda75fd129c64a5cdb5535f2265de0eabe8f7.tar.gz",  # 2024-03-11
+    ],
 )
 
 http_archive(
@@ -183,37 +117,86 @@ load("@io_bazel_rules_sass//:defs.bzl", "sass_repositories")
 sass_repositories()
 
 http_archive(
-    name = "xla",
-    patch_args = ["-p1"],
-    patches = [
-        "//third_party:xla.patch",
-        "//third_party:xla_add_grpc_cares_darwin_arm64_support.patch",
-    ],
-    sha256 = "17a2f6ac5395c867f5b39cb93a4a9aacd30fc6807ae3a37dd036ca2e9e1aa6e0",
-    strip_prefix = "xla-3c13fdb4ae4bf7eab9d68d199654808547e34a7d",
+    name = "io_bazel_rules_go",
     urls = [
-        "https://github.com/openxla/xla/archive/3c13fdb4ae4bf7eab9d68d199654808547e34a7d.zip",
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.34.0/rules_go-v0.34.0.zip",
     ],
 )
 
 http_archive(
-    name = "tsl",
-    sha256 = "8cf1e1285c7b1843a7f5f787465c1ef80304b3400ed837870bc76d74ce04f5af",
-    strip_prefix = "tsl-d71df2f7612583617d359c36243695097dd63726",
+    name = "bazel_gazelle",
+    integrity = "sha256-12v3pg/YsFBEQJDfooN6Tq+YKeEWVhjuNdzspcvfWNU=",
     urls = [
-        "https://github.com/google/tsl/archive/d71df2f7612583617d359c36243695097dd63726.zip",
+        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
+        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
     ],
 )
+
+http_archive(
+    name = "xla",
+    patch_args = ["-p1"],
+    patches = ["//third_party:xla.patch"],
+    sha256 = "e28ba53a495ee04d7b6bb13db4c9e20adbd50c538a1be803a5cf6003048db534",
+    strip_prefix = "xla-593d4febb29abfd4432ce956599e202c0ff5e2c4",
+    urls = [
+        "https://github.com/openxla/xla/archive/593d4febb29abfd4432ce956599e202c0ff5e2c4.zip",
+    ],
+)
+
+load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
+
+python_init_rules()
+
+load("@xla//third_party/py:python_init_repositories.bzl", "python_init_repositories")
+
+python_init_repositories(
+    default_python_version = PROFILER_PYTHON_VERSION,
+    requirements = {
+        "3.9": "//:requirements_lock_3_9.txt",
+        "3.10": "//:requirements_lock_3_10.txt",
+        "3.11": "//:requirements_lock_3_11.txt",
+        "3.12": "//:requirements_lock_3_12.txt",
+    },
+)
+
+load("@xla//third_party/py:python_init_toolchains.bzl", "python_init_toolchains")
+
+python_init_toolchains()
+
+load("@python//:defs.bzl", "interpreter")
+load("@python_version_repo//:py_version.bzl", "REQUIREMENTS_WITH_LOCAL_WHEELS")
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "pypi",
+    experimental_requirement_cycles = {
+        "fsspec": [
+            "fsspec",
+            "gcsfs",
+        ],
+    },
+    python_interpreter_target = interpreter,
+    requirements_lock = REQUIREMENTS_WITH_LOCAL_WHEELS,
+)
+
+load("@pypi//:requirements.bzl", "install_deps")
+
+install_deps()
+
+# Initialize XLA's external dependencies.
+load("@xla//:workspace4.bzl", "xla_workspace4")
+
+xla_workspace4()
+
+load("@xla//:workspace3.bzl", "xla_workspace3")
+
+xla_workspace3()
 
 load("@xla//tools/toolchains/python:python_repo.bzl", "python_repository")
 
 python_repository(name = "python_version_repo")
 
-# Initialize XLA's external dependencies.
-load("@xla//:workspace3.bzl", "xla_workspace3")
-
-xla_workspace3()
-
+load("@io_bazel_rules_closure//closure:repositories.bzl", "rules_closure_dependencies", "rules_closure_toolchains")
 load("@xla//:workspace2.bzl", "xla_workspace2")
 
 xla_workspace2()
@@ -234,7 +217,18 @@ load(
 python_wheel_version_suffix_repository(name = "tf_wheel_version_suffix")
 
 load(
-    "@xla//third_party/gpus/cuda/hermetic:cuda_json_init_repository.bzl",
+    "@rules_ml_toolchain//cc_toolchain/deps:cc_toolchain_deps.bzl",
+    "cc_toolchain_deps",
+)
+
+cc_toolchain_deps()
+
+register_toolchains("@rules_ml_toolchain//cc_toolchain:lx64_lx64")
+
+register_toolchains("@rules_ml_toolchain//cc_toolchain:lx64_lx64_cuda")
+
+load(
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_json_init_repository.bzl",
     "cuda_json_init_repository",
 )
 
@@ -246,7 +240,7 @@ load(
     "CUDNN_REDISTRIBUTIONS",
 )
 load(
-    "@xla//third_party/gpus/cuda/hermetic:cuda_redist_init_repositories.bzl",
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_redist_init_repositories.bzl",
     "cuda_redist_init_repositories",
     "cudnn_redist_init_repository",
 )
@@ -260,7 +254,7 @@ cudnn_redist_init_repository(
 )
 
 load(
-    "@xla//third_party/gpus/cuda/hermetic:cuda_configure.bzl",
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_configure.bzl",
     "cuda_configure",
 )
 
@@ -289,6 +283,6 @@ http_archive(
     urls = ["https://github.com/tensorflow/tensorboard/archive/refs/tags/2.19.0.tar.gz"],
 )
 
-load("@org_tensorflow_tensorboard//third_party:workspace.bzl", "tensorboard_workspace")
+load("@org_tensorflow_tensorboard//third_party:js.bzl", "tensorboard_js_workspace")
 
-tensorboard_workspace()
+tensorboard_js_workspace()

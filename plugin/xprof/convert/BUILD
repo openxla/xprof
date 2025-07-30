@@ -1,5 +1,3 @@
-load("@python_deps//:requirements.bzl", "requirement")
-
 # Description:
 #   Converter from protobuf to gviz/json formats.
 
@@ -24,7 +22,7 @@ py_library(
     name = "trace_events_json",
     srcs = ["trace_events_json.py"],
     deps = [
-        "@org_pythonhosted_six",
+        "@pypi//six",
     ],
 )
 
@@ -35,11 +33,11 @@ py_test(
     main = "trace_events_json_test.py",
     deps = [
         ":trace_events_json",
-        requirement("absl-py"),  # build_cleaner: keep; go/disable_tf2
         "//:expect_tensorflow_installed",
         "//net/proto2/python/public",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
+        "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
     ],
 )
 

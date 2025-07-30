@@ -127,6 +127,10 @@ def get_abs_path(logdir: str) -> str:
   if logdir.startswith("gs://"):
     return logdir
 
+  if logdir.startswith("file://"):
+    local_path = logdir[len("file://") :]
+    return "file://" + str(epath.Path(local_path).expanduser().resolve())
+
   return str(epath.Path(logdir).expanduser().resolve())
 
 

@@ -90,6 +90,25 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "input_pipeline_processor",
+    srcs = ["input_pipeline_processor.cc"],
+    hdrs = ["input_pipeline_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_input_pipeline_analysis",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
 cc_test(
     name = "profile_processor_test",
     srcs = ["profile_processor_test.cc"],
@@ -860,6 +879,7 @@ cc_library(
     deps = [
         ":compute_inference_latency",
         ":hlo_to_tools_data",
+        ":input_pipeline_processor",
         ":multi_xplanes_to_op_stats",
         ":multi_xspace_to_inference_stats",
         ":op_stats_processor",

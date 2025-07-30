@@ -306,6 +306,7 @@ TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithXlaOps) {
                                            total_time_ps: 20000000
                                            total_op_time_ps: 18000000
                                            precision_stats {}
+                                           use_new_input_pipeline_analysis: false
               )pb"));
 #endif
 }

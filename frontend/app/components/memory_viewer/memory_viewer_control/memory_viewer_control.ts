@@ -1,4 +1,4 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {Component, ElementRef, EventEmitter, Input, OnChanges, Output, SimpleChanges, ViewChild} from '@angular/core';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 
 /** A side navigation component. */
@@ -17,8 +17,12 @@ export class MemoryViewerControl implements OnChanges {
   /** The event when the controls are changed. */
   @Output() readonly changed = new EventEmitter<NavigationEvent>();
 
+  @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
+
   selectedModule = '';
   selectedMemorySpaceColor = '';
+  filterText = '';
+  filteredModuleList: string[] = [];
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['firstLoadSelectedModule']?.currentValue !==
@@ -32,6 +36,28 @@ export class MemoryViewerControl implements OnChanges {
       this.selectedMemorySpaceColor =
           changes['firstLoadSelectedMemorySpaceColor'].currentValue;
     }
+    if (changes['moduleList']?.currentValue !==
+        changes['moduleList']?.previousValue) {
+      this.filterModules();
+    }
+  }
+
+  ngAfterViewInit() {
+    this.searchInput.nativeElement.focus();
+  }
+
+  filterModules() {
+    if (!this.moduleList) {
+      this.filteredModuleList = [];
+      return;
+    }
+    if (!this.filterText) {
+      this.filteredModuleList = this.moduleList;
+      return;
+    }
+    const filterText = this.filterText.toLowerCase();
+    this.filteredModuleList = this.moduleList.filter(
+        module => module.toLowerCase().includes(filterText));
   }
 
   emitUpdateEvent() {

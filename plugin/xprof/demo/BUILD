@@ -1,5 +1,3 @@
-load("@python_deps//:requirements.bzl", "requirement")
-
 # Description:
 #  Demos for profiler plugin.
 
@@ -26,7 +24,6 @@ py_binary(
         "data/profile_demo.tensorflow_stats.pb",
     ],
     deps = [
-        requirement("absl-py"),  # build_cleaner: keep; go/disable_tf2
         "//:expect_tensorflow_installed",
         "//net/proto2/python/public",
         "//third_party/py/absl:app",
@@ -34,5 +31,6 @@ py_binary(
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
         "@org_xprof//plugin/xprof:profile_plugin",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_py",
+        "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
     ],
 )

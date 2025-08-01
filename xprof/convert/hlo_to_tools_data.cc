@@ -62,7 +62,7 @@ absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
 
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions options;
-  options.always_print_primitive_fields = true;
+  options.always_print_fields_with_no_presence = true;
   auto encoded_status = tsl::protobuf::util::MessageToJsonString(
       result_or.value(), &json_output, options);
   if (!encoded_status.ok()) {

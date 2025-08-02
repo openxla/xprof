@@ -4,11 +4,13 @@ import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type GeneralAnalysis, type InputPipelineAnalysis, type OverviewPageDataTuple, type RunEnvironment, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion';
 import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
 import {InferenceLatencyChartModule} from 'org_xprof/frontend/app/components/overview_page/inference_latency_chart/inference_latency_chart_module';
 import {PerformanceSummaryModule} from 'org_xprof/frontend/app/components/overview_page/performance_summary/performance_summary_module';
 import {RunEnvironmentViewModule} from 'org_xprof/frontend/app/components/overview_page/run_environment_view/run_environment_view_module';
+import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
 import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph_module';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
@@ -19,6 +21,7 @@ const INPUT_PIPELINE_ANALYSIS_INDEX = 1;
 const RUN_ENVIRONMENT_INDEX = 2;
 const INFERENCE_LATENCY_CHART_INDEX = 4;
 const DIAGNOSTICS_INDEX = 6;
+
 
 /** An overview page component. */
 @Component({
@@ -37,6 +40,7 @@ export class OverviewPage implements OnDestroy {
   inputPipelineAnalysis: InputPipelineAnalysis|null = null;
   runEnvironment: RunEnvironment|null = null;
   inferenceLatencyData: SimpleDataTable|null = null;
+  smartSuggestions: SmartSuggestionReport|null = null;
 
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
@@ -91,6 +95,13 @@ export class OverviewPage implements OnDestroy {
           /** Transfer data to Overview Page DataTable type */
           this.parseOverviewPageData(data as OverviewPageDataTuple);
         });
+    // Fetch smart suggestions
+    this.dataService.getData(this.sessionId, 'smart_suggestion', this.host)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((data) => {
+          setLoadingState(false, this.store);
+          this.smartSuggestions = data as SmartSuggestionReport | null;
+        });
   }
 
   parseOverviewPageData(data: OverviewPageDataTuple) {
@@ -120,6 +131,7 @@ export class OverviewPage implements OnDestroy {
     RunEnvironmentViewModule,
     StepTimeGraphModule,
     InferenceLatencyChartModule,
+    SmartSuggestionView,
   ],
   exports: [OverviewPage]
 })

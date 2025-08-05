@@ -64,10 +64,18 @@ TEST(HostProcessingBoundRuleTest, MeetsConditions) {
       rule.Apply(signal_provider);
   EXPECT_THAT(suggestion, IsOkAndHolds(testing::Not(Eq(std::nullopt))));
   EXPECT_EQ((*suggestion)->rule_name(), "HostProcessingBoundRule");
-  EXPECT_THAT(
-      (*suggestion)->suggestion_text(),
-      testing::HasSubstr("likely bottlenecked by <b>Host-side Processing</b>"));
-  EXPECT_THAT((*suggestion)->suggestion_text(), testing::HasSubstr("90.0%"));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr(
+                  "Your program is likely bottlenecked by Host-side Processing "
+                  "in the input pipeline."));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr(
+                  "of the total step time is spent on host-side input data "
+                  "processing."));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("Recommendations:"));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::ContainsRegex("- .*?:"));
 }
 
 TEST(HostProcessingBoundRuleTest, NotInputBound) {

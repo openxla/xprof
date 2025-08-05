@@ -59,24 +59,26 @@ class DataTransferBoundRule : public SmartSuggestionRule {
     SmartSuggestion suggestion;
     suggestion.set_rule_name("DataTransferBoundRule");
 
+    TF_ASSIGN_OR_RETURN(double input_percent_of_step_time,
+                     signal_provider.GetInputPercentOfStepTime());
     TF_ASSIGN_OR_RETURN(double enqueue_percent_of_input,
                      signal_provider.GetEnqueuePercentOfInput());
 
     std::string suggestion_text = absl::StrCat(
-        "<p>Your program is likely bottlenecked by <b>data transfer</b> "
-        "between Host and Device.</p>",
-        "<p>", absl::StrFormat("%.1f", enqueue_percent_of_input),
-        "% of the total input time is spent on enqueuing data to the "
-        "device.</p>",
-        "<ul>"
-        "<li><b>Combine small data chunks:</b> Transferring many small "
+        "Your program is likely bottlenecked by data transfer "
+        "between Host and Device.\n",
+        absl::StrFormat("%.1f", input_percent_of_step_time *
+                                    enqueue_percent_of_input / 100),
+        "% of the total step time is spent on enqueuing data to the "
+        "device.\n",
+        "Recommendations:\n",
+        "- Combine small data chunks: Transferring many small "
         "chunks of data can be inefficient. Try to batch them into fewer, "
-        "larger transfers.</li>"
-        "<li><b>Check transfer size:</b> Ensure the size of data being "
-        "transferred in each batch is optimal for the hardware.</li>"
-        "<li><b>Use prefetching:</b> Overlap data transfer with "
-        "computation.</li>"
-        "</ul>");
+        "larger transfers.\n",
+        "- Check transfer size: Ensure the size of data being "
+        "transferred in each batch is optimal for the hardware.\n",
+        "- Use prefetching: Overlap data transfer with "
+        "computation.\n");
 
     suggestion.set_suggestion_text(suggestion_text);
     return suggestion;

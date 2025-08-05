@@ -65,8 +65,15 @@ TEST(DataTransferBoundRuleTest, MeetsConditions) {
   EXPECT_EQ((*suggestion)->rule_name(), "DataTransferBoundRule");
   EXPECT_THAT(
       (*suggestion)->suggestion_text(),
-      testing::HasSubstr("likely bottlenecked by <b>data transfer</b>"));
-  EXPECT_THAT((*suggestion)->suggestion_text(), testing::HasSubstr("80.0%"));
+      testing::HasSubstr("Your program is likely bottlenecked by data transfer "
+                         "between Host and Device."));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("of the total step time is spent on enqueuing "
+                                 "data to the device."));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("Recommendations:"));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::ContainsRegex("- .*?:"));
 }
 
 TEST(DataTransferBoundRuleTest, NotInputBound) {

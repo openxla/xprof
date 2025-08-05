@@ -1,9 +1,46 @@
-<mat-card>
-  <mat-card-title>{{title}}</mat-card-title>
-  <mat-card-content>
-    <!-- TODO(pennyhui): change the suggestion format from html to string and render it here. Add thumbs up/down for each suggestion-->
-    <div *ngIf="suggestionReport?.suggestions">
-      <span *ngFor="let suggestion of suggestionReport!.suggestions" [innerHtml]="suggestion.suggestionText"></span>
-    </div>
-  </mat-card-content>
-</mat-card>
+<mat-expansion-panel [expanded]="true">
+  <mat-expansion-panel-header>
+    <mat-panel-title>{{title}}</mat-panel-title>
+  </mat-expansion-panel-header>
+  <div *ngIf="processedSuggestions.length > 0">
+    <ul class="suggestion-list">
+      <li *ngFor="let suggestion of processedSuggestions">
+        <div class="suggestion-content">
+          <div class="suggestion-text">
+            <p class="suggestion-title">{{suggestion.title}}</p>
+            <p>{{suggestion.description}}</p>
+            <p class="suggestion-recomm-title">{{suggestion.recommendationsTitle}}</p>
+            <ul class="recommendations-list">
+              <li *ngFor="let item of suggestion.recommendations; let i = index" class="recommendation-item-container">
+                <div class="recommendation-text">
+                  <ng-container *ngIf="splitRecommendation(item) as parts; else noColon">
+                    <span class="recommendation-item">
+                      <strong>{{parts.key}}:</strong>{{parts.value}}
+                    </span>
+                  </ng-container>
+                  <ng-template #noColon>
+                    <span class="recommendation-item">{{item}}</span>
+                  </ng-template>
+                </div>
+                <div class="feedback-buttons">
+                  <button mat-icon-button
+                          (click)="toggleFeedback(suggestion, i, 'up')"
+                          [class.selected]="getFeedbackState(suggestion.id, i) === 'up'"
+                          aria-label="Thumbs up">
+                    <mat-icon [class.selected]="getFeedbackState(suggestion.id, i) === 'up'">thumb_up</mat-icon>
+                  </button>
+                  <button mat-icon-button
+                          (click)="toggleFeedback(suggestion, i, 'down')"
+                          [class.selected]="getFeedbackState(suggestion.id, i) === 'down'"
+                          aria-label="Thumbs down">
+                    <mat-icon [class.selected]="getFeedbackState(suggestion.id, i) === 'down'">thumb_down</mat-icon>
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </div>
+</mat-expansion-panel>

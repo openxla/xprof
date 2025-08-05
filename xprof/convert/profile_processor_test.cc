@@ -26,6 +26,7 @@ limitations under the License.
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/profile_processor_factory.h"
@@ -46,18 +47,26 @@ using ::tensorflow::profiler::XSpace;
 using ::testing::IsEmpty;
 using ::testing::Not;
 
-// TODO(bhupendradubey): Make these tests generic for all tools.
-TEST(ProfileProcessorTest, OverviewPageMapTest) {
+struct ProfileProcessorTestParam {
+  std::string test_name;
+  std::string tool_name;
+};
+
+class ProfileProcessorTest
+    : public ::testing::TestWithParam<ProfileProcessorTestParam> {};
+
+TEST_P(ProfileProcessorTest, MapTest) {
+  const ProfileProcessorTestParam& test_param = GetParam();
   ToolOptions options;
-  auto processor =
-      ProfileProcessorFactory::GetInstance().Create("overview_page", options);
+  auto processor = ProfileProcessorFactory::GetInstance().Create(
+      test_param.tool_name, options);
   ASSERT_NE(processor, nullptr);
   XSpace space;
   space.add_planes()->set_name("test_plane");
   std::string output;
   // Create a SessionSnapshot with a minimal XSpace for the test.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), "overview_page_map_test");
+      file::JoinPath(testing::TempDir(), test_param.test_name + "_map_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
   std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
   XSpace dummy_space;
@@ -81,12 +90,17 @@ TEST(ProfileProcessorTest, OverviewPageMapTest) {
 
   OpStats op_stats;
   ASSERT_TRUE(op_stats.ParseFromString(content));
+
+    // Clean up.
+  ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
 }
 
-TEST(ProfileProcessorTest, OverviewPageReduceTest) {
+// Test the Reduce method for different tools.
+TEST_P(ProfileProcessorTest, ReduceTest) {
+  const ProfileProcessorTestParam& test_param = GetParam();
   ToolOptions options;
-  auto processor =
-      ProfileProcessorFactory::GetInstance().Create("overview_page", options);
+  auto processor = ProfileProcessorFactory::GetInstance().Create(
+      test_param.tool_name, options);
   ASSERT_NE(processor, nullptr);
 
   OpStats op_stats1;
@@ -101,7 +115,7 @@ TEST(ProfileProcessorTest, OverviewPageReduceTest) {
 
   // Create temporary files for map outputs.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), "overview_page_reduce_test");
+      file::JoinPath(testing::TempDir(), test_param.test_name + "_reduce_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
   std::string map_output_path1 = file::JoinPath(session_dir, "map1.pb");
@@ -132,10 +146,12 @@ TEST(ProfileProcessorTest, OverviewPageReduceTest) {
   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
 }
 
-TEST(ProfileProcessorTest, OverviewPageProcessorE2ETest) {
+// Test the E2E method for different tools.
+TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
+  const ProfileProcessorTestParam& test_param = GetParam();
   // Create unique session dir for this test.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), "profile_processor_cache_test");
+      file::JoinPath(testing::TempDir(), test_param.test_name + "_e2e_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
   std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
@@ -150,7 +166,7 @@ TEST(ProfileProcessorTest, OverviewPageProcessorE2ETest) {
   // First call - should compute and write to cache.
   ASSERT_OK_AND_ASSIGN(std::string result1,
                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, "overview_page", options));
+                           session_snapshot, test_param.tool_name, options));
   EXPECT_THAT(result1, Not(IsEmpty()));
 
   // Check if cache file exists for the host.
@@ -164,12 +180,24 @@ TEST(ProfileProcessorTest, OverviewPageProcessorE2ETest) {
   // Second call - should hit the cache.
   ASSERT_OK_AND_ASSIGN(std::string result2,
                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, "overview_page", options));
+                           session_snapshot, test_param.tool_name, options));
   EXPECT_EQ(result1, result2);
 
   // Clean up.
   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ProfileProcessorTests, ProfileProcessorTest,
+    ::testing::ValuesIn<ProfileProcessorTestParam>({
+        {"OverviewPage", "overview_page"},
+        {"InputPipelineAnalyzer", "input_pipeline_analyzer"},
+        {"FrameworkOpStats", "framework_op_stats"},
+        {"KernelStats", "kernel_stats"},
+    }),
+    [](const ::testing::TestParamInfo<ProfileProcessorTest::ParamType>& info) {
+      return info.param.test_name;
+    });
 
 }  // namespace
 }  // namespace xprof

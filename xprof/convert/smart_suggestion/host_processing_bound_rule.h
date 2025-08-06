@@ -61,30 +61,32 @@ class HostProcessingBoundRule : public SmartSuggestionRule {
     SmartSuggestion suggestion;
     suggestion.set_rule_name("HostProcessingBoundRule");
 
+    TF_ASSIGN_OR_RETURN(double input_percent_of_step_time,
+                     signal_provider.GetInputPercentOfStepTime());
     TF_ASSIGN_OR_RETURN(double non_enqueue_percent_of_input,
                      signal_provider.GetNonEnqueuePercentOfInput());
 
     std::string suggestion_text = absl::StrCat(
-        "<p>Your program is likely bottlenecked by <b>Host-side Processing</b> "
-        "in the input pipeline.</p>",
-        "<p>", absl::StrFormat("%.1f", non_enqueue_percent_of_input),
-        "% of the total input time is spent on host-side input data "
-        "processing.</p>",
-        "<ul>"
-        "<li><b>Optimize Data Reading:</b> Ensure efficient file reading "
+        "Your program is likely bottlenecked by Host-side Processing "
+        "in the input pipeline.\n",
+        absl::StrFormat("%.1f", input_percent_of_step_time *
+                                    non_enqueue_percent_of_input / 100),
+        "% of the total step time is spent on host-side input data "
+        "processing.\n",
+        "Recommendations:\n",
+        "- Optimize Data Reading: Ensure efficient file reading "
         "patterns. Use prefetching and interleaving to load data in parallel "
-        "and in advance.</li>"
-        "<li><b>Parallelize Data Preprocessing:</b> Utilize parallel "
+        "and in advance.\n",
+        "- Parallelize Data Preprocessing: Utilize parallel "
         "processing "
-        "techniques for CPU-bound preprocessing steps.</li>"
-        "<li><b>Offline Preprocessing:</b> For static datasets, consider "
+        "techniques for CPU-bound preprocessing steps.\n",
+        "- Offline Preprocessing: For static datasets, consider "
         "performing expensive preprocessing steps offline and saving the "
-        "results.</li>"
-        "<li><b>Tuning Parameters:</b> Experiment with buffer sizes, the "
+        "results.\n",
+        "- Tuning Parameters: Experiment with buffer sizes, the "
         "number "
         "of parallel threads, and prefetch distances in your input pipeline "
-        "to find the best settings.</li>"
-        "</ul>");
+        "to find the best settings.\n");
 
     suggestion.set_suggestion_text(suggestion_text);
     return suggestion;

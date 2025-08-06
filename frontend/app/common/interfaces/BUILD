@@ -79,6 +79,13 @@ ts_library(
 )
 
 ts_library(
+    name = "smart_suggestion_proto_defs",
+    srcs = [
+        ":smart_suggestion.jsonpb_decls.d.ts",
+    ],
+)
+
+ts_library(
     name = "interfaces",
     srcs = [
         "buffer_allocation_info.ts",
@@ -90,6 +97,7 @@ ts_library(
         "hosts.ts",
         "navigation_event.ts",
         "roofline_model.ts",
+        "smart_suggestion.jsonpb_decls.d.ts",
         "source_info.jsonpb_decls.d.ts",
         "source_stats.ts",
         "summary_info.ts",
@@ -100,6 +108,7 @@ ts_library(
         ":memory_profile_proto_defs",
         ":memory_viewer_preprocess_proto_defs",
         ":op_profile_proto_defs",
+        ":smart_suggestion_proto_defs",
         ":source_info_proto_defs",
         ":xla_proto_defs",
         "@npm//@types/google.visualization",

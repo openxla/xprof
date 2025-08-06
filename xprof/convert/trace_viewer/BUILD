@@ -194,6 +194,25 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "prefix_trie",
+    srcs = ["prefix_trie.cc"],
+    hdrs = ["prefix_trie.h"],
+    deps = [
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:prefix_trie_node_proto_cc",
+        "@xla//xla/tsl/lib/io:block",
+        "@xla//xla/tsl/lib/io:iterator",
+        "@xla//xla/tsl/lib/io:table",
+        "@xla//xla/tsl/lib/io:table_options",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+    ],
+)
+
 cc_test(
     name = "trace_utils_test",
     srcs = ["trace_utils_test.cc"],
@@ -201,5 +220,18 @@ cc_test(
         ":trace_utils",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "prefix_trie_test",
+    srcs = ["prefix_trie_test.cc"],
+    deps = [
+        ":prefix_trie",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/platform:env",
     ],
 )

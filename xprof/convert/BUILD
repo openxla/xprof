@@ -90,6 +90,120 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "input_pipeline_processor",
+    srcs = ["input_pipeline_processor.cc"],
+    hdrs = ["input_pipeline_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_input_pipeline_analysis",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "framework_op_stats_processor",
+    srcs = ["framework_op_stats_processor.cc"],
+    hdrs = ["framework_op_stats_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_tf_stats",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "hlo_stats_processor",
+    srcs = ["hlo_stats_processor.cc"],
+    hdrs = ["hlo_stats_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_hlo_stats",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:hlo_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "roofline_model_processor",
+    srcs = ["roofline_model_processor.cc"],
+    hdrs = ["roofline_model_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_roofline_model",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "kernel_stats_processor",
+    srcs = ["kernel_stats_processor.cc"],
+    hdrs = ["kernel_stats_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        ":xplane_to_kernel_stats_db",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "pod_viewer_processor",
+    srcs = ["pod_viewer_processor.cc"],
+    hdrs = ["pod_viewer_processor.h"],
+    deps = [
+        ":op_stats_processor",
+        ":op_stats_to_pod_viewer",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
 cc_test(
     name = "profile_processor_test",
     srcs = ["profile_processor_test.cc"],
@@ -104,12 +218,12 @@ cc_test(
         "//file/base:options_cc",
         "//file/base:path",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
-        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -859,7 +973,11 @@ cc_library(
     hdrs = ["xplane_to_tools_data.h"],
     deps = [
         ":compute_inference_latency",
+        ":framework_op_stats_processor",
+        ":hlo_stats_processor",
         ":hlo_to_tools_data",
+        ":input_pipeline_processor",
+        ":kernel_stats_processor",
         ":multi_xplanes_to_op_stats",
         ":multi_xspace_to_inference_stats",
         ":op_stats_to_hlo_stats",
@@ -870,11 +988,13 @@ cc_library(
         ":op_stats_to_roofline_model",
         ":op_stats_to_tf_stats",
         ":overview_page_processor",
+        ":pod_viewer_processor",
         ":preprocess_single_host_xplane",
         ":process_megascale_dcn",
         ":profile_processor",
         ":profile_processor_factory",
         ":repository",
+        ":roofline_model_processor",
         ":tool_options",
         ":xplane_to_dcn_collective_stats",
         ":xplane_to_hlo",

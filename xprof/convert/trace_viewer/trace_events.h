@@ -70,9 +70,10 @@ absl::Status DoStoreAsLevelDbTable(
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
     std::function<TraceEvent(const TraceEvent*)> generate_event_copy_fn);
 
-absl::Status DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+absl::Status DoStoreAsLevelDbTables(
     std::unique_ptr<tsl::WritableFile>& trace_events_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
+    std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file,
     const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level);
 
@@ -465,17 +466,21 @@ class TraceEventsContainerBase {
                                  GenerateTraceEventCopyForPersistingFullEvent);
   }
 
-  // Stores the contents of this container in two level-db sstable files. The
-  // first file contains the full events except the metadata, and the second
-  // file contains only the metadata.
-  absl::Status StoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+  // Stores the contents of this container in three level-db sstable files. The
+  // first file contains the full events except the metadata, the second
+  // file contains only the metadata and the third file contains the prefix
+  // trie index over trace event names that would be used for fast prefix
+  // search of events.
+  absl::Status StoreAsLevelDbTables(
       std::unique_ptr<tsl::WritableFile> trace_events_file,
-      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file) const {
+      std::unique_ptr<tsl::WritableFile> trace_events_metadata_file,
+      std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file) const {
     Trace trace = trace_;
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
-    return DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
-        trace_events_file, trace_events_metadata_file, trace, events_by_level);
+    return DoStoreAsLevelDbTables(
+        trace_events_file, trace_events_metadata_file,
+        trace_events_prefix_trie_file, trace, events_by_level);
   }
 
   std::vector<std::vector<const TraceEvent*>> GetTraceEventsByLevel() const {

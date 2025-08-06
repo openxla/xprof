@@ -19,10 +19,10 @@ limitations under the License.
 #include <cstdint>
 
 #include "absl/strings/string_view.h"
+#include "google/protobuf/repeated_ptr_field.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
@@ -34,9 +34,8 @@ using ::tensorflow::profiler::OpMetrics_MemoryAccessed;
 using tsl::uint64;
 
 // Converts the memory access breakdown into OpMetrics's format.
-tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>
-ConvertPerformanceInfo(
-    const tsl::protobuf::RepeatedPtrField<
+google::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed> ConvertPerformanceInfo(
+    const google::protobuf::RepeatedPtrField<
         tensorflow::profiler::PerformanceInfoWrapper::PerfInfoType::
             MemoryAccessed>& memory_accessed_breakdown,
     uint64_t occurrences);
@@ -100,7 +99,7 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
                absl::string_view deduplicated_name, bool is_eager,
                uint64 occurrences, uint64 time_ps, uint64 children_time_ps,
                int64_t flops, int64_t bytes_accessed,
-               const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
+               const google::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
                    memory_accessed_breakdown = {},
                int64_t model_flops = 0, absl::string_view long_name = "",
                const tsl::profiler::OpSourceInfo& op_source_info = {});

@@ -221,7 +221,8 @@ export class GraphViewer implements OnDestroy {
   // Check if a graph is already loaded or is currently loading.
   // used as a signal to show hints for users to start with empty page.
   hasGraphOrLoading() {
-    return this.loadingGraph || this.graphIframeLoaded();
+    return this.loadingGraph || this.graphIframeLoaded() ||
+        this.graphCollections.length > 0;
   }
 
   showDefaultGraphOptions() {

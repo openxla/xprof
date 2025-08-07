@@ -118,6 +118,7 @@ cc_library(
     srcs = ["xplane_to_op_metrics_db.cc"],
     hdrs = ["xplane_to_op_metrics_db.h"],
     deps = [
+        ":host_op_utils",
         ":op_metrics_db_combiner",
         ":op_stack",
         "@com_google_absl//absl/algorithm:container",
@@ -404,6 +405,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
         "@org_xprof//xprof/convert:data_table_utils",
+        "@org_xprof//xprof/convert:host_op_utils",
         "@org_xprof//xprof/utils:diagnostics",
         "@org_xprof//xprof/utils:event_span",
         "@org_xprof//xprof/utils:html_utils",
@@ -1662,5 +1664,16 @@ cc_library(
     deps = [
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "host_op_utils",
+    hdrs = ["host_op_utils.h"],
+    visibility = ["@xla//xla/tsl/profiler:friends"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )

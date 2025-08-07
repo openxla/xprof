@@ -544,6 +544,7 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   const XPlane* host_plane = tsl::profiler::FindPlaneWithName(
       space, tsl::profiler::kHostThreadsPlaneName);
   if (host_plane) {
+    // TODO(yinzz): support legacy analysis path too?
     if (options.generate_op_metrics_db) {
       *op_stats.mutable_host_op_metrics_db() =
           ConvertHostThreadsXPlaneToOpMetricsDb(*host_plane);

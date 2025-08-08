@@ -1,9 +1,9 @@
 load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//javascript/angular2:build_defs.bzl", "ng_module")
+load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
-ng_module(
+xprof_ng_module(
     name = "smart_suggestion",
     srcs = [
         "smart_suggestion_view.ts",
@@ -14,7 +14,11 @@ ng_module(
     ],
     deps = [
         "@npm//@angular/core",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_card",
+        "@org_xprof//frontend/app/common/angular:angular_material_expansion",
+        "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )
@@ -25,5 +29,21 @@ sass_binary(
     sourcemap = False,
     deps = [
         "@org_xprof//frontend/app/styles:common",
+    ],
+)
+
+xprof_ng_module(
+    name = "smart_suggestion_tests",
+    testonly = True,
+    srcs = ["smart_suggestion_test.ts"],
+    deps = [
+        ":smart_suggestion",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_material_button_testing",
+        "@org_xprof//frontend/app/common/angular:angular_material_expansion_testing",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
     ],
 )

@@ -61,15 +61,21 @@ class HostProcessingBoundRule : public SmartSuggestionRule {
     SmartSuggestion suggestion;
     suggestion.set_rule_name("HostProcessingBoundRule");
 
+    TF_ASSIGN_OR_RETURN(double input_percent_of_step_time,
+                        signal_provider.GetInputPercentOfStepTime());
     TF_ASSIGN_OR_RETURN(double non_enqueue_percent_of_input,
                      signal_provider.GetNonEnqueuePercentOfInput());
 
+    // TODO(pennyhui): Switch from HTML to supporting breakdowns in
+    // SmartSuggestion proto, which will be easy to render in the frontend.
     std::string suggestion_text = absl::StrCat(
         "<p>Your program is likely bottlenecked by <b>Host-side Processing</b> "
-        "in the input pipeline.</p>",
-        "<p>", absl::StrFormat("%.1f", non_enqueue_percent_of_input),
-        "% of the total input time is spent on host-side input data "
-        "processing.</p>",
+        "in the input pipeline: ",
+        "<b>",
+        absl::StrFormat("%.1f", input_percent_of_step_time *
+                                    non_enqueue_percent_of_input / 100),
+        "% of the total step time</b> is spent on host-side input data "
+        "processing. Please consider the following optimizations:</p>",
         "<ul>"
         "<li><b>Optimize Data Reading:</b> Ensure efficient file reading "
         "patterns. Use prefetching and interleaving to load data in parallel "

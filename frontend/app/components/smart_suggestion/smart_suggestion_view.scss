@@ -5,48 +5,145 @@
 :host {
   @include border-bottom-gray;
   @include border-right-gray;
-  ::ng-deep ul {
-    list-style-type: none;
+}
+
+// Styles for the outer list wrapping each suggestion block
+.suggestion-list {
+  list-style-type: none;
+  padding-left: 10px;
+  margin-left: 0;
+
+  > li {
+    margin-bottom: 15px;
     padding-left: 0;
-    li {
-      margin-bottom: 10px;
-      margin-left: 10px;
-    }
-    li::before {
-      content: "\2022";
-      color: #000;
-      display: inline-block;
-      width: 1em;
-      margin-left: -1em;
+  }
+}
+
+.suggestion-item-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+
+.suggestion-text {
+  flex-grow: 1;
+  margin-right: 8px;
+  word-break: break-word;
+  text-align: left;
+}
+
+:host ::ng-deep .suggestion-text {
+  p {
+    margin-top: 0;
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+
+  ul {
+    list-style-type: disc;
+    padding-left: 20px;
+    margin-top: 5px;
+    margin-bottom: 8px;
+  }
+
+  li {
+    margin-bottom: 4px;
+  }
+
+  b {
+    font-weight: 500;
+  }
+}
+
+.feedback-buttons {
+  display: flex;
+  align-items: flex-start; // Align to the top
+  flex-shrink: 0;
+  padding-top: 0;
+
+  button {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    mat-icon {
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
+      color: grey;
+
+      &.selected {
+        color: blue;
+      }
     }
   }
 }
 
 :host:not(.dark-theme) {
-  mat-card {
+  mat-expansion-panel {
+    margin: 0;
     @include overview-card;
   }
 }
 
-mat-card {
-  @include overview-card-height;
+mat-expansion-panel-header {
+  margin: 8px 8px 0;
 }
 
-mat-card-title {
+mat-panel-title {
   @include overview-card-title;
+  background-color: transparent;
+}
+
+mat-expansion-panel-header.cdk-keyboard-focused,
+mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
+  background-color: $card-title-focus-background-color;
+}
+
+.mat-expanded mat-expansion-panel-header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 :host.dark-theme {
   border: none;
 
-  mat-card {
+  mat-expansion-panel {
     @include overview-card-dark-theme;
   }
 
-  mat-card-title {
-    background-color: $dark-theme-card-title-background-color;
+  mat-panel-title {
+    background-color: transparent;
     color: $dark-theme-card-title-color;
-    padding: 16px;
-    margin: -16px -16px 16px;
+  }
+
+  mat-expansion-panel-header {
+    background-color: $dark-theme-card-title-background-color;
+    margin: 0;
+  }
+
+  mat-expansion-panel-header.cdk-keyboard-focused,
+  mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
+    background-color: $dark-theme-card-title-focus-background-color;
+  }
+
+  .table {
+    margin-top: 18px;
+  }
+
+  .feedback-buttons {
+    button {
+      mat-icon {
+        color: grey;
+
+        &.selected {
+          color: blue;
+        }
+      }
+    }
   }
 }

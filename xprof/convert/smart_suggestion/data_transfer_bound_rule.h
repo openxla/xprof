@@ -59,15 +59,21 @@ class DataTransferBoundRule : public SmartSuggestionRule {
     SmartSuggestion suggestion;
     suggestion.set_rule_name("DataTransferBoundRule");
 
+    TF_ASSIGN_OR_RETURN(double input_percent_of_step_time,
+                        signal_provider.GetInputPercentOfStepTime());
     TF_ASSIGN_OR_RETURN(double enqueue_percent_of_input,
                      signal_provider.GetEnqueuePercentOfInput());
 
+    // TODO(pennyhui): Switch from HTML to supporting breakdowns in
+    // SmartSuggestion proto, which will be easy to render in the frontend.
     std::string suggestion_text = absl::StrCat(
         "<p>Your program is likely bottlenecked by <b>data transfer</b> "
-        "between Host and Device.</p>",
-        "<p>", absl::StrFormat("%.1f", enqueue_percent_of_input),
-        "% of the total input time is spent on enqueuing data to the "
-        "device.</p>",
+        "between Host and Device: ",
+        "<b>",
+        absl::StrFormat("%.1f", input_percent_of_step_time *
+                                    enqueue_percent_of_input / 100),
+        "% of the total step time</b> is spent on enqueuing data to the "
+        "device. Please consider the following optimizations:</p>",
         "<ul>"
         "<li><b>Combine small data chunks:</b> Transferring many small "
         "chunks of data can be inefficient. Try to batch them into fewer, "

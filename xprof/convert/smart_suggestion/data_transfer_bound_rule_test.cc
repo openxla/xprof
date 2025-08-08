@@ -63,10 +63,8 @@ TEST(DataTransferBoundRuleTest, MeetsConditions) {
       rule.Apply(signal_provider);
   EXPECT_THAT(suggestion, IsOkAndHolds(testing::Not(Eq(std::nullopt))));
   EXPECT_EQ((*suggestion)->rule_name(), "DataTransferBoundRule");
-  EXPECT_THAT(
-      (*suggestion)->suggestion_text(),
-      testing::HasSubstr("likely bottlenecked by <b>data transfer</b>"));
-  EXPECT_THAT((*suggestion)->suggestion_text(), testing::HasSubstr("80.0%"));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              testing::HasSubstr("16.0% of the total step time"));
 }
 
 TEST(DataTransferBoundRuleTest, NotInputBound) {

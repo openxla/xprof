@@ -7,6 +7,7 @@ import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
@@ -122,6 +123,13 @@ export class DataServiceV2 implements DataServiceV2Interface {
         this.getHTTPParamsForDataQuery(sessionId, tool, host, parameters);
     return this.get(this.pathPrefix + DATA_API, {'params': params}) as
         Observable<DataTable>;
+  }
+
+  getSmartSuggestions(
+      sessionId: string,
+      parameters: Map<string, string> = new Map()):
+      Observable<SmartSuggestionReport | null> {
+    return of(null);
   }
 
   getModuleList(sessionId: string, graphType = GRAPH_TYPE_DEFAULT):

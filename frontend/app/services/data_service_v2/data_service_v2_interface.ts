@@ -9,6 +9,7 @@ import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_vi
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {Observable} from 'rxjs';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 
 /** The data service class that calls API and return response. */
 export interface DataServiceV2Interface {
@@ -21,6 +22,10 @@ export interface DataServiceV2Interface {
       parameters?: Map<string, string>,
       ignoreError?: boolean,
       ): Observable<DataTable|DataTable[]|null>;
+
+  getSmartSuggestions(
+      sessionId: string,
+      parameters?: Map<string, string>): Observable<SmartSuggestionReport | null>;
 
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;

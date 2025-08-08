@@ -1,10 +1,12 @@
 import {CommonModule} from '@angular/common';
-import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges, inject, OnDestroy} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatIconModule} from '@angular/material/icon';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
+import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {Subscription} from 'rxjs';
 
 // Declaration for the Google Analytics function.
 declare var gtag: Function;
@@ -39,47 +41,63 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
     MatIconModule,
   ],
 })
-export class SmartSuggestionView implements OnInit, OnChanges {
+export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   @HostBinding('class.dark-theme') @Input() darkTheme = false;
   @Input() sessionId = 'default_session';
-
-  @Input()
-  set suggestionReport(value: SmartSuggestionReport|null) {
-    if (value) {
-      this.processedSuggestions = value.suggestions?.map((suggestion, index) => {
-        const content = suggestion.suggestionText || '';
-        return {
-          id: this.generateSuggestionKey(
-            suggestion.ruleName || 'UnknownRule',
-            content,
-          ),
-          ruleName: suggestion.ruleName || 'UnknownRule',
-          htmlContent: content,
-        };
-      }) || [];
-      // TODO(pennyhui) - Extract feedback logic into its own injectable service.
-      this.loadFeedbackState();
-    } else {
-      this.processedSuggestions = [];
-    }
-  }
 
   title = 'Recommendations';
   processedSuggestions: ProcessedSuggestion[] = [];
   feedbackState = new Map<string, FeedbackType>();
   private storageKey = '';
+  private subscription: Subscription | null = null;
+
+  private readonly dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   ngOnInit() {
     this.updateStorageKey();
     this.loadFeedbackState();
+    this.fetchSuggestions();
   }
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['sessionId']) {
       this.updateStorageKey();
       this.loadFeedbackState();
+      this.fetchSuggestions();
     }
   }
+
+  private fetchSuggestions() {
+    if (this.subscription) {
+      this.subscription.unsubscribe();
+    }
+    if (!this.sessionId) {
+      this.processedSuggestions = [];
+      return;
+    }
+
+    this.subscription = this.dataService
+    .getSmartSuggestions(this.sessionId)
+    .subscribe((report: SmartSuggestionReport | null) => {
+      if (report && report.suggestions) {
+        this.processedSuggestions = report.suggestions.map((suggestion) => {
+          const content = suggestion.suggestionText || '';
+          return {
+            id: this.generateSuggestionKey(
+              suggestion.ruleName || 'UnknownRule',
+              content,
+            ),
+            ruleName: suggestion.ruleName || 'UnknownRule',
+            htmlContent: content,
+          };
+        });
+        // Reload feedback state in case new suggestions appeared
+        this.loadFeedbackState();
+      } else {
+        this.processedSuggestions = [];
+      }
+    });
+}
 
   private updateStorageKey() {
     this.storageKey = `${FEEDBACK_STORAGE_KEY_PREFIX}_${this.sessionId}`;
@@ -182,5 +200,11 @@ export class SmartSuggestionView implements OnInit, OnChanges {
 
   getFeedbackState(suggestionId: string): FeedbackType | null {
     return this.feedbackState.get(suggestionId) || null;
+  }
+
+  ngOnDestroy() {
+    if (this.subscription) {
+      this.subscription.unsubscribe();
+    }
   }
 }

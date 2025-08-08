@@ -13,6 +13,7 @@ import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_pa
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
 
 const GENERAL_ANALYSIS_INDEX = 0;
 const INPUT_PIPELINE_ANALYSIS_INDEX = 1;
@@ -120,6 +121,7 @@ export class OverviewPage implements OnDestroy {
     RunEnvironmentViewModule,
     StepTimeGraphModule,
     InferenceLatencyChartModule,
+    SmartSuggestionView,
   ],
   exports: [OverviewPage]
 })

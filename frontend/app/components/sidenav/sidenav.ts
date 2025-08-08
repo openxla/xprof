@@ -34,6 +34,7 @@ export class SideNav implements OnInit, OnDestroy {
   selectedHostInternal = '';
   selectedModuleInternal = '';
   navigationParams: {[key: string]: string|boolean} = {};
+  showCaptureProfileButton = true;
 
   constructor(
       private readonly router: Router,
@@ -74,6 +75,10 @@ export class SideNav implements OnInit, OnDestroy {
     return this.tags.find(
                validTag => validTag.startsWith(this.selectedTagInternal)) ||
         this.tags[0] || '';
+  }
+
+  get showProfileCaptureButton() {
+    return this.showCaptureProfileButton;
   }
 
   // Getter for valid host given url router or user selection.

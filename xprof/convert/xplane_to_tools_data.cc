@@ -246,7 +246,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPodViewer(
 
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_primitive_fields = true;
+  opts.always_print_fields_with_no_presence = true;
   auto encode_status = tsl::protobuf::util::MessageToJsonString(
       ConvertOpStatsToPodViewer(combined_op_stats), &json_output, opts);
   if (!encode_status.ok()) {
@@ -323,7 +323,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
       profile);
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_primitive_fields = true;
+  opts.always_print_fields_with_no_presence = true;
 
   auto encode_status =
       tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
@@ -410,7 +410,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
                       engine.Run(signal_provider, rule_factory));
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_primitive_fields = true;
+  opts.always_print_fields_with_no_presence = true;
   // Perform the Proto to JSON conversion.
   auto encode_status =
       tsl::protobuf::util::MessageToJsonString(report, &json_output, opts);

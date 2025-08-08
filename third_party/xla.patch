@@ -1,69 +1,33 @@
-diff --git a/tsl_workspace1.bzl b/tsl_workspace1.bzl
-index aead122980..66b8eef868 100644
---- a/tsl_workspace1.bzl
-+++ b/tsl_workspace1.bzl
-@@ -3,7 +3,7 @@
- load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
- load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
- load("@com_github_nelhage_rules_boost//:boost/boost.bzl", "boost_deps")
--load("@io_bazel_rules_closure//closure:defs.bzl", "closure_repositories")
-+load("@io_bazel_rules_closure//closure:repositories.bzl", "rules_closure_dependencies")
- load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
-
- # buildifier: disable=unnamed-macro
-@@ -16,7 +16,7 @@ def workspace(with_rules_cc = True):
-     native.register_toolchains("@local_config_python//:py_toolchain")
-     rules_pkg_dependencies()
-
--    closure_repositories()
-+    rules_closure_dependencies()
-
-     boost_deps()
-
 diff --git a/workspace1.bzl b/workspace1.bzl
-index b4c4461958..b73cfcd5e1 100644
+index 05121708fc..82e2b0e14d 100644
 --- a/workspace1.bzl
 +++ b/workspace1.bzl
-@@ -3,7 +3,7 @@
+@@ -2,7 +2,7 @@
+
  load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
  load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
- load("@com_github_nelhage_rules_boost//:boost/boost.bzl", "boost_deps")
 -load("@io_bazel_rules_closure//closure:defs.bzl", "closure_repositories")
 +load("@io_bazel_rules_closure//closure:repositories.bzl", "rules_closure_dependencies")
  load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
- load("//:tsl_workspace1.bzl", "tsl_workspace1")
+ load("//third_party/llvm:setup.bzl", "llvm_setup")
 
-@@ -15,7 +15,7 @@ def workspace():
+@@ -13,7 +13,7 @@ def workspace():
      native.register_toolchains("@local_config_python//:py_toolchain")
      rules_pkg_dependencies()
 
 -    closure_repositories()
 +    rules_closure_dependencies()
 
-     boost_deps()
+     http_archive(
+         name = "bazel_toolchains",
 
 diff --git a/tools/toolchains/python/python_repo.bzl b/tools/toolchains/python/python_repo.bzl
 index 47fe64d7b7b..a01a1f19c8b 100644
 --- a/tools/toolchains/python/python_repo.bzl
 +++ b/tools/toolchains/python/python_repo.bzl
-@@ -21,6 +21,7 @@ TF_PYTHON_VERSION = "{}"
+@@ -21,4 +21,5 @@ TF_PYTHON_VERSION = "{}"
  HERMETIC_PYTHON_VERSION = "{}"
  WHEEL_NAME = "{}"
  WHEEL_COLLAB = "{}"
 +USE_PYWRAP_RULES = "False"
  """
-
- def _python_repository_impl(repository_ctx):
-diff --git a/xla/tsl/platform/default/build_config.bzl b/xla/tsl/platform/default/build_config.bzl
-index 196af9fb686..9302861c6aa 100644
---- a/xla/tsl/platform/default/build_config.bzl
-+++ b/xla/tsl/platform/default/build_config.bzl
-@@ -432,7 +432,7 @@ def py_proto_library(
-
-     genproto_deps = []
-     for dep in deps:
--        if dep != "@com_google_protobuf//:protobuf_python":
-+        if dep != "@com_google_protobuf//:protobuf_python" and not dep.endswith(":protobuf_python"):
-             genproto_deps.append(dep + "_genproto")
-         else:
-             genproto_deps.append("@com_google_protobuf//:well_known_types_py_pb2_genproto")

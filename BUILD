@@ -1,5 +1,4 @@
 load("@python//:defs.bzl", "compile_pip_requirements")
-load("@python_deps//:requirements.bzl", "requirement")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
 
 # Description

@@ -33,7 +33,7 @@ py_strict_test(
     ],
     deps = [
         ":_pywrap_profiler_plugin",
-        "@com_google_absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:absltest",
     ],
 )
 

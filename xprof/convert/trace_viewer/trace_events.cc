@@ -40,6 +40,7 @@ limitations under the License.
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xprof/convert/trace_viewer/prefix_trie.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "xprof/convert/xprof_thread_pool_executor.h"
@@ -213,13 +214,30 @@ absl::Status ReadFileTraceMetadata(std::string& filepath, Trace* trace) {
   return absl::OkStatus();
 }
 
-absl::Status DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
+absl::Status CreateAndSavePrefixTrie(
+    std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file,
+    const std::vector<std::vector<const TraceEvent*>>& events_by_level) {
+  PrefixTrie prefix_trie;
+  for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
+    for (const TraceEvent* event : events_by_level[zoom_level]) {
+      std::string event_id =
+          LevelDbTableKey(zoom_level, event->timestamp_ps(), event->serial());
+      if (!event_id.empty()) {
+        prefix_trie.Insert(event->name(), event_id);
+      }
+    }
+  }
+  return prefix_trie.SaveAsLevelDbTable(trace_events_prefix_trie_file);
+}
+
+absl::Status DoStoreAsLevelDbTables(
     std::unique_ptr<tsl::WritableFile>& trace_events_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
+    std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file,
     const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level) {
   auto executor = std::make_unique<XprofThreadPoolExecutor>(
-      "StoreTraceEventsAndTraceEventsMetadataLevelDbTables", /*num_threads=*/2);
+      "StoreTraceEventsAndTraceEventsMetadataLevelDbTables", /*num_threads=*/3);
   absl::Status trace_events_status, trace_events_metadata_status;
   executor->Execute(
       [&trace_events_file, &trace, &events_by_level, &trace_events_status]() {
@@ -233,8 +251,15 @@ absl::Status DoStoreAsTraceEventsAndTraceEventsMetadataLevelDbTables(
         trace_events_metadata_file, trace, events_by_level,
         GenerateTraceEventCopyForPersistingOnlyMetadata);
   });
+  absl::Status trace_events_prefix_trie_status;
+  executor->Execute([&trace_events_prefix_trie_file, &events_by_level,
+                     &trace_events_prefix_trie_status]() {
+    trace_events_prefix_trie_status =
+        CreateAndSavePrefixTrie(trace_events_prefix_trie_file, events_by_level);
+  });
   executor->JoinAll();
   trace_events_status.Update(trace_events_metadata_status);
+  trace_events_status.Update(trace_events_prefix_trie_status);
   return trace_events_status;
 }
 

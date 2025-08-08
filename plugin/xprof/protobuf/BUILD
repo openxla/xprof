@@ -202,6 +202,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "prefix_trie_node_proto",
+    srcs = ["prefix_trie_node.proto"],
+)
+
+xprof_proto_library(
     name = "trace_events_proto",
     srcs = ["trace_events.proto"],
     protodeps = [":task_proto"],

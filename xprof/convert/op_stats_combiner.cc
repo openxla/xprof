@@ -85,6 +85,17 @@ void CombineStepDatabase(
 }
 
 void CombinePowerMetrics(const RunEnvironment& src, RunEnvironment* dst) {
+  if (!src.has_power_metrics() ||
+      src.power_metrics().power_component_metrics().empty()) {
+    return;
+  }
+  if (!dst->has_power_metrics() ||
+      dst->power_metrics().power_component_metrics().empty()) {
+    // If the destination has no power metrics yet, initialize them from the
+    // source.
+    *dst->mutable_power_metrics() = src.power_metrics();
+    return;
+  }
   const size_t src_hosts = src.hostnames_size();
   const size_t dst_hosts = dst->hostnames_size();
   const double src_weight = src_hosts * 1.0 / (src_hosts + dst_hosts);
@@ -103,6 +114,9 @@ void CombinePowerMetrics(const RunEnvironment& src, RunEnvironment* dst) {
 }
 
 void CombineRunEnvironment(const RunEnvironment& src, RunEnvironment* dst) {
+  // Combine power metrics before adding new source hosts to the destination,
+  // ensuring correct weights for average power calculations.
+  CombinePowerMetrics(src, dst);
   dst->mutable_hostnames()->insert(src.hostnames().begin(),
                                    src.hostnames().end());
   dst->set_host_count(dst->hostnames_size());
@@ -137,7 +151,6 @@ void CombineRunEnvironment(const RunEnvironment& src, RunEnvironment* dst) {
   }
   dst->set_host_trace_level(src.host_trace_level());
   dst->set_is_training(src.is_training());
-  CombinePowerMetrics(src, dst);
 }
 
 // Combines the src PerfEnv into the dst PerfEnv.

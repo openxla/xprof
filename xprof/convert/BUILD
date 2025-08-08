@@ -940,11 +940,13 @@ cc_test(
     srcs = ["op_stats_combiner_test.cc"],
     deps = [
         ":op_stats_combiner",
+        "//third_party/protobuf/util:differencer",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:power_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//xprof/utils:step_intersection",
         "@xla//xla/tsl/platform:types",

@@ -39,6 +39,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/host_op_utils.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stack.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
@@ -72,6 +73,26 @@ struct HLOTracker {
   }
 };
 
+enum HostOpActivityType { kHostOpBegin, kHostOpEnd };
+
+// Prefix served as contract between the framework and xprof for input pipeline
+// op extraction from host ops.
+constexpr absl::string_view kInputPipelineOpPrefix = "ipl";
+
+// Note host op activity assumes single thread.
+struct HostOpActivity {
+  // The timestamp in picoseconds when this activity happened.
+  uint64 timestamp_ps;
+  // The ID of this Op.
+  uint32 op_id;
+  // Type of this activity.
+  HostOpActivityType activity_type;
+  // Full input pipeline op name and type of this activity.
+  tensorflow::profiler::HostOp host_op;
+  // XLine id. Will be used to differentiate multi-threads host ops.
+  int64_t thread_id;
+};
+
 // Type of a TensorFlow Op activity, which is either beginning or ending an Op.
 enum TfActivityType { kTfOpBegin, kTfOpEnd };
 
@@ -87,6 +108,13 @@ struct TfActivity {
   tsl::profiler::TfOp tf_op;
   // Whether it is eagerly executed.
   bool is_eager;
+};
+
+struct HostOpInfo {
+  explicit HostOpInfo(uint64 ts) : start_timestamp_ps(ts) {}
+
+  uint64 start_timestamp_ps;
+  uint64 children_duration_ps = 0;
 };
 
 // TF Op metrics stored as element in OpStack.
@@ -137,6 +165,59 @@ void ProcessOneTfActivity(const TfActivity& activity,
   }
 }
 
+void ProcessOneHostOpActivity(const HostOpActivity& activity,
+                              OpStack<HostOpInfo>* host_op_stack,
+                              HostOpMetricsDbData* host_op_metrics_data) {
+  uint32 op_id = activity.op_id;
+  switch (activity.activity_type) {
+    case kHostOpBegin: {
+      host_op_stack->Push(op_id,
+                          std::make_unique<HostOpInfo>(activity.timestamp_ps));
+      break;
+    }
+    case kHostOpEnd: {
+      std::unique_ptr<HostOpInfo> info = host_op_stack->Pop(op_id);
+      if (info == nullptr) {
+        // This happens if TraceMes overlap.
+        VLOG(1) << "No begin event found for TF activity id=" << op_id
+                << " name=" << activity.host_op.name
+                << " type=" << activity.host_op.type;
+        break;
+      }
+      tsl::profiler::Timespan host_op_span = tsl::profiler::PicoSpan(
+          info->start_timestamp_ps, activity.timestamp_ps);
+      host_op_metrics_data->host_op_metrics_db_builder.EnterOp(
+          activity.thread_id, activity.host_op.name,
+          HostOpTypeToString(activity.host_op.type), activity.host_op.category,
+          host_op_span.duration_ps(), info->children_duration_ps);
+      HostOpInfo* parent_info = host_op_stack->Top();
+      if (parent_info != nullptr) {
+        parent_info->children_duration_ps += host_op_span.duration_ps();
+      }
+      break;
+    }
+  }
+}
+
+void ProcessHostOpActivities(std::vector<HostOpActivity>* host_op_activities,
+                             HostOpMetricsDbData* host_op_metrics_data) {
+  if (host_op_activities->empty()) return;
+  absl::c_stable_sort(*host_op_activities, [](const HostOpActivity& a,
+                                              const HostOpActivity& b) {
+    return a.thread_id > b.thread_id && a.timestamp_ps < b.timestamp_ps;
+  });
+  absl::flat_hash_map<int64_t, OpStack<HostOpInfo>> thread_id_to_host_op_stack;
+  for (const auto& host_op_activity : *host_op_activities) {
+    ProcessOneHostOpActivity(
+        host_op_activity,
+        &thread_id_to_host_op_stack[host_op_activity.thread_id],
+        host_op_metrics_data);
+  }
+  SetTotalTimePs(host_op_metrics_data->host_op_metrics_db,
+                 host_op_activities->back().timestamp_ps -
+                     host_op_activities->front().timestamp_ps);
+}
+
 // Processes all TF-activities on the given core.
 void ProcessTfActivities(std::vector<TfActivity>* tf_activities,
                          TfMetricsDbData* tf_metrics_db_data) {
@@ -152,6 +233,47 @@ void ProcessTfActivities(std::vector<TfActivity>* tf_activities,
   SetTotalTimePs(
       tf_metrics_db_data->tf_metrics_db,
       tf_activities->back().timestamp_ps - tf_activities->front().timestamp_ps);
+}
+
+void CollectHostOpActivities(
+    const XLineVisitor& line,
+    absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>& host_ops,
+    std::vector<HostOpActivity>* host_op_activities) {
+  uint32 host_op_id = 0;
+  if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
+  // There will be at most 2 times the total # of events of activities.
+  host_op_activities->reserve(line.NumEvents() * 2);
+  line.ForEachEvent([&host_ops, &host_op_id, &host_op_activities,
+                     &line](const XEventVisitor& event) {
+    tensorflow::profiler::HostOp* host_op =
+        tsl::gtl::FindOrNull(host_ops, event.Id());
+    if (host_op != nullptr) {
+      ++host_op_id;
+      // Read stats from plane stat_metadata and update host_op.
+      if (auto input_pipeline_stage_name =
+              event.GetStat(StatType::kInputPipelineStageName);
+          input_pipeline_stage_name.has_value()) {
+        // Use the input pipeline_stage_name as unique identifier for op metrics
+        // in a single thread
+        host_op->set_name(input_pipeline_stage_name->StrOrRefValue());
+      }
+      if (auto input_pipeline_stage_category =
+              event.GetStat(StatType::kInputPipelineStageCategory);
+          input_pipeline_stage_category.has_value()) {
+        host_op->set_category(input_pipeline_stage_category->StrOrRefValue());
+      }
+      tsl::profiler::Timespan span = event.GetTimespan();
+      host_op_activities->push_back(
+          {span.begin_ps(), host_op_id, kHostOpBegin, *host_op, line.Id()});
+      host_op_activities->push_back({
+          span.end_ps(),
+          host_op_id,
+          kHostOpEnd,
+          *host_op,
+          line.Id(),
+      });
+    }
+  });
 }
 
 void CollectTfActivities(
@@ -211,6 +333,56 @@ CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace) {
   return tf_ops;
 }
 
+void AddTfOpsToOpMetricsDb(const XPlane& host_trace,
+                           OpMetricsDbCombiner& combiner) {
+  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops =
+      CollectTfOpsFromHostThreadsXPlane(host_trace);
+  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
+  plane.ForEachLine([&tf_ops, &combiner](const XLineVisitor& line) {
+    ConsumeTfMetricsDbData(
+        ConvertHostThreadsXLineToTfMetricsDbData(line, tf_ops), &combiner);
+  });
+}
+
+// Read from plane event_metadata to get the input pipeline op name list.
+absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>
+CollectInputPipelineOpsFromHostThreadsXPlane(const XPlane& host_trace) {
+  absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp> input_pipeline_ops;
+  for (const auto& id_metadata : host_trace.event_metadata()) {
+    const XEventMetadata& metadata = id_metadata.second;
+    if (metadata.name().starts_with(kInputPipelineOpPrefix)) {
+      input_pipeline_ops.try_emplace(metadata.id(),
+                                     tensorflow::profiler::HostOp{
+                                         .display_name = metadata.name(),
+                                     });
+    }
+  }
+  return input_pipeline_ops;
+}
+
+void AddInputPipelineOpsToHostOpMetricsDb(const XPlane& host_trace,
+                                          OpMetricsDbCombiner& combiner) {
+  absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>
+      input_pipeline_ops =
+          CollectInputPipelineOpsFromHostThreadsXPlane(host_trace);
+  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
+  plane.ForEachLine([&input_pipeline_ops, &combiner](const XLineVisitor& line) {
+    ConsumeHostOpMetricsDbData(
+        ConvertHostThreadsXLineToHostOpMetricsDbData(line, input_pipeline_ops),
+        &combiner);
+  });
+}
+
+HostOpMetricsDbData ConvertHostThreadsXLineToHostOpMetricsDbData(
+    const XLineVisitor& line,
+    absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>& host_ops) {
+  HostOpMetricsDbData host_op_metrics_db_data;
+  std::vector<HostOpActivity> host_op_activities;
+  CollectHostOpActivities(line, host_ops, &host_op_activities);
+  ProcessHostOpActivities(&host_op_activities, &host_op_metrics_db_data);
+  return host_op_metrics_db_data;
+}
+
 TfMetricsDbData ConvertHostThreadsXLineToTfMetricsDbData(
     const XLineVisitor& line,
     const absl::flat_hash_map<int64_t, tsl::profiler::TfOp>& tf_ops) {
@@ -219,6 +391,19 @@ TfMetricsDbData ConvertHostThreadsXLineToTfMetricsDbData(
   CollectTfActivities(line, tf_ops, &tf_activities);
   ProcessTfActivities(&tf_activities, &tf_metrics_db_data);
   return tf_metrics_db_data;
+}
+
+void ConsumeHostOpMetricsDbData(HostOpMetricsDbData src,
+                                OpMetricsDbCombiner* dst) {
+  // The src data processing utilizes the new input pipeline analysis logic,
+  // thus use new analysis if db is not empty.
+  src.host_op_metrics_db.set_use_new_input_pipeline_analysis(
+      !src.host_op_metrics_db.metrics_db().empty());
+  AddIdleOp(src.host_op_metrics_db);
+  // Host OpMetricsDb does not need to update the number of cores a certain op
+  // occurs.
+  dst->Combine(src.host_op_metrics_db, /*update_num_cores=*/false);
+  src.host_op_metrics_db.Clear();
 }
 
 void ConsumeTfMetricsDbData(TfMetricsDbData src, OpMetricsDbCombiner* dst) {
@@ -230,15 +415,10 @@ void ConsumeTfMetricsDbData(TfMetricsDbData src, OpMetricsDbCombiner* dst) {
 }
 
 OpMetricsDb ConvertHostThreadsXPlaneToOpMetricsDb(const XPlane& host_trace) {
-  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops =
-      CollectTfOpsFromHostThreadsXPlane(host_trace);
   OpMetricsDb result;
   OpMetricsDbCombiner combiner(&result);
-  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
-  plane.ForEachLine([&tf_ops, &combiner](const XLineVisitor& line) {
-    ConsumeTfMetricsDbData(
-        ConvertHostThreadsXLineToTfMetricsDbData(line, tf_ops), &combiner);
-  });
+  AddTfOpsToOpMetricsDb(host_trace, combiner);
+  AddInputPipelineOpsToHostOpMetricsDb(host_trace, combiner);
   return result;
 }
 

@@ -66,6 +66,20 @@ class HostOpMetricsDbBuilder : public OpMetricsDbBuilder {
   void EnterOp(absl::string_view name, absl::string_view category,
                bool is_eager, uint64 time_ps, uint64 children_time_ps);
 
+  // A function that will be called when the end of an OP is
+  // observed on a trace on a host thread, where:
+  //   thread_id = id of XLine, used to differentiate multi-threads host ops.
+  //   name = the OP name.
+  //   type = the OP type. eg. tfOp, pyGrainOp, etc.
+  //   category = the OP category. TfOp type, or pyGrainOp stage category.
+  //   time_ps = the total execution time of the OP in picoseconds, including
+  //             the execution time of its children.
+  //   children_time_ps = the execution time of the children of this OP in
+  //                      picoseconds.
+  void EnterOp(int64_t thread_id, absl::string_view name,
+               absl::string_view type, absl::string_view category,
+               uint64 time_ps, uint64 children_time_ps);
+
   // Updates total_host_infeed_enq_duration_ps_ and
   // total_host_infeed_enq_duration_ps_.
   void EnterHostInfeedEnqueue(tsl::profiler::Timespan host_infeed_enqueue);

@@ -31,3 +31,19 @@ sass_binary(
         "@org_xprof//frontend/app/styles:common",
     ],
 )
+
+xprof_ng_module(
+    name = "smart_suggestion_tests",
+    testonly = True,
+    srcs = ["smart_suggestion_test.ts"],
+    deps = [
+        ":smart_suggestion",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_material_button_testing",
+        "@org_xprof//frontend/app/common/angular:angular_material_expansion_testing",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+    ],
+)

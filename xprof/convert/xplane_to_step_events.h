@@ -16,6 +16,10 @@ limitations under the License.
 #ifndef XPROF_CONVERT_XPLANE_TO_STEP_EVENTS_H_
 #define XPROF_CONVERT_XPLANE_TO_STEP_EVENTS_H_
 
+#include <cstdint>
+#include <utility>
+
+#include "absl/container/flat_hash_set.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -30,11 +34,14 @@ using tsl::profiler::XLineVisitor;
 using tsl::profiler::XPlaneVisitor;
 using tsl::profiler::XStatVisitor;
 
-// Convert the host threads in XLine format to StepEvents format. If
-// device_step_events is non-null, we will filter out events that only happens
-// on CPU.
+// Aggregates the events in the line by group_id. If the device_step_events is
+// non-null, CPU-only events will be filtered out (e.g. no matching group on the
+// device). The async_input_pipeline_parents is used to propagate parent
+// metadata to children in other XLines.
 StepEvents ConvertHostThreadsXLineToStepEvents(
-    const XLineVisitor& line, const StepEvents* device_step_events);
+    const XLineVisitor& line, const StepEvents* device_step_events,
+    const absl::flat_hash_set<std::pair<int64_t, int64_t>>&
+        async_input_pipeline_parents = {});
 
 // Convert the host threads in XPlane format to StepEvents format. If
 // device_step_events is non-null, we will filter out events that only happens

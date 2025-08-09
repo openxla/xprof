@@ -18,9 +18,11 @@ limitations under the License.
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
@@ -136,7 +138,8 @@ EventType ClassifyGpuEvent(absl::string_view event_name,
 }
 
 EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
-                           bool has_correlation_id) {
+                           bool has_correlation_id,
+                           bool is_input_pipeline_output_stage) {
   tsl::profiler::TfOp tf_op = tsl::profiler::ParseTfOpFullname(event_name);
   if (tsl::profiler::IsInfeedEnqueueOp(tf_op) ||
       tsl::profiler::IsMemcpyHToDOp(tf_op)) {
@@ -149,7 +152,8 @@ EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
     // TODO(b/150420972): Separate runtime overhead from actual compute for
     // CPU-only.
     return HOST_PREPARE;
-  } else if (absl::StartsWithIgnoreCase(event_name, "IteratorGetNext")) {
+  } else if (absl::StartsWithIgnoreCase(event_name, "IteratorGetNext") ||
+             is_input_pipeline_output_stage) {
     return HOST_WAIT_INPUT;
   } else {
     return HOST_COMPUTE;
@@ -159,12 +163,39 @@ EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
 }  // namespace
 
 StepEvents ConvertHostThreadsXLineToStepEvents(
-    const XLineVisitor& line, const StepEvents* device_step_events) {
+    const XLineVisitor& line, const StepEvents* device_step_events,
+    const absl::flat_hash_set<std::pair<int64_t, int64_t>>&
+        async_input_pipeline_parents) {
+  struct EventRef {
+    bool is_input_pipeline_stage = false;
+    // Whether the event is a descendant of an input pipeline stage.
+    bool is_input_pipeline_stage_descendant = false;
+    tsl::profiler::Timespan timespan;
+
+    // Returns true if the event is a root stage of the input pipeline.
+    bool IsRootStage() const {
+      return is_input_pipeline_stage && !is_input_pipeline_stage_descendant;
+    }
+  };
+  tsl::profiler::AncestorStack<EventRef> input_pipeline_stage_stack(
+      [](const EventRef& parent) {},
+      [](const EventRef& parent, const EventRef& child) {
+        return parent.timespan.Includes(child.timespan);
+      },
+      [](EventRef& parent, EventRef& child) {
+        child.is_input_pipeline_stage_descendant =
+            child.is_input_pipeline_stage_descendant ||
+            parent.is_input_pipeline_stage_descendant ||
+            parent.is_input_pipeline_stage;
+      });
   StepEvents result;
   line.ForEachEvent([&](const XEventVisitor& event) {
     int64_t correlation_id = -1;
     int64_t group_id = -1;
+    absl::string_view ipl_stage_name;
     absl::string_view step_name;
+    std::optional<int64_t> consumer_type;
+    std::optional<int64_t> consumer_id;
     event.ForEachStat([&](const XStatVisitor& stat) {
       if (!stat.Type().has_value()) return;
       switch (stat.Type().value()) {
@@ -177,7 +208,31 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
         case StatType::kStepName:
           step_name = stat.StrOrRefValue();
           break;
+        case StatType::kInputPipelineStageName:
+          ipl_stage_name = stat.StrOrRefValue();
+          break;
+        case StatType::kConsumerType:
+          consumer_type = stat.IntOrUintValue();
+          break;
+        case StatType::kConsumerId:
+          consumer_id = stat.IntOrUintValue();
+          break;
       }
+    });
+    bool has_async_parent_input_pipeline_stage = false;
+    if (consumer_type.has_value() && consumer_id.has_value()) {
+      has_async_parent_input_pipeline_stage =
+          async_input_pipeline_parents.contains(
+              std::make_pair(consumer_type.value(), consumer_id.value()));
+    }
+    input_pipeline_stage_stack.Push(EventRef{
+        .is_input_pipeline_stage = !ipl_stage_name.empty(),
+        // Set the is_input_pipeline_stage_descendant to true if the event is a
+        // descendant of an input pipeline stage from another XLine since the
+        // parents from the same XLine are already handled by the AncestorStack.
+        .is_input_pipeline_stage_descendant =
+            has_async_parent_input_pipeline_stage,
+        .timespan = event.GetTimespan(),
     });
     if (group_id < 0) return;
     // Don't add CPU events when (1) it includes device step events and (2) it
@@ -196,8 +251,10 @@ StepEvents ConvertHostThreadsXLineToStepEvents(
           StepMarker(StepMarkerType::kImplicitHostStepMarker, event.Name(),
                      event.GetTimespan()));
     } else if (IsRealCpuCompute(event.Name())) {
+      const EventRef& current = input_pipeline_stage_stack.Peek();
       result[group_id].AddEvent(EventTypeSpan(
-          ClassifyCpuEvent(event.Name(), has_device, correlation_id >= 0),
+          ClassifyCpuEvent(event.Name(), has_device, correlation_id >= 0,
+                           current.IsRootStage()),
           event.GetTimespan()));
     }
     if (!step_name.empty()) {
@@ -211,9 +268,20 @@ StepEvents ConvertHostThreadsXPlaneToStepEvents(
     const XPlane& host_trace, const StepEvents* device_step_events) {
   StepEvents host_step_events;
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
+  absl::flat_hash_set<std::pair<int64_t, int64_t>> async_input_pipeline_parents;
   plane.ForEachLine([&](const XLineVisitor& line) {
-    StepEvents thread_step_events =
-        ConvertHostThreadsXLineToStepEvents(line, device_step_events);
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      auto producer_type = event.GetStat(StatType::kProducerType);
+      auto producer_id = event.GetStat(StatType::kProducerId);
+      if (producer_type.has_value() && producer_id.has_value()) {
+        async_input_pipeline_parents.insert(std::make_pair(
+            producer_type->IntOrUintValue(), producer_id->IntOrUintValue()));
+      }
+    });
+  });
+  plane.ForEachLine([&](const XLineVisitor& line) {
+    StepEvents thread_step_events = ConvertHostThreadsXLineToStepEvents(
+        line, device_step_events, async_input_pipeline_parents);
     UnionCombineStepEvents(thread_step_events, &host_step_events);
   });
   return host_step_events;

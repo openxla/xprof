@@ -24,7 +24,7 @@ py_library(
     name = "trace_events_json",
     srcs = ["trace_events_json.py"],
     deps = [
-        "@org_pythonhosted_six",
+        requirement("six"),
     ],
 )
 

@@ -1707,9 +1707,7 @@ dashboard would integrate trace viewer app using iframe.
             await this._getDefaults();
           }
           this._createBackendToggleButton();
-          if (this._useNewBackend) {
-            this._updateSearchBehavior();
-          }
+          this._updateSearchBehavior();
         }
       }
       let initialRequestedRange = null;

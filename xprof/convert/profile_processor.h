@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -51,7 +52,8 @@ class ProfileProcessor {
 
   // Processes the entire session at once, without map/reduce.
   virtual absl::Status ProcessSession(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot) {
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) {
     return absl::UnimplementedError("ProcessSession not implemented");
   }
 

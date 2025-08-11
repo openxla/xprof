@@ -23,6 +23,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/profile_processor.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -43,7 +44,8 @@ class OpStatsProcessor : public ProfileProcessor {
 
   // Default implementation for tools that don't need a worker service.
   absl::Status ProcessSession(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot) override {
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) override {
     return absl::UnimplementedError(
         "ProcessSession not implemented for OpStatsProcessor");
   }

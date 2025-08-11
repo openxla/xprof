@@ -41,6 +41,13 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "worker_service_proto",
+    srcs = ["worker_service.proto"],
+    has_services = True,
+    create_grpc_library = True,
+)
+
+xprof_proto_library(
     name = "hlo_stats_proto",
     srcs = ["hlo_stats.proto"],
     protodeps = [":source_info_proto"],

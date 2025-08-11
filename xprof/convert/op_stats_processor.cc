@@ -81,6 +81,11 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
   return cache_file_path;
 }
 
+absl::StatusOr<std::string> OpStatsProcessor::Map(
+    const std::string& xspace_path) {
+  return absl::UnimplementedError("Map not implemented");
+}
+
 absl::Status OpStatsProcessor::Reduce(
     const SessionSnapshot& session_snapshot,
     const std::vector<std::string>& map_output_files) {

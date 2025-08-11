@@ -35,6 +35,8 @@ export class SideNav implements OnInit, OnDestroy {
   selectedModuleInternal = '';
   navigationParams: {[key: string]: string|boolean} = {};
 
+  private showCaptureProfileButton = true;
+
   constructor(
       private readonly router: Router,
       // Using DataServiceV2 because methods used in sidenav is not defined in
@@ -74,6 +76,10 @@ export class SideNav implements OnInit, OnDestroy {
     return this.tags.find(
                validTag => validTag.startsWith(this.selectedTagInternal)) ||
         this.tags[0] || '';
+  }
+
+  get showProfileCaptureButton() {
+    return this.showCaptureProfileButton;
   }
 
   // Getter for valid host given url router or user selection.
@@ -136,6 +142,18 @@ export class SideNav implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.navigateWithUrl();
+    this.fetchProfilerConfig();
+  }
+
+  async fetchProfilerConfig() {
+    const config = await firstValueFrom(
+        this.dataService.getConfig().pipe(takeUntil(this.destroyed)));
+    if (config) {
+      this.showCaptureProfileButton = !config.hideCaptureProfileButton;
+      console.log(
+          'Hide capture profile button flag from server:',
+          config.hideCaptureProfileButton);
+    }
   }
 
   getNavigationEvent(): NavigationEvent {

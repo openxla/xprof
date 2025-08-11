@@ -7,6 +7,9 @@ export const PLUGIN_NAME = 'profile';
 /** Pefix of API */
 export const API_PREFIX = '/data/plugin/';
 
+/** Config API */
+export const CONFIG_API = API_PREFIX + PLUGIN_NAME + '/config';
+
 /** Runs API */
 export const RUNS_API = API_PREFIX + PLUGIN_NAME + '/runs';
 

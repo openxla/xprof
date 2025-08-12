@@ -34,10 +34,10 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "4bba56e2f4e7f13b398d120bdd994d322d9efd9f289e3b08e6cefd89adf4b1a2",
-    strip_prefix = "xla-b4c5bd66d29ce39af01679994552fca2af8b4df2",
+    sha256 = "a106290c8a1f522d57feed0be31496c571c2a50545cc92a1cdb32aef2309270b",
+    strip_prefix = "xla-845061f0e1162559fabf5dc6555b85a31bd96cb9",
     urls = [
-        "https://github.com/openxla/xla/archive/b4c5bd66d29ce39af01679994552fca2af8b4df2.zip",
+        "https://github.com/openxla/xla/archive/845061f0e1162559fabf5dc6555b85a31bd96cb9.zip",
     ],
 )
 

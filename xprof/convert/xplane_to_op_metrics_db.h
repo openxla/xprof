@@ -24,6 +24,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/host_op_utils.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/op_utils.h"
@@ -37,6 +38,12 @@ using ::tsl::profiler::XLineVisitor;
 using ::tsl::profiler::XPlaneVisitor;
 using ::tsl::profiler::XStatVisitor;
 
+// Data per host thread for Input Pipeline Op Metrics Database.
+struct HostOpMetricsDbData {
+  OpMetricsDb host_op_metrics_db;
+  HostOpMetricsDbBuilder host_op_metrics_db_builder{&host_op_metrics_db};
+};
+
 // Data per host thread for TensorFlow Op Metrics Database.
 struct TfMetricsDbData {
   // A database of TF-Op metrics for this core.
@@ -47,11 +54,21 @@ struct TfMetricsDbData {
 absl::flat_hash_map<int64_t, tsl::profiler::TfOp>
 CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace);
 
+absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>
+CollectPyGrainOpsFromHostThreadsXPlane(const XPlane& host_trace);
+
 TfMetricsDbData ConvertHostThreadsXLineToTfMetricsDbData(
     const XLineVisitor& line,
     const absl::flat_hash_map<int64_t, tsl::profiler::TfOp>& tf_ops);
 
+HostOpMetricsDbData ConvertHostThreadsXLineToHostOpMetricsDbData(
+    const XLineVisitor& line,
+    absl::flat_hash_map<int64_t, tensorflow::profiler::HostOp>& host_ops);
+
 void ConsumeTfMetricsDbData(TfMetricsDbData src, OpMetricsDbCombiner* dst);
+
+void ConsumeHostOpMetricsDbData(HostOpMetricsDbData src,
+                                OpMetricsDbCombiner* dst);
 
 OpMetricsDb ConvertHostThreadsXPlaneToOpMetricsDb(const XPlane& host_trace);
 

@@ -79,7 +79,7 @@ constexpr double kHostToDeviceTimePercentAsDominant = 90.0;
 StepSummary ComputeStepTimeSummaryInMs(
     const tsl::protobuf::RepeatedPtrField<PerCoreStepInfo>& grouped_by_step);
 
-void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
+void GenerateHostResult(const OpMetricsDb& host_metrics_db,
                         InputPipelineAnalysisResult* result);
 
 InputPipelineAnalysisRecommendation GenerateRecommendation();

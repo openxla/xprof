@@ -1,4 +1,4 @@
-/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2025 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/base/call_once.h"
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/flags/flag.h"
@@ -34,6 +35,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_tools_data.h"
+#include "plugin/xprof/worker/grpc_server.h"
 
 ABSL_FLAG(bool, use_profile_processor, false,
           "Use ProfileProcessor for tool data conversion");
@@ -112,6 +114,14 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
                                               display_timestamp, result));
   }
   return absl::OkStatus();
+}
+
+static absl::once_flag server_init_flag;
+
+void StartGrpcServer(int port) {
+  absl::SetFlag(&FLAGS_use_profile_processor, true);
+  absl::call_once(server_init_flag, ::xprof::profiler::InitializeGrpcServer,
+                  port);
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(

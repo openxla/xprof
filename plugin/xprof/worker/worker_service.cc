@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xprof/plugin/xprof/worker/worker_service.h"
+#include "plugin/xprof/worker/worker_service.h"
 
 #include <string>
 
@@ -23,7 +23,7 @@ limitations under the License.
 #include "grpcpp/support/status.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/tool_options.h"
-#include "xprof/plugin/xprof/worker/grpc_utils.h"
+#include "plugin/xprof/worker/grpc_utils.h"
 
 namespace xprof {
 namespace profiler {

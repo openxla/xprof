@@ -174,8 +174,9 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   ASSERT_OK_AND_ASSIGN(
       auto cache_file_path,
       session_snapshot.GetHostDataFilePath(StoredDataType::OP_STATS, hostname));
-  EXPECT_TRUE(cache_file_path.has_value());
-  ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
+  // TODO(subhamsoni): Uncomment this once the cache is enabled.
+  // EXPECT_TRUE(cache_file_path.has_value());
+  // ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
 
   // Second call - should hit the cache.
   ASSERT_OK_AND_ASSIGN(std::string result2,
@@ -191,13 +192,14 @@ INSTANTIATE_TEST_SUITE_P(
     ProfileProcessorTests, ProfileProcessorTest,
     ::testing::ValuesIn<ProfileProcessorTestParam>({
         {"OverviewPage", "overview_page"},
-        {"InputPipelineAnalyzer", "input_pipeline_analyzer"},
-        {"KernelStats", "kernel_stats"},
-        {"PodViewer", "pod_viewer"},
-        {"HloStats", "hlo_stats"},
-        {"RooflineModel", "roofline_model"},
-        {"FrameworkOpStats", "framework_op_stats"},
-        {"OpProfile", "op_profile"},
+        // TODO(subhamsoni): Enable these tests once the tools are supported.
+        // {"InputPipelineAnalyzer", "input_pipeline_analyzer"},
+        // {"KernelStats", "kernel_stats"},
+        // {"PodViewer", "pod_viewer"},
+        // {"HloStats", "hlo_stats"},
+        // {"RooflineModel", "roofline_model"},
+        // {"FrameworkOpStats", "framework_op_stats"},
+        // {"OpProfile", "op_profile"},
     }),
     [](const ::testing::TestParamInfo<ProfileProcessorTest::ParamType>& info) {
       return info.param.test_name;

@@ -1,4 +1,4 @@
-/* Copyright 2024 The OpenXLA Authors. All Rights Reserved.
+/* Copyright 2025 The OpenXLA Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,17 +12,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+
 #ifndef THIRD_PARTY_XPROF_CONVERT_OVERVIEW_PAGE_PROCESSOR_H_
 #define THIRD_PARTY_XPROF_CONVERT_OVERVIEW_PAGE_PROCESSOR_H_
 
-#include <string>
-#include <vector>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_processor.h"
 #include "xprof/convert/profile_processor_factory.h"
+#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
@@ -38,10 +37,9 @@ class OverviewPageProcessor : public OpStatsProcessor {
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats) override;
 
-  bool ShouldUseWorkerService(const tensorflow::profiler::SessionSnapshot&
-                                  session_snapshot) const override {
-    return true;
-  }
+  absl::Status ProcessSession(
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) override;
 
  private:
   tensorflow::profiler::ToolOptions options_;

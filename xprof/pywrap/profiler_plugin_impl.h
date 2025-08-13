@@ -1,4 +1,4 @@
-/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2025 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@ limitations under the License.
 
 namespace xprof {
 namespace pywrap {
+
+// Starts the gRPC server.
+void StartGrpcServer(int port);
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,

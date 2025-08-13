@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xprof/plugin/xprof/worker/stub_factory.h"
+#include "plugin/xprof/worker/stub_factory.h"
 
 #include <atomic>
 #include <cstddef>
@@ -40,6 +40,16 @@ using xprof::pywrap::grpc::XprofAnalysisWorkerService;
 constexpr char kAddressDelimiter = ',';
 
 ABSL_CONST_INIT absl::Mutex gStubsMutex(absl::kConstInit);
+// gStubs holds the gRPC stubs for the worker services.
+// It is a vector of unique_ptrs to ensure that the stubs are properly
+// cleaned up when the program exits. absl::NoDestructor is used to prevent
+// the vector from being destroyed during program shutdown.
+//
+// GetNextStub() returns a std::shared_ptr to a stub. This shared_ptr does
+// not own the stub; ownership remains with the unique_ptr in the gStubs
+// vector. A no-op deleter is provided to the shared_ptr to prevent it from
+// attempting to delete the raw pointer. This allows multiple clients to
+// safely share the stub without transferring ownership.
 static absl::NoDestructor<
     std::vector<std::unique_ptr<XprofAnalysisWorkerService::Stub>>>
     gStubs ABSL_GUARDED_BY(gStubsMutex);
@@ -56,8 +66,8 @@ void InitializeStubs(const std::string& worker_service_addresses) {
       absl::StrSplit(worker_service_addresses, kAddressDelimiter);
   for (const std::string& address : addresses) {
     if (address.empty()) continue;
-    std::shared_ptr<grpc::Channel> channel = grpc::CreateChannel(
-        address, grpc::InsecureChannelCredentials());  // NOLINT
+    std::shared_ptr<::grpc::Channel> channel = ::grpc::CreateChannel(
+        address, ::grpc::InsecureChannelCredentials());  // NOLINT
     gStubs->push_back(XprofAnalysisWorkerService::NewStub(channel));
   }
   gStubsInitialized.store(true, std::memory_order_release);

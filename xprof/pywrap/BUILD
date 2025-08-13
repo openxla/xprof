@@ -16,6 +16,7 @@ pytype_extension(
     ],
     deps = [
         ":profiler_plugin_impl",
+        "@org_xprof//plugin/xprof/worker:stub_factory",
         "@org_xprof//xprof/convert:tool_options",
         "@pybind11",
         "@xla//xla/pjrt:status_casters",
@@ -43,6 +44,7 @@ cc_library(
     hdrs =
         ["profiler_plugin_impl.h"],
     deps = [
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/flags:flag",
@@ -50,6 +52,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//plugin/xprof/worker:grpc_server",
         "@org_xprof//xprof/convert:repository",
         "@org_xprof//xprof/convert:tool_options",
         "@org_xprof//xprof/convert:xplane_to_tools_data",

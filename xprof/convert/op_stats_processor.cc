@@ -15,11 +15,14 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_processor.h"
 
+#include <optional>
 #include <string>
+#include <variant>  // Required for std::holds_alternative and std::get
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -29,12 +32,14 @@ limitations under the License.
 #include "xprof/convert/op_stats_combiner.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_op_stats.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
 #include "xprof/utils/step_intersection.h"
 
 namespace xprof {
+namespace {
 
 using ::tensorflow::profiler::CombineAllOpStats;
 using ::tensorflow::profiler::ComputeStepIntersectionToMergeOpStats;
@@ -51,15 +56,63 @@ using ::tensorflow::profiler::WriteBinaryProto;
 using ::tensorflow::profiler::XSpace;
 using tsl::kuint32max;
 
+std::string GetCacheFilePath(const SessionSnapshot& session_snapshot,
+                             const std::string& hostname) {
+  StoredDataType cache_type = StoredDataType::OP_STATS;
+  std::string filename =
+      session_snapshot.GetHostDataFileName(cache_type, hostname).value_or("");
+  return tsl::io::JoinPath(session_snapshot.GetSessionRunDir(), filename);
+}
+
+bool GetUseSavedResult(const tensorflow::profiler::ToolOptions& options) {
+  if (auto it = options.find("use_saved_result"); it != options.end()) {
+    if (std::holds_alternative<bool>(it->second)) {
+      return std::get<bool>(it->second);
+    }
+  }
+  return false;
+}
+
+// Checks if the OpStats cache files exist for all hosts.
+bool AreAllOpStatsCached(const SessionSnapshot& session_snapshot) {
+  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
+    std::string hostname = session_snapshot.GetHostname(i);
+    std::string cache_file_path = GetCacheFilePath(session_snapshot, hostname);
+    if (!tsl::Env::Default()->FileExists(cache_file_path).ok()) {
+      LOG(INFO) << "OpStats cache miss for host: " << hostname;
+      return false;
+    }
+    LOG(INFO) << "OpStats cache hit for host: " << hostname
+              << " with path: " << cache_file_path;
+  }
+  LOG(INFO) << "OpStats cache hit for all hosts.";
+  return true;
+}
+
+}  // namespace
+
+// This overload of Map is provided to conform to the ProfileProcessor
+// interface. It creates a temporary SessionSnapshot from the given xspace_path
+// to be able to call the other Map overload, which requires metadata from the
+// SessionSnapshot for caching and processing.
+absl::StatusOr<std::string> OpStatsProcessor::Map(
+    const std::string& xspace_path) {
+  std::vector<std::string> xspace_paths = {xspace_path};
+  TF_ASSIGN_OR_RETURN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
+  // get xspace from session snapshot
+  std::string hostname = session_snapshot.GetHostname(0);
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
+
+  return Map(session_snapshot, hostname, *xspace);
+}
+
 absl::StatusOr<std::string> OpStatsProcessor::Map(
     const SessionSnapshot& session_snapshot, const std::string& hostname,
     const XSpace& xspace) {
-  StoredDataType cache_type = StoredDataType::OP_STATS;
-  TF_ASSIGN_OR_RETURN(
-      std::string filename,
-      session_snapshot.GetHostDataFileName(cache_type, hostname));
-  std::string cache_file_path =
-      tsl::io::JoinPath(session_snapshot.GetSessionRunDir(), filename);
+  std::string cache_file_path = GetCacheFilePath(session_snapshot, hostname);
 
   // TODO: Check if use_saved_result is true before using cache.
   if (tsl::Env::Default()->FileExists(cache_file_path).ok()) {
@@ -77,14 +130,9 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
   options.generate_step_db = true;
   options.generate_kernel_stats_db = true;
   OpStats op_stats = ConvertXSpaceToOpStats(temp_xspace, options);
-  TF_RETURN_IF_ERROR(
-      WriteBinaryProto(session_snapshot, cache_type, hostname, op_stats));
+  TF_RETURN_IF_ERROR(WriteBinaryProto(
+      session_snapshot, StoredDataType::OP_STATS, hostname, op_stats));
   return cache_file_path;
-}
-
-absl::StatusOr<std::string> OpStatsProcessor::Map(
-    const std::string& xspace_path) {
-  return absl::UnimplementedError("Map not implemented");
 }
 
 absl::Status OpStatsProcessor::Reduce(
@@ -123,6 +171,31 @@ absl::Status OpStatsProcessor::Reduce(
       tensorflow::profiler::kAllHostsIdentifier, combined_op_stats));
 
   return ProcessCombinedOpStats(session_snapshot, combined_op_stats);
+}
+
+bool OpStatsProcessor::ShouldUseWorkerService(
+    const SessionSnapshot& session_snapshot,
+    const tensorflow::profiler::ToolOptions& options) const {
+  if (session_snapshot.XSpaceSize() <= 1) {
+    return false;
+  }
+  bool use_saved_result = GetUseSavedResult(options);
+  LOG(INFO) << "use_saved_result: " << use_saved_result;
+
+  // If not using saved results, always use the worker service for map/reduce.
+  if (!use_saved_result) {
+    return true;
+  }
+
+  // If using saved results, check if all OpStats are already cached.
+  // If not, we need to run the Map phase on the worker service.
+  return !AreAllOpStatsCached(session_snapshot);
+}
+
+absl::Status OpStatsProcessor::ProcessSession(
+    const SessionSnapshot& session_snapshot,
+    const tensorflow::profiler::ToolOptions& options) {
+  return absl::OkStatus();
 }
 
 }  // namespace xprof

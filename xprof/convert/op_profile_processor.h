@@ -20,6 +20,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_processor.h"
 #include "xprof/convert/profile_processor_factory.h"
+#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
@@ -34,8 +35,9 @@ class OpProfileProcessor : public OpStatsProcessor {
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats) override;
 
-  bool ShouldUseWorkerService(const tensorflow::profiler::SessionSnapshot&
-                                  session_snapshot) const override {
+  bool ShouldUseWorkerService(
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) const override {
     return true;
   }
 

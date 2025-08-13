@@ -26,6 +26,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/base/internal/endian.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -52,17 +53,6 @@ namespace profiler {
 using tsl::kint64max;
 
 namespace {
-
-constexpr uint64_t kLayerResolutions[] = {
-    1000000000000ull,  // 1 second.
-    100000000000ull,  10000000000ull, 1000000000ull, 100000000ull,
-    10000000ull,      1000000ull,     100000ull,     10000ull,
-    1000ull,          100ull,         10ull,         1ull,
-};
-
-constexpr int NumLevels() { return TF_ARRAYSIZE(kLayerResolutions); }
-static constexpr size_t kLevelDbKeyLength = 10;
-
 
 // Returns the total number of events.
 inline int32_t NumEvents(
@@ -362,93 +352,16 @@ absl::Status OpenLevelDbTable(const std::string& filename,
   return absl::OkStatus();
 }
 
-absl::Status DoReadFullEventFromLevelDbTable(
-    const std::string& trace_events_metadata_filename,
-    const std::string& trace_events_filename, absl::string_view event_name,
-    int64_t timestamp_ps, int64_t duration_ps, int64_t unique_id, Trace& trace,
-    const std::function<TraceEvent*(const TraceEvent&)>& copy_event_to_arena,
-    const std::function<void(TraceEvent*)>& add_arena_event) {
-  tsl::table::Table* trace_events_table = nullptr;
-  tsl::table::Table* trace_events_metadata_table = nullptr;
-  std::unique_ptr<tsl::RandomAccessFile> trace_events_file;
-  std::unique_ptr<tsl::RandomAccessFile> trace_events_metadata_file;
-  auto executor = std::make_unique<XprofThreadPoolExecutor>(
-      "ReadFullEventFromLevelDbTable", /*num_threads=*/2);
-  absl::Status trace_events_status;
-  absl::Status trace_events_metadata_status;
-  executor->Execute([&trace_events_filename, &trace_events_table,
-                     &trace_events_file, &trace_events_status]() {
-    trace_events_status = OpenLevelDbTable(
-        trace_events_filename, &trace_events_table, trace_events_file);
-  });
-  executor->Execute([&trace_events_metadata_filename,
-                     &trace_events_metadata_table, &trace_events_metadata_file,
-                     &trace_events_metadata_status]() {
-    trace_events_metadata_status = OpenLevelDbTable(
-        trace_events_metadata_filename, &trace_events_metadata_table,
-        trace_events_metadata_file);
-  });
-  executor->JoinAll();
-  trace_events_status.Update(trace_events_metadata_status);
-  TF_RETURN_IF_ERROR(trace_events_status);
-
-  std::unique_ptr<tsl::table::Table> trace_events_table_deleter(
-      trace_events_table);
-  std::unique_ptr<tsl::table::Table> trace_events_metadata_table_deleter(
-      trace_events_metadata_table);
-  std::unique_ptr<tsl::table::Iterator> trace_events_iterator(
-      trace_events_table->NewIterator());
-  std::unique_ptr<tsl::table::Iterator> trace_events_metadata_iterator(
-      trace_events_metadata_table->NewIterator());
-  if (trace_events_iterator == nullptr ||
-      trace_events_metadata_iterator == nullptr) {
-    return absl::UnknownError("Could not open table");
-  }
-
-  trace_events_iterator->SeekToFirst();
-  if (!ReadTraceMetadata(trace_events_iterator.get(), kTraceMetadataKey,
-                         &trace)) {
-    return absl::UnknownError("Could not parse Trace proto");
-  }
-
-  for (int zoom_level = 0; zoom_level < NumLevels(); ++zoom_level) {
-    std::string level_db_table_key =
-        LevelDbTableKey(zoom_level, timestamp_ps, unique_id);
-    trace_events_iterator->Seek(level_db_table_key);
-    if (trace_events_iterator->Valid() &&
-        trace_events_iterator->key() == level_db_table_key) {
-      TraceEvent event;
-      if (!event.ParseFromArray(trace_events_iterator->value().data(),
-                                trace_events_iterator->value().size())) {
-        return absl::UnknownError("Could not parse TraceEvent proto");
-      }
-      if (event.has_name_ref()) {
-        auto it = trace.name_table().find(event.name_ref());
-        if (it != trace.name_table().end()) {
-          event.set_name(it->second);
-        }
-      }
-      if (event.name() != event_name || event.duration_ps() != duration_ps) {
-        continue;
-      }
-      trace_events_metadata_iterator->Seek(level_db_table_key);
-      if (!trace_events_metadata_iterator->Valid() ||
-          trace_events_metadata_iterator->key() != level_db_table_key) {
-        return absl::UnknownError("Could not find metadata for event");
-      }
-      TraceEvent event_metadata;
-      if (!event_metadata.ParseFromArray(
-              trace_events_metadata_iterator->value().data(),
-              trace_events_metadata_iterator->value().size())) {
-        return absl::UnknownError("Could not parse TraceEvent proto");
-      }
-      event.set_timestamp_ps(timestamp_ps);
-      event.set_raw_data(event_metadata.raw_data());
-      add_arena_event(copy_event_to_arena(event));
-      return absl::OkStatus();
+void PurgeIrrelevantEntriesInTraceNameTable(
+    Trace& trace,
+    const absl::flat_hash_set<uint64_t>& required_event_references) {
+  google::protobuf::Map<uint64_t, std::string> new_name_table;
+  for (const auto& reference : required_event_references) {
+    if (trace.name_table().contains(reference)) {
+      new_name_table.insert({reference, trace.name_table().at(reference)});
     }
   }
-  return absl::NotFoundError("Event not found");
+  trace.mutable_name_table()->swap(new_name_table);
 }
 
 }  // namespace profiler

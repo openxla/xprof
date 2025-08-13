@@ -1326,9 +1326,12 @@ dashboard would integrate trace viewer app using iframe.
         event.args = fullEvent.args;
         const stackFrameName = data.stackFrames[1]?.name;
         if (stackFrameName) {
+          if (stackFrameName.startsWith('@@')) {
+            stackFrameName = stackFrameName.substr(2);
+          }
           event.startStackFrame =
             new tr.model.StackFrame(/* parentFrame */ undefined, "g1",
-                                    stackFrameName.substr(2), 13);
+                                    stackFrameName, 13);
         }
       } else if (event instanceof tr.model.AsyncSlice &&
                  data.traceEvents[data.traceEvents.length - 2].ph == "b") {

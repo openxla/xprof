@@ -1,0 +1,12 @@
+#ifndef THIRD_PARTY_XPROF_PLUGIN_TENSORBOARD_PLUGIN_PROFILE_WORKER_GRPC_SERVER_H_
+#define THIRD_PARTY_XPROF_PLUGIN_TENSORBOARD_PLUGIN_PROFILE_WORKER_GRPC_SERVER_H_
+
+namespace xprof {
+namespace profiler {
+
+void InitializeGrpcServer(int port);
+
+}  // namespace profiler
+}  // namespace xprof
+
+#endif  // THIRD_PARTY_XPROF_PLUGIN_TENSORBOARD_PLUGIN_PROFILE_WORKER_GRPC_SERVER_H_

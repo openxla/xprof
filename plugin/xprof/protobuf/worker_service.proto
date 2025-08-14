@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package xprof.pywrap;
+
+service XprofAnalysisWorkerService {
+  // Retrieves specific tool's data for specific session.
+  rpc GetProfileData(WorkerProfileDataRequest)
+      returns (WorkerProfileDataResponse) {
+    option deadline = 1200.0;
+  }
+}
+
+// Copied from original xprof_analysis_service.proto
+message ProfileDataRequest {
+  string session_id = 1;  // absolute path to xplane.pb file
+  string tool_name = 2;   // name of the tool to run
+  map<string, string> parameters = 3;
+}
+
+message WorkerProfileDataRequest {
+  // The original request that trigger this worker request.
+  ProfileDataRequest origin_request = 1;  // required.
+}
+
+message WorkerProfileDataResponse {
+  // Absolute path to the tool specific output.
+  string output = 1;
+}

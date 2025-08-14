@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -34,6 +35,8 @@ class OpStatsProcessor : public ProfileProcessor {
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const std::string& hostname,
       const tensorflow::profiler::XSpace& xspace) final;
+
+  absl::StatusOr<std::string> Map(const std::string& xspace_path) final;
 
   // Deserializes map_outputs, combines OpStats, and calls
   // ProcessCombinedOpStats.

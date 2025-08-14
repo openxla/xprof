@@ -33,6 +33,12 @@ class ProfileProcessor {
 
   // Processes a single host's XSpace data and returns the path to the output
   // file.
+  virtual absl::StatusOr<std::string> Map(const std::string& xspace_path) {
+    return absl::UnimplementedError("Map not implemented");
+  }
+
+  // Processes a single host's XSpace data and returns the path to the output
+  // file.
   virtual absl::StatusOr<std::string> Map(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const std::string& hostname,

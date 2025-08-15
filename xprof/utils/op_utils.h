@@ -63,8 +63,11 @@ class HostOpMetricsDbBuilder : public OpMetricsDbBuilder {
   //             the execution time of its children.
   //   children_time_ps = the execution time of the children of this OP in
   //                      picoseconds
+  //   id = host op uniqueness identifier. For input pipeline ops, this is the
+  //        stage id. By default is 0 if not needed.
   void EnterOp(absl::string_view name, absl::string_view category,
-               bool is_eager, uint64 time_ps, uint64 children_time_ps);
+               bool is_eager, uint64 time_ps, uint64 children_time_ps,
+               int64_t id = 0);
 
   // Updates total_host_infeed_enq_duration_ps_ and
   // total_host_infeed_enq_duration_ps_.

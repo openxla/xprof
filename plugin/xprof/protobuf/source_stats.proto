@@ -6,12 +6,18 @@ message SourceStats {
   message Metric {
     // Total number of executions.
     uint64 occurrences = 1;
-    // Total self time in picoseconds.
+    // The total execution time for all HLO operations generated from the
+    // associated source line, excluding the time spent in any descendant
+    // operations.
     uint64 self_time_ps = 2;
     // Total time (self + children) in picoseconds.
     uint64 time_ps = 3;
-    // Total FLOPs.
+    // The total number of FLOPS for all the HLO operations generated from the
+    // associated source line, excluding the FLOPS in any descendant operations.
     uint64 flops = 4;
+    // The average FLOPS utilization for all HLO operations generated from the
+    // associated source line, excluding the FLOPS of any descendant operations.
+    double flops_utilization = 5;
   }
 
   message FileMetrics {

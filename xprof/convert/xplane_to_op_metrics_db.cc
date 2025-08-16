@@ -121,9 +121,14 @@ void ProcessOneTfActivity(const TfActivity& activity,
       }
       tsl::profiler::Timespan tf_op_span = tsl::profiler::PicoSpan(
           info->start_timestamp_ps, activity.timestamp_ps);
+      // Note the tf_op.id will be used as the hlo_module_id in EnterOp when
+      // constructing the op metrics db.
+      // - not set for legacy TfOp: behavior unchanged with hlo_module_id=0
+      // - for input pipeline ops, this is the stage id.
       tf_metrics_data->tf_metrics_db_builder.EnterOp(
           activity.tf_op.name, activity.tf_op.type, activity.is_eager,
-          tf_op_span.duration_ps(), info->children_duration_ps);
+          tf_op_span.duration_ps(), info->children_duration_ps,
+          activity.tf_op.id);
       TfOpInfo* parent_info = tf_op_stack->Top();
       if (parent_info != nullptr) {
         parent_info->children_duration_ps += tf_op_span.duration_ps();
@@ -161,55 +166,43 @@ void CollectTfActivities(
   uint32 tf_op_id = 0;
   if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
   tf_activities->reserve(line.NumEvents() * 2);
-  line.ForEachEvent([&tf_ops, &tf_op_id,
-                     &tf_activities](const XEventVisitor& event) {
-    const tsl::profiler::TfOp* tf_op = tsl::gtl::FindOrNull(tf_ops, event.Id());
-    if (tf_op != nullptr) {
-      ++tf_op_id;
-      bool is_eager = false;
-      if (std::optional<XStatVisitor> stat =
-              event.GetStat(StatType::kIsEager)) {
-        is_eager = stat->IntValue();
-      }
-      tsl::profiler::Timespan span = event.GetTimespan();
-      tf_activities->push_back(
-          {span.begin_ps(), tf_op_id, kTfOpBegin, *tf_op, is_eager});
-      tf_activities->push_back(
-          {span.end_ps(), tf_op_id, kTfOpEnd, *tf_op, is_eager});
-    }
-    if (auto tf_op_stat = event.GetStat(StatType::kTfOp);
-        tf_op_stat.has_value()) {
-      ++tf_op_id;
-      tsl::profiler::TfOp tf_op =
-          tsl::profiler::ParseTfOpFullname(tf_op_stat->StrOrRefValue());
-      tsl::profiler::Timespan span = event.GetTimespan();
-      tf_activities->push_back(
-          {span.begin_ps(), tf_op_id, kTfOpBegin, tf_op, false});
-      tf_activities->push_back(
-          {span.end_ps(), tf_op_id, kTfOpEnd, tf_op, false});
-    }
-  });
+  line.ForEachEvent(
+      [&tf_ops, &tf_op_id, &tf_activities](const XEventVisitor& event) {
+        auto id = event.Id();
+        // Add id override for input pipeline ops.
+        if (const auto& stat = event.GetStat(StatType::kInputPipelineStageId);
+            stat.has_value()) {
+          id = stat->IntValue();
+        }
+        const tsl::profiler::TfOp* tf_op = tsl::gtl::FindOrNull(tf_ops, id);
+        if (tf_op != nullptr) {
+          ++tf_op_id;
+          bool is_eager = false;
+          if (std::optional<XStatVisitor> stat =
+                  event.GetStat(StatType::kIsEager)) {
+            is_eager = stat->IntValue();
+          }
+          tsl::profiler::Timespan span = event.GetTimespan();
+          tf_activities->push_back(
+              {span.begin_ps(), tf_op_id, kTfOpBegin, *tf_op, is_eager});
+          tf_activities->push_back(
+              {span.end_ps(), tf_op_id, kTfOpEnd, *tf_op, is_eager});
+        }
+        if (auto tf_op_stat = event.GetStat(StatType::kTfOp);
+            tf_op_stat.has_value()) {
+          ++tf_op_id;
+          tsl::profiler::TfOp tf_op =
+              tsl::profiler::ParseTfOpFullname(tf_op_stat->StrOrRefValue());
+          tsl::profiler::Timespan span = event.GetTimespan();
+          tf_activities->push_back(
+              {span.begin_ps(), tf_op_id, kTfOpBegin, tf_op, false});
+          tf_activities->push_back(
+              {span.end_ps(), tf_op_id, kTfOpEnd, tf_op, false});
+        }
+      });
 }
 
 }  // namespace
-
-absl::flat_hash_map<int64_t, tsl::profiler::TfOp>
-CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace) {
-  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops;
-  for (const auto& id_metadata : host_trace.event_metadata()) {
-    const XEventMetadata& metadata = id_metadata.second;
-    // On the host, we have added some user-specified TraceMe's in addition to
-    // the TraceMe's added to every TensorFlow op by the system. These
-    // user-inserted TraceMe's have "unknown" type. We don't count them in
-    // Tf-stats.
-    tsl::profiler::TfOp tf_op =
-        tsl::profiler::ParseTfOpFullname(metadata.name());
-    if (tf_op.category != tsl::profiler::Category::kUnknown) {
-      tf_ops.try_emplace(metadata.id(), tf_op);
-    }
-  }
-  return tf_ops;
-}
 
 TfMetricsDbData ConvertHostThreadsXLineToTfMetricsDbData(
     const XLineVisitor& line,
@@ -229,11 +222,60 @@ void ConsumeTfMetricsDbData(TfMetricsDbData src, OpMetricsDbCombiner* dst) {
   src.tf_metrics_db.Clear();
 }
 
+absl::flat_hash_map<int64_t, tsl::profiler::TfOp>
+CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace) {
+  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops;
+  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
+  plane.ForEachLine([&tf_ops](const XLineVisitor& line) {
+    line.ForEachEvent(
+        [&tf_ops](const XEventVisitor& event) {
+          // 1. Newly added input pipeline ops processing: identified by the
+          // stage id and category.
+          auto input_pipeline_stage_id =
+              event.GetStat(StatType::kInputPipelineStageId);
+          if (input_pipeline_stage_id.has_value()) {
+            auto input_pipeline_stage_category =
+                event.GetStat(StatType::kInputPipelineStageCategory);
+            // Note that main thread traceme events are also identified by the
+            // stage id and name, but they are not doing the actual work,so we
+            // are not setting the type for it. Only worker threads has type set
+            // to reflect stage category (read, preprocessing, enqueue, unknown
+            // ).
+            if (input_pipeline_stage_category.has_value()) {
+              tsl::profiler::TfOp tf_op = tsl::profiler::ParseTfOpFullname(
+                  event.Name(), tsl::profiler::Category::kInputPipeline,
+                  input_pipeline_stage_category->StrOrRefValue(),
+                  input_pipeline_stage_id->IntValue());
+              // Note using input pipeline stage id as unique identifier here
+              // instead of events id, because event id's uniqueness is bind
+              // with the event name string due to nature of xplane event
+              // metadata creation, making it a non-sufficient identifier when
+              // building an input pipeline event stack.
+              tf_ops.try_emplace(input_pipeline_stage_id->IntValue(), tf_op);
+            }
+            return;
+          }
+
+          // 2. Fallback to legacy host ops processing.
+          // On the host, we have added some user-specified TraceMe's in
+          // addition to the TraceMe's added to every TensorFlow op by the
+          // system. These user-inserted TraceMe's have "unknown" type. We don't
+          // count them in Tf-stats.
+          tsl::profiler::TfOp tf_op =
+              tsl::profiler::ParseTfOpFullname(event.Name());
+          if (tf_op.category != tsl::profiler::Category::kUnknown) {
+            tf_ops.try_emplace(event.Id(), tf_op);
+          }
+        });
+  });
+  return tf_ops;
+}
+
 OpMetricsDb ConvertHostThreadsXPlaneToOpMetricsDb(const XPlane& host_trace) {
-  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops =
-      CollectTfOpsFromHostThreadsXPlane(host_trace);
   OpMetricsDb result;
   OpMetricsDbCombiner combiner(&result);
+  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops =
+      CollectTfOpsFromHostThreadsXPlane(host_trace);
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
   plane.ForEachLine([&tf_ops, &combiner](const XLineVisitor& line) {
     ConsumeTfMetricsDbData(

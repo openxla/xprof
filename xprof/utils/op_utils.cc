@@ -99,10 +99,12 @@ void EnterOpMetadataFromHloModuleMap(OpMetrics* op_metrics,
 
 void HostOpMetricsDbBuilder::EnterOp(absl::string_view name,
                                      absl::string_view category, bool is_eager,
-                                     uint64 time_ps, uint64 children_time_ps) {
+                                     uint64 time_ps, uint64 children_time_ps,
+                                     int64_t id) {
   uint64 self_time_ps = time_ps - children_time_ps;
   DCHECK_GE(time_ps, self_time_ps);
-  OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(/*hlo_module_id=*/0, name);
+  OpMetrics* op_metrics =
+      LookupOrInsertNewOpMetrics(/*hlo_module_id=*/id, name);
   if (op_metrics->category().empty())
     op_metrics->set_category(category.data(), category.size());
   op_metrics->set_num_cores(1);

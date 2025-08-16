@@ -54,6 +54,7 @@ using ::tsl::profiler::XStatsBuilder;
 #if defined(PLATFORM_GOOGLE)
 // NOLINTNEXTLINE: clang-tidy missing-includes
 using ::testing::EqualsProto;
+using ::testing::proto::IgnoringRepeatedFieldOrdering;
 #endif
 
 void AddTensorFlowTpuOpEvent(std::string&& name, std::string&& tf_op_fullname,
@@ -97,6 +98,23 @@ void AddTensorFlowOpEvent(std::string&& tf_op_fullname,
   event.AddStatValue(
       *plane->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kTfOp)),
       *plane->GetOrCreateStatMetadata(std::move(tf_op_fullname)));
+}
+
+void AddInputPipelineTracemeEvent(std::string&& name,
+                                  int64_t start_timestamp_ns,
+                                  int64_t duration_ns,
+                                  absl::string_view stage_category,
+                                  int64_t stage_id, XPlaneBuilder* plane,
+                                  XLineBuilder* line) {
+  XEventBuilder event = line->AddEvent(*plane->GetOrCreateEventMetadata(name));
+  event.SetTimestampNs(start_timestamp_ns);
+  event.SetDurationNs(duration_ns);
+  event.AddStatValue(*plane->GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kInputPipelineStageId)),
+                     stage_id);
+  event.AddStatValue(*plane->GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kInputPipelineStageCategory)),
+                     move(stage_category));
 }
 
 void AddXlaCpuOpEvent(std::string&& hlo_op_name, std::string&& tf_op,
@@ -307,6 +325,67 @@ TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithXlaOps) {
                                            total_op_time_ps: 18000000
                                            precision_stats {}
               )pb"));
+#endif
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithInputPipelineTracemeOps) {
+  XPlane xplane;
+  XPlaneBuilder plane(&xplane);
+  XLineBuilder line = plane.GetOrCreateLine(/*line_id=*/10);
+  AddInputPipelineTracemeEvent("ShuffleMapDataset", 100000, 10000,
+                               "preprocessing", 1, &plane, &line);
+  AddInputPipelineTracemeEvent("MapMapDataset", 100000, 8000, "preprocessing",
+                               2, &plane, &line);
+  AddInputPipelineTracemeEvent("ShuffleMapDataset", 120000, 10000,
+                               "preprocessing", 3, &plane, &line);
+  AddInputPipelineTracemeEvent("MapMapDataset", 120000, 8000, "preprocessing",
+                               4, &plane, &line);
+
+  OpMetricsDb op_metrics = ConvertHostThreadsXPlaneToOpMetricsDb(xplane);
+#if defined(PLATFORM_GOOGLE)
+  EXPECT_THAT(op_metrics, IgnoringRepeatedFieldOrdering(
+                              EqualsProto(R"pb(metrics_db {
+                                                 self_time_ps: 2000000
+                                                 occurrences: 1
+                                                 name: "ShuffleMapDataset"
+                                                 category: "preprocessing"
+                                                 hlo_module_id: 1
+                                                 time_ps: 10000000
+                                               }
+                                               metrics_db {
+                                                 self_time_ps: 8000000
+                                                 occurrences: 1
+                                                 name: "MapMapDataset"
+                                                 category: "preprocessing"
+                                                 hlo_module_id: 2
+                                                 time_ps: 8000000
+                                               }
+                                               metrics_db {
+                                                 self_time_ps: 2000000
+                                                 occurrences: 1
+                                                 name: "ShuffleMapDataset"
+                                                 category: "preprocessing"
+                                                 hlo_module_id: 3
+                                                 time_ps: 10000000
+                                               }
+                                               metrics_db {
+                                                 self_time_ps: 8000000
+                                                 occurrences: 1
+                                                 name: "MapMapDataset"
+                                                 category: "preprocessing"
+                                                 hlo_module_id: 4
+                                                 time_ps: 8000000
+                                               }
+                                               metrics_db {
+                                                 self_time_ps: 10000000
+                                                 name: "IDLE"
+                                                 time_ps: 10000000
+                                                 category: "IDLE"
+                                               }
+                                               total_time_ps: 30000000
+                                               total_op_time_ps: 20000000
+                                               precision_stats {}
+                              )pb")));
 #endif
 }
 

@@ -1,15 +1,29 @@
 ## Overview Page
 
 The overview page provides an aggregated top-level view of how your model
-performed during a profile run, how well it utilized hardware resources, and so
-on. The overview page acts as a starting point to pursue more detailed analysis
-using the other tools within XProf.
+performed during a profile run, how well it utilized hardware resources, and
+where time was spent. The overview page acts as a starting point to pursue more
+detailed analysis using the other tools within XProf.
+
+![XProf overview page](images/xprof_overview.png)
+
+The Overview page shows two main sections:
+
+*   **Performance Summary** displays details on the average step time, the ratio
+    of framework ops executed on the host vs. the device, the percentage of time
+    spent on eager execution, and device compute precisions.
+
+    ![Performance Summary](images/xprof_overview_summary.png)
+
+*   **Step-time Graph** displays a graph of device step time (in milliseconds)
+    over all the steps sampled. Each step is broken into the multiple categories
+    (with different colors) of where time is spent.
+
+    ![Step-time Graph](images/xprof_overview_graph.png)
 
 ### Supported Platforms
 
-TPU: supported
-
-GPU: supported
+Both TPU and GPU are supported.
 
 The overview page adapts the information it shows based on the type of
 accelerator being profiled. For TPUs, for instance, it shows a matrix-unit

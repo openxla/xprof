@@ -1,0 +1,15 @@
+site_name: XProf developer guide
+
+nav:
+  - Home: index.md
+  - Overview Page: overview_page.md
+  - Graph Viewer: graph_viewer.md
+  - HLO Op Profile: hlo_op_profile.md
+  - HLO Op Stats: hlo_op_stats.md
+  - Memory Profile: memory_profile.md
+  - Memory Viewer: memory_viewer.md
+  - GPU Kernel Stats: gpu_kernel_stats.md
+  - Trace Viewer: trace_viewer.md
+  - Roofline Analysis: roofline_analysis.md
+
+theme: readthedocs

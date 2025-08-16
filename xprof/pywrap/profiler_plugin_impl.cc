@@ -35,7 +35,7 @@ limitations under the License.
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_tools_data.h"
 
-ABSL_FLAG(bool, use_profile_processor, false,
+ABSL_FLAG(bool, use_profile_processor, true,
           "Use ProfileProcessor for tool data conversion");
 
 static const absl::NoDestructor<absl::flat_hash_set<std::string>>
@@ -47,6 +47,7 @@ static const absl::NoDestructor<absl::flat_hash_set<std::string>>
         "hlo_stats",
         "roofline_model",
         "framework_op_stats",
+        "megascale_stats",
     });
 
 namespace xprof {

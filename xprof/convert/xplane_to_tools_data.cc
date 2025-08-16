@@ -40,6 +40,7 @@ limitations under the License.
 #include "xprof/convert/compute_inference_latency.h"
 #include "xprof/convert/hlo_to_tools_data.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
+#include "xprof/convert/megascale_stats_processor.h"
 #include "xprof/convert/multi_xspace_to_inference_stats.h"
 #include "xprof/convert/op_stats_to_hlo_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
@@ -396,6 +397,13 @@ absl::Status RunMapReduce(xprof::ProfileProcessor* processor,
   return processor->Reduce(session_snapshot, map_output_files);
 }
 
+absl::Status ProcessSession(xprof::ProfileProcessor* processor,
+                            const SessionSnapshot& session_snapshot,
+                            const ToolOptions& options) {
+  TF_RETURN_IF_ERROR(processor->ProcessSession(session_snapshot, options));
+  return absl::OkStatus();
+}
+
 absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
     const SessionSnapshot& session_snapshot) {
   SmartSuggestionEngine engine;
@@ -498,7 +506,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     TF_RETURN_IF_ERROR(RunMapReduce(processor.get(), session_snapshot));
   } else {
     // This branch is for processing the session directly.
-    TF_RETURN_IF_ERROR(processor->ProcessSession(session_snapshot));
+    TF_RETURN_IF_ERROR(
+        ProcessSession(processor.get(), session_snapshot, options));
   }
   return processor->GetData();
 }

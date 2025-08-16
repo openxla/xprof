@@ -1,3 +1,4 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("//defs:backend_defs.bzl", "if_oss", "tf_profiler_alias")
 
@@ -26,6 +27,7 @@ cc_library(
     hdrs = ["profile_processor.h"],
     deps = [
         ":repository",
+        ":tool_options",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -43,12 +45,11 @@ cc_library(
         ":preprocess_single_host_xplane",
         ":profile_processor",
         ":repository",
+        ":tool_options",
         ":xplane_to_op_stats",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@org_xprof//xprof/utils:step_intersection",
@@ -86,6 +87,38 @@ cc_library(
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:types",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "megascale_stats_processor",
+    srcs = ["megascale_stats_processor.cc"],
+    hdrs = ["megascale_stats_processor.h"],
+    deps = [
+        ":process_megascale_dcn",
+        ":profile_processor",
+        ":profile_processor_factory",
+        ":repository",
+        ":tool_options",
+        ":xplane_to_dcn_collective_stats",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:kernel_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_data_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
     alwayslink = 1,
 )
@@ -978,6 +1011,7 @@ cc_library(
     srcs = ["xplane_to_tools_data.cc"],
     hdrs = ["xplane_to_tools_data.h"],
     deps = [
+        "megascale_stats_processor",
         "pod_viewer_processor",
         "roofline_model_processor",
         ":compute_inference_latency",

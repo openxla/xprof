@@ -11,9 +11,17 @@ import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components
 import {Observable} from 'rxjs';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 
+/** A serializable object with profiler configuration details. */
+export interface ProfilerConfig {
+  hideCaptureProfileButton: boolean;
+}
+
 /** The data service class that calls API and return response. */
 export interface DataServiceV2Interface {
   searchParams?: URLSearchParams;
+
+  /** Fetches plugin config details from the backend. */
+  getConfig(): Observable<ProfilerConfig|null>;
 
   getData(
       sessionId: string,

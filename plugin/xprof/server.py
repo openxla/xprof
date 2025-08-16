@@ -102,8 +102,9 @@ def _get_wildcard_address(port) -> str:
   return fallback_address
 
 
-def launch_server(logdir, port):
+def launch_server(logdir, port, hide_capture_profile_button: bool):
   context = TBContext(logdir, DataProvider(logdir), TBContext.Flags(False))
+  context.hide_capture_profile_button = hide_capture_profile_button
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
   run_server(plugin, _get_wildcard_address(port), port)
@@ -170,6 +171,13 @@ def main() -> int:
       help="The port number for the server (default: %(default)s).",
   )
 
+  parser.add_argument(
+      "--hide_capture_profile_button",
+      action="store_true",
+      default=False,
+      help="Hides the 'Capture Profile' button in the UI.",
+  )
+
   try:
     args = parser.parse_args()
   except SystemExit as e:
@@ -177,10 +185,12 @@ def main() -> int:
 
   logdir = get_abs_path(args.logdir_opt or args.logdir_pos)
   port = args.port
+  hide_button = args.hide_capture_profile_button
 
   print("Attempting to start XProf server:")
   print(f"  Log Directory: {logdir}")
   print(f"  Port: {port}")
+  print(f"  Hide Capture Button: {hide_button}")
 
   if not epath.Path(logdir).exists():
     print(
@@ -190,5 +200,5 @@ def main() -> int:
     )
     return 1
 
-  launch_server(logdir, port)
+  launch_server(logdir, port, hide_button)
   return 0

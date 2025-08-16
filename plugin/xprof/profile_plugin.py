@@ -72,6 +72,7 @@ HOSTS_ROUTE = '/hosts'
 HLO_MODULE_LIST_ROUTE = '/module_list'
 CAPTURE_ROUTE = '/capture_profile'
 LOCAL_ROUTE = '/local'
+CONFIG_ROUTE = '/config'
 CACHE_VERSION_FILE = 'cache_version.txt'
 
 # Suffixes of "^, #, @" symbols represent different input data formats for the
@@ -484,6 +485,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self.logdir = context.logdir
     self.data_provider = context.data_provider
     self.master_tpu_unsecure_channel = context.flags.master_tpu_unsecure_channel
+    self.hide_capture_profile_button = getattr(
+        context, 'hide_capture_profile_button', False
+    )
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
@@ -523,7 +527,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
         DATA_ROUTE: self.data_route,
         HLO_MODULE_LIST_ROUTE: self.hlo_module_list_route,
         CAPTURE_ROUTE: self.capture_route,
-        LOCAL_ROUTE: self.default_handler
+        LOCAL_ROUTE: self.default_handler,
+        CONFIG_ROUTE: self.config_route,
     }
 
   # pytype: disable=wrong-arg-types
@@ -531,6 +536,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
   def default_handler(self, _: wrappers.Request) -> wrappers.Response:
     contents = self._read_static_file_impl('index.html')
     return respond(contents, 'text/html')
+
+  # pytype: disable=wrong-arg-types
+  @wrappers.Request.application
+  def config_route(self, request: wrappers.Request) -> wrappers.Response:
+    # pytype: enable=wrong-arg-types
+    """Returns plugin configuration details like the port."""
+    logger.info('config_route: %s', self.logdir)
+    config_data = {
+        'hideCaptureProfileButton': self.hide_capture_profile_button,
+    }
+    return respond(config_data, 'application/json')
 
   def frontend_metadata(self):
     return base_plugin.FrontendMetadata(es_module_path='/index.js')

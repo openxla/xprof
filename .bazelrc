@@ -5,6 +5,10 @@ build --cxxopt=-std=c++17
 build --host_cxxopt=-std=c++17
 build --noenable_bzlmod
 
+# Disable Hermetic CC toolchains
+build --@rules_ml_toolchain//common:enable_hermetic_cc=False
+build --repo_env USE_HERMETIC_CC_TOOLCHAIN=0
+
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD
 

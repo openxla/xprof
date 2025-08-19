@@ -50,24 +50,6 @@ load("@xla//:workspace3.bzl", "xla_workspace3")
 
 xla_workspace3()
 
-# Toolchains for ML projects
-# Details: https://github.com/google-ml-infra/rules_ml_toolchain
-http_archive(
-    name = "rules_ml_toolchain",
-    sha256 = "9dbee8f24cc1b430bf9c2a6661ab70cbca89979322ddc7742305a05ff637ab6b",
-    strip_prefix = "rules_ml_toolchain-545c80f1026d526ea9c7aaa410bf0b52c9a82e74",
-    urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/545c80f1026d526ea9c7aaa410bf0b52c9a82e74.tar.gz",
-    ],
-)
-
-load(
-    "@rules_ml_toolchain//cc/deps:cc_toolchain_deps.bzl",
-    "cc_toolchain_deps",
-)
-
-cc_toolchain_deps()
-
 load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
 
 python_init_rules()
@@ -133,7 +115,18 @@ load(
 python_wheel_version_suffix_repository(name = "tf_wheel_version_suffix")
 
 load(
-    "@rules_ml_toolchain//gpu/cuda:cuda_json_init_repository.bzl",
+    "@rules_ml_toolchain//cc_toolchain/deps:cc_toolchain_deps.bzl",
+    "cc_toolchain_deps",
+)
+
+cc_toolchain_deps()
+
+register_toolchains("@rules_ml_toolchain//cc_toolchain:lx64_lx64")
+
+register_toolchains("@rules_ml_toolchain//cc_toolchain:lx64_lx64_cuda")
+
+load(
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_json_init_repository.bzl",
     "cuda_json_init_repository",
 )
 
@@ -145,7 +138,7 @@ load(
     "CUDNN_REDISTRIBUTIONS",
 )
 load(
-    "@rules_ml_toolchain//gpu/cuda:cuda_redist_init_repositories.bzl",
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_redist_init_repositories.bzl",
     "cuda_redist_init_repositories",
     "cudnn_redist_init_repository",
 )
@@ -159,21 +152,21 @@ cudnn_redist_init_repository(
 )
 
 load(
-    "@rules_ml_toolchain//gpu/cuda:cuda_configure.bzl",
+    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_configure.bzl",
     "cuda_configure",
 )
 
 cuda_configure(name = "local_config_cuda")
 
 load(
-    "@rules_ml_toolchain//gpu/nccl:nccl_redist_init_repository.bzl",
+    "@xla//third_party/nccl/hermetic:nccl_redist_init_repository.bzl",
     "nccl_redist_init_repository",
 )
 
 nccl_redist_init_repository()
 
 load(
-    "@rules_ml_toolchain//gpu/nccl:nccl_configure.bzl",
+    "@xla//third_party/nccl/hermetic:nccl_configure.bzl",
     "nccl_configure",
 )
 

@@ -26,9 +26,12 @@ import os
 import re
 import threading
 from typing import Any, List, Optional, TypedDict
+import urllib.parse
 
 from etils import epath
 import etils.epath.backend
+from google.api_core import exceptions
+from google.cloud import storage
 import six
 from werkzeug import wrappers
 
@@ -1046,6 +1049,10 @@ class ProfilePlugin(base_plugin.TBPlugin):
       schemeless_logdir = schemeless_logdir.split('://', 1)[1]
     tb_runs = {'.'}
 
+    if self.logdir.startswith('gs://'):
+      yield from self.generate_runs_gcs_native()
+      return
+
     if logdir_path.is_dir():
       try:
         fs = etils.epath.backend.fsspec_backend.fs(self.logdir)
@@ -1056,7 +1063,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
             tb_run = tb_run_dir.relative_to(schemeless_logdir)
             tb_runs.add(str(tb_run))
       except ValueError:
-        # gcsfs not available, fall back to legacy path walk.
+        # fsspec extension not available, fall back to legacy path walk.
         for cur_dir, _, _ in logdir_path.walk():
           if (cur_dir.name == PLUGIN_NAME and cur_dir.parent.name == TB_NAME):
             tb_run_dir = cur_dir.parent.parent
@@ -1086,6 +1093,71 @@ class ProfilePlugin(base_plugin.TBPlugin):
           if frontend_run not in visited_runs:
             visited_runs.add(frontend_run)
             yield frontend_run
+
+  def generate_runs_gcs_native(self) -> Iterator[str]:
+    try:
+      parsed_logdir = urllib.parse.urlparse(self.logdir)
+      if parsed_logdir.scheme != 'gs':
+        logger.warning('Logdir is not a GCS path: %s', self.logdir)
+        return
+
+      bucket_name = parsed_logdir.netloc
+      prefix = parsed_logdir.path.lstrip('/')
+
+      storage_client = storage.Client()
+      bucket = storage_client.bucket(bucket_name)
+    except (ValueError, exceptions.GoogleAPICallError) as e:
+      logger.error(
+          'Failed to initialize GCS client or parse logdir %s: %s',
+          self.logdir,
+          e,
+      )
+      return
+
+    plugin_path_segment = os.path.join(TB_NAME, PLUGIN_NAME)
+    visited_runs = set()
+
+    try:
+      all_blobs_iterator = bucket.list_blobs(prefix=prefix)
+
+      for blob in all_blobs_iterator:
+        try:
+          base_path, sub_path = blob.name.split(plugin_path_segment, 1)
+          sub_path = sub_path.lstrip('/')
+        except ValueError:
+          continue
+
+        if not sub_path:
+          continue
+
+        profile_run = sub_path.split('/')[0]
+
+        tb_run_dir_path = os.path.dirname(base_path.rstrip('/'))
+        tb_run_name = os.path.relpath(tb_run_dir_path, prefix)
+
+        frontend_run = (
+            profile_run
+            if tb_run_name == '.'
+            else os.path.join(tb_run_name, profile_run)
+        )
+
+        if frontend_run not in visited_runs:
+          tb_plugin_dir_path = base_path + plugin_path_segment
+          full_profile_run_dir_path = os.path.join(
+              tb_plugin_dir_path, profile_run
+          )
+          self._run_to_profile_run_dir[frontend_run] = (
+              f'gs://{bucket_name}/{full_profile_run_dir_path}'
+          )
+
+          visited_runs.add(frontend_run)
+          yield frontend_run
+
+    except exceptions.GoogleAPICallError as e:
+      logger.warning(
+          'Cannot list files in logdir: %s, API Error %s', self.logdir, e
+      )
+      return
 
   def generate_tools_of_run(self, run: str) -> Iterator[str]:
     """Generate a list of tools given a certain run."""

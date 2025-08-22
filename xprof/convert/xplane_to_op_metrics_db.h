@@ -44,12 +44,12 @@ struct TfMetricsDbData {
   HostOpMetricsDbBuilder tf_metrics_db_builder{&tf_metrics_db};
 };
 
-absl::flat_hash_map<int64_t, tsl::profiler::TfOp>
-CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace);
-
 TfMetricsDbData ConvertHostThreadsXLineToTfMetricsDbData(
     const XLineVisitor& line,
     const absl::flat_hash_map<int64_t, tsl::profiler::TfOp>& tf_ops);
+
+absl::flat_hash_map<int64_t, tsl::profiler::TfOp>
+CollectTfOpsFromHostThreadsXPlane(const XPlane& host_trace);
 
 void ConsumeTfMetricsDbData(TfMetricsDbData src, OpMetricsDbCombiner* dst);
 

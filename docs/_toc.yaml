@@ -17,6 +17,10 @@ toc:
   path: /xprof
 - title: Tool Documentation
   section:
+  - title: XProf
+    path: /xprof/index
+  - title: Overview Page
+    path: /xprof/overview_page
   - title: Graph Viewer
     path: /xprof/graph_viewer
   - title: HLO Op Profile
@@ -27,8 +31,6 @@ toc:
     path: /xprof/memory_profile
   - title: Memory Viewer
     path: /xprof/memory_viewer
-  - title: Overview Page
-    path: /xprof/overview_page
   - title: Trace Viewer
     path: /xprof/trace_viewer
   - title: Roofline Analysis

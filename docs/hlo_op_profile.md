@@ -6,9 +6,7 @@ profiling period.
 
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported
+Both TPU and GPU are supported.
 
 ### Using the HLO Op Profile tool
 
@@ -17,6 +15,9 @@ HLO Op Profile has the following components:
 1.  The overview at the top of the page provides a summary of overall
     utilization of the accelerator compute FLOPs and the HBM bandwidth during
     the profiling period.
+
+    ![HLO Op Profile tool](images/hlo_op_profile_start.png)
+
 2.  The table below provides a more granular view of utilization. It categorizes
     the HLO ops executed by each module during the profiling period, and you can
     traverse the hierarchy and view utilization per module, per category within
@@ -34,9 +35,14 @@ HLO Op Profile has the following components:
         optimization.
 3.  Hovering over an operation in the table brings up a card on the left side
     displaying more details about the op or the operation category. Clicking a
-    table entry pins the op detail card. These cards typically include the
+    table entry pins the op detail card.
+
+    ![HLO Op Profile tool with a pinned op detail card](images/hlo_op_profile_pinned_annotated.png)
+
+    These cards typically include the
     following, as appropriate:
-    *   A link to the op in the Graph Viewer tool.
+
+    *   A link to the op in the [Graph Viewer](graph_viewer.md) tool.
     *   Average execution time.
     *   Absolute rates of usage (in contrast with utilization reported in the
         table) of the compute (TFLOP/s), HBM bandwidth (GB/s), and on-chip read

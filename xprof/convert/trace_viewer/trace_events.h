@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_EVENTS_H_
 #define THIRD_PARTY_XPROF_CONVERT_TRACE_VIEWER_TRACE_EVENTS_H_
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -46,6 +47,7 @@ limitations under the License.
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "tsl/platform/cpu_info.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/prefix_trie.h"
 #include "xprof/convert/trace_viewer/trace_events_filter_interface.h"
@@ -86,8 +88,7 @@ absl::Status DoStoreAsLevelDbTable(
 
 absl::Status DoStoreAsLevelDbTables(
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    const Trace& trace,
-    std::unique_ptr<tsl::WritableFile>& trace_events_file,
+    const Trace& trace, std::unique_ptr<tsl::WritableFile>& trace_events_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file);
 
@@ -167,8 +168,10 @@ absl::Status DoLoadFromLevelDbTable(
   std::string filename = file_paths.trace_events_file_path;
   bool trace_events_metadata_file_exists = false;
   if (!file_paths.trace_events_metadata_file_path.empty()) {
-    trace_events_metadata_file_exists = tsl::Env::Default()->FileExists(
-        file_paths.trace_events_metadata_file_path).ok();
+    trace_events_metadata_file_exists =
+        tsl::Env::Default()
+            ->FileExists(file_paths.trace_events_metadata_file_path)
+            .ok();
   }
   uint64_t file_size;
   TF_RETURN_IF_ERROR(tsl::Env::Default()->GetFileSize(filename, &file_size));
@@ -357,24 +360,77 @@ absl::Status DoSearchInLevelDbTable(
   }
   if (filter) filter->SetUp(trace);
 
-  TraceEvent event;
-  size_t matched_events_count = 0;
+  std::vector<std::string> event_ids;
   for (const auto& search_result : search_results) {
-    for (const auto& trace_event_id : search_result.terminal_key_ids) {
-      trace_events_iterator->Seek(trace_event_id);
-      if (!trace_events_iterator->Valid()) {
-        return absl::UnknownError("Could not find trace event id: " +
-                                  trace_event_id + "in the trace events table");
+    event_ids.insert(event_ids.end(), search_result.terminal_key_ids.begin(),
+                     search_result.terminal_key_ids.end());
+  }
+
+  if (event_ids.empty()) {
+    LOG(INFO) << "Matched 0 events from LevelDb fast file: "
+              << file_paths.trace_events_file_path;
+    return absl::OkStatus();
+  }
+
+  std::sort(event_ids.begin(), event_ids.end());
+  event_ids.erase(std::unique(event_ids.begin(), event_ids.end()),
+                  event_ids.end());
+
+  const int num_threads = tsl::port::MaxParallelism();
+
+  executor = std::make_unique<XprofThreadPoolExecutor>("SearchEventRetrieval",
+                                                       num_threads);
+  std::vector<std::vector<TraceEvent>> thread_events(num_threads);
+  std::vector<absl::Status> thread_statuses(num_threads);
+
+  for (int i = 0; i < num_threads; ++i) {
+    executor->Execute([&, i] {
+      size_t start = (event_ids.size() * i) / num_threads;
+      size_t end = (event_ids.size() * (i + 1)) / num_threads;
+
+      std::unique_ptr<tsl::table::Iterator> iterator(
+          trace_events_table->NewIterator());
+      if (iterator == nullptr) {
+        thread_statuses[i] =
+            absl::UnknownError("Could not create table iterator");
+        return;
       }
-      auto serialized_event = trace_events_iterator->value();
-      if (!event.ParseFromArray(serialized_event.data(),
-                                serialized_event.size())) {
-        return absl::UnknownError(
-            "Could not parse TraceEvent proto for trace event id: " +
-            trace_event_id);
+
+      for (size_t j = start; j < end; ++j) {
+        iterator->Seek(event_ids[j]);
+        if (!iterator->Valid()) {
+          LOG(WARNING) << "Could not find trace event id: " << event_ids[j]
+                       << "in the trace events table";
+          continue;
+        }
+        TraceEvent event;
+        auto serialized_event = iterator->value();
+        if (!event.ParseFromArray(serialized_event.data(),
+                                  serialized_event.size())) {
+          LOG(WARNING)
+              << "Could not parse TraceEvent proto for trace event id: "
+              << event_ids[j];
+          continue;
+        }
+        uint64_t timestamp = TimestampFromLevelDbTableKey(event_ids[j]);
+        event.set_timestamp_ps(timestamp);
+        thread_events[i].push_back(std::move(event));
       }
-      uint64_t timestamp = TimestampFromLevelDbTableKey(trace_event_id);
-      event.set_timestamp_ps(timestamp);
+      thread_statuses[i] = absl::OkStatus();
+    });
+  }
+  executor->JoinAll();
+
+  for (const auto& status : thread_statuses) {
+    if (!status.ok()) {
+      LOG(ERROR) << "A thread in DoSearchInLevelDbTable failed with status: "
+                 << status;
+    }
+  }
+
+  size_t matched_events_count = 0;
+  for (auto& events : thread_events) {
+    for (auto& event : events) {
       if (!filter || !filter->Filter(event)) {
         event.clear_raw_data();
         RawDataType raw_data;
@@ -388,6 +444,7 @@ absl::Status DoSearchInLevelDbTable(
       }
     }
   }
+
   LOG(INFO) << "Matched " << matched_events_count
             << " events from LevelDb fast file: "
             << file_paths.trace_events_file_path;
@@ -720,9 +777,9 @@ class TraceEventsContainerBase {
     Trace trace = trace_;
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
-    return DoStoreAsLevelDbTables(events_by_level, trace,
-        trace_events_file, trace_events_metadata_file,
-        trace_events_prefix_trie_file);
+    return DoStoreAsLevelDbTables(events_by_level, trace, trace_events_file,
+                                  trace_events_metadata_file,
+                                  trace_events_prefix_trie_file);
   }
 
   std::vector<std::vector<const TraceEvent*>> GetTraceEventsByLevel() const {

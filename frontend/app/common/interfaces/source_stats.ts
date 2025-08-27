@@ -4,10 +4,8 @@
 
 /** Statistics pertaining to an individual line. */
 export declare interface Metric {
-  occurrences: number;
   selfTimePs: number;
-  timePs: number;
-  flops: number;
+  flopsUtilization: number;
 }
 
 /** Metric for a single line of a file. */

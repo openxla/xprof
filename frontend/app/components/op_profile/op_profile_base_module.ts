@@ -3,6 +3,7 @@ import {NgModule} from '@angular/core';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
+import {MatSelectModule} from '@angular/material/select';
 import {MatSidenavModule} from '@angular/material/sidenav';
 import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {MatTooltipModule} from '@angular/material/tooltip';
@@ -19,6 +20,7 @@ import {OpTableModule} from './op_table/op_table_module';
     AngularSplitModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     MatSlideToggleModule,
     OpTableModule,
     MatIconModule,

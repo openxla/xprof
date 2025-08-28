@@ -1,4 +1,4 @@
-import {Component, inject, Injector, Input, OnDestroy, OnInit, SimpleChanges} from '@angular/core';
+import {Component, inject, Injector, Input, OnDestroy, OnInit, Output, EventEmitter, SimpleChanges} from '@angular/core';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -28,8 +28,7 @@ export class OpProfileBase implements OnDestroy, OnInit {
   profile: OpProfileProto|null = null;
   rootNode?: Node;
   data = new OpProfileData();
-  hasMultiModules = false;
-  isByCategory = false;
+  groupBy = 'program';
   excludeIdle = true;
   byWasted = false;
   showP90 = false;
@@ -43,6 +42,7 @@ export class OpProfileBase implements OnDestroy, OnInit {
   useUncappedFlops = false;
 
   @Input() opProfileData: OpProfileProto|null = null;
+  @Output() readonly groupByChange = new EventEmitter<string>();
 
   ngOnInit() {
     // We don't need the source code service to be persistently available.
@@ -58,9 +58,6 @@ export class OpProfileBase implements OnDestroy, OnInit {
   update(event: NavigationEvent) {}
   parseData(data: OpProfileProto|null) {
     this.profile = data;
-    this.hasMultiModules =
-        !!this.profile && !!this.profile.byCategory && !!this.profile.byProgram;
-    this.isByCategory = false;
     this.updateRoot();
     this.data.update(this.rootNode, this.useUncappedFlops);
     this.summary = this.dataService.getOpProfileSummary(this.data);
@@ -86,8 +83,7 @@ export class OpProfileBase implements OnDestroy, OnInit {
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['opProfileData'].previousValue === null &&
-        changes['opProfileData'].currentValue !== null) {
+    if (changes['opProfileData'] && this.opProfileData) {
       this.parseData(this.opProfileData);
     }
   }
@@ -99,19 +95,31 @@ export class OpProfileBase implements OnDestroy, OnInit {
     }
 
     if (this.excludeIdle) {
-      if (!this.hasMultiModules) {
-        this.rootNode = this.profile.byCategoryExcludeIdle ||
-            this.profile.byProgramExcludeIdle;
-      } else {
-        this.rootNode = this.isByCategory ? this.profile.byCategoryExcludeIdle :
-                                            this.profile.byProgramExcludeIdle;
+      if (this.groupBy === 'category') {
+        this.rootNode = this.profile.byCategoryExcludeIdle;
+      } else if (this.groupBy === 'provenance') {
+        this.rootNode = this.profile.byProvenanceExcludeIdle;
+      } else {  // 'program' is default
+        this.rootNode = this.profile.byProgramExcludeIdle;
       }
     } else {
-      if (!this.hasMultiModules) {
-        this.rootNode = this.profile.byCategory || this.profile.byProgram;
+      if (this.groupBy === 'category') {
+        this.rootNode = this.profile.byCategory;
+      } else if (this.groupBy === 'provenance') {
+        this.rootNode = this.profile.byProvenance;
+      } else {  // 'program' is default
+        this.rootNode = this.profile.byProgram;
+      }
+    }
+
+    // Fallback if the expected data for the selected grouping is not present
+    // for some reason
+    if (!this.rootNode) {
+      if (this.excludeIdle) {
+        this.rootNode = this.profile.byProgramExcludeIdle ||
+            this.profile.byCategoryExcludeIdle;
       } else {
-        this.rootNode = this.isByCategory ? this.profile.byCategory :
-                                            this.profile.byProgram;
+        this.rootNode = this.profile.byProgram || this.profile.byCategory;
       }
     }
 
@@ -128,9 +136,9 @@ export class OpProfileBase implements OnDestroy, OnInit {
     this.childrenCount = Math.max(Math.min(rounded, 100), 10);
   }
 
-  updateToggle() {
-    this.isByCategory = !this.isByCategory;
-    this.updateRoot();
+  updateGroupBy(value: string) {
+    this.groupBy = value;
+    this.groupByChange.emit(value);
   }
 
   updateExcludeIdle() {

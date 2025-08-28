@@ -23,11 +23,13 @@ export class OpProfile implements OnDestroy {
   private readonly throbber = new Throbber(this.tool);
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly opProfileDataCache = new Map<string, OpProfileProto>();
 
   sessionId = '';
   host = '';
   moduleList: string[] = [];
   opProfileData: OpProfileProto|null = null;
+  groupBy = 'program'; // Default value
 
   constructor(
       route: ActivatedRoute,
@@ -48,8 +50,19 @@ export class OpProfile implements OnDestroy {
   update() {
     setLoadingState(true, this.store, 'Loading op profile data');
     this.throbber.start();
+
+    const cachedData = this.opProfileDataCache.get(this.groupBy);
+    if (cachedData) {
+      this.opProfileData = cachedData;
+      setLoadingState(false, this.store);
+      this.throbber.stop();
+      return;
+    }
+
+    const params = new Map<string, string>();
+    params.set('group_by', this.groupBy);
     const $data =
-        this.dataService.getData(this.sessionId, this.tool, this.host);
+        this.dataService.getData(this.sessionId, this.tool, this.host, params);
     const $moduleList = this.dataService.getModuleList(
         this.sessionId,
     );
@@ -60,6 +73,7 @@ export class OpProfile implements OnDestroy {
           setLoadingState(false, this.store);
           if (data) {
             this.opProfileData = data as OpProfileProto;
+            this.opProfileDataCache.set(this.groupBy, this.opProfileData);
             this.store.dispatch(
                 setProfilingDeviceTypeAction({
                   deviceType: this.opProfileData.deviceType,
@@ -70,6 +84,11 @@ export class OpProfile implements OnDestroy {
             this.moduleList = moduleList.split(',');
           }
         });
+  }
+
+  onGroupByChange(newGroupBy: string) {
+    this.groupBy = newGroupBy;
+    this.update();
   }
 
   ngOnDestroy() {

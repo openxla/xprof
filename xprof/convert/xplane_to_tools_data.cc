@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "grpcpp/client_context.h"
 #include "grpcpp/support/status.h"
+#include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
@@ -42,14 +43,13 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/compute_inference_latency.h"
 #include "xprof/convert/hlo_to_tools_data.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/multi_xspace_to_inference_stats.h"
+#include "xprof/convert/op_profile_builder.h"
 #include "xprof/convert/op_stats_to_hlo_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
-#include "xprof/convert/op_stats_to_overview_page.h"
 #include "xprof/convert/op_stats_to_pod_viewer.h"
 #include "xprof/convert/op_stats_to_roofline_model.h"
 #include "xprof/convert/op_stats_to_tf_stats.h"
@@ -313,16 +313,25 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToRooflineModel(
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
-    const SessionSnapshot& session_snapshot) {
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
 
   tensorflow::profiler::op_profile::Profile profile;
+  std::string group_by_str =
+      GetParamWithDefault<std::string>(options, "group_by", "program");
+  OpProfileGrouping group_by = OpProfileGrouping::kByProgram;
+  if (group_by_str == "category") {
+    group_by = OpProfileGrouping::kByCategory;
+  } else if (group_by_str == "provenance") {
+    group_by = OpProfileGrouping::kByProvenance;
+  }
+
   ConvertOpStatsToOpProfile(
       combined_op_stats,
       ParseHardwareType(combined_op_stats.run_environment().device_type()),
-      profile);
+      profile, /*op_profile_limit=*/100, group_by);
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
   opts.always_print_fields_with_no_presence = true;
@@ -518,7 +527,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
   } else if (tool_name == "pod_viewer") {
     return ConvertMultiXSpacesToPodViewer(session_snapshot);
   } else if (tool_name == "op_profile") {
-    return ConvertMultiXSpacesToOpProfileViewer(session_snapshot);
+    return ConvertMultiXSpacesToOpProfileViewer(session_snapshot, options);
   } else if (tool_name == "hlo_stats") {
     return ConvertMultiXSpacesToHloStats(session_snapshot);
   } else if (tool_name == "roofline_model") {

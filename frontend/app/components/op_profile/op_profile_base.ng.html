@@ -28,9 +28,16 @@
         </div>
       </div>
       <div class="control-container">
-        <div class="control" [hidden]="!hasMultiModules">
-          <div class="control-title">Group by Category</div>
-          <mat-slide-toggle [checked]="isByCategory" (toggleChange)="updateToggle()" matTooltip="Group by xla module by default."></mat-slide-toggle>
+        <!-- <div class="control" [hidden]="!hasMultiModules"> -->
+          <div class="control">
+          <mat-form-field appearance="outline">
+            <mat-label>Group by</mat-label>
+            <mat-select [value]="groupBy" (selectionChange)="updateGroupBy($event.value)">
+              <mat-option value="program">Program</mat-option>
+              <mat-option value="category">Category</mat-option>
+              <mat-option value="provenance">Provenance</mat-option>
+            </mat-select>
+          </mat-form-field>
         </div>
         <div class="control">
           <div class="control-title">

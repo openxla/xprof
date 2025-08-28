@@ -168,6 +168,7 @@ def xspace_to_tool_data(
     if success:
       data = raw_data
   elif tool == 'op_profile':
+    options['group_by'] = params.get('group_by', 'program')
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data

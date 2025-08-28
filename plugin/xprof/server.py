@@ -26,6 +26,14 @@ from etils import epath
 from xprof.profile_plugin_loader import ProfilePluginLoader
 from xprof.standalone.base_plugin import TBContext
 from xprof.standalone.plugin_event_multiplexer import DataProvider
+from xprof.convert import _pywrap_profiler_plugin
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureConfig:
+  """Config for different features in XProf."""
+
+  hide_capture_profile_button: bool
 
 
 def make_wsgi_app(plugin):
@@ -103,13 +111,32 @@ def _get_wildcard_address(port) -> str:
   return fallback_address
 
 
-@dataclasses.dataclass(frozen=True)
-class FeatureConfig:
-  """Config for different features in XProf."""
-  hide_capture_profile_button: bool
+def launch_server(
+    logdir: str,
+    port: int,
+    grpc_port: int = 50051,
+    worker_service_address: str = "0.0.0.0:50051",
+    use_distributed_processing: bool = False,
+    feature_config: FeatureConfig = FeatureConfig(
+        hide_capture_profile_button=False
+    ),
+):
+  """Launches the XProf server.
 
+  Args:
+    logdir: The directory containing the profile logs.
+    port: The port to bind the server to.
+    grpc_port: The port to bind the worker service to.
+    worker_service_address: The address of the worker service.
+    use_distributed_processing: Whether to use distributed processing for
+      cloud-based profiling.
+    feature_config: The feature config for the XProf server.
+  """
+  # Start the worker service.
+  if use_distributed_processing:
+    _pywrap_profiler_plugin.initialize_stubs(worker_service_address)
+    _pywrap_profiler_plugin.start_grpc_server(grpc_port)
 
-def launch_server(logdir, port, feature_config: FeatureConfig):
   context = TBContext(logdir, DataProvider(logdir), TBContext.Flags(False))
   context.hide_capture_profile_button = (
       feature_config.hide_capture_profile_button
@@ -140,15 +167,17 @@ def get_abs_path(logdir: str) -> str:
   return str(epath.Path(logdir).expanduser().resolve())
 
 
-def main() -> int:
-  """Parses command-line arguments and launches the XProf server."""
+def _create_argument_parser() -> argparse.ArgumentParser:
+  """Creates the argument parser for the XProf server."""
   parser = argparse.ArgumentParser(
       prog="xprof",
       description="Launch the XProf profiling server.",
       formatter_class=argparse.RawDescriptionHelpFormatter,
-      epilog="Examples:\n"
-      "\txprof ~/jax/profile-logs -p 8080\n"
-      "\txprof --logdir ~/jax/profile-logs -p 8080",
+      epilog=(
+          "Examples:\n"
+          "\txprof ~/jax/profile-logs -p 8080\n"
+          "\txprof --logdir ~/jax/profile-logs -p 8080"
+      ),
   )
 
   logdir_group = parser.add_mutually_exclusive_group(required=True)
@@ -187,6 +216,34 @@ def main() -> int:
       help="Hides the 'Capture Profile' button in the UI.",
   )
 
+  parser.add_argument(
+      "-udp",
+      "--use_distributed_processing",
+      action="store_true",
+      help="Enable distributed processing for cloud-based profiling.",
+  )
+
+  parser.add_argument(
+      "-wsa",
+      "--worker_service_address",
+      type=str,
+      default="0.0.0.0:50051",
+      help="The address of the profiler worker service.",
+  )
+
+  parser.add_argument(
+      "-gp",
+      "--grpc_port",
+      type=int,
+      default=50051,
+      help="The gRPC port for the profiler worker service.",
+  )
+  return parser
+
+
+def main() -> int:
+  """Parses command-line arguments and launches the XProf server."""
+  parser = _create_argument_parser()
   try:
     args = parser.parse_args()
   except SystemExit as e:
@@ -194,11 +251,17 @@ def main() -> int:
 
   logdir = get_abs_path(args.logdir_opt or args.logdir_pos)
   port = args.port
+  use_distributed_processing = args.use_distributed_processing
+  worker_service_address = args.worker_service_address
+  grpc_port = args.grpc_port
   hide_capture_profile_button = args.hide_capture_profile_button
 
   print("Attempting to start XProf server:")
   print(f"  Log Directory: {logdir}")
   print(f"  Port: {port}")
+  if use_distributed_processing:
+    print("  Distributed Processing: enabled")
+    print(f"  Worker Service Address: {worker_service_address}")
   print(f"  Hide Capture Button: {hide_capture_profile_button}")
 
   if not epath.Path(logdir).exists():
@@ -212,5 +275,12 @@ def main() -> int:
   feature_config = FeatureConfig(
       hide_capture_profile_button=hide_capture_profile_button
   )
-  launch_server(logdir, port, feature_config)
+  launch_server(
+      logdir,
+      port,
+      grpc_port,
+      worker_service_address,
+      use_distributed_processing,
+      feature_config,
+  )
   return 0

@@ -49,15 +49,16 @@ class OpStatsProcessor : public ProfileProcessor {
   // Default implementation for tools that don't need a worker service.
   absl::Status ProcessSession(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
-      const tensorflow::profiler::ToolOptions& options) override {
-    return absl::UnimplementedError(
-        "ProcessSession not implemented for OpStatsProcessor");
-  }
+      const tensorflow::profiler::ToolOptions& options) override;
 
   // Tool-specific processing using the combined OpStats.
   virtual absl::Status ProcessCombinedOpStats(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats) = 0;
+
+  bool ShouldUseWorkerService(
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) const override;
 
  private:
   // Helper to get map output for a single host, with caching.

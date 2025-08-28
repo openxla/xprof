@@ -37,7 +37,7 @@ cc_library(
     srcs = ["grpc_utils.cc"],
     hdrs = ["grpc_utils.h"],
     deps = [
-        "@com_github_grpc_grpc//:grpc++_unsecure",
+        "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/status",
     ],
 )
@@ -47,7 +47,7 @@ cc_library(
     srcs = ["stub_factory.cc"],
     hdrs = ["stub_factory.h"],
     deps = [
-        "@com_github_grpc_grpc//:grpc++_unsecure",
+        "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/strings",

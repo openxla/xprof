@@ -1,4 +1,4 @@
-/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2025 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,14 +27,18 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
+#include "grpcpp/client_context.h"
+#include "grpcpp/support/status.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xla/tsl/platform/threadpool.h"
 #include "xla/tsl/profiler/convert/xplane_to_trace_events.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "tsl/platform/path.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/compute_inference_latency.h"
@@ -48,6 +52,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_pod_viewer.h"
 #include "xprof/convert/op_stats_to_roofline_model.h"
 #include "xprof/convert/op_stats_to_tf_stats.h"
+#include "xprof/convert/overview_page_processor.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/process_megascale_dcn.h"
 #include "xprof/convert/profile_processor.h"
@@ -81,12 +86,16 @@ limitations under the License.
 #include "plugin/xprof/protobuf/roofline_model.pb.h"
 #include "plugin/xprof/protobuf/tf_data_stats.pb.h"
 #include "plugin/xprof/protobuf/tf_stats.pb.h"
+#include "plugin/xprof/worker/grpc_utils.h"
+#include "plugin/xprof/worker/stub_factory.h"
 #include "xprof/utils/hardware_type_utils.h"
 
 namespace tensorflow {
 namespace profiler {
 
 namespace {
+
+constexpr absl::string_view kXplaneFileName = ".xplane.pb";
 
 struct TraceViewOption {
   uint64_t resolution = 0;
@@ -178,20 +187,12 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
   }
 }
 
+// TODO(subhamsoni) - Remove this once MapReduce is the default.
 absl::StatusOr<std::string> ConvertMultiXSpacesToOverviewPage(
     const SessionSnapshot& session_snapshot) {
-  OpStats combined_op_stats;
-  TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-      session_snapshot, &combined_op_stats));
-  OverviewPage overview_page = ConvertOpStatsToOverviewPage(combined_op_stats);
-  if (!combined_op_stats.run_environment().is_training()) {
-    InferenceStats inference_stats;
-    TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(
-        session_snapshot, "", "", &inference_stats));
-    *overview_page.mutable_inference_latency() =
-        ComputeInferenceLatencyResult(inference_stats);
-  }
-  return OverviewPageToJson(overview_page);
+  xprof::OverviewPageProcessor processor({});
+  TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, {}));
+  return processor.GetData();
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToInputPipeline(
@@ -381,17 +382,66 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
   return InferenceStatsToDataTableJson(inference_stats);
 }
 
-absl::Status RunMapReduce(xprof::ProfileProcessor* processor,
-                          const SessionSnapshot& session_snapshot) {
+std::string GetXSpaceFilePath(const SessionSnapshot& session_snapshot,
+                              const std::string& hostname) {
+  return tsl::io::JoinPath(session_snapshot.GetSessionRunDir(),
+                           hostname + kXplaneFileName.data());
+}
+
+xprof::pywrap::WorkerProfileDataRequest CreateWorkerProfileDataRequest(
+    const std::string& xspace_path, const absl::string_view tool_name,
+    const ToolOptions& options) {
+  ::xprof::pywrap::WorkerProfileDataRequest request;
+  request.mutable_origin_request()->set_session_id(xspace_path);
+  request.mutable_origin_request()->set_tool_name(std::string(tool_name));
+  return request;
+}
+
+absl::StatusOr<std::string> CallWorkerService(const std::string& xspace_path,
+                                              const absl::string_view tool_name,
+                                              const ToolOptions& options) {
+  ::xprof::pywrap::WorkerProfileDataRequest request =
+      CreateWorkerProfileDataRequest(xspace_path, tool_name, options);
+
+  ::grpc::ClientContext context;
+  ::xprof::pywrap::WorkerProfileDataResponse response;
+  auto stub = ::xprof::profiler::GetNextStub();
+  if (!stub) {
+    return absl::InternalError("No worker service stub available.");
+  }
+  ::grpc::Status grpc_status =
+      stub->GetProfileData(&context, request, &response);
+
+  if (!grpc_status.ok()) {
+    return ::xprof::profiler::ToAbslStatus(grpc_status);
+  }
+  return response.output();
+}
+
+absl::Status RunMapReduce(const SessionSnapshot& session_snapshot,
+                          const absl::string_view tool_name,
+                          xprof::ProfileProcessor* processor,
+                          const ToolOptions& options) {
+  const int num_hosts = session_snapshot.XSpaceSize();
+  std::vector<absl::StatusOr<std::string>> map_outputs(num_hosts);
+
+  {
+    tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), __FUNCTION__,
+                                        num_hosts);
+    for (int i = 0; i < num_hosts; ++i) {
+      thread_pool.Schedule([&, i] {
+        std::string hostname = session_snapshot.GetHostname(i);
+        std::string xspace_path = GetXSpaceFilePath(session_snapshot, hostname);
+        map_outputs[i] = CallWorkerService(xspace_path, tool_name, options);
+      });
+    }
+  }
+
   std::vector<std::string> map_output_files;
-  map_output_files.reserve(session_snapshot.XSpaceSize());
-  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    std::string hostname = session_snapshot.GetHostname(i);
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
-    TF_ASSIGN_OR_RETURN(std::string map_output_file,
-                        processor->Map(session_snapshot, hostname, *xspace));
-    map_output_files.push_back(map_output_file);
+  map_output_files.reserve(num_hosts);
+  for (int i = 0; i < num_hosts; ++i) {
+    TF_RETURN_IF_ERROR(map_outputs[i].status());
+    map_output_files.push_back(*std::move(map_outputs[i]));
   }
   return processor->Reduce(session_snapshot, map_output_files);
 }
@@ -499,12 +549,15 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
         ". Please update to the latest version of Tensorflow.");
   }
 
-  if (processor->ShouldUseWorkerService(session_snapshot)) {
+  if (processor->ShouldUseWorkerService(session_snapshot, options)) {
     // This branch is for the Map/Reduce flow, potentially distributed in the
     // future.
-    TF_RETURN_IF_ERROR(RunMapReduce(processor.get(), session_snapshot));
+    LOG(INFO) << "Using worker service for tool: " << tool_name;
+    TF_RETURN_IF_ERROR(
+        RunMapReduce(session_snapshot, tool_name, processor.get(), options));
   } else {
     // This branch is for processing the session directly.
+    LOG(INFO) << "Using local processing for tool: " << tool_name;
     TF_RETURN_IF_ERROR(
         ProcessSession(processor.get(), session_snapshot, options));
   }

@@ -35,6 +35,8 @@ class ProfileProcessor {
 
   // Processes a single host's XSpace data and returns the path to the output
   // file.
+  // TODO(subhamsoni): Remove this overload once all processors are migrated to
+  // the new Map overload.
   virtual absl::StatusOr<std::string> Map(const std::string& xspace_path) {
     return absl::UnimplementedError("Map not implemented");
   }
@@ -53,7 +55,8 @@ class ProfileProcessor {
 
   // Indicates whether this tool can be distributed across multiple workers.
   virtual bool ShouldUseWorkerService(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot) const {
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) const {
     return false;
   }
 

@@ -17,6 +17,7 @@ limitations under the License.
 #define XPROF_UTILS_EVENT_SPAN_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -132,16 +133,24 @@ enum class StepMarkerType {
 // Record of an event that is used as a step marker.
 struct StepMarker {
   StepMarkerType type;
+  std::optional<uint32_t> core_id;
   std::string event_name;  // name of this event.
   std::string step_name;
   tsl::profiler::Timespan span;  // timespan of this event.
-  StepMarker(StepMarkerType step_marker_type, absl::string_view name,
-             tsl::profiler::Timespan s)
-      : type(step_marker_type), event_name(name), span(s) {}
+  explicit StepMarker(StepMarkerType step_marker_type, absl::string_view name,
+                      tsl::profiler::Timespan s)
+      : type(step_marker_type), event_name(name), span(s) {
+        core_id = std::nullopt;
+      }
+  explicit StepMarker(StepMarkerType step_marker_type, uint32_t core_id,
+                      absl::string_view name, tsl::profiler::Timespan s)
+      : StepMarker(step_marker_type, name, s) {
+    this->core_id = core_id;
+  }
   // Equality test.
   bool operator==(const StepMarker& other) const {
     return type == other.type && event_name == other.event_name &&
-           span == other.span;
+           span == other.span && core_id == other.core_id;
   }
   // Inequality test.
   bool operator!=(const StepMarker& other) const { return !(*this == other); }
@@ -168,6 +177,7 @@ class StepDetails {
   }
   // Returns the step time.
   tsl::profiler::Timespan StepTime() const;
+  tsl::profiler::Timespan StepTimeOnCore(uint32_t core_id) const;
   // Adds a step-marker to this step.
   void AddMarker(const StepMarker& m);
   // Adds an EventTypeSpan to this step.

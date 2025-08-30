@@ -23,9 +23,13 @@ import sys
 from cheroot import wsgi
 from etils import epath
 
-from xprof.profile_plugin_loader import ProfilePluginLoader
-from xprof.standalone.base_plugin import TBContext
-from xprof.standalone.plugin_event_multiplexer import DataProvider
+from xprof import profile_plugin_loader
+from xprof.standalone import base_plugin
+from xprof.standalone import plugin_event_multiplexer
+
+DataProvider = plugin_event_multiplexer.DataProvider
+TBContext = base_plugin.TBContext
+ProfilePluginLoader = profile_plugin_loader.ProfilePluginLoader
 
 
 def make_wsgi_app(plugin):
@@ -151,7 +155,7 @@ def main() -> int:
       "\txprof --logdir ~/jax/profile-logs -p 8080",
   )
 
-  logdir_group = parser.add_mutually_exclusive_group(required=True)
+  logdir_group = parser.add_mutually_exclusive_group(required=False)
 
   logdir_group.add_argument(
       "-l",
@@ -192,7 +196,11 @@ def main() -> int:
   except SystemExit as e:
     return e.code
 
-  logdir = get_abs_path(args.logdir_opt or args.logdir_pos)
+  logdir = (
+      get_abs_path(args.logdir_opt or args.logdir_pos)
+      if args.logdir_opt or args.logdir_pos
+      else None
+  )
   port = args.port
   hide_capture_profile_button = args.hide_capture_profile_button
 
@@ -201,7 +209,7 @@ def main() -> int:
   print(f"  Port: {port}")
   print(f"  Hide Capture Button: {hide_capture_profile_button}")
 
-  if not epath.Path(logdir).exists():
+  if logdir and not epath.Path(logdir).exists():
     print(
         f"Error: Log directory '{logdir}' does not exist or is not a"
         " directory.",

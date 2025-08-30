@@ -43,6 +43,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "xprof/utils/hlo_proto_map.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -587,6 +588,58 @@ TEST(ConvertXPlaneToOpStats, TpuMultiDeviceStepDbTest) {
   // For TPU step events, we intersect the step events by step num across
   // different TPU devices.
   EXPECT_EQ(step_db.step_sequence_size(), 1);
+}
+
+TEST(ConvertXPlaneToOpStats, TpuTCAndSCStepDbTest) {
+  auto space = std::make_unique<XSpace>();
+  XPlaneBuilder tc_plane_builder(
+      GetOrCreateTpuXPlane(space.get(), /*device_ordinal=*/0, "TPU V4", 0, 0));
+  tc_plane_builder.SetId(/*core_id=*/1);
+  tc_plane_builder.ReserveLines(2);
+  XLineBuilder tc_step_line = tc_plane_builder.GetOrCreateLine(0);
+  tc_step_line.SetName(tsl::profiler::kStepLineName);
+  CreateXEvent(&tc_plane_builder, &tc_step_line, "Step 1", /*offset_ps=*/100,
+               /*duration_ps=*/100000, {{StatType::kGroupId, 1}});
+  XLineBuilder tc_op_line = tc_plane_builder.GetOrCreateLine(1);
+  tc_op_line.SetName(kXlaOpLineName);
+  CreateXEvent(&tc_plane_builder, &tc_op_line, "op.1", /*offset_ps=*/110,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory, tsl::profiler::kHloInfeed},
+                {StatType::kGroupId, 1}});
+
+  XPlaneBuilder sc_plane_builder(
+      GetOrCreateTpuXPlane(space.get(), /*device_ordinal=*/1, "TPU V4", 0, 0));
+  sc_plane_builder.SetId(/*core_id=*/2);
+  sc_plane_builder.SetName("/device:TPU:0 SparseCore 0");
+  sc_plane_builder.ReserveLines(2);
+  XLineBuilder sc_step_line = sc_plane_builder.GetOrCreateLine(0);
+  sc_step_line.SetName(tsl::profiler::kSparseCoreStepLineName);
+  CreateXEvent(&sc_plane_builder, &sc_step_line, "Step 1", /*offset_ps=*/1000,
+               /*duration_ps=*/10000,
+               // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb
+               // is implemented.
+               {{StatType::kGroupId, 1}, {StatType::kStepIdleTimePs, 9000}});
+  XLineBuilder sc_op_line = sc_plane_builder.GetOrCreateLine(1);
+  sc_op_line.SetName(kSparseCoreOpLineName);
+  CreateXEvent(
+      &sc_plane_builder, &sc_op_line, "op.2", /*offset_ps=*/1010,
+      /*duration_ps=*/1000,
+      {{StatType::kHloCategory, "sparse_core_op"}, {StatType::kGroupId, 1}});
+
+  OpStatsOptions options;
+  options.generate_op_metrics_db = true;
+  options.generate_step_db = true;
+  OpStats op_stats = ConvertXSpaceToOpStats(*space, options);
+  const StepDatabaseResult& step_db = op_stats.step_db();
+  EXPECT_EQ(step_db.step_sequence_size(), 1);
+  EXPECT_EQ(step_db.step_sequence(0).step_info_per_core_size(), 2);
+  auto step_info_per_core = step_db.step_sequence(0).step_info_per_core();
+  auto tc_core_step_info = step_info_per_core[1];
+  EXPECT_EQ(tc_core_step_info.duration_ps(), 100000);
+  EXPECT_EQ(tc_core_step_info.begin_ps(), 100);
+  auto sc_core_step_info = step_info_per_core[kSparseCoreIndexStart + 2];
+  EXPECT_EQ(sc_core_step_info.duration_ps(), 10000);
+  EXPECT_EQ(sc_core_step_info.begin_ps(), 1000);
 }
 
 TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromXlaOps) {

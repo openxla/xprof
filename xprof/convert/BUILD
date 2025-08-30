@@ -951,6 +951,7 @@ cc_test(
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_function_proto_cc",
         "@org_xprof//xprof/utils:hlo_proto_map",
+        "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",

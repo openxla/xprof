@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -344,6 +345,10 @@ tsl::profiler::Timespan StepDetails::StepTime() const {
     const tsl::profiler::Timespan& new_step_time = marker.span;
     if (new_step_time.duration_ps() > cur_max_step_time.duration_ps())
       cur_max_step_time = new_step_time;
+    LOG_IF(ERROR, !cur_max_step_time.Overlaps(new_step_time))
+        << "[CORRECTNESS ISSUE] Found grouped but non-overlapping step times: "
+        << cur_max_step_time.DebugString() << " "
+        << new_step_time.DebugString();
   }
   // CPU-only profile.
   if (max_device_step_time.Empty()) {
@@ -357,6 +362,21 @@ tsl::profiler::Timespan StepDetails::StepTime() const {
     return max_host_step_time;
   }
   return max_device_step_time;
+}
+
+tsl::profiler::Timespan StepDetails::StepTimeOnCore(uint32_t core_id) const {
+  tsl::profiler::Timespan max_step_time;
+  for (const auto& marker : markers_) {
+    if (marker.core_id.has_value() && *marker.core_id == core_id) {
+      const tsl::profiler::Timespan& new_step_time = marker.span;
+      if (new_step_time.duration_ps() > max_step_time.duration_ps())
+        max_step_time = new_step_time;
+      LOG_IF(ERROR, !max_step_time.Includes(new_step_time))
+        << "[CORRECTNESS ISSUE] Found non-overlapping step times: "
+        << max_step_time.DebugString() << " " << new_step_time.DebugString();
+    }
+  }
+  return max_step_time;
 }
 
 StepDetails StepDetails::ToNonOverlapped() const {

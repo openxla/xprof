@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -85,7 +86,8 @@ std::vector<TraceEvent*> MergeEventTracks(
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    std::function<TraceEvent(const TraceEvent*)> generate_event_copy_fn);
+    std::function<std::optional<TraceEvent>(const TraceEvent*)>
+        generate_event_copy_fn);
 
 absl::Status DoStoreAsLevelDbTables(
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
@@ -95,18 +97,19 @@ absl::Status DoStoreAsLevelDbTables(
 
 // Generates a copy of the event to be persisted in the trace events file.
 // This is the copy of the passed event without the timestamp_ps field.
-TraceEvent GenerateTraceEventCopyForPersistingFullEvent(
+std::optional<TraceEvent> GenerateTraceEventCopyForPersistingFullEvent(
     const TraceEvent* event);
 
 // Generates a copy of the event to be persisted in the trace events file.
 // This is the copy of the passed event without the raw_data and timestamp_ps
 // fields.
-TraceEvent GenerateTraceEventCopyForPersistingEventWithoutMetadata(
+std::optional<TraceEvent>
+GenerateTraceEventCopyForPersistingEventWithoutMetadata(
     const TraceEvent* event);
 
 // It generates a copy of the event to be persisted in the trace events metadata
 // file. This only has the raw_data field set.
-TraceEvent GenerateTraceEventCopyForPersistingOnlyMetadata(
+std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
     const TraceEvent* event);
 
 // Opens the level db table from the given filename. The table is owned by the
@@ -277,7 +280,7 @@ absl::Status DoLoadFromLevelDbTable(
   size_t visible_events_count = 0;
   for (TraceEvent* event : loaded_events) {
     if (!visibility_filter || !visibility_filter->Filter(*event)) {
-      if (trace_events_metadata_file_exists) {
+      if (trace_events_metadata_file_exists && event->has_resource_id()) {
         event->clear_raw_data();
         RawDataType raw_data;
         tensorflow::profiler::TraceEventArguments::Argument* arg =
@@ -434,14 +437,16 @@ absl::Status DoSearchInLevelDbTable(
   size_t matched_events_count = 0;
   for (auto& events : thread_events) {
     for (auto& event : events) {
-      if (!filter || !filter->Filter(event)) {
-        event.clear_raw_data();
-        RawDataType raw_data;
-        tensorflow::profiler::TraceEventArguments::Argument* arg =
-            raw_data.mutable_args()->add_arg();
-        arg->set_name("uid");
-        arg->set_int_value(event.serial());
-        raw_data.SerializePartialToString(event.mutable_raw_data());
+      if ((!filter || !filter->Filter(event))) {
+        if (event.has_resource_id()) {
+          event.clear_raw_data();
+          RawDataType raw_data;
+          tensorflow::profiler::TraceEventArguments::Argument* arg =
+              raw_data.mutable_args()->add_arg();
+          arg->set_name("uid");
+          arg->set_int_value(event.serial());
+          raw_data.SerializePartialToString(event.mutable_raw_data());
+        }
         add_arena_event(copy_event_to_arena(event));
         ++matched_events_count;
       }

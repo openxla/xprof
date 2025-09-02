@@ -15,8 +15,8 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
-        "@org_xprof//xprof/convert:profile_processor_factory",
         "@org_xprof//xprof/convert:tool_options",
+        "@org_xprof//xprof/convert/processors:profile_processor_factory",
     ],
 )
 

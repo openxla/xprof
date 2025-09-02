@@ -21,7 +21,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "grpcpp/server_context.h"
 #include "grpcpp/support/status.h"
-#include "xprof/convert/profile_processor_factory.h"
+#include "xprof/convert/processors/profile_processor_factory.h"
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/worker/grpc_utils.h"
 

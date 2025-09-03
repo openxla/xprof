@@ -85,7 +85,8 @@ TEST(DerivedTimelineTest, HloModuleNameTest) {
   EXPECT_EQ(plane_visitor.NumLines(), 2);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     if (line_visitor.Id() == 0) return;
-    EXPECT_EQ(line_visitor.Id(), kThreadIdHloModule);
+    EXPECT_EQ(line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin,
+              kThreadIdHloModule - kThreadIdTfNameScope);
     EXPECT_EQ(line_visitor.NumEvents(), 1);
     line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
       EXPECT_EQ(event_visitor.Name(), kHloModuleName);
@@ -119,7 +120,8 @@ TEST(DerivedTimelineTest, HloModuleNameSameScopeRangeIdTest) {
   EXPECT_EQ(plane_visitor.NumLines(), 2);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     if (line_visitor.Id() == 0) return;
-    EXPECT_EQ(line_visitor.Id(), kThreadIdHloModule);
+    EXPECT_EQ(line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin,
+              kThreadIdHloModule - kThreadIdTfNameScope);
     EXPECT_EQ(line_visitor.NumEvents(), 1);
     line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
       EXPECT_EQ(event_visitor.Name(), kHloModuleName);
@@ -152,7 +154,8 @@ TEST(DerivedTimelineTest, HloModuleNameDifferentScopeRangeIdTest) {
   EXPECT_EQ(plane_visitor.NumLines(), 2);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     if (line_visitor.Id() == 0) return;
-    EXPECT_EQ(line_visitor.Id(), kThreadIdHloModule);
+    EXPECT_EQ(line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin,
+              kThreadIdHloModule - kThreadIdTfNameScope);
     EXPECT_EQ(line_visitor.NumEvents(), 2);
     line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
       EXPECT_EQ(event_visitor.Name(), kHloModuleName);
@@ -214,7 +217,8 @@ TEST(DerivedTimelineTest, TfOpLineTest) {
   EXPECT_EQ(plane_visitor.NumLines(), 2);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     if (line_visitor.Id() == 0) return;
-    EXPECT_EQ(line_visitor.Id(), kThreadIdTfOp);
+    EXPECT_EQ(line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin,
+              kThreadIdTfOp - kThreadIdTfNameScope);
     EXPECT_EQ(line_visitor.NumEvents(), 1);
     line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
       EXPECT_EQ(event_visitor.Name(), kTfOpName);
@@ -252,8 +256,10 @@ TEST(DerivedTimelineTest, DependencyTest) {
   EXPECT_EQ(plane_visitor.NumLines(), 3);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
     if (line_visitor.Id() == 0) return;
+    int64_t derived_line_id_offset =
+        line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin;
     EXPECT_TRUE(line_visitor.Id() == tsl::profiler::kThreadIdStepInfo ||
-                line_visitor.Id() == kThreadIdTfOp);
+                derived_line_id_offset == kThreadIdTfOp - kThreadIdTfNameScope);
     EXPECT_EQ(line_visitor.NumEvents(), 2);
   });
 }
@@ -464,11 +470,13 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
     XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
     // The TF name scope line and the TF op line are added.
     EXPECT_EQ(plane_visitor.NumLines(), 3);
+    bool visited_derived_line = false;
     plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
       int64_t line_id = line_visitor.Id();
       if (line_id == 0) {
         return;
-      } else if (line_id == kThreadIdTfNameScope) {
+      } else if (line_id - tsl::profiler::kThreadIdDeviceDerivedMin == 0) {
+        visited_derived_line = true;
         EXPECT_EQ(line_visitor.NumEvents(), 7);
         std::map<absl::string_view, uint64_t> durations;
         line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
@@ -486,6 +494,7 @@ TEST(DerivedTimelineTest, TfOpNameScopeShrinkTest) {
         EXPECT_EQ(durations["g"], 30000);
       }
     });
+    EXPECT_TRUE(visited_derived_line);
   }
 }
 
@@ -528,7 +537,8 @@ TEST(DerivedTimelineTest, XloOpHasCudaGraphStats) {
   std::optional<XStatVisitor> cuda_graph_id;
   XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(&plane);
   plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
-    if (line_visitor.Id() == tsl::profiler::kThreadIdHloOp) {
+    if (line_visitor.Id() - tsl::profiler::kThreadIdDeviceDerivedMin ==
+        tsl::profiler::kThreadIdHloOp - tsl::profiler::kThreadIdTfNameScope) {
       num_hlo_op_line++;
       if (num_hlo_op_line == 1) {
         num_events = line_visitor.NumEvents();

@@ -131,7 +131,7 @@ class TpuKerasTest(absltest.TestCase):
   def test_op_profile(self):
     xspace_filenames = self._get_session_snapshot()
     result, _ = raw_to_tool_data.xspace_to_tool_data(
-        xspace_filenames, 'op_profile', {}
+        xspace_filenames, 'op_profile', {'group_by': 'category'}
     )
     result = json.loads(result)
     logging.info(result)

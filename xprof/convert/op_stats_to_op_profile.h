@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 #define XPROF_CONVERT_OP_STATS_TO_OP_PROFILE_H_
 
+#include "tensorflow/core/profiler/protobuf/op_profile.pb.h"
+#include "xprof/convert/op_profile_builder.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
@@ -48,7 +50,8 @@ void ConvertOpStatsToOpProfile(
     const tensorflow::profiler::OpStats& op_stats,
     tensorflow::profiler::HardwareType hardware_type,
     tensorflow::profiler::op_profile::Profile& profile,
-    int op_profile_limit = 100);
+    int op_profile_limit = 100,
+    OpProfileGrouping group_by = OpProfileGrouping::kByProgram);
 
 }  // namespace profiler
 }  // namespace tensorflow

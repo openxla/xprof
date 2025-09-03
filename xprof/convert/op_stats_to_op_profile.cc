@@ -75,33 +75,35 @@ void BuildOpProfileNodeTree(const OpStats& op_stats, OpProfileGrouping group_by,
 
 void ConvertOpStatsToOpProfile(
     const OpStats& op_stats, tensorflow::profiler::HardwareType hardware_type,
-    tensorflow::profiler::op_profile::Profile& profile, int op_profile_limit) {
+    tensorflow::profiler::op_profile::Profile& profile, int op_profile_limit,
+    OpProfileGrouping group_by) {
   profile.set_device_type(HardwareType_Name(hardware_type));
-  BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
-                         /*exclude_idle_ops=*/false, op_profile_limit,
-                         profile.mutable_by_category());
-
-  BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
-                         /*exclude_idle_ops=*/true, op_profile_limit,
-                         profile.mutable_by_category_exclude_idle());
-
-  BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
-                         /*exclude_idle_ops=*/false, op_profile_limit,
-                         profile.mutable_by_program());
-
-  BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
-                         /*exclude_idle_ops=*/true, op_profile_limit,
-                         profile.mutable_by_program_exclude_idle());
-
-  // TODO: bhupendradubey - Re-enable provenance grouping once we add on demand
-  // support for it. BuildOpProfileNodeTree(op_stats,
-  // OpProfileGrouping::kByProvenance,
-  //                        /*exclude_idle_ops=*/false, op_profile_limit,
-  //                        profile.mutable_by_provenance());
-
-  // BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProvenance,
-  //                        /*exclude_idle_ops=*/true, op_profile_limit,
-  //                        profile.mutable_by_provenance_exclude_idle());
+  switch (group_by) {
+    case OpProfileGrouping::kByCategory:
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
+                             /*exclude_idle_ops=*/false, op_profile_limit,
+                             profile.mutable_by_category());
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,
+                             /*exclude_idle_ops=*/true, op_profile_limit,
+                             profile.mutable_by_category_exclude_idle());
+      break;
+    case OpProfileGrouping::kByProgram:
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
+                             /*exclude_idle_ops=*/false, op_profile_limit,
+                             profile.mutable_by_program());
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProgram,
+                             /*exclude_idle_ops=*/true, op_profile_limit,
+                             profile.mutable_by_program_exclude_idle());
+      break;
+    case OpProfileGrouping::kByProvenance:
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProvenance,
+                             /*exclude_idle_ops=*/false, op_profile_limit,
+                             profile.mutable_by_provenance());
+      BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByProvenance,
+                             /*exclude_idle_ops=*/true, op_profile_limit,
+                             profile.mutable_by_provenance_exclude_idle());
+      break;
+  }
 }
 
 }  // namespace profiler

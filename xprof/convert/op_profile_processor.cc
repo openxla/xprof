@@ -19,6 +19,7 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/op_profile_builder.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/repository.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
@@ -27,6 +28,7 @@ limitations under the License.
 
 namespace xprof {
 
+using tensorflow::profiler::OpProfileGrouping;
 using tensorflow::profiler::OpStats;
 using tensorflow::profiler::ParseHardwareType;
 using tensorflow::profiler::SessionSnapshot;
@@ -36,10 +38,19 @@ using tsl::protobuf::util::JsonPrintOptions;
 absl::Status OpProfileProcessor::ProcessCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStats& combined_op_stats) {
   Profile profile;
+  // Generate all groupings for the OSS version.
   ConvertOpStatsToOpProfile(
       combined_op_stats,
       ParseHardwareType(combined_op_stats.run_environment().device_type()),
-      profile);
+      profile, /*op_profile_limit=*/100, OpProfileGrouping::kByCategory);
+  ConvertOpStatsToOpProfile(
+      combined_op_stats,
+      ParseHardwareType(combined_op_stats.run_environment().device_type()),
+      profile, /*op_profile_limit=*/100, OpProfileGrouping::kByProgram);
+  ConvertOpStatsToOpProfile(
+      combined_op_stats,
+      ParseHardwareType(combined_op_stats.run_environment().device_type()),
+      profile, /*op_profile_limit=*/100, OpProfileGrouping::kByProvenance);
   std::string op_profile_json;
   JsonPrintOptions opts;
   opts.always_print_fields_with_no_presence = true;

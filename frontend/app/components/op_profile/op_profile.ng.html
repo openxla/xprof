@@ -1,4 +1,4 @@
-<op-profile-base [opProfileData]="opProfileData">
+<op-profile-base [opProfileData]="opProfileData" (groupByChange)="onGroupByChange($event)">
   <op-details opDetails
     [sessionId]="sessionId"
     [moduleList]="moduleList">

@@ -1,5 +1,6 @@
+// g3-format-prettier
 import {HttpClientModule} from '@angular/common/http';
-import {NgModule} from '@angular/core';
+import {NgModule, provideZoneChangeDetection} from '@angular/core';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
@@ -15,10 +16,14 @@ import {RootStoreModule} from 'org_xprof/frontend/app/store/store_module';
 
 import {App} from './app';
 
+@NgModule({providers: [provideZoneChangeDetection()]})
+export class ZoneChangeDetectionModule {}
+
 /** The root component module. */
 @NgModule({
   declarations: [App],
   imports: [
+    ZoneChangeDetectionModule,
     BrowserModule,
     HttpClientModule,
     MatProgressBarModule,
@@ -39,5 +44,4 @@ import {App} from './app';
   ],
   bootstrap: [App],
 })
-export class AppModule {
-}
+export class AppModule {}

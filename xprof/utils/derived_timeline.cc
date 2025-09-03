@@ -24,6 +24,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
@@ -519,22 +520,65 @@ void DeriveStepEventsFromGroups(
 void DeriveEventsFromAnnotations(const SymbolResolver& symbol_resolver,
                                  XPlane* device_trace,
                                  const ScopeRangeIdTree* scope_range_id_tree) {
-  int64_t first_derived_line_id = kThreadIdHostXlaRegionStart;
   if (tsl::profiler::GetDeviceType(*device_trace) ==
       tsl::profiler::DeviceType::kGpu) {
     // We need to iterate over all the lines.
-    std::vector<int64_t> line_ids;
-    XPlaneVisitor plane_visitor =
-        tsl::profiler::CreateTfXPlaneVisitor(device_trace);
-    plane_visitor.ForEachLine([&](const XLineVisitor& line) {
-      if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
-      line_ids.push_back(line.Id());
-    });
-    for (int64_t line_id : line_ids) {
-      DeriveEventsFromAnnotationsForLines(symbol_resolver, device_trace,
-                                          {line_id}, first_derived_line_id,
-                                          scope_range_id_tree);
-      first_derived_line_id += (kThreadIdSource - kThreadIdTfNameScope) + 1;
+    std::vector<const XLine*> gpu_stream_lines;
+    absl::flat_hash_set<int64_t> gpu_compute_stream_line_ids;
+    for (const auto& line : device_trace->lines()) {
+      if (tsl::profiler::IsDerivedThreadId(line.id())) {
+        continue;
+      }
+      gpu_stream_lines.push_back(&line);
+      if (absl::StrContains(line.name(), "Compute")) {
+        gpu_compute_stream_line_ids.insert(line.id());
+      }
+    }
+    // Sort GPU streams first by whether it is a compute stream, and then by
+    // number of events in descending order so that we can process the larger
+    // streams first.
+    std::sort(gpu_stream_lines.begin(), gpu_stream_lines.end(),
+              [&](const XLine* a, const XLine* b) {
+                if (gpu_compute_stream_line_ids.contains(a->id()) ==
+                    gpu_compute_stream_line_ids.contains(b->id())) {
+                  return a->events_size() > b->events_size();
+                }
+                return gpu_compute_stream_line_ids.contains(a->id());
+              });
+    int64_t next_derived_line_id = tsl::profiler::kThreadIdDeviceDerivedMin;
+    constexpr int64_t kMaxDerivedLinesPerStream =
+        tsl::profiler::kThreadIdSource - tsl::profiler::kThreadIdTfNameScope +
+        1;
+    std::vector<int64_t> all_ordered_gpu_lines;
+    all_ordered_gpu_lines.reserve(gpu_stream_lines.size() +
+                                  tsl::profiler::kThreadIdDeviceDerivedMax -
+                                  tsl::profiler::kThreadIdDeviceDerivedMin);
+    for (const XLine* line : gpu_stream_lines) {
+      if (next_derived_line_id + kMaxDerivedLinesPerStream >
+          tsl::profiler::kThreadIdDeviceDerivedMax) {
+        LOG(WARNING) << "Exceeding the range of derived line ids. Stopping.";
+        break;
+      }
+      std::vector<int64_t> used_lines = DeriveEventsFromAnnotationsForLines(
+          symbol_resolver, device_trace, {line->id()}, next_derived_line_id,
+          scope_range_id_tree);
+      next_derived_line_id += kMaxDerivedLinesPerStream;
+      all_ordered_gpu_lines.push_back(line->id());
+      // Sort the used lines to ensure the order of the derived lines is
+      // based on the kThreadId* order.
+      std::sort(used_lines.begin(), used_lines.end());
+      all_ordered_gpu_lines.insert(all_ordered_gpu_lines.end(),
+                                   used_lines.begin(), used_lines.end());
+    }
+    absl::flat_hash_map<int64_t, int64_t> line_id_to_index;
+    for (int i = 0; i < all_ordered_gpu_lines.size(); ++i) {
+      // Offset by 1 since 0 is considered as unset.
+      line_id_to_index[all_ordered_gpu_lines[i]] = i + 1;
+    }
+    for (auto& line : *device_trace->mutable_lines()) {
+      if (line_id_to_index.contains(line.id())) {
+        line.set_display_id(line_id_to_index[line.id()]);
+      }
     }
   } else {
     DeriveEventsFromAnnotationsForLines(symbol_resolver, device_trace, {},

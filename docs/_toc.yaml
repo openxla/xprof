@@ -17,28 +17,28 @@ toc:
   path: /xprof
 - title: Tool Documentation
   section:
+  - title: Overview Page
+    path: /xprof/overview_page
+  - title: Framework Op Stats
+    path: /xprof/framework_op_stats
+  - title: GPU Kernel Stats
+    path: /xprof/gpu_kernel_stats
   - title: Graph Viewer
     path: /xprof/graph_viewer
   - title: HLO Op Profile
     path: /xprof/hlo_op_profile
   - title: HLO Op Stats
     path: /xprof/hlo_op_stats
+  - title: Megascale Stats
+    path: /xprof/megascale_stats
   - title: Memory Profile
     path: /xprof/memory_profile
   - title: Memory Viewer
     path: /xprof/memory_viewer
-  - title: Overview Page
-    path: /xprof/overview_page
-  - title: Trace Viewer
-    path: /xprof/trace_viewer
   - title: Roofline Analysis
     path: /xprof/roofline_analysis
-  - title: Framework Op Stats
-    path: /xprof/framework_op_stats
-  - title: GPU Kernel Stats
-    path: /xprof/gpu_kernel_stats
-  - title: Megascale Stats
-    path: /xprof/megascale_stats
+  - title: Trace Viewer
+    path: /xprof/trace_viewer
 - title: Demo Notebook
   section:
   - title: XProf Demo

@@ -287,13 +287,14 @@ StepEvents ConvertHostThreadsXPlaneToStepEvents(
   return host_step_events;
 }
 
-StepEvents ConvertDeviceStepInfoToStepMarkers(const XLineVisitor& line) {
+StepEvents ConvertDeviceStepInfoToStepMarkers(const XLineVisitor& line,
+                                              uint32_t core_id) {
   StepEvents result;
   line.ForEachEvent([&](const XEventVisitor& event) {
     if (std::optional<XStatVisitor> stat = event.GetStat(StatType::kGroupId)) {
       result[stat->IntValue()].AddMarker(
-          StepMarker(StepMarkerType::kDeviceStepMarker, event.Name(),
-                     event.GetTimespan()));
+          StepMarker(StepMarkerType::kDeviceStepMarker, core_id, event.Name(),
+                     GetDeviceEventTimespan(event)));
     }
   });
   return result;
@@ -430,7 +431,7 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
       DCHECK(step_markers.empty());
       // TODO(b/397774568): Re-add processing of SparseCore steps once the
       // SparseCore OpMetricsDb is implemented.
-      step_markers = ConvertDeviceStepInfoToStepMarkers(line);
+      step_markers = ConvertDeviceStepInfoToStepMarkers(line, plane.Id());
     } else if (tsl::profiler::IsDerivedThreadId(line_id)) {
       return;
     } else {
@@ -450,7 +451,8 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
         // There should only be a single SparseCore StepLine per SparseCore.
         DCHECK(step_markers.empty());
         DCHECK(step_events.empty());
-        step_markers = ConvertDeviceStepInfoToStepMarkers(line);
+        step_markers = ConvertDeviceStepInfoToStepMarkers(
+            line, kSparseCoreIndexStart + plane.Id());
         step_events = ConvertTpuDeviceTraceXLineToStepEvents(
             kSparseCoreIndexStart + plane.Id(), line);
       } else {

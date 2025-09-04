@@ -359,6 +359,18 @@ tsl::profiler::Timespan StepDetails::StepTime() const {
   return max_device_step_time;
 }
 
+tsl::profiler::Timespan StepDetails::StepTimeOnCore(uint32_t core_id) const {
+  tsl::profiler::Timespan max_step_time;
+  for (const auto& marker : markers_) {
+    if (marker.core_id.has_value() && *marker.core_id == core_id) {
+      const tsl::profiler::Timespan& new_step_time = marker.span;
+      if (new_step_time.duration_ps() > max_step_time.duration_ps())
+        max_step_time = new_step_time;
+    }
+  }
+  return max_step_time;
+}
+
 StepDetails StepDetails::ToNonOverlapped() const {
   StepDetails non_overlapped_step_details;
   non_overlapped_step_details.markers_ = markers_;

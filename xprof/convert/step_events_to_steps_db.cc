@@ -58,7 +58,11 @@ void StepEventsToPerCoreStepInfo(uint32_t step_num, StepDetails& step_details,
     return;
   }
   for (auto& [core_id, metrics_db] : step_details.PerCoreOpMetricsDb()) {
-    SetTotalTimePs(metrics_db, step_time.duration_ps());
+    tsl::profiler::Timespan step_time_on_core =
+        core_id >= kSparseCoreIndexStart
+            ? step_details.StepTimeOnCore(core_id)
+            : step_time;
+    SetTotalTimePs(metrics_db, step_time_on_core.duration_ps());
     AddIdleOp(metrics_db);
     // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb is
     // implemented.
@@ -73,8 +77,8 @@ void StepEventsToPerCoreStepInfo(uint32_t step_num, StepDetails& step_details,
     StepInfoResult step_info;
     step_info.set_step_num(step_num);
     step_info.set_step_name(step_details.StepName());
-    step_info.set_begin_ps(step_time.begin_ps());
-    step_info.set_duration_ps(step_time.duration_ps());
+    step_info.set_begin_ps(step_time_on_core.begin_ps());
+    step_info.set_duration_ps(step_time_on_core.duration_ps());
     step_info.mutable_step_breakdown()->PackFrom(step_breakdown);
     (*per_core_step_info.mutable_step_info_per_core())[core_id] =
         std::move(step_info);

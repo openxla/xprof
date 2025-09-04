@@ -43,6 +43,7 @@ limitations under the License.
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
+#include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "xprof/convert/xplane_to_kernel_stats_db.h"
 #include "xprof/convert/xplane_to_op_metrics_db.h"
@@ -543,15 +544,16 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   // Convert a host plane.
   const XPlane* host_plane = tsl::profiler::FindPlaneWithName(
       space, tsl::profiler::kHostThreadsPlaneName);
+  StepEvents host_step_events;
   if (host_plane) {
     // TODO(yinzz): support legacy analysis path too?
     if (options.generate_op_metrics_db) {
       *op_stats.mutable_host_op_metrics_db() =
           ConvertHostThreadsXPlaneToOpMetricsDb(*host_plane);
     }
+    host_step_events =
+        ConvertHostThreadsXPlaneToStepEvents(*host_plane, nullptr);
     if (options.generate_step_db && !has_device) {
-      StepEvents host_step_events =
-          ConvertHostThreadsXPlaneToStepEvents(*host_plane, nullptr);
       UnionCombineStepEvents(host_step_events, &step_events);
     }
     XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(host_plane);
@@ -578,6 +580,11 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
           op_stats.mutable_hlo_metrics_db_complete_steps_only());
       for (const auto& step_info : op_stats.step_db().step_sequence()) {
         combiner.Combine(step_info.hlo_metrics_db());
+      }
+      if (host_plane != nullptr) {
+        MayFixTpuStepAnalysis(host_step_events, op_stats.device_op_metrics_db(),
+                              *op_stats.mutable_step_db(),
+                              op_stats.core_id_to_details());
       }
     } else {
       StepEvents nonoverlapped_step_events =

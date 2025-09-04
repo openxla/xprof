@@ -623,7 +623,17 @@ dashboard would integrate trace viewer app using iframe.
             try {
               traceViewerLink = new URL(window.location.origin + this.traceDataUrl);
               this._sessionId = traceViewerLink.searchParams.get('session_id');
-              this._selectedHosts = (traceViewerLink.searchParams.get('hosts') || '').split(',');
+              // For 1P
+              const hostsParam = traceViewerLink.searchParams.get('hosts');
+              // For OSS/3P
+              const hostParam = traceViewerLink.searchParams.get('host');
+              if (hostsParam) {
+                this._selectedHosts = hostsParam.split(',');
+              } else if (hostParam) {
+                this._selectedHosts = hostParam.split(',');
+              } else {
+                this._selectedHosts = [];
+              }
               if (traceViewerLink.searchParams.has('new_backend')) {
                 this._useNewBackend = traceViewerLink.searchParams.get('new_backend') === 'true';
                 this._useNewBackendSetInUrl = true;

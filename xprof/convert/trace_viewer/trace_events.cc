@@ -21,6 +21,7 @@ limitations under the License.
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -254,7 +255,7 @@ absl::Status DoStoreAsLevelDbTables(
   return trace_events_status;
 }
 
-TraceEvent GenerateTraceEventCopyForPersistingFullEvent(
+std::optional<TraceEvent> GenerateTraceEventCopyForPersistingFullEvent(
     const TraceEvent* event) {
   TraceEvent event_copy = *event;
   // To reduce file size, clear the timestamp from the value. It is
@@ -263,7 +264,8 @@ TraceEvent GenerateTraceEventCopyForPersistingFullEvent(
   return event_copy;
 }
 
-TraceEvent GenerateTraceEventCopyForPersistingEventWithoutMetadata(
+std::optional<TraceEvent>
+GenerateTraceEventCopyForPersistingEventWithoutMetadata(
     const TraceEvent* event) {
   TraceEvent event_copy = *event;
   // To reduce file size, clear the timestamp from the value. It is
@@ -271,12 +273,22 @@ TraceEvent GenerateTraceEventCopyForPersistingEventWithoutMetadata(
   event_copy.clear_timestamp_ps();
   // To reduce file size, clear the raw data from the value. It is
   // redundant info because the raw data is stored in the metadata file.
-  event_copy.clear_raw_data();
+  // However, we still need to keep the raw data for counter events as they
+  // are a special case and we need to return the args for the same during the
+  // initial read.
+  if (event->has_resource_id()) {
+    event_copy.clear_raw_data();
+  }
   return event_copy;
 }
 
-TraceEvent GenerateTraceEventCopyForPersistingOnlyMetadata(
+std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
     const TraceEvent* event) {
+  if (!event->has_resource_id()) {
+    // Counter events are stored in the trace events file itself and do not
+    // require a metadata copy.
+    return std::nullopt;
+  }
   TraceEvent event_copy;
   event_copy.set_raw_data(event->raw_data());
   return event_copy;
@@ -297,7 +309,8 @@ TraceEvent GenerateTraceEventCopyForPersistingOnlyMetadata(
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    std::function<TraceEvent(const TraceEvent*)> generate_event_copy_fn) {
+    std::function<std::optional<TraceEvent>(const TraceEvent*)>
+        generate_event_copy_fn) {
   LOG(INFO) << "Storing " << trace.num_events()
             << " events to LevelDb table fast file: ";
   tsl::table::Options options;
@@ -319,8 +332,10 @@ absl::Status DoStoreAsLevelDbTable(
       std::string key =
           LevelDbTableKey(zoom_level, timestamp, event->serial());
       if (!key.empty()) {
-        TraceEvent event_copy = generate_event_copy_fn(event);
-        builder.Add(key, event_copy.SerializeAsString());
+        auto event_copy = generate_event_copy_fn(event);
+        if (event_copy.has_value()) {
+          builder.Add(key, event_copy.value().SerializeAsString());
+        }
       } else {
         ++num_of_events_dropped;
       }

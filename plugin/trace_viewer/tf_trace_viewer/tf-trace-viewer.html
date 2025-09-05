@@ -722,12 +722,10 @@ dashboard would integrate trace viewer app using iframe.
     createStackTraceSnippetLink: function(hloModule, hloOp, sourceFileAndLineNumber, stackTrace) {
       if (!this._sourceCodeServiceIsAvailable) return;
       if (!sourceFileAndLineNumber && !stackTrace) return;
-      // LINT.IfChange(stack_trace_page_keys)
       const hloModuleKey = 'hlo_module';
       const hloOpKey = 'hlo_op';
       const sourceKey = 'source';
       const stackTraceKey = 'stack_trace';
-      // LINT.ThenChange(//depot/google3/third_party/xprof/frontend/app/components/stack_trace_page/stack_trace_page.ts:keys)
       this.createCrossToolLink(
           'stack_trace_page',
           'Stack Trace Source Code Snippet',

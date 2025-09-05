@@ -1,8 +1,8 @@
 <mat-expansion-panel class="stack-frame-snippet" [expanded]="!failure && isAtTopOfStack" *ngIf="sourceCodeSnippetAddress">
 
-  <mat-expansion-panel-header class="stack-frame-snippet-address">
+  <mat-expansion-panel-header class="address">
     <mat-panel-title>
-      <div class="stack-frame-snippet-file-line">
+      <div class="file-line">
         {{sourceCodeSnippetAddress.fileName}}:{{sourceCodeSnippetAddress.lineNumber}}
         <mat-icon
           *ngIf="usingSourceFileAndLineNumber"
@@ -33,13 +33,29 @@
   <div>
     <ng-container *ngIf="frame">
       <table>
+        <thead>
+          <tr>
+            <th><pre class="line-number"></pre></th>
+            <th><pre class="line-content"></pre></th>
+            <th [matTooltip]="'The total execution time for all HLO operations generated from this line, excluding the time spent in any descendant operations.'"><pre class="metric-header">Self Time</pre></th>
+            <th [matTooltip]="'The average FLOPS utilization for all HLO operations generated from this line, excluding the FLOPS of any descendant operations.'"><pre class="metric-header">FLOPS Utilization</pre></th>
+          </tr>
+        </thead>
         <tbody>
           <ng-container *ngIf="frame.lines && frame.lines.length > 0; else noLines">
             <tr
               *ngFor="let line of frame.lines; let lineIndex = index; trackBy: trackByIndex"
-              [class.stack-frame-snippet-line-selected]="sourceCodeSnippetAddress.firstLine + lineIndex === sourceCodeSnippetAddress.lineNumber">
-              <td><pre class="stack-frame-snippet-line-number"><code>{{ sourceCodeSnippetAddress.firstLine + lineIndex }}</code></pre></td>
-              <td><pre class="stack-frame-snippet-line-content"><code [innerHTML]="line"></code></pre></td>
+              [class.line-selected]="sourceCodeSnippetAddress.firstLine + lineIndex === sourceCodeSnippetAddress.lineNumber">
+              <td><pre class="line-number"><code>{{ sourceCodeSnippetAddress.firstLine + lineIndex }}</code></pre></td>
+              <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
+              <ng-container *ngIf="lineMetric(sourceCodeSnippetAddress.firstLine + lineIndex) as metric; else noMetricData">
+                <td><pre class="metric-value">{{metric.selfTimePs ? formatDurationPs(metric.selfTimePs) : ''}}</pre></td>
+                <td><pre class="metric-value">{{metric.flopsUtilization ? percent(metric.flopsUtilization) : ''}}</pre></td>
+              </ng-container>
+              <ng-template #noMetricData>
+                <td><pre class="metric-value">&nbsp;</pre></td>
+                <td><pre class="metric-value">&nbsp;</pre></td>
+              </ng-template>
             </tr>
           </ng-container>
 

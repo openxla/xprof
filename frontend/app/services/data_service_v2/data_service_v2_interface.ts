@@ -89,6 +89,8 @@ export interface DataServiceV2Interface {
 
   exportDataAsCSV(sessionId: string, tool: string, host: string): void;
 
+  generateGraphvizUrlForUtilizationViewer(sessionId: string): void;
+
   getDataByModuleNameAndMemorySpace(
       tool: string,
       sessionId: string,

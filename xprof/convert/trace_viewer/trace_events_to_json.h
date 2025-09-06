@@ -638,58 +638,7 @@ void TraceEventsToJson(const JsonTraceOptions& options,
       }
       if (!options.sort_resources_by_name.count(device_id)) {
         separator.Add();
-        uint32_t sort_index = [resource_id, &resource]() {
-          // TODO: b/427269105 - Clean this up and move to
-          // derived_timeline.cc.
-          constexpr int kMaxSortLength = 10;
-          constexpr std::string_view kStreamLineName = "Stream";
-          auto kPrefixToOffset = absl::flat_hash_map<absl::string_view, int>({
-              {kStreamLineName, 0},
-              {tsl::profiler::kTensorFlowNameScopeLineName, 1},
-              {tsl::profiler::kTensorFlowOpLineName, 2},
-              {tsl::profiler::kXlaModuleLineName, 3},
-              {tsl::profiler::kXlaOpLineName, 4},
-              {tsl::profiler::kSourceLineName, 5},
-          });
-          // Fix the sort index of GPU threads to make sure they are sorted by
-          // stream id. The sort index is used to sort the threads in the trace
-          // viewer UI. The sort index is set to the resource id by default,
-          // this function fixes it to make sure the GPU threads are sorted by
-          // stream id.
-          absl::string_view resource_name = resource.name();
-          uint32_t sort_index = resource_id;
-          std::vector<absl::string_view> parts =
-              absl::StrSplit(resource_name, '#');
-          if (parts.size() != 2) {
-            return sort_index;
-          }
-          absl::string_view prefix_view = parts[0];
-          absl::string_view suffix = parts[1];
-          prefix_view = absl::StripSuffix(prefix_view, " - from ");
-          prefix_view = absl::StripSuffix(prefix_view, " ");
-          auto it = kPrefixToOffset.find(prefix_view);
-          if (it == kPrefixToOffset.end()) {
-            return sort_index;
-          }
-          uint32_t stream_id = 0;
-          // Extract the stream id value from the suffix.
-          // A mix of (\d+) and (\c+) are present in the suffix.
-          // ex: 244(MemcpyD2D,Memset,Compute) and others, 244(MemcpyD2D), 244.
-          std::string::size_type open_paren_pos = suffix.find('(');
-          absl::string_view stream_id_str = "";
-          if (open_paren_pos != std::string::npos) {
-            stream_id_str = suffix.substr(0, open_paren_pos);
-          } else {
-            stream_id_str = suffix;
-          }
-          if (stream_id_str.empty() ||
-              !absl::SimpleAtoi(stream_id_str, &stream_id)) {
-            return sort_index;
-          } else {
-            return stream_id * kMaxSortLength + it->second;
-          }
-        }();
-        output->Append(R"({"args":{"sort_index":)", sort_index,
+        output->Append(R"({"args":{"sort_index":)", resource_id,
                        R"(},"name":"thread_sort_index","ph":"M","pid":)",
                        device_id, R"(,"tid":)", resource_id, "}");
       }

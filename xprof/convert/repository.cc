@@ -49,7 +49,10 @@ std::string GetHostnameByPath(absl::string_view xspace_path) {
 static auto* kHostDataSuffixes =
     new std::vector<std::pair<StoredDataType, const char*>>(
         {{StoredDataType::DCN_COLLECTIVE_STATS, ".dcn_collective_stats.pb"},
-         {StoredDataType::OP_STATS, ".op_stats.pb"}});
+         {StoredDataType::OP_STATS, ".op_stats.pb"},
+         {StoredDataType::TRACE_LEVELDB, ".SSTABLE"},
+         {StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, ".metadata.SSTABLE"},
+         {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"}});
 
 }  // namespace
 
@@ -126,11 +129,18 @@ std::string SessionSnapshot::GetHostname(size_t index) const {
 std::optional<std::string> SessionSnapshot::GetFilePath(
     absl::string_view toolname, absl::string_view hostname) const {
   if (!has_accessible_run_dir_) return std::nullopt;
-  std::string file_name = "";
+  std::optional<std::string> file_name = std::nullopt;
   if (toolname == "trace_viewer@")
-    file_name = absl::StrCat(hostname, ".", "SSTABLE");
-  if (!file_name.empty()) return tsl::io::JoinPath(session_run_dir_, file_name);
-  return std::nullopt;
+    file_name = MakeHostDataFilePath(StoredDataType::TRACE_LEVELDB, hostname);
+  return file_name;
+}
+
+std::optional<std::string> SessionSnapshot::MakeHostDataFilePath(
+    const StoredDataType data_type, absl::string_view host) const {
+  if (!has_accessible_run_dir_) return std::nullopt;
+  auto filename = GetHostDataFileName(data_type, std::string(host));
+  if (!filename.ok()) return std::nullopt;
+  return tsl::io::JoinPath(session_run_dir_, *filename);
 }
 
 absl::StatusOr<std::string> SessionSnapshot::GetHostDataFileName(

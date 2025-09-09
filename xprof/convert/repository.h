@@ -45,6 +45,9 @@ constexpr char kNoHostIdentifier[] = "NO_HOST";
 enum StoredDataType {
   DCN_COLLECTIVE_STATS,
   OP_STATS,
+  TRACE_LEVELDB,
+  TRACE_EVENTS_METADATA_LEVELDB,
+  TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
 };
 
 // File system directory snapshot of a profile session.
@@ -83,6 +86,10 @@ class SessionSnapshot {
   // Gets the path of the fast file for a given tool.
   std::optional<std::string> GetFilePath(absl::string_view toolname,
                                          absl::string_view host) const;
+
+  // Gets the path of the host data file for a given data type and host.
+  std::optional<std::string> MakeHostDataFilePath(StoredDataType data_type,
+                                                  absl::string_view host) const;
 
   // Gets the name of the host data file.
   absl::StatusOr<std::string> GetHostDataFileName(StoredDataType data_type,

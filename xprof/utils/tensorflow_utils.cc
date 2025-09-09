@@ -45,7 +45,7 @@ tsl::string DataTypeString(TensorflowDataType dtype) {
   if (IsRefType(dtype)) {
     TensorflowDataType non_ref = static_cast<TensorflowDataType>(
         static_cast<int>(dtype) - static_cast<int>(kDataTypeRefOffset));
-    return tsl::strings::StrCat(DataTypeStringInternal(non_ref), "_ref");
+    return absl::StrCat(DataTypeStringInternal(non_ref), "_ref");
   }
   return DataTypeStringInternal(dtype);
 }
@@ -116,7 +116,7 @@ tsl::string DataTypeStringInternal(TensorflowDataType dtype) {
       return "variant";
     default:
       LOG(ERROR) << "Unrecognized DataType enum value " << dtype;
-      return tsl::strings::StrCat("unknown dtype enum (", dtype, ")");
+      return absl::StrCat("unknown dtype enum (", dtype, ")");
   }
 }
 }  // namespace profiler

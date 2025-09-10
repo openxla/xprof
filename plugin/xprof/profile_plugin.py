@@ -785,6 +785,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['start_time_ms'] = request.args.get('start_time_ms')
       if request.args.get('end_time_ms') is not None:
         options['end_time_ms'] = request.args.get('end_time_ms')
+      if request.args.get('event_name') is not None:
+        options['event_name'] = request.args.get('event_name')
+      if request.args.get('duration_ms') is not None:
+        options['duration_ms'] = request.args.get('duration_ms')
+      if request.args.get('unique_id') is not None:
+        options['unique_id'] = request.args.get('unique_id')
       params['trace_viewer_options'] = options
 
     asset_path = os.path.join(run_dir, make_filename(host, tool))

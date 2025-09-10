@@ -32,6 +32,12 @@ export const setOpProfileRootNodeAction: ActionCreatorAny = createAction(
     props<{rootNode: Node | null}>(),
 );
 
+/** Action to set op analysis normalized time */
+export const setOpAnalysisScalingFactorAction: ActionCreatorAny = createAction(
+    '[Op Analysis] Set op analysis scaling factor rule',
+    props<{applyScalingFactor: boolean}>(),
+);
+
 /** Action to set active info of the pod viewer */
 export const setActivePodViewerInfoAction: ActionCreatorAny = createAction(
     '[Pod Viewer Info] Set active pod viewer info',

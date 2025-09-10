@@ -78,6 +78,8 @@ void ConvertOpStatsToOpProfile(
     tensorflow::profiler::op_profile::Profile& profile, int op_profile_limit,
     OpProfileGrouping group_by) {
   profile.set_device_type(HardwareType_Name(hardware_type));
+  profile.set_agg_dvfs_time_scale_multiplier(
+      op_stats.device_op_metrics_db().dvfs_time_scale_multiplier());
   switch (group_by) {
     case OpProfileGrouping::kByCategory:
       BuildOpProfileNodeTree(op_stats, OpProfileGrouping::kByCategory,

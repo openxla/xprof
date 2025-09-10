@@ -179,7 +179,7 @@ message PrecisionStats {
 }
 
 // A database for OpMetrics.
-// Next ID: 16
+// Next ID: 17
 message OpMetricsDb {
   // A bunch of OpMetrics.
   repeated OpMetrics metrics_db = 10;
@@ -200,5 +200,7 @@ message OpMetricsDb {
   uint64 idle_time_ps = 14;
   // For duty cycle, a device is busy if any of the cores is busy.
   uint64 busy_time_ps = 15;
+  // The weighted average time scale dvfs multiplier for ops in the db.
+  double dvfs_time_scale_multiplier = 16;
   reserved 1, 4, 5, 6, 7, 8, 9;
 }

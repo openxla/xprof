@@ -61,6 +61,18 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
         },
         ),
     on(
+        actions.setOpAnalysisScalingFactorAction,
+        (state: AppState, action: ActionCreatorAny) => {
+          return {
+            ...state,
+            opAnalysisState: {
+              ...state.opAnalysisState,
+              applyScalingFactor: action.applyScalingFactor,
+            }
+          };
+        },
+        ),
+    on(
         actions.setProfilingDeviceTypeAction,
         (state: AppState, action: ActionCreatorAny) => {
           return {

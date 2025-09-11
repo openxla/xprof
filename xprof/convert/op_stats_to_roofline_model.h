@@ -38,23 +38,24 @@ using tensorflow::profiler::roofline_model::RooflineModelRecord;
 RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
     const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
     uint32_t step_num, uint64_t total_time_ps,
-    const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed);
+    const RooflineModelDatabase& roofline_model_db, bool include_infeed_outfeed,
+    bool apply_time_scale_multiplier = false);
 
 RooflineModelRecord GenerateRooflineModelProgramRecord(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed);
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
 
 tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed);
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
 
 tensorflow::profiler::roofline_model::RooflineModelDatabase
 ConvertOpStatsToRooflineModel(const tensorflow::profiler::OpStats& tf_op_stats,
-                              bool include_infeed_outfeed);
+                              bool include_infeed_outfeed,
+                              bool apply_time_scale_multiplier = false);
 
 tensorflow::profiler::roofline_model::RooflineModelDatabase
 InitializeRooflineModelDatabaseFromOpStats(const OpStats& op_stats,
@@ -63,30 +64,31 @@ InitializeRooflineModelDatabaseFromOpStats(const OpStats& op_stats,
 // duration including incomplete steps.
 inline void AddRooflineModelRecordForProfileDuration(
     const OpStats& op_stats, RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false) {
   *roofline_model_db.mutable_roofline_model_record() =
       ConvertOpMetricsDbToRooflineModelRecords(
           op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
-          /*step_num=*/0, roofline_model_db, include_infeed_outfeed);
+          /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
+          apply_time_scale_multiplier);
 }
 
 // Generate RooflineModelRecord for the HLO DB over complete steps only.
 inline void AddRooflineModelRecordsForCompleteSteps(
     const OpStats& op_stats, RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false) {
   if (op_stats.has_hlo_metrics_db_complete_steps_only()) {
     *roofline_model_db.add_roofline_model_record() =
         GenerateRooflineModelProgramRecord(
             op_stats, op_stats.hlo_metrics_db_complete_steps_only(),
             RecordType::AVERAGE_STEP, /*step_num=*/0, roofline_model_db,
-            include_infeed_outfeed);
+            include_infeed_outfeed, apply_time_scale_multiplier);
   }
 }
 
 // Generate RooflineModelRecords for the per-step DBs.
 inline void AddRooflineModelRecordsPerStep(
     const OpStats& op_stats, RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false) {
   for (const auto& step_info : op_stats.step_db().step_sequence()) {
     *roofline_model_db.add_roofline_model_record() =
         GenerateRooflineModelProgramRecord(

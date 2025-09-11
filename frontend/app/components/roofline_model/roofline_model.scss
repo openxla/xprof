@@ -1,3 +1,9 @@
+@import 'frontend/app/styles/common';
+
+:host {
+  display: block;
+}
+
 .section-container {
   margin: 20px 20px 0px;
 }
@@ -36,4 +42,22 @@
   border: 2px solid;
   background-color: #ffcccb;
   color: red;
+}
+
+.tooltip-icon {
+  transform: scale(0.8);
+}
+
+.control-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.control {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: left;
+  gap: 10px;
 }

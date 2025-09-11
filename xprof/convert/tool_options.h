@@ -28,6 +28,7 @@ namespace profiler {
 
 // Default parameter constants for graph viewer.
 static constexpr char kGraphTypeName[] = "graph";
+static constexpr char kCustomCallGraphTypeName[] = "custom_call";
 static constexpr char kAdjacentNodes[] = "adj_nodes";
 static constexpr char kShortTxtTypeName[] = "short_txt";
 static constexpr char kLongTxtTypeName[] = "long_txt";

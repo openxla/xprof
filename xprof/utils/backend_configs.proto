@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package xprof;
+
+message CustomCallConfig {
+  bytes body = 1 [ctype = CORD];
+}
+
+message BackendConfig {
+  CustomCallConfig custom_call_config = 26;
+}

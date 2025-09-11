@@ -40,6 +40,16 @@ inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
       metrics.flops(), tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
+// Normalized flop rate if running on default pstate.
+// Used to compare with default device peak flop rate to get utilization.
+inline double GigaFlopsPerSecondPerCoreNormalizedOnDvfs(
+    const OpMetrics& metrics) {
+  double time_scale_multiplier = tsl::profiler::SafeDivide(
+      metrics.normalized_time_ps() * 1.0, metrics.time_ps());
+  time_scale_multiplier = time_scale_multiplier ? time_scale_multiplier : 1.0;
+  return GigaFlopsPerSecondPerCore(metrics) * time_scale_multiplier;
+}
+
 inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
@@ -157,7 +167,8 @@ static inline double GetMemoryPeakBandwidth(const PerfEnv& perf_env,
 
 template <typename Record>
 inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
-                               const RunEnvironment& run_env, Record* record) {
+                               const RunEnvironment& run_env, Record* record,
+                               bool apply_time_scale_factor = false) {
   using ::tensorflow::profiler::MemorySpace;
   using ::tensorflow::profiler::PerformanceInfo;
 
@@ -203,16 +214,19 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
     // access as HBM access.
     hbm_bytes = metrics.bytes_accessed();
   }
+  int64_t device_time_ps = apply_time_scale_factor
+                               ? metrics.normalized_time_ps()
+                               : metrics.time_ps();
   record->set_hbm_bw(tsl::profiler::GibibytesPerSecond(
       hbm_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
   record->set_cmem_read_bw(tsl::profiler::GibibytesPerSecond(
-      cmem_read_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+      cmem_read_bytes, tsl::profiler::PicoToNano(device_time_ps)));
   record->set_cmem_write_bw(tsl::profiler::GibibytesPerSecond(
-      cmem_write_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+      cmem_write_bytes, tsl::profiler::PicoToNano(device_time_ps)));
   record->set_vmem_read_bw(tsl::profiler::GibibytesPerSecond(
-      vmem_read_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+      vmem_read_bytes, tsl::profiler::PicoToNano(device_time_ps)));
   record->set_vmem_write_bw(tsl::profiler::GibibytesPerSecond(
-      vmem_write_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+      vmem_write_bytes, tsl::profiler::PicoToNano(device_time_ps)));
   record->set_hbm_operational_intensity(
       tsl::profiler::SafeDivide(metrics.flops(), hbm_bytes));
   record->set_cmem_read_operational_intensity(

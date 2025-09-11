@@ -1,4 +1,4 @@
-<div class="section-container">
+<div class="section-container" style="position: sticky; top: 0; z-index: 1; background: white;">
   <div class="block-content">
     <div class="row">
       <h2>Device Information</h2>
@@ -9,6 +9,19 @@
   <div class="block-content">
     <div *ngFor="let info of deviceInfoArray" style="font-size:16px">
       <div *ngIf="info.display"><b>{{info.label}}:</b> <span> {{deviceInfoText(info)}}</span></div>
+    </div>
+    <!--tslint:disable-next-line:need higher angular version to deprecate ngIf-->
+    <div class="control" *ngIf="hasValidTimeScaleMultiplier()">
+      <div class="control-title">
+        Apply Dvfs Scaling Factor
+        <mat-icon
+          class="tooltip-icon"
+          matTooltip="Show flops utilization scaled with the evaluated device capability (due to pstate changes)."
+          matTooltipPosition="above">
+          info
+        </mat-icon>
+      </div>
+      <mat-slide-toggle [checked]="applyScalingFactor" (toggleChange)="toggleScalingFactor()"></mat-slide-toggle>
     </div>
   </div>
 </div>
@@ -30,8 +43,12 @@
       (6) "Average" shows the average step information by aggregating the operations in the complete steps only.
     </div>
   </div>
-  <div class="block-content">
+  <div [hidden]="loadingAnalysis" class="block-content">
     <program-level-analysis #programLevelAnalysis [rooflineModelData]="dataTableProgram" [viewColumns]="columnsIdxProgram" [rooflineSeriesData]="scatterDataProgram" [scatterChartOptions]="scatterChartOptionsProgram" (filterUpdated)="updateDataTableProgram($event)"></program-level-analysis>
+  </div>
+  <div class="progress-container" [hidden]="!loadingAnalysis">
+    <div class="loading-message">Loading analysis...</div>
+    <mat-progress-bar color="primary" mode="indeterminate" aria-label="refreshing program level roofline analysis"></mat-progress-bar>
   </div>
 </div>
 
@@ -51,7 +68,11 @@
       (7) Ops with zero FLOP (e.g., data formatting ops like reshape, IDLE, etc.) do not show up in the roofline chart.<br>
     </div>
   </div>
-  <div class="block-content">
+  <div [hidden]="loadingAnalysis" class="block-content">
     <operation-level-analysis #opLevelAnalysis [selectedOp]="selectedOpName" [rooflineModelData]="dataTableOp" [viewColumns]="columnsIdxOp" [rooflineSeriesData]="scatterDataOp" [scatterChartOptions]="scatterChartOptionsOp" (filterUpdated)="updateDataTableOp($event)"></operation-level-analysis>
+  </div>
+  <div class="progress-container" [hidden]="!loadingAnalysis">
+    <div class="loading-message">Loading analysis...</div>
+    <mat-progress-bar color="primary" mode="indeterminate" aria-label="refreshing operation level roofline analysis"></mat-progress-bar>
   </div>
 </div>

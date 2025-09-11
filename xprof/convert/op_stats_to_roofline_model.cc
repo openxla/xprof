@@ -61,8 +61,8 @@ const uint32_t kMaxNumRecords = 1000;
 RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
     const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
     uint32_t step_num, uint64_t total_time_ps,
-    const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    const RooflineModelDatabase& roofline_model_db, bool include_infeed_outfeed,
+    bool apply_time_scale_multiplier) {
   RooflineModelRecord record;
   record.set_hlo_name(metrics.name());
   record.set_hlo_category(metrics.category());
@@ -90,7 +90,7 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
 
   // Set the roofline-specific fields.
   SetRooflineMetrics(metrics, op_stats.perf_env(), op_stats.run_environment(),
-                     &record);
+                     &record, apply_time_scale_multiplier);
   const double cmem_wr_utilization =
       roofline_model_db.has_cmem()
           ? tsl::profiler::SafeDivide(record.cmem_write_bw(),
@@ -111,8 +111,14 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
           ? tsl::profiler::SafeDivide(record.vmem_write_bw(),
                                       roofline_model_db.peak_vmem_write_bw())
           : 0;
-  const double flops_utilization = tsl::profiler::SafeDivide(
+  double flops_utilization = tsl::profiler::SafeDivide(
       record.measured_flop_rate(), roofline_model_db.peak_flop_rate());
+  if (apply_time_scale_multiplier) {
+    double measured_flop_rate_normalized =
+        GigaFlopsPerSecondPerCoreNormalizedOnDvfs(metrics);
+    flops_utilization = tsl::profiler::SafeDivide(
+        measured_flop_rate_normalized, roofline_model_db.peak_flop_rate());
+  }
   const double hbm_utilization = tsl::profiler::SafeDivide(
       record.hbm_bw(), roofline_model_db.peak_hbm_bw());
 
@@ -130,6 +136,7 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
   record.set_memory_bw_relative_to_hw_limit(max_mem_utilization);
 
   record.set_include_infeed_outfeed(include_infeed_outfeed);
+  record.set_apply_time_scale_multiplier(apply_time_scale_multiplier);
 
   return record;
 }
@@ -137,7 +144,7 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
 RooflineModelRecord GenerateRooflineModelProgramRecord(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier) {
   OpMetrics program_metrics;
   program_metrics.set_name("Program");
   program_metrics.set_category("Program");
@@ -165,7 +172,7 @@ RooflineModelRecord GenerateRooflineModelProgramRecord(
   program_metrics.set_time_ps(total_time_ps);
   RooflineModelRecord program_record = ConvertOpMetricsToRooflineModelRecord(
       op_stats, program_metrics, record_type, step_num, total_time_ps,
-      roofline_model_db, include_infeed_outfeed);
+      roofline_model_db, include_infeed_outfeed, apply_time_scale_multiplier);
   program_record.set_rank(0);
   program_record.set_total_self_time_as_fraction(0.0);
   program_record.set_cumulative_total_self_time_as_fraction(0.0);
@@ -176,12 +183,12 @@ tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed) {
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier) {
   tsl::protobuf::RepeatedPtrField<RooflineModelRecord> roofline_model_records;
   RooflineModelRecord* program_record = roofline_model_records.Add();
   *program_record = GenerateRooflineModelProgramRecord(
       op_stats, db, record_type, step_num, roofline_model_db,
-      include_infeed_outfeed);
+      include_infeed_outfeed, apply_time_scale_multiplier);
   const RooflineModelRecord* prev_record = program_record;
   uint64_t infeed_outfeed_time = 0;
   if (!include_infeed_outfeed) {
@@ -203,7 +210,7 @@ ConvertOpMetricsDbToRooflineModelRecords(
     RooflineModelRecord* record = roofline_model_records.Add();
     *record = ConvertOpMetricsToRooflineModelRecord(
         op_stats, *metrics, record_type, step_num, total_time_ps,
-        roofline_model_db, include_infeed_outfeed);
+        roofline_model_db, include_infeed_outfeed, apply_time_scale_multiplier);
     SetRankAndTimeFractions(total_time_us, *prev_record, record);
     prev_record = record;
   }
@@ -219,6 +226,9 @@ RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
   RooflineModelDatabase roofline_model_db;
   const PerfEnv& perf_env = op_stats.perf_env();
   roofline_model_db.set_device_type(op_stats.run_environment().device_type());
+  roofline_model_db.set_time_scale_multiplier(tsl::profiler::SafeDivide(
+      op_stats.device_op_metrics_db().normalized_total_op_time_ps(),
+      op_stats.device_op_metrics_db().total_op_time_ps()));
 
   // Set peak flop rate in GFLOPs/s.
   roofline_model_db.set_peak_flop_rate(
@@ -256,7 +266,8 @@ RooflineModelDatabase InitializeRooflineModelDatabaseFromOpStats(
 }
 
 RooflineModelDatabase ConvertOpStatsToRooflineModel(
-    const OpStats& op_stats, bool include_infeed_outfeed) {
+    const OpStats& op_stats, bool include_infeed_outfeed,
+    bool apply_time_scale_multiplier) {
   HardwareType hardware_type = op_stats.run_environment().hardware_type();
   if (hardware_type != GPU && hardware_type != TPU) {
     return RooflineModelDatabase();
@@ -267,11 +278,14 @@ RooflineModelDatabase ConvertOpStatsToRooflineModel(
                                                  include_infeed_outfeed);
 
   AddRooflineModelRecordForProfileDuration(op_stats, roofline_model_db,
-                                           include_infeed_outfeed);
+                                           include_infeed_outfeed,
+                                           apply_time_scale_multiplier);
   AddRooflineModelRecordsForCompleteSteps(op_stats, roofline_model_db,
-                                          include_infeed_outfeed);
+                                          include_infeed_outfeed,
+                                          apply_time_scale_multiplier);
   AddRooflineModelRecordsPerStep(op_stats, roofline_model_db,
-                                 include_infeed_outfeed);
+                                 include_infeed_outfeed,
+                                 apply_time_scale_multiplier);
   PopulateStepDiagnostics(op_stats, roofline_model_db.mutable_diagnostics());
   return roofline_model_db;
 }
@@ -582,6 +596,8 @@ std::unique_ptr<DataTable> GetRooflineModelDataTable(
       {"vmem_write_ridge_point",
        absl::StrCat(RidgePoint(roofline_model_db.peak_flop_rate(),
                                roofline_model_db.peak_vmem_write_bw()))},
+      {"time_scale_multiplier",
+       absl::StrCat(roofline_model_db.time_scale_multiplier())},
   };
 
   for (const std::vector<std::string>& property : kCustomProperties) {

@@ -12,7 +12,7 @@ export const SCATTER_CHART_AXIS = {
   minX: 0.00001,
   maxX: 100000,
   minY: 0.00001,
-  maxY: 1000000,
+  maxY: 10000000,
 };
 
 /** scatter base options for roofline chart */
@@ -190,6 +190,13 @@ export const DEVICE_INFO = [
     type: 'number',
     unit: 'Flop/byte',
     display: false,
+  },
+  {
+    id: 'time_scale_multiplier',
+    label: 'Time Scale Multiplier',
+    type: 'number',
+    unit: '',
+    display: true,
   },
 ];
 

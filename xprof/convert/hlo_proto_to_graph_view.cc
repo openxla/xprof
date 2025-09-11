@@ -299,8 +299,10 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
     return InvalidArgument("Graph viewer must provide a type option.");
   }
   auto valid_types = {
-      kGraphTypeName,    kJsonTypeName,    kProtoTypeName, kProtoTextTypeName,
-      kShortTxtTypeName, kLongTxtTypeName, kAdjacentNodes,
+      kGraphTypeName,    kJsonTypeName,
+      kProtoTypeName,    kProtoTextTypeName,
+      kShortTxtTypeName, kLongTxtTypeName,
+      kAdjacentNodes,    kCustomCallGraphTypeName,
   };
   if (std::find(valid_types.begin(), valid_types.end(), type.value()) ==
       valid_types.end()) {
@@ -308,6 +310,7 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
         absl::StrCat("Unknown graph viewer type option: ", type.value()));
   }
 
+  LOG(INFO) << "ParseGraphViewerParams: " << type.value();
   // For graph type.
   if (type == kGraphTypeName) {
     params.type = type.value();
@@ -327,6 +330,13 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
 
     return params;
   } else if (type == kAdjacentNodes) {
+    params.type = type.value();
+    if (std::optional<std::string> node_name =
+            GetParam<std::string>(options, "node_name")) {
+      params.node_name = node_name.value();
+    }
+    return params;
+  } else if (type == kCustomCallGraphTypeName) {
     params.type = type.value();
     if (std::optional<std::string> node_name =
             GetParam<std::string>(options, "node_name")) {

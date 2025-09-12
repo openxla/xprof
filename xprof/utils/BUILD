@@ -372,6 +372,17 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "hlo_proto_to_module_test",
+    srcs = ["hlo_proto_to_module_test.cc"],
+    deps = [
+        ":hlo_proto_to_module",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@xla//xla/hlo/ir:hlo",
+    ],
+)
+
 cc_library(
     name = "hlo_module_map",
     srcs = ["hlo_module_map.cc"],

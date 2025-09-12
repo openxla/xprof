@@ -36,8 +36,10 @@ absl::StatusOr<std::unique_ptr<xla::HloModule>> ConvertHloProtoToModule(
   const xla::HloModuleProto& module_proto = hlo_proto.hlo_module();
   TF_ASSIGN_OR_RETURN(auto config, xla::HloModule::CreateModuleConfigFromProto(
                                        module_proto, xla::DebugOptions()));
-  TF_ASSIGN_OR_RETURN(auto module,
-                      xla::HloModule::CreateFromProto(module_proto, config));
+  TF_ASSIGN_OR_RETURN(xla::HloModuleProto remapped_module_proto,
+                      xla::HloModule::RemapInstructionIds(module_proto));
+  TF_ASSIGN_OR_RETURN(auto module, xla::HloModule::CreateFromProto(
+                                       remapped_module_proto, config));
   return module;
 }
 

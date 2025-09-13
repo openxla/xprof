@@ -65,9 +65,9 @@ def xprof_ng_module(name, srcs, assets = [], allow_warnings = None, **kwargs):
     )
     srcs = [":%s" % (converted_srcs_name)]
 
-    # A hack to include @angular/common, @angular/core since the ng_module
+    # A hack to include @angular/common, @angular/core since the angular_library
     # macro in google3 automatically adds this dep.
-    # See: https://source.corp.google.com/google3/javascript/angular2/ng_module.bzl
+    # See: https://source.corp.google.com/google3/javascript/angular2/angular_library.bzl
     if "@npm//@angular/common" not in kwargs['deps']:
       kwargs['deps'] += ["@npm//@angular/common"]
     if "@npm//@angular/core" not in kwargs['deps']:

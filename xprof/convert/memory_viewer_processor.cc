@@ -13,7 +13,7 @@
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/hlo_proto_to_graph_view.h"
+#include "xprof/convert/graphviz_helper.h"
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
@@ -126,9 +126,8 @@ absl::Status MemoryViewerProcessor::ProcessSession(
 
   std::string memory_viewer_json;
 
-  if (GetParamWithDefault(options,
-                          std::string(kOptionViewMemoryAllocationTimeline),
-                          0)) {
+  if (GetParamWithDefault(
+          options, std::string(kOptionViewMemoryAllocationTimeline), 0)) {
     TF_ASSIGN_OR_RETURN(memory_viewer_json, ConvertHloProtoToAllocationTimeline(
                                                 hlo_proto, memory_space_color));
   } else {

@@ -17,6 +17,7 @@ limitations under the License.
 #define XPROF_CONVERT_HLO_PROTO_TO_MEMORY_VISUALIZATION_UTILS_H_
 
 #include <cstdint>
+#include <string>
 
 #include "absl/status/statusor.h"
 #include "xla/service/hlo.pb.h"
@@ -27,6 +28,18 @@ namespace profiler {
 
 constexpr int kSmallBufferSize = 16 * 1024;
 
+struct TimelineRenderingOption {
+  std::string entry_url;
+  bool render_timeline = false;
+  bool timeline_noise = false;
+};
+
+struct MemoryViewerOption {
+  int64_t small_buffer_size = kSmallBufferSize;
+  int64_t memory_color = 0;
+  TimelineRenderingOption timeline_option;
+};
+
 // Convert HloProto to PreprocessResult proto for memory visualization.
 // small_buffer_size sets the byte size within which we collapse buffer entries
 // for the max-heap display.
@@ -35,8 +48,10 @@ constexpr int kSmallBufferSize = 16 * 1024;
 // simulator trace id from <memory_color>.
 // By default the memory color is 0, which is HBM.
 absl::StatusOr<PreprocessResult> ConvertHloProtoToPreprocessResult(
-    const xla::HloProto& hlo_proto,
-    int64_t small_buffer_size = kSmallBufferSize, int64_t memory_color = 0);
+    const xla::HloProto& hlo_proto, const MemoryViewerOption& option);
+
+absl::StatusOr<std::string> ConvertHloProtoToPreprocessResultJson(
+    const xla::HloProto& proto, const MemoryViewerOption& option);
 
 }  // namespace profiler
 }  // namespace tensorflow

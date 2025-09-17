@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/service/hlo.pb.h"
+#include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 
@@ -35,6 +36,9 @@ namespace profiler {
 absl::StatusOr<std::string> ConvertHloProtoToToolData(
     const SessionSnapshot& session_snapshot, absl::string_view tool_name,
     const ToolOptions& options);
+
+absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
+    const xla::HloProto& hlo_proto, const MemoryViewerOption& option);
 
 }  // namespace profiler
 }  // namespace tensorflow

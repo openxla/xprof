@@ -91,8 +91,8 @@ cc_library(
     srcs = ["memory_viewer_processor.cc"],
     hdrs = ["memory_viewer_processor.h"],
     deps = [
-        ":hlo_proto_to_graph_view",
         ":hlo_proto_to_memory_visualization_utils",
+        ":hlo_to_tools_data",
         ":profile_processor",
         ":profile_processor_factory",
         ":repository",
@@ -114,6 +114,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_data_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tf_stats_proto_cc",
+        "@org_xprof//xprof/convert:graphviz_helper",
         "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
@@ -1345,6 +1346,7 @@ cc_library(
     hdrs = ["hlo_to_tools_data.h"],
     visibility = ["//visibility:private"],
     deps = [
+        ":graphviz_helper",
         ":hlo_proto_to_graph_view",
         ":hlo_proto_to_memory_visualization_utils",
         ":repository",
@@ -1374,12 +1376,15 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "@com_google_protobuf//:json",
         "@org_xprof//plugin/xprof/protobuf:memory_viewer_preprocess_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
+        "@org_xprof//xprof/convert:graphviz_helper",
         "@xla//xla:shape_util",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/platform:types",
     ],
 )
@@ -1454,13 +1459,14 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_github_nlohmann_json//:json",
         "@com_google_protobuf//:protobuf",
-        # copybara:uncomment "//third_party/protobuf/util:json_util",
+        # copybara:uncomment "@com_google_protobuf//:json",
         # copybara:uncomment(b/360874576) "@org_tensorflow//tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter:direct_hlo_to_json_graph_convert",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_graph_dumper",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
+        "@org_xprof//xprof/convert:graphviz_helper",
         "@org_xprof//xprof/utils:hlo_module_utils",
         "@org_xprof//xprof/utils:hlo_proto_to_module",
     ],
@@ -1480,6 +1486,20 @@ cc_test(
         "@xla//xla/tsl/platform:status_matchers",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/protobuf:error_codes_proto_impl_cc",
+    ],
+)
+
+cc_library(
+    name = "graphviz_helper",
+    hdrs = ["graphviz_helper.h"],
+    deps = [
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@xla//xla/service:hlo_graph_dumper",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:errors",
     ],
 )
 

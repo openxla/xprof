@@ -89,21 +89,6 @@ absl::StatusOr<std::string> ConvertHloProtoToStringView(
     const xla::HloProto& hlo_proto, std::string type, bool verbose = false,
     bool metadata = false);
 
-// Convert dot into certain format
-absl::StatusOr<std::string> WrapDotInFormat(std::string dot,
-                                            xla::RenderedGraphFormat format);
-
-// Convert dot into visual graph in html
-std::string WrapDotInHtml(std::string dot,
-                          absl::string_view layout_engine = "dot");
-
-// Registers a function which implements RenderedGraphFormat::kUrl.
-// The input to the function is dot, and the output should be a URL or an error.
-// There can only be one active renderer, and the last call to this function
-// wins.
-void RegisterGraphvizURLRenderer(
-    std::function<absl::StatusOr<std::string>(absl::string_view dot)> renderer);
-
 }  // namespace profiler
 }  // namespace tensorflow
 

@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/platform/protobuf.h"
+#include "xprof/convert/graphviz_helper.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 #include "xprof/convert/repository.h"

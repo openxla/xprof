@@ -37,13 +37,16 @@ limitations under the License.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "google/protobuf/json/json.h"
 #include "xla/layout_util.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/xla_data.pb.h"
+#include "xprof/convert/graphviz_helper.h"
 #include "plugin/xprof/protobuf/memory_viewer_preprocess.pb.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"
 
@@ -62,6 +65,10 @@ using ::xla::LogicalBufferProto;
 using ::xla::Shape;
 using ::xla::ShapeUtil;
 using ::xla::StackFrameIndexProto;
+
+std::string RenderTimelineGraph(absl::string_view dot) {
+  return tensorflow::profiler::WrapDotInHtml(std::string(dot), "neato");
+}
 
 Shape ResolveShapeIndex(const xla::ShapeProto& shape_proto,
                         absl::Span<const int64_t> shape_index) {
@@ -881,6 +888,7 @@ void CreatePeakUsageSnapshot(const HloProtoBufferWrapper& wrapper,
 void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
                                const HeapSimulatorStats& simulator_stats,
                                const int64_t memory_color,
+                               const TimelineRenderingOption& timeline_option,
                                PreprocessResult* result) {
   // The color constants from https://graphviz.org/doc/info/colors.html.
   const char* lb_colors[] = {
@@ -1077,9 +1085,16 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     }
   }
   VLOG(1) << "rects:" << rects.size();
-  result->set_allocation_timeline(
-      absl::StrFormat("graph G {\n node [shape=box,style=filled];\n %s\n}",
-                      absl::StrJoin(rects, "\n")));
+  // Add a dummy rect to avoid stucking in local optimal when layout the graph
+  if (timeline_option.timeline_noise) {
+    rects.push_back(
+        R"("10000000" [tooltip="invisible_dummy_buffer_assignment", pos="0,0!",
+        width="0!", height="0!", color=black];)");
+  }
+  result->set_allocation_timeline(absl::StrFormat(
+      "graph G {\n epsilon=0.5 \n node [shape=box,style=filled];\n "
+      " %s\n}",
+      absl::StrJoin(rects, "\n")));
 }
 
 void GeneratePreprocessResult(const HloProtoBufferWrapper& wrapper,
@@ -1163,34 +1178,54 @@ void GeneratePreprocessResult(const HloProtoBufferWrapper& wrapper,
 
   NoteSpecialAllocations(wrapper, memory_color, peak_snapshot.small_buffer_size,
                          result);
-
-  ConvertAllocationTimeline(wrapper, simulator_stats, memory_color, result);
 }
 
 }  // namespace
 
 absl::StatusOr<PreprocessResult> ConvertHloProtoToPreprocessResult(
-    const HloProto& hlo_proto, int64_t small_buffer_size,
-    int64_t memory_color) {
+    const HloProto& hlo_proto, const MemoryViewerOption& option) {
   HloProtoBufferWrapper wrapper(hlo_proto);
 
   // Process heap simulator trace.
   HeapSimulatorStats simulator_stats(wrapper);
   auto status =
-      ProcessHeapSimulatorTrace(wrapper, memory_color, &simulator_stats);
+      ProcessHeapSimulatorTrace(wrapper, option.memory_color, &simulator_stats);
   if (!status.ok()) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Failed to process heap simulator trace: ", status.message()));
   }
 
   // Process buffers with indefinite lifetime.
-  PeakUsageSnapshot peak_snapshot(wrapper, simulator_stats, small_buffer_size);
-  CreatePeakUsageSnapshot(wrapper, memory_color, &peak_snapshot);
+  PeakUsageSnapshot peak_snapshot(wrapper, simulator_stats,
+                                  option.small_buffer_size);
+  CreatePeakUsageSnapshot(wrapper, option.memory_color, &peak_snapshot);
 
   PreprocessResult result;
   GeneratePreprocessResult(wrapper, simulator_stats, peak_snapshot,
-                           memory_color, &result);
+                           option.memory_color, &result);
+  ConvertAllocationTimeline(wrapper, simulator_stats, option.memory_color,
+                            option.timeline_option, &result);
   return result;
+}
+
+absl::StatusOr<std::string> ConvertHloProtoToPreprocessResultJson(
+    const HloProto& proto, const MemoryViewerOption& option) {
+  std::string json_output;
+  // heap_simulator_trace_id is set to -1. The profiler will get heap simulator
+  // trace based on memory space.
+  TF_ASSIGN_OR_RETURN(
+      auto result,
+      tensorflow::profiler::ConvertHloProtoToPreprocessResult(proto, option));
+
+  if (option.timeline_option.render_timeline) {
+    std::string html_string = RenderTimelineGraph(result.allocation_timeline());
+    return html_string;
+  } else {
+    result.set_allocation_timeline(option.timeline_option.entry_url);
+  }
+
+  TF_RETURN_IF_ERROR(google::protobuf::json::MessageToJsonString(result, &json_output));
+  return json_output;
 }
 
 }  // namespace profiler

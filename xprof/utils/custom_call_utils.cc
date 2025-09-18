@@ -9,7 +9,7 @@
 #include "third_party/llvm/llvm-project/mlir/include/mlir/IR/MLIRContext.h"
 #include "third_party/llvm/llvm-project/mlir/include/mlir/IR/OwningOpRef.h"
 #include "google/protobuf/json/json.h"
-#include "google/protobuf/util/json_util.h"
+#include "google/protobuf/json/json.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/pjrt/mlir_to_hlo.h"
 #include "xla/service/llvm_ir/llvm_util.h"

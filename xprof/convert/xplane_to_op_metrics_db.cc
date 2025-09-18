@@ -189,7 +189,7 @@ void CollectTfActivities(
               {span.end_ps(), tf_op_id, kTfOpEnd, *tf_op, is_eager});
         }
         if (auto tf_op_stat = event.GetStat(StatType::kTfOp);
-            tf_op_stat.has_value()) {
+            tf_op_stat.has_value() && !tf_op_stat->StrOrRefValue().empty()) {
           ++tf_op_id;
           tsl::profiler::TfOp tf_op =
               tsl::profiler::ParseTfOpFullname(tf_op_stat->StrOrRefValue());

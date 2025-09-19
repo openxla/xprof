@@ -62,8 +62,8 @@ void AddTensorFlowTpuOpEvent(std::string&& name, std::string&& tf_op_fullname,
                              std::string&& hlo_category, uint64 flops,
                              uint64 bytes_accessed, int64_t occurrences,
                              int64_t self_duration, int64_t program_id,
-                             int64_t symbol_id, XPlaneBuilder* plane,
-                             XLineBuilder* line) {
+                             int64_t symbol_id, double time_scale_multiplier,
+                             XPlaneBuilder* plane, XLineBuilder* line) {
   XEventBuilder event = line->AddEvent(*plane->GetOrCreateEventMetadata(name));
   event.SetTimestampNs(start_timestamp_ns);
   event.SetDurationNs(duration_ns);
@@ -84,6 +84,9 @@ void AddTensorFlowTpuOpEvent(std::string&& name, std::string&& tf_op_fullname,
   event_metadata.AddStatValue(
       *plane->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kProgramId)),
       program_id);
+  XStatMetadata* time_scale_multiplier_stat = plane->GetOrCreateStatMetadata(
+      GetStatTypeStr(StatType::kTimeScaleMultiplier));
+  event.AddStatValue(*time_scale_multiplier_stat, time_scale_multiplier);
 }
 
 void AddTensorFlowOpEvent(std::string&& tf_op_fullname,
@@ -254,27 +257,28 @@ TEST(ConvertXPlaneToOpMetricsDb, TpuDeviceOpMetricsDb) {
   XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
   stream1.SetName(tsl::profiler::kTensorFlowOpLineName);
   AddTensorFlowTpuOpEvent("MatMul", "while:MatMul", 0, 10, "MatMul", 34, 45, 2,
-                          5, 1, 1, &device_plane, &stream1);
+                          5, 1, 1, 2.0, &device_plane, &stream1);
   OpMetricsDb op_metrics = ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*xplane);
 #if defined(PLATFORM_GOOGLE)
-  EXPECT_THAT(op_metrics,
-              EqualsProto(R"pb(metrics_db {
-                                 hlo_module_id: 1
-                                 self_time_ps: 10000
-                                 flops: 68
-                                 model_flops: 68
-                                 num_cores: 1
-                                 occurrences: 2
-                                 name: "MatMul"
-                                 time_ps: 10000
-                                 category: "MatMul"
-                                 provenance: "while:MatMul"
-                                 min_time_ps: 10000
-                               }
-                               metrics_db { name: "IDLE" category: "IDLE" }
-                               total_time_ps: 10000
-                               total_op_time_ps: 10000
-              )pb"));
+  EXPECT_THAT(op_metrics, IgnoringRepeatedFieldOrdering(EqualsProto(
+                              R"pb(metrics_db {
+                                     hlo_module_id: 1
+                                     self_time_ps: 10000
+                                     flops: 68
+                                     model_flops: 68
+                                     num_cores: 1
+                                     occurrences: 2
+                                     name: "MatMul"
+                                     time_ps: 10000
+                                     normalized_time_ps: 20000
+                                     category: "MatMul"
+                                     provenance: "while:MatMul"
+                                     min_time_ps: 10000
+                                   }
+                                   metrics_db { name: "IDLE" category: "IDLE" }
+                                   total_time_ps: 10000
+                                   total_op_time_ps: 10000
+                              )pb")));
 #endif
 }
 

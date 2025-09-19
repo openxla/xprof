@@ -38,6 +38,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stack.h"
@@ -298,6 +299,12 @@ OpMetricsDb ConvertTpuDeviceTraceXPlaneToOpMetricsDb(
         op_metrics.set_time_ps(parent.device_timespan.duration_ps());
         op_metrics.set_self_time_ps(op_metrics.time_ps() -
                                     parent.children_duration_ps);
+        std::optional<tsl::profiler::XStatVisitor> time_scale_multiplier_stat =
+            parent.event.GetStat(StatType::kTimeScaleMultiplier);
+        double factor = time_scale_multiplier_stat.has_value()
+                            ? time_scale_multiplier_stat->DoubleValue()
+                            : 1.0;
+        op_metrics.set_normalized_time_ps(op_metrics.time_ps() * factor);
         builder.AddOpMetric(op_metrics, GetOpKeyFromXEvent(parent.event));
       },
       [](const ParentReference& parent, const ParentReference& child) {

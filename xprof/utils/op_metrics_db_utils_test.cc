@@ -150,7 +150,7 @@ TEST(OpMetricsDbTest, GetOpKeyFromXEvent) {
   EXPECT_EQ(op_key.symbol_id, 2);
 }
 
-TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
+TEST(OpMetricsDbTest, AddOpMetric) {
   XPlane raw_plane;
   XPlaneBuilder plane(&raw_plane);
   XLineBuilder line = plane.GetOrCreateLine(0);
@@ -163,12 +163,16 @@ TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
         1);
     stats.AddStatValue(
         *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 1);
+    XStatMetadata* time_scale_multiplier_stat = plane.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kTimeScaleMultiplier));
     XEventBuilder event = line.AddEvent(*event_metadata);
     event.SetOffsetPs(0);
     event.SetDurationPs(100);
+    event.AddStatValue(*time_scale_multiplier_stat, 0.5);
     XEventBuilder event2 = line.AddEvent(*event_metadata);
     event2.SetOffsetPs(100);
     event2.SetDurationPs(100);
+    event2.AddStatValue(*time_scale_multiplier_stat, 1.0);
   }
   {
     XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("m2");
@@ -179,9 +183,12 @@ TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
         1);
     stats.AddStatValue(
         *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 2);
+    XStatMetadata* time_scale_multiplier_stat = plane.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kTimeScaleMultiplier));
     XEventBuilder event = line.AddEvent(*event_metadata);
     event.SetOffsetPs(0);
     event.SetDurationPs(100);
+    event.AddStatValue(*time_scale_multiplier_stat, 2.0);
   }
   {
     XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("m3");
@@ -195,19 +202,15 @@ TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
   }
 
   XEventsOpMetricsDbBuilder builder;
-  XEventsOpMetricsDbBuilder legacy_builder;
   tsl::profiler::XPlaneVisitor plane_visitor =
       tsl::profiler::CreateTfXPlaneVisitor(&raw_plane);
   plane_visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
     line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
       builder.AddOpMetric(FromXEvent(event), GetOpKeyFromXEvent(event));
-      legacy_builder.AddOpMetric(event);
     });
   });
 #if defined(PLATFORM_GOOGLE)
-  OpMetricsDb legacy_db = legacy_builder.Finalize();
   OpMetricsDb db = builder.Finalize();
-  EXPECT_THAT(db, IgnoringRepeatedFieldOrdering(EqualsProto(legacy_db)));
   EXPECT_THAT(db, IgnoringRepeatedFieldOrdering(EqualsProto(R"pb(
                 metrics_db {
                   hlo_module_id: 1
@@ -216,6 +219,7 @@ TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
                   name: "display_name1"
                   long_name: "m1"
                   time_ps: 200
+                  normalized_time_ps: 150
                   min_time_ps: 100
                   num_cores: 1
                 }
@@ -227,6 +231,7 @@ TEST(OpMetricsDbTest, XEventsOpMetricsDbBuilder) {
                   long_name: "m2"
                   time_ps: 100
                   min_time_ps: 100
+                  normalized_time_ps: 200
                   num_cores: 1
                 }
                 total_op_time_ps: 300

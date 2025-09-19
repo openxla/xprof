@@ -197,6 +197,8 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
   uint64_t duration_ps = hlo_event.DurationPs();
   uint64_t min_duration_ps = duration_ps;
   uint64_t self_duration_ps = duration_ps;
+  // Duration normalized given the scaling factor.
+  uint64_t normalized_duration_ps = 0;
   uint64_t dma_stall_ps = 0;
   hlo_event.ForEachStat([&](const XStatVisitor& stat) {
     if (!stat.Type()) return;
@@ -214,6 +216,12 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         break;
     }
   });
+  std::optional<XStatVisitor> time_scale_multiplier_stat =
+      hlo_event.GetStat(StatType::kTimeScaleMultiplier);
+  if (time_scale_multiplier_stat.has_value()) {
+    normalized_duration_ps =
+        duration_ps * time_scale_multiplier_stat->DoubleValue();
+  }
   if (op_metrics->occurrences() == 0) {
     SetOpMetadataFromHloEventMetadata(hlo_event.Metadata(), op_metrics);
     op_metrics->set_occurrences(
@@ -221,6 +229,7 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
     op_metrics->set_time_ps(duration_ps);
     op_metrics->set_min_time_ps(min_duration_ps);
     op_metrics->set_self_time_ps(self_duration_ps);
+    op_metrics->set_normalized_time_ps(normalized_duration_ps);
     op_metrics->set_dma_stall_ps(dma_stall_ps);
     op_metrics->set_num_cores(1);
   } else {
@@ -230,6 +239,8 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
     op_metrics->set_min_time_ps(
         std::min<uint64_t>(op_metrics->min_time_ps(), min_duration_ps));
     op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_duration_ps);
+    op_metrics->set_normalized_time_ps(op_metrics->normalized_time_ps() +
+                                       normalized_duration_ps);
     op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() + dma_stall_ps);
   }
 }
@@ -244,6 +255,8 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
         std::min<uint64_t>(src.min_time_ps(), dst.min_time_ps()));
     dst.set_self_time_ps(src.self_time_ps() + dst.self_time_ps());
     dst.set_dma_stall_ps(src.dma_stall_ps() + dst.dma_stall_ps());
+    dst.set_normalized_time_ps(src.normalized_time_ps() +
+                               dst.normalized_time_ps());
   }
 }
 

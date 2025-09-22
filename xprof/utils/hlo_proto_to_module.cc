@@ -28,12 +28,8 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-absl::StatusOr<std::unique_ptr<xla::HloModule>> ConvertHloProtoToModule(
-    const xla::HloProto& hlo_proto) {
-  if (!hlo_proto.has_hlo_module()) {
-    return xla::Internal("No HLO module found in the HLO proto");
-  }
-  const xla::HloModuleProto& module_proto = hlo_proto.hlo_module();
+absl::StatusOr<std::unique_ptr<xla::HloModule>> ConvertHloModuleProtoToModule(
+    const xla::HloModuleProto& module_proto) {
   TF_ASSIGN_OR_RETURN(auto config, xla::HloModule::CreateModuleConfigFromProto(
                                        module_proto, xla::DebugOptions()));
   TF_ASSIGN_OR_RETURN(xla::HloModuleProto remapped_module_proto,
@@ -41,6 +37,14 @@ absl::StatusOr<std::unique_ptr<xla::HloModule>> ConvertHloProtoToModule(
   TF_ASSIGN_OR_RETURN(auto module, xla::HloModule::CreateFromProto(
                                        remapped_module_proto, config));
   return module;
+}
+
+absl::StatusOr<std::unique_ptr<xla::HloModule>> ConvertHloProtoToModule(
+    const xla::HloProto& hlo_proto) {
+  if (!hlo_proto.has_hlo_module()) {
+    return xla::Internal("No HLO module found in the HLO proto");
+  }
+  return ConvertHloModuleProtoToModule(hlo_proto.hlo_module());
 }
 
 std::unique_ptr<xla::HloModule> ConvertHloProtoToModuleIgnoringErrors(

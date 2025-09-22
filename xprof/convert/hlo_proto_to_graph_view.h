@@ -95,6 +95,11 @@ absl::StatusOr<std::string> ConvertHloProtoToStringView(
     const xla::HloProto& hlo_proto, std::string type, bool verbose = false,
     bool metadata = false);
 
+// Convert `hlo_module_proto` to StringView.
+absl::StatusOr<std::string> ConvertHloModuleProtoToStringView(
+    const xla::HloModuleProto& hlo_module_proto, std::string type,
+    bool verbose = false, bool metadata = false);
+
 // Convert dot into certain format
 absl::StatusOr<std::string> WrapDotInFormat(std::string dot,
                                             xla::RenderedGraphFormat format);

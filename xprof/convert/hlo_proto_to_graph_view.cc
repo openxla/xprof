@@ -471,6 +471,32 @@ absl::StatusOr<std::string> ConvertHloProtoToStringView(
   return hlo_module->ToString(options);
 }
 
+absl::StatusOr<std::string> ConvertHloModuleProtoToStringView(
+    const xla::HloModuleProto& hlo_module_proto, std::string type, bool verbose,
+    bool metadata) {
+  if (type == kJsonTypeName) {
+    xla::HloProto hlo_proto;
+    *hlo_proto.mutable_hlo_module() = hlo_module_proto;
+    return PrintJson(hlo_proto);
+  } else if (type == kProtoTypeName) {
+    return hlo_module_proto.SerializeAsString();
+  } else if (type == kProtoTextTypeName) {
+    xla::HloProto hlo_proto;
+    *hlo_proto.mutable_hlo_module() = hlo_module_proto;
+    return PrintPbTxt(hlo_proto);
+  }
+  // for short/long_txt
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
+                      ConvertHloModuleProtoToModule(hlo_module_proto));
+  HloPrintOptions options;
+  if (!verbose) {
+    options = HloPrintOptions::ShortParsable();
+  }
+  options.set_print_large_constants(verbose);
+  options.set_print_metadata(metadata);
+  return hlo_module->ToString(options);
+}
+
 std::function<absl::StatusOr<std::string>(absl::string_view)>* url_renderer =
     nullptr;
 

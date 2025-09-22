@@ -49,8 +49,12 @@ class HloProtoMap {
   auto begin() const { return hlo_protos_by_program_id_.begin(); }
   auto end() const { return hlo_protos_by_program_id_.end(); }
 
-  bool contains(absl::string_view name) const {
-    return hlo_protos_by_name_.contains(name);
+  bool contains(absl::string_view name,
+                bool use_original_hlo_proto = false) const {
+    if (!use_original_hlo_proto) {
+      return hlo_protos_by_name_.contains(name);
+    }
+    return original_hlo_protos_by_name_.contains(name);
   }
 
   bool contains(uint64_t program_id) const {

@@ -303,6 +303,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
     window.open( this.pathPrefix + DATA_API + '?' + params.toString(), '_blank');
   }
 
+  generateGraphvizUrlForUtilizationViewer(sessionId: string): string {
+    return '';
+  }
+
   getDataByModuleNameAndMemorySpace(
       tool: string,
       sessionId: string,

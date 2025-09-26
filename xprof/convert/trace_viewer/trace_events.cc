@@ -20,6 +20,7 @@ limitations under the License.
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,7 +41,6 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/macros.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/trace_viewer/prefix_trie.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
@@ -51,7 +51,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::kint64max;
 
 namespace {
 
@@ -130,7 +129,8 @@ uint64_t LayerResolutionPs(unsigned level) {
 
 std::pair<uint64_t, uint64_t> GetLevelBoundsForDuration(uint64_t duration_ps) {
   if (duration_ps == 0 || duration_ps > kLayerResolutions[0]) {
-    return std::make_pair(kLayerResolutions[0], kint64max);
+    return std::make_pair(kLayerResolutions[0],
+                          std::numeric_limits<int64_t>::max());
   }
   for (int i = 1; i < NumLevels(); ++i) {
     if (duration_ps > kLayerResolutions[i]) {

@@ -61,6 +61,7 @@ absl::Status OverviewPageProcessor::ProcessCombinedOpStats(
 absl::Status OverviewPageProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) {
+  return absl::InternalError("This is a test failure for overview_page.");
   LOG(INFO) << "OverviewPageProcessor::ProcessSession";
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(

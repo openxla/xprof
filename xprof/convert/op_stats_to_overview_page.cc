@@ -462,8 +462,8 @@ std::unique_ptr<DataTable> GenerateRunEnvironmentDataTable(
   // For each host, adds one row to the table.
   std::vector<std::vector<std::string>> kColumns = {
       {"host_id", "string", "host_id"},
-      {"command_line", "string", "command_line"},
-      {"start_time", "string", "start_time"},
+      {"command_line_args", "string", "command_line_args"},
+      {"start_time_ms", "string", "start_time_ms"},
       {"bns_address", "string", "bns_address"}};
   for (const auto& column : kColumns) {
     run_environment_data_table->AddColumn(
@@ -540,12 +540,12 @@ void AddLatencyRow(DataTable* data_table, absl::string_view label,
 std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
     const OverviewInferenceLatency& result) {
   std::vector<std::vector<std::string>> kColumns = {
-      {"percentile", "string", "percentile"},
+      {"percentage", "string", "percentage"},
       {"hostTimeMs", "number", "Host time (in ms)"},
       {"deviceTimeMs", "number", "Device time (in ms)"},
       {"communicationTimeMs", "number",
        "Host-device communication time (in ms)"},
-      {"totalTimeMs", "number", "Total latency (in ms)"}};
+      {"totalTimes", "number", "Total latency (in seconds)"}};
 
   auto data_table = std::make_unique<DataTable>();
   for (const auto& column : kColumns) {

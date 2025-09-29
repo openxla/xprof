@@ -19,6 +19,8 @@ export class GraphConfig implements OnDestroy, OnChanges {
   @Output() readonly plot = new EventEmitter<Partial<GraphConfigInput>>();
   @Output() readonly updateSelectedModule = new EventEmitter<string>();
   @Output() readonly updateGraphType = new EventEmitter<string>();
+  @Output()
+  readonly updateUseOriginalHloProtoChange = new EventEmitter<boolean>();
 
   /** Form inputs properties */
   @Input() initialInputs: GraphConfigInput|undefined = undefined;
@@ -34,6 +36,7 @@ export class GraphConfig implements OnDestroy, OnChanges {
   graphWidth = this.initialInputs?.graphWidth || 3;
   showMetadata = this.initialInputs?.showMetadata || false;
   mergeFusion = this.initialInputs?.mergeFusion || false;
+  useOriginalHloProto = this.initialInputs?.useOriginalHloProto || false;
   programId = this.initialInputs?.programId || '';
   graphType = this.graphTypes.length ? this.graphTypes[0].value : '';
 
@@ -44,6 +47,7 @@ export class GraphConfig implements OnDestroy, OnChanges {
       graphWidth: this.graphWidth,
       showMetadata: this.showMetadata,
       mergeFusion: this.mergeFusion,
+      useOriginalHloProto: this.useOriginalHloProto,
     };
     if (this.programId) {
       params.programId = this.programId;
@@ -64,6 +68,8 @@ export class GraphConfig implements OnDestroy, OnChanges {
       this.graphWidth = this.initialInputs?.graphWidth || 3;
       this.showMetadata = this.initialInputs?.showMetadata || false;
       this.mergeFusion = this.initialInputs?.mergeFusion || false;
+      this.useOriginalHloProto =
+          this.initialInputs?.useOriginalHloProto || false;
       this.programId = this.initialInputs?.programId || '';
     }
 
@@ -112,6 +118,10 @@ export class GraphConfig implements OnDestroy, OnChanges {
   onGraphTypeSelectionChange(e: MatSelectChange) {
     this.selectedModule = '';
     this.updateGraphType.emit(e.value);
+  }
+
+  onUseOriginalHloProtoChange(checked: boolean) {
+    this.updateUseOriginalHloProtoChange.emit(checked);
   }
 
   isNewGraphViewer() {

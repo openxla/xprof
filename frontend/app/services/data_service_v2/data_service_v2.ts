@@ -203,6 +203,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       showMetadata: boolean,
       mergeFusion: boolean,
       graphType: string,
+      useOriginalHloProto: boolean,
       ): Observable<string> {
     return of('');
   }
@@ -260,6 +261,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       moduleName: string,
       type: string,
       showMetadata: boolean,
+      useOriginalHloProto: boolean,
       ): Observable<string|Blob|null> {
     const tool = 'graph_viewer';
     const responseType =
@@ -267,13 +269,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
     // Host is not specified for hlo text view now, as we assume metadata the
     // same across all hosts.
     const host = '';
-    const params = this.getHttpParams('', '')
-                       .set('run', sessionId)
-                       .set('tag', tool)
-                       .set('host', host)
-                       .set('module_name', moduleName)
-                       .set('type', type)
-                       .set('show_metadata', String(showMetadata));
+    const params =
+        this.getHttpParams('', '')
+            .set('run', sessionId)
+            .set('tag', tool)
+            .set('host', host)
+            .set('module_name', moduleName)
+            .set('type', type)
+            .set('show_metadata', String(showMetadata))
+            .set('use_original_hlo_proto', String(useOriginalHloProto));
     return this.get(this.pathPrefix + DATA_API, {
       'params': params,
       'responseType': responseType,

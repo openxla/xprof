@@ -38,6 +38,8 @@ export class HloTextView implements OnDestroy {
   @Input() showMetadata = false;
   /** The session id parsed in parent component. */
   @Input() sessionId = '';
+  /** Whether to use the original HLO proto. */
+  @Input() useOriginalHloProto = false;
 
   readonly toggleButtonItems = TOGGLE_BUTTON_ITEMS;
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -52,11 +54,12 @@ export class HloTextView implements OnDestroy {
   downloadedTextParams = {
     moduleName: '',
     showMetadata: false,
-    textType: '', // SHORT_TEXT | LONG_TEXT
+    textType: '',  // SHORT_TEXT | LONG_TEXT
+    useOriginalHloProto: false,
   };
 
   downloadHloText(type: string) {
-    this.setLoadingMessage(type, this.showMetadata);
+    this.setLoadingMessage(type, this.showMetadata, this.useOriginalHloProto);
     this.hloText = '';
     this.throbber.start();
     this.dataService
@@ -65,6 +68,7 @@ export class HloTextView implements OnDestroy {
             this.moduleName,
             type,
             this.showMetadata,
+            this.useOriginalHloProto,
             )
         .pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
@@ -75,6 +79,7 @@ export class HloTextView implements OnDestroy {
             moduleName: this.moduleName,
             showMetadata: this.showMetadata,
             textType: type,
+            useOriginalHloProto: this.useOriginalHloProto,
           };
         });
   }
@@ -83,15 +88,20 @@ export class HloTextView implements OnDestroy {
     const metadataMessage = this.downloadedTextParams.showMetadata
       ? 'with metadata '
       : '';
-    return `(Loaded: hlo ${this.downloadedTextParams.textType} ${metadataMessage}for module ${this.downloadedTextParams.moduleName})`;
+    const originalMessage =
+        this.downloadedTextParams.useOriginalHloProto ? 'original ' : '';
+    return `(Loaded: ${originalMessage}hlo ${
+        this.downloadedTextParams.textType} ${metadataMessage}for module ${
+        this.downloadedTextParams.moduleName})`;
   }
 
-  setLoadingMessage(type: string, showMetadata: boolean) {
+  setLoadingMessage(
+      type: string, showMetadata: boolean, useOriginalHloProto: boolean) {
     this.loading = true;
-    this.loadingMessage =
-      'Loading hlo ' +
-      (type === FileExtensionType.SHORT_TEXT ? 'short text' : 'long text') +
-      (showMetadata ? ' (with metadata)' : ' (w/o metadata)');
+    this.loadingMessage = 'Loading ' +
+        (useOriginalHloProto ? 'original ' : '') + 'hlo ' +
+        (type === FileExtensionType.SHORT_TEXT ? 'short text' : 'long text') +
+        (showMetadata ? ' (with metadata)' : ' (w/o metadata)');
   }
 
   ngOnDestroy() {

@@ -54,6 +54,7 @@ export interface DataServiceV2Interface {
       showMetadata: boolean,
       mergeFusion: boolean,
       graphType: string,
+      useOriginalHloProto: boolean,
       ): Observable<string>;
   getMeGraphJson(sessionId: string, params: Map<string, string>):
       Observable<string>;
@@ -82,6 +83,7 @@ export interface DataServiceV2Interface {
       moduleName: string,
       type: string,
       showMetadata: boolean,
+      useOriginalHloProto: boolean,
       ): Observable<string|Blob|null>;
 
   getSearchParams(): URLSearchParams;

@@ -56,6 +56,7 @@ export class DownloadHlo implements OnDestroy {
             this.moduleName,
             type,
             this.showMetadata,
+            false, /* useOriginalHloProto is not supported */
             )!.pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
           if (type === FileExtensionType.PROTO_BINARY) {

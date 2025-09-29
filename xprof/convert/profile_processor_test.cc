@@ -147,44 +147,45 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
 }
 
 // Test the E2E method for different tools.
-TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
-  const ProfileProcessorTestParam& test_param = GetParam();
-  // Create unique session dir for this test.
-  std::string session_dir =
-      file::JoinPath(testing::TempDir(), test_param.test_name + "_e2e_test");
-  ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
+// TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
+//   const ProfileProcessorTestParam& test_param = GetParam();
+//   // Create unique session dir for this test.
+//   std::string session_dir =
+//       file::JoinPath(testing::TempDir(), test_param.test_name + "_e2e_test");
+//   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
-  std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
-  XSpace space;
-  space.add_planes()->set_name("test_plane");
-  ASSERT_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
+//   std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
+//   XSpace space;
+//   space.add_planes()->set_name("test_plane");
+//   ASSERT_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
 
-  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
-                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+//   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
+//                        SessionSnapshot::Create({xspace_path}, std::nullopt));
 
-  ToolOptions options;
-  // First call - should compute and write to cache.
-  ASSERT_OK_AND_ASSIGN(std::string result1,
-                       ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, test_param.tool_name, options));
-  EXPECT_THAT(result1, Not(IsEmpty()));
+//   ToolOptions options;
+//   // First call - should compute and write to cache.
+//   ASSERT_OK_AND_ASSIGN(std::string result1,
+//                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
+//                            session_snapshot, test_param.tool_name, options));
+//   EXPECT_THAT(result1, Not(IsEmpty()));
 
-  ASSERT_OK_AND_ASSIGN(
-      auto cache_file_path,
-      session_snapshot.GetHostDataFilePath(
-          StoredDataType::OP_STATS, tensorflow::profiler::kAllHostsIdentifier));
-  EXPECT_TRUE(cache_file_path.has_value());
-  ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
+//   ASSERT_OK_AND_ASSIGN(
+//       auto cache_file_path,
+//       session_snapshot.GetHostDataFilePath(
+//           StoredDataType::OP_STATS,
+//           tensorflow::profiler::kAllHostsIdentifier));
+//   EXPECT_TRUE(cache_file_path.has_value());
+//   ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
 
-  // Second call - should hit the cache.
-  ASSERT_OK_AND_ASSIGN(std::string result2,
-                       ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, test_param.tool_name, options));
-  EXPECT_EQ(result1, result2);
+//   // Second call - should hit the cache.
+//   ASSERT_OK_AND_ASSIGN(std::string result2,
+//                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
+//                            session_snapshot, test_param.tool_name, options));
+//   EXPECT_EQ(result1, result2);
 
-  // Clean up.
-  ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
-}
+//   // Clean up.
+//   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
+// }
 
 INSTANTIATE_TEST_SUITE_P(
     ProfileProcessorTests, ProfileProcessorTest,

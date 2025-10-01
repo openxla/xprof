@@ -150,6 +150,12 @@ std::vector<std::string> ParseProvenance(absl::string_view provenance);
 OpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
     const OpMetricsDb& device_op_metrics_db, bool with_idle = true);
 
+// Returns the root nodes of `op_metrics`, which are assumed to be nodes in a
+// forest. Every node is assumed to be uniquely identified by its
+// `hlo_module_id` and `name`.
+std::vector<const OpMetrics*> GetRootOpMetricsFromDb(
+    const OpMetricsDb& op_metrics_db);
+
 }  // namespace profiler
 }  // namespace tensorflow
 

@@ -94,6 +94,7 @@ cc_library(
     hdrs = ["op_metrics_db_utils.h"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
@@ -116,6 +117,7 @@ cc_test(
     srcs = ["op_metrics_db_utils_test.cc"],
     deps = [
         ":op_metrics_db_utils",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",

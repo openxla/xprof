@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -34,6 +35,7 @@ namespace {
 using ::testing::EqualsProto;
 using ::testing::proto::IgnoringRepeatedFieldOrdering;
 #endif
+using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XEventMetadata;
@@ -260,6 +262,44 @@ TEST(OpMetricsDbTest, DISABLED_ParseProvenanceTest) {
   EXPECT_EQ(result_3[0], "my_op1");
   EXPECT_EQ(result_3[1], "my_op2");
   EXPECT_EQ(result_3[2], "my_op3");
+}
+
+TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
+  OpMetricsDb op_metrics_db = ParseTextProtoOrDie(R"pb(
+    metrics_db {
+      hlo_module_id: 1
+      name: "root"
+      occurrences: 1
+      self_time_ps: 2
+      time_ps: 4
+      flops: 8
+      source_info { stack_frame: "file.py:1" }
+      children {
+        metrics_db {
+          hlo_module_id: 1
+          name: "child"
+          occurrences: 1
+          self_time_ps: 4
+          time_ps: 8
+          flops: 2
+          source_info { stack_frame: "file.py:1" }
+          children {
+            metrics_db {
+              hlo_module_id: 1
+              name: "descendant"
+              occurrences: 1
+              self_time_ps: 4
+              time_ps: 8
+              flops: 1
+              source_info { stack_frame: "file.py:1" }
+            }
+          }
+        }
+      }
+    }
+  )pb");
+  EXPECT_THAT(GetRootOpMetricsFromDb(op_metrics_db).size(), 1);
+  EXPECT_THAT(GetRootOpMetricsFromDb(op_metrics_db)[0]->name(), "root");
 }
 
 }  // namespace

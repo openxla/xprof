@@ -73,7 +73,7 @@ void MaybeAddEventUniqueId(std::vector<TraceEvent*>& events) {
   uint64_t last_ts = UINT64_MAX;
   uint64_t serial = 0;
   for (TraceEvent* event : events) {
-    if (event->timestamp_ps() == last_ts) {
+    if (event->has_timestamp_ps() && event->timestamp_ps() == last_ts) {
       event->set_serial(++serial);
     } else {
       serial = 0;

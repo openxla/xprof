@@ -1,0 +1,23 @@
+/** CSS for a step stats component. */
+
+.section-container {
+  padding: 20px;
+}
+
+.row {
+  display: flex;
+}
+
+.bar-chart {
+  height: fit-content;
+  width: fit-content;
+  margin: 8px 8px 8px 0;
+}
+
+.bar-chart .mat-title {
+  margin-bottom: 0;
+}
+
+.flex-space {
+  flex: 1;
+}

@@ -27,7 +27,7 @@ export class ViewArchitecture implements OnInit, OnDestroy {
         .pipe(takeUntil(this.destroyed))
         .subscribe((config) => {
           this.hideViewArchitectureButton =
-              config?.hideCaptureProfileButton || false;
+              config?.hideViewArchitectureButton || false;
         });
   }
 

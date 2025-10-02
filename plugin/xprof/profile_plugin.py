@@ -548,6 +548,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     logger.info('config_route: %s', self.logdir)
     config_data = {
         'hideCaptureProfileButton': self.hide_capture_profile_button,
+        'hideViewArchitectureButton': True,
     }
     return respond(config_data, 'application/json')
 

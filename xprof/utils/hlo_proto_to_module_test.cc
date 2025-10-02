@@ -51,7 +51,7 @@ TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIds) {
                 }
               }
               id: 4294967303
-              operand_ids: 6
+              operand_ids: 1
             }
             id: 1
             root_id: 4294967303
@@ -88,6 +88,14 @@ TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIds) {
               ElementsAre(Property(&xla::HloInstruction::local_id, 0),
                           Property(&xla::HloInstruction::local_id, 1),
                           Property(&xla::HloInstruction::local_id, 2)));
+  // Check correct operand translation
+  EXPECT_EQ(module->entry_computation()->parameter_instruction(0)->name(),
+            "arg0.1");
+  EXPECT_EQ(module->entry_computation()->parameter_instruction(0)->local_id(),
+            0);
+  EXPECT_THAT(
+      module->entry_computation()->root_instruction()->operands(),
+      ElementsAre(module->entry_computation()->parameter_instruction(0)));
 }
 
 TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIdsForModule) {
@@ -129,7 +137,7 @@ TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIdsForModule) {
                 }
               }
               id: 4294967303
-              operand_ids: 6
+              operand_ids: 1
             }
             id: 1
             root_id: 4294967303
@@ -168,6 +176,14 @@ TEST(HloProtoToModuleTest, FixNonConsecutiveInstructionIdsForModule) {
               ElementsAre(Property(&xla::HloInstruction::local_id, 0),
                           Property(&xla::HloInstruction::local_id, 1),
                           Property(&xla::HloInstruction::local_id, 2)));
+  // Check correct operand translation
+  EXPECT_EQ(module->entry_computation()->parameter_instruction(0)->name(),
+            "arg0.1");
+  EXPECT_EQ(module->entry_computation()->parameter_instruction(0)->local_id(),
+            0);
+  EXPECT_THAT(
+      module->entry_computation()->root_instruction()->operands(),
+      ElementsAre(module->entry_computation()->parameter_instruction(0)));
 }
 
 }  // namespace

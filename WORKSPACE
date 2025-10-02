@@ -34,10 +34,10 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "a106290c8a1f522d57feed0be31496c571c2a50545cc92a1cdb32aef2309270b",
-    strip_prefix = "xla-845061f0e1162559fabf5dc6555b85a31bd96cb9",
+    sha256 = "82160211319100b8c1d55e016c426b2999ccb9c3091f699ac55a2d536c784630",
+    strip_prefix = "xla-68b8314049f2a7256aea628a7e3377a00278345a",
     urls = [
-        "https://github.com/openxla/xla/archive/845061f0e1162559fabf5dc6555b85a31bd96cb9.zip",
+        "https://github.com/openxla/xla/archive/68b8314049f2a7256aea628a7e3377a00278345a.zip",
     ],
 )
 
@@ -109,10 +109,10 @@ xla_workspace0()
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "d1a64a54b1688446619364dac25ff5bcef65c6ffb6984f82128986f5f66129f6",
-    strip_prefix = "rules_ml_toolchain-b42dc53b80d7f4da1e12abca7503a264e96de98e",
+    sha256 = "2a5591ec7543c8b37aead3cb681eb2b93c9616ce94abdf3aedcf391b372d4007",
+    strip_prefix = "rules_ml_toolchain-b2b08356ac30353c49587b0e8dfe65aabb35e78d",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/b42dc53b80d7f4da1e12abca7503a264e96de98e.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/b2b08356ac30353c49587b0e8dfe65aabb35e78d.tar.gz",
     ],
 )
 

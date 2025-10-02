@@ -736,6 +736,7 @@ cc_library(
     srcs = ["op_stats_to_input_pipeline_analysis.cc"],
     hdrs = ["op_stats_to_input_pipeline_analysis.h"],
     deps = [
+        ":data_table_utils",
         ":op_metrics_to_record",
         ":profile_time_breakdown",
         ":step_events_to_steps_db",
@@ -751,7 +752,6 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
-        "@org_xprof//xprof/convert:data_table_utils",
         "@org_xprof//xprof/utils:diagnostics",
         "@org_xprof//xprof/utils:event_span",
         "@org_xprof//xprof/utils:html_utils",

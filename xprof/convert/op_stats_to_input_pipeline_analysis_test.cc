@@ -15,6 +15,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "google/protobuf/any.pb.h"
@@ -201,7 +202,8 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
       50);
 }
 
-TEST(TfOpStatsToInputPipelineAnalysisTest, EnsureSparseCoreStepsSetStepNumber) {
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     EnsureSparseCoreStepsAloneAreIgnored) {
   PerCoreStepInfo per_core_step_info;
   per_core_step_info.set_step_num(1);
   tsl::protobuf::Map<uint32_t, StepInfoResult>& step_info_per_core =
@@ -223,9 +225,47 @@ TEST(TfOpStatsToInputPipelineAnalysisTest, EnsureSparseCoreStepsSetStepNumber) {
       core_details_map[/* core_id= */ kSparseCoreIndexStart + 1];
   core_details.set_is_sparse_core(true);
 
-  PerTpuStepDetails per_step_data =
+  std::optional<PerTpuStepDetails> per_step_data =
       ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
-  EXPECT_EQ(per_step_data.step_number(), 1);
+  EXPECT_FALSE(per_step_data.has_value());
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest, EnsureSparseCoreStepsSetStepNumber) {
+  PerCoreStepInfo per_core_step_info;
+  per_core_step_info.set_step_num(1);
+  tsl::protobuf::Map<uint32_t, StepInfoResult>& step_info_per_core =
+      *per_core_step_info.mutable_step_info_per_core();
+  StepInfoResult& step_info = step_info_per_core[/* core_id= */ 0];
+  step_info.set_step_num(1);
+  step_info.set_begin_ps(100);
+  step_info.set_duration_ps(1000);
+  GenericStepBreakdown tensor_core_step_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& category_ps_tc =
+      *tensor_core_step_breakdown.mutable_category_ps();
+  category_ps_tc[tensorflow::profiler::kIdle] = 500;
+  category_ps_tc[xla::HloOpcodeString(xla::HloOpcode::kMultiply)] = 500;
+  step_info.mutable_step_breakdown()->PackFrom(tensor_core_step_breakdown);
+  StepInfoResult& step_info_sc =
+      step_info_per_core[/* core_id= */ kSparseCoreIndexStart + 1];
+  step_info_sc.set_step_num(1);
+  step_info_sc.set_begin_ps(100);
+  step_info_sc.set_duration_ps(1000);
+  GenericStepBreakdown sparse_core_step_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& category_ps_sc =
+      *sparse_core_step_breakdown.mutable_category_ps();
+  category_ps_sc[tensorflow::profiler::kIdle] = 500;
+  category_ps_sc["sparse_core_busy_ops"] = 500;
+  step_info_sc.mutable_step_breakdown()->PackFrom(sparse_core_step_breakdown);
+
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  CoreDetails& core_details =
+      core_details_map[/* core_id= */ kSparseCoreIndexStart + 1];
+  core_details.set_is_sparse_core(true);
+
+  std::optional<PerTpuStepDetails> per_step_data =
+      ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+  EXPECT_TRUE(per_step_data.has_value());
+  EXPECT_EQ(per_step_data->step_number(), 1);
 }
 
 }  // namespace

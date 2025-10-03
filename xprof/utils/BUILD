@@ -396,10 +396,46 @@ cc_test(
 )
 
 cc_library(
+    name = "custom_call_cost_estimator",
+    srcs = ["custom_call_cost_estimator.cc"],
+    hdrs = ["custom_call_cost_estimator.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
+    deps = [
+        ":backend_configs_proto_cc",
+        "//third_party/llvm/llvm-project/llvm:Support",
+        "//third_party/llvm/llvm-project/mlir:ArithDialect",
+        "//third_party/llvm/llvm-project/mlir:DataLayoutInterfaces",
+        "//third_party/llvm/llvm-project/mlir:FuncDialect",
+        "//third_party/llvm/llvm-project/mlir:IR",
+        "//third_party/llvm/llvm-project/mlir:LLVMDialect",
+        "//third_party/llvm/llvm-project/mlir:MathDialect",
+        "//third_party/llvm/llvm-project/mlir:MemRefDialect",
+        "//third_party/llvm/llvm-project/mlir:Pass",
+        "//third_party/llvm/llvm-project/mlir:SCFDialect",
+        "//third_party/llvm/llvm-project/mlir:Support",
+        "//third_party/llvm/llvm-project/mlir:VectorDialect",
+        "//third_party/protobuf/json",
+        "//third_party/protobuf/util:json_util",
+        "//third_party/py/jax/jaxlib/mosaic:tpu_dialect",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/mlir_hlo",
+        "@xla//xla/pjrt:mlir_to_hlo",
+    ],
+)
+
+cc_library(
     name = "hlo_module_map",
     srcs = ["hlo_module_map.cc"],
     hdrs = ["hlo_module_map.h"],
     deps = [
+        ":custom_call_cost_estimator",
         ":hlo_cost_analysis_wrapper",
         ":hlo_module_utils",
         ":hlo_proto_map",

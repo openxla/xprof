@@ -5,6 +5,7 @@ export declare interface GraphConfigInput {
   graphWidth: number;
   showMetadata: boolean;
   mergeFusion: boolean;
+  useOriginalHloProto: boolean;
   programId?: string;
   graphType?: string;
   symbolId?: string;
@@ -18,6 +19,7 @@ export declare interface GraphViewerQueryParams {
   graph_width: number;
   show_metadata: boolean;
   merge_fusion: boolean;
+  use_original_hlo_proto: boolean;
   program_id?: string;
   graph_type?: string;
   symbol_id?: string;

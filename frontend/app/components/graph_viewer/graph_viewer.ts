@@ -61,6 +61,7 @@ export class GraphViewer implements OnDestroy {
   symbolType = '';
   showMetadata = false;
   mergeFusion = false;
+  useOriginalHloProto = false;
   opProfileLimit = 300;
   /** The graphviz url. */
   url = '';
@@ -132,6 +133,7 @@ export class GraphViewer implements OnDestroy {
     this.graphWidth = Number(params['graph_width']) || 1;
     this.showMetadata = params['show_metadata'] === 'true';
     this.mergeFusion = params['merge_fusion'] === 'true';
+    this.useOriginalHloProto = params['use_original_hlo_proto'] === 'true';
     this.graphType =
         params['graph_type'] || params['graphType'] || GRAPH_TYPE_DEFAULT;
     this.symbolId = params['symbol_id'] || this.symbolId || '';
@@ -579,6 +581,13 @@ export class GraphViewer implements OnDestroy {
     this.programId = programIdMatch ? programIdMatch[1] : '';
   }
 
+  onUseOriginalHloProtoChange(useOriginalHloProto: boolean) {
+    console.log(
+        'GraphViewer::Modifying useOriginalHloProto.... to ',
+        useOriginalHloProto);
+    this.useOriginalHloProto = useOriginalHloProto;
+  }
+
   // Get a GraphConfigInput object for usage in the angular components.
   getParams(): GraphConfigInput {
     return {
@@ -587,6 +596,7 @@ export class GraphViewer implements OnDestroy {
       graphWidth: this.graphWidth,
       showMetadata: this.showMetadata,
       mergeFusion: this.mergeFusion,
+      useOriginalHloProto: this.useOriginalHloProto,
       programId: this.programId,
       symbolId: this.symbolId,
       symbolType: this.symbolType,
@@ -645,6 +655,7 @@ export class GraphViewer implements OnDestroy {
       'graph_width': this.graphWidth,
       'show_metadata': this.showMetadata,
       'merge_fusion': this.mergeFusion,
+      'use_original_hlo_proto': this.useOriginalHloProto,
       'graph_type': this.graphType,
     };
     if (this.programId !== '') {

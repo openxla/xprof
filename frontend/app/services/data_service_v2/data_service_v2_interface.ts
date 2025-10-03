@@ -98,6 +98,8 @@ export interface DataServiceV2Interface {
       ): Observable<DataTable>;
 
   disableCacheRegeneration(): void;
+
+  openUtilizationGraphviz(sessionId: string): void;
 }
 
 /** Injection token for the data service interface. */

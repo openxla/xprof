@@ -368,4 +368,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return this.httpClient.get<CaptureProfileResponse>(
         this.pathPrefix + CAPTURE_PROFILE_API, {params});
   }
+
+  openUtilizationGraphviz(sessionId: string) {
+    return;
+  }
 }

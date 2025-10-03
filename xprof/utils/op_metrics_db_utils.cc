@@ -20,11 +20,13 @@ limitations under the License.
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <stack>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -456,6 +458,54 @@ XEventsOpMetricsDbBuilder::OpKey GetOpKeyFromXEvent(
     }
   });
   return op_key;
+}
+
+std::vector<const OpMetrics*> GetRootOpMetricsFromDb(
+    const OpMetricsDb& op_metrics_db) {
+  std::stack<const OpMetrics*> child_op_stack;
+  // Seed the stack with all *direct children* from the input `op_metrics`.
+  // Any node that appears as a child is, by definition, not a root.
+  for (const OpMetrics& op_metric : op_metrics_db.metrics_db()) {
+    for (const OpMetrics& child : op_metric.children().metrics_db()) {
+      child_op_stack.push(&child);
+    }
+  }
+  // Perform DFS to traverse the tree and collect all the descendants of the
+  // input nodes.
+  //
+  // We assume that `hlo_module_id` (an integer) and `name` (a string)
+  // uniquely identify an HLO op across our forest. `HloOpId` is a pair
+  // holding these two values.
+  using HloOpId = std::pair<int64_t, absl::string_view>;
+  absl::flat_hash_set<HloOpId> descendants;
+  while (!child_op_stack.empty()) {
+    const OpMetrics* const node = child_op_stack.top();
+    child_op_stack.pop();
+    if (!descendants.insert({node->hlo_module_id(), node->name()}).second) {
+      continue;
+    }
+    // Add this node's children to the stack to continue the traversal.
+    for (const OpMetrics& child : node->children().metrics_db()) {
+      child_op_stack.push(&child);
+    }
+  }
+  // Any node in the input `OpMetrics` that is *not* in the `descendants` set
+  // is a root.
+  std::vector<const OpMetrics*> root_op_metrics;
+  // Prevents unsigned integer underflow when descendants.size() is larger
+  // than op_metrics_db.size(), which occurs when children nodes are reachable
+  // but themselves not present in op_metrics. Skipping reserve() is safe, as
+  // it is only a performance optimization and does not affect correctness.
+  if (op_metrics_db.metrics_db().size() > descendants.size()) {
+    root_op_metrics.reserve(op_metrics_db.metrics_db().size() -
+                            descendants.size());
+  }
+  for (const OpMetrics& op_metric : op_metrics_db.metrics_db()) {
+    if (!descendants.contains({op_metric.hlo_module_id(), op_metric.name()})) {
+      root_op_metrics.push_back(&op_metric);
+    }
+  }
+  return root_op_metrics;
 }
 
 }  // namespace profiler

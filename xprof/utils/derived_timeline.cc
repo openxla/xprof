@@ -743,10 +743,19 @@ void GenerateDerivedTimeLines(
   if (host_plane) {
     DeriveEventsFromHostTrace(host_plane, group_metadata_map, device_planes);
   }
-  for (XPlane* plane : FindMutableTensorCorePlanes(space)) {
-    DeriveLinesFromStats(plane);
-    tsl::profiler::SortXPlane(plane);
+
+  std::vector<XPlane*> tensor_core_planes = FindMutableTensorCorePlanes(space);
+
+  auto plane_processing_executor = std::make_unique<XprofThreadPoolExecutor>(
+      "ProcessTensorCorePlanes", tensor_core_planes.size());
+
+  for (XPlane* plane : tensor_core_planes) {
+    plane_processing_executor->Execute([plane]() {
+      DeriveLinesFromStats(plane);
+      tsl::profiler::SortXPlane(plane);
+    });
   }
+  plane_processing_executor->JoinAll();
 }
 
 void DeriveLinesFromStats(XPlane* device_trace) {

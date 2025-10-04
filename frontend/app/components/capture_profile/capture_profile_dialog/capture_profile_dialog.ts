@@ -18,6 +18,7 @@ export class CaptureProfileDialog {
   numRetry = 3;
   workerList = '';
   hostTracerLevel = '2';
+  traceMode = 'TRACE_COMPUTE_AND_SYNC';
   hostTracerTooltip = 'lower trace level to reduce amount of host traces ' +
       'collected, some tools will not function well when the host tracer ' +
       'level is less than info';

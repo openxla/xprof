@@ -1,6 +1,6 @@
 absl-py >= 2.1.0
 gviz_api >= 1.10.0
-setuptools <= 71.0.0
+setuptools <= 78.1.1
 fsspec[gcs] >= 2024.10.0
 cheroot >= 10.0.1
 etils[epath] >= 1.0.0

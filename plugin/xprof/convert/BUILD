@@ -44,7 +44,7 @@ py_test(
 py_library(
     name = "raw_to_tool_data",
     srcs = ["raw_to_tool_data.py"],
-    visibility = visibility + ["//perftools/accelerators/xprof/benchmark/xprof_benchmarking_tools:__subpackages__"],
+    visibility = visibility,
     deps = [
         ":csv_writer",
         ":trace_events_json",

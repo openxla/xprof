@@ -12,7 +12,7 @@ export const SCATTER_CHART_AXIS = {
   minX: 0.00001,
   maxX: 100000,
   minY: 0.00001,
-  maxY: 1000000,
+  maxY: 10000000,
 };
 
 /** scatter base options for roofline chart */

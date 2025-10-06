@@ -416,6 +416,137 @@ def _get_bool_arg(
   return arg_str.lower() == 'true'
 
 
+class ToolsCache:
+  """Caches the list of tools for a profile run."""
+
+  CACHE_FILE_NAME = '.cached_tools.json'
+  CACHE_VERSION = 1
+
+  def __init__(self, profile_run_dir: epath.Path):
+    self._profile_run_dir = profile_run_dir
+    self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+    logger.info('ToolsCache initialized for %s', self._cache_file)
+
+  def _get_mtime(self, stat_result: Any) -> int:
+    """Gets the most precise modification time in nanoseconds from a stat object."""
+    # Try CNS-style nanosecond attribute
+    if hasattr(stat_result, 'mtime'):
+      return stat_result.mtime
+    # Try standard nanosecond attribute
+    if hasattr(stat_result, 'st_mtime_ns'):
+      return stat_result.st_mtime_ns
+    # Fallback to standard second attribute
+    if hasattr(stat_result, 'st_mtime'):
+      return int(stat_result.st_mtime * 1e9)  # Convert to nanoseconds
+    logger.warning('Could not determine modification time from stat object')
+    return 0  # Should not happen if stat_result is valid
+
+  def _get_current_xplane_file_states(self) -> Optional[dict[str, int]]:
+    """Gets the current state of XPlane files in the directory."""
+    current_files = {}
+    try:
+      for xplane_file in self._profile_run_dir.glob('*.xplane.pb'):
+
+        try:
+          stat_result = xplane_file.stat()
+          current_files[xplane_file.name] = self._get_mtime(stat_result)
+        except OSError as e:
+          logger.warning('Error stating file %s: %s', xplane_file, e)
+          return None  # Invalidate cache on error
+        except KeyError as e:
+          logger.warning('Error getting owner for file %s: %s', xplane_file, e)
+          # Try to get mtime directly if possible, bypassing owner lookup issues
+          try:
+            current_files[xplane_file.name] = int(
+                os.stat(str(xplane_file)).st_mtime_ns
+            )
+          except OSError as stat_e:
+            logger.warning(
+                'Could not get mtime for file %s: %s', xplane_file, stat_e
+            )
+            return None  # Invalidate cache
+    except OSError as e:
+      logger.warning(
+          'Error globbing XPlane files in %s: %s', self._profile_run_dir, e
+      )
+      return None
+    return current_files
+
+  def load(self) -> Optional[List[str]]:
+    """Loads tools from cache if valid."""
+    try:
+      if not self._cache_file.exists():
+        logger.info('ToolsCache miss: file not found %s', self._cache_file)
+        return None
+    except OSError as e:
+      logger.warning('Error checking cache file existence: %s', e)
+      return None
+
+    try:
+      with self._cache_file.open('r') as f:
+        cached_data = json.load(f)
+      if cached_data.get('version') == self.CACHE_VERSION:
+        current_files = self._get_current_xplane_file_states()
+        if (
+            current_files is not None
+            and cached_data.get('files') == current_files
+        ):
+          logger.info('ToolsCache hit: %s', self._cache_file)
+          return cached_data.get('tools')
+        else:
+          logger.info(
+              'ToolsCache invalid: file states differ %s', self._cache_file
+          )
+          self.invalidate()
+      else:
+        logger.info('ToolsCache invalid: version mismatch %s', self._cache_file)
+        self.invalidate()
+    except (OSError, json.JSONDecodeError) as e:
+      logger.warning(
+          'Error reading or validating cache file: %s, regenerating...', e
+      )
+      self.invalidate()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logger.exception('Unexpected error during cache load: %s', e)
+      self.invalidate()
+    return None
+
+  def save(self, tools: List[str]) -> None:
+    """Saves the list of tools and the current file states to the cache file."""
+    try:
+      current_files_for_cache = self._get_current_xplane_file_states()
+      if current_files_for_cache is not None:
+        new_cache_data = {
+            'version': self.CACHE_VERSION,
+            'files': current_files_for_cache,
+            'tools': tools,
+        }
+        try:
+          with self._cache_file.open('w') as f:
+            json.dump(new_cache_data, f)
+          logger.info('ToolsCache saved: %s', self._cache_file)
+        except (OSError, TypeError) as e:
+          logger.warning('Error writing cache file: %s', e)
+      else:
+        logger.info(
+            'ToolsCache not saved: could not get file states %s',
+            self._cache_file,
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logger.exception('Unexpected error during cache save: %s', e)
+
+  def invalidate(self) -> None:
+    """Deletes the cache file."""
+    try:
+      if self._cache_file.exists():
+        self._cache_file.unlink()
+        logger.info('ToolsCache invalidated: %s', self._cache_file)
+    except OSError as e:
+      logger.warning('Error removing cache file: %s', e)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logger.exception('Unexpected error during cache invalidate: %s', e)
+
+
 class _TfProfiler:
   """A helper class to encapsulate all TensorFlow-dependent profiler logic."""
 
@@ -1188,19 +1319,36 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
   def generate_tools_of_run(self, run: str) -> Iterator[str]:
     """Generate a list of tools given a certain run."""
-    profile_run_dir = self._run_to_profile_run_dir[run]
-    if epath.Path(profile_run_dir).is_dir():
-      try:
-        filenames = epath.Path(profile_run_dir).iterdir()
-      except OSError as e:
-        logger.warning('Cannot read asset directory: %s, NotFoundError %s',
-                       profile_run_dir, e)
-        filenames = []
-      if filenames:
-        for tool in self._get_active_tools(
-            [name.name for name in filenames], profile_run_dir
-        ):
-          yield tool
+    profile_run_dir = epath.Path(self._run_to_profile_run_dir[run])
+    cache = ToolsCache(profile_run_dir)
+
+    cached_tools = cache.load()
+
+    if cached_tools is not None:
+      for tool in cached_tools:
+        yield tool
+      return
+
+    # Cache is invalid or doesn't exist, regenerate
+    tools = []
+    if not profile_run_dir.is_dir():
+      logger.warning('Profile run directory not found: %s', profile_run_dir)
+      return tools
+
+    try:
+      all_filenames = [f.name for f in profile_run_dir.iterdir()]
+    except OSError as e:
+      logger.warning(
+          'Cannot read asset directory: %s, Error %s', profile_run_dir, e
+      )
+      return tools
+
+    if all_filenames:
+      tools = self._get_active_tools(all_filenames, str(profile_run_dir))
+      cache.save(tools)
+
+    for tool in tools:
+      yield tool
 
   def _get_active_tools(self, filenames, profile_run_dir=''):
     """Get a list of tools available given the filenames created by profiler.

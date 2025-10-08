@@ -24,6 +24,7 @@ export class CaptureProfileDialog {
   deviceTracerLevel = '1';
   pythonTracerLevel = '0';
   delay = 0;
+  extraOptions: Array<{key: string, value: string}> = [];
 
   constructor(private readonly dialogRef:
                   MatDialogRef<CaptureProfileDialog>) {}
@@ -47,10 +48,19 @@ export class CaptureProfileDialog {
       deviceTracerLevel: Number(this.deviceTracerLevel),
       pythonTracerLevel: Number(this.pythonTracerLevel),
       delay: this.delay,
+      extraOptions: this.extraOptions,
     });
   }
 
   close() {
     this.dialogRef.close();
+  }
+
+  addExtraOption() {
+    this.extraOptions.push({key: '', value: ''});
+  }
+
+  removeExtraOption(index: number) {
+    this.extraOptions.splice(index, 1);
   }
 }

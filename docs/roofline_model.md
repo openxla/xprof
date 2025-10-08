@@ -1,16 +1,16 @@
-## Roofline Analysis Tool
+## Roofline Model Tool
 
-The Roofline Analysis tool offers an intuitive visual performance model that you
+The Roofline Model tool offers an intuitive visual performance model that you
 can use to understand the inherent hardware limitations impacting your program’s
 performance. Specifically, it focuses on whether the program is memory-bound or
 compute-bound, and how close the program's performance is to the hardware's
 theoretical peak performance, represented as a "roofline".
 
+![Roofline Analysis tool](images/roofline_1.png)
+
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Supported (in beta)
+Both TPU and GPU are supported, with GPU support in beta.
 
 ### What is the Roofline Chart
 
@@ -55,40 +55,49 @@ can gain insights into performance bottlenecks:
 
 The Roofline Analysis tool interface has several key components:
 
-*   A Device Information section describes the hardware specs; these are
+*   **Device Information**: A section describes the hardware specs; these are
     used to statically draw the “roofline(s)” on the chart
-*   A program-level roofline chart with data points corresponding to the
-    following:
-    *   The total profile duration.
-    *   The total profile duration, but with FLOPS/s data derived from hardware
-        performance counters rather than the default cost models computed by the
-        XLA compiler.
-    *   An average of the complete steps that executed during the profile
-        duration (for training jobs; you may ignore the step terminology for
-        inference jobs).
-    *   Each complete step that executed during the profile duration (for
-        training jobs; you may ignore the step terminology for inference jobs).
-*   The roofline chart also has the following features:
-    *   You may choose to include or exclude infeed/outfeed ops using the
-        provided drop-down.
-    *   Hovering over any of the data points in the chart brings up additional
-        pertinent information such as bandwidth numbers for different memories,
-        total time spent, etc.
-*   A program-level statistics table that provides additional details for each
-    data point, such as the max memory utilization %, peak FLOP rate %, etc.
-*   A second roofline chart that provides more granular information, with data
-    points plotted for the top-1000 most time-consuming ops during the profiling
-    period:
-    *   As with the program-level roofline chart, hovering over each data point
-        brings up additional information about that op.
-    *   You can customize the data points shown on the chart in the following
-        ways:
-        *   Including/excluding infeed and outfeed ops via a drop-down.
-        *   Filtering for specific categories of operations.
-        *   Filtering for ops bound by a certain resource.
-        *   Filtering for a specific named operation.
-*   A second statistics table, similar to the program-level table, providing
-    additional details for each data point.
+*   **Section 1: Program-Level Analysis:**
+    * A program-level roofline chart with data points corresponding to the
+      following:
+        *   The total profile duration.
+        *   The total profile duration, but with FLOPS/s data derived from
+            hardware performance counters rather than the default cost models
+            computed by the XLA compiler.
+        *   An average of the complete steps that executed during the profile
+            duration (for training jobs; you may ignore the step terminology for
+            inference jobs).
+        *   Each complete step that executed during the profile duration (for
+            training jobs; you may ignore the step terminology for inference
+            jobs).
+    *   The roofline chart also has the following features:
+        *   You may choose to include or exclude infeed/outfeed ops using the
+            provided drop-down.
+        *   Hovering over any of the data points in the chart brings up
+            additional pertinent information such as bandwidth numbers for
+            different memories, total time spent, etc.
+    *   A program-level statistics table that provides additional details for
+        each data point, such as the max memory utilization %, peak FLOP rate %, etc.
+
+    ![Roofline Analysis table](images/roofline_3.png)
+
+*   **Section 2: Operation-Level Analysis:**
+    * A second roofline chart that provides more granular information, with data
+      points plotted for the top-1000 most time-consuming ops during the
+      profiling period:
+        *   As with the program-level roofline chart, hovering over each data point
+            brings up additional information about that op.
+        *   You can customize the data points shown on the chart in the following
+            ways:
+            *   Including/excluding infeed and outfeed ops via a drop-down.
+            *   Filtering for specific categories of operations.
+            *   Filtering for ops bound by a certain resource.
+            *   Filtering for a specific named operation.
+
+    ![Roofline Operation-level analysis chart](images/roofline_2.png)
+
+    *   A second statistics table, similar to the program-level table, providing
+        additional details for each data point.
 
 Across all the sections described above, the following memories are supported:
 

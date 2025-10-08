@@ -372,4 +372,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
   openUtilizationGraphviz(sessionId: string) {
     return;
   }
+
+  getDataInternal(
+      sessionId: string,
+      tool: string,
+      host?: string,
+      parameters?: Map<string, string>,
+      ignoreError = false,
+      ): Observable<DataTable|null> {
+    return of(null);
+  }
 }

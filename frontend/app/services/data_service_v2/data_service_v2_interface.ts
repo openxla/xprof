@@ -100,6 +100,13 @@ export interface DataServiceV2Interface {
   disableCacheRegeneration(): void;
 
   openUtilizationGraphviz(sessionId: string): void;
+  getDataInternal(
+      sessionId: string,
+      tool: string,
+      host?: string,
+      parameters?: Map<string, string>,
+      ignoreError?: boolean,
+      ): Observable<DataTable|null>;
 }
 
 /** Injection token for the data service interface. */

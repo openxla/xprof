@@ -1,0 +1,33 @@
+<div class="section-container">
+  <div class="row">
+    <div>
+      <category-filter [dataTable]="dataTable" column="Host" (changed)="updateFilters($event)">
+      </category-filter>
+      <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)">
+      </category-filter>
+      <category-filter [dataTable]="dataTable" column="Sample" (changed)="updateFilters($event)">
+      </category-filter>
+    </div>
+    <div class="flex-space"></div>
+    <export-as-csv [tool]="tool" [sessionId]="sessionId"></export-as-csv>
+    <view-architecture [sessionId]="sessionId"></view-architecture>
+  </div>
+</div>
+<!-- dummy chart node to initialize gviz in chart  -->
+<chart [chartType]="ChartType.BAR_CHART" style="display:none;"></chart>
+<div class="section-container">
+  <div class="row" *ngFor="let index of coreIndexes">
+    <div class="bar-chart">
+      <div class="mat-title">Tensor Node {{ index }} - Unit Utilization</div>
+      <chart [chartType]="ChartType.BAR_CHART" [dataInfo]="dataInfoTensorNodesUnit[index]"></chart>
+    </div>
+  </div>
+</div>
+<div class="section-container">
+  <div class="row" *ngFor="let index of coreIndexes">
+    <div class="bar-chart">
+      <div class="mat-title">Tensor Node {{ index }} - Bandwidth Utilization</div>
+      <chart [chartType]="ChartType.BAR_CHART" [dataInfo]="dataInfoTensorNodesBandwidth[index]"></chart>
+    </div>
+  </div>
+</div>

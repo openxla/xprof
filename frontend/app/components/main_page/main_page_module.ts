@@ -36,6 +36,8 @@ import {StackTracePage} from 'org_xprof/frontend/app/components/stack_trace_page
 import {StackTracePageModule} from 'org_xprof/frontend/app/components/stack_trace_page/stack_trace_page_module';
 import {TraceViewer} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer';
 import {TraceViewerModule} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer_module';
+import {UtilizationViewer} from 'org_xprof/frontend/app/components/utilization_viewer/utilization_viewer';
+import {UtilizationViewerModule} from 'org_xprof/frontend/app/components/utilization_viewer/utilization_viewer_module';
 
 import {MainPage} from './main_page';
 
@@ -57,6 +59,7 @@ export const routes: Routes = [
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
   {path: 'roofline_model', component: RooflineModel},
+  {path: 'utilization_viewer', component: UtilizationViewer},
   {path: 'stack_trace_page/:sessionId', component: StackTracePage},
   {path: '**', component: EmptyPage},
 ];
@@ -89,6 +92,7 @@ export const routes: Routes = [
     DiagnosticsViewModule,
     RouterModule.forRoot(routes),
     StackTracePageModule,
+    UtilizationViewerModule,
   ],
   exports: [MainPage]
 })

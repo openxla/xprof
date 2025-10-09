@@ -7,7 +7,7 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A memory viewer component. */
@@ -43,10 +43,13 @@ export class MemoryViewer implements OnDestroy {
       route: ActivatedRoute,
       private readonly store: Store<{}>,
   ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.load();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQuery(queryParams);
+          this.load();
+        });
     this.store.dispatch(
         setCurrentToolStateAction({currentTool: 'memory_viewer'}),
     );
@@ -56,7 +59,8 @@ export class MemoryViewer implements OnDestroy {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;
-    this.selectedModule = params['moduleName'] || this.selectedModule;
+    this.selectedModule =
+        params['moduleName'] || params['module_name'] || this.selectedModule;
   }
 
   load() {

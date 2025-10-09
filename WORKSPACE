@@ -34,55 +34,12 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "a106290c8a1f522d57feed0be31496c571c2a50545cc92a1cdb32aef2309270b",
-    strip_prefix = "xla-845061f0e1162559fabf5dc6555b85a31bd96cb9",
+    sha256 = "4bba56e2f4e7f13b398d120bdd994d322d9efd9f289e3b08e6cefd89adf4b1a2",
+    strip_prefix = "xla-b4c5bd66d29ce39af01679994552fca2af8b4df2",
     urls = [
-        "https://github.com/openxla/xla/archive/845061f0e1162559fabf5dc6555b85a31bd96cb9.zip",
+        "https://github.com/openxla/xla/archive/b4c5bd66d29ce39af01679994552fca2af8b4df2.zip",
     ],
 )
-
-load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
-
-python_init_rules()
-
-load("@xla//third_party/py:python_init_repositories.bzl", "python_init_repositories")
-
-python_init_repositories(
-    default_python_version = HERMETIC_PYTHON_VERSION,
-    requirements = {
-        "3.9": "//:requirements_lock_3_9.txt",
-        "3.10": "//:requirements_lock_3_10.txt",
-        "3.11": "//:requirements_lock_3_11.txt",
-        "3.12": "//:requirements_lock_3_12.txt",
-        "3.13": "//:requirements_lock_3_13.txt",
-    },
-)
-
-load("@xla//tools/toolchains/python:python_repo.bzl", "python_repository")
-
-python_repository(name = "python_version_repo")
-
-load("@xla//third_party/py:python_init_toolchains.bzl", "python_init_toolchains")
-
-python_init_toolchains()
-
-load("@python_version_repo//:py_version.bzl", "REQUIREMENTS_WITH_LOCAL_WHEELS")
-load("@rules_python//python:pip.bzl", "pip_parse")
-
-pip_parse(
-    name = "pypi",
-    experimental_requirement_cycles = {
-        "fsspec": [
-            "fsspec",
-            "gcsfs",
-        ],
-    },
-    requirements_lock = REQUIREMENTS_WITH_LOCAL_WHEELS,
-)
-
-load("@pypi//:requirements.bzl", "install_deps")
-
-install_deps()
 
 # Initialize XLA's external dependencies.
 load("@xla//:workspace4.bzl", "xla_workspace4")
@@ -92,18 +49,6 @@ xla_workspace4()
 load("@xla//:workspace3.bzl", "xla_workspace3")
 
 xla_workspace3()
-
-load("@xla//:workspace2.bzl", "xla_workspace2")
-
-xla_workspace2()
-
-load("@xla//:workspace1.bzl", "xla_workspace1")
-
-xla_workspace1()
-
-load("@xla//:workspace0.bzl", "xla_workspace0")
-
-xla_workspace0()
 
 # Toolchains for ML projects
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
@@ -126,6 +71,63 @@ cc_toolchain_deps()
 register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64")
 
 register_toolchains("@rules_ml_toolchain//cc:linux_x86_64_linux_x86_64_cuda")
+
+load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
+
+python_init_rules()
+
+load("@xla//third_party/py:python_init_repositories.bzl", "python_init_repositories")
+
+python_init_repositories(
+    default_python_version = HERMETIC_PYTHON_VERSION,
+    requirements = {
+        "3.9": "//:requirements_lock_3_9.txt",
+        "3.10": "//:requirements_lock_3_10.txt",
+        "3.11": "//:requirements_lock_3_11.txt",
+        "3.12": "//:requirements_lock_3_12.txt",
+        "3.13": "//:requirements_lock_3_13.txt",
+    },
+)
+
+load("@xla//third_party/py:python_init_toolchains.bzl", "python_init_toolchains")
+
+python_init_toolchains()
+
+load("@python//:defs.bzl", "interpreter")
+load("@python_version_repo//:py_version.bzl", "REQUIREMENTS_WITH_LOCAL_WHEELS")
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "pypi",
+    experimental_requirement_cycles = {
+        "fsspec": [
+            "fsspec",
+            "gcsfs",
+        ],
+    },
+    python_interpreter_target = interpreter,
+    requirements_lock = REQUIREMENTS_WITH_LOCAL_WHEELS,
+)
+
+load("@pypi//:requirements.bzl", "install_deps")
+
+install_deps()
+
+load("@xla//tools/toolchains/python:python_repo.bzl", "python_repository")
+
+python_repository(name = "python_version_repo")
+
+load("@xla//:workspace2.bzl", "xla_workspace2")
+
+xla_workspace2()
+
+load("@xla//:workspace1.bzl", "xla_workspace1")
+
+xla_workspace1()
+
+load("@xla//:workspace0.bzl", "xla_workspace0")
+
+xla_workspace0()
 
 load(
     "@xla//third_party/py:python_wheel.bzl",

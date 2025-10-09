@@ -1,5 +1,5 @@
+load("@python//:defs.bzl", "compile_pip_requirements")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
-load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 
 # Description
 # XProf, ML Performance Toolbox (for TPU, GPU, CPU).

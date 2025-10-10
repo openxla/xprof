@@ -134,10 +134,9 @@ export class DeviceSideAnalysisDetail implements OnChanges {
       width: 820,
       height: 300,
       legend: 'none',
-      lineWidth: 1,
-      colors: ['none'],
+      lineWidth: 2,
       backgroundColor: {fill: 'transparent'},
-      intervals: {style: 'boxes', color: 'red'},
+      intervals: {style: 'boxes', color: 'red', lineWidth: 4},
     },
   };
 

@@ -59,8 +59,9 @@ export class Chart implements OnChanges, OnInit {
         processedData ? processedData.getNumberOfRows() : 0);
   }
 
-  getProcessedData(customChartDataProcessor: CustomChartDataProcessor|
-                   undefined): DataTableOrDataView|null {
+  getProcessedData(
+      customChartDataProcessor: CustomChartDataProcessor|
+      undefined): DataTableOrDataView|null {
     if (!this.dataInfo || !this.dataInfo.dataProvider) {
       return null;
     }
@@ -79,7 +80,7 @@ export class Chart implements OnChanges, OnInit {
       }, 100);
     }
 
-    google.charts.safeLoad({'packages': ['corechart', 'table']});
+    google.charts.safeLoad({'packages': ['corechart', 'table', 'line']});
     google.charts.setOnLoadCallback(() => {
       this.initChart();
       this.initDataProvider();

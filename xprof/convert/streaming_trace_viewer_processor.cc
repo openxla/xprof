@@ -67,65 +67,69 @@ absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
 
 absl::Status StreamingTraceViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
-        "Trace events tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
-  }
-
-  google::protobuf::Arena arena;
-  TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
-  PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                             /*derived_timeline=*/true);
-
+  TraceEventsContainer merged_trace_container;
   std::string tool_name = "trace_viewer@";
-  std::string trace_viewer_json;
 
-  std::string host_name = session_snapshot.GetHostname(0);
-  auto sstable_path = session_snapshot.GetFilePath(tool_name, host_name);
-  if (!sstable_path) {
-    return tsl::errors::Unimplemented(
-        "streaming trace viewer hasn't been supported in Cloud AI");
-  }
-  if (!tsl::Env::Default()->FileExists(*sstable_path).ok()) {
-    ProcessMegascaleDcn(xspace);
-    TraceEventsContainer trace_container;
-    ConvertXSpaceToTraceEventsContainer(host_name, *xspace, &trace_container);
-    std::unique_ptr<tsl::WritableFile> file;
-    TF_RETURN_IF_ERROR(
-        tsl::Env::Default()->NewWritableFile(*sstable_path, &file));
-    TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTable(std::move(file)));
-  }
   TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
                       GetTraceViewOption(options));
   tensorflow::profiler::TraceOptions profiler_trace_options =
       TraceOptionsFromToolOptions(options);
-  auto visibility_filter = std::make_unique<TraceVisibilityFilter>(
-      tsl::profiler::MilliSpan(trace_option.start_time_ms,
-                               trace_option.end_time_ms),
-      trace_option.resolution, profiler_trace_options);
-  TraceEventsContainer trace_container;
-  // Trace smaller than threshold will be disabled from streaming.
-  constexpr int64_t kDisableStreamingThreshold = 500000;
-  auto trace_events_filter =
-      CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);
-  TraceEventsLevelDbFilePaths file_paths;
-  file_paths.trace_events_file_path = *sstable_path;
-  TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
-      file_paths, std::move(trace_events_filter), std::move(visibility_filter),
-      kDisableStreamingThreshold));
+
+  // TODO: b/452217676 - Optimize this to process hosts in parallel.
+  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
+    int host_id = i+1;
+    google::protobuf::Arena arena;
+    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
+    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                               /*derived_timeline=*/true);
+
+    std::string host_name = session_snapshot.GetHostname(i);
+    auto sstable_path = session_snapshot.GetFilePath(tool_name, host_name);
+    if (!sstable_path) {
+      return tsl::errors::Unimplemented(
+          "streaming trace viewer hasn't been supported in Cloud AI");
+    }
+    if (!tsl::Env::Default()->FileExists(*sstable_path).ok()) {
+      ProcessMegascaleDcn(xspace);
+      TraceEventsContainer trace_container;
+      ConvertXSpaceToTraceEventsContainer(host_name, *xspace,
+                                          &trace_container);
+      std::unique_ptr<tsl::WritableFile> file;
+      TF_RETURN_IF_ERROR(
+          tsl::Env::Default()->NewWritableFile(*sstable_path, &file));
+      TF_RETURN_IF_ERROR(trace_container.StoreAsLevelDbTable(std::move(file)));
+    }
+
+    auto visibility_filter = std::make_unique<TraceVisibilityFilter>(
+        tsl::profiler::MilliSpan(trace_option.start_time_ms,
+                                 trace_option.end_time_ms),
+        trace_option.resolution, profiler_trace_options);
+    TraceEventsContainer trace_container;
+    // Trace smaller than threshold will be disabled from streaming.
+    constexpr int64_t kDisableStreamingThreshold = 500000;
+    auto trace_events_filter =
+        CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);
+    TraceEventsLevelDbFilePaths file_paths;
+    file_paths.trace_events_file_path = *sstable_path;
+    TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
+        file_paths, std::move(trace_events_filter),
+        std::move(visibility_filter), kDisableStreamingThreshold));
+    merged_trace_container.Merge(std::move(trace_container), host_id);
+  }
+
+  std::string trace_viewer_json;
   JsonTraceOptions json_trace_options;
 
   tensorflow::profiler::TraceDeviceType device_type =
       tensorflow::profiler::TraceDeviceType::kUnknownDevice;
-  if (IsTpuTrace(trace_container.trace())) {
+  if (IsTpuTrace(merged_trace_container.trace())) {
     device_type = TraceDeviceType::kTpu;
   }
   json_trace_options.details =
       TraceOptionsToDetails(device_type, profiler_trace_options);
   IOBufferAdapter adapter(&trace_viewer_json);
   TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
-      json_trace_options, trace_container, &adapter);
+      json_trace_options, merged_trace_container, &adapter);
 
   SetOutput(trace_viewer_json, "application/json");
   return absl::OkStatus();

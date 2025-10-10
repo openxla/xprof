@@ -32,10 +32,17 @@
 
 <div class="item-container">
   <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
-    Hosts ({{hosts.length}})
+    Hosts ({{ isMultiHostsEnabled ? selectedHostsInternal.length : hosts.length }})
   </div>
   <mat-form-field class="full-width" appearance="outline">
-    <mat-select panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
+    <!-- Multi-host select -->
+    <mat-select *ngIf="isMultiHostsEnabled" panelClass="panel-override" [value]="selectedHostsInternal" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" multiple>
+      <mat-option *ngFor="let host of hosts" [value]="host">
+        {{host}}
+      </mat-option>
+    </mat-select>
+    <!-- Single-host select -->
+    <mat-select *ngIf="!isMultiHostsEnabled" panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
       <mat-option *ngFor="let host of hosts" [value]="host">
         {{host}}
       </mat-option>

@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "google/protobuf/any.pb.h"
@@ -56,8 +57,9 @@ PerCoreAllReduceBreakdown ComputePerStepAllReduceBreakdownAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map);
 
 // Computes the fields in PerStepData by considering the different StepInfos
-// of the same step across cores.
-PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
+// of the same step across cores. If the step is not valid (only has SC modules)
+// returns std::nullopt.
+std::optional<PerTpuStepDetails> ComputeTpuPerStepDataAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map,
     const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map);

@@ -665,14 +665,22 @@ InputPipelineAnalysisResult ComputeTpuInputPipelineAnalysisResult(
   tsl::Stat<double> infeed_summary_stats_in_percent;
   for (const auto& coreid_stepinfo_map : grouped_by_step) {
     // Compute each TPU step stats.
-    const PerTpuStepDetails& per_step_data =
+    const std::optional<PerTpuStepDetails> per_step_data =
         ComputeTpuPerStepDataAcrossCores(coreid_stepinfo_map, core_details_map);
-    result.add_step_details()->PackFrom(per_step_data);
+    // TODO b/441117637 - this is a temporary fix to avoid skewing the avg tc
+    // time with incorrect sc module times. This will be a no-op and should be
+    // cleaned with the fix in the bug.
+    if (!per_step_data.has_value()) {
+      VLOG(3) << "Skipping step with no tc step data "
+                   << coreid_stepinfo_map.step_num();
+      continue;
+    }
+    result.add_step_details()->PackFrom(*per_step_data);
 
     // The infeed summary is based on the maximum infeed time across cores at
     // each step.
     infeed_summary_stats_in_percent.UpdateStat(
-        per_step_data.infeed_percent_maximum());
+        per_step_data->infeed_percent_maximum());
   }
 
   // Computes the summary of infeed time as percentage of step time.
@@ -883,7 +891,7 @@ class MinMap {
 
 }  // namespace
 
-PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
+std::optional<PerTpuStepDetails> ComputeTpuPerStepDataAcrossCores(
     const PerCoreStepInfo& coreid_stepinfo_map,
     const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
         core_details_map) {
@@ -915,6 +923,7 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
   // synchronization time.
   AllReduceBreakdown max_all_reduce;
 
+  bool has_valid_tc_data = false;
   per_step_data.set_step_number(-1);
   auto process_step_for_sc =
       [&](const tensorflow::profiler::StepInfoResult& step_info,
@@ -959,7 +968,7 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
                         "GenericStepBreakdown or SparseCoreStepBreakdown";
           // TODO(b/302086111): Switch back to DFATAL once absl is updated.
           DCHECK(false);
-          return per_step_data;
+          return std::nullopt;
         }
       }
       if (core_id >= kSparseCoreIndexStart) {
@@ -982,7 +991,10 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
         // Tensor core step breakdown from xspace.
         ConvertGenericStepBreakdownToTpuStepBreakdown(
             generic_step_breakdown, step_info.duration_ps(), tpu);
+        has_valid_tc_data = true;
       }
+    } else {
+      has_valid_tc_data = true;
     }
     step_stats_in_ps.UpdateStat(step_info.duration_ps());
     if (tpu.wait_for_scv0_duration_ps() > max_wait_for_scv0.DurationPs()) {
@@ -1010,6 +1022,9 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
       max_infeed.core_id = core_id;
       max_infeed.duration_ps = tpu.infeed_duration_ps();
     }
+  }
+  if (!has_valid_tc_data) {
+    return std::nullopt;
   }
 
   per_step_data.set_tc_outfeed_time_ms(
@@ -1151,9 +1166,12 @@ void MayFixTpuStepAnalysis(
     if (total_input_ps == 0) {
       continue;  // no host input events.
     }
-    PerTpuStepDetails tpu_step_data =
+    std::optional<PerTpuStepDetails> tpu_step_data =
         ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
-    double tc_idle_ms = tpu_step_data.tc_idle_time_ms();
+    if (!tpu_step_data.has_value()) {
+      continue;
+    }
+    double tc_idle_ms = tpu_step_data->tc_idle_time_ms();
     double adjusted_input_ratio =
         std::min(tsl::profiler::SafeDivide(
                      tsl::profiler::PicoToMilli(total_input_ps), tc_idle_ms),
@@ -1402,16 +1420,20 @@ StepSummary ComputeStepTimeSummaryInMs(
   // iterates over each step.
   for (const auto& coreid_stepinfo_map : grouped_by_step) {
     double max_per_step_stats_in_ms = 0.0;
+    bool has_tc_data = false;
     // iterates over each core.
     for (const auto& coreid_and_stepinfo :
          coreid_stepinfo_map.step_info_per_core()) {
       if (coreid_and_stepinfo.first >= kSparseCoreIndexStart) continue;
+      has_tc_data = true;
       const auto& step_info = coreid_and_stepinfo.second;
       max_per_step_stats_in_ms = std::max(step_info.duration_ps() / kNumPsPerMs,
                                           max_per_step_stats_in_ms);
     }
-    // Step time of each step is determined by the slowest core.
-    total_step_stats_in_ms.UpdateStat(max_per_step_stats_in_ms);
+    if (has_tc_data) {
+      // Step time of each step is determined by the slowest core.
+      total_step_stats_in_ms.UpdateStat(max_per_step_stats_in_ms);
+    }
   }
 
   return GetStepSummaryForSampleStats(total_step_stats_in_ms);

@@ -315,6 +315,7 @@ class JsonEventWriter {
         entry_values.push_back(GetArgValue(arg));
       }
     }
+    if (entry_values.empty()) return;
     output_->Append(absl::StrFormat(R"([%.17g,%s])",
                                     PicosToMicros(event.timestamp_ps()),
                                     absl::StrJoin(entry_values, ",")));

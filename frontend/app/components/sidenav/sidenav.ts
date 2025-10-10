@@ -32,6 +32,7 @@ export class SideNav implements OnInit, OnDestroy {
   selectedRunInternal = '';
   selectedTagInternal = '';
   selectedHostInternal = '';
+  selectedHostsInternal: string[] = [];
   selectedModuleInternal = '';
   navigationParams: {[key: string]: string|boolean} = {};
 
@@ -63,6 +64,11 @@ export class SideNav implements OnInit, OnDestroy {
 
   get is_hlo_tool() {
     return HLO_TOOLS.includes(this.selectedTag);
+  }
+
+  get isTraceViewerSelected() {
+    const tag = this.selectedTag || '';
+    return tag === 'trace_viewer' || tag === 'trace_viewer@';
   }
 
   // Getter for valid run given url router or user selection.
@@ -119,20 +125,25 @@ export class SideNav implements OnInit, OnDestroy {
     const run = params.get('run') || '';
     const tag = params.get('tool') || params.get('tag') || '';
     const host = params.get('host') || '';
+    const hostsParam = params.get('hosts');
     const opName = params.get('node_name') || params.get('opName') || '';
     const moduleName = params.get('module_name') || '';
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;
     }
-    if (this.selectedRunInternal === run && this.selectedTagInternal === tag &&
-        this.selectedHostInternal === host) {
-      return;
-    }
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
-    this.selectedHostInternal = host;
     this.selectedModuleInternal = moduleName;
+
+    const isTraceViewer = tag === 'trace_viewer' || tag === 'trace_viewer@';
+    if (isTraceViewer) {
+      if (hostsParam) {
+        this.selectedHostsInternal = hostsParam.split(',');
+      }
+    } else {
+      this.selectedHostInternal = host;
+    }
     this.update();
   }
 
@@ -153,9 +164,13 @@ export class SideNav implements OnInit, OnDestroy {
     const navigationEvent: NavigationEvent = {
       run: this.selectedRun,
       tag: this.selectedTag,
-      host: this.selectedHost,
       ...this.navigationParams,
     };
+    if (this.isTraceViewerSelected) {
+      navigationEvent.hosts = this.selectedHostsInternal;
+    } else {
+      navigationEvent.host = this.selectedHost;
+    }
     if (this.is_hlo_tool) {
       navigationEvent.moduleName = this.selectedModule;
     }
@@ -244,6 +259,8 @@ export class SideNav implements OnInit, OnDestroy {
 
   onTagSelectionChange(tag: string) {
     this.selectedTagInternal = tag;
+    this.selectedHostsInternal = [];  // Reset multi-host selection
+    this.selectedHostInternal = '';   // Reset single-host selection
     this.afterUpdateTag();
   }
 
@@ -255,6 +272,15 @@ export class SideNav implements OnInit, OnDestroy {
   // Keep them under the same update function as initial step of the separation.
   async updateHosts() {
     this.hosts = await this.getHostsForSelectedTag();
+    if (this.isTraceViewerSelected) {
+      if (this.selectedHostsInternal.length === 0 && this.hosts.length > 0) {
+        this.selectedHostsInternal = [this.hosts[0]];
+      }
+    } else {
+      if (!this.selectedHostInternal && this.hosts.length > 0) {
+        this.selectedHostInternal = this.hosts[0];
+      }
+    }
     if (this.is_hlo_tool) {
       this.moduleList = await this.getModuleListForSelectedTag();
     }
@@ -262,8 +288,14 @@ export class SideNav implements OnInit, OnDestroy {
     this.afterUpdateHost();
   }
 
-  onHostSelectionChange(host: string) {
-    this.selectedHostInternal = host;
+  onHostSelectionChange(selection: string) {
+    this.selectedHostInternal = selection;
+    this.navigateTools();
+  }
+
+  onHostsSelectionChange(selection: string[]) {
+    this.selectedHostsInternal =
+        Array.isArray(selection) ? selection : [selection];
     this.navigateTools();
   }
 
@@ -277,25 +309,42 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   updateUrlHistory() {
-    // TODO(xprof): change to camel case when constructing url
-    const toolQueryParams = Object.keys(this.navigationParams)
-                                .map(key => {
-                                  return `${key}=${this.navigationParams[key]}`;
-                                })
-                                .join('&');
-    const toolQueryParamsString =
-        toolQueryParams.length ? `&${toolQueryParams}` : '';
-    const moduleNameQuery =
-        this.is_hlo_tool ? `&module_name=${this.selectedModule}` : '';
-    const url = `${window.parent.location.origin}?tool=${
-        this.selectedTag}&host=${this.selectedHost}&run=${this.selectedRun}${
-        toolQueryParamsString}${moduleNameQuery}#profile`;
+    console.log('updateUrlHistory called.');
+    const navigationEvent = this.getNavigationEvent();
+    const queryParams: {[key: string]: string|string[]|boolean|
+                        undefined} = {...navigationEvent};
+
+    if (this.isTraceViewerSelected) {
+      // For Trace Viewer, ensure 'hosts' is a comma-separated string in the URL
+      if (queryParams['hosts'] && Array.isArray(queryParams['hosts'])) {
+        queryParams['hosts'] = (queryParams['hosts'] as string[]).join(',');
+      }
+      delete queryParams['host'];  // Remove single host param
+    } else {
+      // For other tools, ensure 'host' is used
+      delete queryParams['hosts'];  // Remove multi-host param
+    }
+    const url = this.router.createUrlTree([], {queryParams}).toString();
     window.parent.history.pushState({}, '', url);
   }
 
   navigateTools() {
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
+
+    const queryParams: {[key: string]: string|string[]|boolean|
+                        undefined} = {...navigationEvent};
+
+    if (this.isTraceViewerSelected) {
+      if (queryParams['hosts'] && Array.isArray(queryParams['hosts'])) {
+        queryParams['hosts'] = (queryParams['hosts'] as string[]).join(',');
+      }
+      delete queryParams['host'];
+    } else {
+      delete queryParams['hosts'];
+    }
+    console.log('navigateTools: queryParams before navigation:', queryParams);
+
     this.router.navigate(
         [
           this.selectedTag || 'empty',
@@ -304,10 +353,10 @@ export class SideNav implements OnInit, OnDestroy {
         // TODO - b/401596855: Clean up query processing in tools component with
         // addition of the query params in navigation.
         {
-          queryParams: navigationEvent,
+          queryParams,
+          queryParamsHandling: 'merge',
         });
     delete this.navigationParams['firstLoad'];
-    this.updateUrlHistory();
   }
 
   update() {

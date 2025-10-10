@@ -47,6 +47,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xla/tsl/util/stats_calculator.h"
+#include "tsl/platform/cpu_info.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/xprof_thread_pool_executor.h"
 #include "xprof/utils/gpu_event_stats.h"
@@ -743,10 +744,21 @@ void GenerateDerivedTimeLines(
   if (host_plane) {
     DeriveEventsFromHostTrace(host_plane, group_metadata_map, device_planes);
   }
-  for (XPlane* plane : FindMutableTensorCorePlanes(space)) {
-    DeriveLinesFromStats(plane);
-    tsl::profiler::SortXPlane(plane);
+
+  std::vector<XPlane*> tensor_core_planes = FindMutableTensorCorePlanes(space);
+
+  int thread_pool_size = std::min(tsl::port::MaxParallelism(),
+                                  static_cast<int>(device_planes.size()));
+  auto plane_processing_executor = std::make_unique<XprofThreadPoolExecutor>(
+      "ProcessTensorCorePlanes", thread_pool_size);
+  // TODO(b/449633660) Analyze multi-threading inside DeriveLinesFromStats.
+  for (XPlane* plane : tensor_core_planes) {
+    plane_processing_executor->Execute([plane]() {
+      DeriveLinesFromStats(plane);
+      tsl::profiler::SortXPlane(plane);
+    });
   }
+  plane_processing_executor->JoinAll();
 }
 
 void DeriveLinesFromStats(XPlane* device_trace) {

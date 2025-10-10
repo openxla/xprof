@@ -103,6 +103,9 @@ OpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent);
 XEventsOpMetricsDbBuilder::OpKey GetOpKeyFromXEvent(
     const tsl::profiler::XEventVisitor& event);
 
+// Sets the aggregated dvfs time scale multiplier for OpMetricsDb.
+inline void SetAggDvfsTimeScaleMultiplier(OpMetricsDb& db);
+
 // Sets the total time for OpMetricsDb, ensuring idle time is not negative.
 inline void SetTotalTimePs(OpMetricsDb& db, uint64_t total_time_ps) {
   db.set_total_time_ps(std::max(db.total_op_time_ps(), total_time_ps));

@@ -604,6 +604,8 @@ class TraceEventsContainerBase {
   TraceEventsContainerBase(const TraceEventsContainerBase&) = delete;
   TraceEventsContainerBase& operator=(const TraceEventsContainerBase&) = delete;
 
+  void Merge(TraceEventsContainerBase&& other);
+
   // Creates a TraceEvent prefilled with the given values.
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,
                         uint32_t device_id, tsl::profiler::Timespan timespan,
@@ -949,6 +951,15 @@ class TraceEventsContainerBase {
     *copy = event;
     return copy;
   }
+
+  // Finds the maximum device ID currently used in this container.
+  uint32_t GetMaxDeviceId() const;
+
+  // Helper function to merge device and resource information.
+  void MergeDevices(const Trace& other_trace);
+
+  // Helper function to merge top-level trace metadata.
+  void MergeTrace(const Trace& other_trace);
 
   // Adds an event from arenas_ to events_by_device_.
   void AddArenaEvent(TraceEvent* event) {

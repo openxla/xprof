@@ -314,6 +314,7 @@ void XEventsOpMetricsDbBuilder::AddOpMetric(const OpMetrics& op_metrics,
 OpMetricsDb XEventsOpMetricsDbBuilder::Finalize(uint64_t total_time_ps) {
   OpMetricsDb db = Finalize();
   SetTotalTimePs(db, total_time_ps);
+  SetAggDvfsTimeScaleMultiplier(db);
   AddIdleOp(db);
   return db;
 }
@@ -506,6 +507,28 @@ std::vector<const OpMetrics*> GetRootOpMetricsFromDb(
     }
   }
   return root_op_metrics;
+}
+
+void SetAggDvfsTimeScaleMultiplier(OpMetricsDb& op_metrics_db) {
+  auto root_op_metrics = GetRootOpMetricsFromDb(op_metrics_db);
+  double total_time_ps = 0;
+  double total_normalized_time_ps = 0;
+  for (const OpMetrics* op_metric : root_op_metrics) {
+    // Exclude idle ops since they are artificially created and do not have
+    // a time scale multiplier.
+    if (IsIdleOp(*op_metric)) continue;
+    total_time_ps += op_metric->time_ps();
+    // use time_ps if normalized_time_ps is not set.
+    total_normalized_time_ps += op_metric->normalized_time_ps() > 0
+                                    ? op_metric->normalized_time_ps()
+                                    : op_metric->time_ps();
+  }
+  // op_metrics_db.set_root_op_total_time_ps(total_time_ps);
+  // op_metrics_db.set_root_op_total_normalized_time_ps(total_normalized_time_ps);
+  double multiplier = total_normalized_time_ps > 0 ? tsl::profiler::SafeDivide(
+      total_time_ps, total_normalized_time_ps) : 1.0;
+  LOG(INFO) << "multiplier: " << multiplier;
+  op_metrics_db.set_dvfs_time_scale_multiplier(multiplier);
 }
 
 }  // namespace profiler

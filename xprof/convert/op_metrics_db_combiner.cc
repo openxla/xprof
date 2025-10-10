@@ -136,6 +136,8 @@ void OpMetricsDbCombiner::Combine(const OpMetricsDb& src,
   dst->set_total_op_time_ps(src.total_op_time_ps() + dst->total_op_time_ps());
   dst->set_idle_time_ps(src.idle_time_ps() + dst->idle_time_ps());
   dst->set_busy_time_ps(src.busy_time_ps() + dst->busy_time_ps());
+  dst->set_normalized_total_op_time_ps(src.normalized_total_op_time_ps() +
+                                       dst->normalized_total_op_time_ps());
   CombinePrecisionStats(src.precision_stats(), dst->mutable_precision_stats());
 
   for (const auto& src_metrics : src.metrics_db()) {

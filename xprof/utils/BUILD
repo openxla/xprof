@@ -649,14 +649,14 @@ cc_library(
     deps = [
         ":backend_configs_proto_cc",
         "//third_party/llvm/llvm-project/mlir:IR",
-        "//third_party/protobuf/json",
-        "//third_party/protobuf/util:json_util",
-        "//util/task:status",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@tsl//tsl/platform:protobuf",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/pjrt:mlir_to_hlo",
         "@xla//xla/service/llvm_ir:llvm_util",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 

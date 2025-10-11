@@ -15,12 +15,14 @@ limitations under the License.
 
 #include "xprof/convert/graph_viewer_processor.h"
 
+#include <memory>
 #include <optional>
 #include <string>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
@@ -39,6 +41,9 @@ limitations under the License.
 #include "plugin/xprof/protobuf/roofline_model.pb.h"
 #include "plugin/xprof/protobuf/tf_data_stats.pb.h"
 #include "plugin/xprof/protobuf/tf_stats.pb.h"
+#include "xprof/utils/custom_call_utils.h"
+#include "xprof/utils/hlo_module_utils.h"
+#include "xprof/utils/hlo_proto_to_module.h"
 
 namespace xprof {
 
@@ -49,6 +54,7 @@ using ::tensorflow::profiler::GetHloProtoByModuleName;
 using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::GraphViewerParams;
 using ::tensorflow::profiler::kAdjacentNodes;
+using ::tensorflow::profiler::kCustomCallGraphTypeName;
 using ::tensorflow::profiler::kGraphTypeName;
 using ::tensorflow::profiler::ParseGraphViewerParams;
 using ::tensorflow::profiler::SessionSnapshot;
@@ -64,6 +70,16 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     return ConvertHloProtoToGraph(hlo_proto, params.node_name,
                                   params.graph_width, params.render_options,
                                   params.format);
+  } else if (params.type == kCustomCallGraphTypeName) {
+    TF_ASSIGN_OR_RETURN(
+        std::unique_ptr<xla::HloModule> hlo_module,
+        tensorflow::profiler::ConvertHloProtoToModule(hlo_proto));
+    const xla::HloInstruction* hlo_instruction =
+        tensorflow::profiler::FindInstruction(*hlo_module, params.node_name);
+    if (hlo_instruction == nullptr) {
+      return absl::InvalidArgumentError("Hlo Instruction not found.");
+    }
+    return GetCustomCallText(*hlo_instruction);
   } else if (params.type == kAdjacentNodes) {
     return GetAdjacentNodes(hlo_proto, params.node_name);
   } else {

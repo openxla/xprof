@@ -68,6 +68,16 @@
     >
       Merge Fusion
     </mat-checkbox>
+    <mat-checkbox
+      *ngIf="!isNewGraphViewer()"
+      [(ngModel)]="useOriginalHloProto"
+      (change)="onUseOriginalHloProtoChange($event.checked)"
+      name="useOriginalHloProto"
+      matTooltip="Use the original unoptimized HLO proto"
+      class="full-width"
+    >
+      Use Original HLO Proto
+    </mat-checkbox>
     <div class="actions">
       <button
         mat-flat-button

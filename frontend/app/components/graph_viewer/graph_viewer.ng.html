@@ -9,6 +9,7 @@
         (plot)="onSearchGraph($event)"
         (updateSelectedModule)="onModuleSelectionChange($event)"
         (updateGraphType)="onGraphTypeSelectionChange($event)"
+        (updateUseOriginalHloProtoChange)="onUseOriginalHloProtoChange($event)"
       ></graph-config>
       <div class="hlo-download">
         <download-hlo
@@ -35,6 +36,7 @@
         [sessionId]="sessionId"
         [moduleName]="selectedModule"
         [showMetadata]="showMetadata"
+        [useOriginalHloProto]="useOriginalHloProto"
       ></hlo-text-view>
     </div>
     <mat-expansion-panel class="stack-trace-snippet-panel" *ngIf="sourceCodeServiceIsAvailable">

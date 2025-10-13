@@ -30,7 +30,7 @@
   </mat-form-field>
 </div>
 
-<div class="item-container">
+<div class="item-container" *ngIf="!isTraceViewerSelected">
   <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
     Hosts ({{hosts.length}})
   </div>
@@ -39,6 +39,28 @@
       <mat-option *ngFor="let host of hosts" [value]="host">
         {{host}}
       </mat-option>
+    </mat-select>
+  </mat-form-field>
+</div>
+
+<div class="item-container" *ngIf="isTraceViewerSelected">
+  <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
+    Hosts ({{selectedHostsInternal.length}})
+  </div>
+  <mat-form-field class="full-width" appearance="outline">
+    <mat-select #multiSelectHost="matSelect" panelClass="multi-host-select-panel" [value]="selectedHostsPending" [disabled]="!hosts.length" (selectionChange)="onHostsSelectionChange($event.value)" multiple>
+
+      <div class="select-panel-content">
+        <mat-option *ngFor="let host of hosts" [value]="host">
+          {{host}}
+        </mat-option>
+
+        <div class="submit-button-container" (click)="$event.stopPropagation()">
+          <button mat-flat-button color="primary" class="full-width" (click)="onSubmitHosts(); multiSelectHost.close()">
+            Apply Host Selection
+          </button>
+        </div>
+      </div>
     </mat-select>
   </mat-form-field>
 </div>

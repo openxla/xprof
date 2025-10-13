@@ -5,6 +5,7 @@ export declare interface NavigationEvent {
   run?: string;
   tag?: string;
   host?: string;
+  hosts?: string[];
   // Graph Viewer crosslink params
   opName?: string;
   moduleName?: string;

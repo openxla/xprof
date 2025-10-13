@@ -16,17 +16,22 @@ limitations under the License.
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/internal/endian.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -76,6 +81,15 @@ void MaybeAddEventUniqueId(std::vector<TraceEvent*>& events) {
       serial = 0;
     }
     last_ts = event->timestamp_ps();
+  }
+}
+
+// Appends all events from src into dst.
+inline void AppendEvents(TraceEventTrack&& src, TraceEventTrack* dst) {
+  if (dst->empty()) {
+    *dst = std::move(src);
+  } else {
+    absl::c_move(src, std::back_inserter(*dst));
   }
 }
 
@@ -383,6 +397,88 @@ void PurgeIrrelevantEntriesInTraceNameTable(
   }
   trace.mutable_name_table()->swap(new_name_table);
 }
+
+template <typename EventFactory, typename RawData, typename Hash>
+uint32_t TraceEventsContainerBase<EventFactory, RawData, Hash>::GetMaxDeviceId()
+    const {
+  uint32_t max_id = 0;
+  for (const auto& [id, device] : trace_.devices()) {
+    max_id = std::max(max_id, id);
+  }
+  return max_id;
+}
+
+template <typename EventFactory, typename RawData, typename Hash>
+void TraceEventsContainerBase<EventFactory, RawData, Hash>::MergeTrace(
+    const Trace& other_trace) {
+  trace_.mutable_tasks()->insert(other_trace.tasks().begin(),
+                                 other_trace.tasks().end());
+  trace_.mutable_name_table()->insert(other_trace.name_table().begin(),
+                                      other_trace.name_table().end());
+  if (other_trace.has_min_timestamp_ps() &&
+      other_trace.has_max_timestamp_ps()) {
+    ExpandTraceSpan(TraceSpan(other_trace), &trace_);
+  }
+  trace_.set_num_events(trace_.num_events() + other_trace.num_events());
+}
+
+template <typename EventFactory, typename RawData, typename Hash>
+void TraceEventsContainerBase<EventFactory, RawData, Hash>::Merge(
+    TraceEventsContainerBase&& other) {
+  if (this == &other) return;
+  if (other.NumEvents() == 0 && other.trace().devices().empty()) return;
+
+  uint32_t next_available_device_id = GetMaxDeviceId() + 1;
+  absl::flat_hash_map<uint32_t, uint32_t> other_to_this_device_id_map;
+  auto& this_device_map = *trace_.mutable_devices();
+
+  // Merge devices and handle ID collisions
+  for (const auto& [other_id, other_device] : other.trace().devices()) {
+    uint32_t target_id = other_id;
+    if (this_device_map.contains(other_id)) {
+      target_id = next_available_device_id++;
+      LOG(INFO) << "Remapping device ID " << other_id << " to " << target_id
+                << " from host to avoid collision during merge.";
+    }
+    other_to_this_device_id_map[other_id] = target_id;
+
+    Device device_copy = other_device;
+    device_copy.set_device_id(target_id);
+
+    this_device_map.insert({target_id, device_copy});
+  }
+
+  // Merge events, remapping device IDs
+  other.ForAllMutableTracks([this, &other_to_this_device_id_map](
+                                uint32_t other_device_id,
+                                ResourceValue resource_id_or_counter_name,
+                                TraceEventTrack* track) {
+    uint32_t this_device_id = other_to_this_device_id_map.at(other_device_id);
+    for (TraceEvent* event : *track) {
+      event->set_device_id(this_device_id);
+    }
+    DeviceEvents& device = this->events_by_device_[this_device_id];
+    if (const uint64_t* resource_id =
+            std::get_if<uint64_t>(&resource_id_or_counter_name)) {
+      AppendEvents(std::move(*track), &device.events_by_resource[*resource_id]);
+    } else if (const absl::string_view* counter_name =
+                   std::get_if<absl::string_view>(
+                       &resource_id_or_counter_name)) {
+      AppendEvents(std::move(*track),
+                   &device.counter_events_by_name[*counter_name]);
+    }
+  });
+
+  MergeTrace(other.trace());
+  arenas_.insert(std::make_move_iterator(other.arenas_.begin()),
+                 std::make_move_iterator(other.arenas_.end()));
+  other.arenas_.clear();
+  other.events_by_device_.clear();
+  other.trace_.Clear();
+}
+
+// Explicit instantiations for the common case.
+template class TraceEventsContainerBase<EventFactory, RawData>;
 
 }  // namespace profiler
 }  // namespace tensorflow

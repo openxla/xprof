@@ -21,13 +21,13 @@ TEST(HloProtoMapTest, GetOriginalModuleList) {
   HloProtoMap hlo_proto_map;
   EXPECT_THAT(hlo_proto_map.GetOriginalModuleList(), IsEmpty());
 
-  auto hlo_module_1 = std::make_unique<xla::HloModuleProto>();
-  hlo_module_1->set_name("module1");
-  hlo_proto_map.AddOriginalHloProto(1, std::move(hlo_module_1));
+  auto hlo_proto_1 = std::make_unique<xla::HloProto>();
+  hlo_proto_1->mutable_hlo_module()->set_name("module1");
+  hlo_proto_map.AddOriginalHloProto(1, std::move(hlo_proto_1));
 
-  auto hlo_module_2 = std::make_unique<xla::HloModuleProto>();
-  hlo_module_2->set_name("module2");
-  hlo_proto_map.AddOriginalHloProto(2, std::move(hlo_module_2));
+  auto hlo_proto_2 = std::make_unique<xla::HloProto>();
+  hlo_proto_2->mutable_hlo_module()->set_name("module2");
+  hlo_proto_map.AddOriginalHloProto(2, std::move(hlo_proto_2));
 
   EXPECT_THAT(hlo_proto_map.GetOriginalModuleList(),
               UnorderedElementsAre("module1(1)", "module2(2)"));
@@ -35,23 +35,23 @@ TEST(HloProtoMapTest, GetOriginalModuleList) {
 
 TEST(HloProtoMapTest, GetOriginalHloProto) {
   HloProtoMap hlo_proto_map;
-  auto hlo_module = std::make_unique<xla::HloModuleProto>();
-  hlo_module->set_name("module");
-  hlo_proto_map.AddOriginalHloProto(1, std::move(hlo_module));
+  auto hlo_proto = std::make_unique<xla::HloProto>();
+  hlo_proto->mutable_hlo_module()->set_name("module");
+  hlo_proto_map.AddOriginalHloProto(1, std::move(hlo_proto));
 
   // Test GetOriginalHloProtoByProgramId
-  ASSERT_OK_AND_ASSIGN(const xla::HloModuleProto* result_by_id,
+  ASSERT_OK_AND_ASSIGN(const xla::HloProto* result_by_id,
                        hlo_proto_map.GetOriginalHloProtoByProgramId(1));
-  EXPECT_EQ(result_by_id->name(), "module");
+  EXPECT_EQ(result_by_id->hlo_module().name(), "module");
 
   EXPECT_THAT(hlo_proto_map.GetOriginalHloProtoByProgramId(2),
               StatusIs(absl::StatusCode::kNotFound));
 
   // Test GetOriginalHloProtoByModuleName
   ASSERT_OK_AND_ASSIGN(
-      const xla::HloModuleProto* result_by_name,
+      const xla::HloProto* result_by_name,
       hlo_proto_map.GetOriginalHloProtoByModuleName("module(1)"));
-  EXPECT_EQ(result_by_name->name(), "module");
+  EXPECT_EQ(result_by_name->hlo_module().name(), "module");
 
   EXPECT_THAT(hlo_proto_map.GetOriginalHloProtoByModuleName("module(2)"),
               StatusIs(absl::StatusCode::kNotFound));

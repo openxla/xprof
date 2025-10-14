@@ -77,14 +77,13 @@ class HloProtoMap {
       uint64_t program_id) const;
 
   // Original/Unoptimized HLO protos.
-  void AddOriginalHloProto(
-      uint64_t program_id,
-      std::unique_ptr<const xla::HloModuleProto> hlo_module);
+  void AddOriginalHloProto(uint64_t program_id,
+                           std::unique_ptr<const xla::HloProto> hlo_proto);
 
-  absl::StatusOr<const xla::HloModuleProto*> GetOriginalHloProtoByProgramId(
+  absl::StatusOr<const xla::HloProto*> GetOriginalHloProtoByProgramId(
       uint64_t program_id) const;
 
-  absl::StatusOr<const xla::HloModuleProto*> GetOriginalHloProtoByModuleName(
+  absl::StatusOr<const xla::HloProto*> GetOriginalHloProtoByModuleName(
       absl::string_view module_name) const;
 
  private:
@@ -97,15 +96,13 @@ class HloProtoMap {
   bool AddHloProto(uint64_t program_id, const xla::HloProto* hlo_proto);
 
   // Original/Unoptimized HLO protos.
-  absl::flat_hash_map<uint64_t, const xla::HloModuleProto*>
+  absl::flat_hash_map<uint64_t, const xla::HloProto*>
       original_hlo_protos_by_program_id_;
-  absl::flat_hash_map<std::string, const xla::HloModuleProto*>
+  absl::flat_hash_map<std::string, const xla::HloProto*>
       original_hlo_protos_by_name_;
-  std::vector<std::unique_ptr<const xla::HloModuleProto>>
-      owned_original_hlo_protos_;
+  std::vector<std::unique_ptr<const xla::HloProto>> owned_original_hlo_protos_;
 
-  bool AddOriginalHloProto(uint64_t program_id,
-                           const xla::HloModuleProto* hlo_module);
+  bool AddOriginalHloProto(uint64_t program_id, const xla::HloProto* hlo_proto);
 };
 
 }  // namespace profiler

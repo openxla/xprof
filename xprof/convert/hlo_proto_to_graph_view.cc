@@ -410,16 +410,6 @@ absl::StatusOr<std::string> GetAdjacentNodes(const HloProto& hlo_proto,
       "Couldn't find HloInstruction or HloComputation named ", node_name, "."));
 }
 
-absl::StatusOr<std::string> ConvertHloModuleProtoToGraph(
-    const xla::HloModuleProto& hlo_module_proto, const std::string& node_name,
-    int graph_width, const HloRenderOptions& render_options,
-    const RenderedGraphFormat& format) {
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
-                      ConvertHloModuleProtoToModule(hlo_module_proto));
-  return Plot(std::move(hlo_module), node_name, graph_width, render_options,
-              format);
-}
-
 absl::StatusOr<std::string> ConvertHloProtoToGraph(
     const HloProto& hlo_proto, const std::string& node_name, int graph_width,
     const HloRenderOptions& render_options, const RenderedGraphFormat& format) {
@@ -464,32 +454,6 @@ absl::StatusOr<std::string> ConvertHloProtoToStringView(
   // for short/long_txt
   TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
                       ConvertHloProtoToModule(hlo_proto));
-  HloPrintOptions options;
-  if (!verbose) {
-    options = HloPrintOptions::ShortParsable();
-  }
-  options.set_print_large_constants(verbose);
-  options.set_print_metadata(metadata);
-  return hlo_module->ToString(options);
-}
-
-absl::StatusOr<std::string> ConvertHloModuleProtoToStringView(
-    const xla::HloModuleProto& hlo_module_proto, absl::string_view type,
-    bool verbose, bool metadata) {
-  if (type == kJsonTypeName) {
-    xla::HloProto hlo_proto;
-    *hlo_proto.mutable_hlo_module() = hlo_module_proto;
-    return PrintJson(hlo_proto);
-  } else if (type == kProtoTypeName) {
-    return hlo_module_proto.SerializeAsString();
-  } else if (type == kProtoTextTypeName) {
-    xla::HloProto hlo_proto;
-    *hlo_proto.mutable_hlo_module() = hlo_module_proto;
-    return PrintPbTxt(hlo_proto);
-  }
-  // for short/long_txt
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<HloModule> hlo_module,
-                      ConvertHloModuleProtoToModule(hlo_module_proto));
   HloPrintOptions options;
   if (!verbose) {
     options = HloPrintOptions::ShortParsable();

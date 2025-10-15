@@ -26,7 +26,6 @@ limitations under the License.
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/platform/protobuf.h"
-#include "xprof/convert/graphviz_helper.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 #include "xprof/convert/repository.h"
@@ -40,52 +39,14 @@ namespace profiler {
 namespace {
 
 absl::StatusOr<PreprocessResult> GetMemoryViewerPreprocessResult(
-    const xla::HloProto& hlo_proto, int memory_space_color) {
-  static constexpr int kSmallBufferSize = 16 * 1024;  // 16KB
-
-  auto result_or = ConvertHloProtoToPreprocessResult(
-      hlo_proto, kSmallBufferSize, memory_space_color);
+    const xla::HloProto& hlo_proto, const MemoryViewerOption& option) {
+  auto result_or = ConvertHloProtoToPreprocessResult(hlo_proto, option);
   if (!result_or.ok()) {
     return tsl::errors::Internal(
         "Failed to convert HLO proto to memory viewer result: ",
         result_or.status().message());
   }
   return result_or;
-}
-
-absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
-    const xla::HloProto& hlo_proto, int memory_space_color) {
-  auto result_or =
-      GetMemoryViewerPreprocessResult(hlo_proto, memory_space_color);
-  if (!result_or.ok()) {
-    return result_or.status();
-  }
-
-  std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions options;
-  options.always_print_fields_with_no_presence = true;
-  auto encoded_status = tsl::protobuf::util::MessageToJsonString(
-      result_or.value(), &json_output, options);
-  if (!encoded_status.ok()) {
-    const auto& error_message = encoded_status.message();
-    return tsl::errors::Internal(
-        "Failed to convert memory viewer result to JSON format: ",
-        absl::string_view(error_message.data(), error_message.length()));
-  }
-
-  return json_output;
-}
-
-absl::StatusOr<std::string> ConvertHloProtoToAllocationTimeline(
-    const xla::HloProto& hlo_proto, int memory_space_color) {
-  auto result_or =
-      GetMemoryViewerPreprocessResult(hlo_proto, memory_space_color);
-  if (!result_or.ok()) {
-    return result_or.status();
-  }
-
-  return WrapDotInHtml(std::move(result_or.value().allocation_timeline()),
-                       "neato");
 }
 
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
@@ -106,6 +67,11 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
 }
 
 }  // namespace
+
+absl::StatusOr<std::string> ConvertHloProtoToMemoryViewer(
+    const xla::HloProto& hlo_proto, const MemoryViewerOption& option) {
+  return ConvertHloProtoToPreprocessResultJson(hlo_proto, option);
+}
 
 absl::StatusOr<std::string> ConvertHloProtoToToolData(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
@@ -132,10 +98,14 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
   }
 
   if (tool_name == "memory_viewer") {
-    if (GetParamWithDefault(options, "view_memory_allocation_timeline", 0)) {
-      return ConvertHloProtoToAllocationTimeline(hlo_proto, memory_space_color);
-    }
-    return ConvertHloProtoToMemoryViewer(hlo_proto, memory_space_color);
+    MemoryViewerOption memory_viewer_option;
+    memory_viewer_option.memory_color = memory_space_color;
+    memory_viewer_option.timeline_option.render_timeline =
+        !!GetParamWithDefault(options, "view_memory_allocation_timeline", 0);
+    memory_viewer_option.timeline_option.timeline_noise =
+        !!GetParamWithDefault(options, "timeline_noise", 0);
+    memory_viewer_option.small_buffer_size = kSmallBufferSize;
+    return ConvertHloProtoToMemoryViewer(hlo_proto, memory_viewer_option);
   } else if (tool_name == "graph_viewer") {
     return ConvertHloProtoToGraphViewer(hlo_proto, options);
   } else {

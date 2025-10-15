@@ -255,11 +255,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return '';
   }
 
+  // Download by program id is not implemented yet, as the processor is missing
+  // hlo proto map by program id.
   downloadHloProto(
       sessionId: string,
       moduleName: string,
       type: string,
       showMetadata: boolean,
+      programId = '',
       ): Observable<string|Blob|null> {
     const tool = 'graph_viewer';
     const responseType =

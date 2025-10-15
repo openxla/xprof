@@ -10,7 +10,12 @@ import {StackTraceSnippet} from './stack_trace_snippet';
 @NgModule({
   declarations: [StackTraceSnippet],
   exports: [StackTraceSnippet],
-  imports: [CommonModule, MatExpansionModule, StackFrameSnippetModule, Message]
+  imports: [
+    CommonModule,
+    MatExpansionModule,
+    StackFrameSnippetModule,
+    Message,
+  ]
 })
 export class StackTraceSnippetModule {
 }

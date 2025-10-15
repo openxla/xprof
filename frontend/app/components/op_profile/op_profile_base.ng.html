@@ -114,9 +114,12 @@
     </op-table>
     </as-split-area>
     <as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">
-      <stack-trace-snippet
-          [sourceFileAndLineNumber]="sourceFileAndLineNumber"
-          [stackTrace]="stackTrace" />
+      <source-mapper
+        [sourceFileAndLineNumber]="sourceFileAndLineNumber"
+        [stackTrace]="stackTrace"
+        [sessionId]="sessionId"
+        [programId]="focusedOpProgramId"
+        [opName]="focusedOpName"/>
     </as-split-area>
     </as-split>
   </mat-sidenav-content>

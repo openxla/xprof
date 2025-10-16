@@ -330,7 +330,9 @@ class ProfilePluginTest(absltest.TestCase):
     with self.assertRaises(FileNotFoundError):
       self.plugin.data_impl(
           utils.make_data_request(
-              utils.DataRequestOptions(run='a', tool='trace_viewer', host='')
+              utils.DataRequestOptions(
+                  run='a/foo', tool='trace_viewer', host=''
+              )
           )
       )
 
@@ -445,6 +447,7 @@ class ProfilePluginTest(absltest.TestCase):
             'start_time_ms': '100',
             'end_time_ms': '200',
         },
+        'hosts': ['host1'],
     }
 
     _, _, _ = self.plugin.data_impl(
@@ -462,8 +465,11 @@ class ProfilePluginTest(absltest.TestCase):
     )
 
     mock_xspace_to_tool_data.assert_called_once_with(
-        [expected_asset_path], 'trace_viewer@', expected_params
+        [mock.ANY], ['host0', 'host1'], 'trace_viewer@', expected_params
     )
+    actual_path_list = mock_xspace_to_tool_data.call_args[0][0]
+    self.assertLen(actual_path_list, 1)
+    self.assertEqual(str(actual_path_list[0]), expected_asset_path)
 
   def testActive(self):
 
@@ -535,8 +541,10 @@ class ProfilePluginTest(absltest.TestCase):
     # run3 is a file, not a directory, and should be ignored.
     with open(os.path.join(run_path, 'run3'), 'w') as f:
       f.write('dummy file')
+    with open(os.path.join(run2_path, 'host2.xplane.pb'), 'w') as f:
+      f.write('dummy xplane data for run2')
     runs = list(self.plugin._generate_runs_from_path_params(run_path=run_path))
-    self.assertListEqual(['run1'], runs)
+    self.assertListEqual(['run1', 'run2'], sorted(runs))
     self.assertEqual(run_path, self.plugin.logdir)
 
   def test_runs_impl_with_session(self):

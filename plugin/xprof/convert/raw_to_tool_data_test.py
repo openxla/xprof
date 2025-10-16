@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 """Tests for the raw_to_tool_data module."""
 
 import tensorflow as tf
@@ -27,7 +26,11 @@ class RawToToolDataTest(tf.test.TestCase):
         xspace_paths=["/path/to/xspace"],
         tool="trace_viewer@^",
         params={},
-        xspace_wrapper_func=lambda paths, tool, options: (tool.encode(), True),
+        all_hosts=[],
+        xspace_wrapper_func=lambda paths, hosts, tool, options: (
+            tool.encode(),
+            True,
+        ),
     )
 
     self.assertEqual(data, b"trace_viewer@")
@@ -38,7 +41,11 @@ class RawToToolDataTest(tf.test.TestCase):
         xspace_paths=["/path/to/xspace"],
         tool="trace_viewer@",
         params={},
-        xspace_wrapper_func=lambda paths, tool, options: (tool.encode(), True),
+        all_hosts=[],
+        xspace_wrapper_func=lambda paths, hosts, tool, options: (
+            tool.encode(),
+            True,
+        ),
     )
 
     self.assertEqual(data, b"trace_viewer@")

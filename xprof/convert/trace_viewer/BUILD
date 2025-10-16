@@ -133,6 +133,7 @@ cc_library(
         ":trace_events_filter_interface",
         ":trace_events_util",
         ":trace_viewer_visibility",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:endian",
         "@com_google_absl//absl/container:flat_hash_map",

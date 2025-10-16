@@ -28,6 +28,7 @@ using TraceEventsContainer = TraceEventsContainerBase<EventFactory, RawData>;
 
 // Converts XEvents within the XSpace into trace_viewer events container.
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
+                                         int host_id,
                                          const XSpace& xspace,
                                          TraceEventsContainer* container);
 

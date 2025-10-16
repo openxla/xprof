@@ -177,7 +177,10 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
       ProcessMegascaleDcn(xspace);
       TraceEventsContainer trace_container;
-      ConvertXSpaceToTraceEventsContainer(host_name, *xspace, &trace_container);
+      // No-op method which will be deprecated in the future, thus added
+      // /*host_id=*/1 as a placeholder for now.
+      ConvertXSpaceToTraceEventsContainer(host_name, 1, *xspace,
+                                          &trace_container);
       std::unique_ptr<tsl::WritableFile> trace_events_file;
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
           *trace_events_sstable_path, &trace_events_file));

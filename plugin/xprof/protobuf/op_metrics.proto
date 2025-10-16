@@ -120,8 +120,8 @@ message OpMetrics {
   uint32 occurrences = 3;
   // Total time (self + children) in picoseconds.
   uint64 time_ps = 7;
-  // Total time (self + children) in picoseconds normalized to the default
-  // device capability.
+  // Total time (self + children) in picoseconds needs to be spent if running on
+  // the default pstate.
   uint64 normalized_time_ps = 27;
   // Minimum time (self + children) among all occurrences.
   uint64 min_time_ps = 17;
@@ -179,7 +179,7 @@ message PrecisionStats {
 }
 
 // A database for OpMetrics.
-// Next ID: 16
+// Next ID: 17
 message OpMetricsDb {
   // A bunch of OpMetrics.
   repeated OpMetrics metrics_db = 10;
@@ -192,6 +192,9 @@ message OpMetricsDb {
   uint64 total_time_ps = 11;
   // The total time incurred by OPs in picoseconds.
   uint64 total_op_time_ps = 12;
+  // The weighted average total op time in picoseconds if running all ops on the
+  // default pstate.
+  uint64 normalized_total_op_time_ps = 16;
   // Precision-related stats.
   PrecisionStats precision_stats = 13;
   // The below two stats will be different from the total time ps and total op

@@ -321,14 +321,19 @@ OpMetricsDb XEventsOpMetricsDbBuilder::Finalize(uint64_t total_time_ps) {
 OpMetricsDb XEventsOpMetricsDbBuilder::Finalize() {
   OpMetricsDb db;
   uint64_t total_op_time_ps = 0;
+  uint64_t normalized_total_op_time_ps = 0;
   for (auto& [program_id, op_metric_by_symbol] : flat_op_metric_) {
     for (auto& [symbol_id, op_metrics] : op_metric_by_symbol) {
       AdjustFlopsAndBytesAccessed(op_metrics);
       total_op_time_ps += op_metrics.self_time_ps();
+      normalized_total_op_time_ps +=
+          op_metrics.self_time_ps() *
+          (op_metrics.normalized_time_ps() * 1.0 / op_metrics.time_ps());
       db.add_metrics_db()->Swap(&op_metrics);
     }
   }
   db.set_total_op_time_ps(total_op_time_ps);
+  db.set_normalized_total_op_time_ps(normalized_total_op_time_ps);
   return db;
 }
 

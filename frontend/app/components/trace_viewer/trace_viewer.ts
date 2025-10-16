@@ -1,5 +1,4 @@
 import {PlatformLocation} from '@angular/common';
-import {HttpParams} from '@angular/common/http';
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
@@ -38,11 +37,19 @@ export class TraceViewer implements OnDestroy {
 
   update(event: NavigationEvent) {
     const isStreaming = (event.tag === 'trace_viewer@');
-    const params = new HttpParams()
-                       .set('run', event.run!)
-                       .set('tag', event.tag!)
-                       .set('host', event.host!);
-    const traceDataUrl = this.pathPrefix + DATA_API + '?' + params.toString();
+    const run = event.run || '';
+    const tag = event.tag || '';
+
+    let queryString = `run=${run}&tag=${tag}`;
+
+    if (event.hosts && typeof event.hosts === 'string') {
+      // Since event.hosts is a comma-separated string, we can use it directly.
+      queryString += `&hosts=${event.hosts}`;
+    } else if (event.host) {
+      queryString += `&host=${event.host}`;
+    }
+
+    const traceDataUrl = `${this.pathPrefix}${DATA_API}?${queryString}`;
     this.url = this.pathPrefix + API_PREFIX + PLUGIN_NAME +
         '/trace_viewer_index.html' +
         '?is_streaming=' + isStreaming.toString() + '&is_oss=true' +

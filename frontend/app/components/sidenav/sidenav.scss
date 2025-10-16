@@ -13,3 +13,51 @@
 .mat-subheading-2 {
   margin-bottom: 0;
 }
+
+// Target the custom panel class defined in sidenav.ng.html
+.multi-host-select-panel {
+  .select-panel-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  // Container for the Select All/Deselect All button at the top
+  .select-all-button-container {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #fff;
+    padding: 0 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+
+    .full-width {
+      width: 100%;
+      text-align: left;
+      padding-left: 0;
+    }
+
+    .custom-divider {
+      border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+      margin: 0 -8px;
+    }
+  }
+
+  // Container for the submit button at the bottom of the dropdown
+  .submit-button-container {
+    position: sticky;
+    bottom: 0;
+    padding: 8px;
+
+    background: #fff;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+
+    .full-width {
+      width: 100%;
+    }
+  }
+
+  // Ensure options remain clickable and are not covered by the sticky button's padding.
+  mat-option {
+    flex-shrink: 0;
+  }
+}

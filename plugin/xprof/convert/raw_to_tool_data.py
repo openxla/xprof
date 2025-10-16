@@ -116,10 +116,9 @@ def xspace_to_tool_data(
     if success:
       data = process_raw_trace(raw_data)
   elif tool == 'trace_viewer@':
-    # Streaming trace viewer handles one host at a time.
-    assert len(xspace_paths) == 1
     options = params.get('trace_viewer_options', {})
     options['use_saved_result'] = params.get('use_saved_result', True)
+    options['hosts'] = params.get('hosts', [])
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data

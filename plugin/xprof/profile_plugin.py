@@ -380,23 +380,6 @@ def filenames_to_hosts(filenames: list[str], tool: str) -> list[str]:
   return sorted(hosts)
 
 
-def validate_xplane_asset_paths(asset_paths: List[str]) -> None:
-  """Validates that all xplane asset paths that are provided are valid files.
-
-  Args:
-    asset_paths: A list of asset paths.
-
-  Raises:
-    FileNotFoundError: If any of the xplane asset paths do not exist.
-  """
-  for asset_path in asset_paths:
-    if (
-        str(asset_path).endswith(TOOLS['xplane'])
-        and not epath.Path(asset_path).exists()
-    ):
-      raise FileNotFoundError(f'Invalid asset path: {asset_path}')
-
-
 def _get_bool_arg(
     args: Mapping[str, Any], arg_name: str, default: bool
 ) -> bool:
@@ -510,6 +493,10 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not self._is_active:
       self._is_active = any(self.generate_runs())
     return self._is_active
+
+  def _does_tool_support_multi_hosts_processing(self, tool: str) -> bool:
+    """Returns true if the tool supports multi-hosts processing."""
+    return tool == 'trace_viewer@' or tool == 'trace_viewer'
 
   def get_plugin_apps(
       self,
@@ -718,6 +705,85 @@ class ProfilePlugin(base_plugin.TBPlugin):
     module_names_str = self.hlo_module_list_impl(request)
     return respond(module_names_str, 'text/plain')
 
+  def _get_valid_hosts(
+      self, run_dir: str, run: str, tool: str, hosts_param: str, host: str
+  ) -> tuple[List[str], List[epath.Path]]:
+    """Retrieves and validates the hosts and asset paths for a run and tool.
+
+    Args:
+      run_dir: The run directory.
+      run: The frontend run name.
+      tool: The requested tool.
+      hosts_param: Comma-separated list of selected hosts.
+      host: The single host parameter.
+
+    Returns:
+      A tuple containing (selected_hosts, asset_paths).
+
+    Raises:
+      FileNotFoundError: If a required xplane file for the specified host(s)
+        is not found.
+      IOError: If there is an error reading asset directories.
+    """
+    asset_paths = []
+    selected_hosts = []
+    all_xplane_files = {}  # Map host to path
+
+    # Find all available xplane files for the run and map them by host.
+    file_pattern = make_filename('*', 'xplane')
+    try:
+      path = epath.Path(run_dir)
+      for xplane_path in path.glob(file_pattern):
+        host_name, _ = _parse_filename(xplane_path.name)
+        if host_name:
+          print('host_name: %s', host_name)
+          all_xplane_files[host_name] = xplane_path
+    except OSError as e:
+      print('Error')
+      logger.warning('Cannot read asset directory: %s, OpError %s', run_dir, e)
+      raise IOError(
+          'Cannot read asset directory: %s, OpError %s' % (run_dir, e)
+      ) from e
+
+    if hosts_param and self._does_tool_support_multi_hosts_processing(tool):
+      selected_hosts = hosts_param.split(',')
+      for selected_host in selected_hosts:
+        if selected_host in all_xplane_files:
+          asset_paths.append(all_xplane_files[selected_host])
+        else:
+          raise FileNotFoundError(
+              'No xplane file found for host: %s in run: %s'
+              % (selected_host, run)
+          )
+      logger.info('Inside trace_viewer@, asset_paths: %s')
+    elif host == ALL_HOSTS:
+      asset_paths = list(all_xplane_files.values())
+      selected_hosts = list(all_xplane_files.keys())
+    elif host and host in all_xplane_files:
+      selected_hosts = [host]
+      asset_paths = [all_xplane_files[host]]
+    elif host:
+      logger.warning('No xplane file found for host: %s in run: %s', host, run)
+      if host not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
+        raise FileNotFoundError(
+            'No xplane file found for host: %s in run: %s' % (host, run)
+        )
+
+    if not asset_paths:
+      logger.warning(
+          'No matching asset paths found for run %s, tool %s, host(s) %s / %s',
+          run,
+          tool,
+          hosts_param,
+          host,
+      )
+      if not host and tool not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
+        raise FileNotFoundError(
+            'Host must be specified for tool %s in run %s' % (tool, run)
+        )
+
+    return selected_hosts, asset_paths
+
   def data_impl(
       self, request: wrappers.Request
   ) -> tuple[Optional[str], str, Optional[str]]:
@@ -729,9 +795,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
     Returns:
       A string that can be served to the frontend tool or None if tool,
         run or host is invalid.
+
+    Raises:
+      FileNotFoundError: If a required xplane file for the specified host(s)
+        is not found.
+      IOError: If there is an error reading asset directories.
+      AttributeError: If there is an error during xplane to tool data conversion
+      ValueError: If xplane conversion fails due to invalid data.
     """
     run = request.args.get('run')
     tool = request.args.get('tag')
+    hosts_param = request.args.get('hosts')
     host = request.args.get('host')
     module_name = request.args.get('module_name')
     tqx = request.args.get('tqx')
@@ -795,26 +869,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['search_prefix'] = request.args.get('search_prefix')
       params['trace_viewer_options'] = options
 
-    asset_path = os.path.join(run_dir, make_filename(host, tool))
-
     _, content_encoding = None, None
     if use_xplane(tool):
-      if host == ALL_HOSTS:
-        file_pattern = make_filename('*', 'xplane')
-        try:
-          path = epath.Path(run_dir)
-          asset_paths = list(path.glob(file_pattern))
-        except OSError as e:
-          logger.warning('Cannot read asset directory: %s, OpError %s', run_dir,
-                         e)
-          raise IOError(
-              'Cannot read asset directory: %s, OpError %s' % (run_dir, e)
-          ) from e
-      else:
-        asset_paths = [asset_path]
+      selected_hosts, asset_paths = self._get_valid_hosts(
+          run_dir, run, tool, hosts_param, host
+      )
+      if not asset_paths:
+        return None, content_type, None
 
+      params['hosts'] = selected_hosts
       try:
-        validate_xplane_asset_paths(asset_paths)
         data, content_type = convert.xspace_to_tool_data(
             asset_paths, tool, params)
       except AttributeError as e:

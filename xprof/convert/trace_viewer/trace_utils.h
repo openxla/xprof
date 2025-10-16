@@ -37,6 +37,8 @@ inline bool MaybeTpuNonCoreDeviceName(absl::string_view device_name) {
           IsTpuIciRouterDeviceName(device_name));
 }
 
+static constexpr int kMaxDevicesPerHost = 1000;
+
 }  // namespace profiler
 }  // namespace tensorflow
 

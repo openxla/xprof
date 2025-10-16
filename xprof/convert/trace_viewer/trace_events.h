@@ -729,6 +729,8 @@ class TraceEventsContainerBase {
   TraceEventsContainerBase(const TraceEventsContainerBase&) = delete;
   TraceEventsContainerBase& operator=(const TraceEventsContainerBase&) = delete;
 
+  void Merge(TraceEventsContainerBase&& other, int host_id);
+
   // Creates a TraceEvent prefilled with the given values.
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,
                         uint32_t device_id, tsl::profiler::Timespan timespan,
@@ -1074,6 +1076,9 @@ class TraceEventsContainerBase {
     *copy = event;
     return copy;
   }
+
+  // Helper function to merge top-level trace metadata.
+  void MergeTrace(const Trace& other_trace);
 
   // Adds an event from arenas_ to events_by_device_.
   void AddArenaEvent(TraceEvent* event) {

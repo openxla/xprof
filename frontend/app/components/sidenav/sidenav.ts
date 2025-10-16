@@ -32,8 +32,11 @@ export class SideNav implements OnInit, OnDestroy {
   selectedRunInternal = '';
   selectedTagInternal = '';
   selectedHostInternal = '';
+  selectedHostsInternal: string[] = [];
+  selectedHostsPending: string[] = [];
   selectedModuleInternal = '';
   navigationParams: {[key: string]: string|boolean} = {};
+  multiHostEnabledTools: string[] = ['trace_viewer', 'trace_viewer@'];
 
   hideCaptureProfileButton = false;
 
@@ -65,6 +68,11 @@ export class SideNav implements OnInit, OnDestroy {
     return HLO_TOOLS.includes(this.selectedTag);
   }
 
+  get isMultiHostsEnabled() {
+    const tag = this.selectedTag || '';
+    return this.multiHostEnabledTools.includes(tag);
+  }
+
   // Getter for valid run given url router or user selection.
   get selectedRun() {
     return this.runs.find(validRun => validRun === this.selectedRunInternal) ||
@@ -88,6 +96,10 @@ export class SideNav implements OnInit, OnDestroy {
     return this.moduleList.find(
                module => module === this.selectedModuleInternal) ||
         this.moduleList[0] || '';
+  }
+
+  get selectedHosts() {
+    return this.selectedHostsInternal;
   }
 
   // https://github.com/angular/angular/issues/11023#issuecomment-752228784
@@ -119,20 +131,25 @@ export class SideNav implements OnInit, OnDestroy {
     const run = params.get('run') || '';
     const tag = params.get('tool') || params.get('tag') || '';
     const host = params.get('host') || '';
+    const hostsParam = params.get('hosts');
     const opName = params.get('node_name') || params.get('opName') || '';
     const moduleName = params.get('module_name') || '';
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;
     }
-    if (this.selectedRunInternal === run && this.selectedTagInternal === tag &&
-        this.selectedHostInternal === host) {
-      return;
-    }
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
-    this.selectedHostInternal = host;
     this.selectedModuleInternal = moduleName;
+
+    if (this.isMultiHostsEnabled) {
+      if (hostsParam) {
+        this.selectedHostsInternal = hostsParam.split(',');
+      }
+      this.selectedHostsPending = [...this.selectedHostsInternal];
+    } else {
+      this.selectedHostInternal = host;
+    }
     this.update();
   }
 
@@ -153,9 +170,13 @@ export class SideNav implements OnInit, OnDestroy {
     const navigationEvent: NavigationEvent = {
       run: this.selectedRun,
       tag: this.selectedTag,
-      host: this.selectedHost,
       ...this.navigationParams,
     };
+    if (this.isMultiHostsEnabled) {
+      navigationEvent.hosts = this.selectedHosts;
+    } else {
+      navigationEvent.host = this.selectedHost;
+    }
     if (this.is_hlo_tool) {
       navigationEvent.moduleName = this.selectedModule;
     }
@@ -242,8 +263,21 @@ export class SideNav implements OnInit, OnDestroy {
     this.afterUpdateTag();
   }
 
-  onTagSelectionChange(tag: string) {
+  async onTagSelectionChange(tag: string) {
     this.selectedTagInternal = tag;
+    this.selectedHostsInternal = [];
+    this.selectedHostsPending = [];
+    this.selectedHostInternal = '';
+
+    if (this.isMultiHostsEnabled) {
+      this.hosts = await this.getHostsForSelectedTag();
+      if (this.hosts.length > 0) {
+        this.selectedHostsInternal = [this.hosts[0]];
+      } else {
+        this.selectedHostsInternal = [];
+      }
+      this.selectedHostsPending = [...this.selectedHostsInternal];
+    }
     this.afterUpdateTag();
   }
 
@@ -255,6 +289,16 @@ export class SideNav implements OnInit, OnDestroy {
   // Keep them under the same update function as initial step of the separation.
   async updateHosts() {
     this.hosts = await this.getHostsForSelectedTag();
+    if (this.isMultiHostsEnabled) {
+      if (this.selectedHostsInternal.length === 0 && this.hosts.length > 0) {
+        this.selectedHostsInternal = [this.hosts[0]];
+      }
+      this.selectedHostsPending = [...this.selectedHostsInternal];
+    } else {
+      if (!this.selectedHostInternal && this.hosts.length > 0) {
+        this.selectedHostInternal = this.hosts[0];
+      }
+    }
     if (this.is_hlo_tool) {
       this.moduleList = await this.getModuleListForSelectedTag();
     }
@@ -262,9 +306,32 @@ export class SideNav implements OnInit, OnDestroy {
     this.afterUpdateHost();
   }
 
-  onHostSelectionChange(host: string) {
-    this.selectedHostInternal = host;
+  onHostSelectionChange(selection: string) {
+    this.selectedHostInternal = selection;
     this.navigateTools();
+  }
+
+  onHostsSelectionChange(selection: string[]) {
+    this.selectedHostsPending =
+        Array.isArray(selection) ? selection : [selection];
+  }
+
+  onSubmitHosts() {
+    this.selectedHostsInternal = [...this.selectedHostsPending];
+    this.navigateTools();
+  }
+
+  toggleAllHosts() {
+    const allAvailableHosts = this.hosts;
+
+    const areAllSelected = allAvailableHosts.length > 0 &&
+        allAvailableHosts.length === this.selectedHostsPending.length;
+
+    if (areAllSelected) {
+      this.selectedHostsPending = [];
+    } else {
+      this.selectedHostsPending = [...allAvailableHosts];
+    }
   }
 
   onModuleSelectionChange(module: string) {
@@ -276,26 +343,65 @@ export class SideNav implements OnInit, OnDestroy {
     this.navigateTools();
   }
 
+  // Helper function to serialize query parameters
+  private serializeQueryParams(
+      params: {[key: string]: string|string[]|boolean|undefined}): string {
+    const searchParams = new URLSearchParams();
+    for (const key in params) {
+      if (params.hasOwnProperty(key)) {
+        const value = params[key];
+        // Only include non-null/non-undefined values
+        if (value !== undefined && value !== null) {
+          if (Array.isArray(value)) {
+            // Arrays are handled as comma-separated strings (like 'hosts')
+            searchParams.set(key, value.join(','));
+          } else if (typeof value === 'boolean') {
+            // Only set boolean flags if they are explicitly true
+            if (value === true) {
+              searchParams.set(key, 'true');
+            }
+          } else {
+            searchParams.set(key, String(value));
+          }
+        }
+      }
+    }
+    const queryString = searchParams.toString();
+    return queryString ? `?${queryString}` : '';
+  }
+
   updateUrlHistory() {
-    // TODO(xprof): change to camel case when constructing url
-    const toolQueryParams = Object.keys(this.navigationParams)
-                                .map(key => {
-                                  return `${key}=${this.navigationParams[key]}`;
-                                })
-                                .join('&');
-    const toolQueryParamsString =
-        toolQueryParams.length ? `&${toolQueryParams}` : '';
-    const moduleNameQuery =
-        this.is_hlo_tool ? `&module_name=${this.selectedModule}` : '';
-    const url = `${window.parent.location.origin}?tool=${
-        this.selectedTag}&host=${this.selectedHost}&run=${this.selectedRun}${
-        toolQueryParamsString}${moduleNameQuery}#profile`;
+    const navigationEvent = this.getNavigationEvent();
+    const queryParams: {[key: string]: string|string[]|boolean|
+                        undefined} = {...navigationEvent};
+
+    if (this.isMultiHostsEnabled) {
+      // For multi-host enabled tools, ensure 'hosts' is a comma-separated string in the URL
+      if (queryParams['hosts'] && Array.isArray(queryParams['hosts'])) {
+        queryParams['hosts'] = (queryParams['hosts'] as string[]).join(',');
+      }
+      delete queryParams['host'];  // Remove single host param
+    } else {
+      // For other tools, ensure 'host' is used
+      delete queryParams['hosts'];  // Remove multi-host param
+    }
+
+    // Get current path to avoid changing the base URL
+    const pathname = window.parent.location.pathname;
+
+    // Use the custom serialization helper
+    const queryString = this.serializeQueryParams(queryParams);
+    const url = pathname + queryString;
+
     window.parent.history.pushState({}, '', url);
   }
 
   navigateTools() {
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
+
+    // This router.navigate call remains, as it's responsible for Angular
+    // routing
     this.router.navigate(
         [
           this.selectedTag || 'empty',

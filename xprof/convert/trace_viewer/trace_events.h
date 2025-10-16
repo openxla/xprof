@@ -716,7 +716,8 @@ class TraceEventsContainerBase {
     event->set_timestamp_ps(timestamp_ps);
     DCHECK(raw_data.has_args());
     DCHECK_EQ(raw_data.args().arg_size(), 1);
-    DCHECK(raw_data.args().arg(0).has_uint_value());
+    DCHECK(raw_data.args().arg(0).has_uint_value() ||
+           raw_data.args().arg(0).has_double_value());
     raw_data.SerializePartialToString(event->mutable_raw_data());
     if (serial && *serial > 0) {
       event->set_serial(static_cast<uint32_t>(*serial));

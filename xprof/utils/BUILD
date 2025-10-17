@@ -195,6 +195,7 @@ cc_library(
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@org_xprof//xprof/convert:xprof_thread_pool_executor",
+        "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
@@ -235,6 +236,7 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_test_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_utils",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )

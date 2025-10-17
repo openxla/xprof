@@ -36,6 +36,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
+#include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
@@ -659,6 +660,78 @@ TEST(DerivedTimelineTest, EnsureAllGpuEventsAreGrouped) {
       EXPECT_TRUE(event_visitor.GetStat(StatType::kGroupId).has_value());
     });
   });
+}
+
+// Tests that the multi-threaded processing of Tensor Core planes works
+// correctly.
+TEST(DerivedTimelineTest, MultiThreadedTensorCorePlaneProcessing) {
+  constexpr int kNumPlanes = 4;
+  constexpr int kNumEvents = 10;
+  constexpr int kEventDurationPs = 100;
+
+  XSpace space;
+  tsl::profiler::GroupMetadataMap group_metadata_map;
+
+  // Create multiple Tensor Core planes, each with a line of unsorted events.
+  for (int i = 0; i < kNumPlanes; ++i) {
+    XPlane* plane = tsl::profiler::GetOrCreateTpuXPlane(
+        &space, /*device_ordinal=*/i, "TPU V4", 0, 0);
+    XPlaneBuilder plane_builder(plane);
+    auto line_builder = plane_builder.GetOrCreateLine(0);
+    const std::string tf_op_name = absl::StrCat("MyOp:", i);
+
+    for (int j = 0; j < kNumEvents; ++j) {
+      // Add events in reverse order to test sorting.
+      int64_t offset = (kNumEvents - 1 - j) * kEventDurationPs * 2;
+      CreateXEvent(&plane_builder, &line_builder, "kernel", offset,
+                   kEventDurationPs, {{StatType::kTfOp, tf_op_name}});
+    }
+  }
+
+  // This will trigger the multi-threaded logic you added.
+  GenerateDerivedTimeLines(group_metadata_map, &space);
+
+  // Verify that each plane was processed correctly.
+  for (int i = 0; i < kNumPlanes; ++i) {
+    const std::string plane_name = absl::StrCat("/device:TPU:", i);
+    const XPlane* plane = tsl::profiler::FindPlaneWithName(space, plane_name);
+    ASSERT_NE(plane, nullptr);
+    XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
+
+    // 1. Verify that the events on the original line are now sorted.
+    const XLine* original_line = nullptr;
+    for (const auto& line : plane->lines()) {
+      if (line.id() == 0) {
+        original_line = &line;
+        break;
+      }
+    }
+    ASSERT_NE(original_line, nullptr);
+
+    int64_t last_timestamp_ps = -1;
+    for (const auto& event : original_line->events()) {
+      ASSERT_GE(event.offset_ps(), last_timestamp_ps);
+      last_timestamp_ps = event.offset_ps();
+    }
+    EXPECT_EQ(original_line->events_size(), kNumEvents);
+
+    // 2. Verify that DeriveLinesFromStats created the derived TF Op line.
+    bool tf_op_line_found = false;
+    plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
+      if (line_visitor.Name() == tsl::profiler::kTensorFlowOpLineName) {
+        tf_op_line_found = true;
+        EXPECT_EQ(line_visitor.NumEvents(), 1);  // Should be merged into one.
+        line_visitor.ForEachEvent([&](const XEventVisitor& event) {
+          EXPECT_EQ(event.Name(), absl::StrCat("MyOp:", i));
+          // Check the duration of the merged event.
+          int64_t expected_duration =
+              (kNumEvents - 1) * kEventDurationPs * 2 + kEventDurationPs;
+          EXPECT_EQ(event.DurationPs(), expected_duration);
+        });
+      }
+    });
+    EXPECT_TRUE(tf_op_line_found);
+  }
 }
 
 }  // namespace

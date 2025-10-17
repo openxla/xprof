@@ -1,11 +1,11 @@
-import {Component, inject, Injector, Input, OnDestroy, OnInit, Output, EventEmitter, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, inject, Injector, Input, OnDestroy, OnInit, Output, SimpleChanges} from '@angular/core';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {setCurrentToolStateAction, setOpProfileRootNodeAction} from 'org_xprof/frontend/app/store/actions';
+import {setCurrentToolStateAction, setOpAnalysisScalingFactorAction, setOpProfileRootNodeAction} from 'org_xprof/frontend/app/store/actions';
 import {getActiveOpProfileNodeState} from 'org_xprof/frontend/app/store/selectors';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {ReplaySubject} from 'rxjs';
@@ -38,12 +38,13 @@ export class OpProfileBase implements OnDestroy, OnInit {
   showP90 = false;
   childrenCount = 10;
   deviceType = 'TPU';
+  dvfsTimeScaleMultiplier = 1.0;
   summary: OpProfileSummary[] = [];
   sourceCodeServiceIsAvailable = false;
   sourceFileAndLineNumber = '';
   stackTrace = '';
   showStackTrace = false;
-  useUncappedFlops = false;
+  applyScalingFactor = false;
 
   @Input() opProfileData: OpProfileProto|null = null;
   @Output() readonly groupByChange = new EventEmitter<string>();
@@ -63,7 +64,7 @@ export class OpProfileBase implements OnDestroy, OnInit {
   parseData(data: OpProfileProto|null) {
     this.profile = data;
     this.updateRoot();
-    this.data.update(this.rootNode, this.useUncappedFlops);
+    this.data.update(this.rootNode, this.applyScalingFactor);
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 
@@ -128,6 +129,8 @@ export class OpProfileBase implements OnDestroy, OnInit {
     }
 
     this.deviceType = this.profile.deviceType || 'TPU';
+    this.dvfsTimeScaleMultiplier =
+        this.profile.aggDvfsTimeScaleMultiplier || 1.0;
     this.store.dispatch(
         setOpProfileRootNodeAction({rootNode: this.rootNode}),
     );
@@ -148,7 +151,7 @@ export class OpProfileBase implements OnDestroy, OnInit {
   updateExcludeIdle() {
     this.excludeIdle = !this.excludeIdle;
     this.updateRoot();
-    this.data.update(this.rootNode, this.useUncappedFlops);
+    this.data.update(this.rootNode, this.applyScalingFactor);
   }
 
   updateShowStackTrace() {
@@ -163,9 +166,17 @@ export class OpProfileBase implements OnDestroy, OnInit {
     this.showP90 = !this.showP90;
   }
 
-  updateFlopsType() {
-    this.useUncappedFlops = !this.useUncappedFlops;
-    this.data.update(this.rootNode, this.useUncappedFlops);
+  toggleScalingFactor() {
+    this.applyScalingFactor = !this.applyScalingFactor;
+    this.store.dispatch(setOpAnalysisScalingFactorAction({
+      applyScalingFactor: this.applyScalingFactor,
+    }));
+    this.data.update(this.rootNode, this.applyScalingFactor);
+  }
+
+  hasValidTimeScaleMultiplier(): boolean {
+    return this.dvfsTimeScaleMultiplier > 0 &&
+        this.dvfsTimeScaleMultiplier !== 1.0;
   }
 
   ngOnDestroy() {

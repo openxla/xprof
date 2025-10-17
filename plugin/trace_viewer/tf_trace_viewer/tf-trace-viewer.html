@@ -557,6 +557,7 @@ dashboard would integrate trace viewer app using iframe.
       // Hashmap from async track name to expanded boolean.
       _asyncTrackState: {type: Object, value: new Map()},
       _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
+      _percaleUrlPrefix: {type: String, value: ''},
     },
 
     ready: function() {
@@ -652,6 +653,8 @@ dashboard would integrate trace viewer app using iframe.
           this._resolution = Number(value);
         } else if (key === 'source_code_service') {
           this._sourceCodeServiceIsAvailable = value === 'true';
+        } else if (key === 'percale_url_prefix') {
+          this._percaleUrlPrefix = value;
         }
       }.bind(this));
 
@@ -796,6 +799,15 @@ dashboard would integrate trace viewer app using iframe.
       `;
     },
 
+    createPercaleLink: function(hloOp, event) {
+      if (!this._percaleUrlPrefix || !this._sessionId || this.hloOp) return;
+      // TODO: only add link if the hlo has valid kernel details.
+      const percaleLink = new URL(`${this._percaleUrlPrefix}/static?id=${this._sessionId}&hlo=${hloOp}`);
+      const percaleLinkElement = document.createElement('div');
+      percaleLinkElement.innerHTML = `Percale: <a href="${percaleLink.href}" target="_blank">see percale for low level kernel details</a>`;
+      this._eventDetails.appendChild(percaleLinkElement);
+    },
+
     // Custom on selection event handler for single event selection.
     onSelectionChange: async function(events) {
       if (events === undefined) return;
@@ -860,6 +872,7 @@ dashboard would integrate trace viewer app using iframe.
             // Add Roofline Model link per event selection
             const rooflineText = `see op level analysis for ${hloOp}`;
             this.createCrossToolLink("roofline_model", "Roofline Model", {"roofline_op_name": hloOp}, rooflineText);
+            this.createPercaleLink(hloOp, event);
           } else {
             // Add crosslink form trace viewer to graph viewer
             // per event selection for tensorboard profiler

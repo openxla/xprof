@@ -1,5 +1,6 @@
 import {Component, inject, Input, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
+import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
@@ -53,6 +54,7 @@ export class DownloadHlo implements OnDestroy {
     this.dataService
         .downloadHloProto(
             this.sessionId,
+            GRAPH_TYPE_DEFAULT,
             this.moduleName,
             type,
             this.showMetadata,

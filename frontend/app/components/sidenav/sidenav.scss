@@ -13,3 +13,36 @@
 .mat-subheading-2 {
   margin-bottom: 0;
 }
+
+// Target the custom panel class defined in sidenav.ng.html
+.multi-host-select-panel {
+  // Mat-select uses a standard mat-option list structure, but we need to ensure
+  // the custom wrapper div inside the panel handles layout correctly.
+
+  // This selector targets the element that contains all the options and the button container.
+  // It ensures vertical stacking of options and the button.
+  .select-panel-content {
+    display: flex;
+    flex-direction: column;
+    // Note: The Mat Select component internally sets overflow and max-height for scrolling.
+  }
+
+  // Container for the submit button at the bottom of the dropdown
+  .submit-button-container {
+    position: sticky;
+    bottom: 0;
+    padding: 8px;
+
+    background: #fff;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+
+    .full-width {
+      width: 100%;
+    }
+  }
+
+  // Ensure options remain clickable and are not covered by the sticky button's padding.
+  mat-option {
+    flex-shrink: 0;
+  }
+}

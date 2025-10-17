@@ -85,7 +85,7 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_1) {
   ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
   TF_ASSERT_OK_AND_ASSIGN(
       PreprocessResult preprocess_result,
-      ConvertHloProtoToPreprocessResult(hlo_proto, /*small_buffer_size=*/0));
+      ConvertHloProtoToPreprocessResult(hlo_proto, {.small_buffer_size = 0}));
   EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
 }
 
@@ -99,10 +99,11 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
   )pb";
   std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
   xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
   ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
-  TF_ASSERT_OK_AND_ASSIGN(
-      PreprocessResult preprocess_result,
-      ConvertHloProtoToPreprocessResult(hlo_proto, /*small_buffer_size=*/0));
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
   EXPECT_FALSE(preprocess_result.allocation_timeline().empty());
 }

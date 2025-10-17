@@ -36,7 +36,7 @@ inline std::function<absl::StatusOr<std::string>(absl::string_view)>*
     url_renderer = nullptr;
 
 // Convert dot into visual graph in html
-inline std::string WrapDotInHtml(std::string dot,
+inline std::string WrapDotInHtml(absl::string_view dot,
                                  absl::string_view layout_engine = "dot") {
   return absl::StrReplaceAll(
       R"html(

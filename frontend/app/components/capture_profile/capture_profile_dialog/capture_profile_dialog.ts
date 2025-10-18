@@ -24,6 +24,7 @@ export class CaptureProfileDialog {
   deviceTracerLevel = '1';
   pythonTracerLevel = '0';
   delay = 0;
+  extraOptions: Array<{key: string, value: string}> = [];
 
   constructor(private readonly dialogRef:
                   MatDialogRef<CaptureProfileDialog>) {}
@@ -37,7 +38,7 @@ export class CaptureProfileDialog {
   }
 
   captureProfile() {
-    this.dialogRef.close({
+    const options: {[key: string]: string|number|boolean} = {
       serviceAddr: this.serviceAddr,
       isTpuName: this.isTpuName,
       duration: this.duration,
@@ -47,10 +48,24 @@ export class CaptureProfileDialog {
       deviceTracerLevel: Number(this.deviceTracerLevel),
       pythonTracerLevel: Number(this.pythonTracerLevel),
       delay: this.delay,
-    });
+    };
+
+    for (const option of this.extraOptions) {
+      options[option.key] = option.value;
+    }
+
+    this.dialogRef.close(options);
   }
 
   close() {
     this.dialogRef.close();
+  }
+
+  addExtraOption() {
+    this.extraOptions.push({key: '', value: ''});
+  }
+
+  removeExtraOption(index: number) {
+    this.extraOptions.splice(index, 1);
   }
 }

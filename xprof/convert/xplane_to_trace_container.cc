@@ -22,6 +22,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/base/optimization.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -236,9 +237,12 @@ void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
   }
 
   for (const XPlane* device_plane : device_planes) {
-    ConvertXPlaneToTraceEventsContainer(
-        tsl::profiler::kFirstDeviceId + device_plane->id(), hostname,
-        *device_plane, container);
+    uint32_t device_pid = tsl::profiler::kFirstDeviceId + device_plane->id();
+    if (ABSL_PREDICT_FALSE(device_pid > tsl::profiler::kLastDeviceId)) {
+      device_pid = tsl::profiler::kFirstDeviceId;
+    }
+    ConvertXPlaneToTraceEventsContainer(device_pid, hostname, *device_plane,
+                                        container);
   }
   for (const XPlane* custom_plane :
        FindPlanesWithPrefix(space, tsl::profiler::kCustomPlanePrefix)) {

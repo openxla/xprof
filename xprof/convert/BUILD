@@ -884,6 +884,7 @@ cc_library(
         ":xplane_to_tf_functions",
         ":xprof_thread_pool_executor",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",

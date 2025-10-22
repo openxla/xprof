@@ -124,16 +124,18 @@ void StartGrpcServer(int port) {
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
-    std::vector<std::string> xspace_paths, const std::string& tool_name,
+    std::vector<std::string> xspace_paths,
+    std::vector<std::string> all_hosts, const std::string& tool_name,
     const ToolOptions& tool_options) {
   auto status_or_session_snapshot = SessionSnapshot::Create(
-      std::move(xspace_paths), /*xspaces=*/std::nullopt);
+      std::move(xspace_paths), /*xspaces=*/std::nullopt, all_hosts);
   return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
                                     tool_options);
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
     std::vector<std::string> xspace_strings,
+    std::vector<std::string> all_hosts,
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const ToolOptions& tool_options) {
   std::vector<std::unique_ptr<XSpace>> xspaces;
@@ -154,7 +156,8 @@ absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
   }
 
   auto status_or_session_snapshot =
-      SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces));
+      SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces),
+                              all_hosts);
   return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
                                     tool_options);
 }

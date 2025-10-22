@@ -37,6 +37,7 @@ limitations under the License.
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
 #include "xprof/utils/performance_info_wrapper.h"
+#include "xprof/utils/custom_call_cost_estimator.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -140,9 +141,27 @@ class HloInstructionWrapper : public HloInstructionInterface {
     return performance_info_wrapper_.get();
   }
 
+  std::optional<CustomCallCostEstimator::OperationCost>
+  GetCustomCallBlockCosts(std::string_view custom_call_name) const {
+    if (custom_call_block_costs_.contains(custom_call_name)) {
+      return custom_call_block_costs_.at(custom_call_name);
+    }
+    return std::nullopt;
+  }
+
+  void SetCustomCallBlockCosts();
+
+  const CustomCallCostEstimator::OperationCost& GetCustomCallCost()
+      const {
+    return custom_call_cost_;
+  }
+
  private:
   const xla::HloInstruction* instr_;
   std::vector<const HloInstructionWrapper*> fused_children_;
+  absl::flat_hash_map<std::string, CustomCallCostEstimator::OperationCost>
+      custom_call_block_costs_;
+  CustomCallCostEstimator::OperationCost custom_call_cost_;
   std::string op_full_name_;
   std::string tf_op_name_;
   size_t flops_ = 0;

@@ -9,9 +9,7 @@ basis.
 
 ### Supported Platforms
 
-TPU: Supported
-
-GPU: Not supported
+The Megascale Stats tool is only supported on TPUs.
 
 ### Terminology Related to Collectives
 

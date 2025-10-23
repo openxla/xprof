@@ -237,6 +237,7 @@ TEST(OpMetricsDbTest, AddOpMetric) {
                   num_cores: 1
                 }
                 total_op_time_ps: 300
+                normalized_total_op_time_ps: 350
               )pb")));
 #endif
 }

@@ -464,6 +464,7 @@ cc_library(
     name = "xplane_to_op_metrics_db",
     srcs = ["xplane_to_op_metrics_db.cc"],
     hdrs = ["xplane_to_op_metrics_db.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         ":op_metrics_db_combiner",
         ":op_stack",
@@ -495,6 +496,7 @@ cc_test(
     name = "xplane_to_op_metrics_db_test",
     size = "small",
     srcs = ["xplane_to_op_metrics_db_test.cc"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         ":xplane_to_op_metrics_db",
         "@com_google_absl//absl/strings",
@@ -792,6 +794,7 @@ cc_library(
     name = "op_stats_to_tf_stats",
     srcs = ["op_stats_to_tf_stats.cc"],
     hdrs = ["op_stats_to_tf_stats.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         ":data_table_utils",
         ":model_tracker",
@@ -871,6 +874,7 @@ cc_library(
     name = "xplane_to_op_stats",
     srcs = ["xplane_to_op_stats.cc"],
     hdrs = ["xplane_to_op_stats.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     visibility = ["//visibility:public"],
     deps = [
         ":duty_cycle_combiner",
@@ -885,6 +889,7 @@ cc_library(
         ":xplane_to_tf_functions",
         ":xprof_thread_pool_executor",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -1197,6 +1202,7 @@ cc_library(
     name = "preprocess_single_host_xplane",
     srcs = ["preprocess_single_host_xplane.cc"],
     hdrs = ["preprocess_single_host_xplane.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     # copybara:uncomment visibility = ["//visibility:private"],
     deps = [
         "@com_google_absl//absl/strings",
@@ -1517,6 +1523,7 @@ cc_library(
     name = "repository",
     srcs = ["repository.cc"],
     hdrs = ["repository.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
@@ -1854,6 +1861,7 @@ cc_library(
     name = "multi_xspace_to_inference_stats",
     srcs = ["multi_xspace_to_inference_stats.cc"],
     hdrs = ["multi_xspace_to_inference_stats.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         ":data_table_utils",
         ":inference_stats",
@@ -2031,6 +2039,7 @@ cc_library(
     name = "model_tracker",
     srcs = ["model_tracker.cc"],
     hdrs = ["model_tracker.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
     deps = [
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",

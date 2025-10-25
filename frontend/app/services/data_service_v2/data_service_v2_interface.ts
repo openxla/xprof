@@ -82,6 +82,7 @@ export interface DataServiceV2Interface {
       moduleName: string,
       type: string,
       showMetadata: boolean,
+      programId?: string,
       ): Observable<string|Blob|null>;
 
   getSearchParams(): URLSearchParams;

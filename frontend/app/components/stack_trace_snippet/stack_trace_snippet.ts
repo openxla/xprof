@@ -27,6 +27,10 @@ export class StackTraceSnippet implements OnChanges {
    */
   @Input() sourceFileAndLineNumber: string|undefined = undefined;
   @Input() stackTrace: string|undefined = undefined;
+  /**
+   * The number of lines to show around the stack frame.
+   */
+  @Input() sourceContextWindow = 40;
   sourceCodeSnippetAddresses: readonly Address[] = [];
 
   ngOnChanges(changes: SimpleChanges) {
@@ -48,8 +52,9 @@ export class StackTraceSnippet implements OnChanges {
   }
 
   private parseAddresses() {
-    this.sourceCodeSnippetAddresses =
-        parseAddresses(this.stackTrace || this.sourceFileAndLineNumber || '');
+    this.sourceCodeSnippetAddresses = parseAddresses(
+        this.stackTrace || this.sourceFileAndLineNumber || '',
+        this.sourceContextWindow);
   }
 }
 
@@ -65,10 +70,10 @@ export class StackTraceSnippet implements OnChanges {
  *
  *   /usr/local/google/home/user/src/main.cc:100:5
  */
-function parseAddresses(value: string): Address[] {
+function parseAddresses(value: string, sourceContextWindow = 20): Address[] {
   const result: Address[] = [];
-  const linesBefore = 5;
-  const linesAfter = 5;
+  const linesBefore = sourceContextWindow / 2;
+  const linesAfter = sourceContextWindow / 2;
   const framePattern = /^\s*([^:]+?)(?:\:(-?\d+))?(?:\:-?\d+)?\s*$/;
   const lines = value.trim().split('\n');
   for (const line of lines) {

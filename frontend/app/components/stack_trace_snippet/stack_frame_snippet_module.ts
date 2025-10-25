@@ -13,8 +13,12 @@ import {StackFrameSnippet} from './stack_frame_snippet';
   declarations: [StackFrameSnippet],
   exports: [StackFrameSnippet],
   imports: [
-    CommonModule, MatExpansionModule, MatIconModule, MatTooltipModule,
-    MatProgressBarModule, Message
+    CommonModule,
+    MatExpansionModule,
+    MatIconModule,
+    MatTooltipModule,
+    MatProgressBarModule,
+    Message,
   ],
 })
 export class StackFrameSnippetModule {

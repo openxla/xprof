@@ -1,4 +1,4 @@
-import {Component, inject, Injector, Input, OnDestroy, OnInit, Output, EventEmitter, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, inject, Injector, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges} from '@angular/core';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -23,7 +23,7 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss']
 })
-export class OpProfileBase implements OnDestroy, OnInit {
+export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly injector = inject(Injector);
@@ -42,9 +42,12 @@ export class OpProfileBase implements OnDestroy, OnInit {
   sourceCodeServiceIsAvailable = false;
   sourceFileAndLineNumber = '';
   stackTrace = '';
+  focusedOpProgramId = '';
+  focusedOpName = '';
   showStackTrace = false;
   useUncappedFlops = false;
 
+  @Input() sessionId = '';
   @Input() opProfileData: OpProfileProto|null = null;
   @Output() readonly groupByChange = new EventEmitter<string>();
 
@@ -80,10 +83,14 @@ export class OpProfileBase implements OnDestroy, OnInit {
         });
   }
 
+  // Update state for source info given the active node selection in the
+  // underneath table.
   private updateActiveNode(node: Node|null) {
     this.sourceFileAndLineNumber = `${node?.xla?.sourceInfo?.fileName || ''}:${
         node?.xla?.sourceInfo?.lineNumber || -1}`;
     this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
+    this.focusedOpProgramId = node?.xla?.programId || '';
+    this.focusedOpName = node?.name || '';
   }
 
   ngOnChanges(changes: SimpleChanges) {

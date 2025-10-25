@@ -1,0 +1,85 @@
+<div class="source-mapper">
+  <div class="stack-trace-snippet-container">
+    <mat-form-field class="source-file-select" (click)="$event.stopPropagation()" appearance="outline">
+      <mat-label>Source File</mat-label>
+      <mat-select [(ngModel)]="selectedSourceFileName">
+        <mat-option *ngFor="let fileName of sourceFileNames" [value]="fileName">
+          {{fileName}}
+        </mat-option>
+      </mat-select>
+    </mat-form-field>
+    <stack-trace-snippet
+      [sourceFileAndLineNumber]="sourceFileAndLineNumber"
+      [stackTrace]="stackTrace"
+      [sourceContextWindow]="sourceContextWindow"
+    />
+  </div>
+
+  <div class="ir-text-container">
+    <mat-form-field class="ir-type-select" (click)="$event.stopPropagation()" appearance="outline">
+      <mat-label>Compiler Pass</mat-label>
+      <mat-select [(ngModel)]="selectedCompilerPass">
+        <mat-option *ngFor="let pass of compilerPasses" [value]="pass">
+          {{pass}}
+        </mat-option>
+      </mat-select>
+    </mat-form-field>
+    <ng-container *ngIf="programId && programId !== '0'; else noProgramId">
+      <mat-expansion-panel class="ir-text-panel" [expanded]="true">
+        <mat-expansion-panel-header class="ir-text-header">
+          <mat-panel-title>
+            <div class="ir-text-header-title">
+              Program ID:{{programId}}
+            </div>
+            <mat-progress-bar *ngIf="!loaded" mode="indeterminate" class="ir-text-progress-bar"></mat-progress-bar>
+            <a
+                *ngIf="irTextLink"
+                [href]="irTextLink"
+                target="_blank"
+                class="external-link-icon"
+                (click)="$event.stopPropagation()"
+                [matTooltip]="irTextLinkTooltip">
+              <mat-icon>open_in_new</mat-icon>
+            </a>
+          </mat-panel-title>
+        </mat-expansion-panel-header>
+
+        <div *ngIf="loaded" class="ir-text-content">
+            <table>
+              <thead>
+                <tr>
+                  <th><pre class="line-number"></pre></th>
+                  <th><pre class="line-content"></pre></th>
+                </tr>
+              </thead>
+            <tbody>
+              <ng-container *ngIf="irText && irText.length > 0; else noLines">
+                <tr
+                  *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
+                  [class.line-selected]="isFocusLine(line)">
+                  <td><pre class="line-number"><code>{{ lineIndex }}</code></pre></td>
+                  <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
+                </tr>
+              </ng-container>
+
+              <ng-template #noLines>
+                <tr>
+                  <td colspan="2">There are no lines to display.</td>
+                </tr>
+              </ng-template>
+            </tbody>
+          </table>
+        </div>
+
+        <div *ngIf="!loaded">Loading...</div>
+      </mat-expansion-panel>
+    </ng-container>
+  </div>
+</div>
+
+<ng-template #noProgramId>
+  <message
+    title="IR Text Not Found"
+    content="Please select an HLO operation with program ID info.">
+  </message>
+</ng-template>

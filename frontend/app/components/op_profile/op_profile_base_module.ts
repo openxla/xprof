@@ -8,7 +8,7 @@ import {MatSidenavModule} from '@angular/material/sidenav';
 import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {AngularSplitModule} from 'angular-split';
-import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet_module';
+import {SourceMapperModule} from 'org_xprof/frontend/app/components/source_mapper/source_mapper_module';
 
 import {OpProfileBase} from './op_profile_base';
 import {OpTableModule} from './op_table/op_table_module';
@@ -27,7 +27,7 @@ import {OpTableModule} from './op_table/op_table_module';
     MatTooltipModule,
     MatSidenavModule,
     CommonModule,
-    StackTraceSnippetModule,
+    SourceMapperModule,
   ],
   exports: [OpProfileBase]
 })

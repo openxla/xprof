@@ -213,6 +213,7 @@ void PopulateOpMetricsNode(
       tsl::profiler::SafeDivide(op_metrics.time_ps(), total_time_ps);
   metrics->set_flops(flops_utilization * time_fraction);
   metrics->set_uncapped_flops(uncapped_flops_utilization * time_fraction);
+  metrics->set_normalized_time_ps(op_metrics.normalized_time_ps());
 
   // Capture both on-chip and off-chip memory utilization.
   const double hbm_gibibytes_per_second =
@@ -272,9 +273,13 @@ void InsertFusedInstructions(const OpMetrics& op_metrics, Node* node) {
   }
 }
 
+// Update child node metrics to parent node.
 void UpdateNodeMetrics(const OpMetrics& child, OpMetrics* parent) {
   DCHECK(parent != nullptr);
   parent->set_time_ps(child.self_time_ps() + parent->time_ps());
+  parent->set_normalized_time_ps(child.normalized_time_ps() +
+                                 parent->normalized_time_ps());
+  parent->set_self_time_ps(child.self_time_ps() + parent->self_time_ps());
   if (ChildrenTimePs(child) == 0) {
     parent->set_flops(child.flops() + parent->flops());
     parent->set_model_flops(child.model_flops() + parent->model_flops());
@@ -434,7 +439,7 @@ Node* OpProfileBuilder::GetOrAddProvenanceParentNode(
 }
 
 void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
-  // 1. Deal with nested parent nodes
+  // 1. Deal with nested parent nodes (vertical grouping)
   // op_metrics.time_ps in root node will be reset to total_time_ps later
   UpdateNodeMetrics(op_metrics, &metrics_[root_]);
   Program* program = nullptr;
@@ -443,7 +448,9 @@ void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
     UpdateNodeMetrics(op_metrics, &metrics_[program->node]);
   }
 
-  // 2. Deal with nested grouping nodes, only accumulate non-child ops
+  // 2. Deal with nested grouping nodes (horizontal grouping), only accumulate
+  // non-child ops Exclude ops with children ops to avoid double counting of
+  // flops, bytes and time from children ops.
   if (ChildrenTimePs(op_metrics) > 0) return;
   std::vector<Node*> nested_grouping_nodes;
   if (IsIdleOp(op_metrics)) {

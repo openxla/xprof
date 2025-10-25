@@ -18,6 +18,11 @@ message Profile {
   // Device type.
   string device_type = 5;
 
+  // DVFS time scale multiplier weighted aggregated across all ops.
+  // Multiplied it with the raw time to get estimated time as if running on
+  // default pstate.
+  double agg_dvfs_time_scale_multiplier = 10;
+
   // Exclude idle ops.
   Node by_category_exclude_idle = 6;
   Node by_program_exclude_idle = 7;
@@ -73,6 +78,7 @@ message Node {
 
 // Measurements of an operation (or aggregated set of operations).
 // Metrics are always "total" rather than "self".
+// Next ID: 21
 message Metrics {
   // Floating point computations performed by this operation, as a fraction of
   // peak core FLOPS * program time. This representation has useful properties:
@@ -96,6 +102,8 @@ message Metrics {
   double raw_flops = 12;  // Total floating-point operations performed.
   // Total FLOPs Normalized to the bf16 (default) devices peak bandwidth.
   double bf16_flops = 18;
+  // Total time in picoseconds normalized.
+  double normalized_time_ps = 20;
   // Total bytes accessed for each memory type.
   // Index into array using MemBwType enum.
   repeated double raw_bytes_accessed_array = 15;

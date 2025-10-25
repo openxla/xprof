@@ -202,19 +202,39 @@ export function timeFraction(
 }
 
 /**
+ * Computes the flops utilization multiplier with the time scaling factor from
+ * the normalized time.
+ */
+function flopsUtilDvfsMultiplier(node: OpProfileNode): number {
+  if (!node || !node.metrics || !node.metrics.rawTime) {
+    return 0;
+  }
+  if (!node.metrics.normalizedTimePs) {
+    return 1;
+  }
+  return node.metrics.rawTime / node.metrics.normalizedTimePs;
+}
+
+/**
  * Computes the utilization for operations.
+ * @param node The node to compute the utilization for.
+ * @param rootNode The root node to base the utilization computation on.
+ * @param applyScalingFactor Whether to apply the scaling factor to the reflect
+ *     the evaluated device capability.
  */
 export function flopsUtilization(
     node: OpProfileNode, rootNode: OpProfileNode,
-    useUncappedFlops = false): number {
+    applyScalingFactor = false): number {
   // NaN indicates undefined utilization for fused operations (we can't
   // measure performance inside a fusion). It could also indicate operations
   // with zero time, but they currently don't appear in the profile.
   const timeFractionLocal = timeFraction(node, rootNode);
   if (!node || !node.metrics || !timeFractionLocal) return NaN;
-  return useUncappedFlops ?
-      (node.metrics.uncappedFlops || 0) / timeFractionLocal :
-      (node.metrics.flops || 0) / timeFractionLocal;
+  // Note the metrics.flops is the capped flops due to historical reasons, we
+  // should use the uncapped raw flops instead.
+  const uncappedFlops = (node.metrics.uncappedFlops || 0) / timeFractionLocal;
+  return applyScalingFactor ? uncappedFlops * flopsUtilDvfsMultiplier(node) :
+                              uncappedFlops;
 }
 
 /**

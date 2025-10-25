@@ -278,6 +278,7 @@ TEST(ConvertXPlaneToOpMetricsDb, TpuDeviceOpMetricsDb) {
                                    metrics_db { name: "IDLE" category: "IDLE" }
                                    total_time_ps: 10000
                                    total_op_time_ps: 10000
+                                   normalized_total_op_time_ps: 20000
                               )pb")));
 #endif
 }

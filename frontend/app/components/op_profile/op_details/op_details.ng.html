@@ -39,6 +39,20 @@
             </button>
           </a>
         </div>
+        <div class="info" id="custom-call-regviz-link" [hidden]="!isValidCustomCall">
+          <a [href]="getCustomCallRegvizLink()" target="_blank" style="text-decoration:none;">
+            <button
+              mat-stroked-button
+              extended
+              type="button"
+              color="primary"
+              appearance="fill"
+              aria-label="go to regviz"
+              i18n-aria-label="A button to corresponding regviz page">
+             > Regviz
+            </button>
+          </a>
+        </div>
         <div class="info" [hidden]="!avgTime">
           <div class="title">Total Time Avg:</div>
           <code class="expression">{{avgTime}}</code>

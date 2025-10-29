@@ -385,7 +385,7 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
   OpMetricsDb result;
   DeviceOpMetricsDbBuilder device_op_metrics_db_builder(&result);
 
-  int64_t first_op_offset_ps = tsl::kint64max;
+  int64_t first_op_offset_ps = std::numeric_limits<int64_t>::max();
   int64_t last_op_offset_ps = 0;
   int64_t num_tf_ops = 0;
 

@@ -44,7 +44,7 @@ PodStatsRecord CreatePodStatsRecord(absl::string_view host_name,
   GenericStepBreakdown generic;
   bool success = step_info.step_breakdown().UnpackTo(&generic);
   DCHECK(success);
-  record.set_host_name(tsl::string(host_name));
+  record.set_host_name(host_name);
   record.set_step_num(step_info.step_num());
   record.set_total_duration_us(
       tsl::profiler::PicoToMicro(step_info.duration_ps()));

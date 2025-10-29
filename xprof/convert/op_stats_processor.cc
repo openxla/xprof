@@ -161,8 +161,8 @@ absl::Status OpStatsProcessor::Reduce(
         ParseHardwareType(op_stats_copy[i].run_environment().device_type()), i);
   }
 
-  StepIntersection step_intersection =
-      ComputeStepIntersectionToMergeOpStats(all_op_stats_info, kuint32max);
+  StepIntersection step_intersection = ComputeStepIntersectionToMergeOpStats(
+      all_op_stats_info, std::numeric_limits<uint32_t>::max());
   OpStats combined_op_stats;
   CombineAllOpStats(all_op_stats_info, step_intersection, &combined_op_stats);
 

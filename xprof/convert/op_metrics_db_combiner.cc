@@ -99,7 +99,7 @@ void CombineMemoryAccessedBreakdown(
     const tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>& src,
     tsl::protobuf::RepeatedPtrField<OpMetrics_MemoryAccessed>* dst) {
   if (src.empty()) return;
-  absl::flat_hash_map<std::pair<tsl::uint64 /*memory_space*/, OperationType>,
+  absl::flat_hash_map<std::pair<uint64_t /*memory_space*/, OperationType>,
                       OpMetrics_MemoryAccessed*>
       dst_memory_accessed_map;
   for (auto& dst_memory_accessed : *dst) {
@@ -108,7 +108,7 @@ void CombineMemoryAccessedBreakdown(
         &dst_memory_accessed;
   }
   for (const auto& src_memory_accessed : src) {
-    tsl::uint64 memory_space = src_memory_accessed.memory_space();
+    uint64_t memory_space = src_memory_accessed.memory_space();
     OperationType operation_type = src_memory_accessed.operation_type();
     auto*& dst_memory_accessed =
         dst_memory_accessed_map[{memory_space, operation_type}];

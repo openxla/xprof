@@ -62,8 +62,8 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
   }
 
   // Do not limit the maximum number of steps during the merge of OpStats.
-  StepIntersection step_intersection =
-      ComputeStepIntersectionToMergeOpStats(all_op_stats_info, kuint32max);
+  StepIntersection step_intersection = ComputeStepIntersectionToMergeOpStats(
+      all_op_stats_info, std::numeric_limits<uint32_t>::max());
   CombineAllOpStats(all_op_stats_info, step_intersection, combined_op_stats);
 
   return absl::OkStatus();

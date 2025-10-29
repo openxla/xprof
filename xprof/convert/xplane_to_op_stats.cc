@@ -500,8 +500,7 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
           core_details.emplace();
           absl::string_view core_details_bytes =
               core_details_stat->BytesValue();
-          if (core_details->ParseFromArray(core_details_bytes.data(),
-                                           core_details_bytes.size())) {
+          if (core_details->ParseFromString(core_details_bytes)) {
             core_details->set_hostname(hostname);
             core_details->set_is_sparse_core(
                 tsl::profiler::GetSparseCoreId(device_trace->name())

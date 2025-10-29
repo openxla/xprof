@@ -117,8 +117,7 @@ DcnCollectiveInfoProto GetDcnCollectiveInfoProto(const XEventVisitor& xevent) {
           xevent.Metadata().GetStat(StatType::kDcnCollectiveInfo);
       dcn_collective_stat.has_value()) {
     absl::string_view byte_value = dcn_collective_stat->BytesValue();
-    if (!dcn_collective_info.ParseFromArray(byte_value.data(),
-                                            byte_value.size())) {
+    if (!dcn_collective_info.ParseFromString(byte_value)) {
       LOG_EVERY_POW_2(WARNING)
           << "Could not parse DcnCollectiveInfoProto from metadata.";
     }

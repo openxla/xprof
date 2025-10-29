@@ -16,9 +16,13 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_TOOL_DATA_PROVIDER_H_
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_TOOL_DATA_PROVIDER_H_
 
+#include <string>
+#include <vector>
+
 #include "absl/status/statusor.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -34,6 +38,12 @@ class ToolDataProvider {
   // Returns the InputPipelineAnalysisResult data.
   virtual absl::StatusOr<const InputPipelineAnalysisResult*>
   GetInputPipelineAnalysisResult() = 0;
+
+  // Returns the event time fraction of each step for a given event name.
+  // The key is the plane name, and the value is a vector of event time
+  // fractions for each step.
+  virtual absl::StatusOr<std::vector<float>>
+  GetEventTimeFractionEachStep(const std::string& target_event_name) = 0;
 };
 
 }  // namespace profiler

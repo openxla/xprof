@@ -39,7 +39,7 @@ using tsl::kuint32max;
 
 // Returns the timespan in this step (across all cores).
 tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
-  uint64 min_ps = kuint64max;
+  uint64 min_ps = std::numeric_limits<uint64_t>::max();
   uint64 max_ps = 0;
   for (const auto& core_stepinfo : percore_stepinfo.step_info_per_core()) {
     const auto& stepinfo = core_stepinfo.second;
@@ -55,7 +55,7 @@ tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
 
 // Returns the timespan across all steps in the given step_db.
 tsl::profiler::Timespan AllStepsTimespan(const StepDatabaseResult& step_db) {
-  uint64 min_ps = kuint64max;
+  uint64 min_ps = std::numeric_limits<uint64_t>::max();
   uint64 max_ps = 0;
   for (const auto& step : step_db.step_sequence()) {
     tsl::profiler::Timespan timespan = StepTimespan(step);
@@ -188,8 +188,8 @@ StepIntersection::StepIntersection(
 
   // Figures out the host with the shortest timespan among their steps (called
   // this host the "chief").
-  chief_host_id_ = kuint32max;
-  uint64 min_duration_ps = kuint64max;
+  chief_host_id_ = std::numeric_limits<uint32_t>::max();
+  uint64 min_duration_ps = std::numeric_limits<uint64_t>::max();
   const StepDatabaseResult* chief_step_db = nullptr;
   for (const auto& hostid_stepdb : perhost_stepdb) {
     auto host_id = hostid_stepdb.first;
@@ -201,7 +201,7 @@ StepIntersection::StepIntersection(
       min_duration_ps = timespan.duration_ps();
     }
   }
-  if (chief_host_id_ == kuint32max) {
+  if (chief_host_id_ == std::numeric_limits<uint32_t>::max()) {
     // There is no step at all on any host.
     steps_dropped_ = 0;
     begin_chief_idx_ = 0;
@@ -210,7 +210,7 @@ StepIntersection::StepIntersection(
   }
 
   uint32 max_begin_chief_idx = 0;
-  uint32 min_end_chief_idx = kuint32max;
+  uint32 min_end_chief_idx = std::numeric_limits<uint32_t>::max();
   // Aligns the steps in all hosts with those in the chief.
   for (const auto& hostid_stepdb : perhost_stepdb) {
     auto host_id = hostid_stepdb.first;

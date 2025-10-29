@@ -41,7 +41,7 @@ absl::Status ParseTextFormatFromString(std::string input,
   return absl::OkStatus();
 }
 
-tsl::string DataTypeString(TensorflowDataType dtype) {
+std::string DataTypeString(TensorflowDataType dtype) {
   if (IsRefType(dtype)) {
     TensorflowDataType non_ref = static_cast<TensorflowDataType>(
         static_cast<int>(dtype) - static_cast<int>(kDataTypeRefOffset));
@@ -50,7 +50,7 @@ tsl::string DataTypeString(TensorflowDataType dtype) {
   return DataTypeStringInternal(dtype);
 }
 
-tsl::string DataTypeStringInternal(TensorflowDataType dtype) {
+std::string DataTypeStringInternal(TensorflowDataType dtype) {
   switch (dtype) {
     case DT_INVALID:
       return "INVALID";

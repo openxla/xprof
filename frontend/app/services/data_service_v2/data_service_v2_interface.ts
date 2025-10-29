@@ -77,6 +77,10 @@ export interface DataServiceV2Interface {
       programId: string,
       ): string;
 
+  getCustomCallText(
+      sessionId: string, moduleName: string, opName: string,
+      programId: string): Observable<string>;
+
   downloadHloProto(
       sessionId: string,
       moduleName: string,
@@ -84,6 +88,10 @@ export interface DataServiceV2Interface {
       showMetadata: boolean,
       programId?: string,
       ): Observable<string|Blob|null>;
+
+  // Pick first host in the list if not specified.
+  getLloSourceInfo(sessionId: string, opName: string, host?: string):
+      Observable<string>;
 
   getSearchParams(): URLSearchParams;
   setSearchParams(searchParams: URLSearchParams): void;

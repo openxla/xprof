@@ -106,7 +106,7 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,
-                     tsl::string* result) {
+                     std::string* result) {
   TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
   {
     TF_RETURN_IF_ERROR(tsl::profiler::Monitor(service_addr, duration_ms,

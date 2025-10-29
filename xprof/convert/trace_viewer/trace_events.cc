@@ -105,8 +105,7 @@ bool ReadTraceMetadata(tsl::table::Iterator* iterator,
   if (!iterator->Valid()) return false;
   if (iterator->key() != metadata_key) return false;
   auto serialized_trace = iterator->value();
-  return trace->ParseFromArray(serialized_trace.data(),
-                               serialized_trace.size());
+  return trace->ParseFromString(serialized_trace);
 }
 
 uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key) {

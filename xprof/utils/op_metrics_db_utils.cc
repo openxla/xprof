@@ -164,7 +164,7 @@ void SetOpMetadataFromHloEventMetadata(
         case StatType::kMemoryAccessBreakdown: {
           tensorflow::profiler::MemoryAccessBreakdown breakdown;
           const auto& value = stat.BytesValue();
-          if (breakdown.ParseFromArray(value.data(), value.size())) {
+          if (breakdown.ParseFromString(value)) {
             *op_metrics->mutable_memory_accessed_breakdown() =
                 breakdown.memory_accessed();
           }

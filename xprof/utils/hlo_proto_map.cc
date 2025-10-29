@@ -68,8 +68,7 @@ ParseHloProtosFromXSpace(const XSpace& space) {
               if (hlo_proto_stat->ValueCase() != XStat::kBytesValue) return;
               auto hlo_proto = std::make_unique<xla::HloProto>();
               absl::string_view byte_value = hlo_proto_stat->BytesValue();
-              if (hlo_proto->ParseFromArray(byte_value.data(),
-                                            byte_value.size())) {
+              if (hlo_proto->ParseFromString(byte_value)) {
                 if (!hlo_protos
                          .try_emplace(event_metadata.Id(), std::move(hlo_proto))
                          .second) {

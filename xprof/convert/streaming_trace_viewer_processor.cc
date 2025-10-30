@@ -93,7 +93,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
 
   // TODO: b/452217676 - Optimize this to process hosts in parallel.
   for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    int host_id = i+1;
+    int host_id = i+2;
     google::protobuf::Arena arena;
     TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
     PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,

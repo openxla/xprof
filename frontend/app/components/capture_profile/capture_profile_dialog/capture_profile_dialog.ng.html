@@ -40,6 +40,20 @@
 
   <div>
     <mat-form-field appearance="outline">
+      <mat-label>Trace Mode</mat-label>
+      <mat-select
+        [(ngModel)]="traceMode"
+      >
+        <mat-option value="TRACE_ONLY_HOST">TRACE_ONLY_HOST</mat-option>
+        <mat-option value="TRACE_ONLY_DEVICE">TRACE_ONLY_DEVICE</mat-option>
+        <mat-option value="TRACE_COMPUTE">TRACE_COMPUTE</mat-option>
+        <mat-option value="TRACE_COMPUTE_AND_SYNC">TRACE_COMPUTE_AND_SYNC</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <div>
+    <mat-form-field appearance="outline">
       <mat-label>Host Trace (TraceMe) Level</mat-label>
       <mat-select
         matTooltip="{{ hostTracerTooltip }}"

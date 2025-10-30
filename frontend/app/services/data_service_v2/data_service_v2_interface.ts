@@ -85,6 +85,9 @@ export interface DataServiceV2Interface {
       programId?: string,
       ): Observable<string|Blob|null>;
 
+  getLloSourceInfo(sessionId: string, opName: string, host: string):
+      Observable<string|null>;
+
   getSearchParams(): URLSearchParams;
   setSearchParams(searchParams: URLSearchParams): void;
 

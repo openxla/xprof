@@ -124,10 +124,49 @@ void StartGrpcServer(int port) {
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
+    std::vector<std::string> xspace_paths,
+    std::vector<std::string> all_hosts, const std::string& tool_name,
+    const ToolOptions& tool_options) {
+  auto status_or_session_snapshot = SessionSnapshot::Create(
+      std::move(xspace_paths), /*xspaces=*/std::nullopt, all_hosts);
+  return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
+                                    tool_options);
+}
+
+absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const ToolOptions& tool_options) {
   auto status_or_session_snapshot = SessionSnapshot::Create(
-      std::move(xspace_paths), /*xspaces=*/std::nullopt);
+      std::move(xspace_paths), /*xspaces=*/std::nullopt, {});
+  return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
+                                    tool_options);
+}
+
+absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
+    std::vector<std::string> xspace_strings,
+    std::vector<std::string> all_hosts,
+    std::vector<std::string> xspace_paths, const std::string& tool_name,
+    const ToolOptions& tool_options) {
+  std::vector<std::unique_ptr<XSpace>> xspaces;
+  xspaces.reserve(xspace_strings.size());
+
+  for (const auto& xspace_string : xspace_strings) {
+    auto xspace = std::make_unique<XSpace>();
+    if (!xspace->ParseFromString(xspace_string)) {
+      return std::make_pair("", false);
+    }
+
+    for (int i = 0; i < xspace->hostnames_size(); ++i) {
+      std::string hostname = xspace->hostnames(i);
+      std::replace(hostname.begin(), hostname.end(), ':', '_');
+      xspace->mutable_hostnames(i)->swap(hostname);
+    }
+    xspaces.push_back(std::move(xspace));
+  }
+
+  auto status_or_session_snapshot =
+      SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces),
+                              all_hosts);
   return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
                                     tool_options);
 }
@@ -154,7 +193,8 @@ absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
   }
 
   auto status_or_session_snapshot =
-      SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces));
+      SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces),
+                              {});
   return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
                                     tool_options);
 }

@@ -604,7 +604,7 @@ class TraceEventsContainerBase {
   TraceEventsContainerBase(const TraceEventsContainerBase&) = delete;
   TraceEventsContainerBase& operator=(const TraceEventsContainerBase&) = delete;
 
-  void Merge(TraceEventsContainerBase&& other, int host_id);
+  void Merge(TraceEventsContainerBase&& other);
 
   // Creates a TraceEvent prefilled with the given values.
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,

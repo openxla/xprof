@@ -116,6 +116,20 @@
           />
         </mat-form-field>
       </div>
+
+      <div>
+        Extra Options:
+        <div *ngFor="let option of extraOptions; let i = index">
+          <mat-form-field>
+            <input matInput placeholder="Key" [(ngModel)]="option.key" />
+          </mat-form-field>
+          <mat-form-field>
+            <input matInput placeholder="Value" [(ngModel)]="option.value" />
+          </mat-form-field>
+          <button mat-button (click)="removeExtraOption(i)">Remove</button>
+        </div>
+        <button mat-button (click)="addExtraOption()">Add Option</button>
+      </div>
     </mat-expansion-panel>
   </div>
 </mat-dialog-content>

@@ -1,5 +1,6 @@
 import {Component, inject, Input, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
+import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
@@ -32,6 +33,8 @@ export class DownloadHlo implements OnDestroy {
   @Input() moduleName: string = '';
   /** Includes metadata in the proto. */
   @Input() showMetadata: boolean = false;
+  /** The graph type to download. */
+  @Input() graphType: string = GRAPH_TYPE_DEFAULT;
 
   readonly downloadMenuItems = DOWNLOAD_HLO_PROTO_MENU_ITEMS;
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -53,6 +56,7 @@ export class DownloadHlo implements OnDestroy {
     this.dataService
         .downloadHloProto(
             this.sessionId,
+            this.graphType,
             this.moduleName,
             type,
             this.showMetadata,

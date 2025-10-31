@@ -259,6 +259,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
   // hlo proto map by program id.
   downloadHloProto(
       sessionId: string,
+      graphType: string,
       moduleName: string,
       type: string,
       showMetadata: boolean,
@@ -274,6 +275,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
                        .set('run', sessionId)
                        .set('tag', tool)
                        .set('host', host)
+                       .set('graph_type', graphType)
                        .set('module_name', moduleName)
                        .set('type', type)
                        .set('show_metadata', String(showMetadata));

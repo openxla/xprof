@@ -18,8 +18,11 @@ limitations under the License.
 
 #include <memory>
 #include <utility>
+#include <string>
+#include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/status/status.h"
 #include "xla/tsl/platform/errors.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
@@ -65,6 +68,12 @@ class ToolDataProviderImpl : public ToolDataProvider {
               std::move(input_pipeline_analysis));
     }
     return input_pipeline_analysis_cache_.get();
+  }
+
+  absl::StatusOr<std::vector<float>>
+  GetEventTimeFractionEachStep
+    (const std::string& target_event_name) override {
+    return absl::UnimplementedError("Not implemented yet.");
   }
 
  private:

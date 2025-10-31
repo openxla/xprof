@@ -21,6 +21,7 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/input_bound_rule.h"
 #include "xprof/convert/smart_suggestion/memory_bound_rule.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule_factory.h"
+#include "xprof/convert/smart_suggestion/special_op_rule.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -32,6 +33,7 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   f->Register<HostProcessingBoundRule>();
   f->Register<InputBoundRule>();
   f->Register<MemoryBoundRule>();
+  f->Register<SpecialOpRule>();
   // go/keep-sorted end
 }
 

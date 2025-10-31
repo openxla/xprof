@@ -18,6 +18,8 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <utility>
+#include <string>
+#include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
@@ -43,6 +45,8 @@ class MockToolDataProvider : public ToolDataProvider {
               (override));
   MOCK_METHOD(absl::StatusOr<const InputPipelineAnalysisResult*>,
               GetInputPipelineAnalysisResult, (), (override));
+  MOCK_METHOD(absl::StatusOr<std::vector<float>>,
+              GetEventTimeFractionEachStep, (const std::string&), (override));
 };
 
 TEST(MemoryBoundRuleTest, MeetsConditions) {

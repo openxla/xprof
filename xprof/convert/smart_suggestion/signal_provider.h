@@ -17,6 +17,7 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/status/statusor.h"
@@ -101,6 +102,24 @@ class SignalProvider {
       return 0.0;
     }
     return (non_enqueue_us / total_input_time_us) * 100.0;
+  }
+
+  // Returns the average percentage of step time for a given event name.
+  absl::StatusOr<double> GetAvgEventTimePercent(
+      const std::string& event_name) const {
+    TF_ASSIGN_OR_RETURN(
+        auto event_time_of_interest,
+        tool_data_provider_->GetEventTimeFractionEachStep(event_name));
+
+    double total_percent = 0;
+    for (float event_percent : event_time_of_interest) {
+      total_percent += event_percent;
+    }
+
+    if (event_time_of_interest.empty()) {
+      return 0.0;
+    }
+    return (total_percent / event_time_of_interest.size()) * 100.0;
   }
 
  private:

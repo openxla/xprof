@@ -35,6 +35,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
 
@@ -43,6 +44,7 @@ cc_library(
     hdrs = ["tool_data_provider_impl.h"],
     deps = [
         ":tool_data_provider",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -111,6 +113,20 @@ cc_library(
 )
 
 cc_library(
+    name = "special_op_rule",
+    hdrs = ["special_op_rule.h"],
+    deps = [
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "smart_suggestion_rule_factory",
     hdrs = ["smart_suggestion_rule_factory.h"],
     deps = [
@@ -127,6 +143,7 @@ cc_library(
         ":input_bound_rule",
         ":memory_bound_rule",
         ":smart_suggestion_rule_factory",
+        ":special_op_rule",
     ],
 )
 
@@ -141,6 +158,20 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
         "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_test(
+    name = "special_op_rule_test",
+    srcs = ["special_op_rule_test.cc"],
+    deps = [
+        ":signal_provider",
+        ":special_op_rule",
+        ":tool_data_provider",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
     ],
 )
 

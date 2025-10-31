@@ -19,6 +19,10 @@ xprof_ng_module(
         "@npm//@ngrx/store",
         "@npm//@types/google.visualization",
         "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_icon",
+        "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
+        "@org_xprof//frontend/app/common/angular:angular_material_slide_toggle",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/classes",
         "@org_xprof//frontend/app/common/constants:roofline_model_constants",
         "@org_xprof//frontend/app/common/interfaces",
@@ -39,4 +43,5 @@ sass_binary(
     src = "roofline_model.scss",
     # stack = True,
     sourcemap = False,
+    deps = ["@org_xprof//frontend/app/styles:common"],
 )

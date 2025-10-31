@@ -26,6 +26,7 @@ enum RecordType {
 }
 
 // A database of RooflineModel records.
+// Next ID: 17
 message RooflineModelDatabase {
   // The device type.
   optional string device_type = 1;
@@ -63,11 +64,16 @@ message RooflineModelDatabase {
   // Error and warning messages for diagnosing profiling issues.
   optional tensorflow.profiler.Diagnostics diagnostics = 7;
 
+  // The weighted average time scale multiplier over all device op metrics.
+  // It is calculated by the total time of each op if running on default pstate
+  // divided by actual total op time.
+  optional double time_scale_multiplier = 16;
+
   reserved 3, 4, 6;
 }
 
 // There is one RooflineModelRecord for each HLO operation profiled.
-// Next ID: 44
+// Next ID: 45
 message RooflineModelRecord {
   // The record type.
   optional RecordType record_type = 18;
@@ -186,6 +192,10 @@ message RooflineModelRecord {
 
   // Whether the record is calculated including infeed and outfeed ops.
   optional bool include_infeed_outfeed = 26;
+
+  // Whether the device metrics (eg. flops utilization) is calculated with by
+  // applying the time scale multiplier.
+  optional bool apply_time_scale_multiplier = 44;
 
   // Flops for the record
   optional uint64 flops = 36;

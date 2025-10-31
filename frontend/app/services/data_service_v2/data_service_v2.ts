@@ -103,7 +103,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   private getHTTPParamsForDataQuery(
       run: string, tag: string, host: string,
-      parameters: Map<string, string> = new Map()): HttpParams {
+      parameters: Map<string, string|boolean> = new Map()): HttpParams {
     // Update searchparams with the updated run, tag and host.
     // In a Single Page App, we need to update the searchparams with the updated
     // run, tag and host on tool change for consistency.
@@ -130,7 +130,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   getData(
       sessionId: string, tool: string, host: string,
-      parameters: Map<string, string> = new Map()):
+      parameters: Map<string, string|boolean> = new Map()):
       Observable<DataTable|DataTable[]|null> {
     const params =
         this.getHTTPParamsForDataQuery(sessionId, tool, host, parameters);

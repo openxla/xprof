@@ -44,6 +44,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   stackTrace = '';
   focusedOpProgramId = '';
   focusedOpName = '';
+  focusedOpCategory = '';
   showStackTrace = false;
   useUncappedFlops = false;
 
@@ -91,6 +92,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
     this.focusedOpProgramId = node?.xla?.programId || '';
     this.focusedOpName = node?.name || '';
+    this.focusedOpCategory = node?.xla?.category || '';
   }
 
   ngOnChanges(changes: SimpleChanges) {

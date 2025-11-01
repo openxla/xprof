@@ -255,6 +255,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return '';
   }
 
+  getCustomCallText(
+      sessionId: string, moduleName: string, opName: string,
+      programId: string): Observable<string> {
+    return of('');
+  }
+
   // Download by program id is not implemented yet, as the processor is missing
   // hlo proto map by program id.
   downloadHloProto(
@@ -281,6 +287,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
       'params': params,
       'responseType': responseType,
     }) as Observable<string|Blob|null>;
+  }
+
+  // Not implemented.
+  getLloSourceInfo(sessionId: string, opName: string, host = ''):
+      Observable<string> {
+    return of('');
   }
 
   getSearchParams(): URLSearchParams {

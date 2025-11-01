@@ -9,8 +9,8 @@
       </mat-select>
     </mat-form-field>
     <stack-trace-snippet
-      [sourceFileAndLineNumber]="sourceFileAndLineNumber"
-      [stackTrace]="stackTrace"
+      [sourceFileAndLineNumber]="adaptedSourceFileAndLineNumber"
+      [stackTrace]="adaptedStackTrace"
       [sourceContextWindow]="sourceContextWindow"
     />
   </div>
@@ -18,7 +18,7 @@
   <div class="ir-text-container">
     <mat-form-field class="ir-type-select" (click)="$event.stopPropagation()" appearance="outline">
       <mat-label>Compiler Pass</mat-label>
-      <mat-select [(ngModel)]="selectedCompilerPass">
+      <mat-select [ngModel]="selectedCompilerPass" (ngModelChange)="onCompilerPassChange($event)">
         <mat-option *ngFor="let pass of compilerPasses" [value]="pass">
           {{pass}}
         </mat-option>

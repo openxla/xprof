@@ -16,6 +16,7 @@ xprof_ng_module(
     deps = [
         "@npm//@angular/core",
         "@npm//@angular/forms",
+        "@npm//@ngrx/store",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
@@ -28,6 +29,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/stack_trace_snippet:message",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
+        "@org_xprof//frontend/app/store",
     ],
 )
 

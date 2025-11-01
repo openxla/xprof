@@ -3,8 +3,8 @@ import {Store} from '@ngrx/store';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {getActiveOpProfileNodeState, getCurrentRun, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState} from 'org_xprof/frontend/app/store/selectors';
-import {ProfilingGeneralState} from 'org_xprof/frontend/app/store/state';
+import {getActiveOpProfileNodeState, getCurrentRun, getOpAnalysisState, getOpProfileRootNode, getProfilingGeneralState, getSelectedOpNodeChainState} from 'org_xprof/frontend/app/store/selectors';
+import {OpAnalysisState, ProfilingGeneralState} from 'org_xprof/frontend/app/store/state';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {Observable, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -69,6 +69,7 @@ export class OpDetails {
   currentRun = '';
   showUtilizationWarning = false;
   deviceType = 'TPU';
+  applyScalingFactor = false;
 
   constructor(
       private readonly store: Store<{}>,
@@ -79,6 +80,11 @@ export class OpDetails {
         .pipe(takeUntil(this.destroyed))
         .subscribe((node: Node|null) => {
           this.update(node);
+        });
+    this.store.select(getOpAnalysisState)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((opAnalysisState: OpAnalysisState) => {
+          this.applyScalingFactor = opAnalysisState.applyScalingFactor;
         });
     this.store.select(getSelectedOpNodeChainState)
         .pipe(takeUntil(this.destroyed))
@@ -201,12 +207,15 @@ export class OpDetails {
     }
     this.showUtilizationWarning = false;
     this.color = utils.flameColor(
-        utils.flopsUtilization(this.node, this.rootNode), 0.7, 1, Math.sqrt);
+        utils.flopsUtilization(
+            this.node, this.rootNode, this.applyScalingFactor),
+        0.7, 1, Math.sqrt);
     this.name = this.node.name || '';
     this.subheader = this.getSubheader();
 
     if (utils.hasFlopsUtilization(this.node)) {
-      const flopsUtilization = utils.flopsUtilization(this.node, this.rootNode);
+      const flopsUtilization = utils.flopsUtilization(
+          this.node, this.rootNode, this.applyScalingFactor);
       if (flopsUtilization === 1) {
         this.showUtilizationWarning = true;
       }

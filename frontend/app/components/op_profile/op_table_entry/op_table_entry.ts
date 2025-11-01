@@ -1,8 +1,12 @@
 import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
+import {getOpAnalysisState} from 'org_xprof/frontend/app/store/selectors';
+import {OpAnalysisState} from 'org_xprof/frontend/app/store/state';
+import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
+import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
@@ -12,6 +16,9 @@ import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/acti
   styleUrls: ['./op_table_entry.scss']
 })
 export class OpTableEntry implements OnChanges {
+  /** Handles on-destroy Subject, used to unsubscribe. */
+  private readonly destroyed = new ReplaySubject<void>(1);
+
   /** The depth of node. */
   @Input() level = 0;
 
@@ -30,11 +37,14 @@ export class OpTableEntry implements OnChanges {
   /** The property to show top 90%. */
   @Input() showP90 = false;
 
-  /** The property to show uncapped flops. */
-  @Input() useUncappedFlops = false;
-
   /** The number of children nodes to be shown. */
   @Input() childrenCount = 10;
+
+  /**
+   * The internal property used to react to changes of applyScalingFactor in the
+   * nested op table entry.
+   */
+  @Input() applyScalingFactorInternal = false;
 
   /** The event when the mouse enter or leave. */
   @Output() readonly hover = new EventEmitter<Node|null>();
@@ -58,8 +68,15 @@ export class OpTableEntry implements OnChanges {
   hbmUtilization = '';
   hbmFlameColor = '';
   numLeftOut = 0;
+  applyScalingFactor = false;
 
-  constructor(private readonly store: Store<{}>) {}
+  constructor(private readonly store: Store<{}>) {
+    this.store.select(getOpAnalysisState)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((opAnalysisState: OpAnalysisState) => {
+          this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+        });
+  }
 
   ngOnChanges(changes: SimpleChanges) {
     if (!this.node || !this.rootNode) {
@@ -81,8 +98,8 @@ export class OpTableEntry implements OnChanges {
       this.percent = '';
     }
 
-    const utilization =
-        utils.flopsUtilization(this.node, this.rootNode, this.useUncappedFlops);
+    const utilization = utils.flopsUtilization(
+        this.node, this.rootNode, this.applyScalingFactor);
 
     this.flopsUtilization = utils.percent(utilization);
     this.flameColor = utils.flameColor(utilization, 0.7, 1, Math.sqrt);

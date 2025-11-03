@@ -465,6 +465,9 @@ absl::StatusOr<std::string> CallWorkerService(const std::string& xspace_path,
   if (!grpc_status.ok()) {
     return ::xprof::profiler::ToAbslStatus(grpc_status);
   }
+  LOG(INFO) << "gRPC response: tool=" << tool_name
+            << ", session=" << xspace_path
+            << ", worker_id=" << response.worker_id();
   return response.output();
 }
 

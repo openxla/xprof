@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_PLUGIN_TENSORBOARD_PLUGIN_PROFILE_WORKER_GRPC_UTILS_H_
 #define THIRD_PARTY_XPROF_PLUGIN_TENSORBOARD_PLUGIN_PROFILE_WORKER_GRPC_UTILS_H_
 
+#include <string>
+
 #include "absl/status/status.h"
 #include "grpcpp/support/status.h"
 

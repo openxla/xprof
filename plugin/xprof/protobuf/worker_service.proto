@@ -40,4 +40,6 @@ message WorkerProfileDataRequest {
 message WorkerProfileDataResponse {
   // The absolute path to the tool specific output.
   string output = 1;
+  // A unique identifier for the worker that handled the request.
+  string worker_id = 2;
 }

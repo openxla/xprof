@@ -738,7 +738,6 @@ class ProfilePlugin(base_plugin.TBPlugin):
       for xplane_path in path.glob(file_pattern):
         host_name, _ = _parse_filename(xplane_path.name)
         if host_name:
-          print('host_name: %s', host_name)
           all_xplane_files[host_name] = xplane_path
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %s', run_dir, e)

@@ -25,11 +25,15 @@ limitations under the License.
 #include "absl/base/const_init.h"
 #include "absl/base/no_destructor.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/log/log.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "grpc/grpc.h"
 #include "grpcpp/channel.h"
 #include "grpcpp/create_channel.h"
 #include "grpcpp/security/credentials.h"
+#include "grpcpp/support/channel_arguments.h"
 #include "plugin/xprof/protobuf/worker_service.grpc.pb.h"
 
 namespace xprof {
@@ -38,6 +42,35 @@ namespace profiler {
 using xprof::pywrap::grpc::XprofAnalysisWorkerService;
 
 constexpr char kAddressDelimiter = ',';
+
+// Service config for the gRPC channel. This config will be applied to all
+// methods of the service. It enables a robust retry policy for transient errors
+// (UNAVAILABLE, RESOURCE_EXHAUSTED, etc.), sets a 10-minute timeout, and
+// configures client-side round-robin load balancing.
+constexpr char kServiceConfigJson[] = R"pb(
+    {
+      "methodConfig":
+      [ {
+        "name":
+        [ {}],
+             "timeout": "600s",
+             "retryPolicy": {
+               "maxAttempts": 4,
+               "initialBackoff": "2s",
+               "maxBackoff": "120s",
+               "backoffMultiplier": 2.0,
+               "retryableStatusCodes": [
+                 "UNAVAILABLE",
+                 "RESOURCE_EXHAUSTED",
+                 "INTERNAL",
+                 "ABORTED",
+                 "NOT_FOUND"
+               ]
+             }
+      }],
+      "loadBalancingConfig":
+      [ { "round_robin": {} }]
+    })pb";
 
 ABSL_CONST_INIT absl::Mutex gStubsMutex(absl::kConstInit);
 // gStubs holds the gRPC stubs for the worker services.
@@ -56,18 +89,44 @@ static absl::NoDestructor<
 static std::atomic<size_t> gCurrentStubIndex = 0;
 static std::atomic<bool> gStubsInitialized = false;
 
+// Creates a gRPC channel for a given worker address. This channel is
+// configured with a service config that enables a robust retry policy for
+// transient errors and sets the client-side load balancing policy to
+// round-robin.
+static std::shared_ptr<::grpc::Channel> CreateWorkerChannelForAddress(
+    absl::string_view address) {
+  grpc::ChannelArguments args;
+  args.SetServiceConfigJSON(kServiceConfigJson);
+  args.SetLoadBalancingPolicyName("round_robin");
+  args.SetInt(GRPC_ARG_DNS_MIN_TIME_BETWEEN_RESOLUTIONS_MS, 5000);
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 20000);
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 10000);
+  args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
+  args.SetInt(GRPC_ARG_ENABLE_RETRIES, 1);
+  args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, -1);
+  args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, -1);
+
+  // Create the channel with insecure credentials. This is acceptable because
+  // the communication between the aggregator and workers happens within a
+  // trusted, internal network environment.
+  std::shared_ptr<::grpc::Channel> channel = ::grpc::CreateCustomChannel(
+      std::string(address), ::grpc::InsecureChannelCredentials(), args);  // NOLINT
+  LOG(INFO) << "Created gRPC channel for address: " << address;
+  return channel;
+}
+
 void InitializeStubs(const std::string& worker_service_addresses) {
   absl::MutexLock lock(&gStubsMutex);
   if (gStubsInitialized.load(std::memory_order_acquire)) {
     // Already initialized.
     return;
   }
-  std::vector<std::string> addresses =
+  std::vector<absl::string_view> addresses =
       absl::StrSplit(worker_service_addresses, kAddressDelimiter);
-  for (const std::string& address : addresses) {
+  for (absl::string_view address : addresses) {
     if (address.empty()) continue;
-    std::shared_ptr<::grpc::Channel> channel = ::grpc::CreateChannel(
-        address, ::grpc::InsecureChannelCredentials());  // NOLINT
+    std::shared_ptr<::grpc::Channel> channel =
+        CreateWorkerChannelForAddress(address);
     gStubs->push_back(XprofAnalysisWorkerService::NewStub(channel));
   }
   gStubsInitialized.store(true, std::memory_order_release);

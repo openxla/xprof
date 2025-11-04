@@ -467,7 +467,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     """
     self.logdir = context.logdir
     self.basedir = context.logdir
-    self.custom_session = None
+    self.custom_session_path = None
     self.custom_run_path = None
     self.data_provider = context.data_provider
     self.master_tpu_unsecure_channel = context.flags.master_tpu_unsecure_channel
@@ -595,14 +595,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
       request: Optional; werkzeug request used for grabbing ctx and experiment
         id for other host implementations
     """
-    session = request.args.get('session') if request else None
-    run_path = request.args.get('run_path') if request and not session else None
-    self.custom_session = session
+    session_path = request.args.get('session_path') if request else None
+    run_path = (
+        request.args.get('run_path') if request and not session_path else None
+    )
+    self.custom_session_path = session_path
     self.custom_run_path = run_path
-    self.logdir = session if session else self.basedir
-    if self.custom_session or self.custom_run_path:
+    self.logdir = session_path if session_path else self.basedir
+    if self.custom_session_path or self.custom_run_path:
       runs_generator = self._generate_runs_from_path_params(
-          session=self.custom_session, run_path=self.custom_run_path
+          session_path=self.custom_session_path, run_path=self.custom_run_path
       )
     else:
       runs_generator = self.generate_runs()
@@ -1071,7 +1073,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
     if not self.logdir or not epath.Path(tb_run_directory).is_dir():
       raise RuntimeError('No matching run directory for run %s' % run)
-    if self.custom_session or self.custom_run_path:
+    if self.custom_session_path or self.custom_run_path:
       return os.path.join(tb_run_directory, profile_run_name)
     plugin_directory = plugin_asset_util.PluginDirectory(
         tb_run_directory, PLUGIN_NAME
@@ -1079,13 +1081,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return os.path.join(plugin_directory, profile_run_name)
 
   def _generate_runs_from_path_params(
-      self, session: Optional[str] = None, run_path: Optional[str] = None
+      self, session_path: Optional[str] = None, run_path: Optional[str] = None
   ) -> Iterator[str]:
     """Generator for a list of runs from path parameters.
 
     This function handles two specific scenarios for specifying profile data
     locations:
-    1.  `session`: A direct path to a directory containing XPlane files for a
+    1.  `session_path`: A direct path to a directory containing XPlane files for
+    a
         single profiling session. The directory's name becomes the run name.
     2.  `run_path`: A path to a directory that contains multiple session
         directories. Each subdirectory that contains XPlane files is treated
@@ -1093,8 +1096,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     Example Directory Structures:
 
-    Scenario 1: Using `session`
-    If `session` is `/path/to/my_session_dir`:
+    Scenario 1: Using `session_path`
+    If `session_path` is `/path/to/my_session_dir`:
     ```
     /path/to/
       my_session_dir/
@@ -1117,7 +1120,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     This would yield runs: "session_alpha", "session_beta".
 
     Args:
-      session: An optional path string to a specific profiling session
+      session_path: An optional path string to a specific profiling session
         directory.
       run_path: An optional path string to a directory containing multiple
         profiling session subdirectories.
@@ -1127,11 +1130,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
       provided path parameters.
     """
 
-    if session:
-      session = epath.Path(session)
-      run_name = session.name
-      self.logdir = str(session.parent)
-      self._run_to_profile_run_dir[run_name] = str(session)
+    if session_path:
+      session_path = epath.Path(session_path)
+      run_name = session_path.name
+      self.logdir = str(session_path.parent)
+      self._run_to_profile_run_dir[run_name] = str(session_path)
       yield run_name
     elif run_path:
       run_path = epath.Path(run_path)

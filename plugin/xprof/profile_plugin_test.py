@@ -516,11 +516,13 @@ class ProfilePluginTest(absltest.TestCase):
     self.assertTrue(self.plugin.is_active())
 
   def test_generate_runs_from_path_params_with_session(self):
-    session = os.path.join(self.logdir, 'session_run')
-    os.mkdir(session)
-    with open(os.path.join(session, 'host.xplane.pb'), 'w') as f:
+    session_path = os.path.join(self.logdir, 'session_run')
+    os.mkdir(session_path)
+    with open(os.path.join(session_path, 'host.xplane.pb'), 'w') as f:
       f.write('dummy xplane data')
-    runs = list(self.plugin._generate_runs_from_path_params(session=session))
+    runs = list(
+        self.plugin._generate_runs_from_path_params(session_path=session_path)
+    )
     self.assertListEqual(['session_run'], runs)
     self.assertEqual(self.logdir, self.plugin.logdir)
 
@@ -549,16 +551,16 @@ class ProfilePluginTest(absltest.TestCase):
     self.assertEqual(run_path, self.plugin.logdir)
 
   def test_runs_impl_with_session(self):
-    session = os.path.join(self.logdir, 'session_run')
-    os.mkdir(session)
-    with open(os.path.join(session, 'host.xplane.pb'), 'w') as f:
+    session_path = os.path.join(self.logdir, 'session_run')
+    os.mkdir(session_path)
+    with open(os.path.join(session_path, 'host.xplane.pb'), 'w') as f:
       f.write('dummy xplane data')
     request = utils.make_data_request(
-        utils.DataRequestOptions(session=session)
+        utils.DataRequestOptions(session_path=session_path)
     )
     runs = self.plugin.runs_imp(request)
     self.assertListEqual(['session_run'], runs)
-    self.assertEqual(os.path.dirname(session), self.plugin.logdir)
+    self.assertEqual(os.path.dirname(session_path), self.plugin.logdir)
 
   def test_runs_impl_with_run_path(self):
     run_path = os.path.join(self.logdir, 'base')
@@ -598,8 +600,8 @@ class ProfilePluginTest(absltest.TestCase):
       self.plugin._run_dir('non_existent_tb_run/run1')
 
   def test_run_dir_with_custom_session(self):
-    self.plugin.custom_session = os.path.join(self.logdir, 'session_run')
-    os.mkdir(self.plugin.custom_session)
+    self.plugin.custom_session_path = os.path.join(self.logdir, 'session_run')
+    os.mkdir(self.plugin.custom_session_path)
     run_dir = self.plugin._run_dir('session_run')
     self.assertEqual(
         run_dir, os.path.join(self.logdir, 'session_run')

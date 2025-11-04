@@ -334,11 +334,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
   /** Methods below are for 3P only */
   getRuns(): Observable<string[]|null> {
     const searchParams = this.getSearchParams();
-    const session = searchParams.get('session');
+    const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
     let params = new HttpParams();
-    if (session) {
-      params = params.set('session', session);
+    if (sessionPath) {
+      params = params.set('session_path', sessionPath);
     }
     if (runPath) {
       params = params.set('run_path', runPath);

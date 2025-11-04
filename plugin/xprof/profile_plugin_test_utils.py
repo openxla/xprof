@@ -73,7 +73,7 @@ class DataRequestOptions:
     resolution: Trace resolution.
     start_time_ms: Start time in milliseconds.
     end_time_ms: End time in milliseconds.
-    session: Path to a single session.
+    session_path: Path to a single session.
     run_path: Path to a directory containing multiple sessions.
   """
 
@@ -85,7 +85,7 @@ class DataRequestOptions:
   resolution: int | None = None
   start_time_ms: int | None = None
   end_time_ms: int | None = None
-  session: str | None = None
+  session_path: str | None = None
   run_path: str | None = None
 
 
@@ -116,8 +116,8 @@ def make_data_request(options: DataRequestOptions) -> Request:
     req.args['start_time_ms'] = options.start_time_ms
   if options.end_time_ms is not None:
     req.args['end_time_ms'] = options.end_time_ms
-  if options.session:
-    req.args['session'] = options.session
+  if options.session_path:
+    req.args['session_path'] = options.session_path
   if options.run_path:
     req.args['run_path'] = options.run_path
   return req

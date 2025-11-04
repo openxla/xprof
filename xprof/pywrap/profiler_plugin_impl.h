@@ -36,6 +36,17 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
                      tsl::string* result);
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
+    std::vector<std::string> xspace_paths,
+    std::vector<std::string> all_hosts, const std::string& tool_name,
+    const tensorflow::profiler::ToolOptions& tool_options);
+
+absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
+    std::vector<std::string> xspace_paths, const std::string& tool_name,
+    const tensorflow::profiler::ToolOptions& tool_options);
+
+absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
+    std::vector<std::string> xspace_strings,
+    std::vector<std::string> all_hosts,
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const tensorflow::profiler::ToolOptions& tool_options);
 

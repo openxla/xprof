@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/preprocess_xplane.h"
+#include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -352,12 +353,13 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
       {{StatType::kConsumerType,
         static_cast<int64_t>(tsl::profiler::ContextType::kTfrtTpuRuntime)},
        {StatType::kConsumerId, int64_t{1}}});
-  CreateXEvent(
-      &host_plane_builder, &runtime_thread, HostEventType::kDoEnqueueProgram,
-      95, 2,
-      {{StatType::kRunId, int64_t{1}}, {StatType::kQueueId, int64_t{0}}});
+  CreateXEvent(&host_plane_builder, &runtime_thread,
+               HostEventType::kDoEnqueueProgram, 95, 2,
+               {{StatType::kRunId, int64_t{1}},
+                {StatType::kQueueId, int64_t{0}},
+                {StatType::kDeviceOrdinal, int64_t{0}}});
   for (int i = 1; i <= 5; ++i) {
-    auto worker_thread = host_plane_builder.GetOrCreateLine(i + 2);
+    auto worker_thread = host_plane_builder.GetOrCreateLine(i + 1);
     worker_thread.SetName(absl::StrCat("WorkerThread-", i));
     CreateXEvent(&host_plane_builder, &worker_thread, "MapDataset.__getitem__",
                  2, 2,
@@ -366,9 +368,9 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
                   {StatType::kConsumerId, int64_t{i}}});
   }
 
-  XPlane* device_plane = space.add_planes();
+  XPlane* device_plane =
+      tsl::profiler::GetOrCreateTpuXPlane(&space, 0, "TPUv4", 0, 0);
   XPlaneBuilder device_plane_builder(device_plane);
-  device_plane_builder.SetName("/device:TPU:0");
   device_plane_builder.ReserveLines(3);
 
   auto steps = device_plane_builder.GetOrCreateLine(0);
@@ -387,9 +389,30 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {
   tsl::profiler::EventForest event_forest;
   tsl::profiler::PreprocessXSpace(&space);
   tsl::profiler::GroupTpuEventsOSS(&space, {device_plane}, &event_forest);
+  EXPECT_EQ(event_forest.GetGroupMetadataMap().size(), 1);
   StepEvents device_step_events =
       ConvertDeviceTraceXPlaneToStepEvents(*device_plane);
   EXPECT_EQ(device_step_events.size(), 1);
+  XPlaneVisitor host_plane_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(host_plane);
+  host_plane_visitor.ForEachLine([&](const XLineVisitor& line) {
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      SCOPED_TRACE(absl::StrCat(line.Name(), " ", event.Name()));
+      // All events should be grouped and have `group_id` set.
+      ASSERT_TRUE(event.GetStat(StatType::kGroupId).has_value());
+      EXPECT_EQ(event.GetStat(StatType::kGroupId)->IntOrUintValue(), 0);
+    });
+  });
+  XPlaneVisitor device_plane_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  device_plane_visitor.ForEachLine([&](const XLineVisitor& line) {
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      SCOPED_TRACE(absl::StrCat(line.Name(), " ", event.Name()));
+      // All events should be grouped and have `group_id` set.
+      ASSERT_TRUE(event.GetStat(StatType::kGroupId).has_value());
+      EXPECT_EQ(event.GetStat(StatType::kGroupId)->IntOrUintValue(), 0);
+    });
+  });
   StepEvents host_step_events =
       ConvertHostThreadsXPlaneToStepEvents(*host_plane, &device_step_events);
   // Should contain only the step which is also present on the device.

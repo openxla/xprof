@@ -254,7 +254,7 @@ export type OpProfileProto = opProfileProto.Profile;
 /** All overview page data table type. */
 export type OverviewPageDataTable =
     GeneralAnalysis|InputPipelineAnalysis|RecommendationResult|RunEnvironment|
-    SimpleDataTable|NormalizedAcceleratorPerformance;
+    SimpleDataTable|NormalizedAcceleratorPerformance|PodViewerTopology;
 
 /** All overview page data tuple type. */
 export type OverviewPageDataTuple = [
@@ -265,6 +265,7 @@ export type OverviewPageDataTuple = [
   SimpleDataTable,
   NormalizedAcceleratorPerformance,
   SimpleDataTable,
+  PodViewerTopology,
 ];
 
 /* tslint:disable enforce-name-casing */

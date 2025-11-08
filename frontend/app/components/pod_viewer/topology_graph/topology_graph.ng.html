@@ -2,8 +2,8 @@
   <div class="mat-title">
     {{deviceType}} {{xDimension}}x{{yDimension}}
   </div>
-  <div class="topology-header">
-    <div class="control-row-left">
+  <div class="topology-header" *ngIf="(metricList && metricList.length) || (channelDb && channelDb.length)">
+    <div class="control-row-left" >
       <span class="selected-metric-label control">{{selectedMetricLabel}}</span>
       <button mat-icon-button [matMenuTriggerFor]="mecticMenu" aria-label="Metric menu">
         <mat-icon>arrow_drop_down</mat-icon>
@@ -100,7 +100,7 @@
       <pre>{{tooltipText}}</pre>
   </div>
 
-  <div class="color-table">
+  <div class="color-table" *ngIf="podStatsPerCore">
     <div
       *ngFor="let colorInfo of colorInfos">
       <div class="color-cell" [style.backgroundColor]="colorInfo.color"></div>

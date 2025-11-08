@@ -348,7 +348,7 @@ export class TopologyGraph implements OnChanges, OnDestroy {
   private updateNodes() {
     this.nodes = [];
 
-    if (!this.topology || !this.podStatsPerCore) {
+    if (!this.topology) {
       return;
     }
 
@@ -375,7 +375,7 @@ export class TopologyGraph implements OnChanges, OnDestroy {
           this.nodes[chipz].nodes.push(nodeInfo);
         }
       });
-    } else {
+    } else if (this.podStatsPerCore) {
       this.nodes[0] = {nodes: []};
       Object.keys(this.podStatsPerCore).forEach(coreId => {
         const podStatsRecord = this.podStatsPerCore![coreId];

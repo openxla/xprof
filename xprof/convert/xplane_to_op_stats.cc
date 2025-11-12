@@ -23,6 +23,7 @@ limitations under the License.
 #include <ostream>
 #include <string>
 #include <vector>
+#include <queue>
 
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_set.h"
@@ -66,6 +67,7 @@ limitations under the License.
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_utils.h"
 #include "xprof/utils/xprof_gpu_cost_analysis_types.h"
+#include "absl/container/flat_hash_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -77,6 +79,7 @@ using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
 using tsl::profiler::Timespan;
 using ::tsl::profiler::XPlaneBuilder;
+using tsl::profiler::kXlaOpLineName;
 
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";
@@ -380,6 +383,113 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
                      .has_value()) {
               op_metrics_db =
                   ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_plane);
+              XPlaneVisitor visitorSecond =
+                  tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+              std::queue<XEventVisitor> custom_call_blocks;
+                  visitorSecond.ForEachLine([&](const XLineVisitor& line) {
+                if (line.Name() == "XLA TraceMe") {
+                  line.ForEachEvent([&](const XEventVisitor& event) {
+                    if (absl::StartsWith(event.Name(), "__block_")){
+                      custom_call_blocks.push(event);
+                    }
+                  });
+                }
+              });
+              absl::flat_hash_map<std::string,
+                absl::flat_hash_map<std::string, uint>>
+                  custom_call_to_block_count;
+
+              XPlaneVisitor xlaEvents =
+                  tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+              xlaEvents.ForEachLine([&](const XLineVisitor& line) {
+                if (line.Name() == kXlaOpLineName) {
+                  line.ForEachEvent([&](const XEventVisitor& event) {
+                    tsl::profiler::Timespan custom_call_timespan =
+                    GetDeviceEventTimespan(event);
+                    bool custom_call = false;
+                    event.Metadata().ForEachStat([&]
+                      (const XStatVisitor& stat) {
+                      if (stat.Type().has_value()) {
+                        switch (static_cast<StatType>(*stat.Type())) {
+                          case StatType::kHloCategory:
+                            custom_call =
+                            (stat.StrOrRefValue() == "custom-call");
+                            break;
+                          default:
+                            break;
+                        }
+                      }
+                    });
+                    if (custom_call){
+                      while (!custom_call_blocks.empty()){
+                        tsl::profiler::Timespan ccall_blck_timespan =
+                          GetDeviceEventTimespan(custom_call_blocks.front());
+                        if ((custom_call_timespan.begin_ps() <=
+                          ccall_blck_timespan.begin_ps()) &&
+                          (ccall_blck_timespan.end_ps() <=
+                            custom_call_timespan.end_ps())
+                          ){
+                            custom_call_to_block_count[event.DisplayName()]
+                              [std::string(custom_call_blocks.front().
+                                Name())] += 1;
+                            custom_call_blocks.pop();
+                        }else{
+                          break;
+                        }
+                      }
+                    }
+                  });
+                }
+              });
+              for (OpMetrics& op_metrics :
+                    *op_metrics_db.mutable_metrics_db()) {
+                  const HloInstructionWrapper* instr_wrapper =
+                  GetHloInstruction(hlo_module_map,
+                      op_metrics.hlo_module_id(), op_metrics.name());
+                if (instr_wrapper != nullptr) {
+                  if (instr_wrapper->Category() == "custom-call"){
+                    uint64 total_flops = 0;
+                    uint64 total_bytes_accessed = 0;
+                    bool has_block_costs =
+                      custom_call_to_block_count.contains(op_metrics.name());
+                    if (has_block_costs){
+                      for (auto&[block_name, occurrence] :
+                        custom_call_to_block_count[op_metrics.name()]){
+                        auto block_cost_pair = instr_wrapper->
+                          GetCustomCallBlockCosts(block_name);
+                        if  (block_cost_pair.has_value()){
+                          OpMetrics* child_metric =
+                            op_metrics.mutable_children()->add_metrics_db();
+                          child_metric->set_name(block_name);
+                          child_metric->set_occurrences(occurrence);
+                          child_metric->set_flops(
+                            block_cost_pair.value().first);
+                          child_metric->set_model_flops(
+                            block_cost_pair.value().first);
+                          child_metric->set_bytes_accessed(
+                            block_cost_pair.value().second);
+                          total_flops +=
+                            (occurrence*block_cost_pair.value().first);
+                          total_bytes_accessed +=
+                            (occurrence*block_cost_pair.value().second);
+                        }else{
+                          LOG(WARNING) << "No Costs Found for : " << block_name;
+                        }
+                      }
+                      if  (instr_wrapper->FusedChildren().empty()){
+                        // LOG(INFO) << "Custom - Call Name: "
+                        //   << op_metrics.name() << " Total Flops: "
+                        //   << total_flops
+                        //   << " Total Bytes Accessed: " <<
+                        // total_bytes_accessed;
+                        op_metrics.set_flops(total_flops);
+                        op_metrics.set_bytes_accessed(total_bytes_accessed);
+                        op_metrics.set_model_flops(total_flops);
+                      }
+                    }
+                  }
+                }
+              }
               UpdateOpMetricsDbFromHloModuleMap(op_metrics_db, hlo_module_map);
             }
           }

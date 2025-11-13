@@ -1,5 +1,6 @@
 import {Component, inject, Input, OnDestroy} from '@angular/core';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
+import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
@@ -32,6 +33,8 @@ const TOGGLE_BUTTON_ITEMS: ToggleButtonItems[] = [
   styleUrls: ['./hlo_text_view.scss'],
 })
 export class HloTextView implements OnDestroy {
+  /** The graph type. */
+  @Input() graphType = GRAPH_TYPE_DEFAULT;
   /** The hlo module name. */
   @Input() moduleName = '';
   /** Includes metadata in the proto. */
@@ -50,9 +53,10 @@ export class HloTextView implements OnDestroy {
   loading = false;
   loadingMessage = '';
   downloadedTextParams = {
+    graphType: GRAPH_TYPE_DEFAULT,
     moduleName: '',
     showMetadata: false,
-    textType: '', // SHORT_TEXT | LONG_TEXT
+    textType: '',  // SHORT_TEXT | LONG_TEXT
   };
 
   downloadHloText(type: string) {
@@ -62,6 +66,7 @@ export class HloTextView implements OnDestroy {
     this.dataService
         .downloadHloProto(
             this.sessionId,
+            this.graphType,
             this.moduleName,
             type,
             this.showMetadata,
@@ -72,6 +77,7 @@ export class HloTextView implements OnDestroy {
           this.loading = false;
           this.hloText = data as string;
           this.downloadedTextParams = {
+            graphType: this.graphType,
             moduleName: this.moduleName,
             showMetadata: this.showMetadata,
             textType: type,
@@ -83,7 +89,10 @@ export class HloTextView implements OnDestroy {
     const metadataMessage = this.downloadedTextParams.showMetadata
       ? 'with metadata '
       : '';
-    return `(Loaded: hlo ${this.downloadedTextParams.textType} ${metadataMessage}for module ${this.downloadedTextParams.moduleName})`;
+    return `(Loaded: hlo ${this.downloadedTextParams.textType} ${
+        metadataMessage}for module ${
+        this.downloadedTextParams.moduleName}) of graph type ${
+        this.downloadedTextParams.graphType}`;
   }
 
   setLoadingMessage(type: string, showMetadata: boolean) {

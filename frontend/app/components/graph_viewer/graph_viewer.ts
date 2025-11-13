@@ -4,7 +4,7 @@ import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_CENTER_NODE_COLOR, GRAPH_OP_COLORS} from 'org_xprof/frontend/app/common/constants/colors';
-import {DIAGNOSTICS_DEFAULT, GRAPH_CONFIG_KEYS, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL} from 'org_xprof/frontend/app/common/constants/constants';
+import {DIAGNOSTICS_DEFAULT, GRAPH_CONFIG_KEYS, GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO, GRAPHVIZ_PAN_ZOOM_CONTROL} from 'org_xprof/frontend/app/common/constants/constants';
 import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {GraphConfigInput, GraphTypeObject, GraphViewerQueryParams} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
@@ -68,6 +68,7 @@ export class GraphViewer implements OnDestroy {
   graphvizUri = '';
   graphTypes: GraphTypeObject[] = [
     {label: 'Hlo Graph', value: GRAPH_TYPE_DEFAULT},
+    {label: 'Original Hlo Graph', value: GRAPH_TYPE_ORIGINAL_HLO},
   ];
   loadingGraph = false;
   loadingModuleList = false;

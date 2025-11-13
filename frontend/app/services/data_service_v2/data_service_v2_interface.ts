@@ -83,6 +83,7 @@ export interface DataServiceV2Interface {
 
   downloadHloProto(
       sessionId: string,
+      graphType: string,
       moduleName: string,
       type: string,
       showMetadata: boolean,

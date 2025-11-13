@@ -41,13 +41,12 @@ def process_raw_trace(raw_trace):
   return ''.join(trace_events_json.TraceEventsJsonStream(trace))
 
 
-def xspace_to_tools_data_from_byte_string(xspace_byte_list, all_hosts,
-                                          filenames, tool, params):
+def xspace_to_tools_data_from_byte_string(xspace_byte_list, filenames, tool,
+                                          params):
   """Helper function for getting an XSpace tool from a bytes string.
 
   Args:
     xspace_byte_list: A list of byte strings read from a XSpace proto file.
-    all_hosts: A list of all hosts in the session.
     filenames: Names of the read files.
     tool: A string of tool name.
     params: user input parameters.
@@ -58,7 +57,7 @@ def xspace_to_tools_data_from_byte_string(xspace_byte_list, all_hosts,
 # pylint:disable=dangerous-default-value
   def xspace_wrapper_func(xspace_arg, tool_arg, params={}):
     return _pywrap_profiler_plugin.xspace_to_tools_data_from_byte_string(
-        xspace_arg, all_hosts, filenames, tool_arg, params)
+        xspace_arg, filenames, tool_arg, params)
 # pylint:enable=dangerous-default-value
 
   return xspace_to_tool_data(xspace_byte_list, tool, params,
@@ -74,10 +73,8 @@ def xspace_to_tool_names(xspace_paths):
   Returns:
     Returns a list of tool names.
   """
-  # xspace_to_tools_data expects all_hosts as the second argument, passing an
-  # empty list.
   raw_data, success = _pywrap_profiler_plugin.xspace_to_tools_data(
-      xspace_paths, [], 'tool_names', {})
+      xspace_paths, 'tool_names')
   if success:
     return [tool for tool in raw_data.decode().split(',')]
   return []
@@ -85,7 +82,6 @@ def xspace_to_tool_names(xspace_paths):
 
 def xspace_to_tool_data(
     xspace_paths,
-    all_hosts,
     tool,
     params,
     xspace_wrapper_func=_pywrap_profiler_plugin.xspace_to_tools_data):
@@ -93,7 +89,6 @@ def xspace_to_tool_data(
 
   Args:
     xspace_paths: A list of XSpace paths.
-    all_hosts: A list of all hosts in the session.
     tool: A string of tool name.
     params: user input parameters.
     xspace_wrapper_func: A callable that takes a list of strings and a tool and
@@ -117,31 +112,26 @@ def xspace_to_tool_data(
   if tool == 'trace_viewer':
     # Trace viewer handles one host at a time.
     assert len(xspace_paths) == 1
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = process_raw_trace(raw_data)
   elif tool == 'trace_viewer@':
     options = params.get('trace_viewer_options', {})
     options['use_saved_result'] = params.get('use_saved_result', True)
-    options['hosts'] = all_hosts
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    options['hosts'] = params.get('hosts', [])
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'overview_page':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'input_pipeline_analyzer':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'framework_op_stats':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       if tqx == 'out:csv':
         data = csv_writer.json_to_csv(json_data)
@@ -152,7 +142,7 @@ def xspace_to_tool_data(
       # TODO(b/419013992): Remove this tool completely as it has been deprecated
       legacy_tool = 'tensorflow_stats'
       json_data, success = xspace_wrapper_func(
-          xspace_paths, all_hosts, legacy_tool, options
+          xspace_paths, legacy_tool, options
       )
       if success:
         if tqx == 'out:csv':
@@ -160,8 +150,7 @@ def xspace_to_tool_data(
         else:
           data = json_data
   elif tool == 'kernel_stats':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       if tqx == 'out:csv':
         data = csv_writer.json_to_csv(json_data)
@@ -170,35 +159,29 @@ def xspace_to_tool_data(
   elif tool == 'memory_profile':
     # Memory profile handles one host at a time.
     assert len(xspace_paths) == 1
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'pod_viewer':
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'op_profile':
     options['group_by'] = params.get('group_by', 'program')
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'hlo_op_profile':
     options['group_by'] = params.get('group_by', 'program')
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
   elif tool == 'hlo_stats':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'roofline_model':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'graph_viewer':
@@ -206,8 +189,7 @@ def xspace_to_tool_data(
     graph_html_type = 'graph'
     options = params.get('graph_viewer_options', {})
     options['use_saved_result'] = params.get('use_saved_result', True)
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
       content_type = 'text/plain'
@@ -231,21 +213,18 @@ def xspace_to_tool_data(
         'view_memory_allocation_timeline': view_memory_allocation_timeline,
         'memory_space': params.get('memory_space', ''),
     }
-    raw_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
       if view_memory_allocation_timeline:
         content_type = 'text/html'
   elif tool == 'megascale_stats':
     options = {'host_name': params.get('host')}
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   elif tool == 'inference_profile':
-    json_data, success = xspace_wrapper_func(
-        xspace_paths, all_hosts, tool, options)
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
   else:

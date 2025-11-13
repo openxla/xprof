@@ -419,26 +419,44 @@ void TraceEventsContainerBase<EventFactory, RawData, Hash>::MergeTrace(
 
 template <typename EventFactory, typename RawData, typename Hash>
 void TraceEventsContainerBase<EventFactory, RawData, Hash>::Merge(
-    TraceEventsContainerBase&& other) {
+    TraceEventsContainerBase&& other, int host_id) {
   if (this == &other) return;
   if (other.NumEvents() == 0 && other.trace().devices().empty()) return;
 
+  const int kMaxDevicesPerHost = 1000;
   absl::flat_hash_map<uint32_t, uint32_t> other_to_this_device_id_map;
   auto& this_device_map = *trace_.mutable_devices();
 
+  // Handle device id collisions.
+  // TODO: b/452643006 - Check if this logic can be moved to
+  // xplane_to_trace_container.
   for (const auto& [other_id, other_device] : other.trace().devices()) {
-    this_device_map.insert({other_id, other_device});
+    LOG(WARNING) << "Remapping device id " << other_id << "for host " << host_id
+                 << " to " << other_id + host_id * kMaxDevicesPerHost;
+    uint32_t target_id = other_id + host_id * kMaxDevicesPerHost;
+    other_to_this_device_id_map[other_id] = target_id;
+
+    Device device_copy = other_device;
+    device_copy.set_device_id(target_id);
+
+    this_device_map.insert({target_id, device_copy});
   }
 
-  other.ForAllMutableTracks([this](uint32_t other_device_id,
-                                   ResourceValue resource_id_or_counter_name,
-                                   TraceEventTrack* track) {
-    DeviceEvents& device = this->events_by_device_[other_device_id];
-    if (uint64_t* resource_id =
+  other.ForAllMutableTracks([this, &other_to_this_device_id_map](
+                                uint32_t other_device_id,
+                                ResourceValue resource_id_or_counter_name,
+                                TraceEventTrack* track) {
+    uint32_t this_device_id = other_to_this_device_id_map.at(other_device_id);
+    for (TraceEvent* event : *track) {
+      event->set_device_id(this_device_id);
+    }
+    DeviceEvents& device = this->events_by_device_[this_device_id];
+    if (const uint64_t* resource_id =
             std::get_if<uint64_t>(&resource_id_or_counter_name)) {
       AppendEvents(std::move(*track), &device.events_by_resource[*resource_id]);
-    } else if (absl::string_view* counter_name = std::get_if<absl::string_view>(
-                   &resource_id_or_counter_name)) {
+    } else if (const absl::string_view* counter_name =
+                   std::get_if<absl::string_view>(
+                       &resource_id_or_counter_name)) {
       AppendEvents(std::move(*track),
                    &device.counter_events_by_name[*counter_name]);
     }

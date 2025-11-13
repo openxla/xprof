@@ -465,7 +465,7 @@ class ProfilePluginTest(absltest.TestCase):
     )
 
     mock_xspace_to_tool_data.assert_called_once_with(
-        [mock.ANY], ['host0', 'host1'], 'trace_viewer@', expected_params
+        [mock.ANY], 'trace_viewer@', expected_params
     )
     args, _ = mock_xspace_to_tool_data.call_args
     actual_path_list = args[0]

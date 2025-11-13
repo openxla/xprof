@@ -96,7 +96,7 @@ TEST(XPlaneToTraceContainerTest, CounterLine) {
           tsl::profiler::UniToNano(1), tsl::profiler::UniToNano(500)),
       &xspace));
   TraceEventsContainer container;
-  ConvertXSpaceToTraceEventsContainer("localhost", 0, xspace, &container);
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
   absl::flat_hash_map<std::string, absl::flat_hash_map<uint64_t, uint64_t>>
       counter_offset_to_values;
   container.ForAllEvents([&counter_offset_to_values](const TraceEvent& event) {
@@ -142,7 +142,7 @@ TEST(XPlaneToTraceContainerTest, AsyncLine) {
           tsl::profiler::kXlaAsyncOpLineName, kAsyncOpEventName),
       &xspace));
   TraceEventsContainer container;
-  ConvertXSpaceToTraceEventsContainer("localhost", 0, xspace, &container);
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
   bool async_event_found = false;
   container.ForAllEvents(
       [&async_event_found, &kAsyncOpEventName](const TraceEvent& event) {

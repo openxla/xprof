@@ -58,8 +58,7 @@ static auto* kHostDataSuffixes =
 
 absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
     std::vector<std::string> xspace_paths,
-    std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces,
-    std::optional<std::vector<std::string>> all_hosts) {
+    std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces) {
   if (xspace_paths.empty()) {
     return absl::InvalidArgumentError("Can not find XSpace path.");
   }
@@ -86,26 +85,7 @@ absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
     }
   }
 
-  return SessionSnapshot(std::move(xspace_paths), std::move(xspaces),
-                         std::move(all_hosts));
-}
-
-SessionSnapshot::SessionSnapshot(
-    std::vector<std::string> xspace_paths,
-    std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces,
-    std::optional<std::vector<std::string>> all_hosts)
-    : xspace_paths_(std::move(xspace_paths)),
-      all_hosts_(std::move(all_hosts)),
-      // If the snapshot was initialized by xspaces, the file path and run dir
-      // is a path tensorflow can't read from or write to so any file IO
-      // encapsulated in this class will be disabled in this mode.
-      has_accessible_run_dir_(!xspaces.has_value()),
-      xspaces_(std::move(xspaces)) {
-  session_run_dir_ = tsl::io::Dirname(xspace_paths_.at(0));
-  for (size_t i = 0; i < xspace_paths_.size(); ++i) {
-    std::string host_name = GetHostname(i);
-    hostname_map_[host_name] = i;
-  }
+  return SessionSnapshot(std::move(xspace_paths), std::move(xspaces));
 }
 
 absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
@@ -144,10 +124,6 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpaceByName(
 
 std::string SessionSnapshot::GetHostname(size_t index) const {
   return GetHostnameByPath(xspace_paths_.at(index));
-}
-
-std::optional<std::vector<std::string>> SessionSnapshot::GetAllHosts() const {
-  return all_hosts_;
 }
 
 std::optional<std::string> SessionSnapshot::GetFilePath(

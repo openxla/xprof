@@ -6,7 +6,6 @@
 #include <string>
 #include <utility>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/numbers.h"
@@ -92,16 +91,9 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
   tensorflow::profiler::TraceOptions profiler_trace_options =
       TraceOptionsFromToolOptions(options);
 
-  absl::flat_hash_map<std::string, int> host_to_id_map;
-  if (auto all_hosts = session_snapshot.GetAllHosts()) {
-    for (int i = 0; i < all_hosts->size(); ++i) {
-      host_to_id_map[(*all_hosts)[i]] = i;
-    }
-  }
-
   // TODO: b/452217676 - Optimize this to process hosts in parallel.
   for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    int host_id = host_to_id_map[session_snapshot.GetHostname(i)];
+    int host_id = i+1;
     google::protobuf::Arena arena;
     TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
     PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
@@ -127,7 +119,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
       ProcessMegascaleDcn(xspace);
       TraceEventsContainer trace_container;
-      ConvertXSpaceToTraceEventsContainer(host_name, host_id, *xspace,
+      ConvertXSpaceToTraceEventsContainer(host_name, *xspace,
                                           &trace_container);
       std::unique_ptr<tsl::WritableFile> trace_events_file;
       TF_RETURN_IF_ERROR(tsl::Env::Default()->NewWritableFile(
@@ -183,7 +175,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
           file_paths, std::move(trace_events_filter),
           std::move(visibility_filter), kDisableStreamingThreshold));
     }
-    merged_trace_container.Merge(std::move(trace_container));
+    merged_trace_container.Merge(std::move(trace_container), host_id);
   }
 
   std::string trace_viewer_json;

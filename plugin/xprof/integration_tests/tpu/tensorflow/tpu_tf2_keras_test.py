@@ -114,7 +114,7 @@ class TpuKerasTest(absltest.TestCase):
 
   def test_overview_page(self):
     xspace_filenames = self._get_session_snapshot()
-    result, _ = raw_to_tool_data.xspace_to_tool_data(xspace_filenames, [],
+    result, _ = raw_to_tool_data.xspace_to_tool_data(xspace_filenames,
                                                      'overview_page', {})
     result = json.loads(result)
     run_environment = result[2]
@@ -123,9 +123,7 @@ class TpuKerasTest(absltest.TestCase):
 
   def test_overview_page_creates_cache(self):
     xspace_filenames = self._get_session_snapshot()
-    raw_to_tool_data.xspace_to_tool_data(
-        xspace_filenames, [], 'overview_page', {}
-    )
+    raw_to_tool_data.xspace_to_tool_data(xspace_filenames, 'overview_page', {})
     profile_plugin_root = os.path.join(log_dir, 'plugins/profile')
     # The session exists under a director whose name is time-dependent.
     cache_glob = os.path.join(profile_plugin_root, '*', '*.op_stats.pb')
@@ -134,7 +132,7 @@ class TpuKerasTest(absltest.TestCase):
   def test_op_profile(self):
     xspace_filenames = self._get_session_snapshot()
     result, _ = raw_to_tool_data.xspace_to_tool_data(
-        xspace_filenames, [], 'op_profile', {'group_by': 'category'}
+        xspace_filenames, 'op_profile', {'group_by': 'category'}
     )
     result = json.loads(result)
     logging.info(result)
@@ -153,7 +151,7 @@ class TpuKerasTest(absltest.TestCase):
   def test_device_trace_contains_threads(self):
     xspace_filenames = self._get_session_snapshot()
     result, _ = raw_to_tool_data.xspace_to_tool_data(
-        xspace_filenames, [], 'trace_viewer', {}
+        xspace_filenames, 'trace_viewer', {}
     )
     result = json.loads(result)
     thread_names = []

@@ -59,8 +59,7 @@ class SessionSnapshot {
   // profiler plugin.
   static absl::StatusOr<SessionSnapshot> Create(
       std::vector<std::string> xspace_paths,
-      std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces,
-      std::optional<std::vector<std::string>> all_hosts = std::nullopt);
+      std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces);
 
   // Returns the number of XSpaces in the profile session.
   size_t XSpaceSize() const { return xspace_paths_.size(); }
@@ -76,9 +75,6 @@ class SessionSnapshot {
 
   // Gets host name.
   std::string GetHostname(size_t index) const;
-
-  // Gets all host names.
-  std::optional<std::vector<std::string>> GetAllHosts() const;
 
   // Gets the run directory of the profile session.
   absl::string_view GetSessionRunDir() const { return session_run_dir_; }
@@ -145,17 +141,23 @@ class SessionSnapshot {
   }
 
  private:
-  // This contains xspace protos for all the requested hosts.
   SessionSnapshot(std::vector<std::string> xspace_paths,
-                  std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces,
-                  std::optional<std::vector<std::string>> all_hosts);
+                  std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces)
+      : xspace_paths_(std::move(xspace_paths)),
+        // If the snapshot was initialized by xspaces, the file path and run dir
+        // is a path tensorflow can't read from or write to so any file IO
+        // encapsulated in this class will be disabled in this mode.
+        has_accessible_run_dir_(!xspaces.has_value()),
+        xspaces_(std::move(xspaces)) {
+    session_run_dir_ = tsl::io::Dirname(xspace_paths_.at(0));
+    for (size_t i = 0; i < xspace_paths_.size(); ++i) {
+      std::string host_name = GetHostname(i);
+      hostname_map_[host_name] = i;
+    }
+  }
 
   // File paths to XSpace protos.
   std::vector<std::string> xspace_paths_;
-
-  // All hosts in the session.
-  std::optional<std::vector<std::string>> all_hosts_;
-
   // The run directory of the profile session.
   absl::string_view session_run_dir_;
 

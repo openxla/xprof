@@ -709,7 +709,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
   def _get_valid_hosts(
       self, run_dir: str, run: str, tool: str, hosts_param: str, host: str
-  ) -> tuple[List[str], List[epath.Path], List[str]]:
+  ) -> tuple[List[str], List[epath.Path]]:
     """Retrieves and validates the hosts and asset paths for a run and tool.
 
     Args:
@@ -720,7 +720,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       host: The single host parameter.
 
     Returns:
-      A tuple containing (selected_hosts, asset_paths, all_hosts).
+      A tuple containing (selected_hosts, asset_paths).
 
     Raises:
       FileNotFoundError: If a required xplane file for the specified host(s)
@@ -786,9 +786,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
             'Host must be specified for tool %s in run %s' % (tool, run)
         )
 
-    all_hosts = list(all_xplane_files.keys())
-
-    return selected_hosts, asset_paths, all_hosts
+    return selected_hosts, asset_paths
 
   def data_impl(
       self, request: wrappers.Request
@@ -877,7 +875,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     _, content_encoding = None, None
     if use_xplane(tool):
-      selected_hosts, asset_paths, all_hosts = self._get_valid_hosts(
+      selected_hosts, asset_paths = self._get_valid_hosts(
           run_dir, run, tool, hosts_param, host
       )
       if not asset_paths:
@@ -886,7 +884,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       params['hosts'] = selected_hosts
       try:
         data, content_type = convert.xspace_to_tool_data(
-            asset_paths, all_hosts, tool, params)
+            asset_paths, tool, params)
       except AttributeError as e:
         logger.warning('Error generating analysis results due to %s', e)
         raise AttributeError(

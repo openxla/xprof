@@ -27,11 +27,7 @@ class RawToToolDataTest(tf.test.TestCase):
         xspace_paths=["/path/to/xspace"],
         tool="trace_viewer@^",
         params={},
-        all_hosts=[],
-        xspace_wrapper_func=lambda paths, hosts, tool, options: (
-            tool.encode(),
-            True,
-        ),
+        xspace_wrapper_func=lambda paths, tool, options: (tool.encode(), True),
     )
 
     self.assertEqual(data, b"trace_viewer@")
@@ -42,11 +38,7 @@ class RawToToolDataTest(tf.test.TestCase):
         xspace_paths=["/path/to/xspace"],
         tool="trace_viewer@",
         params={},
-        all_hosts=[],
-        xspace_wrapper_func=lambda paths, hosts, tool, options: (
-            tool.encode(),
-            True,
-        ),
+        xspace_wrapper_func=lambda paths, tool, options: (tool.encode(), True),
     )
 
     self.assertEqual(data, b"trace_viewer@")

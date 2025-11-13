@@ -1283,12 +1283,37 @@ class ProfilePlugin(base_plugin.TBPlugin):
     Returns:
       A list of strings representing the available tools
     """
+    tool_sort_order = [
+        'overview_page',
+        'trace_viewer',
+        'trace_viewer@',
+        'graph_viewer',
+        'op_profile',
+        'hlo_op_profile',
+        'input_pipeline_analyzer',
+        'input_pipeline',
+        'kernel_stats',
+        'memory_profile',
+        'memory_viewer',
+        'roofline_model',
+        'perf_counters',
+        'pod_viewer',
+        'framework_op_stats',
+        'tensorflow_stats',  # Legacy name for framework_op_stats
+        'hlo_op_stats',
+        'hlo_stats',  # Legacy name for hlo_op_stats
+        'inference_profile',
+        'megascale_stats',
+    ]
     tools = _get_tools(filenames, profile_run_dir)
     if 'trace_viewer@' in tools:
       # streaming trace viewer always override normal trace viewer.
       # the trailing '@' is to inform tf-profile-dashboard.html and
       # tf-trace-viewer.html that stream trace viewer should be used.
       tools.discard('trace_viewer')
-    # Return sorted list of tools with 'overview_page' at the front.
-    op = frozenset(['overview_page'])
-    return list(tools.intersection(op)) + sorted(tools.difference(op))
+
+    sorted_tools = [t for t in tool_sort_order if t in tools]
+    remaining_tools = tools.difference(sorted_tools)
+    sorted_tools.extend(sorted(remaining_tools))
+
+    return sorted_tools

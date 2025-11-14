@@ -2079,7 +2079,7 @@ cc_library(
     name = "url_utils",
     srcs = [tf_profiler_alias("@org_xprof//xprof/convert/", "url_utils.cc")],
     hdrs = ["url_utils.h"],
-    visibility = ["@xla//xla/tsl/profiler:friends"],
+    visibility = ["//visibility:private"],
     deps = [
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",

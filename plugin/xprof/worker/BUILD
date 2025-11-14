@@ -14,9 +14,11 @@ cc_library(
         "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
         "@org_xprof//xprof/convert:profile_processor_factory",
         "@org_xprof//xprof/convert:tool_options",
+        "@tsl//tsl/platform:platform_port",
     ],
 )
 
@@ -27,6 +29,7 @@ cc_library(
     deps = [
         ":worker_service",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_github_grpc_grpc//:grpc_security_base",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
     ],
@@ -48,8 +51,10 @@ cc_library(
     hdrs = ["stub_factory.h"],
     deps = [
         "@com_github_grpc_grpc//:grpc++",
+        "@com_github_grpc_grpc//:grpc_security_base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@org_xprof//plugin/xprof/protobuf:worker_service_cc_grpc_proto",

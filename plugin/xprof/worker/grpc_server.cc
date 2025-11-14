@@ -21,6 +21,7 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "grpc/grpc.h"
 #include "grpcpp/security/server_credentials.h"
 #include "grpcpp/server.h"
 #include "grpcpp/server_builder.h"
@@ -39,6 +40,12 @@ void InitializeGrpcServer(int port) {
   std::string server_address = absl::StrCat(kServerAddressPrefix, port);
   ::grpc::ServerBuilder builder;
   builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials());
+  builder.AddChannelArgument(GRPC_ARG_KEEPALIVE_TIME_MS, 20000);
+  builder.AddChannelArgument(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 10000);
+  builder.AddChannelArgument(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
+  builder.AddChannelArgument(GRPC_ARG_HTTP2_MAX_PING_STRIKES, 0);
+  builder.AddChannelArgument(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, -1);
+  builder.AddChannelArgument(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, -1);
   worker_service =
       std::make_unique<::xprof::profiler::ProfileWorkerServiceImpl>();
   builder.RegisterService(worker_service.get());

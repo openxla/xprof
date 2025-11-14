@@ -245,6 +245,25 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
                                        normalized_duration_ps);
     op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() + dma_stall_ps);
   }
+  // Fill The Custom Call Information
+  if (op_metrics->category() == "custom-call") {
+    hlo_event.ForEachStat([&](const XStatVisitor& stat) {
+      if (!stat.Type()) return;
+      switch (static_cast<StatType>(*stat.Type())) {
+        case StatType::kBytesAccessed:
+          op_metrics->set_bytes_accessed(stat.IntOrUintValue());
+          break;
+        case StatType::kModelFlops:
+          op_metrics->set_model_flops(stat.IntOrUintValue());
+          break;
+        case StatType::kFlops:
+          op_metrics->set_flops(stat.IntOrUintValue());
+          break;
+        default:
+          break;
+      }
+    });
+  }
 }
 
 void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {

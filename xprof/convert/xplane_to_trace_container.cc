@@ -33,6 +33,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/trace_viewer/trace_event_arguments_builder.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
+#include "xprof/convert/trace_viewer/trace_utils.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
@@ -220,6 +221,7 @@ void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
 }  // namespace
 
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
+                                         int host_id,
                                          const XSpace& space,
                                          TraceEventsContainer* container) {
   const XPlane* host_plane =
@@ -241,8 +243,9 @@ void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
     if (ABSL_PREDICT_FALSE(device_pid > tsl::profiler::kLastDeviceId)) {
       device_pid = tsl::profiler::kFirstDeviceId;
     }
-    ConvertXPlaneToTraceEventsContainer(device_pid, hostname, *device_plane,
-                                        container);
+    uint32_t final_device_pid = (host_id)*kMaxDevicesPerHost + device_pid;
+    ConvertXPlaneToTraceEventsContainer(final_device_pid, hostname,
+                                        *device_plane, container);
   }
   for (const XPlane* custom_plane :
        FindPlanesWithPrefix(space, tsl::profiler::kCustomPlanePrefix)) {

@@ -25,7 +25,7 @@ export interface DataServiceV2Interface {
       sessionId: string,
       tool: string,
       host?: string,
-      parameters?: Map<string, string>,
+      parameters?: Map<string, string|boolean>,
       ignoreError?: boolean,
       ): Observable<DataTable|DataTable[]|null>;
 

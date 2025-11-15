@@ -8,7 +8,7 @@ import {getGigaflopsReadableString, setLoadingState} from 'org_xprof/frontend/ap
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {take, takeUntil} from 'rxjs/operators';
 
 import {OperationLevelAnalysis} from './operation_level_analysis/operation_level_analysis';
 import {ProgramLevelAnalysis} from './program_level_analysis/program_level_analysis';
@@ -27,6 +27,7 @@ declare interface DeviceIndicators {
   hasCmem: boolean;
   hasMegacore: boolean;
   isGpu: boolean;
+  timeScaleMultiplier: number;
 }
 type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
 
@@ -61,6 +62,9 @@ export class RooflineModel implements OnDestroy {
   @ViewChild('opLevelAnalysis') opLevelAnalysis?: OperationLevelAnalysis;
 
   host = '';
+  applyScalingFactor = false;
+  loadingAnalysis = false;
+
   // Device Information section data
   deviceInfoArray: DeviceInfoData[] = [];
   // Some critical indicators
@@ -69,6 +73,7 @@ export class RooflineModel implements OnDestroy {
     hasCmem: false,
     hasMegacore: false,
     isGpu: false,
+    timeScaleMultiplier: 1.0,
   };
 
   // dataTableRaw from the raw roofline model data
@@ -178,6 +183,20 @@ export class RooflineModel implements OnDestroy {
         });
   }
 
+  updateAnalysis() {
+    this.loadingAnalysis = true;
+    const params = new Map<string, string|boolean>();
+    if (this.applyScalingFactor) {
+      params.set('apply_time_scale_multiplier', this.applyScalingFactor);
+    }
+    this.dataService.getData(this.sessionId, this.tool, this.host, params)
+        .pipe(take(1))
+        .subscribe((data) => {
+          this.parseData(data as RooflineModelData[]);
+          this.loadingAnalysis = false;
+        });
+  }
+
   parseData(data?: RooflineModelData[]) {
     if (!google?.visualization) {
       console.log('gviz lib is not loaded yet.');
@@ -203,6 +222,11 @@ export class RooflineModel implements OnDestroy {
     this.processScatterDataOp();
   }
 
+  hasValidTimeScaleMultiplier(): boolean {
+    return this.deviceIndicators.timeScaleMultiplier > 0 &&
+        this.deviceIndicators.timeScaleMultiplier !== 1;
+  }
+
   /** parse the device information from the original dataset */
   parseDeviceInfoData(dataTableRaw: google.visualization.DataTable) {
     this.deviceIndicators = {
@@ -211,6 +235,8 @@ export class RooflineModel implements OnDestroy {
       hasMegacore: !!Number(dataTableRaw.getTableProperty('megacore')),
       isGpu: dataTableRaw.getTableProperty('device_type')
                  .startsWith(NVIDIA_GPU_TYPE_PREFIX),
+      timeScaleMultiplier:
+          Number(dataTableRaw.getTableProperty('time_scale_multiplier')) || 1,
     };
 
     this.deviceInfoArray = DEVICE_INFO.reduce(
@@ -250,13 +276,25 @@ export class RooflineModel implements OnDestroy {
             curInfo.context +=
                 '(if yes, the analysis assumes Megacore where an HLO runs on both TensorCores utilizing the full chip\'s resources so that the rooflines are twice higher)';
             curInfo.value = this.deviceIndicators.hasMegacore ? 'Yes' : 'No';
+          } else if (
+              cur.id === 'time_scale_multiplier' &&
+              !this.hasValidTimeScaleMultiplier()) {
+            curInfo.display = false;
           }
         }
-        const value = this.dataTableRaw!.getTableProperty(cur.id);
+        let value = this.dataTableRaw!.getTableProperty(cur.id);
+        value = cur.type === 'number' ? Number(value) : value;
+        if ([
+              'peak_flop_rate', 'peak_vmem_read_bw', 'peak_vmem_write_bw'
+            ].includes(cur.id)) {
+          curInfo.value = this.applyScalingFactor ?
+              (value * this.deviceIndicators.timeScaleMultiplier).toFixed(2) :
+              value;
+        }
         acc.push({
           // convert numeric value to numbers, as some ridge numbers will be
           // used as axis values in chart
-          value: cur.type === 'number' ? Number(value) : value,
+          value,
           // put cur at last to overwrite with preprocessed data
           ...curInfo,
         });
@@ -1183,6 +1221,11 @@ export class RooflineModel implements OnDestroy {
         };
       }
     }
+  }
+
+  toggleScalingFactor() {
+    this.applyScalingFactor = !this.applyScalingFactor;
+    this.updateAnalysis();
   }
 
   ngOnDestroy() {

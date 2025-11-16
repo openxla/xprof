@@ -5,6 +5,7 @@ export interface Profile {
   byCategory?: Node;
   byProgram?: Node;
   deviceType?: string;
+  aggDvfsTimeScaleMultiplier?: number;
   byCategoryExcludeIdle?: Node;
   byProgramExcludeIdle?: Node;
   byProvenance?: Node;
@@ -59,6 +60,7 @@ export interface Metrics {
   bf16Flops?: /* double */ number;
   bandwidthUtils?: /* double */ number[];
   rawTime?: /* double */ number;
+  normalizedTimePs?: /* double */ number;
   rawFlops?: /* double */ number;
   rawBytesAccessedArray?: /* double */ number[];
   occurrences?: /* uint32 */ number;

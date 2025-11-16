@@ -23,6 +23,11 @@ export interface OpProfileState {
   rootNode: ActiveOpProfileNodeState;
 }
 
+/** State of op analysis settings */
+export interface OpAnalysisState {
+  applyScalingFactor: boolean;
+}
+
 /** General State of the Profiling */
 export interface ProfilingGeneralState {
   deviceType: string;
@@ -101,6 +106,7 @@ export interface AppState {
   runToolsMap: RunToolsMap;
   currentRun: string;
   profilingGeneralState: ProfilingGeneralState;
+  opAnalysisState: OpAnalysisState;
 }
 
 /** Initial state of active heap object */
@@ -124,6 +130,11 @@ export const INIT_OP_PROFILE_STATE: OpProfileState = {
 /** Initial general profiling state */
 export const INIT_PROFILING_GENERAL_STATE: ProfilingGeneralState = {
   deviceType: 'TPU',
+};
+
+/** Initial state of op analysis settings */
+export const INIT_OP_ANALYSIS_STATE: OpAnalysisState = {
+  applyScalingFactor: false,
 };
 
 /** Initial state of active pod viewer info */
@@ -190,6 +201,7 @@ export const INIT_APP_STATE: AppState = {
   runToolsMap: INIT_RUN_TOOLS_MAP,
   currentRun: INIT_CURRENT_RUN,
   profilingGeneralState: INIT_PROFILING_GENERAL_STATE,
+  opAnalysisState: INIT_OP_ANALYSIS_STATE,
 };
 
 /** Feature key for store */

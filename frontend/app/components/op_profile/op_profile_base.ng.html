@@ -49,17 +49,17 @@
           </div>
           <mat-slide-toggle [checked]="byWasted" (toggleChange)="updateByWasted()" matTooltip="Order by Time% by default."></mat-slide-toggle>
         </div>
-         <div class="control">
+        <div class="control" *ngIf="hasValidTimeScaleMultiplier()">
           <div class="control-title">
-            Uncap FLOPS Utilization
+            Dvfs Scaled Flops Util
             <mat-icon
               class="tooltip-icon"
-              matTooltip="Toggle to view uncapped flops utilization. For more details, see b/428777557."
+              matTooltip="Apply dvfs scaling factor to get the actual flops utilization based on the evaluated device capabilities(due to pstate changes)."
               matTooltipPosition="above">
               info
             </mat-icon>
           </div>
-          <mat-slide-toggle [checked]="useUncappedFlops" (toggleChange)="updateFlopsType()" matTooltip="Use capped flops by default."></mat-slide-toggle>
+          <mat-slide-toggle [checked]="applyScalingFactor" (toggleChange)="toggleScalingFactor()"></mat-slide-toggle>
         </div>
         <div class="control">
           <div class="control-title">Top 90%
@@ -109,8 +109,7 @@
       [rootNode]="rootNode"
       [byWasted]="byWasted"
       [showP90]="showP90"
-      [childrenCount]="childrenCount"
-      [useUncappedFlops]="useUncappedFlops">
+      [childrenCount]="childrenCount">
     </op-table>
     </as-split-area>
     <as-split-area [size]="20" *ngIf="sourceCodeServiceIsAvailable && showStackTrace">

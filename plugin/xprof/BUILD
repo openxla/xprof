@@ -15,6 +15,8 @@ py_library(
         "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
         "@pypi//etils",
+        "@pypi//google-api-core",
+        "@pypi//google-cloud-storage",
         "@pypi//six",
         "@pypi//werkzeug",
     ],

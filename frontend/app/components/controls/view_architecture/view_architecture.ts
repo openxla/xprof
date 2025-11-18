@@ -20,6 +20,7 @@ export class ViewArchitecture implements OnInit, OnDestroy {
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
   hideViewArchitectureButton = true;
+  filterSessions = '';
   private readonly destroyed = new ReplaySubject<void>(1);
 
   ngOnInit() {
@@ -28,6 +29,7 @@ export class ViewArchitecture implements OnInit, OnDestroy {
         .subscribe((config) => {
           this.hideViewArchitectureButton =
               config?.hideCaptureProfileButton || false;
+          this.filterSessions = config?.filterSessions || '';
         });
   }
 

@@ -14,6 +14,7 @@ import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfac
 /** A serializable object with profiler configuration details. */
 export interface ProfilerConfig {
   hideCaptureProfileButton: boolean;
+  filterSessions: string;
 }
 
 /** The data service class that calls API and return response. */

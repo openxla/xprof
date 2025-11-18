@@ -474,6 +474,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self.hide_capture_profile_button = getattr(
         context, 'hide_capture_profile_button', False
     )
+    self.filter_sessions = getattr(context, 'filter_sessions', '')
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
@@ -535,6 +536,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     logger.info('config_route: %s', self.logdir)
     config_data = {
         'hideCaptureProfileButton': self.hide_capture_profile_button,
+        'filterSessions': self.filter_sessions,
     }
     return respond(config_data, 'application/json')
 

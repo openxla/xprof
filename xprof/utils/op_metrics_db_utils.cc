@@ -245,6 +245,25 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
                                        normalized_duration_ps);
     op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() + dma_stall_ps);
   }
+  // Fill The Custom Call Information
+  if (op_metrics->category() == "custom-call") {
+    hlo_event.ForEachStat([&](const XStatVisitor& stat) {
+      if (!stat.Type()) return;
+      switch (static_cast<StatType>(*stat.Type())) {
+        case StatType::kBytesAccessed:
+          op_metrics->set_bytes_accessed(stat.IntOrUintValue());
+          break;
+        case StatType::kModelFlops:
+          op_metrics->set_model_flops(stat.IntOrUintValue());
+          break;
+        case StatType::kFlops:
+          op_metrics->set_flops(stat.IntOrUintValue());
+          break;
+        default:
+          break;
+      }
+    });
+  }
 }
 
 void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
@@ -259,19 +278,26 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
     dst.set_dma_stall_ps(src.dma_stall_ps() + dst.dma_stall_ps());
     dst.set_normalized_time_ps(src.normalized_time_ps() +
                                dst.normalized_time_ps());
+    if (dst.category() == "custom-call"){
+      dst.set_flops(src.flops() + dst.flops());
+    dst.set_model_flops(src.model_flops() + dst.model_flops());
+    dst.set_bytes_accessed(src.bytes_accessed() + dst.bytes_accessed());
+    }
   }
 }
 
 void AdjustFlopsAndBytesAccessed(OpMetrics& op_metrics) {
-  op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
-  if (op_metrics.model_flops() > 0) {
-    op_metrics.set_model_flops(op_metrics.model_flops() *
-                               op_metrics.occurrences());
-  } else {
-    op_metrics.set_model_flops(op_metrics.flops());
-  }
-  op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+  if (op_metrics.category() != "custom-call"){
+    op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
+    if (op_metrics.model_flops() > 0) {
+      op_metrics.set_model_flops(op_metrics.model_flops() *
                                 op_metrics.occurrences());
+    } else {
+      op_metrics.set_model_flops(op_metrics.flops());
+    }
+    op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
+                                op_metrics.occurrences());
+  }
   for (auto& memory_access : *op_metrics.mutable_memory_accessed_breakdown()) {
     memory_access.set_bytes_accessed(memory_access.bytes_accessed() *
                                      op_metrics.occurrences());

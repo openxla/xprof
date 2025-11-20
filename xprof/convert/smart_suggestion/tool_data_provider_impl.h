@@ -19,7 +19,6 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -29,6 +28,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_overview_page.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
@@ -70,8 +70,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
     return input_pipeline_analysis_cache_.get();
   }
 
-  absl::StatusOr<std::vector<float>> GetEventTimeFractionEachStep(
-      const std::string& target_event_name) override {
+  absl::StatusOr<const EventTimeFractionAnalyzerResult*>
+  GetEventTimeFractionAnalyzerResult(const std::string& target_event_name) {
     return absl::UnimplementedError("Not implemented yet.");
   }
 

@@ -39,13 +39,20 @@ using ::testing::status::IsOkAndHolds;
 TEST(BarrierCoresRuleTest, MeetsConditions) {
   auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
   EventTimeFractionAnalyzerResult result;
-  result.add_event_time_fractions(0.15);
-  result.add_event_time_fractions(0.25);
-  // Average is (0.15+0.25)/2 = 0.2, which is 20%. This is > 10%.
+  EventTimeFractionPerChip* chip0 =
+      result.mutable_chip_event_time_fractions()->Add();
+  chip0->set_id("chip0");
+  chip0->add_event_time_fractions(0.15);
+  chip0->add_event_time_fractions(0.25);
+  EventTimeFractionPerChip* chip1 =
+      result.mutable_chip_event_time_fractions()->Add();
+  chip1->set_id("chip1");
+  chip1->add_event_time_fractions(0.05);
+  chip1->add_event_time_fractions(0.35);
+  // Average is (0.15+0.25+0.05+0.35)/4 = 0.2, which is 20%. This is > 10%.
   EXPECT_CALL(*mock_tool_data_provider,
               GetEventTimeFractionAnalyzerResult(kSpecialOpName))
       .WillRepeatedly(Return(&result));
-
   SignalProvider signal_provider(std::move(mock_tool_data_provider));
   BarrierCoresRule rule;
 
@@ -60,9 +67,17 @@ TEST(BarrierCoresRuleTest, MeetsConditions) {
 TEST(BarrierCoresRuleTest, NotSpecialOpBound) {
   auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
   EventTimeFractionAnalyzerResult result;
-  result.add_event_time_fractions(0.01);
-  result.add_event_time_fractions(0.02);
-  // Average is (0.01+0.02)/2 = 0.015, which is 1.5%. This is < 10%.
+  EventTimeFractionPerChip* chip0 =
+      result.mutable_chip_event_time_fractions()->Add();
+  chip0->set_id("chip0");
+  chip0->add_event_time_fractions(0.01);
+  chip0->add_event_time_fractions(0.02);
+  EventTimeFractionPerChip* chip1 =
+      result.mutable_chip_event_time_fractions()->Add();
+  chip1->set_id("chip1");
+  chip1->add_event_time_fractions(0.05);
+  chip1->add_event_time_fractions(0.25);
+  // Average is (0.01+0.02+0.05+0.25)/4 = 0.015, which is 1.5%. This is < 10%.
   EXPECT_CALL(*mock_tool_data_provider,
               GetEventTimeFractionAnalyzerResult(kSpecialOpName))
       .WillRepeatedly(Return(&result));

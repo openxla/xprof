@@ -141,17 +141,20 @@ class SignalProvider {
         tool_data_provider_->GetEventTimeFractionAnalyzerResult(event_name));
 
     double total_percent = 0;
-    for (float event_percent : analyzer_result->event_time_fractions()) {
-      total_percent += event_percent;
+    int count = 0;
+    for (auto& fractions_per_chip :
+         analyzer_result->chip_event_time_fractions()) {
+      for (float event_percent : fractions_per_chip.event_time_fractions()) {
+        total_percent += event_percent;
+        count++;
+      }
     }
 
-    if (analyzer_result->event_time_fractions().empty()) {
+    if (analyzer_result->chip_event_time_fractions().empty()) {
       avg_event_time_percent_cache_[event_name] = 0.0;
       return 0.0;
     }
-    double avg_percent =
-        (total_percent / analyzer_result->event_time_fractions().size()) *
-        100.0;
+    double avg_percent = (total_percent / count) * 100.0;
     avg_event_time_percent_cache_[event_name] = avg_percent;
     return avg_percent;
   }

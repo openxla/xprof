@@ -101,6 +101,20 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return params;
   }
 
+  private getHttpParamsWithPath(): HttpParams {
+    const searchParams = this.getSearchParams();
+    const sessionPath = searchParams.get('session_path');
+    const runPath = searchParams.get('run_path');
+    let params = new HttpParams();
+    if (sessionPath) {
+      params = params.set('session_path', sessionPath);
+    }
+    if (runPath) {
+      params = params.set('run_path', runPath);
+    }
+    return params;
+  }
+
   private getHTTPParamsForDataQuery(
       run: string, tag: string, host: string,
       parameters: Map<string, string> = new Map()): HttpParams {
@@ -147,9 +161,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   getModuleList(sessionId: string, graphType = GRAPH_TYPE_DEFAULT):
       Observable<string> {
-    const params = this.getHttpParams('', 'graph_viewer')
-                       .set('run', sessionId)
-                       .set('graph_type', graphType);
+    let params = this.getHttpParamsWithPath();
+    params = params.set('run', sessionId)
+                 .set('tag', 'graph_viewer')
+                 .set('graph_type', graphType);
     return this.get(this.pathPrefix + HLO_MODULE_LIST_API, {
       'params': params,
       'responseType': 'text',
@@ -228,7 +243,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   getHosts(run: string, tool: string): Observable<HostMetadata[]> {
-    const params = new HttpParams().set('run', run).set('tag', tool);
+    let params = this.getHttpParamsWithPath();
+    params = params.set('run', run).set('tag', tool);
     return this.httpClient.get(this.pathPrefix + HOSTS_API, {params}) as
         Observable<HostMetadata[]>;
   }
@@ -352,21 +368,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   /** Methods below are for 3P only */
   getRuns(): Observable<string[]|null> {
-    const searchParams = this.getSearchParams();
-    const sessionPath = searchParams.get('session_path');
-    const runPath = searchParams.get('run_path');
-    let params = new HttpParams();
-    if (sessionPath) {
-      params = params.set('session_path', sessionPath);
-    }
-    if (runPath) {
-      params = params.set('run_path', runPath);
-    }
+    const params = this.getHttpParamsWithPath();
     return this.get<string[]>(this.pathPrefix + RUNS_API, {'params': params});
   }
 
   getRunTools(run: string): Observable<string[]> {
-    const params = new HttpParams().set('run', run);
+    let params = this.getHttpParamsWithPath();
+    params = params.set('run', run);
+
     return this.get(this.pathPrefix + RUN_TOOLS_API, {'params': params}) as
         Observable<string[]>;
   }

@@ -5,6 +5,8 @@ export declare interface NavigationEvent {
   run?: string;
   tag?: string;
   host?: string;
+  run_path?: string;
+  session_path?: string;
   // Added to support multi-host functionality for trace_viewer.
   hosts?: string[];
   // Graph Viewer crosslink params

@@ -39,8 +39,15 @@ export class TraceViewer implements OnDestroy {
     const isStreaming = (event.tag === 'trace_viewer@');
     const run = event.run || '';
     const tag = event.tag || '';
-
+    const runPath = event.run_path || '';
+    const sessionPath = event.session_path || '';
     let queryString = `run=${run}&tag=${tag}`;
+
+    if (sessionPath) {
+      queryString += `&session_path=${sessionPath}`;
+    } else if (runPath) {
+      queryString += `&run_path=${runPath}`;
+    }
 
     if (event.hosts && typeof event.hosts === 'string') {
       // Since event.hosts is a comma-separated string, we can use it directly.
@@ -50,11 +57,11 @@ export class TraceViewer implements OnDestroy {
     }
 
     const traceDataUrl = `${this.pathPrefix}${DATA_API}?${queryString}`;
-    this.url = this.pathPrefix + API_PREFIX + PLUGIN_NAME +
-        '/trace_viewer_index.html' +
-        '?is_streaming=' + isStreaming.toString() + '&is_oss=true' +
-        '&trace_data_url=' + encodeURIComponent(traceDataUrl) +
-        '&source_code_service=' + String(this.isSourceCodeServiceAvailable());
+    this.url = `${this.pathPrefix}${API_PREFIX}${
+        PLUGIN_NAME}/trace_viewer_index.html?is_streaming=${
+        isStreaming}&is_oss=true&trace_data_url=${
+        encodeURIComponent(traceDataUrl)}&source_code_service=${
+        this.isSourceCodeServiceAvailable()}`;
   }
 
   private isSourceCodeServiceAvailable() {

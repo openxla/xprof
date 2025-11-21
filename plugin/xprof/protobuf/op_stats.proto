@@ -127,6 +127,8 @@ message CoreDetails {
 message PerformanceCounterResult {
   // Overall matrix unit utilization in percentage.
   double matrix_unit_utilization_percent = 1;
+  // Overall HBM utilization in percentage.
+  double hbm_utilization_percent = 2;
 }
 
 // Next ID: 15

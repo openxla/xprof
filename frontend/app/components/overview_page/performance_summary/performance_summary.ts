@@ -162,9 +162,19 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   },
   {
     title: 'Memory Bandwidth Utilization',
-    tooltip: 'Percentage of the peak device memory bandwidth that is used.',
+    tooltip:
+        'Why two numbers: The first number shows the memory bandwidth utilization based on the hardware performance counters for HBM. The second one shows the bandwidth compared to the program\'s optimal performance considering the bytes accessed based on the input/output size and data type.',
     goodMetric: true,
-    valueKey: 'memory_bw_utilization_relative_to_hw_limit',
+    childrenInfoConfig: [
+      {
+        title: 'HBM Utilization',
+        valueKey: 'hbm_utilization_percent',
+      },
+      {
+        title: 'Compared to Program\'s Optimal Bandwidth (VMem + SpMem + HBM)',
+        valueKey: 'memory_bw_utilization_relative_to_hw_limit',
+      },
+    ],
   },
   {
     title: 'Firmware Power Metrics (Power/Timescale)',
@@ -281,10 +291,10 @@ export class PerformanceSummary implements OnChanges, OnInit {
     // valueKey and getValue are mutual exclusive
     if (config.valueKey) {
       value = props[config.valueKey];
-      valueStr = `${value} ${config.unit || ''}`;
+      valueStr = config.unit ? `${value} ${config.unit}` : value;
     } else if (config.getValue && customInput) {
       value = config.getValue(customInput);
-      valueStr = `${value} ${config.unit || ''}`;
+      valueStr = config.unit ? `${value} ${config.unit}` : value;
     }
     const propertyValues = config.getChildValues ?
         config.getChildValues(customInput || props) :

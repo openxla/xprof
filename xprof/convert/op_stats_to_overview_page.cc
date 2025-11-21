@@ -273,6 +273,8 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
   analysis.set_device_op_time_outside_compilation_percent(
       100.0 * tsl::profiler::SafeDivide(outside_compilation_device_op_time_ps,
                                         total_device_op_time_ps_exclude_idle));
+  analysis.set_hbm_utilization_percent(
+      op_stats.performance_counter_result().hbm_utilization_percent());
   return analysis;
 }
 
@@ -681,6 +683,10 @@ std::unique_ptr<DataTable> GenerateTpuAnalysisResultToDataTable(
   analysis_table->AddCustomProperty(
       "host_idle_time_percent",
       StrFormatToPercentage(analysis.host_idle_time_percent()));
+
+  analysis_table->AddCustomProperty(
+      "hbm_utilization_percent",
+      StrFormatToPercentage(analysis.hbm_utilization_percent()));
 
   std::vector<std::vector<std::string>> kColumns = {
       {"selfTimePercent", "number", "Time (%)"},

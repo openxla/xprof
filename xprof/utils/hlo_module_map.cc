@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/lib/traceme_encode.h"
+#include "xprof/utils/custom_call_cost_estimator.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
 #include "xprof/utils/hlo_proto_map.h"
@@ -42,6 +43,11 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+
+void HloInstructionWrapper::SetCustomCallBlockCosts(){
+  CustomCallCostEstimator::calculateCustomCallCost
+    (*instr_, custom_call_block_costs_, custom_call_cost_);
+}
 
 HloInstructionWrapper::HloInstructionWrapper(
     const xla::HloInstruction* instr,
@@ -59,6 +65,9 @@ HloInstructionWrapper::HloInstructionWrapper(
         tensorflow::profiler::PerformanceInfoWrapper::Create(cost_analysis,
                                                              instr);
     ProcessXlaCostAnalysis(cost_analysis->GetXlaCostAnalysis());
+  }
+  if (category_ == "custom-call") {
+    SetCustomCallBlockCosts();
   }
 }
 

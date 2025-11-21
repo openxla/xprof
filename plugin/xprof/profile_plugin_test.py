@@ -623,6 +623,44 @@ class ProfilePluginTest(absltest.TestCase):
     run_dir = self.plugin._run_dir('train/run1')
     self.assertEqual(run_dir, run1_path)
 
+  @mock.patch.object(
+      profile_plugin._pywrap_profiler_plugin, 'trace', autospec=True
+  )
+  def testCaptureRouteImpl(self, mock_trace):
+    self.plugin.logdir = self.logdir
+    request = mock.MagicMock()
+    request.args = {
+        'service_addr': 'localhost:8466',
+        'duration': '2000',
+        'trace_mode': 'TRACE_COMPUTE',
+        'is_tpu_name': 'false',
+        'worker_list': '',
+        'num_retry': '0',
+        'host_tracer_level': '2',
+        'device_tracer_level': '1',
+        'python_tracer_level': '0',
+        'delay': '0',
+    }
+    self.plugin.capture_route_impl(request)
+    expected_options = {
+        'host_tracer_level': 2,
+        'device_tracer_level': 1,
+        'python_tracer_level': 0,
+        'delay_ms': 0,
+        'advanced_configuration': {
+            'tpu_trace_mode': 'TRACE_COMPUTE',
+        },
+    }
+    mock_trace.assert_called_once_with(
+        'localhost:8466',
+        self.logdir,
+        '',
+        True,
+        2000,
+        1,
+        expected_options,
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

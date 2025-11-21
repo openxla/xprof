@@ -1202,6 +1202,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
             request.args.get('python_tracer_level', '0')
         ),
         'delay_ms': int(request.args.get('delay', '0')),
+        'advanced_configuration': {
+            'tpu_trace_mode': request.args.get('trace_mode', 'TRACE_COMPUTE'),
+        },
     }
 
     if is_tpu_name:

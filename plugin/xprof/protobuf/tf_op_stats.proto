@@ -1,0 +1,194 @@
+// This proto describes the format of tensorflow operation level stats for
+// profiling purpose.
+
+edition = "2023";
+
+package xprof;
+
+import "third_party/java/protobuf/java_features.proto";
+import "third_party/protobuf/cpp_features.proto";
+import "third_party/tensorflow/core/profiler/protobuf/hardware_types.proto";
+import "third_party/tensorflow/core/profiler/protobuf/inference_stats.proto";
+import "third_party/tensorflow/core/profiler/protobuf/op_stats.proto";
+import "plugin/xprof/protobuf/gcu_info.proto";
+import "plugin/xprof/protobuf/program_goodput.proto";
+
+option features.(pb.cpp).string_type = VIEW;
+option features.utf8_validation = NONE;
+
+// A map for BarnaCore sync wait flags.
+message BarnaCoreSyncWaitFlagMap {
+  // The flag-to-duration map.
+  map<string, uint64> flag_map = 1;
+
+  // The flag-to-count map for the entire profile duration.
+  map<string, uint64> flag_count_all = 2;
+
+  // The flag-to-count map for only complete steps.
+  map<string, uint64> flag_count_complete_steps = 3;
+}
+
+// BarnaCore details on a given core.
+message BarnaCoreSyncWaitDetailsPerCore {
+  // BarnaCoreSyncWaitFlagMap for the given core.
+  BarnaCoreSyncWaitFlagMap map_per_core = 1;
+
+  // Total duration for the given core.
+  uint64 total_duration_per_core = 2;
+
+  // Duration spent on other events for the given core.
+  uint64 other_duration_per_core = 3;
+}
+
+// Result proto for BarnaCore sync waits.
+message BarnaCoreSyncWaitResult {
+  // BarnaCoreSyncWaitFlagMap for all of the cores.
+  BarnaCoreSyncWaitFlagMap map_all_cores = 1;
+
+  // Total duration for all of the cores.
+  uint64 total_duration_all_cores = 2;
+
+  // Duration spent on other events for all of the cores.
+  uint64 other_duration_all_cores = 3;
+
+  // Map from core id to BarnaCore details per core.
+  map<uint32, BarnaCoreSyncWaitDetailsPerCore> details_per_core = 4;
+}
+
+// The types of host operations that are tracked.
+enum HostOpType {
+  option features.enum_type = CLOSED;
+
+  // Invalid host op.
+  INVALID_HOST_OP = 0;
+
+  // stage = Input Data Producer.
+  INPUT_DATA_PRODUCER = 1;
+
+  // stage = Infeed Thread.
+  INFEED_THREAD = 2;
+
+  // stage = Outfeed Thread.
+  OUTFEED_THREAD = 3;
+}
+
+// Result proto for the host ops per TPU step.
+message HostOpsPerTpuStep {
+  // Whether the data in this message is valid.
+  bool valid = 1 [default = false];
+
+  // The current TPU step number.
+  uint32 tpu_step_num = 2;
+
+  // The beginning time of the current TPU step on the device in picoseconds.
+  uint64 tpu_step_begin_ps = 3;
+
+  // The ending time of the current TPU step on the device in picoseconds.
+  uint64 tpu_step_end_ps = 4;
+
+  // For each possible host operation, maps to the difference between the TPU
+  // step number that the host op targets and the current TPU step number.
+  // The key is HostOpType, value is the step difference.
+  map<int32, int32> step_diffs = 5;
+}
+
+message HostOpsDetailsPerCore {
+  // Map from core id to HostOpsPerTpuStep.
+  map<int32, HostOpsPerTpuStep> core_map = 1;
+}
+
+message HostOpsDetailsPerHost {
+  // Map from hostname to a map from core id to HostOpsPerTpuStep.
+  map<string, HostOpsDetailsPerCore> host_map = 1;
+
+  // The TPU step number.
+  uint32 step_num = 2;
+}
+
+// Result proto for the host ops for all TPU steps.
+message HostOpsResult {
+  reserved 1;  // (was repeated HostOpsPerTpuStep host_op_sequence)
+
+  // A sequence of records with one for each TPU step. Each record
+  // is a map from hostname to a map from core id to HostOpsPerTpuStep.
+  repeated HostOpsDetailsPerHost hostops_details = 2;
+}
+
+// Result proto for the metrics based on the hardware performance counters.
+message PerformanceCounterResult {
+  // The total FLOPs executed.
+  uint64 total_flops_executed = 1;
+
+  // The total bytes accessed.
+  uint64 total_bytes_accessed = 2;
+
+  // Overall matrix unit utilization in percentage.
+  double matrix_unit_utilization_percent = 3;
+
+  // The total cycles executed.
+  uint64 total_cycles_executed = 4;
+
+  message PerformanceCounters {
+    uint64 achieved = 1;
+    uint64 peak = 2;
+  }
+
+  // Aggregated performance counters results.
+  map<string, PerformanceCounters> performance_counters = 5;
+}
+
+// The run environment of a profiling session for the internal xprof only.
+message InternalRunEnvironment {
+  // Whether go/pufferfish-megacore is used.
+  bool megacore = 1;
+}
+
+// Result proto for TfStatsHelper.
+// Next ID: 27
+message TfOpStats {
+  // Hardware type.
+  // TODO(yinzz): deprecate this field and use the one in OpStats run env.
+  tensorflow.profiler.HardwareType hardware_type = 21 [
+    features.(pb.cpp).legacy_closed_enum = true,
+    features.(pb.java).legacy_closed_enum = true
+  ];
+
+  // Oss Op Stats.
+  tensorflow.profiler.OpStats op_stats = 20;
+
+  // The result for the metrics based on the hardware performance counters.
+  PerformanceCounterResult performance_counter_result = 13;
+
+  // The result for the host operations.
+  HostOpsResult host_ops = 8;
+
+  // The result for BarnaCore sync wait results.
+  BarnaCoreSyncWaitResult bc_sync_wait_result = 14;
+
+  // Inference stats that can be combined over multiple hosts.
+  tensorflow.profiler.InferenceStats inference_stats = 17;
+
+  // Per-host GCU/NAP info.
+  GcuInfo per_host_gcu_info = 18;
+
+  // Internal run environment info.
+  InternalRunEnvironment internal_run_environment = 24;
+
+  // Program Goodput metrics.
+  ProgramGoodput program_goodput = 25;
+
+  enum ConversionType {
+    UNKNOWN = 0;
+
+    // TF Op Stats was generated from XSpace.
+    XSPACE = 1;
+
+    // TF Op Stats was generated from XProf Response.
+    XPROF_RESPONSE = 2;
+  }
+
+  // Conversion type used to generate the TfOpStats.
+  ConversionType conversion_type = 26;
+
+  reserved 1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 15, 16, 19, 22, 23;
+}

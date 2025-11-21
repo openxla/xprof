@@ -16,9 +16,11 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
@@ -26,9 +28,17 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
 #include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
+#include "absl/strings/string_view.h"
+#include "util/gtl/flat_set.h"
+#include "plugin/xprof/protobuf/tf_op_stats.pb.h"
+#include "tensorflow/core/profiler/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
+
 namespace tensorflow {
 namespace profiler {
 
@@ -105,6 +115,51 @@ class SignalProvider {
       return 0.0;
     }
     return (non_enqueue_us / total_input_time_us) * 100.0;
+  }
+
+  // Returns the collective time fraction of each step for collective ops.
+  absl::StatusOr<std::vector<float>> GetCollectiveTimeFractionEachStep() const {
+    TF_ASSIGN_OR_RETURN(const auto* tf_op_stats,
+                        tool_data_provider_->GetTfOpStats());
+
+    const auto& step_db = tf_op_stats->op_stats().step_db();
+    std::vector<float> fractions;
+    for (const auto& step : step_db.step_sequence()) {
+      if (step.step_info_per_core().empty()) continue;
+      uint64_t sum_duration_ps = 0;
+      for (const auto& [core_id, step_info] : step.step_info_per_core()) {
+        // Ignore sparse core steps as they do not contain collective ops.
+        if (core_id >= kSparseCoreIndexStart) continue;
+        sum_duration_ps += step_info.duration_ps();
+      }
+      uint64_t total_duration_ps = sum_duration_ps;
+      if (total_duration_ps == 0) continue;
+
+      uint64_t collective_time_ps = 0;
+      for (const auto& it : step.hlo_metrics_db().metrics_db()) {
+        if (IsCollective(it.category())) {
+          collective_time_ps += it.self_time_ps();
+        }
+      }
+      fractions.push_back(static_cast<float>(collective_time_ps) /
+                          total_duration_ps);
+    }
+    return fractions;
+  }
+
+  // Returns the average percentage of step time for collective operations.
+  absl::StatusOr<double> GetAvgCollectiveTimePercent() const {
+    TF_ASSIGN_OR_RETURN(
+        auto collective_fractions,
+        GetCollectiveTimeFractionEachStep());
+    if (collective_fractions.empty()) {
+      return 0.0;
+    }
+    double sum = 0;
+    for (float fraction : collective_fractions) {
+      sum += fraction;
+    }
+    return sum / collective_fractions.size() * 100.0;
   }
 
   // Returns the percentage of time when the TensorCore is idle.
@@ -201,6 +256,30 @@ class SignalProvider {
   }
 
  private:
+  bool IsCollective(absl::string_view value) const {
+    static constexpr auto kCollectives =
+        (gtl::fixed_flat_set_of<absl::string_view>({
+            "all-reduce",
+            "all-reduce fusion",
+            "all-reduce-scatter fusion",
+            "all-to-all",
+            "all-gather",
+            "all-gather-start",
+            "all-gather-done",
+            "all-gather fusion",
+            "reduce-scatter",
+            "collective-permute",
+            "collective-permute-done",
+            "collective-permute-start",
+            "megacore fusion",
+            "host recv",
+            "host recv-done",
+            "host send",
+            "host send-done",
+        }));
+    return kCollectives.contains(value);
+  }
+
   std::unique_ptr<ToolDataProvider> tool_data_provider_;
   mutable absl::flat_hash_map<std::string, double>
       avg_event_time_percent_cache_;

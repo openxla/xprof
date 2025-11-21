@@ -23,6 +23,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/tf_op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -42,6 +43,9 @@ class ToolDataProvider {
   // Returns the EventTimeFractionAnalyzerResult data.
   virtual absl::StatusOr<const EventTimeFractionAnalyzerResult*>
   GetEventTimeFractionAnalyzerResult(const std::string& target_event_name) = 0;
+
+  // Returns the TfOpStats data.
+  virtual absl::StatusOr<const xprof::TfOpStats*> GetTfOpStats() = 0;
 };
 
 }  // namespace profiler

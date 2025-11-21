@@ -38,6 +38,8 @@ class MockToolDataProvider : public ToolDataProvider {
   MOCK_METHOD(absl::StatusOr<const EventTimeFractionAnalyzerResult*>,
               GetEventTimeFractionAnalyzerResult, (const std::string&),
               (override));
+  MOCK_METHOD(absl::StatusOr<const xprof::TfOpStats*>, GetTfOpStats,
+              (), (override));
 };
 
 }  // namespace profiler

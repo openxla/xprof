@@ -17,12 +17,19 @@ cc_library(
     deps = [
         ":constants",
         ":tool_data_provider",
+        "//util/gtl:flat_set",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
+        "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@xla//xla/tsl/platform:statusor",
     ],
 )
@@ -45,6 +52,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_op_stats_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
@@ -60,6 +68,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_op_stats_proto_cc",
         "@org_xprof//xprof/convert:multi_xplanes_to_op_stats",
         "@org_xprof//xprof/convert:op_stats_to_input_pipeline_analysis",
         "@org_xprof//xprof/convert:op_stats_to_overview_page",
@@ -155,6 +164,21 @@ cc_library(
 )
 
 cc_library(
+    name = "collective_bound_rule",
+    hdrs = ["collective_bound_rule.h"],
+    deps = [
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "sparse_core_bound_rule",
     hdrs = ["sparse_core_bound_rule.h"],
     deps = [
@@ -181,6 +205,7 @@ cc_library(
     hdrs = ["all_rules.h"],
     deps = [
         ":barrier_cores_rule",
+        ":collective_bound_rule",
         ":compute_bound_rule",
         ":data_transfer_bound_rule",
         ":host_processing_bound_rule",
@@ -299,6 +324,23 @@ cc_test(
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "collective_bound_rule_test",
+    srcs = ["collective_bound_rule_test.cc"],
+    deps = [
+        ":collective_bound_rule",
+        ":mock_tool_data_provider",
+        ":signal_provider",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:tf_op_stats_proto_cc",
     ],
 )
 

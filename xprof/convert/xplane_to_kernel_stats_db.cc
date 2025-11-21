@@ -104,7 +104,7 @@ std::unique_ptr<DataTable> GenerateKernelStatsDataTable(
       {"shmem_bytes", "number", "Shared Mem bytes"},
       {"block_dim", "string", "Block dim"},
       {"grid_dim", "string", "Grid dim"},
-      {"occupancy_pct", "number", "Occupancy %"},
+      {"occupancy_pct", "number", "Theoretical Occupancy %"},
       {"is_op_tensor_core_eligible", "boolean", "Op is TensorCore eligible"},
       {"is_kernel_using_tensor_core", "boolean", "Kernel uses TensorCore"},
       {"op_name", "string", "Op Name"},

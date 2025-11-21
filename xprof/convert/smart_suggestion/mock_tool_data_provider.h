@@ -37,6 +37,8 @@ class MockToolDataProvider : public ToolDataProvider {
               GetInputPipelineAnalysisResult, (), (override));
   MOCK_METHOD(absl::StatusOr<std::vector<float>>,
               GetEventTimeFractionEachStep, (const std::string&), (override));
+  MOCK_METHOD(absl::StatusOr<std::vector<float>>,
+              GetCollectiveTimeFractionEachStep, (), (override));
 };
 
 }  // namespace profiler

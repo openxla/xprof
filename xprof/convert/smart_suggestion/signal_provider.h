@@ -107,6 +107,21 @@ class SignalProvider {
     return (non_enqueue_us / total_input_time_us) * 100.0;
   }
 
+  // Returns the average percentage of step time for collective operations.
+  absl::StatusOr<double> GetAvgCollectiveTimePercent() const {
+    TF_ASSIGN_OR_RETURN(
+        auto collective_fractions,
+        tool_data_provider_->GetCollectiveTimeFractionEachStep());
+    if (collective_fractions.empty()) {
+      return 0.0;
+    }
+    double sum = 0;
+    for (float fraction : collective_fractions) {
+      sum += fraction;
+    }
+    return sum / collective_fractions.size() * 100.0;
+  }
+
   // Returns the percentage of time when the TensorCore is idle.
   absl::StatusOr<double> GetTensorCoreIdleTimePercent() const {
     TF_ASSIGN_OR_RETURN(const auto* input_pipeline_analysis,

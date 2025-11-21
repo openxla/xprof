@@ -33,6 +33,8 @@ export class SideNav implements OnInit, OnDestroy {
   selectedRunInternal = '';
   selectedTagInternal = '';
   selectedHostInternal = '';
+  runPathInternal = '';
+  sessionPathInternal = '';
   selectedHostsInternal: string[] = [];
   selectedHostsPending: string[] = [];
   selectedModuleInternal = '';
@@ -130,12 +132,14 @@ export class SideNav implements OnInit, OnDestroy {
     } else {
       params = this.mergeRouteParams();
     }
-    const run = params.get('run') || '';
-    const tag = params.get('tool') || params.get('tag') || '';
-    const host = params.get('host') || '';
+    const run = params.get('run') ?? '';
+    const tag = params.get('tool') ?? params.get('tag') ?? '';
+    const host = params.get('host') ?? '';
     const hostsParam = params.get('hosts');
-    const opName = params.get('node_name') || params.get('opName') || '';
-    const moduleName = params.get('module_name') || '';
+    const sessionPath = params.get('session_path') ?? '';
+    const runPath = params.get('run_path') ?? '';
+    const opName = params.get('node_name') ?? params.get('opName') ?? '';
+    const moduleName = params.get('module_name') ?? '';
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;
@@ -143,6 +147,8 @@ export class SideNav implements OnInit, OnDestroy {
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
     this.selectedModuleInternal = moduleName;
+    this.runPathInternal = runPath;
+    this.sessionPathInternal = sessionPath;
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
@@ -182,6 +188,12 @@ export class SideNav implements OnInit, OnDestroy {
     }
     if (this.is_hlo_tool) {
       navigationEvent.moduleName = this.selectedModule;
+    }
+    if (this.runPathInternal) {
+      navigationEvent.run_path = this.runPathInternal;
+    }
+    if (this.sessionPathInternal) {
+      navigationEvent.session_path = this.sessionPathInternal;
     }
     return navigationEvent;
   }

@@ -342,33 +342,34 @@ def respond(
 
 
 def _plugin_assets(
-    logdir: str, runs: list[str], plugin_name: str
+    session_dir: str, runs: list[str], plugin_name: str
 ) -> dict[str, list[str]]:
   result = {}
   for run in runs:
-    run_path = _tb_run_directory(logdir, run)
+    run_path = _tb_run_directory(session_dir, run)
     assets = plugin_asset_util.ListAssets(run_path, plugin_name)
     result[run] = assets
   return result
 
 
-def _tb_run_directory(logdir: str, run: str) -> str:
+def _tb_run_directory(session_dir: str, run: str) -> str:
   """Returns the TensorBoard run directory for a TensorBoard run name.
 
   This helper returns the TensorBoard-level run directory (the one that would)
   contain tfevents files) for a given TensorBoard run name (aka the relative
-  path from the logdir root to this directory). For the root run '.' this is
-  the bare logdir path; for all other runs this is the logdir joined with the
-  run name.
+  path from the session_dir root to this directory). For the root run '.'
+  this is the bare session_dir path; for all other runs this is the
+  session_dir joined with the run name.
 
   Args:
-    logdir: the TensorBoard log directory root path
+    session_dir: the TensorBoard log directory root path
     run: the TensorBoard run name, e.g. '.' or 'train'
 
   Returns:
-    The TensorBoard run directory path, e.g. my/logdir or my/logdir/train.
+    The TensorBoard run directory path, e.g. my/session_dir or
+    my/session_dir/train.
   """
-  return logdir if run == '.' else os.path.join(logdir, run)
+  return session_dir if run == '.' else os.path.join(session_dir, run)
 
 
 def filenames_to_hosts(filenames: list[str], tool: str) -> list[str]:
@@ -686,9 +687,6 @@ class ProfilePlugin(base_plugin.TBPlugin):
       context: A base_plugin.TBContext instance.
     """
     self.logdir = context.logdir
-    self.basedir = context.logdir
-    self.custom_session_path = None
-    self.custom_run_path = None
     self.data_provider = context.data_provider
     self.master_tpu_unsecure_channel = context.flags.master_tpu_unsecure_channel
     self.hide_capture_profile_button = getattr(
@@ -808,6 +806,87 @@ class ProfilePlugin(base_plugin.TBPlugin):
     runs = self.runs_imp(request)
     return respond(runs, 'application/json')
 
+  def _run_map_from_request(
+      self, request: Optional[wrappers.Request] = None
+  ) -> Optional[dict[str, str]]:
+    """Returns a map of run names to session directories from the request.
+
+    Args:
+      request: Optional; werkzeug request used for grabbing session_path and
+        run_path arguments.
+    """
+
+    session_path_arg = request.args.get('session_path') if request else None
+    run_path_arg = (
+        request.args.get('run_path')
+        if request and not session_path_arg
+        else None
+    )
+    run_map = None
+    if session_path_arg:
+      session_path = epath.Path(session_path_arg)
+      run_name = session_path.name
+      run_map = {}
+      if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
+        run_map[run_name] = str(session_path)
+    elif run_path_arg:
+      run_path = epath.Path(run_path_arg)
+      run_map = {}
+      for session in run_path.iterdir():
+        if session.is_dir() and any(session.glob('*.xplane.pb')):
+          run_map[session.name] = str(session)
+    return run_map
+
+  def _run_dir(
+      self, run: str, request: Optional[wrappers.Request] = None
+  ) -> Optional[str]:
+    """Helper that maps a frontend run name to a profile "run" directory.
+
+    The frontend run name consists of the TensorBoard run name (aka the relative
+    path from the logdir root to the directory containing the data) path-joined
+    to the Profile plugin's "run" concept (which is a subdirectory of the
+    plugins/profile directory representing an individual run of the tool), with
+    the special case that TensorBoard run is the logdir root (which is the run
+    named '.') then only the Profile plugin "run" name is used, for backwards
+    compatibility.
+
+    Args:
+      run: the frontend run name, as described above, e.g. train/run1.
+      request: Optional; werkzeug request used for grabbing session_path and
+        run_path arguments.
+
+    Returns:
+      The resolved directory path, e.g. /logdir/train/plugins/profile/run1.
+
+    Raises:
+      ValueError: If the run is not found in the run map.
+      RuntimeError: If the run directory is not found.
+    """
+    run_map = self._run_map_from_request(request)
+    if run_map is not None:
+      if run in run_map:
+        return run_map[run]
+      else:
+        raise ValueError(f'Run {run} not found in run map: {run_map}')
+
+    if run in self._run_to_profile_run_dir:
+      return self._run_to_profile_run_dir[run]
+
+    if not self.logdir:
+      raise RuntimeError(
+          'No matching run directory for run %s. Logdir is empty.' % run
+      )
+    tb_run_name, profile_run_name = os.path.split(run.rstrip(os.sep))
+    if not tb_run_name:
+      tb_run_name = '.'
+    tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
+    if not epath.Path(tb_run_directory).is_dir():
+      raise RuntimeError('No matching run directory for run %s' % run)
+    plugin_directory = plugin_asset_util.PluginDirectory(
+        tb_run_directory, PLUGIN_NAME
+    )
+    return os.path.join(plugin_directory, profile_run_name)
+
   def runs_imp(self, request: Optional[wrappers.Request] = None) -> list[str]:
     """Returns a list all runs for the profile plugin.
 
@@ -815,20 +894,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
       request: Optional; werkzeug request used for grabbing ctx and experiment
         id for other host implementations
     """
-    session_path = request.args.get('session_path') if request else None
-    run_path = (
-        request.args.get('run_path') if request and not session_path else None
-    )
-    self.custom_session_path = session_path
-    self.custom_run_path = run_path
-    self.logdir = session_path if session_path else self.basedir
-    if self.custom_session_path or self.custom_run_path:
-      runs_generator = self._generate_runs_from_path_params(
-          session_path=self.custom_session_path, run_path=self.custom_run_path
-      )
+    run_map = self._run_map_from_request(request)
+    if run_map is not None:
+      runs = run_map.keys()
     else:
-      runs_generator = self.generate_runs()
-    return sorted(list(runs_generator), reverse=True)
+      runs = self.generate_runs()
+    return sorted(list(runs), reverse=True)
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
@@ -848,7 +919,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
       request: Optional; werkzeug request used for grabbing ctx and experiment
         id for other host implementations
     """
-    return list(self.generate_tools_of_run(run))
+    run_dir = self._run_dir(run, request)
+    return list(self.generate_tools_of_run(run, run_dir))
 
   def _run_host_impl(
       self, run: str, run_dir: str, tool: str
@@ -906,8 +978,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         {"hostname":
         "module2"}]
     """
-
-    run_dir = self._run_dir(run)
+    run_dir = self._run_dir(run, request)
     return self._run_host_impl(run, run_dir, tool)
 
   # pytype: disable=wrong-arg-types
@@ -1034,7 +1105,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     tqx = request.args.get('tqx')
     use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
     full_dma = _get_bool_arg(request.args, 'full_dma', False)
-    run_dir = self._run_dir(run)
+    run_dir = self._run_dir(run, request)
 
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
@@ -1136,7 +1207,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
   ) -> str:
     """Returns a string of HLO module names concatenated by comma for the given run."""
     run = request.args.get('run')
-    run_dir = self._run_dir(run)
+    run_dir = self._run_dir(run, request)
     module_list = []
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
@@ -1268,115 +1339,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
         'type': request.args.get('type')
     }
 
-  def _run_dir(self, run: str) -> str:
-    """Helper that maps a frontend run name to a profile "run" directory.
-
-    The frontend run name consists of the TensorBoard run name (aka the relative
-    path from the logdir root to the directory containing the data) path-joined
-    to the Profile plugin's "run" concept (which is a subdirectory of the
-    plugins/profile directory representing an individual run of the tool), with
-    the special case that TensorBoard run is the logdir root (which is the run
-    named '.') then only the Profile plugin "run" name is used, for backwards
-    compatibility.
-
-    Args:
-      run: the frontend run name, as described above, e.g. train/run1.
-
-    Returns:
-      The resolved directory path, e.g. /logdir/train/plugins/profile/run1.
-
-    Raises:
-      RuntimeError: If the run directory is not found.
-    """
-    run = run.rstrip(os.sep)
-    tb_run_name, profile_run_name = os.path.split(run)
-    if not tb_run_name:
-      tb_run_name = '.'
-    tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
-    if not self.logdir or not epath.Path(tb_run_directory).is_dir():
-      raise RuntimeError('No matching run directory for run %s' % run)
-    if self.custom_session_path or self.custom_run_path:
-      return os.path.join(tb_run_directory, profile_run_name)
-    plugin_directory = plugin_asset_util.PluginDirectory(
-        tb_run_directory, PLUGIN_NAME
-    )
-    return os.path.join(plugin_directory, profile_run_name)
-
-  def _generate_runs_from_path_params(
-      self, session_path: Optional[str] = None, run_path: Optional[str] = None
-  ) -> Iterator[str]:
-    """Generator for a list of runs from path parameters.
-
-    This function handles two specific scenarios for specifying profile data
-    locations:
-    1.  `session_path`: A direct path to a directory containing XPlane files for
-    a
-        single profiling session. The directory's name becomes the run name.
-    2.  `run_path`: A path to a directory that contains multiple session
-        directories. Each subdirectory that contains XPlane files is treated
-        as a profiling session, and its name becomes a run name.
-
-    Example Directory Structures:
-
-    Scenario 1: Using `session_path`
-    If `session_path` is `/path/to/my_session_dir`:
-    ```
-    /path/to/
-      my_session_dir/
-        hostA.xplane.pb
-        hostB.xplane.pb
-    ```
-    This would yield a single run: "my_session_dir".
-
-    Scenario 2: Using `run_path`
-    If `run_path` is `/path/to/my_runs`:
-    ```
-    /path/to/
-      my_runs/
-        session_alpha/
-          host1.xplane.pb
-        session_beta/
-          host2.xplane.pb
-        other_dir/  (ignored if no *.xplane.pb)
-    ```
-    This would yield runs: "session_alpha", "session_beta".
-
-    Args:
-      session_path: An optional path string to a specific profiling session
-        directory.
-      run_path: An optional path string to a directory containing multiple
-        profiling session subdirectories.
-
-    Yields:
-      A sequence of string that are "frontend run names" derived from the
-      provided path parameters.
-    """
-
-    if session_path:
-      session_path = epath.Path(session_path)
-      run_name = session_path.name
-      self.logdir = str(session_path.parent)
-      self._run_to_profile_run_dir[run_name] = str(session_path)
-      yield run_name
-    elif run_path:
-      run_path = epath.Path(run_path)
-      self.logdir = str(run_path)
-      for session in run_path.iterdir():
-        if session.is_dir() and any(session.glob('*.xplane.pb')):
-          self._run_to_profile_run_dir[session.name] = str(session)
-          yield session.name
-
   def generate_runs(self) -> Iterator[str]:
     """Generator for a list of runs.
 
-    The "run name" here is a "frontend run name" - see _run_dir() for the
-    definition of a "frontend run name" and how it maps to a directory of
+    The "run name" here is a "frontend run name" - see _tb_run_directory() for
+    the definition of a "frontend run name" and how it maps to a directory of
     profile data for a specific profile "run". The profile plugin concept of
     "run" is different from the normal TensorBoard run; each run in this case
     represents a single instance of profile data collection, more similar to a
     "step" of data in typical TensorBoard semantics. These runs reside in
     subdirectories of the plugins/profile directory within any regular
-    TensorBoard run directory or within the logdir root directory
+    TensorBoard run directory or within the session_dir root directory
     itself (even if it contains no tfevents file and would thus not be
     considered a normal TensorBoard run, for backwards compatibility).
 
@@ -1416,7 +1389,6 @@ class ProfilePlugin(base_plugin.TBPlugin):
         "run1", "train/run1", "train/run2", "validation/run1",
         "new_job/tensorboard/run1"
     """
-    self.logdir = self.basedir
     if not self.logdir:
       return
 
@@ -1474,9 +1446,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
             visited_runs.add(frontend_run)
             yield frontend_run
 
-  def generate_tools_of_run(self, run: str) -> Iterator[str]:
+  def generate_tools_of_run(self, run: str, run_dir: str) -> Iterator[str]:
     """Generate a list of tools given a certain run."""
-    profile_run_dir = epath.Path(self._run_to_profile_run_dir[run])
+    if not run_dir:
+      logger.warning('Cannot find asset directory for: %s', run)
+      return
+    profile_run_dir = epath.Path(run_dir)
     cache = ToolsCache(profile_run_dir)
 
     cached_tools = cache.load()

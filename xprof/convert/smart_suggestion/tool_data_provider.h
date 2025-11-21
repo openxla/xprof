@@ -44,6 +44,10 @@ class ToolDataProvider {
   // fractions for each step.
   virtual absl::StatusOr<std::vector<float>>
   GetEventTimeFractionEachStep(const std::string& target_event_name) = 0;
+
+  // Returns the collective time fraction of each step for collective ops.
+  virtual absl::StatusOr<std::vector<float>>
+  GetCollectiveTimeFractionEachStep() = 0;
 };
 
 }  // namespace profiler

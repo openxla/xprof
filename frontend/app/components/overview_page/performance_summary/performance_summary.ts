@@ -162,9 +162,19 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   },
   {
     title: 'Memory Bandwidth Utilization',
-    tooltip: 'Percentage of the peak device memory bandwidth that is used.',
+    tooltip:
+        'Why two numbers: The first number shows the memory bandwidth utilization based on the hardware performance counter. The second one shows the performance compared to the program\'s optimal performance considering the instruction mix (i.e., the ratio of floating-point operations and memory operations).',
     goodMetric: true,
-    valueKey: 'memory_bw_utilization_relative_to_hw_limit',
+    childrenInfoConfig: [
+      {
+        title: 'HBM Utilization',
+        valueKey: 'hbm_utilization_percent',
+      },
+      {
+        title: 'Compared to Program\'s Optimal Bandwidth',
+        valueKey: 'memory_bw_utilization_relative_to_hw_limit',
+      },
+    ],
   },
   {
     title: 'Firmware Power Metrics (Power/Timescale)',

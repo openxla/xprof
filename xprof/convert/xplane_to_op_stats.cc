@@ -555,10 +555,15 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
       UnionCombineStepEvents(host_step_events, &step_events);
     }
     XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(host_plane);
-    auto stat = visitor.GetStat(StatType::kMatrixUnitUtilizationPercent);
-    if (stat.has_value()) {
+    auto mxu_stat = visitor.GetStat(StatType::kMatrixUnitUtilizationPercent);
+    if (mxu_stat.has_value()) {
       op_stats.mutable_performance_counter_result()
-          ->set_matrix_unit_utilization_percent(stat->DoubleValue());
+          ->set_matrix_unit_utilization_percent(mxu_stat->DoubleValue());
+    }
+    auto hbm_stat = visitor.GetStat(StatType::kHbmUtilizationPercent);
+    if (hbm_stat.has_value()) {
+      op_stats.mutable_performance_counter_result()
+          ->set_hbm_utilization_percent(hbm_stat->DoubleValue());
     }
     TfFunctionDb* tf_function_db = op_stats.mutable_tf_function_db();
     visitor.ForEachLine([&](const XLineVisitor& line) {

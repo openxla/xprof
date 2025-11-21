@@ -17,9 +17,7 @@ limitations under the License.
 
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
-#include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
@@ -40,10 +38,13 @@ using ::testing::status::IsOkAndHolds;
 
 TEST(BarrierCoresRuleTest, MeetsConditions) {
   auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  EventTimeFractionAnalyzerResult result;
+  result.add_event_time_fractions(0.15);
+  result.add_event_time_fractions(0.25);
   // Average is (0.15+0.25)/2 = 0.2, which is 20%. This is > 10%.
   EXPECT_CALL(*mock_tool_data_provider,
-              GetEventTimeFractionEachStep(kSpecialOpName))
-      .WillRepeatedly(Return(std::vector<float>{0.15, 0.25}));
+              GetEventTimeFractionAnalyzerResult(kSpecialOpName))
+      .WillRepeatedly(Return(&result));
 
   SignalProvider signal_provider(std::move(mock_tool_data_provider));
   BarrierCoresRule rule;
@@ -58,10 +59,13 @@ TEST(BarrierCoresRuleTest, MeetsConditions) {
 
 TEST(BarrierCoresRuleTest, NotSpecialOpBound) {
   auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  EventTimeFractionAnalyzerResult result;
+  result.add_event_time_fractions(0.01);
+  result.add_event_time_fractions(0.02);
   // Average is (0.01+0.02)/2 = 0.015, which is 1.5%. This is < 10%.
   EXPECT_CALL(*mock_tool_data_provider,
-              GetEventTimeFractionEachStep(kSpecialOpName))
-      .WillRepeatedly(Return(std::vector<float>{0.01, 0.02}));
+              GetEventTimeFractionAnalyzerResult(kSpecialOpName))
+      .WillRepeatedly(Return(&result));
 
   SignalProvider signal_provider(std::move(mock_tool_data_provider));
   BarrierCoresRule rule;
@@ -74,7 +78,7 @@ TEST(BarrierCoresRuleTest, NotSpecialOpBound) {
 TEST(BarrierCoresRuleTest, ErrorFetchingPercentile) {
   auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
   EXPECT_CALL(*mock_tool_data_provider,
-              GetEventTimeFractionEachStep(kSpecialOpName))
+              GetEventTimeFractionAnalyzerResult(kSpecialOpName))
       .WillRepeatedly(Return(absl::InternalError("Failed to get percentile")));
 
   SignalProvider signal_provider(std::move(mock_tool_data_provider));

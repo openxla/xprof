@@ -17,11 +17,11 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_MOCK_TOOL_DATA_PROVIDER_H_
 
 #include <string>
-#include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "absl/status/statusor.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
 
@@ -35,8 +35,9 @@ class MockToolDataProvider : public ToolDataProvider {
               (override));
   MOCK_METHOD(absl::StatusOr<const InputPipelineAnalysisResult*>,
               GetInputPipelineAnalysisResult, (), (override));
-  MOCK_METHOD(absl::StatusOr<std::vector<float>>,
-              GetEventTimeFractionEachStep, (const std::string&), (override));
+  MOCK_METHOD(absl::StatusOr<const EventTimeFractionAnalyzerResult*>,
+              GetEventTimeFractionAnalyzerResult, (const std::string&),
+              (override));
 };
 
 }  // namespace profiler

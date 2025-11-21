@@ -21,8 +21,8 @@ limitations under the License.
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
-#include "absl/status/statusor.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
@@ -137,20 +137,21 @@ class SignalProvider {
     }
 
     TF_ASSIGN_OR_RETURN(
-        auto event_time_of_interest,
-        tool_data_provider_->GetEventTimeFractionEachStep(event_name));
+        const auto* analyzer_result,
+        tool_data_provider_->GetEventTimeFractionAnalyzerResult(event_name));
 
     double total_percent = 0;
-    for (float event_percent : event_time_of_interest) {
+    for (float event_percent : analyzer_result->event_time_fractions()) {
       total_percent += event_percent;
     }
 
-    if (event_time_of_interest.empty()) {
+    if (analyzer_result->event_time_fractions().empty()) {
       avg_event_time_percent_cache_[event_name] = 0.0;
       return 0.0;
     }
-    double avg_percent = (total_percent /
-       event_time_of_interest.size()) * 100.0;
+    double avg_percent =
+        (total_percent / analyzer_result->event_time_fractions().size()) *
+        100.0;
     avg_event_time_percent_cache_[event_name] = avg_percent;
     return avg_percent;
   }

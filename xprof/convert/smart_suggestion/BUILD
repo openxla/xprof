@@ -42,6 +42,7 @@ cc_library(
     hdrs = ["tool_data_provider.h"],
     deps = [
         "@com_google_absl//absl/status:statusor",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -55,6 +56,7 @@ cc_library(
         ":tool_data_provider",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
@@ -210,6 +212,7 @@ cc_library(
         ":tool_data_provider",
         "@com_google_absl//absl/status:statusor",
         "@com_google_googletest//:gtest_for_library",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
     ],

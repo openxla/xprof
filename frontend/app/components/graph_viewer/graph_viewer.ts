@@ -89,6 +89,9 @@ export class GraphViewer implements OnDestroy {
   sourceCodeServiceIsAvailable = false;
   sourceFileAndLineNumber = '';
   stackTrace = '';
+  opNameForSourceMapper = '';
+  programIdForSourceMapper = '';
+  opCategoryForSourceMapper = '';
 
   constructor(
       public zone: NgZone,
@@ -383,14 +386,14 @@ export class GraphViewer implements OnDestroy {
   onClickGraphvizNode(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
-    this.updateStackTrace(this.selectedNode);
+    this.updateSourceInfo(this.selectedNode);
     event.preventDefault();
   }
 
   onClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
-    this.updateStackTrace(this.selectedNode);
+    this.updateSourceInfo(this.selectedNode);
     event.preventDefault();
   }
 
@@ -421,6 +424,18 @@ export class GraphViewer implements OnDestroy {
               node?.xla?.sourceInfo?.lineNumber || -1}`;
       this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
     });
+  }
+
+  private updateSourceInfo(node: Node|null) {
+    console.log('updateSourceInfo', node);
+    this.programIdForSourceMapper = node?.xla?.programId || '';
+    this.opNameForSourceMapper = node?.name || '';
+    this.opCategoryForSourceMapper = node?.xla?.category || '';
+    console.log(
+        'updateSourceInfo', this.programIdForSourceMapper,
+        this.opNameForSourceMapper, this.opCategoryForSourceMapper,
+        this.sessionId);
+    this.updateStackTrace(node);
   }
 
   // Hover display the op detail of the hovered node

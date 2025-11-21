@@ -18,7 +18,7 @@ xprof_ng_module(
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//rxjs",
-        "@org_xprof//frontend/app/components/stack_trace_snippet",
+        "@org_xprof//frontend/app/components/source_mapper",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",
     ],

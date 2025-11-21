@@ -13,7 +13,7 @@ import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnosti
 import {GraphConfigModule} from 'org_xprof/frontend/app/components/graph_viewer/graph_config/graph_config_module';
 import {HloTextViewModule} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view_module';
 import {OpDetailsModule} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details_module';
-import {StackTraceSnippetModule} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet_module';
+import {SourceMapperModule} from 'org_xprof/frontend/app/components/source_mapper/source_mapper_module';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 
 import {GraphViewer} from './graph_viewer';
@@ -33,7 +33,7 @@ import {GraphViewer} from './graph_viewer';
     MatSnackBarModule,
     DownloadHloModule,
     MatExpansionModule,
-    StackTraceSnippetModule,
+    SourceMapperModule,
     MatChipsModule,
     MatTooltipModule,
   ],

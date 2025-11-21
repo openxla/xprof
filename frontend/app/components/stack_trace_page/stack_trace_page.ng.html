@@ -12,7 +12,11 @@
       </tr>
     </tbody>
   </table>
-  <stack-trace-snippet
+  <source-mapper
+      [sessionId]="sessionId"
+      [programId]="programId"
+      [opName]="hloOp"
+      [opCategory]="opCategory"
       [sourceFileAndLineNumber]="sourceFileAndLineNumber"
       [stackTrace]="stackTrace" />
 </div>

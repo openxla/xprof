@@ -11,6 +11,10 @@ import {takeUntil} from 'rxjs/operators';
  * in a new page. This is particularly useful for Trace Viewer, since it is not
  * written in Angular, but `StackTraceSnippet` is written in Angular. This
  * component provides a bridge between the two.
+ *
+ * Note: we keep this component named as StackTracePage, even though it now
+ * contains source viewer info including both stack trace source code and
+ * various IR text mapping.
  */
 @Component({
   standalone: false,
@@ -26,12 +30,17 @@ export class StackTracePage implements OnDestroy {
   private readonly hloOpKey = 'hlo_op';
   private readonly sourceKey = 'source';
   private readonly stackTraceKey = 'stack_trace';
+  private readonly sessionIdKey = 'session_id';
+  private readonly opCategoryKey = 'op_category';
 
   hloModule = '';
   hloOp = '';
   sourceFileAndLineNumber = '';
   stackTrace = '';
   sourceCodeServiceIsAvailable = false;
+  sessionId = '';
+  programId = '';
+  opCategory = '';
 
   constructor() {
     // We don't need the source code service to be persistently available.
@@ -50,7 +59,15 @@ export class StackTracePage implements OnDestroy {
           this.hloOp = params[this.hloOpKey] || '';
           this.sourceFileAndLineNumber = params[this.sourceKey] || '';
           this.stackTrace = params[this.stackTraceKey] || '';
+          const regex = /\((.*?)\)/;
+          const programIdMatch = this.hloModule.match(regex);
+          this.programId = programIdMatch ? programIdMatch[1] : '';
+          this.sessionId = params[this.sessionIdKey] || params['run'] || '';
+          this.opCategory = params[this.opCategoryKey] || '';
         });
+    this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+      this.sessionId = params['sessionId'] || this.sessionId;
+    });
   }
 
   ngOnDestroy(): void {

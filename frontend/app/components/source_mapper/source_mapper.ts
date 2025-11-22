@@ -1,6 +1,6 @@
 import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
+import {GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
@@ -12,7 +12,8 @@ const CUSTOM_CALL_CATEGORY = 'custom-call';
 
 enum CompilerPass {
   HLO_OPTIMIZED = 'HLO(optimized)',
-  MOSAIC_ORIGINAL = 'Mosaic original',
+  HLO_UNOPTIMIZED = 'HLO(original)',
+  MOSAIC_ORIGINAL = 'Mosaic(original)',
 }
 
 /**
@@ -55,15 +56,13 @@ export class SourceMapper implements OnDestroy, OnChanges {
 
   sourceCodeSnippetAddresses: readonly Address[] = [];
   hloTextByProgramId = new Map<string, string>();
+  hloUnoptimizedTextByProgramId = new Map<string, string>();
   mosaicTextByKernelName = new Map<string, string>();
   mosaicSourceFileAndLineNumberByKernelName = new Map<string, string>();
   selectedCompilerPass = CompilerPass.HLO_OPTIMIZED;
   sourceFileNames: string[] = [];
   selectedSourceFileName = '';
   tags: string[] = [];
-
-  // TODO: create data service to fetch source info and ir text for selected
-  // kernel (matching with hlo op name) by using llo dump and utils.
 
   constructor(private readonly store: Store<{}>) {
     this.store.select(getTagsState)
@@ -76,26 +75,39 @@ export class SourceMapper implements OnDestroy, OnChanges {
 
   ngOnChanges(changes: SimpleChanges) {
     if (changes['sessionId'] &&
-        changes['sessionId'].currentValue !== this.sessionId) {
+        changes['sessionId'].currentValue !==
+            changes['sessionId'].previousValue) {
       this.hloTextByProgramId.clear();
+      this.hloUnoptimizedTextByProgramId.clear();
       this.mosaicTextByKernelName.clear();
       this.mosaicSourceFileAndLineNumberByKernelName.clear();
     }
     if (changes['programId']) {
-      this.maybeUpdateHloTextCache();
+      this.update();
     }
-    if (changes['opName'] && changes['opName'].currentValue !== this.opName) {
-      this.maybeUpdateMosaicTextCache();
-      this.maybeUpdateMosaicSourceFileAndLineNumberCache();
+    if (changes['opName'] &&
+        changes['opName'].currentValue !== changes['opName'].previousValue) {
+      if (!this.compilerPasses.includes(this.selectedCompilerPass)) {
+        this.selectedCompilerPass = this.compilerPasses[0];
+      }
+      this.update();
     }
     if (changes['sourceFileAndLineNumber'] || changes['stackTrace']) {
       this.parseSourceFileNames();
     }
   }
 
+  update() {
+    this.maybeUpdateHloTextCache();
+
+    this.maybeUpdateMosaicTextCache();
+    this.maybeUpdateMosaicSourceFileAndLineNumberCache();
+  }
+
   get adaptedStackTrace(): string {
     switch (this.selectedCompilerPass) {
       case CompilerPass.HLO_OPTIMIZED:
+      case CompilerPass.HLO_UNOPTIMIZED:
         return this.stackTrace || '';
       case CompilerPass.MOSAIC_ORIGINAL:
         return this.getPallasKernelStackTrace();
@@ -107,6 +119,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
   get adaptedSourceFileAndLineNumber(): string {
     switch (this.selectedCompilerPass) {
       case CompilerPass.HLO_OPTIMIZED:
+      case CompilerPass.HLO_UNOPTIMIZED:
         return this.sourceFileAndLineNumber || '';
       case CompilerPass.MOSAIC_ORIGINAL:
         return this.pallasKernelSourceFileAndLineNumber;
@@ -115,8 +128,11 @@ export class SourceMapper implements OnDestroy, OnChanges {
     }
   }
 
-  get compilerPasses(): string[] {
+  get compilerPasses(): CompilerPass[] {
     const basePasses = [CompilerPass.HLO_OPTIMIZED];
+    if (this.hasUnoptimizedHloTag) {
+      basePasses.push(CompilerPass.HLO_UNOPTIMIZED);
+    }
     // llo_debug tag is identifier for llo debug proto captured.
     // the proto contains llo bundles for kernels, and source info for mosaic
     // passes.
@@ -133,6 +149,10 @@ export class SourceMapper implements OnDestroy, OnChanges {
     return this.tags.includes('llo_debug');
   }
 
+  get hasUnoptimizedHloTag() {
+    return this.tags.includes('has_original_hlo_proto');
+  }
+
   get irTextLink(): string {
     return '';
   }
@@ -145,6 +165,8 @@ export class SourceMapper implements OnDestroy, OnChanges {
     switch (this.selectedCompilerPass) {
       case CompilerPass.HLO_OPTIMIZED:
         return this.hloTextByProgramId.get(this.programId) || '';
+      case CompilerPass.HLO_UNOPTIMIZED:
+        return this.hloUnoptimizedTextByProgramId.get(this.programId) || '';
       case CompilerPass.MOSAIC_ORIGINAL:
         return this.mosaicTextByKernelName.get(this.opName) || '';
       default:
@@ -185,6 +207,9 @@ export class SourceMapper implements OnDestroy, OnChanges {
         return this.irTextLines.findIndex(
                    (line: string) => line.includes(`${this.opName} =`)) ||
             0;
+      case CompilerPass.HLO_UNOPTIMIZED:
+        // Currently not able to map from HLO op to its original text line.
+        return 0;
       case CompilerPass.MOSAIC_ORIGINAL:
         // Assumptions: the MLIR text contains the key word kernel in the kernel
         // definition line.
@@ -197,6 +222,11 @@ export class SourceMapper implements OnDestroy, OnChanges {
   }
 
   get irTextLinesForDisplay(): string[] {
+    // Return the entire HLO text for HLO unoptimized pass, as the mapping from
+    // the selected HLO op to its original text line is not implemented yet.
+    if (this.selectedCompilerPass === CompilerPass.HLO_UNOPTIMIZED) {
+      return this.irTextLines;
+    }
     const minLineIndex =
         Math.max(0, this.irTextFocusLineIndex - this.sourceContextWindow / 2);
     const maxLineIndex = Math.min(
@@ -223,18 +253,36 @@ export class SourceMapper implements OnDestroy, OnChanges {
   }
 
   maybeUpdateHloTextCache() {
-    if (!this.programId || this.programId === '0' || this.sessionId === '' ||
-        this.selectedCompilerPass !== CompilerPass.HLO_OPTIMIZED) {
+    if (!this.programId || this.programId === '0' || this.sessionId === '') {
       return;
     }
-    const hloText = this.hloTextByProgramId.get(this.programId);
+    let hloTextCache = null;
+    let hloGraphType = GRAPH_TYPE_DEFAULT;
+    switch (this.selectedCompilerPass) {
+      case CompilerPass.HLO_OPTIMIZED:
+        hloTextCache = this.hloTextByProgramId;
+        hloGraphType = GRAPH_TYPE_DEFAULT;
+        break;
+      case CompilerPass.HLO_UNOPTIMIZED:
+        hloTextCache = this.hloUnoptimizedTextByProgramId;
+        hloGraphType = GRAPH_TYPE_ORIGINAL_HLO;
+        break;
+      default:
+        return;
+    }
+    // Selected compiler pass is not for hlo.
+    if (!hloTextCache) {
+      return;
+    }
+    // Cache hit, early return.
+    const hloText = hloTextCache.get(this.programId);
     if (hloText) {
       return;
     }
     this.dataService
         .downloadHloProto(
             this.sessionId,
-            GRAPH_TYPE_DEFAULT, // Default graph type is xla.
+            hloGraphType,
             '',
             FileExtensionType.LONG_TEXT,
             false,
@@ -243,7 +291,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
         .pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
           if (data) {
-            this.hloTextByProgramId.set(this.programId, data as string);
+            hloTextCache.set(this.programId, data as string);
           }
         });
   }
@@ -296,6 +344,7 @@ export class SourceMapper implements OnDestroy, OnChanges {
     this.selectedCompilerPass = newCompilerPass;
     switch (this.selectedCompilerPass) {
       case CompilerPass.HLO_OPTIMIZED:
+      case CompilerPass.HLO_UNOPTIMIZED:
         this.maybeUpdateHloTextCache();
         break;
       case CompilerPass.MOSAIC_ORIGINAL:

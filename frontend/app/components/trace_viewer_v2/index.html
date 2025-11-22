@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en-us">
+
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      margin: 0;
+    }
+
+    .emscripten {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+  </style>
+  <title>WASM Trace Viewer</title>
+</head>
+
+<body>
+  <input type="file" id="fileInput" accept=".json">
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+  <script src="/trace_viewer_v2.js" defer></script>
+  <script src="/app_bundle.js" defer></script>
+  </script>
+</body>
+
+</html>

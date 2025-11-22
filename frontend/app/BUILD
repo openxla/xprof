@@ -15,6 +15,7 @@ xprof_ng_module(
     ],
     deps = [
         "@npm//@angular/core",
+        "@npm//@angular/forms",
         "@npm//@angular/platform-browser",
         "@npm//@ngrx/store",
         "@npm//rxjs",

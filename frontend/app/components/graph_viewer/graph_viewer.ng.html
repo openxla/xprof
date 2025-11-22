@@ -40,11 +40,15 @@
     </div>
     <mat-expansion-panel class="stack-trace-snippet-panel" *ngIf="sourceCodeServiceIsAvailable">
       <mat-expansion-panel-header>
-        <mat-panel-title>Stack Trace Source Code Snippets</mat-panel-title>
+        <mat-panel-title>Source Viewer</mat-panel-title>
       </mat-expansion-panel-header>
       <ng-template matExpansionPanelContent>
         <div class="stack-trace-snippet-container">
-          <stack-trace-snippet
+          <source-mapper
+              [sessionId]="sessionId"
+              [programId]="programIdForSourceMapper"
+              [opName]="opNameForSourceMapper"
+              [opCategory]="opCategoryForSourceMapper"
               [sourceFileAndLineNumber]="sourceFileAndLineNumber"
               [stackTrace]="stackTrace" />
         </div>

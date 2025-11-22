@@ -732,21 +732,25 @@ dashboard would integrate trace viewer app using iframe.
         });
     },
 
-    createStackTraceSnippetLink: function(hloModule, hloOp, sourceFileAndLineNumber, stackTrace) {
+    createStackTraceSnippetLink: function(hloModule, hloOp, opCategory, sourceFileAndLineNumber, stackTrace) {
       if (!this._sourceCodeServiceIsAvailable) return;
       if (!sourceFileAndLineNumber && !stackTrace) return;
       const hloModuleKey = 'hlo_module';
       const hloOpKey = 'hlo_op';
       const sourceKey = 'source';
       const stackTraceKey = 'stack_trace';
+      const sessionIdKey = 'session_id';
+      const opCategoryKey = 'op_category';
       this.createCrossToolLink(
           'stack_trace_page',
-          'Stack Trace Source Code Snippet',
+          'Source Code Snippet with IR Text',
           {
             [hloModuleKey]: hloModule,
             [hloOpKey]: hloOp,
             [sourceKey]: sourceFileAndLineNumber || '',
             [stackTraceKey]: stackTrace || '',
+            [sessionIdKey]: this._sessionId || '',
+            [opCategoryKey]: opCategory || '',
           },
           'Open in a new page');
     },
@@ -885,6 +889,7 @@ dashboard would integrate trace viewer app using iframe.
             this.createStackTraceSnippetLink(
                 hloModule,
                 hloOp,
+                event.args?.hlo_category,
                 event.args?.source,
                 event.args?.source_stack);
           }

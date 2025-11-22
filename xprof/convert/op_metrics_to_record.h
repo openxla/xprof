@@ -40,12 +40,26 @@ inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
       metrics.flops(), tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
+inline double TeraFlopsPerSecondPerCore(const OpMetrics& metrics) {
+  // flops and time_ps are accumulated across all occurrences on all cores.
+  // time_ps is used instead of self_time_ps because flops for an op includes
+  // the flops executed by children (nested) ops.
+  return tsl::profiler::SafeDivide(metrics.flops(), metrics.time_ps());
+}
+
 inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
       metrics.model_flops(), tsl::profiler::PicoToNano(metrics.time_ps()));
+}
+
+inline double TeraModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
+  // flops and time_ps are accumulated across all occurrences on all cores.
+  // time_ps is used instead of self_time_ps because flops for an op includes
+  // the flops executed by children (nested) ops.
+  return tsl::profiler::SafeDivide(metrics.model_flops(), metrics.time_ps());
 }
 
 // Return ByteAccessed for memory_space and operation_type.
@@ -162,8 +176,8 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
   using ::tensorflow::profiler::PerformanceInfo;
 
   // Set overall performance metrics.
-  record->set_measured_flop_rate(GigaFlopsPerSecondPerCore(metrics));
-  record->set_model_flop_rate(GigaModelFlopsPerSecondPerCore(metrics));
+  record->set_measured_flop_rate(TeraFlopsPerSecondPerCore(metrics));
+  record->set_model_flop_rate(TeraModelFlopsPerSecondPerCore(metrics));
   record->set_measured_memory_bw(GibiBytesPerSecondPerCore(
       metrics, tensorflow::profiler::MemorySpace::MEMORY_SPACE_ALL,
       OpMetrics::MemoryAccessed::UNKNOWN));
@@ -241,8 +255,7 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
   absl::string_view bottleneck_resource = kUnknown;
   double bottleneck_utilization = 0;
   double bottleneck_operational_intensity = 0;
-  double peak_flops =
-      tsl::profiler::TeraToGiga(perf_env.peak_tera_flops_per_second());
+  double peak_flops = perf_env.peak_tera_flops_per_second();
   double flops_utilization =
       tsl::profiler::SafeDivide(record->measured_flop_rate(), peak_flops);
   if (bottleneck_utilization < flops_utilization) {

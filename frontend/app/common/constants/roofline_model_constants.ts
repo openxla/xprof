@@ -11,8 +11,8 @@ export const PIE_CHART_PALETTE = [
 export const SCATTER_CHART_AXIS = {
   minX: 0.00001,
   maxX: 100000,
-  minY: 0.00001,
-  maxY: 1000000,
+  minY: 0.00000001,
+  maxY: 1000,
 };
 
 /** scatter base options for roofline chart */
@@ -44,14 +44,14 @@ export const SCATTER_CHART_OPTIONS = {
     ],
   },
   vAxis: {
-    title: 'GFLOP/s (log scale)',
+    title: 'TFLOP/s (log scale)',
     scaleType: 'log',
     viewWindow: {
       min: SCATTER_CHART_AXIS.minY,
       max: SCATTER_CHART_AXIS.maxY,
     },
     // Ticks have to be explicitly defined for scaling axis evenly.
-    ticks: [0, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 1000000],
+    ticks: [0, 0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
   },
   legend: {position: 'right' as google.visualization.ChartLegendPosition},
   tooltip: {isHtml: true},
@@ -117,7 +117,7 @@ export const DEVICE_INFO = [
     id: 'peak_flop_rate',
     label: 'Peak FLOP Rate per TensorCore',
     type: 'number',
-    unit: 'GFLOP/s',
+    unit: 'TFLOP/s',
     display: true,
   },
   {

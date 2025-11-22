@@ -34,10 +34,10 @@ http_archive(
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "2a5591ec7543c8b37aead3cb681eb2b93c9616ce94abdf3aedcf391b372d4007",
-    strip_prefix = "rules_ml_toolchain-b2b08356ac30353c49587b0e8dfe65aabb35e78d",
+    sha256 = "1950637a1bebfc3de16e7361dc51697a0d38b3169f05e14e1347585e26fc59b2",
+    strip_prefix = "rules_ml_toolchain-0725ae174c0ad94baabbc57eb4610aabcae8bd8d",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/b2b08356ac30353c49587b0e8dfe65aabb35e78d.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/0725ae174c0ad94baabbc57eb4610aabcae8bd8d.tar.gz",
     ],
 )
 

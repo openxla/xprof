@@ -72,6 +72,7 @@ using ::tensorflow::profiler::XSpace;
 absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     const absl::StatusOr<SessionSnapshot>& status_or_session_snapshot,
     const std::string& tool_name, const ToolOptions& tool_options) {
+  LOG(INFO) << "SessionSnapshotToToolsData";
   if (!status_or_session_snapshot.ok()) {
     LOG(ERROR) << status_or_session_snapshot.status().message();
     return std::make_pair("", false);
@@ -107,6 +108,7 @@ absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,
                      std::string* result) {
+  LOG(INFO) << "Monitor";
   TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
   {
     TF_RETURN_IF_ERROR(tsl::profiler::Monitor(service_addr, duration_ms,
@@ -116,9 +118,27 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
   return absl::OkStatus();
 }
 
+absl::Status StartContinuousProfiling(const char* service_addr,
+                                      const ToolOptions& tool_options) {
+  LOG(INFO) << "StartContinuousProfiling";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  tensorflow::RemoteProfilerSessionManagerOptions options;
+  bool is_cloud_tpu_session;
+  options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
+      service_addr, "", "", false, 2000, tool_options, &is_cloud_tpu_session);
+  return tsl::profiler::StartContinuousProfiling(service_addr, options);
+}
+
+absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
+  LOG(INFO) << "GetSnapshot";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  return tsl::profiler::GetSnapShot(service_addr, logdir);
+}
+
 static absl::once_flag server_init_flag;
 
 void StartGrpcServer(int port) {
+  LOG(INFO) << "StartGrpcServer";
   absl::call_once(server_init_flag, ::xprof::profiler::InitializeGrpcServer,
                   port);
 }
@@ -126,6 +146,7 @@ void StartGrpcServer(int port) {
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const ToolOptions& tool_options) {
+  LOG(INFO) << "XSpaceToToolsData";
   auto status_or_session_snapshot = SessionSnapshot::Create(
       std::move(xspace_paths), /*xspaces=*/std::nullopt);
   return SessionSnapshotToToolsData(status_or_session_snapshot, tool_name,
@@ -136,6 +157,7 @@ absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsDataFromByteString(
     std::vector<std::string> xspace_strings,
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const ToolOptions& tool_options) {
+  LOG(INFO) << "XSpaceToToolsDataFromByteString";
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.reserve(xspace_strings.size());
 

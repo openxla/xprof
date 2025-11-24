@@ -41,15 +41,20 @@ ToolOptions ToolOptionsFromPythonDict(const py::dict& dictionary) {
   ToolOptions map;
   for (const auto& item : dictionary) {
     std::variant<bool, int, std::string> value;
-    if (py::isinstance<py::bool_>(item.second)) {
+    try {
       value = item.second.cast<bool>();
-    } else if (py::isinstance<py::int_>(item.second)) {
-      value = item.second.cast<int>();
-    } else if (py::isinstance<py::str>(item.second)) {
-      value = item.second.cast<std::string>();
-    } else {
-      continue;
+    } catch (...) {
+      try {
+        value = item.second.cast<int>();
+      } catch (...) {
+        try {
+          value = item.second.cast<std::string>();
+        } catch (...) {
+          continue;
+        }
+      }
     }
+
     map.emplace(item.first.cast<std::string>(), value);
   }
   return map;
@@ -85,6 +90,27 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
     // Py_INCREF and Py_DECREF must be called holding the GIL.
     xla::ThrowIfError(status);
     return content;
+  });
+
+  m.def("start_continuous_profiling",
+        [](const char* service_addr, py::dict options) {
+          absl::Status status;
+          ToolOptions tool_options = ToolOptionsFromPythonDict(options);
+          {
+            py::gil_scoped_release release;
+            status = xprof::pywrap::StartContinuousProfiling(service_addr,
+                                                             tool_options);
+          }
+          xla::ThrowIfError(status);
+        });
+
+  m.def("get_snapshot", [](const char* service_addr, const char* logdir) {
+    absl::Status status;
+    {
+      py::gil_scoped_release release;
+      status = xprof::pywrap::GetSnapshot(service_addr, logdir);
+    }
+    xla::ThrowIfError(status);
   });
 
   m.def(

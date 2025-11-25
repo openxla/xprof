@@ -1,4 +1,10 @@
 <div class="section-container">
+  <div class="callout is-important">
+    <header>Warnings</header>
+    <li>
+      <a href="http://b/400473992">b/400473992</a>: In ZFC, <code>count_store_per_bank</code> includes add store ops in addition to the non-add store ops of previous generations. To find the number of non-add store ops, subtract <code>count_store_add_per_bank</code> from <code>count_store_per_bank</code>.
+    </li>
+  </div>
   <div class="row">
       <category-filter [dataTable]="dataTable" column="Host" (changed)="updateFilters($event)">
       </category-filter>

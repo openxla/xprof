@@ -1086,6 +1086,44 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
+  FlameChartTimelineData data;
+  data.groups.push_back({"Group 1", 0, 0});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // Mouse is over the event
+  ImGui::GetIO().MousePos = ImVec2(500.f, 40.f);
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+  ImGui::GetIO().MouseDown[0] = true;
+
+  // Shift-click, should set the curtain
+  SimulateFrame();
+
+  ASSERT_TRUE(timeline_.selected_time_range().has_value());
+  EXPECT_EQ(timeline_.selected_time_range()->start(), 10.0);
+  EXPECT_EQ(timeline_.selected_time_range()->end(), 30.0);
+
+  // Frame with mouse up
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  // Shift-click again, should toggle the curtain off
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.selected_time_range().has_value());
+
+  // Reset the mouse and shift key to avoid affecting other tests.
+  ImGui::GetIO().MouseDown[0] = false;
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+}
+
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
   timeline_.set_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});

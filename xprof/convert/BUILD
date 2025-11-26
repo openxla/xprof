@@ -223,6 +223,7 @@ cc_library(
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
+        "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
@@ -230,6 +231,33 @@ cc_library(
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
     alwayslink = 1,
+)
+
+cc_test(
+    name = "streaming_trace_viewer_processor_test",
+    srcs = ["streaming_trace_viewer_processor_test.cc"],
+    deps = [
+        ":repository",
+        ":streaming_trace_viewer_processor",
+        ":tool_options",
+        "//file/base:path",
+        "//file/util:temp_path",
+        "@com_github_nlohmann_json//:json",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/lib/core:status_test_util",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:file_statistics",
+        "@xla//xla/tsl/platform:status",
+        "@xla//xla/tsl/platform:statusor",
+        "@xla//xla/tsl/platform:test",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
 )
 
 cc_library(

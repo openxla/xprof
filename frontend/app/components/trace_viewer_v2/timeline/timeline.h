@@ -75,6 +75,10 @@ class Timeline {
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
 
+  const std::vector<TimeRange>& selected_time_ranges() const {
+    return selected_time_ranges_;
+  }
+
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
 
   void set_timeline_data(FlameChartTimelineData data) {
@@ -137,12 +141,12 @@ class Timeline {
   virtual void Zoom(float zoom_factor);
 
  private:
+  double px_per_time_unit() const;
+  double px_per_time_unit(Pixel timeline_width) const;
+
   // Draws the timeline ruler. `viewport_bottom` is the y-coordinate of the
   // bottom of the viewport, used to draw vertical grid lines across the tracks.
   void DrawRuler(Pixel timeline_width, Pixel viewport_bottom);
-
-  double px_per_time_unit() const;
-  double px_per_time_unit(Pixel timeline_width) const;
 
   void DrawEventName(absl::string_view event_name, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list) const;
@@ -154,11 +158,19 @@ class Timeline {
                           double px_per_time_unit, int level_in_group,
                           const ImVec2& pos, const ImVec2& max);
 
+  void DrawGroup(int group_index, double px_per_time_unit_val);
+
+  // Draws the selected time range.
+  void DrawSelectedTimeRange(Pixel timeline_width, double px_per_time_unit_val);
+
   // Handles keyboard input for panning and zooming.
   void HandleKeyboard();
 
   // Handles mouse wheel input for scrolling.
   void HandleWheel();
+
+  // Handles deselection of events when clicking on an empty area.
+  void HandleEventDeselection();
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
@@ -192,6 +204,8 @@ class Timeline {
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
   bool event_clicked_this_frame_ = false;
+
+  std::vector<TimeRange> selected_time_ranges_;
 };
 
 }  // namespace traceviewer

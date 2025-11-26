@@ -62,6 +62,14 @@ inline constexpr Pixel kHoverCornerRounding = 8.0f;
 inline constexpr Pixel kSelectedBorderThickness = 2.0f;
 // go/keep-sorted end
 
+// Time Range Selection Constants
+// go/keep-sorted start
+// A semi-transparent blue for the curtain border. #A1C9FF at 60% opacity.
+inline constexpr ImU32 kSelectedTimeRangeBorderColor = 0x99FFC9A1;
+// A semi-transparent blue for the curtain highlight. #A1C9FF at 30% opacity.
+inline constexpr ImU32 kSelectedTimeRangeColor = 0x4DFFC9A1;
+// go/keep-sorted end
+
 // Zooming and Panning Constants
 // These constants control the zooming and panning behavior of the timeline.
 // go/keep-sorted start

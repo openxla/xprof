@@ -7,6 +7,8 @@
 #include <iterator>
 #include <numeric>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
@@ -19,7 +21,6 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/draw_utils.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -51,6 +52,13 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   }
 }
 
+void Timeline::SetTimelineData(FlameChartTimelineData data) {
+  // Calculate offsets first to avoid partial state in group_offsets_ member.
+  std::vector<float> new_offsets = CalculateGroupOffsets(data);
+  timeline_data_ = std::move(data);
+  group_offsets_ = std::move(new_offsets);
+}
+
 void Timeline::Draw() {
   event_clicked_this_frame_ = false;
 
@@ -60,14 +68,11 @@ void Timeline::Draw() {
   ImGui::SetNextWindowViewport(viewport->ID);
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
   ImGui::Begin("Timeline viewer", nullptr, kImGuiWindowFlags);
-
-  if (timeline_data_.groups.empty()) {
-    DrawLoadingIndicator(viewport);
-  }
 
   const Pixel timeline_width =
       ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
@@ -88,8 +93,47 @@ void Timeline::Draw() {
                           label_width_);
   ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);
 
-  for (int group_index = 0; group_index < timeline_data_.groups.size();
-       ++group_index) {
+  // If the group offsets are empty, we don't need to draw any tracks/events
+  // Return early to avoid unnecessary operations and crashes.
+  if (group_offsets_.empty()) {
+    ImGui::EndTable();
+    ImGui::EndChild();     // Tracks
+    ImGui::PopStyleVar();  // ItemSpacing
+    ImGui::PopStyleVar();  // CellPadding
+    ImGui::PopStyleVar();  // WindowPadding
+    ImGui::PopStyleVar();  // WindowRounding
+    ImGui::End();          // Timeline viewer
+    return;
+  }
+
+  // Manual culling for smooth scrolling with variable height groups.
+  // ImGuiListClipper can cause jumping with variable height items because it
+  // estimates the height of unseen items. By pre-calculating the exact height
+  // of each group, we can implement a custom culling loop that provides
+  // perfectly smooth scrolling.
+
+  // 1. Determine which groups are visible based on scroll position using binary
+  // search on the pre-calculated group offsets.
+  // Note: scroll_y is relative to the top of the "Tracks" child window. Since
+  // the ruler is drawn outside this child window, scroll_y starts at 0 for the
+  // first group and does not include the ruler height.
+  const float scroll_y = ImGui::GetScrollY();
+  const float visible_height = ImGui::GetContentRegionAvail().y;
+
+  auto [start_index, end_index] =
+      GetVisibleGroupRange(scroll_y, visible_height);
+
+  // 2. Add top padding for all invisible items above the viewport. This is
+  // simply the offset of the first visible group.
+  const float top_padding_height = group_offsets_[start_index];
+  if (top_padding_height > 0.0f) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Dummy(ImVec2(0.0f, top_padding_height));
+  }
+
+  // 3. Draw only the visible items.
+  for (int group_index = start_index; group_index <= end_index; ++group_index) {
     const Group& group = timeline_data_.groups[group_index];
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
@@ -105,6 +149,15 @@ void Timeline::Draw() {
     ImGui::TableNextColumn();
 
     DrawGroup(group_index, px_per_time_unit_val);
+  }
+
+  // 4. Add bottom padding for all invisible items below the viewport.
+  const float bottom_padding_height =
+      group_offsets_.back() - group_offsets_[end_index + 1];
+  if (bottom_padding_height > 0.0f) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::Dummy(ImVec2(0.0f, bottom_padding_height));
   }
 
   ImGui::EndTable();
@@ -127,9 +180,10 @@ void Timeline::Draw() {
   // window, without affecting global foreground elements like tooltips.
   DrawSelectedTimeRanges(timeline_width, px_per_time_unit_val);
 
-  ImGui::EndChild();
+  ImGui::EndChild();     // Tracks
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
+  ImGui::PopStyleVar();  // WindowPadding
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
 }
@@ -343,6 +397,56 @@ double Timeline::px_per_time_unit(Pixel timeline_width) const {
   } else {
     return 0.0;
   }
+}
+
+std::vector<float> Timeline::CalculateGroupOffsets(
+    const FlameChartTimelineData& data) const {
+  std::vector<float> offsets;
+  // There is one more element in offsets than in groups to store the total
+  // height.
+  offsets.reserve(data.groups.size() + 1);
+
+  float current_offset = 0.0f;
+  offsets.push_back(current_offset);
+
+  for (int i = 0; i < data.groups.size(); ++i) {
+    const Group& group = data.groups[i];
+    const int start_level = group.start_level;
+    int end_level = (i + 1 < data.groups.size())
+                        ? data.groups[i + 1].start_level
+                        : data.events_by_level.size();
+
+    // Calculate group height. Ensure a minimum height of one level to prevent
+    // ImGui::BeginChild from auto-resizing, even if a group contains no levels.
+    // This is important for parent groups (e.g., a process) that might not
+    // contain any event levels directly.
+    // TODO: b/453676716 - Add tests for group height calculation.
+    const Pixel group_height = group.type == Group::Type::kCounter
+                                   ? kCounterTrackHeight
+                                   : std::max(1, end_level - start_level) *
+                                         (kEventHeight + kEventPaddingBottom);
+    current_offset += group_height;
+    offsets.push_back(current_offset);
+  }
+  return offsets;
+}
+
+std::pair<int, int> Timeline::GetVisibleGroupRange(float scroll_y,
+                                                   float visible_height) const {
+  if (group_offsets_.empty()) return {0, -1};
+
+  auto it_start =
+      std::upper_bound(group_offsets_.begin(), group_offsets_.end(), scroll_y);
+  int start_index = std::distance(group_offsets_.begin(), it_start) - 1;
+  start_index = std::max(0, start_index);
+
+  auto it_end = std::lower_bound(group_offsets_.begin(), group_offsets_.end(),
+                                 scroll_y + visible_height);
+  int end_index = std::distance(group_offsets_.begin(), it_end) - 1;
+  end_index =
+      std::min(end_index, static_cast<int>(timeline_data_.groups.size() - 1));
+
+  return {start_index, end_index};
 }
 
 // Draws the timeline ruler. This includes the main horizontal line,
@@ -690,18 +794,8 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                       // If this is the last group, the end level is the total
                       // number of levels.
                       : timeline_data_.events_by_level.size();
-  // Ensure end_level is not less than start_level, to avoid negative height.
-  end_level = std::max(start_level, end_level);
-
-  // Calculate group height. Ensure a minimum height of one level to prevent
-  // ImGui::BeginChild from auto-resizing, even if a group contains no levels.
-  // This is important for parent groups (e.g., a process) that might not
-  // contain any event levels directly.
-  // TODO: b/453676716 - Add tests for group height calculation.
-  const Pixel group_height = group.type == Group::Type::kCounter
-                                 ? kCounterTrackHeight
-                                 : std::max(1, end_level - start_level) *
-                                       (kEventHeight + kEventPaddingBottom);
+  const Pixel group_height =
+      group_offsets_[group_index + 1] - group_offsets_[group_index];
   // Groups might have the same name. We add the index of the group to the ID
   // to ensure each ImGui::BeginChild call has a unique ID, otherwise ImGui
   // might ignore later calls with the same name.

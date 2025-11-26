@@ -1086,6 +1086,104 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
+  FlameChartTimelineData data;
+  data.groups.push_back({"Group 1", 0, 0});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // Mouse is over the event
+  ImGui::GetIO().MousePos = ImVec2(500.f, 40.f);
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+  ImGui::GetIO().MouseDown[0] = true;
+
+  // First shift-click, should add a curtain range.
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+
+  // Frame with mouse up
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  // Second shift-click on the same event, should remove the curtain.
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // Reset the mouse and shift key to avoid affecting other tests.
+  ImGui::GetIO().MouseDown[0] = false;
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ShiftClickMultipleEventsSelectsMultipleRanges) {
+  FlameChartTimelineData data;
+  data.groups.push_back({"Group 1", 0, 0});
+  data.events_by_level.push_back({0, 1});  // event 0 and 1 on level 0
+  data.entry_names.push_back("event1");
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(50.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_total_times.push_back(10.0);
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+
+  // First shift-click on event 1.
+  ImGui::GetIO().MousePos = ImVec2(500.f, 40.f);  // Position over event 1.
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+
+  // Frame with mouse up.
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  // Second shift-click on event 2.
+  ImGui::GetIO().MousePos = ImVec2(1100.f, 40.f);  // Position over event 2.
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[1].start(), 50.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[1].end(), 60.0);
+
+  // Frame with mouse up.
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  // Third shift-click on event 1 again to deselect.
+  ImGui::GetIO().MousePos = ImVec2(500.f, 40.f);  // Position over event 1.
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 60.0);
+
+  // Reset the mouse and shift key to avoid affecting other tests.
+  ImGui::GetIO().MouseDown[0] = false;
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+}
+
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
   timeline_.set_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});
@@ -1127,6 +1225,114 @@ TEST_F(RealTimelineImGuiFixture, ZoomInBeyondMinDurationShouldBeConstrained) {
 
   EXPECT_NEAR(timeline_.visible_range().duration(), kMinDurationMicros, 1e-9);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().center(), 50.0);
+}
+
+
+
+class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
+ protected:
+  void SetUp() override {
+    RealTimelineImGuiFixture::SetUp();
+    // Set a visible range that results in a round number for px_per_time_unit
+    // to make test calculations predictable. With a timeline width of 1653px
+    // (based on 1920px window width and paddings), a duration of 165.3 gives
+    // 10px per microsecond.
+    timeline_.SetVisibleRange({0.0, 165.3});
+    timeline_.set_data_time_range({0.0, 165.3});
+
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+  }
+
+  void TearDown() override {
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+    RealTimelineImGuiFixture::TearDown();
+  }
+};
+
+TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag in timeline area.
+  // The label column is 250px wide, so timeline starts after that.
+  io.MousePos = ImVec2(308.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Dragging
+  io.MousePos = ImVec2(508.0f, 50.0f);
+  SimulateFrame();
+
+  // End drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  const TimeRange& range = timeline_.selected_time_ranges()[0];
+  EXPECT_DOUBLE_EQ(range.start(), 5.0);
+  EXPECT_DOUBLE_EQ(range.end(), 25.0);
+}
+
+TEST_F(TimelineDragSelectionTest, ShiftDragCreatesMultipleTimeSelections) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  // First drag
+  io.MousePos = ImVec2(308.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.MousePos = ImVec2(408.0f, 50.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 15.0);
+
+  // Second drag
+  io.MousePos = ImVec2(508.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.MousePos = ImVec2(608.0f, 50.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 15.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 25.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 35.0);
+}
+
+TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag in timeline area.
+  io.MousePos = ImVec2(308.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Dragging
+  io.MousePos = ImVec2(508.0f, 50.0f);
+  SimulateFrame();
+
+  // During drag, current_selected_time_range_ should be set, but
+  // selected_time_ranges_ should be empty.
+  ASSERT_TRUE(timeline_.current_selected_time_range().has_value());
+  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->end(), 25.0);
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // End drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // After drag, current_selected_time_range_ should be reset, and
+  // selected_time_ranges_ should contain the new range.
+  EXPECT_FALSE(timeline_.current_selected_time_range().has_value());
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 25.0);
 }
 
 }  // namespace

@@ -56,14 +56,16 @@ void Timeline::Draw() {
   ImGui::SetNextWindowPos(viewport->Pos);
   ImGui::SetNextWindowSize(viewport->Size);
   ImGui::SetNextWindowViewport(viewport->ID);
+
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+  ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+
   ImGui::Begin("Timeline viewer", nullptr, kImGuiWindowFlags);
 
   if (timeline_data_.groups.empty()) {
     DrawLoadingIndicator(viewport);
   }
-
-  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
   const Pixel timeline_width =
       ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
@@ -97,71 +99,15 @@ void Timeline::Draw() {
     ImGui::Unindent((group.nesting_level + 1) * kIndentSize);
 
     ImGui::TableNextColumn();
-    const int start_level = group.start_level;
-    int end_level = (group_index + 1 < timeline_data_.groups.size())
-                        ? timeline_data_.groups[group_index + 1].start_level
-                        // If this is the last group, the end level is the total
-                        // number of levels.
-                        : timeline_data_.events_by_level.size();
-    // Ensure end_level is not less than start_level, to avoid negative height.
-    end_level = std::max(start_level, end_level);
 
-    // Calculate group height. Ensure a minimum height of one level to prevent
-    // ImGui::BeginChild from auto-resizing, even if a group contains no levels.
-    // This is important for parent groups (e.g., a process) that might not
-    // contain any event levels directly.
-    // TODO: b/453676716 - Add tests for group height calculation.
-    const Pixel group_height = std::max(1, end_level - start_level) *
-                               (kEventHeight + kEventPaddingBottom);
-    // Groups might have the same name. We add the index of the group to the ID
-    // to ensure each ImGui::BeginChild call has a unique ID, otherwise ImGui
-    // might ignore later calls with the same name.
-    const std::string timeline_child_id =
-        absl::StrCat("TimelineChild_", group.name, "_", group_index);
-
-    if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
-                          ImGuiChildFlags_None, kLaneFlags)) {
-      const ImVec2 pos = ImGui::GetCursorScreenPos();
-      const ImVec2 max = ImGui::GetContentRegionMax();
-
-      for (int level = start_level; level < end_level; ++level) {
-        // This is a sanity check to ensure the level is within the bounds of
-        // events_by_level.
-        if (level < timeline_data_.events_by_level.size()) {
-          // TODO: b/453676716 - Add boundary test cases for this function.
-          DrawEventsForLevel(timeline_data_.events_by_level[level],
-                             px_per_time_unit_val,
-                             /*level_in_group=*/level - start_level, pos, max);
-        }
-      }
-    }
-    ImGui::EndChild();
-
-    if (group_index < timeline_data_.groups.size() - 1) {
-      ImDrawList* draw_list = ImGui::GetWindowDrawList();
-      float line_y =
-          ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
-      draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_ + 15, line_y),
-                         ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
-                         kLightGrayColor);
-    }
+    DrawGroup(group_index, px_per_time_unit_val);
   }
 
   ImGui::EndTable();
 
-  // If an event was selected, and the user clicks on an empty area
-  // (i.e., not on any event), deselect the event.
-  if (selected_event_index_ != -1 && ImGui::IsMouseClicked(0) &&
-      ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
-      !event_clicked_this_frame_) {
-    selected_event_index_ = -1;
+  DrawSelectedTimeRanges(timeline_width, px_per_time_unit_val);
 
-    EventData event_data;
-    event_data[std::string(kEventSelectedIndex)] = -1;
-    event_data[std::string(kEventSelectedName)] = std::string("");
-
-    event_callback_(kEventSelected, event_data);
-  }
+  HandleEventDeselection();
 
   // Handle continuous keyboard and mouse wheel input for timeline navigation.
   // These functions are called every frame to ensure smooth and responsive
@@ -170,11 +116,13 @@ void Timeline::Draw() {
   // performs lightweight checks and calculations.
   HandleKeyboard();
   HandleWheel();
+  HandleMouse();
 
   ImGui::EndChild();
   ImGui::PopStyleVar();  // ItemSpacing
+  ImGui::PopStyleVar();  // CellPadding
   ImGui::PopStyleVar();  // WindowRounding
-  ImGui::End();
+  ImGui::End();          // Timeline viewer
 }
 
 EventRect Timeline::CalculateEventRect(Microseconds start, Microseconds end,
@@ -388,145 +336,6 @@ double Timeline::px_per_time_unit(Pixel timeline_width) const {
   }
 }
 
-void Timeline::DrawEventName(absl::string_view event_name,
-                             const EventRect& event_rect,
-                             ImDrawList* absl_nonnull draw_list) const {
-  const float available_width = event_rect.right - event_rect.left;
-
-  if (available_width >= kMinTextWidth) {
-    const std::string text_display =
-        GetTextForDisplay(event_name, available_width);
-
-    if (!text_display.empty()) {
-      const ImVec2 text_pos = CalculateEventTextRect(text_display, event_rect);
-
-      // Push a clipping rectangle to ensure the text is only drawn within the
-      // bounds of the event_rect. This prevents text from overflowing visually.
-      draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
-                              ImVec2(event_rect.right, event_rect.bottom));
-      draw_list->AddText(text_pos, kDefaultTextColor, text_display.c_str());
-      draw_list->PopClipRect();
-    }
-  }
-}
-
-void Timeline::DrawEvent(int event_index, const EventRect& rect,
-                         ImDrawList* absl_nonnull draw_list) {
-  // Only draw the rectangle if it has a positive width after clipping.
-  // TODO: b/453676716 - Add ImGUI test for this function, including condition
-  // rect.right > rect.left.
-  if (rect.right > rect.left) {
-    const std::string& event_name = timeline_data_.entry_names[event_index];
-
-    const bool is_hovered = ImGui::IsMouseHoveringRect(
-        ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
-
-    const float corner_rounding =
-        is_hovered ? kHoverCornerRounding : kCornerRounding;
-
-    const ImU32 event_color = GetColorForId(event_name);
-    draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
-                             ImVec2(rect.right, rect.bottom), event_color,
-                             corner_rounding, kImDrawFlags);
-    if (is_hovered) {
-      // Draw a semi-transparent overlay when the event is hovered.
-      draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
-                               ImVec2(rect.right, rect.bottom), kHoverMaskColor,
-                               corner_rounding, kImDrawFlags);
-
-      ImGui::SetTooltip(
-          "%s (%s)", event_name.c_str(),
-          FormatTime(timeline_data_.entry_total_times[event_index]).c_str());
-
-      // ImGui uses 0 to represent the left mouse button, as defined in the
-      // ImGuiMouseButton enum. We check if the left mouse button was clicked.
-      if (ImGui::IsMouseClicked(0)) {
-        event_clicked_this_frame_ = true;
-        if (selected_event_index_ != event_index) {
-          selected_event_index_ = event_index;
-
-          EventData event_data;
-          event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
-          event_data.try_emplace(kEventSelectedName, event_name);
-
-          event_callback_(kEventSelected, event_data);
-        }
-      }
-    }
-
-    if (selected_event_index_ == event_index) {
-      // Draw a border around the selected event.
-      draw_list->AddRect(ImVec2(rect.left, rect.top),
-                         ImVec2(rect.right, rect.bottom), kSelectedBorderColor,
-                         corner_rounding, kImDrawFlags,
-                         kSelectedBorderThickness);
-    }
-
-    DrawEventName(event_name, rect, draw_list);
-  }
-}
-
-void Timeline::DrawEventsForLevel(absl::Span<const int> event_indices,
-                                  double px_per_time_unit, int level_in_group,
-                                  const ImVec2& pos, const ImVec2& max) {
-  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
-  if (!draw_list) {
-    return;
-  }
-
-  for (int event_index : event_indices) {
-    if (event_index < 0 ||
-        event_index >= timeline_data_.entry_start_times.size() ||
-        event_index >= timeline_data_.entry_total_times.size()) {
-      // Should not happen if data is well-formed, but good to be safe.
-      continue;
-    }
-    const Microseconds start = timeline_data_.entry_start_times[event_index];
-    const Microseconds end =
-        start + timeline_data_.entry_total_times[event_index];
-
-    const EventRect rect = CalculateEventRect(
-        start, end, pos.x, pos.y, px_per_time_unit, level_in_group, max.x);
-
-    DrawEvent(event_index, rect, draw_list);
-  }
-}
-
-void Timeline::HandleKeyboard() {
-  const ImGuiIO& io = ImGui::GetIO();
-
-  // Pan left
-  if (ImGui::IsKeyDown(ImGuiKey_A)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_A);
-    Pan(-kPanningSpeed * io.DeltaTime * multiplier);
-  }
-  // Pan right
-  if (ImGui::IsKeyDown(ImGuiKey_D)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_D);
-    Pan(kPanningSpeed * io.DeltaTime * multiplier);
-  }
-
-  // Scroll up
-  if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-    Scroll(-kScrollSpeed * io.DeltaTime);
-  }
-  // Scroll down
-  if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-    Scroll(kScrollSpeed * io.DeltaTime);
-  }
-
-  // Zoom in
-  if (ImGui::IsKeyDown(ImGuiKey_W)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_W);
-    Zoom(1.0f - kZoomSpeed * io.DeltaTime * multiplier);
-  }
-  // Zoom out
-  if (ImGui::IsKeyDown(ImGuiKey_S)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_S);
-    Zoom(1.0f + kZoomSpeed * io.DeltaTime * multiplier);
-  }
-}
-
 // Draws the timeline ruler. This includes the main horizontal line,
 // vertical tick marks indicating time intervals, and their corresponding time
 // labels.
@@ -610,6 +419,320 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
   }
 }
 
+void Timeline::DrawEventName(absl::string_view event_name,
+                             const EventRect& event_rect,
+                             ImDrawList* absl_nonnull draw_list) const {
+  const float available_width = event_rect.right - event_rect.left;
+
+  if (available_width >= kMinTextWidth) {
+    const std::string text_display =
+        GetTextForDisplay(event_name, available_width);
+
+    if (!text_display.empty()) {
+      const ImVec2 text_pos = CalculateEventTextRect(text_display, event_rect);
+
+      // Push a clipping rectangle to ensure the text is only drawn within the
+      // bounds of the event_rect. This prevents text from overflowing visually.
+      draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
+                              ImVec2(event_rect.right, event_rect.bottom));
+      draw_list->AddText(text_pos, kDefaultTextColor, text_display.c_str());
+      draw_list->PopClipRect();
+    }
+  }
+}
+
+void Timeline::DrawEvent(int event_index, const EventRect& rect,
+                         ImDrawList* absl_nonnull draw_list) {
+  // Only draw the rectangle if it has a positive width after clipping.
+  // TODO: b/453676716 - Add ImGUI test for this function, including condition
+  // rect.right > rect.left.
+  if (rect.right > rect.left) {
+    const std::string& event_name = timeline_data_.entry_names[event_index];
+
+    const bool is_hovered = ImGui::IsMouseHoveringRect(
+        ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+
+    const float corner_rounding =
+        is_hovered ? kHoverCornerRounding : kCornerRounding;
+
+    const ImU32 event_color = GetColorForId(event_name);
+    draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
+                             ImVec2(rect.right, rect.bottom), event_color,
+                             corner_rounding, kImDrawFlags);
+    if (is_hovered) {
+      // Draw a semi-transparent overlay when the event is hovered.
+      draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
+                               ImVec2(rect.right, rect.bottom), kHoverMaskColor,
+                               corner_rounding, kImDrawFlags);
+
+      ImGui::SetTooltip(
+          "%s (%s)", event_name.c_str(),
+          FormatTime(timeline_data_.entry_total_times[event_index]).c_str());
+
+      // ImGui uses 0 to represent the left mouse button, as defined in the
+      // ImGuiMouseButton enum. We check if the left mouse button was clicked.
+      if (ImGui::IsMouseClicked(0)) {
+        event_clicked_this_frame_ = true;
+
+        if (ImGui::GetIO().KeyShift) {
+          const Microseconds start =
+              timeline_data_.entry_start_times[event_index];
+          const Microseconds end =
+              start + timeline_data_.entry_total_times[event_index];
+          TimeRange selected_time_range(start, end);
+          auto it = std::find(selected_time_ranges_.begin(),
+                              selected_time_ranges_.end(), selected_time_range);
+          if (it != selected_time_ranges_.end()) {
+            selected_time_ranges_.erase(it);
+          } else {
+            selected_time_ranges_.push_back(selected_time_range);
+          }
+        }
+
+        if (selected_event_index_ != event_index) {
+          selected_event_index_ = event_index;
+
+          EventData event_data;
+          event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
+          event_data.try_emplace(kEventSelectedName, event_name);
+
+          event_callback_(kEventSelected, event_data);
+        }
+      }
+    }
+
+    if (selected_event_index_ == event_index) {
+      // Draw a border around the selected event.
+      draw_list->AddRect(ImVec2(rect.left, rect.top),
+                         ImVec2(rect.right, rect.bottom), kSelectedBorderColor,
+                         corner_rounding, kImDrawFlags,
+                         kSelectedBorderThickness);
+    }
+
+    DrawEventName(event_name, rect, draw_list);
+  }
+}
+
+void Timeline::DrawEventsForLevel(absl::Span<const int> event_indices,
+                                  double px_per_time_unit, int level_in_group,
+                                  const ImVec2& pos, const ImVec2& max) {
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+  if (!draw_list) {
+    return;
+  }
+
+  for (int event_index : event_indices) {
+    if (event_index < 0 ||
+        event_index >= timeline_data_.entry_start_times.size() ||
+        event_index >= timeline_data_.entry_total_times.size()) {
+      // Should not happen if data is well-formed, but good to be safe.
+      continue;
+    }
+    const Microseconds start = timeline_data_.entry_start_times[event_index];
+    const Microseconds end =
+        start + timeline_data_.entry_total_times[event_index];
+
+    const EventRect rect = CalculateEventRect(
+        start, end, pos.x, pos.y, px_per_time_unit, level_in_group, max.x);
+
+    DrawEvent(event_index, rect, draw_list);
+  }
+}
+
+void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
+  const Group& group = timeline_data_.groups[group_index];
+  const int start_level = group.start_level;
+  int end_level = (group_index + 1 < timeline_data_.groups.size())
+                      ? timeline_data_.groups[group_index + 1].start_level
+                      // If this is the last group, the end level is the total
+                      // number of levels.
+                      : timeline_data_.events_by_level.size();
+  // Ensure end_level is not less than start_level, to avoid negative height.
+  end_level = std::max(start_level, end_level);
+
+  // Calculate group height. Ensure a minimum height of one level to prevent
+  // ImGui::BeginChild from auto-resizing, even if a group contains no levels.
+  // This is important for parent groups (e.g., a process) that might not
+  // contain any event levels directly.
+  // TODO: b/453676716 - Add tests for group height calculation.
+  const Pixel group_height = std::max(1, end_level - start_level) *
+                             (kEventHeight + kEventPaddingBottom);
+  // Groups might have the same name. We add the index of the group to the ID
+  // to ensure each ImGui::BeginChild call has a unique ID, otherwise ImGui
+  // might ignore later calls with the same name.
+  const std::string timeline_child_id =
+      absl::StrCat("TimelineChild_", group.name, "_", group_index);
+
+  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
+                        ImGuiChildFlags_None, kLaneFlags)) {
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const ImVec2 max = ImGui::GetContentRegionMax();
+
+    for (int level = start_level; level < end_level; ++level) {
+      // This is a sanity check to ensure the level is within the bounds of
+      // events_by_level.
+      if (level < timeline_data_.events_by_level.size()) {
+        // TODO: b/453676716 - Add boundary test cases for this function.
+        DrawEventsForLevel(timeline_data_.events_by_level[level],
+                           px_per_time_unit_val,
+                           /*level_in_group=*/level - start_level, pos, max);
+      }
+    }
+  }
+  ImGui::EndChild();
+
+  if (group_index < timeline_data_.groups.size() - 1) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    float line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
+    draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_ + 15, line_y),
+                       ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
+                       kLightGrayColor);
+  }
+}
+
+void Timeline::DrawSelectedTimeRange(const TimeRange& range,
+                                     Pixel timeline_width,
+                                     double px_per_time_unit_val) {
+  const ImVec2 table_rect_min = ImGui::GetItemRectMin();
+  const ImVec2 table_rect_max = ImGui::GetItemRectMax();
+  const Pixel timeline_x_start = table_rect_min.x + label_width_;
+
+  const Pixel time_range_x1 =
+      TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
+  const Pixel time_range_x2 =
+      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val);
+  const Pixel clipped_x1 = std::max(time_range_x1, timeline_x_start);
+  const Pixel clipped_x2 =
+      std::min(time_range_x2, timeline_x_start + timeline_width);
+
+  if (clipped_x2 > clipped_x1) {
+    // Use the foreground draw list to render over all other timeline content.
+    ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
+    draw_list->AddRectFilled(ImVec2(clipped_x1, table_rect_min.y),
+                             ImVec2(clipped_x2, table_rect_max.y),
+                             kSelectedTimeRangeColor);
+    draw_list->AddLine(ImVec2(clipped_x1, table_rect_min.y),
+                       ImVec2(clipped_x1, table_rect_max.y),
+                       kSelectedTimeRangeBorderColor);
+    draw_list->AddLine(ImVec2(clipped_x2, table_rect_min.y),
+                       ImVec2(clipped_x2, table_rect_max.y),
+                       kSelectedTimeRangeBorderColor);
+
+    const std::string text = FormatTime(range.duration());
+    const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+    if (clipped_x2 - clipped_x1 > text_size.x) {
+      const float text_x =
+          clipped_x1 + (clipped_x2 - clipped_x1 - text_size.x) / 2;
+      const ImVec2 window_pos = ImGui::GetWindowPos();
+      const ImVec2 window_size = ImGui::GetWindowSize();
+      const float text_y =
+          window_pos.y + window_size.y - text_size.y - kRulerTextPadding;
+      draw_list->AddText(ImVec2(text_x, text_y), kRulerTextColor, text.c_str());
+    }
+  }
+}
+
+void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
+                                      double px_per_time_unit_val) {
+  for (const TimeRange& selected_time_range : selected_time_ranges_) {
+    DrawSelectedTimeRange(selected_time_range, timeline_width,
+                          px_per_time_unit_val);
+  }
+
+  if (current_selected_time_range_) {
+    DrawSelectedTimeRange(*current_selected_time_range_, timeline_width,
+                          px_per_time_unit_val);
+  }
+}
+
+void Timeline::HandleKeyboard() {
+  const ImGuiIO& io = ImGui::GetIO();
+
+  // Pan left
+  if (ImGui::IsKeyDown(ImGuiKey_A)) {
+    float multiplier = GetSpeedMultiplier(io, ImGuiKey_A);
+    Pan(-kPanningSpeed * io.DeltaTime * multiplier);
+  }
+  // Pan right
+  if (ImGui::IsKeyDown(ImGuiKey_D)) {
+    float multiplier = GetSpeedMultiplier(io, ImGuiKey_D);
+    Pan(kPanningSpeed * io.DeltaTime * multiplier);
+  }
+
+  // Scroll up
+  if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
+    Scroll(-kScrollSpeed * io.DeltaTime);
+  }
+  // Scroll down
+  if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
+    Scroll(kScrollSpeed * io.DeltaTime);
+  }
+
+  // Zoom in
+  if (ImGui::IsKeyDown(ImGuiKey_W)) {
+    float multiplier = GetSpeedMultiplier(io, ImGuiKey_W);
+    Zoom(1.0f - kZoomSpeed * io.DeltaTime * multiplier);
+  }
+  // Zoom out
+  if (ImGui::IsKeyDown(ImGuiKey_S)) {
+    float multiplier = GetSpeedMultiplier(io, ImGuiKey_S);
+    Zoom(1.0f + kZoomSpeed * io.DeltaTime * multiplier);
+  }
+}
+
+void Timeline::HandleMouse() {
+  // Determine the bounding box for the timeline area.
+  const ImVec2 main_window_pos = ImGui::GetWindowPos();
+  const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
+  const ImVec2 timeline_area_pos(
+      main_window_pos.x + content_min.x + label_width_,
+      main_window_pos.y + content_min.y);
+  const Pixel timeline_width =
+      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
+  const ImRect timeline_area(
+      timeline_area_pos, ImVec2(timeline_area_pos.x + timeline_width,
+                                main_window_pos.y + ImGui::GetWindowHeight()));
+
+  ImGuiIO& io = ImGui::GetIO();
+  const bool is_mouse_over_timeline =
+      ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
+
+  if (!is_mouse_over_timeline && !is_dragging_) {
+    return;
+  }
+
+  if (is_mouse_over_timeline && ImGui::IsMouseClicked(0) && io.KeyShift &&
+      !event_clicked_this_frame_) {
+    is_dragging_ = true;
+    const double px_per_time = px_per_time_unit();
+    drag_start_time_ =
+        PixelToTime(io.MousePos.x - timeline_area.Min.x, px_per_time);
+    current_selected_time_range_ =
+        TimeRange(drag_start_time_, drag_start_time_);
+  }
+
+  if (is_dragging_) {
+    if (ImGui::IsMouseDown(0)) {
+      const double px_per_time = px_per_time_unit();
+      Microseconds current_time =
+          PixelToTime(io.MousePos.x - timeline_area.Min.x, px_per_time);
+      current_selected_time_range_ =
+          TimeRange(std::min(drag_start_time_, current_time),
+                    std::max(drag_start_time_, current_time));
+    }
+
+    if (ImGui::IsMouseReleased(0)) {
+      is_dragging_ = false;
+      if (current_selected_time_range_ &&
+          current_selected_time_range_->duration() > 0) {
+        selected_time_ranges_.push_back(*current_selected_time_range_);
+      }
+      current_selected_time_range_.reset();
+    }
+  }
+}
+
 void Timeline::HandleWheel() {
   const ImGuiIO& io = ImGui::GetIO();
 
@@ -633,6 +756,22 @@ void Timeline::HandleWheel() {
   } else {
     // Otherwise, scroll the timeline vertically.
     Scroll(io.MouseWheel);
+  }
+}
+
+void Timeline::HandleEventDeselection() {
+  // If an event was selected, and the user clicks on an empty area
+  // (i.e., not on any event), deselect the event.
+  if (selected_event_index_ != -1 && ImGui::IsMouseClicked(0) &&
+      ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+      !event_clicked_this_frame_) {
+    selected_event_index_ = -1;
+
+    EventData event_data;
+    event_data[std::string(kEventSelectedIndex)] = -1;
+    event_data[std::string(kEventSelectedName)] = std::string("");
+
+    event_callback_(kEventSelected, event_data);
   }
 }
 

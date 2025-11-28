@@ -66,6 +66,8 @@ message OverviewPageAnalysis {
   double device_op_time_outside_compilation_percent = 16;
   // Percentage of the device time that is in use.
   double device_duty_cycle_percent = 17;
+  // HBM utilization in percentage calculated based on the performance counters.
+  double hbm_utilization_percent = 31;
   // BEGIN-INTERNAL
   // Program Goodput metric in percentage.
   double program_goodput_percent = 18;

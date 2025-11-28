@@ -230,6 +230,10 @@ void CombineOpStats(
       ->set_matrix_unit_utilization_percent(
           dst->performance_counter_result().matrix_unit_utilization_percent() +
           src.performance_counter_result().matrix_unit_utilization_percent());
+
+  dst->mutable_performance_counter_result()->set_hbm_utilization_percent(
+      dst->performance_counter_result().hbm_utilization_percent() +
+      src.performance_counter_result().hbm_utilization_percent());
 }
 
 }  // namespace
@@ -330,6 +334,12 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
       ->set_matrix_unit_utilization_percent(
           combined_op_stats->performance_counter_result()
               .matrix_unit_utilization_percent() /
+          all_op_stats_info.size());
+
+  combined_op_stats->mutable_performance_counter_result()
+      ->set_hbm_utilization_percent(
+          combined_op_stats->performance_counter_result()
+              .hbm_utilization_percent() /
           all_op_stats_info.size());
 }
 

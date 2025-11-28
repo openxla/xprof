@@ -70,7 +70,6 @@ namespace {
 using absl::StrFormat;
 using tensorflow::profiler::TableColumn;
 using tensorflow::profiler::TableRow;
-using tsl::uint64;
 using tsl::profiler::OneDigit;
 using tsl::profiler::ThreeDigits;
 using tsl::profiler::TwoDigits;
@@ -372,7 +371,7 @@ InputOpCategory CategorizeInputOp(absl::string_view name,
 
 struct InputOpMetrics {
   std::vector<const OpMetrics*> input_op_metrics;
-  uint64 input_op_time_ps = 0;
+  uint64_t input_op_time_ps = 0;
 };
 
 InputOpMetrics SelectInputOpMetrics(const OpMetricsDb& all_op_metrics) {
@@ -387,7 +386,7 @@ InputOpMetrics SelectInputOpMetrics(const OpMetricsDb& all_op_metrics) {
 }
 
 InputOpDetails ConvertOpMetricsToInputOpDetails(const OpMetrics& op_metrics,
-                                                uint64 input_op_time_ps,
+                                                uint64_t input_op_time_ps,
                                                 InputOpCategory category) {
   InputOpDetails details;
   details.set_op_name(op_metrics.name());

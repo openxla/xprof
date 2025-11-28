@@ -37,11 +37,9 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 using tsl::string;
-using tsl::uint32;
-using tsl::uint64;
 
 // Local core id should start from 1.
-const uint32 kDefaultGpuLocalCoreId = 1;
+const uint32_t kDefaultGpuLocalCoreId = 1;
 
 namespace {
 
@@ -96,10 +94,10 @@ StepInfoResult ConvertStepDetailsToStepInfo(bool has_device, int64_t step_num,
   GenericStepBreakdown generic;
   tsl::profiler::Timespan step_time = step_details.StepTime();
   auto& type_ps = *(generic.mutable_type_ps());
-  uint64 total_event_duration = 0;
+  uint64_t total_event_duration = 0;
   for (const auto& event : step_details.Events()) {
     // Ignore event duration outside the step marker.
-    uint64 event_duration = step_time.OverlappedDurationPs(event.span);
+    uint64_t event_duration = step_time.OverlappedDurationPs(event.span);
     type_ps[event.type] += event_duration;
     total_event_duration += event_duration;
   }
@@ -129,7 +127,7 @@ StepInfoResult ConvertStepDetailsToStepInfo(bool has_device, int64_t step_num,
 
 string DebugGenericStepBreakdown(const GenericStepBreakdown& generic) {
   std::ostringstream out;
-  uint64 total_ps = 0;
+  uint64_t total_ps = 0;
   const auto& type_ps_map = generic.type_ps();
   for (const auto& type_ps : type_ps_map) {
     total_ps += type_ps.second;

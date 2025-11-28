@@ -17,6 +17,7 @@ limitations under the License.
 #define XPROF_UTILS_KERNEL_STATS_UTILS_H_
 
 #include <cstddef>
+#include <cstdint>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
@@ -26,7 +27,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 // Populates kernel launch information from a kKernelDetails XStat.
 void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
@@ -57,10 +57,10 @@ struct KernelReportEqualToComparator {
 void SortAndKeepTopKDurationKernelReportsInDb(KernelStatsDb* kernel_stats_db);
 
 struct KernelReportValue {
-  uint64 total_duration_ns = 0;
-  uint64 min_duration_ns = 0;
-  uint64 max_duration_ns = 0;
-  uint64 occurrences = 0;
+  uint64_t total_duration_ns = 0;
+  uint64_t min_duration_ns = 0;
+  uint64_t max_duration_ns = 0;
+  uint64_t occurrences = 0;
 };
 
 struct KernelKeyWrap {
@@ -117,11 +117,11 @@ struct OpLevelKernelStats {
   // Whether op is eligible to use TensorCore.
   bool is_op_tensor_core_eligible = false;
   // The accumulated duration of all the kernels launched in this op.
-  uint64 total_duration_ns = 0;
+  uint64_t total_duration_ns = 0;
   // The accumulated duration of all the kernels using TensorCore in this op.
   // If this value is not 0, at least one of the kernels launched by this op
   // is using TensorCore.
-  uint64 tensor_core_duration_ns = 0;
+  uint64_t tensor_core_duration_ns = 0;
 };
 
 using KernelStatsByOpName =

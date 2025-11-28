@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_combiner.h"
 
+#include <cstdint>
 #include <vector>
 
 #include "<gtest/gtest.h>"
@@ -30,7 +31,6 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 namespace {
-using tsl::uint32;
 
 // Tests that the run_environment field of the combined op stats is set
 // correctly.
@@ -50,7 +50,7 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironment) {
 
   // Construct dummy step_intersection.
   StepDatabaseResult dummy_step_db_result;
-  absl::flat_hash_map<uint32 /*host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
   result.insert({0, &dummy_step_db_result});
   StepIntersection dummy_step_intersection = StepIntersection(1, result);
 
@@ -74,7 +74,7 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentWithUnknownDevice) {
 
   // Construct dummy step_intersection.
   StepDatabaseResult dummy_step_db_result;
-  absl::flat_hash_map<uint32 /*host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
   result.insert({0, &dummy_step_db_result});
   StepIntersection dummy_step_intersection = StepIntersection(1, result);
 
@@ -89,7 +89,7 @@ TEST(CombineAllOpStatsTest, CombinePerfEnvOrderZero) {
   op_stats_1.mutable_perf_env()->set_peak_tera_flops_per_second(100);
   op_stats_2.mutable_perf_env()->set_peak_tera_flops_per_second(0);
   // Construct dummy step_intersection which is required by CombineAllOpStats().
-  absl::flat_hash_map<uint32 /*host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
   StepIntersection dummy_step_intersection = StepIntersection(1, result);
 
   OpStatsInfo op_stats_info_1(&op_stats_1, TPU, 0),
@@ -137,7 +137,7 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsSingleHost) {
 
   // Construct dummy step_intersection.
   StepDatabaseResult dummy_step_db_result;
-  absl::flat_hash_map<uint32 /*host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
   result.insert({0, &dummy_step_db_result});
   StepIntersection dummy_step_intersection = StepIntersection(1, result);
 
@@ -180,7 +180,7 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsMultipleHost) {
 
   // Construct dummy step_intersection.
   StepDatabaseResult dummy_step_db_result;
-  absl::flat_hash_map<uint32 /*host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
   result.insert({0, &dummy_step_db_result});
   StepIntersection dummy_step_intersection = StepIntersection(1, result);
 

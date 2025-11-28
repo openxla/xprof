@@ -29,8 +29,8 @@ enum { kDataTypeRefOffset = 100 };
 inline bool IsRefType(TensorflowDataType dtype) {
   return dtype > static_cast<TensorflowDataType>(kDataTypeRefOffset);
 }
-tsl::string DataTypeString(TensorflowDataType dtype);
-tsl::string DataTypeStringInternal(TensorflowDataType dtype);
+std::string DataTypeString(TensorflowDataType dtype);
+std::string DataTypeStringInternal(TensorflowDataType dtype);
 absl::Status ParseTextFormatFromString(std::string input,
                                        google::protobuf::Message* output);
 }  // namespace profiler

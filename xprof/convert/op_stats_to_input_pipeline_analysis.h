@@ -115,7 +115,7 @@ bool InputAnalysis(double input_percent, double all_other_percent,
 void OutputAnalysis(double output_percent, std::string* output_classification,
                     std::string* output_statement);
 
-tsl::string GetSummaryNextStep(absl::string_view input_classification,
+std::string GetSummaryNextStep(absl::string_view input_classification,
                                const InputTimeBreakdown& breakdown);
 
 // Returns the percentage of the input time that is spent on transferring the

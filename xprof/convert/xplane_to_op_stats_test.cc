@@ -65,15 +65,14 @@ using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XLineBuilder;
 using ::tsl::profiler::XPlaneBuilder;
 using ::tsl::profiler::XStatsBuilder;
-using ::tsl::uint64;
 
 TEST(ConvertXPlaneToOpStats, GpuPerfEnv) {
   auto space = std::make_unique<XSpace>();
   constexpr double kMaxError = 0.01;
   constexpr int kClockRateKHz = 1530000;
   constexpr int kCoreCount = 80;
-  constexpr uint64 kMemoryBandwidthBytesPerSecond =
-      uint64{900} * 1000 * 1000 * 1000;
+  constexpr uint64_t kMemoryBandwidthBytesPerSecond =
+      uint64_t{900} * 1000 * 1000 * 1000;
   // Volta.
   constexpr int kComputeCapMajor = 7;
   constexpr int kComputeCapMinor = 0;
@@ -370,8 +369,8 @@ TEST(ConvertXPlaneToOpStats, TpuPerfEnv) {
   constexpr double kMaxError = 0.01;
   constexpr int kClockRateKHz = 1530000;
   constexpr int kCoreCount = 80;
-  constexpr uint64 kMemoryBandwidthBytesPerSecond =
-      uint64{900} * 1000 * 1000 * 1000;
+  constexpr uint64_t kMemoryBandwidthBytesPerSecond =
+      uint64_t{900} * 1000 * 1000 * 1000;
   // Volta.
   constexpr int kComputeCapMajor = 7;
   constexpr int kComputeCapMinor = 0;

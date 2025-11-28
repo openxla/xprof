@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_pod_stats.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <initializer_list>
 #include <utility>
 #include <vector>
@@ -34,7 +35,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 namespace {
 
@@ -49,11 +49,11 @@ PodStatsRecord CreatePodStatsRecord(absl::string_view host_name,
   record.set_total_duration_us(
       tsl::profiler::PicoToMicro(step_info.duration_ps()));
   auto& step_breakdown_map = *record.mutable_step_breakdown_us();
-  std::vector<std::pair<uint64, absl::string_view>> metrics;
+  std::vector<std::pair<uint64_t, absl::string_view>> metrics;
 
   auto add_event = [&](GenericEventType type,
                        std::initializer_list<EventType> event_list) {
-    uint64 ps = 0;
+    uint64_t ps = 0;
     for (const auto& event_type : event_list) {
       ps +=
           tsl::gtl::FindWithDefault(generic.type_ps(), event_type, /*value=*/0);

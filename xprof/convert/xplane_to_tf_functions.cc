@@ -41,7 +41,6 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-using tsl::uint64;
 using tsl::profiler::StatType;
 
 namespace {
@@ -66,8 +65,8 @@ std::pair<TfFunctionExecutionMode, TfFunctionCompiler> Decode(
 
 double ComputeExpensiveCallPercent(const TfFunction& tf_function) {
   // Computes the expensiveness in terms of time (rather than count).
-  uint64 total_call_time_ps = 0;
-  uint64 expensive_call_time_ps = 0;
+  uint64_t total_call_time_ps = 0;
+  uint64_t expensive_call_time_ps = 0;
   for (const auto& mode_metrics : tf_function.metrics()) {
     const auto mode = mode_metrics.first;
     const auto& metrics = mode_metrics.second;
@@ -88,7 +87,7 @@ struct ActivationRecord {
   TfFunctionCompiler compiler;             // compiler used.
   int64_t tracing_count;  // the total tracing count of this function when this
                           // invocation happened.
-  uint64 children_duration_ps;  // Sum of the duration of all (immediate)
+  uint64_t children_duration_ps;  // Sum of the duration of all (immediate)
                                 // children tf-functions of this function.
   ActivationRecord()
       : function_name(""),
@@ -120,9 +119,9 @@ struct ActivationRecord {
 struct EntryOrExit {
   bool is_entry;        // true for entry, false for exit.
   int64_t index;        // index to the ActivationRecord.
-  uint64 timestamp_ps;  // the time when this entry/exit happens.
+  uint64_t timestamp_ps;  // the time when this entry/exit happens.
   EntryOrExit() : is_entry(false), index(-1), timestamp_ps(0) {}
-  EntryOrExit(bool is_entry, int64_t index, uint64 timestamp_ps)
+  EntryOrExit(bool is_entry, int64_t index, uint64_t timestamp_ps)
       : is_entry(is_entry), index(index), timestamp_ps(timestamp_ps) {}
   std::string DebugString() const {
     std::string entry_or_exit = is_entry ? "entry, " : "exit,  ";
@@ -235,7 +234,7 @@ class TfFunctionExecutions {
       fun->set_compiler(CombineCompilers(fun->compiler(), record.compiler));
       // The self-time of this function is the difference between the duration
       // of this function and the duration of its children.
-      uint64 self_time_ps =
+      uint64_t self_time_ps =
           record.timespan.duration_ps() - record.children_duration_ps;
       // Updates the metrics for this execution mode with this invocation.
       TfFunctionMetrics* metrics =
@@ -260,7 +259,7 @@ class TfFunctionExecutions {
       } else {
         // Function exit.
         DCHECK(call_stack.top() == pt.index);  // must be well nested.
-        uint64 call_duration = activations_[pt.index].timespan.duration_ps();
+        uint64_t call_duration = activations_[pt.index].timespan.duration_ps();
         call_stack.pop();
         if (!call_stack.empty()) {
           // call_stack.top() is the parent tf-function; adds call_duration to

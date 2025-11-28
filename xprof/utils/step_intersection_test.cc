@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/utils/step_intersection.h"
 
+#include <cstdint>
 #include <vector>
 
 #include "<gtest/gtest.h>"
@@ -25,20 +26,18 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-using tsl::uint32;
-using tsl::uint64;
 using PerHostStepDb =
-    absl::flat_hash_map<uint32 /*=host_id*/, StepDatabaseResult>;
+    absl::flat_hash_map<uint32_t /*=host_id*/, StepDatabaseResult>;
 
-constexpr uint64 kStepDurationPs = 2000000000;
-constexpr uint32 kNumStepsPerHost = 10;
-constexpr uint64 kStepGapPs = 0;
-constexpr uint32 kNumCoresPerHost = 8;
+constexpr uint64_t kStepDurationPs = 2000000000;
+constexpr uint32_t kNumStepsPerHost = 10;
+constexpr uint64_t kStepGapPs = 0;
+constexpr uint32_t kNumCoresPerHost = 8;
 
-PerCoreStepInfo CreateOneTestStep(uint32 host_id, uint32 num_steps,
-                                  uint32 step_idx, uint64 step_begin_ps) {
+PerCoreStepInfo CreateOneTestStep(uint32_t host_id, uint32_t num_steps,
+                                  uint32_t step_idx, uint64_t step_begin_ps) {
   PerCoreStepInfo result;
-  uint32 step_num =
+  uint32_t step_num =
       step_idx * host_id;  // creates the situation where each host has a
                            // different step number for the same step.
   result.set_step_num(step_num);
@@ -53,20 +52,20 @@ PerCoreStepInfo CreateOneTestStep(uint32 host_id, uint32 num_steps,
   }
   info.set_begin_ps(step_begin_ps);
   // Don't care about the rest of the fields in StepInfoResult.
-  for (uint32 core_id = 0; core_id < kNumCoresPerHost; core_id++) {
+  for (uint32_t core_id = 0; core_id < kNumCoresPerHost; core_id++) {
     (*result.mutable_step_info_per_core())[core_id] = info;
     // Don't care about the rest of the fields in PerCoreStepInfo.
   }
   return result;
 }
 
-PerHostStepDb CreateTestSteps(uint32 num_hosts, uint64 shift_ps) {
+PerHostStepDb CreateTestSteps(uint32_t num_hosts, uint64_t shift_ps) {
   PerHostStepDb result;
-  uint64 first_step_begin_ps = 0;
-  for (uint32 host_id = 0; host_id < num_hosts; host_id++) {
+  uint64_t first_step_begin_ps = 0;
+  for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
     StepDatabaseResult step_db;
-    uint64 step_begin_ps = first_step_begin_ps;
-    for (uint32 step_idx = 0; step_idx < kNumStepsPerHost; step_idx++) {
+    uint64_t step_begin_ps = first_step_begin_ps;
+    for (uint32_t step_idx = 0; step_idx < kNumStepsPerHost; step_idx++) {
       *step_db.add_step_sequence() =
           CreateOneTestStep(host_id, kNumStepsPerHost, step_idx, step_begin_ps);
       step_begin_ps += (kStepDurationPs + kStepGapPs);
@@ -80,15 +79,15 @@ PerHostStepDb CreateTestSteps(uint32 num_hosts, uint64 shift_ps) {
 PerHostStepDb CreateEmptyIntersectTestSteps() {
   PerHostStepDb result;
 
-  uint64 step_begin_ps;
-  uint32 host_id;
+  uint64_t step_begin_ps;
+  uint32_t host_id;
 
   // Host-0
   host_id = 0;
   step_begin_ps = 0;
-  uint64 host_0_num_steps = 10;
+  uint64_t host_0_num_steps = 10;
   StepDatabaseResult step_db_0;
-  for (uint32 step_idx = 0; step_idx < host_0_num_steps; step_idx++) {
+  for (uint32_t step_idx = 0; step_idx < host_0_num_steps; step_idx++) {
     *step_db_0.add_step_sequence() =
         CreateOneTestStep(host_id, host_0_num_steps, step_idx, step_begin_ps);
     step_begin_ps += (kStepDurationPs + kStepGapPs);
@@ -98,9 +97,9 @@ PerHostStepDb CreateEmptyIntersectTestSteps() {
   // Host-1
   host_id = 1;
   step_begin_ps = (host_0_num_steps - 2) * (kStepDurationPs + kStepGapPs);
-  uint64 host_1_num_steps = 5;
+  uint64_t host_1_num_steps = 5;
   StepDatabaseResult step_db_1;
-  for (uint32 step_idx = 0; step_idx < host_1_num_steps; step_idx++) {
+  for (uint32_t step_idx = 0; step_idx < host_1_num_steps; step_idx++) {
     *step_db_1.add_step_sequence() =
         CreateOneTestStep(host_id, host_1_num_steps, step_idx, step_begin_ps);
     step_begin_ps += (kStepDurationPs + kStepGapPs);
@@ -111,9 +110,9 @@ PerHostStepDb CreateEmptyIntersectTestSteps() {
   host_id = 2;
   step_begin_ps = (host_0_num_steps + host_1_num_steps - 4) *
                   (kStepDurationPs + kStepGapPs);
-  uint64 host_2_num_steps = 10;
+  uint64_t host_2_num_steps = 10;
   StepDatabaseResult step_db_2;
-  for (uint32 step_idx = 0; step_idx < host_2_num_steps; step_idx++) {
+  for (uint32_t step_idx = 0; step_idx < host_2_num_steps; step_idx++) {
     *step_db_2.add_step_sequence() =
         CreateOneTestStep(host_id, host_2_num_steps, step_idx, step_begin_ps);
     step_begin_ps += (kStepDurationPs + kStepGapPs);
@@ -123,18 +122,18 @@ PerHostStepDb CreateEmptyIntersectTestSteps() {
   return result;
 }
 
-PerHostStepDb CreateNoStep(uint32 num_hosts) {
+PerHostStepDb CreateNoStep(uint32_t num_hosts) {
   PerHostStepDb result;
-  for (uint32 host_id = 0; host_id < num_hosts; host_id++) {
+  for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
     StepDatabaseResult step_db;
     result[host_id] = step_db;
   }
   return result;
 }
 
-absl::flat_hash_map<uint32 /*=host_id*/, const StepDatabaseResult*> Convert(
+absl::flat_hash_map<uint32_t /*=host_id*/, const StepDatabaseResult*> Convert(
     const PerHostStepDb& perhost_stepdb) {
-  absl::flat_hash_map<uint32 /*=host_id*/, const StepDatabaseResult*> result;
+  absl::flat_hash_map<uint32_t /*=host_id*/, const StepDatabaseResult*> result;
   for (const auto& hostid_stepdb : perhost_stepdb) {
     auto host_id = hostid_stepdb.first;
     const auto& step_db = hostid_stepdb.second;
@@ -144,91 +143,91 @@ absl::flat_hash_map<uint32 /*=host_id*/, const StepDatabaseResult*> Convert(
 }
 
 TEST(StepIntersectionTest, EachHostShiftedBy1StepDuration) {
-  uint32 num_hosts = 4;
-  uint64 shift_ps = kStepDurationPs;
+  uint32_t num_hosts = 4;
+  uint64_t shift_ps = kStepDurationPs;
 
   PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
-  uint32 dst_num_steps = kNumStepsPerHost - num_hosts + 1;
+  uint32_t dst_num_steps = kNumStepsPerHost - num_hosts + 1;
   EXPECT_EQ(intersection.NumSteps(), dst_num_steps);
 
-  uint32 src_first_step_index = intersection.FirstStepIndex(0);
+  uint32_t src_first_step_index = intersection.FirstStepIndex(0);
   EXPECT_EQ(src_first_step_index, num_hosts - 1);
-  std::vector<uint32> dst_step_numbers = intersection.DstStepNumbers();
-  for (uint32 i = 0; i < dst_num_steps; i++) {
+  std::vector<uint32_t> dst_step_numbers = intersection.DstStepNumbers();
+  for (uint32_t i = 0; i < dst_num_steps; i++) {
     EXPECT_EQ(dst_step_numbers[i], i);
   }
 }
 
 TEST(StepIntersectionTest, ExactlyNoShift) {
-  uint32 num_hosts = 4;
-  uint64 shift_ps = 0;
+  uint32_t num_hosts = 4;
+  uint64_t shift_ps = 0;
 
   PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
-  uint32 dst_num_steps = kNumStepsPerHost;
+  uint32_t dst_num_steps = kNumStepsPerHost;
   EXPECT_EQ(intersection.NumSteps(), dst_num_steps);
 
-  std::vector<uint32> dst_step_numbers = intersection.DstStepNumbers();
-  for (uint32 i = 0; i < dst_num_steps; i++) {
+  std::vector<uint32_t> dst_step_numbers = intersection.DstStepNumbers();
+  for (uint32_t i = 0; i < dst_num_steps; i++) {
     EXPECT_EQ(dst_step_numbers[i], i);
   }
-  for (uint32 host_id = 0; host_id < num_hosts; host_id++) {
-    uint32 src_first_step_index = intersection.FirstStepIndex(host_id);
+  for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
+    uint32_t src_first_step_index = intersection.FirstStepIndex(host_id);
     EXPECT_EQ(src_first_step_index, 0);
   }
 }
 
 TEST(StepIntersectionTest, EachHostShiftedByJustABit) {
-  uint32 num_hosts = 4;
-  uint64 shift_ps = 100;
+  uint32_t num_hosts = 4;
+  uint64_t shift_ps = 100;
 
   PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
-  uint32 dst_num_steps = kNumStepsPerHost;
+  uint32_t dst_num_steps = kNumStepsPerHost;
   EXPECT_EQ(intersection.NumSteps(), dst_num_steps);
 
-  std::vector<uint32> dst_step_numbers = intersection.DstStepNumbers();
-  for (uint32 i = 0; i < dst_num_steps; i++) {
+  std::vector<uint32_t> dst_step_numbers = intersection.DstStepNumbers();
+  for (uint32_t i = 0; i < dst_num_steps; i++) {
     EXPECT_EQ(dst_step_numbers[i], i);
   }
-  for (uint32 host_id = 0; host_id < num_hosts; host_id++) {
-    uint32 src_first_step_index = intersection.FirstStepIndex(host_id);
+  for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
+    uint32_t src_first_step_index = intersection.FirstStepIndex(host_id);
     EXPECT_EQ(src_first_step_index, 0);
   }
 }
 
 TEST(StepIntersectionTest, SingleHost) {
-  uint32 num_hosts = 1;
-  uint64 shift_ps = 0;
+  uint32_t num_hosts = 1;
+  uint64_t shift_ps = 0;
 
   PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
-  uint32 dst_num_steps = kNumStepsPerHost;
+  uint32_t dst_num_steps = kNumStepsPerHost;
   EXPECT_EQ(intersection.NumSteps(), dst_num_steps);
 
-  std::vector<uint32> dst_step_numbers = intersection.DstStepNumbers();
-  for (uint32 i = 0; i < dst_num_steps; i++) {
+  std::vector<uint32_t> dst_step_numbers = intersection.DstStepNumbers();
+  for (uint32_t i = 0; i < dst_num_steps; i++) {
     EXPECT_EQ(dst_step_numbers[i], i);
   }
-  for (uint32 host_id = 0; host_id < num_hosts; host_id++) {
-    uint32 src_first_step_index = intersection.FirstStepIndex(host_id);
+  for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
+    uint32_t src_first_step_index = intersection.FirstStepIndex(host_id);
     EXPECT_EQ(src_first_step_index, 0);
   }
 }
 
 TEST(StepIntersectionTest, WithMaxSteps) {
-  uint32 num_hosts = 4;
-  uint64 shift_ps = 0;
-  uint32 max_steps = 3;
+  uint32_t num_hosts = 4;
+  uint64_t shift_ps = 0;
+  uint32_t max_steps = 3;
 
   PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
   StepIntersection intersection =
@@ -238,8 +237,8 @@ TEST(StepIntersectionTest, WithMaxSteps) {
 }
 
 TEST(StepIntersectionTest, NoStep) {
-  uint32 num_hosts = 4;
-  uint32 max_steps = 100;
+  uint32_t num_hosts = 4;
+  uint32_t max_steps = 100;
   PerHostStepDb perhost_stepdb = CreateNoStep(num_hosts);
   StepIntersection intersection =
       StepIntersection(max_steps, Convert(perhost_stepdb));
@@ -248,7 +247,7 @@ TEST(StepIntersectionTest, NoStep) {
 }
 
 TEST(StepIntersectionTest, EmptyIntersection) {
-  uint32 max_steps = 100;
+  uint32_t max_steps = 100;
   PerHostStepDb perhost_stepdb = CreateEmptyIntersectTestSteps();
   StepIntersection intersection =
       StepIntersection(max_steps, Convert(perhost_stepdb));

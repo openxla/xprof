@@ -32,19 +32,18 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 namespace {
 
 // Representing a boundary of an event.
 struct EventBoundary {
   // Time at this boundary.
-  uint64 time_ps;
+  uint64_t time_ps;
   // Type of the event.
   EventType type;
   // True if this is the start of the event; False if this is the end.
   bool is_start;
-  EventBoundary(uint64 time_ps, EventType type, bool is_start)
+  EventBoundary(uint64_t time_ps, EventType type, bool is_start)
       : time_ps(time_ps), type(type), is_start(is_start) {}
 };
 
@@ -304,13 +303,14 @@ void StepDetails::AggregateDeviceMemoryTransfers(
   }
 }
 
-void StepDetails::AddCollectiveOpEvent(uint64 core_id, const AllReduceInfo& e) {
+void StepDetails::AddCollectiveOpEvent(uint64_t core_id,
+                                       const AllReduceInfo& e) {
   *collectives_[core_id].add_all_reduce_info() = e;
 }
 
 void StepDetails::AddDeviceMemoryTransferEvent(
     EventType event_type, const tsl::profiler::Timespan& time_span,
-    uint64 bytes) {
+    uint64_t bytes) {
   int index = 0;
   switch (event_type) {
     case HOST_TO_DEVICE:
@@ -411,12 +411,12 @@ std::string StepDetails::DebugString() const {
 bool StepDetails::operator==(const StepDetails& other) const {
   const auto& other_markers = other.Markers();
   if (markers_.size() != other_markers.size()) return false;
-  for (uint64 i = 0; i < markers_.size(); i++) {
+  for (uint64_t i = 0; i < markers_.size(); i++) {
     if (markers_[i] != other_markers[i]) return false;
   }
   const auto& other_events = other.Events();
   if (events_.size() != other_events.size()) return false;
-  for (uint64 i = 0; i < events_.size(); i++) {
+  for (uint64_t i = 0; i < events_.size(); i++) {
     if (events_[i] != other_events[i]) return false;
   }
   return true;

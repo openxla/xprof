@@ -45,8 +45,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
-using tsl::uint64;
 
 namespace {
 
@@ -92,14 +90,14 @@ inline bool IsRealCpuCompute(absl::string_view event_name) {
   return !not_real;
 }
 
-uint64 ParseNumBytesFromMemcpyDetail(absl::string_view memcpy_detail) {
+uint64_t ParseNumBytesFromMemcpyDetail(absl::string_view memcpy_detail) {
   const std::vector<absl::string_view> params =
       absl::StrSplit(memcpy_detail, absl::ByAnyChar(":\n"));
 
   // Processes value pairs.
-  for (uint32 ii = 0; ii < params.size(); ii += 2) {
+  for (uint32_t ii = 0; ii < params.size(); ii += 2) {
     if (params[ii] != "num_bytes") continue;
-    uint64 value = 0;
+    uint64_t value = 0;
     if (absl::SimpleAtoi(params[ii + 1], &value)) return value;
     break;
   }
@@ -300,7 +298,7 @@ StepEvents ConvertDeviceStepInfoToStepMarkers(const XLineVisitor& line,
   return result;
 }
 
-StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64 device_id,
+StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64_t device_id,
                                                const XLineVisitor& line) {
   StepEvents result;
   line.ForEachEvent([&](const XEventVisitor& event) {
@@ -344,7 +342,7 @@ StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64 device_id,
         case DEVICE_TO_HOST: {
           // TODO(jiesun): not all memcpy events are grouped, figure out a
           // better way to attribute them to steps.
-          uint64 bytes_transferred =
+          uint64_t bytes_transferred =
               ParseNumBytesFromMemcpyDetail(memcpy_details);
           result[group_id].AddDeviceMemoryTransferEvent(
               event_type, event.GetTimespan(), bytes_transferred);
@@ -358,7 +356,7 @@ StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64 device_id,
   return result;
 }
 
-StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64 device_id,
+StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
                                                   const XLineVisitor& line) {
   StepEvents result;
   absl::flat_hash_map</*group_id=*/int64_t, XEventsOpMetricsDbBuilder>

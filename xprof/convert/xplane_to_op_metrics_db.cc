@@ -54,8 +54,6 @@ namespace profiler {
 namespace {
 
 using ::tensorflow::profiler::GpuEventStats;
-using ::tsl::uint32;
-using ::tsl::uint64;
 using ::tsl::profiler::GetDeviceEventTimespan;
 
 struct HLOTracker {
@@ -79,9 +77,9 @@ enum TfActivityType { kTfOpBegin, kTfOpEnd };
 // Instant activity representing the begin or end of a host-side TF Op.
 struct TfActivity {
   // The timestamp in picoseconds when this activity happened.
-  uint64 timestamp_ps;
+  uint64_t timestamp_ps;
   // The ID of this Op.
-  uint32 tf_op_id;
+  uint32_t tf_op_id;
   // Type of this activity.
   TfActivityType activity_type;
   // Full TF op name and type of this activity (backed by XEvent::name).
@@ -92,19 +90,19 @@ struct TfActivity {
 
 // TF Op metrics stored as element in OpStack.
 struct TfOpInfo {
-  explicit TfOpInfo(uint64 ts) : start_timestamp_ps(ts) {}
+  explicit TfOpInfo(uint64_t ts) : start_timestamp_ps(ts) {}
 
   // Start timestamp in picoseconds.
-  uint64 start_timestamp_ps;
+  uint64_t start_timestamp_ps;
   // Children duration in picoseconds.
-  uint64 children_duration_ps = 0;
+  uint64_t children_duration_ps = 0;
 };
 
 // Processes a TF-activity on particular core.
 void ProcessOneTfActivity(const TfActivity& activity,
                           OpStack<TfOpInfo>* tf_op_stack,
                           TfMetricsDbData* tf_metrics_data) {
-  uint32 tf_op_id = activity.tf_op_id;
+  uint32_t tf_op_id = activity.tf_op_id;
   switch (activity.activity_type) {
     case kTfOpBegin: {
       tf_op_stack->Push(tf_op_id,
@@ -164,7 +162,7 @@ void CollectTfActivities(
     const XLineVisitor& line,
     const absl::flat_hash_map<int64_t, tsl::profiler::TfOp>& tf_ops,
     std::vector<TfActivity>* tf_activities) {
-  uint32 tf_op_id = 0;
+  uint32_t tf_op_id = 0;
   if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
   tf_activities->reserve(line.NumEvents() * 2);
   line.ForEachEvent(

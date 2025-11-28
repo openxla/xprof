@@ -57,7 +57,6 @@ namespace profiler {
 
 namespace {
 
-using tsl::uint64;
 using tsl::profiler::OneDigit;
 
 // If the use of low-precision ops is less than this percentage threshold, a
@@ -126,7 +125,7 @@ void ComputeDocumentationTips(OverviewPageRecommendation* re) {
 }
 
 std::string GeneratePrecisionStatement(const PrecisionStats& precision_stats) {
-  uint64 total_compute_ps =
+  uint64_t total_compute_ps =
       precision_stats.compute_16bit_ps() + precision_stats.compute_32bit_ps();
   if (total_compute_ps > 0) {
     double percent_16bit =
@@ -189,7 +188,7 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
       op_stats.device_op_metrics_db(), /*with_idle=*/false);
   KernelStatsByOpName kernel_stats_by_op_name =
       GroupKernelReportsByOpName(op_stats.kernel_stats_db());
-  uint64 total_device_time_ps = device_tf_op_metrics_db.total_time_ps();
+  uint64_t total_device_time_ps = device_tf_op_metrics_db.total_time_ps();
   constexpr int kNumTopOpsShown = 10;
   double device_cumulative_fraction = 0.0;
   for (const OpMetrics* metrics :
@@ -210,7 +209,7 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
       op->set_is_op_using_tensorcore(iter->second.tensor_core_duration_ns != 0);
     }
   }
-  uint64 total_device_compute_ps =
+  uint64_t total_device_compute_ps =
       op_stats.device_op_metrics_db().precision_stats().compute_16bit_ps() +
       op_stats.device_op_metrics_db().precision_stats().compute_32bit_ps();
   analysis.set_device_compute_16bit_percent(
@@ -224,9 +223,9 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
           op_stats.device_op_metrics_db().precision_stats().compute_32bit_ps(),
           total_device_compute_ps));
 
-  uint64 num_host_tf_ops = 0;
-  uint64 total_host_op_time_ps_exclude_idle = 0;
-  uint64 eager_host_op_time_ps = 0;
+  uint64_t num_host_tf_ops = 0;
+  uint64_t total_host_op_time_ps_exclude_idle = 0;
+  uint64_t eager_host_op_time_ps = 0;
   for (const OpMetrics& metrics : op_stats.host_op_metrics_db().metrics_db()) {
     num_host_tf_ops += metrics.occurrences();
     if (!IsIdleOp(metrics)) {
@@ -234,9 +233,9 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
       if (metrics.is_eager()) eager_host_op_time_ps += metrics.self_time_ps();
     }
   }
-  uint64 num_device_tf_ops = 0;
-  uint64 total_device_op_time_ps_exclude_idle = 0;
-  uint64 eager_device_op_time_ps = 0;
+  uint64_t num_device_tf_ops = 0;
+  uint64_t total_device_op_time_ps_exclude_idle = 0;
+  uint64_t eager_device_op_time_ps = 0;
   for (const OpMetrics& metrics : device_tf_op_metrics_db.metrics_db()) {
     num_device_tf_ops += metrics.occurrences();
     if (!IsIdleOp(metrics)) {
@@ -250,7 +249,7 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
   // device_tf_op_metrics_db.metrics_db(), because metrics.provenance() there is
   // not set and metrics.name() can be either HLO-Op name or TF-Op name, which
   // will confuse tsl::profiler::IsOutsideCompilationOp().
-  uint64 outside_compilation_device_op_time_ps = 0;
+  uint64_t outside_compilation_device_op_time_ps = 0;
   for (const OpMetrics& metrics :
        op_stats.device_op_metrics_db().metrics_db()) {
     if (!tsl::profiler::IsOutsideCompilationOp(metrics.provenance(),
@@ -258,7 +257,7 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
       continue;
     outside_compilation_device_op_time_ps += metrics.self_time_ps();
   }
-  uint64 num_total_tf_ops = num_host_tf_ops + num_device_tf_ops;
+  uint64_t num_total_tf_ops = num_host_tf_ops + num_device_tf_ops;
   analysis.set_host_tf_op_percent(
       100.0 * tsl::profiler::SafeDivide(num_host_tf_ops, num_total_tf_ops));
   analysis.set_device_tf_op_percent(

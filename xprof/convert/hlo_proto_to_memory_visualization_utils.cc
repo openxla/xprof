@@ -56,7 +56,6 @@ namespace profiler {
 namespace {
 
 using ::tsl::int32;
-using ::tsl::string;
 using ::xla::BufferAllocationProto;
 using ::xla::HeapSimulatorTrace;
 using ::xla::HloInstructionProto;

@@ -33,7 +33,7 @@ void StartGrpcServer(int port);
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,
-                     tsl::string* result);
+                     std::string* result);
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
     std::vector<std::string> xspace_paths, const std::string& tool_name,

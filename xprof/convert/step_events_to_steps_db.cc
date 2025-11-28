@@ -36,7 +36,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::string;
 using tsl::uint32;
 using tsl::uint64;
 
@@ -127,7 +126,7 @@ StepInfoResult ConvertStepDetailsToStepInfo(bool has_device, int64_t step_num,
   return step_info;
 }
 
-string DebugGenericStepBreakdown(const GenericStepBreakdown& generic) {
+std::string DebugGenericStepBreakdown(const GenericStepBreakdown& generic) {
   std::ostringstream out;
   uint64 total_ps = 0;
   const auto& type_ps_map = generic.type_ps();
@@ -146,7 +145,7 @@ string DebugGenericStepBreakdown(const GenericStepBreakdown& generic) {
   return out.str();
 }
 
-string DebugStepInfo(const StepInfoResult& step_info) {
+std::string DebugStepInfo(const StepInfoResult& step_info) {
   std::ostringstream out;
   out << "step_num=" << step_info.step_num()
       << ", duration_ps=" << step_info.duration_ps()

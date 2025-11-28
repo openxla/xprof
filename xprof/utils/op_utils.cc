@@ -34,7 +34,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>
 ConvertPerformanceInfo(
@@ -99,9 +98,9 @@ void EnterOpMetadataFromHloModuleMap(OpMetrics* op_metrics,
 
 void HostOpMetricsDbBuilder::EnterOp(absl::string_view name,
                                      absl::string_view category, bool is_eager,
-                                     uint64 time_ps, uint64 children_time_ps,
-                                     int64_t id) {
-  uint64 self_time_ps = time_ps - children_time_ps;
+                                     uint64_t time_ps,
+                                     uint64_t children_time_ps, int64_t id) {
+  uint64_t self_time_ps = time_ps - children_time_ps;
   DCHECK_GE(time_ps, self_time_ps);
   OpMetrics* op_metrics =
       LookupOrInsertNewOpMetrics(/*hlo_module_id=*/id, name);
@@ -133,7 +132,7 @@ void HostOpMetricsDbBuilder::EnterHostInfeedEnqueue(
 }
 
 void DeviceOpMetricsDbBuilder::EnterOpMetadataFromHloModuleMap(
-    uint64 program_id, absl::string_view op_name,
+    uint64_t program_id, absl::string_view op_name,
     const HloModuleMap& hlo_module_map) {
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, op_name);
   tensorflow::profiler::EnterOpMetadataFromHloModuleMap(op_metrics,
@@ -141,7 +140,7 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadataFromHloModuleMap(
 }
 
 void DeviceOpMetricsDbBuilder::EnterOpMetadata(
-    uint64 program_id, absl::string_view program_name,
+    uint64_t program_id, absl::string_view program_name,
     absl::string_view category, absl::string_view provenance,
     absl::string_view deduplicated_name, bool is_eager,
     absl::string_view long_name,
@@ -171,10 +170,10 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadata(
 }
 
 void DeviceOpMetricsDbBuilder::EnterOp(
-    uint64 program_id, absl::string_view name, absl::string_view category,
+    uint64_t program_id, absl::string_view name, absl::string_view category,
     absl::string_view provenance, absl::string_view deduplicated_name,
-    bool is_eager, uint64 occurrences, uint64 time_ps, uint64 children_time_ps,
-    int64_t flops, int64_t bytes_accessed,
+    bool is_eager, uint64_t occurrences, uint64_t time_ps,
+    uint64_t children_time_ps, int64_t flops, int64_t bytes_accessed,
     // NOLINTNEXTLINE: clang-tidy missing-includes false positive
     const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
         memory_accessed_breakdown,
@@ -182,7 +181,7 @@ void DeviceOpMetricsDbBuilder::EnterOp(
     const tsl::profiler::OpSourceInfo& op_source_info) {
   EnterOpMetadata(program_id, name, category, provenance, deduplicated_name,
                   is_eager, long_name, op_source_info);
-  uint64 self_time_ps = time_ps - children_time_ps;
+  uint64_t self_time_ps = time_ps - children_time_ps;
   DCHECK_GE(time_ps, self_time_ps);
   OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, name);
   op_metrics->set_num_cores(1);

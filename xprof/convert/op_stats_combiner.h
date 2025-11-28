@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STATS_COMBINER_H_
 #define XPROF_CONVERT_OP_STATS_COMBINER_H_
 
+#include <cstdint>
 #include <vector>
 
 #include "absl/log/check.h"
@@ -34,7 +35,7 @@ bool IsCoordinator(bool no_accelerator_in_system, HardwareType hardware_type);
 // We need this translation because the device_ordinal was assigned when a
 // single host response was given. Now, we need a global core_id to distinguish
 // it with multiple hosts.
-uint32 GlobalCoreId(int host_id, uint32 device_ordinal);
+uint32_t GlobalCoreId(int host_id, uint32_t device_ordinal);
 
 // Combines the src map into the dst map.
 // The src map keys are local core_ids. The src_host_id is used to convert them
@@ -43,7 +44,8 @@ uint32 GlobalCoreId(int host_id, uint32 device_ordinal);
 template <typename CoreIdMap>
 void CombineCoreIdMap(int src_host_id, const CoreIdMap& src, CoreIdMap* dst) {
   for (const auto& core_id_and_value : src) {
-    uint32 global_core_id = GlobalCoreId(src_host_id, core_id_and_value.first);
+    uint32_t global_core_id =
+        GlobalCoreId(src_host_id, core_id_and_value.first);
     auto iter_and_inserted =
         dst->insert({global_core_id, core_id_and_value.second});
     DCHECK(iter_and_inserted.second)
@@ -70,7 +72,7 @@ bool NoAcceleratorInSystem(const std::vector<OpStatsInfo>& all_op_stats_info);
 // Profiler will limit the number of steps to be at most <max_step_per_host>.
 StepIntersection ComputeStepIntersectionToMergeOpStats(
     const std::vector<OpStatsInfo>& all_op_stats_info,
-    uint32 max_step_per_host);
+    uint32_t max_step_per_host);
 
 // Combine all the OpStats in <all_op_stats_info> using the steps in range
 // <step_intersection>. The result is stored in <combined_op_stats>.

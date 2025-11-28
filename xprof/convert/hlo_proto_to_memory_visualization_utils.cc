@@ -58,7 +58,6 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-using ::tsl::int32;
 using ::tsl::string;
 using ::xla::BufferAllocationProto;
 using ::xla::HeapSimulatorTrace;
@@ -451,7 +450,7 @@ HeapObject MakeHeapObject(const StackFrameIndexProto& stack_frame_index,
   return result;
 }
 
-BufferSpan MakeBufferSpan(int32 start, int32 limit) {
+BufferSpan MakeBufferSpan(int32_t start, int32_t limit) {
   BufferSpan result;
   result.set_start(start);
   result.set_limit(limit);
@@ -870,7 +869,6 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     size_t graph_width = 2048;
     size_t graph_height = 2048;
   } render_options;
-
 
   int num_lb_colors = kBufferColors.size();
   std::vector<size_t> buffer_allocation_offsets;

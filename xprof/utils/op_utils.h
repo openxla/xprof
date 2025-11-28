@@ -31,7 +31,6 @@ namespace tensorflow {
 namespace profiler {
 using ::tensorflow::profiler::OpMetrics;
 using ::tensorflow::profiler::OpMetrics_MemoryAccessed;
-using tsl::uint64;
 
 // Converts the memory access breakdown into OpMetrics's format.
 tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>
@@ -66,7 +65,7 @@ class HostOpMetricsDbBuilder : public OpMetricsDbBuilder {
   //   id = host op uniqueness identifier. For input pipeline ops, this is the
   //        stage id. By default is 0 if not needed.
   void EnterOp(absl::string_view name, absl::string_view category,
-               bool is_eager, uint64 time_ps, uint64 children_time_ps,
+               bool is_eager, uint64_t time_ps, uint64_t children_time_ps,
                int64_t id = 0);
 
   // Updates total_host_infeed_enq_duration_ps_ and
@@ -98,23 +97,23 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
   //   bytes_accessed = the sum of bytes read and bytes written by this OP.
   //   memory_accessed_breakdown = the breakdown of memory accessed by operation
   //                               type and memory space.
-  void EnterOp(uint64 program_id, absl::string_view name,
+  void EnterOp(uint64_t program_id, absl::string_view name,
                absl::string_view category, absl::string_view provenance,
                absl::string_view deduplicated_name, bool is_eager,
-               uint64 occurrences, uint64 time_ps, uint64 children_time_ps,
-               int64_t flops, int64_t bytes_accessed,
+               uint64_t occurrences, uint64_t time_ps,
+               uint64_t children_time_ps, int64_t flops, int64_t bytes_accessed,
                const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
                    memory_accessed_breakdown = {},
                int64_t model_flops = 0, absl::string_view long_name = "",
                const tsl::profiler::OpSourceInfo& op_source_info = {});
 
-  void EnterOpMetadata(uint64 program_id, absl::string_view program_name,
+  void EnterOpMetadata(uint64_t program_id, absl::string_view program_name,
                        absl::string_view category, absl::string_view provenance,
                        absl::string_view deduplicated_name, bool is_eager,
                        absl::string_view long_name = "",
                        const tsl::profiler::OpSourceInfo& op_source_info = {});
 
-  void EnterOpMetadataFromHloModuleMap(uint64 program_id,
+  void EnterOpMetadataFromHloModuleMap(uint64_t program_id,
                                        absl::string_view op_name,
                                        const HloModuleMap& hlo_module_map);
 };

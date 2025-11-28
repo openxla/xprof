@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_to_tf_stats.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,7 +36,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 namespace {
 using ::tensorflow::profiler::TfStatsTable;
@@ -71,7 +71,8 @@ TfStatsTable GenerateTfStatsTable(
   const TfStatsRecord* prev_record = &sentinel;
 
   // Sets device-side TF stats.
-  uint64 total_device_time_ps = TotalTimePs(device_tf_metrics_db, exclude_idle);
+  uint64_t total_device_time_ps =
+      TotalTimePs(device_tf_metrics_db, exclude_idle);
   double total_device_time_us =
       tsl::profiler::PicoToMicro(total_device_time_ps);
   for (const OpMetrics* metrics :
@@ -94,7 +95,7 @@ TfStatsTable GenerateTfStatsTable(
   }
 
   // Sets host-side TF stats.
-  uint64 total_host_time_ps = TotalTimePs(host_tf_metrics_db, exclude_idle);
+  uint64_t total_host_time_ps = TotalTimePs(host_tf_metrics_db, exclude_idle);
   double total_host_time_us = tsl::profiler::PicoToMicro(total_host_time_ps);
   for (const OpMetrics* metrics : tensorflow::profiler::SortedOpMetricsDb(
            host_tf_metrics_db, kMaxNumOfOps)) {

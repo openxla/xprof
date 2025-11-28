@@ -1,0 +1,22 @@
+edition = "2023";
+
+package xprof;
+
+option features.utf8_validation = NONE;
+
+message GcuInfo {
+  // GCUs per CPU core.
+  double per_cpu_core_gcus = 1 [default = -1];
+
+  // Number of CPU cores.
+  int64 num_cpu_cores = 2 [default = -1];
+
+  // NAPs of the accelerator (if any).
+  double accelerator_naps = 3 [default = -1];
+
+  // GCUs converted from NAPs of the accelerator (if any).
+  double accelerator_gcus = 4 [default = -1];
+
+  // If we can't determine the GCU/NAP, what is the reason.
+  string details = 5 [default = "NAP/GCU info is not available."];
+}

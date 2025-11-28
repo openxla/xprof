@@ -245,6 +245,30 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "gcu_info_proto",
+    srcs = ["gcu_info.proto"],
+)
+
+xprof_proto_library(
+    name = "program_goodput_proto",
+    srcs = ["program_goodput.proto"],
+)
+
+xprof_proto_library(
+    name = "tf_op_stats_proto",
+    srcs = ["tf_op_stats.proto"],
+    protodeps = [
+        ":gcu_info_proto",
+        ":program_goodput_proto",
+        "//third_party/java/protobuf:java_features_proto",
+        "//third_party/protobuf:cpp_features_proto",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:hardware_types_proto",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:inference_stats_proto",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:op_stats_proto",
+    ],
+)
+
+xprof_proto_library(
     name = "protos_all",
     create_go_proto = False,
     create_java_proto = False,
@@ -253,6 +277,7 @@ xprof_proto_library(
         ":dcn_slack_analysis_proto",
         ":diagnostics_proto",
         ":event_time_fraction_analyzer_proto",
+        ":gcu_info_proto",
         ":hardware_types_proto",
         ":hlo_stats_proto",
         ":inference_stats_proto",
@@ -269,11 +294,13 @@ xprof_proto_library(
         ":pod_stats_proto",
         ":pod_viewer_proto",
         ":power_metrics_proto",
+        ":program_goodput_proto",
         ":roofline_model_proto",
         ":steps_db_proto",
         ":task_proto",
         ":tf_data_stats_proto",
         ":tf_function_proto",
+        ":tf_op_stats_proto",
         ":tf_stats_proto",
         ":tfstreamz_proto",
         ":topology_proto",
@@ -292,6 +319,7 @@ exports_files(
         "dcn_slack_analysis.proto",
         "diagnostics.proto",
         "event_time_fraction_analyzer.proto",
+        "gcu_info.proto",
         "hardware_types.proto",
         "hlo_stats.proto",
         "inference_stats.proto",
@@ -306,6 +334,7 @@ exports_files(
         "pod_stats.proto",
         "pod_viewer.proto",
         "power_metrics.proto",
+        "program_goodput.proto",
         "roofline_model.proto",
         "smart_suggestion.proto",
         "source_info.proto",
@@ -314,6 +343,7 @@ exports_files(
         "task.proto",
         "tf_data_stats.proto",
         "tf_function.proto",
+        "tf_op_stats.proto",
         "tf_stats.proto",
         "tfstreamz.proto",
         "topology.proto",

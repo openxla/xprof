@@ -1,0 +1,14 @@
+// This proto describes the metrics to calculate Goodput efficiency.
+
+edition = "2023";
+
+package xprof;
+
+// Goodput efficiency = predicted_time_ps / actual_time_ps;
+message ProgramGoodput {
+  // Predicted time in pico seconds.
+  uint64 predicted_time_ps = 1;
+
+  // Actual time in pic seconds.
+  uint64 actual_time_ps = 2;
+}

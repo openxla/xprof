@@ -19,7 +19,6 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -33,6 +32,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/tf_op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -73,6 +73,10 @@ class ToolDataProviderImpl : public ToolDataProvider {
 
   absl::StatusOr<const EventTimeFractionAnalyzerResult*>
   GetEventTimeFractionAnalyzerResult(const std::string& target_event_name) {
+    return absl::UnimplementedError("Not implemented yet.");
+  }
+
+  absl::StatusOr<const xprof::TfOpStats*> GetTfOpStats() override {
     return absl::UnimplementedError("Not implemented yet.");
   }
 

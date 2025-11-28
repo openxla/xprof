@@ -17,6 +17,7 @@ limitations under the License.
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_ALL_RULES_H_
 
 #include "xprof/convert/smart_suggestion/barrier_cores_rule.h"
+#include "xprof/convert/smart_suggestion/collective_bound_rule.h"
 #include "xprof/convert/smart_suggestion/compute_bound_rule.h"
 #include "xprof/convert/smart_suggestion/data_transfer_bound_rule.h"
 #include "xprof/convert/smart_suggestion/host_processing_bound_rule.h"
@@ -31,6 +32,7 @@ namespace profiler {
 inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted start
   f->Register<BarrierCoresRule>();
+  f->Register<CollectiveBoundRule>();
   f->Register<ComputeBoundRule>();
   f->Register<DataTransferBoundRule>();
   f->Register<HostProcessingBoundRule>();

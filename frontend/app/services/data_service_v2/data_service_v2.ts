@@ -152,6 +152,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
         Observable<DataTable>;
   }
 
+  getDataUrl(
+      sessionId: string, tool: string, host?: string,
+      parameters: Map<string, string> = new Map()): string {
+    const params =
+        this.getHTTPParamsForDataQuery(sessionId, tool, host || '', parameters);
+    return this.pathPrefix + DATA_API + '?' + params.toString();
+  }
+
   getSmartSuggestions(
       sessionId: string,
       parameters: Map<string, string> = new Map()):

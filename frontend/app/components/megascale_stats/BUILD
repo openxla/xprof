@@ -17,10 +17,12 @@ xprof_ng_module(
     deps = [
         "@npm//@angular/common",
         "@npm//@angular/core",
+        "@npm//@angular/platform-browser",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//@types/google.visualization",
         "@npm//rxjs",
+        "@npm//safevalues",
         "@org_xprof//frontend/app/common/classes",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",

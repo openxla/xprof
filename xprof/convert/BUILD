@@ -206,6 +206,7 @@ cc_library(
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
+        "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",

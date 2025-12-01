@@ -15,11 +15,26 @@
 }
 
 .megascale-stats {
-    margin-right: 20px;
+  margin-right: 20px;
 }
 
 .export-button-container {
-    flex-shrink: 0;
+  flex-shrink: 0;
+}
+
+.perfetto-button {
+  padding: 8px 16px;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 10px;
+
+  &:hover {
+    background-color: #357ae8;
+  }
 }
 
 .section-container {

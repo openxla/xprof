@@ -1,6 +1,7 @@
 import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {windowOpen} from 'safevalues/dom';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -10,7 +11,10 @@ import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_optio
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setCurrentToolStateAction, setLoadingStateAction} from 'org_xprof/frontend/app/store/actions';
+import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  setCurrentToolStateAction,
+} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -47,7 +51,8 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
     },
   };
 
-  constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
+  constructor(
+      route: ActivatedRoute, private readonly store: Store<{}>) {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.processQuery(params);
@@ -63,12 +68,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
   }
 
   update() {
-    this.store.dispatch(setLoadingStateAction({
-      loadingState: {
-        loading: true,
-        message: 'Loading Megascale Stats data',
-      }
-    }));
+    setLoadingState(true, this.store, 'Loading Megascale Stats data');
 
     this.throbber.start();
 
@@ -76,12 +76,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
         .pipe(takeUntil(this.destroyed))
         .subscribe((data) => {
           this.throbber.stop();
-          this.store.dispatch(setLoadingStateAction({
-            loadingState: {
-              loading: false,
-              message: '',
-            }
-          }));
+          setLoadingState(false, this.store);
 
           if (data) {
             const d = data as SimpleDataTable[] | null;
@@ -108,6 +103,17 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
       ...this.dataInfo,
       filters: this.getFilters(),
     };
+  }
+
+  openPerfetto() {
+    const searchParams = this.dataService.getSearchParams();
+    if (this.host) {
+      searchParams.set('host', this.host);
+    }
+    // TODO(b/395565663): Use router to navigate to the page once we have a
+    // better way to handle the query params.
+    const url = `/megascale_perfetto/${this.sessionId}?${searchParams.toString()}`;
+    window.open(url, '_blank');
   }
 
   ngOnDestroy() {

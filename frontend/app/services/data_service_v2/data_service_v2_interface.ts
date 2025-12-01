@@ -29,6 +29,13 @@ export interface DataServiceV2Interface {
       ignoreError?: boolean,
       ): Observable<DataTable|DataTable[]|null>;
 
+  getDataUrl(
+      sessionId: string,
+      tool: string,
+      host?: string,
+      parameters?: Map<string, string>,
+      ): string;
+
   getSmartSuggestions(
       sessionId: string,
       parameters?: Map<string, string>): Observable<SmartSuggestionReport | null>;

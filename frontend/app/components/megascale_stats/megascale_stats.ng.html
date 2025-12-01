@@ -37,6 +37,7 @@
     </div>
     <div class="export-button-container">
       <export-as-csv [tool]="tool" [sessionId]="sessionId" [host]="host"></export-as-csv>
+      <button type="button" class="perfetto-button" (click)="openPerfetto()">Open in Perfetto</button>
     </div>
   </div>
 

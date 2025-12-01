@@ -9,6 +9,7 @@ xprof_ng_module(
     ],
     deps = [
         ":data_service_v2_interface",
+        "//third_party/javascript/safevalues/dom",
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@ngrx/store",

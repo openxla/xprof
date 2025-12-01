@@ -1412,6 +1412,7 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_module_utils",
         "@xla//xla:shape_util",
         "@xla//xla:xla_data_proto_cc",
+        "@xla//xla/service:buffer_assignment",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",

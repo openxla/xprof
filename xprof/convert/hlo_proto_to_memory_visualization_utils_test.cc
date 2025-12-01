@@ -87,6 +87,7 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_1) {
       PreprocessResult preprocess_result,
       ConvertHloProtoToPreprocessResult(hlo_proto, {.small_buffer_size = 0}));
   EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
+  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 1);
 }
 
 TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
@@ -105,6 +106,7 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
                           ConvertHloProtoToPreprocessResult(hlo_proto, option));
   EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
+  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 1);
   EXPECT_FALSE(preprocess_result.allocation_timeline().empty());
 }
 

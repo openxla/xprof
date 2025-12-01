@@ -10,11 +10,7 @@ load("//tools/build_defs/js/devserver:web_dev_server.bzl", "web_dev_server")
 load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
-package(default_visibility = [
-    "//perftools/accelerators/xprof/frontend:__subpackages__",
-    "//perftools/gputools/profiler/collector:__subpackages__",
-    "@org_xprof//frontend:__subpackages__",
-])
+package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
 
 bzl_library(
     name = "build_defs_bzl",

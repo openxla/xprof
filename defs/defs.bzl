@@ -57,7 +57,6 @@ def xprof_ng_module(name, srcs, assets = [], allow_warnings = None, **kwargs):
     # ts_library rule which does not resolve Modules properly
     # if their paths are relative. So we convert all our Module
     # import paths from relative to absolute paths.
-    # See: https://github.com/bazelbuild/rules_nodejs/issues/2296
     converted_srcs_name = "%s_converted_srcs" % name
     convert_paths_to_absolute(
       name = converted_srcs_name,
@@ -67,7 +66,7 @@ def xprof_ng_module(name, srcs, assets = [], allow_warnings = None, **kwargs):
 
     # A hack to include @angular/common, @angular/core since the ng_module
     # macro in google3 automatically adds this dep.
-    # See: https://source.corp.google.com/google3/javascript/angular2/ng_module.bzl
+    # See: //javascript/angular2/ng_module.bzl
     if "@npm//@angular/common" not in kwargs['deps']:
       kwargs['deps'] += ["@npm//@angular/common"]
     if "@npm//@angular/core" not in kwargs['deps']:

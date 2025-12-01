@@ -72,7 +72,7 @@ py_test(
     srcs = ["plugin_asset_util_test.py"],
     deps = [
         ":plugin_asset_util",
-        "//testing/pybase",
-        "//testing/pybase:parameterized",
+        "@pytest//pytest",
+        "@pytest//pytest:parameterized",
     ],
 )

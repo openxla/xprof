@@ -7,11 +7,11 @@ from unittest import mock
 from absl.testing import parameterized
 from etils import epath
 
-from google3.testing.pybase import googletest
+from absl.testing import absltest
 from xprof import server
 
 
-class ServerTest(googletest.TestCase, parameterized.TestCase):
+class ServerTest(absltest.TestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -197,4 +197,4 @@ class ServerTest(googletest.TestCase, parameterized.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

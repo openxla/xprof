@@ -218,7 +218,7 @@
   {
     "p":{
       "device_core_count":"16 (Replica count \u003d 1, num cores per replica \u003d 16)",
-      "device_type":"DragonFish",
+      "device_type":"TPU",
       "host_count":"1"
     }
   },

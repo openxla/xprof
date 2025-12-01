@@ -17,7 +17,6 @@ inline bool IsTpuCoreDeviceName(absl::string_view device_name) {
 }
 
 inline bool MaybeTpuHostInterfaceDeviceName(absl::string_view device_name) {
-  // This matches DARWINN, see b/171968854.
   return absl::StrContains(device_name, "Host Interface");
 }
 

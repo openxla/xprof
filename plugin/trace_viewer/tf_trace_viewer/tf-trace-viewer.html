@@ -558,6 +558,7 @@ dashboard would integrate trace viewer app using iframe.
       _asyncTrackState: {type: Object, value: new Map()},
       _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
       _percaleUrlPrefix: {type: String, value: ''},
+      _mpmdView: {type: Boolean, value: false},
     },
 
     ready: function() {
@@ -638,6 +639,9 @@ dashboard would integrate trace viewer app using iframe.
               if (traceViewerLink.searchParams.has('new_backend')) {
                 this._useNewBackend = traceViewerLink.searchParams.get('new_backend') === 'true';
                 this._useNewBackendSetInUrl = true;
+              }
+              if (traceViewerLink.searchParams.has('mpmd_view')) {
+                this._mpmdView = traceViewerLink.searchParams.get('mpmd_view') === 'true';
               }
             } catch(err) {  // not fatal.
               console.log('cannot find session id');
@@ -2182,6 +2186,10 @@ dashboard would integrate trace viewer app using iframe.
         } else {
           this._dataRegenerated = true;
         }
+      }
+      if (this._mpmdView) {
+        console.log('Setting mpmd view to _: %s', this._mpmdView);
+        requestURL.searchParams.set('mpmd_view', this._mpmdView);
       }
       requestURL.searchParams.set('replace_model', this._replaceModel);
       requestURL.searchParams.set('new_backend', this._useNewBackend);

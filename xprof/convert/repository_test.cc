@@ -22,7 +22,6 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
-#include "testing/lib/sponge/undeclared_outputs.h"
 #include "absl/status/status.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
@@ -148,8 +147,7 @@ TEST(Repository, MismatchedXSpaceAndPath) {
 
 TEST(Repository, ClearCacheFiles) {
   // Create a temp directory for the test.
-  auto temp_dir = testing::sponge::GetUndeclaredOutputDirectory().value_or(
-      ::testing::TempDir());
+  auto temp_dir = ::testing::TempDir();
   auto profile_dir = tsl::io::JoinPath(temp_dir, "log/plugins/profile");
   TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(profile_dir));
   auto xplane_path = tsl::io::JoinPath(profile_dir, "hostname0.xplane.pb");

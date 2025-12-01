@@ -5,7 +5,7 @@ import os
 
 from etils import epath
 
-from google3.testing.pybase import googletest
+from absl.testing import absltest
 from xprof import profile_plugin
 
 _TOOLS_1 = ('tool1',)
@@ -15,7 +15,7 @@ _XPLANE_FILE_2 = f'host2.{profile_plugin.TOOLS["xplane"]}'
 _CORRUPTED_CACHE_CONTENT = 'invalid json'
 
 
-class ToolsCacheTest(googletest.TestCase):
+class ToolsCacheTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -144,4 +144,4 @@ class ToolsCacheTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

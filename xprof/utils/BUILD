@@ -9,7 +9,7 @@ package(
 package_group(
     name = "friends",
     includes = [
-        "@org_tensorflow//tensorflow/core/profiler:friends",
+        "//third_party/tensorflow/core/profiler:friends",
     ],
 )
 

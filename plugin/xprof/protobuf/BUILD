@@ -8,18 +8,6 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-# copybara:uncomment_begin(google-only)
-# package_group(
-#     name = "friends",
-#     includes = [
-#         "@org_tensorflow//tensorflow/core/profiler:friends",
-#     ],
-#     packages = [
-#         "@org_tensorflow//tensorflow/core/profiler/...",
-#     ],
-# )
-# copybara:uncomment_end
-
 xprof_proto_library(
     name = "dcn_collective_info_proto",
     srcs = ["dcn_collective_info.proto"],

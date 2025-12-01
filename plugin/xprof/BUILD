@@ -23,9 +23,6 @@ py_library(
 py_library(
     name = "profile_plugin_test_utils",
     srcs = ["profile_plugin_test_utils.py"],
-    visibility = [
-        "//perftools/accelerators/xprof/xprofilez/integration_tests:__pkg__",
-    ],
     deps = [
         ":profile_plugin",
         "@org_pocoo_werkzeug",

@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <limits>
 
-#include "base/types.h"
 #include "<gtest/gtest.h>"
 #include "xla/tsl/profiler/utils/timespan.h"
 

@@ -1,7 +1,6 @@
 load("@org_xprof//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_library", "py_strict_test")
 
-# NOTE: need blaze test --define='with_tpu_support=true' for these tests.
 profiler_test(
     name = "tpu_tf2_keras_xla_test",
     srcs = ["tpu_tf2_keras_test.py"],

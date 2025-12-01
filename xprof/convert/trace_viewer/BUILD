@@ -1,14 +1,8 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
-default_visibility = [
-    "//perftools/gputools/profiler/collector:__pkg__",
-    "@org_tensorflow//tensorflow/core/profiler:internal",
-    "//xprof:__subpackages__",
-]
-
 package(
-    # copybara:uncomment default_applicable_licenses = ["@org_tensorflow//tensorflow:license"],
+    # copybara:uncomment default_applicable_licenses = ["//third_party/tensorflow:license"],
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
@@ -118,7 +112,6 @@ cc_test(
     srcs = ["trace_events_util_test.cc"],
     deps = [
         ":trace_events_util",
-        "//base:types",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],

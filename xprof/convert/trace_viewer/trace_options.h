@@ -27,6 +27,7 @@ inline constexpr const char* kDerivedTimeline = "derived_timeline";
 inline constexpr const char* kRawGpuStreams = "raw_gpu_streams";
 inline constexpr const char* kMaxHostThreads = "max_threads";
 inline constexpr const char* kShowHloCostModel = "show_hlo_cost_model";
+inline constexpr const char* kMpmdPipelineView = "mpmd_pipeline_view";
 
 // Options used to select TraceEvents (e.g., for visualization or further
 // processing).
@@ -61,6 +62,9 @@ struct TraceOptions {
 
   // Whether to show Hlo Cost Model FLOPS and Bytes in trace viewer.
   bool show_hlo_cost_model = false;
+
+  // Whether to show MPMD view in trace viewer.
+  bool mpmd_pipeline_view = false;
 };
 
 // Returns TraceOptions for use when the generated events will be visualized.

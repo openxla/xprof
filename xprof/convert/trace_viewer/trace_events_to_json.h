@@ -42,6 +42,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
+#include "re2/re2.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/platform/protobuf.h"
@@ -76,6 +77,7 @@ struct JsonTraceOptions {
 
   bool generate_stack_frames = true;
   bool use_new_backend = false;
+  bool mpmd_pipeline_view = false;
   std::string code_link;
 };
 
@@ -584,6 +586,25 @@ void WriteTraceFullTimespan(const Trace* trace, IOBuffer* output) {
                  R"(],)");
 }
 
+template <typename TraceEventsContainer>
+void DeviceToLayerId(
+    const TraceEventsContainer& events,
+    absl::flat_hash_map<uint32_t, uint32_t>& device_to_layer_id) {
+  const Trace& trace = events.trace();
+  // The assumption is that all events on a device line belong to the same
+  // layer.
+  events.ForAllDeviceFirstEvents([&](const TraceEvent& event) {
+    if (device_to_layer_id.contains(event.device_id())) return;
+    const std::string& event_name =
+        event.has_name_ref() ? trace.name_table().at(event.name_ref())
+                             : event.name();
+    int layer_id;
+    if (RE2::PartialMatch(event_name, "p[0-9]+_layer_([0-9]+)", &layer_id)) {
+      device_to_layer_id[event.device_id()] = layer_id;
+    }
+  });
+}
+
 template <typename IOBuffer, typename TraceEventsContainer,
           typename RawDataType>
 void TraceEventsToJson(const JsonTraceOptions& options,
@@ -597,6 +618,13 @@ void TraceEventsToJson(const JsonTraceOptions& options,
 
   output->Append(absl::StrFormat(R"("useNewBackend": %s,)",
                                  options.use_new_backend ? "true" : "false"));
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_layer_id;
+  if (options.mpmd_pipeline_view) {
+    output->Append(
+        absl::StrFormat(R"("mpmdPipelineView": %s,)",
+                        options.mpmd_pipeline_view ? "true" : "false"));
+    DeviceToLayerId(events, device_to_layer_id);
+  }
 
   WriteDetails(options.details, output);
   WriteReturnedEventsSize(events.NumEvents(), output);
@@ -604,7 +632,6 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   WriteTraceFullTimespan(&events.trace(), output);
 
   const Trace& trace = events.trace();
-
   WriteTasks(trace, output);
 
   auto references = BuildStackFrameReferences(trace);
@@ -625,7 +652,13 @@ void TraceEventsToJson(const JsonTraceOptions& options,
                      R"(,"thread_count":)", device.resources_size(), "}");
     }
     separator.Add();
-    output->Append(R"({"args":{"sort_index":)", device_id,
+    uint32_t sort_index = device_id;
+    if (options.mpmd_pipeline_view) {
+      // Sort the devices by layer id if mpmd view is enabled.
+      auto it = device_to_layer_id.find(device_id);
+      if (it != device_to_layer_id.end()) sort_index = it->second;
+    }
+    output->Append(R"({"args":{"sort_index":)", sort_index,
                    R"(},"name":"process_sort_index","ph":"M","pid":)",
                    device_id, "}");
     std::map<uint64_t, Resource> ordered_resources(device.resources().begin(),

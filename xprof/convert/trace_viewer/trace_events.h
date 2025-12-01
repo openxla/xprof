@@ -857,6 +857,18 @@ class TraceEventsContainerBase {
     }
   }
 
+  // Calls 'callback' with the first event of the first resource for each
+  // device.
+  template <typename Callback>
+  void ForAllDeviceFirstEvents(Callback callback) const {
+    for (const auto& [device_id, device] : events_by_device_) {
+      if (!device.events_by_resource.empty() &&
+          !device.events_by_resource.begin()->second.empty()) {
+        callback(*device.events_by_resource.begin()->second.front());
+      }
+    }
+  }
+
   // Calls 'callback' with all event tracks stored in this container.
   template <typename Callback>
   void ForAllTracks(Callback callback) const {

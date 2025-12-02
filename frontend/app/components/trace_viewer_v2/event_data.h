@@ -22,6 +22,13 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
+inline constexpr absl::string_view kEventSelectedStart = "start";
+inline constexpr absl::string_view kEventSelectedDuration = "duration";
+
+inline constexpr absl::string_view kViewportChanged = "viewport-changed";
+
+inline constexpr absl::string_view kViewportStart = "start";
+inline constexpr absl::string_view kViewportEnd = "end";
 
 }  // namespace traceviewer
 

@@ -205,6 +205,7 @@ cc_library(
         ":barrier_cores_rule",
         ":collective_bound_rule",
         ":compute_bound_rule",
+        ":data_shuffle_bound_rule",
         ":data_transfer_bound_rule",
         ":host_processing_bound_rule",
         ":memory_bound_rule",
@@ -238,6 +239,21 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+    ],
+)
+
+cc_library(
+    name = "data_shuffle_bound_rule",
+    hdrs = ["data_shuffle_bound_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -355,5 +371,21 @@ cc_test(
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "data_shuffle_bound_rule_test",
+    srcs = ["data_shuffle_bound_rule_test.cc"],
+    deps = [
+        ":data_shuffle_bound_rule",
+        ":mock_tool_data_provider",
+        ":signal_provider",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:op_metrics_proto_cc",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:op_stats_proto_cc",
+        "@org_tensorflow//tensorflow/core/profiler/protobuf:steps_db_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
     ],
 )

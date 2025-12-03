@@ -119,51 +119,28 @@ class SignalProvider {
 
   // Returns the collective time fraction of each step for collective ops.
   absl::StatusOr<std::vector<float>> GetCollectiveTimeFractionEachStep() const {
-    TF_ASSIGN_OR_RETURN(const auto* op_stats,
-                        tool_data_provider_->GetOpStats());
+    return GetTimeFractionEachStepImpl([this](absl::string_view category) {
+      return IsCollective(category);
+    });
+  }
 
-    const auto& step_db = op_stats->step_db();
-    std::vector<float> fractions;
-    for (const auto& step : step_db.step_sequence()) {
-      if (step.step_info_per_core().empty()) continue;
-      uint64_t total_duration_ps = 0;
-      for (const auto& [core_id, step_info] : step.step_info_per_core()) {
-        // Right now we only consider TensorCore and skip SparseCore steps.
-        // We need to update later to take into consideration the offloaded
-        // collectives once the SparseCore related data is available.
-        if (core_id >= kSparseCoreIndexStart) continue;
-        total_duration_ps += step_info.duration_ps();
-      }
-      if (total_duration_ps == 0) continue;
-
-      uint64_t collective_time_ps = 0;
-      for (const auto& it : step.hlo_metrics_db().metrics_db()) {
-        if (IsCollective(it.category())) {
-          collective_time_ps += it.self_time_ps();
-        }
-      }
-      fractions.push_back(static_cast<float>(collective_time_ps) /
-                          total_duration_ps);
+  // Returns the average percentage from a vector of fractions.
+  double CalculateAveragePercent(const std::vector<float>& fractions) const {
+    if (fractions.empty()) {
+      return 0.0;
     }
-    return fractions;
+    tsl::Stat<float> stat;
+    for (float fraction : fractions) {
+      stat.UpdateStat(fraction);
+    }
+    return stat.avg() * 100.0;
   }
 
   // Returns the average percentage of step time for collective operations.
   absl::StatusOr<double> GetAvgCollectiveTimePercent() const {
-    TF_ASSIGN_OR_RETURN(
-        auto collective_fractions,
-        GetCollectiveTimeFractionEachStep());
-    if (collective_fractions.empty()) {
-      return 0.0;
-    }
-    tsl::Stat<float> stat;
-    for (float fraction : collective_fractions) {
-      stat.UpdateStat(fraction);
-    }
-    if (stat.count() == 0) {
-      return 0.0;
-    }
-    return stat.avg() * 100.0;
+    TF_ASSIGN_OR_RETURN(auto collective_fractions,
+                        GetCollectiveTimeFractionEachStep());
+    return CalculateAveragePercent(collective_fractions);
   }
 
   // Returns the percentage of time when the TensorCore is idle.
@@ -258,29 +235,96 @@ class SignalProvider {
     return *input_percent > kInfeedPercentageThreshold;
   }
 
+  // Returns the time fraction of each step for data shuffle ops.
+  absl::StatusOr<std::vector<float>> GetDataShuffleTimeFractionEachStep()
+      const {
+    return GetTimeFractionEachStepImpl([this](absl::string_view category) {
+      return IsDataShuffle(category);
+    });
+  }
+
+  // Returns the average percentage of step time for data shuffle operations.
+  absl::StatusOr<double> GetAvgDataShuffleTimePercent() const {
+    TF_ASSIGN_OR_RETURN(auto data_shuffle_fractions,
+                        GetDataShuffleTimeFractionEachStep());
+    return CalculateAveragePercent(data_shuffle_fractions);
+  }
+
  private:
+  // Helper function to get time fractions for each step based on a category.
+  template <typename CategoryPredicateType>
+  absl::StatusOr<std::vector<float>> GetTimeFractionEachStepImpl(
+      CategoryPredicateType category_predicate) const {
+    TF_ASSIGN_OR_RETURN(const auto* op_stats,
+                        tool_data_provider_->GetOpStats());
+
+    const auto& step_db = op_stats->step_db();
+    std::vector<float> fractions;
+    for (const auto& step : step_db.step_sequence()) {
+      if (step.step_info_per_core().empty()) continue;
+      uint64_t total_duration_ps = 0;
+      for (const auto& [core_id, step_info] : step.step_info_per_core()) {
+        // Right now we only consider TensorCore and skip SparseCore steps.
+        // We need to update later to take into consideration once the
+        // SparseCore related data is available.
+        if (core_id >= kSparseCoreIndexStart) continue;
+        total_duration_ps += step_info.duration_ps();
+      }
+      if (total_duration_ps == 0) continue;
+
+      uint64_t category_time_ps = 0;
+      for (const auto& it : step.hlo_metrics_db().metrics_db()) {
+        if (category_predicate(it.category())) {
+          category_time_ps += it.self_time_ps();
+        }
+      }
+      fractions.push_back(static_cast<float>(category_time_ps) /
+                          total_duration_ps);
+    }
+    return fractions;
+  }
+
   bool IsCollective(absl::string_view value) const {
-    static const absl::flat_hash_set<absl::string_view>* kCollectives =
-        new absl::flat_hash_set<absl::string_view>({
-            "all-reduce",
-            "all-reduce fusion",
-            "all-reduce-scatter fusion",
-            "all-to-all",
-            "all-gather",
-            "all-gather-start",
-            "all-gather-done",
-            "all-gather fusion",
-            "reduce-scatter",
-            "collective-permute",
-            "collective-permute-done",
-            "collective-permute-start",
-            "megacore fusion",
-            "host recv",
-            "host recv-done",
-            "host send",
-            "host send-done",
-        });
-    return kCollectives->contains(value);
+    static const absl::flat_hash_set<absl::string_view> kCollectives = {
+        "all-reduce",
+        "all-reduce fusion",
+        "all-reduce-scatter fusion",
+        "all-to-all",
+        "all-gather",
+        "all-gather-start",
+        "all-gather-done",
+        "all-gather fusion",
+        "reduce-scatter",
+        "collective-permute",
+        "collective-permute-done",
+        "collective-permute-start",
+        "megacore fusion",
+        "host recv",
+        "host recv-done",
+        "host send",
+        "host send-done",
+    };
+    return kCollectives.contains(value);
+  }
+
+  bool IsDataShuffle(absl::string_view value) const {
+    static const absl::flat_hash_set<absl::string_view> kDataShuffle = {
+        "broadcast",
+        "concatenate",
+        "data formatting",
+        "dynamic-slice",
+        "dynamic-update-slice",
+        "gather",
+        "pad",
+        "reverse",
+        "scatter",
+        "select",
+        "select-and-scatter",
+        "shuffle",
+        "slice",
+        "sort",
+    };
+    return kDataShuffle.contains(value);
   }
 
   std::unique_ptr<ToolDataProvider> tool_data_provider_;

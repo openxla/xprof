@@ -113,10 +113,11 @@ class Timeline {
 
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
 
-  void set_timeline_data(FlameChartTimelineData data) {
-    timeline_data_ = std::move(data);
-  }
+  void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
+
+  // Returns the cached group offsets. This is for testing only.
+  const std::vector<float>& group_offsets() const { return group_offsets_; }
 
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
@@ -175,6 +176,19 @@ class Timeline {
   // This method is virtual to allow derived classes to customize or extend
   // zooming behavior.
   virtual void Zoom(float zoom_factor);
+
+  // Pre-calculates the offsets of each group row based on the provided data.
+  // This avoids re-calculating these heights on every frame during the draw
+  // call.
+  virtual std::vector<float> CalculateGroupOffsets(
+      const FlameChartTimelineData& data) const;
+
+  // Calculates the range of visible group indices [start, end] based on the
+  // current scroll position and visible height. The returned range includes
+  // a buffer of one group before and after the visible area for smooth
+  // scrolling.
+  std::pair<int, int> GetVisibleGroupRange(float scroll_y,
+                                           float visible_height) const;
 
  private:
   double px_per_time_unit() const;
@@ -238,9 +252,16 @@ class Timeline {
   static constexpr ImGuiWindowFlags kLaneFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
-  FlameChartTimelineData timeline_data_;
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = 250.0f;
+
+  FlameChartTimelineData timeline_data_;
+
+  // Cached offsets of each group row. This is pre-calculated in
+  // `set_timeline_data` to avoid recalculating on every frame in the `Draw`
+  // call, which is a significant performance optimization. The last element
+  // stores the total height.
+  std::vector<float> group_offsets_;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

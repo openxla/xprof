@@ -292,7 +292,8 @@ dashboard would integrate trace viewer app using iframe.
   #backend_toggle_button,
   #button.right-controls-button,
   #expand_all_button,
-  #collapse_all_button{
+  #collapse_all_button,
+  #mpmd_view_button{
     height: 36px;
     background-color: #f8f8f8;
     border: #f8f8f8 solid 0.5px;
@@ -301,12 +302,13 @@ dashboard would integrate trace viewer app using iframe.
     padding-left: 5px;
     padding-right: 5px;
   }
-  #backend_toggle_button {
+  #backend_toggle_button{
     color: #3f51b5;
     font-weight: bold;
   }
   #view_console_button.right-controls-button:hover,
-  #button.right-controls-button:hover {
+  #button.right-controls-button:hover,
+  #mpmd_view_button:hover {
     background-color: white;
     border: #dadce0 solid 0.5px;
   }
@@ -558,6 +560,7 @@ dashboard would integrate trace viewer app using iframe.
       _asyncTrackState: {type: Object, value: new Map()},
       _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
       _percaleUrlPrefix: {type: String, value: ''},
+      _mpmdView: {type: Boolean, value: false},
     },
 
     ready: function() {
@@ -638,6 +641,9 @@ dashboard would integrate trace viewer app using iframe.
               if (traceViewerLink.searchParams.has('new_backend')) {
                 this._useNewBackend = traceViewerLink.searchParams.get('new_backend') === 'true';
                 this._useNewBackendSetInUrl = true;
+              }
+              if (traceViewerLink.searchParams.has('mpmd_view')) {
+                this._mpmdView = traceViewerLink.searchParams.get('mpmd_view') === 'true';
               }
             } catch(err) {  // not fatal.
               console.log('cannot find session id');
@@ -1350,6 +1356,28 @@ dashboard would integrate trace viewer app using iframe.
       }
     },
 
+    _createMpmdButton: function() {
+      const mpmdButton = document.createElement('tr-ui-b-toolbar-button');
+      const detailsSelector = document.getElementById('details_selector');
+      mpmdButton.setAttribute('id', 'mpmd_view_button');
+      mpmdButton.classList.add('tooltip');
+      const tooltipSpan = document.createElement('span');
+      tooltipSpan.classList.add('tooltiptext');
+      tooltipSpan.textContent = 'Toogle to enable/disable MPMD Pipeline view';
+      const labelDiv = document.createElement('div');
+      labelDiv.textContent = this._mpmdView ? 'Turn off MPMD View' : 'Switch to MPMD View';
+      mpmdButton.appendChild(labelDiv);
+      mpmdButton.appendChild(tooltipSpan);
+      mpmdButton.addEventListener('click', () => {
+        const url = new URL(window.parent.location.href);
+        this._mpmdView = !this._mpmdView;
+        labelDiv.textContent = this._mpmdView ? 'Turn off MPMD View' : 'Switch to MPMD View';
+        url.searchParams.set('mpmd_view', this._mpmdView);
+        window.open(url.toString(), '_top');
+      });
+      Polymer.dom(this._traceViewer.rightControls).insertBefore(mpmdButton, detailsSelector);
+    },
+
     _createDetailFilter: function() {
       const detailsSelector = document.createElement('tr-ui-b-dropdown');
       const flowEventsDropdown = document.getElementById('flow_event_filter_dropdown');
@@ -1689,6 +1717,7 @@ dashboard would integrate trace viewer app using iframe.
       if (this._isStreaming) {
         // Need to create detail filter in init since it contributes to the baseUrl building.
         this._createDetailFilter();
+        this._createMpmdButton();
         this._updateSearchBehavior();
       }
       let initialRequestedRange = null;
@@ -2182,6 +2211,9 @@ dashboard would integrate trace viewer app using iframe.
         } else {
           this._dataRegenerated = true;
         }
+      }
+      if (this._mpmdView) {
+        requestURL.searchParams.set('mpmd_view', this._mpmdView);
       }
       requestURL.searchParams.set('replace_model', this._replaceModel);
       requestURL.searchParams.set('new_backend', this._useNewBackend);

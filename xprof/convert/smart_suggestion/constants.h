@@ -42,6 +42,10 @@ inline constexpr double kInfeedPercentageThreshold = 10.0;
 // classification.
 inline constexpr double kCollectiveBoundThresholdInPercent = 30.0;
 
+// Threshold for data shuffle op percentage of step time for bottleneck
+// classification.
+inline constexpr double kDataShuffleBoundThresholdInPercent = 30.0;
+
 }  // namespace profiler
 }  // namespace tensorflow
 

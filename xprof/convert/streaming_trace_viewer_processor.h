@@ -16,26 +16,32 @@ namespace xprof {
 class StreamingTraceViewerProcessor : public ProfileProcessor {
  public:
   explicit StreamingTraceViewerProcessor(
-      const tensorflow::profiler::ToolOptions&) {}
+      const tensorflow::profiler::ToolOptions& options)
+      : options_(options) {}
 
   absl::Status ProcessSession(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const tensorflow::profiler::ToolOptions& options) final;
 
+  absl::StatusOr<std::string> Map(const std::string& xspace_path) override;
+
   absl::StatusOr<std::string> Map(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
       const std::string& hostname,
-      const tensorflow::profiler::XSpace& xspace) override {
-    return absl::UnimplementedError(
-        "Map not implemented for StreamingTraceViewerProcessor");
-  }
+      const tensorflow::profiler::XSpace& xspace) override;
 
   absl::Status Reduce(
       const tensorflow::profiler::SessionSnapshot& session_snapshot,
-      const std::vector<std::string>& map_output_files) override {
-    return absl::UnimplementedError(
-        "Reduce not implemented for StreamingTraceViewerProcessor");
+      const std::vector<std::string>& map_output_files) override;
+
+  bool ShouldUseWorkerService(
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const tensorflow::profiler::ToolOptions& options) const override {
+    return session_snapshot.XSpaceSize() > 1;
   }
+
+ private:
+  tensorflow::profiler::ToolOptions options_;
 };
 
 }  // namespace xprof

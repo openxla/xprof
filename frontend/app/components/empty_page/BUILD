@@ -15,8 +15,10 @@ xprof_ng_module(
     ],
     deps = [
         "@npm//@angular/core",
+        "@npm//rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/capture_profile",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],
 )
 

@@ -692,3 +692,15 @@ xprof_proto_library(
     name = "backend_configs_proto",
     srcs = ["backend_configs.proto"],
 )
+
+cc_library(
+    name = "tpu_counter_ids",
+    hdrs = ["tpu_counter_ids.h"],
+    compatible_with = ["//buildenv/target:libtpu"],
+    visibility = [
+        "//perftools/gputools/profiler/collector:__pkg__",
+        "@org_tensorflow//tensorflow/core/profiler:__subpackages__",
+    ],
+    deps = [
+    ],
+)

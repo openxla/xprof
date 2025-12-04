@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/smart_suggestion/signal_provider.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule.h"
 #include "plugin/xprof/protobuf/smart_suggestion.pb.h"
@@ -30,10 +31,6 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-// If the percentage of input time that is due to data transfer is high than
-// DataTransferBoundThresholdInPercent, it is considered
-// data transfer-bound.
-constexpr double kDataTransferBoundThresholdInPercent = 30;
 
 // Rule to detect if the input bottleneck is primarily due to data transfer.
 class DataTransferBoundRule : public SmartSuggestionRule {

@@ -81,9 +81,12 @@ cc_library(
     deps = [
         ":time_range",
         ":timeline",
+        "//third_party/emscripten:embind",
         "//util/gtl:comparator",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
@@ -106,6 +109,12 @@ cc_library(
 cc_test(
     name = "data_provider_test",
     srcs = ["data_provider_test.cc"],
+    tags = [
+        "manual",
+        "nobuilder",
+        "notap",
+        "requires_wasm_config",
+    ],
     deps = [
         ":data_provider",
         ":time_range",

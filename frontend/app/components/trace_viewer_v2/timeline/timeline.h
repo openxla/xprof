@@ -1,7 +1,6 @@
 #ifndef PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,6 +17,8 @@
 #include "third_party/dear_imgui/imgui.h"
 
 namespace traceviewer {
+
+class DataProvider;  // Forward declaration
 
 // Represents a rectangle on the screen.
 struct EventRect {
@@ -58,15 +59,35 @@ class Timeline {
   using EventCallback =
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
 
+  // A callback function to handle viewport changes. The arguments are the
+  // start and end times of the new visible range in microseconds.
+  using ViewportChangedCallback =
+      absl::AnyInvocable<void(Microseconds, Microseconds) const>;
+
+  // A callback function to fetch more data. The arguments are the start and
+  // end times of the range for which to fetch data in microseconds.
+  using FetchMoreDataCallback =
+      absl::AnyInvocable<void(Microseconds, Microseconds) const>;
+
   Timeline() = default;
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
   // The provided callback is stored and invoked during the lifetime of this
-  // `Timeline` instance. Any captured references must outlive the `Timeline`
   // instance.
   void set_event_callback(EventCallback callback) {
     event_callback_ = std::move(callback);
+  }
+
+  // The provided callback is stored and invoked when the viewport changes.
+  void set_viewport_changed_callback(ViewportChangedCallback callback) {
+    viewport_changed_callback_ = std::move(callback);
+  }
+
+  // The provided callback is stored and invoked when more data needs to be
+  // fetched.
+  void set_fetch_more_data_callback(FetchMoreDataCallback callback) {
+    fetch_more_data_callback_ = std::move(callback);
   }
 
   // Sets the visible time range. If animate is true, the transition to the
@@ -76,15 +97,8 @@ class Timeline {
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
 
-  const std::vector<TimeRange>& selected_time_ranges() const {
-    return selected_time_ranges_;
-  }
-
-  const std::optional<TimeRange>& current_selected_time_range() const {
-    return current_selected_time_range_;
-  }
-
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
+  const TimeRange& data_time_range() const { return data_time_range_; }
 
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
@@ -165,14 +179,6 @@ class Timeline {
 
   void DrawGroup(int group_index, double px_per_time_unit_val);
 
-  // Draws a single selected time range.
-  void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
-                             double px_per_time_unit_val);
-
-  // Draws all the selected time ranges, including the current selected range.
-  void DrawSelectedTimeRanges(Pixel timeline_width,
-                              double px_per_time_unit_val);
-
   // Handles keyboard input for panning and zooming.
   void HandleKeyboard();
 
@@ -181,9 +187,6 @@ class Timeline {
 
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
-
-  // Handles mouse input for creating curtains.
-  void HandleMouse();
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
@@ -214,15 +217,11 @@ class Timeline {
   // The index of the currently selected event, or -1 if no event is selected.
   int selected_event_index_ = -1;
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
+  ViewportChangedCallback viewport_changed_callback_;
+  FetchMoreDataCallback fetch_more_data_callback_;
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
   bool event_clicked_this_frame_ = false;
-
-  bool is_dragging_ = false;
-
-  std::vector<TimeRange> selected_time_ranges_;
-  Microseconds drag_start_time_ = 0.0;
-  std::optional<TimeRange> current_selected_time_range_;
 };
 
 }  // namespace traceviewer

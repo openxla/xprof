@@ -75,12 +75,11 @@ wasm_cc_library(
         ":event_manager",
         ":input_handler",
         ":webgpu_render_platform",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
+        "//third_party/dear_imgui",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/time",
-        "//third_party/dear_imgui",
-        #data provider
+        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
     ],
 )

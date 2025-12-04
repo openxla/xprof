@@ -23,6 +23,11 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
 
+inline constexpr absl::string_view kViewportChanged = "viewport-changed";
+
+inline constexpr absl::string_view kViewportStart = "start";
+inline constexpr absl::string_view kViewportEnd = "end";
+
 }  // namespace traceviewer
 
 #endif  // PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

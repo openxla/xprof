@@ -80,6 +80,7 @@ cc_library(
     name = "host_processing_bound_rule",
     hdrs = ["host_processing_bound_rule.h"],
     deps = [
+        ":constants",
         ":signal_provider",
         ":smart_suggestion_rule",
         "@com_google_absl//absl/status:statusor",
@@ -94,6 +95,7 @@ cc_library(
     name = "data_transfer_bound_rule",
     hdrs = ["data_transfer_bound_rule.h"],
     deps = [
+        ":constants",
         ":signal_provider",
         ":smart_suggestion_rule",
         "@com_google_absl//absl/status:statusor",
@@ -138,6 +140,7 @@ cc_library(
     name = "tensor_core_idle_bound_rule",
     hdrs = ["tensor_core_idle_bound_rule.h"],
     deps = [
+        ":constants",
         ":signal_provider",
         ":smart_suggestion_rule",
         "@com_google_absl//absl/status:statusor",

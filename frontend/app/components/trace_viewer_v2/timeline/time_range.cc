@@ -8,10 +8,6 @@
 namespace traceviewer {
 
 TimeRange::TimeRange(Microseconds start, Microseconds end) {
-  if (start > end) {
-    LOG(WARNING) << "Invalid TimeRange created with end (" << end
-                 << ") < start (" << start << ").";
-  }
   start_ = start;
   end_ = std::max(start_, end);
 }

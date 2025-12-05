@@ -98,22 +98,52 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data) {
       event_list, Application::Instance().timeline());
 }
 
+void SetInitialViewport(float start_time_ms, float end_time_ms) {
+  Application::Instance().data_provider().SetInitialViewport(
+      start_time_ms, end_time_ms, Application::Instance().timeline());
+}
+
+void SetViewport(float start_time_ms, float end_time_ms) {
+  Application::Instance().data_provider().SetViewport(
+      start_time_ms, end_time_ms, Application::Instance().timeline());
+}
+
+std::pair<float, float> GetViewport() {
+  return Application::Instance().data_provider().GetViewport(
+      Application::Instance().timeline());
+}
+
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
 
+  // Bind std::pair<float, float>
+  emscripten::value_object<std::pair<float, float>>("FloatPair")
+      .field("start", &std::pair<float, float>::first)
+      .field("end", &std::pair<float, float>::second);
+
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
-      .function("getProcessList", &traceviewer::DataProvider::GetProcessList);
+      .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
+      .function("getEventData",
+                emscripten::select_overload<emscripten::val(std::string) const>(
+                    &traceviewer::DataProvider::GetEventData))
+      .function("getHloModuleForEvent",
+                &traceviewer::DataProvider::GetHloModuleForEvent)
+      .function("updateEventargs", &traceviewer::DataProvider::UpdateEventargs);
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+  emscripten::function("setInitialViewport", &traceviewer::SetInitialViewport);
+  emscripten::function("setViewport", &traceviewer::SetViewport);
+  emscripten::function("getViewport", &traceviewer::GetViewport);
 
   // Bind Application class and expose the singleton instance and data_provider
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider);
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference());
 }
 
 }  // namespace traceviewer

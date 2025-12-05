@@ -6,6 +6,7 @@
 
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
@@ -43,6 +44,12 @@ class Application {
   };
   DataProvider& data_provider() { return data_provider_; };
 
+  void set_events(std::vector<TraceEvent> events) {
+    events_ = std::move(events);
+  }
+
+  std::vector<TraceEvent>& events() { return events_; }
+
  private:
   friend class absl::NoDestructor<Application>;
 
@@ -50,6 +57,7 @@ class Application {
   // the Initialize() method.
   Application() = default;
 
+  std::vector<TraceEvent> events_;
   std::unique_ptr<WGPURenderPlatform> platform_;
   std::unique_ptr<Timeline> timeline_;
   // The data provider for trace events.

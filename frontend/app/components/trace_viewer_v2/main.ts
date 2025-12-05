@@ -19,7 +19,19 @@ export declare interface TraceViewerV2Module extends WasmModule {
   preinitializedWebGPUDevice: GPUDevice | null;
   processTraceEvents(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
-  getProcessList?(url: string): Promise<string[] | undefined>;
+  getProcessList?(url: string): Promise<string[]|undefined>;
+  getEventData?(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<EventData|undefined>;
+  getHloModuleForEvent?(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<string>;
+  getCodeLink?(): string;
+  getChangelist?(): string;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -29,6 +41,17 @@ export declare interface TraceViewerV2Module extends WasmModule {
     Instance(): {
       data_provider(): {
         getProcessList(): TraceViewerV2Module['StringVector'];
+        getEventMetaData(
+            name: string,
+            start: number,
+            duration: number,
+            ): EventData |
+        null;
+        getHloModuleForEvent(
+            name: string,
+            start: number,
+            duration: number,
+            ): string;
       };
     };
   };
@@ -36,6 +59,14 @@ export declare interface TraceViewerV2Module extends WasmModule {
 
 declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
+}
+
+declare interface EventData {
+  name: string;
+  processName: string;
+  start: number;
+  duration: number;
+  arguments: {[key: string]: string};
 }
 
 // Type guard to check if an object conforms to the TraceData interface
@@ -204,6 +235,51 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
       );
     }
     return processArray;
+  };
+
+  traceviewerModule.getEventData = async(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<EventData|undefined> => {
+    try {
+      const eventData = traceviewerModule.Application.Instance()
+                            .data_provider()
+                            .getEventMetaData(name, start, duration);
+      return eventData || undefined;
+    } catch (e) {
+      console.error('Error in getEventData:', e);
+      return undefined;
+    }
+  };
+
+  traceviewerModule.getHloModuleForEvent = async(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<string> => {
+    try {
+      // Assuming Application.Instance().data_provider() exposes
+      // getHloModuleForEvent
+      const moduleName = traceviewerModule!.Application.Instance()
+                             .data_provider()
+                             .getHloModuleForEvent(name, start, duration);
+      return moduleName;
+    } catch (e) {
+      console.error('Error in getHloModuleForEvent:', e);
+      return '';
+    }
+  };
+
+  // TODO(jonahweaver): Implement these in WASM and bind them.
+  traceviewerModule.getCodeLink = (): string => {
+    console.warn('getCodeLink not yet implemented in WASM.');
+    return 'https://source.corp.google.com/piper///depot/google3/{filePath};l={lineNumber}?q=content:{filePath}';
+  };
+
+  traceviewerModule.getChangelist = (): string => {
+    console.warn('getChangelist not yet implemented in WASM.');
+    return '';
   };
 
   return traceviewerModule;

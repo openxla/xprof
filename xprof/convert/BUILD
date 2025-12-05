@@ -1397,6 +1397,7 @@ cc_library(
     hdrs = ["hlo_proto_to_memory_visualization_utils.h"],
     # copybara:uncomment visibility = ["@org_tensorflow//tensorflow/core/profiler/protobuf:memory_viewer_friends"],
     deps = [
+        ":graphviz_helper",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -1408,13 +1409,14 @@ cc_library(
         "@com_google_protobuf//:json",
         "@org_xprof//plugin/xprof/protobuf:memory_viewer_preprocess_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
-        "@org_xprof//xprof/convert:graphviz_helper",
+        "@org_xprof//xprof/utils:hlo_module_utils",
         "@xla//xla:shape_util",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/platform:types",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
     ],
 )
 

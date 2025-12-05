@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/algorithm/container.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -101,15 +102,11 @@ inline std::string GetOpLocationStack(int32_t frame_id,
   return stack_lines;
 }
 
-inline tsl::profiler::OpSourceInfo GetSourceInfo(
-    const xla::HloInstruction& instr) {
-  const auto stack_frame_id = instr.metadata().stack_frame_id();
-  return {.source_file = instr.metadata().source_file(),
-          .source_line = instr.metadata().source_line(),
-          .stack_frame = stack_frame_id != 0
-                             ? GetOpLocationStack(stack_frame_id, instr)
-                             : ""};
-}
+tsl::profiler::OpSourceInfo GetSourceInfo(
+    const xla::HloInstructionProto& instr,
+    const xla::StackFrameIndexProto& stack_frame_index);
+
+tsl::profiler::OpSourceInfo GetSourceInfo(const xla::HloInstruction& instr);
 
 }  // namespace profiler
 }  // namespace tensorflow

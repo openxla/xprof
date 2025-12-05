@@ -64,6 +64,13 @@ void Application::Initialize() {
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);
       });
+  timeline_->set_viewport_changed_callback(
+      [](Microseconds start, Microseconds end) {
+        EventData event_data;
+        event_data.try_emplace(kViewportStart, start);
+        event_data.try_emplace(kViewportEnd, end);
+        EventManager::Instance().DispatchEvent(kViewportChanged, event_data);
+      });
 
   ImGuiIO& io = ImGui::GetIO();
 

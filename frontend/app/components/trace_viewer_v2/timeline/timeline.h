@@ -58,6 +58,11 @@ class Timeline {
   using EventCallback =
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
 
+  // A callback function to handle viewport changes. The arguments are the
+  // start and end times of the new visible range in microseconds.
+  using ViewportChangedCallback =
+      absl::AnyInvocable<void(Microseconds, Microseconds) const>;
+
   Timeline() = default;
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
@@ -67,6 +72,11 @@ class Timeline {
   // instance.
   void set_event_callback(EventCallback callback) {
     event_callback_ = std::move(callback);
+  }
+
+  // The provided callback is stored and invoked when the viewport changes.
+  void set_viewport_changed_callback(ViewportChangedCallback callback) {
+    viewport_changed_callback_ = std::move(callback);
   }
 
   // Sets the visible time range. If animate is true, the transition to the
@@ -85,6 +95,7 @@ class Timeline {
   }
 
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
+  const TimeRange& data_time_range() const { return data_time_range_; }
 
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
@@ -214,6 +225,7 @@ class Timeline {
   // The index of the currently selected event, or -1 if no event is selected.
   int selected_event_index_ = -1;
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
+  ViewportChangedCallback viewport_changed_callback_;
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
   bool event_clicked_this_frame_ = false;

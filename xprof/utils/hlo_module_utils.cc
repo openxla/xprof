@@ -115,14 +115,14 @@ OpSourceInfo ParseOpSourceInfoFromStackFrame(absl::string_view stack_frame) {
     // Note: the parsing logic now assumes non-windows file paths to not break.
     std::vector<absl::string_view> parts = absl::StrSplit(file_line_col, ':');
     if (parts.size() >= 2) {
-      source_info.source_file = parts[0];
+      source_info.source_file = std::string(parts[0]);
       int line;
       if (absl::SimpleAtoi(parts[1], &line)) {
         source_info.source_line = line;
       }
     }
   }
-  source_info.stack_frame = stack_frame;
+  source_info.stack_frame = std::string(stack_frame);
   return source_info;
 }
 
@@ -134,7 +134,7 @@ OpSourceInfo GetSourceInfo(absl::string_view source_file, int32_t source_line,
       return source_info;
     }
   }
-  return {.source_file = source_file,
+  return {.source_file = std::string(source_file),
           .source_line = source_line,
           .stack_frame = std::string(stack_frame)};
 }

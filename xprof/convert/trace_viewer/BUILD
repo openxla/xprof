@@ -158,7 +158,6 @@ cc_library(
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:macros",
-        "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )

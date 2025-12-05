@@ -12,7 +12,7 @@
 <ng-template #no_profile_data>
   <div class="container">
     <h3>No profile data was found.</h3>
-    <div class="horizontal-center">
+    <div *ngIf="!hideCaptureProfileButton" class="horizontal-center">
       <capture-profile></capture-profile>
     </div>
 

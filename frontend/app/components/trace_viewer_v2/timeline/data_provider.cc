@@ -204,8 +204,10 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
     return;
   }
 
+  event_map_.clear();
   TraceInformation trace_info;
   for (const auto& event : event_list) {
+    event_map_[{event.name, event.ts, event.dur}] = &event;
     switch (event.ph) {
       case Phase::kMetadata:
         HandleMetadataEvent(event, trace_info);

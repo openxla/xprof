@@ -137,9 +137,9 @@ void ModelTracker::ProcessOp(absl::string_view op_name,
 
 void ModelTracker::ProcessHloProto(const xla::HloProto& hlo_proto,
                                    bool return_on_training,
-                                   bool return_on_barnacore) {
+                                   bool return_on_scv0) {
   HloModuleWrapper hlo_module(hlo_proto);
-  ProcessHloModule(hlo_module, return_on_training, return_on_barnacore);
+  ProcessHloModule(hlo_module, return_on_training, return_on_scv0);
 }
 
 }  // namespace tensorflow::profiler

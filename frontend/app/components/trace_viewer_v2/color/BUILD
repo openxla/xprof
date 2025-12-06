@@ -25,7 +25,6 @@ cc_test(
     srcs = ["color_generator_test.cc"],
     deps = [
         ":colors",
-        "//testing/production_stub/public:testvalue",
         "//third_party/dear_imgui",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",

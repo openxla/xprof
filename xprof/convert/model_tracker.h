@@ -25,17 +25,17 @@ class ModelTracker {
   // immediately when it finds the first HLO instruction related to training.
   void ProcessHloProto(const xla::HloProto& hlo_proto,
                        bool return_on_training = false,
-                       bool return_on_barnacore = false);
+                       bool return_on_scv0 = false);
 
   template <class T>
   void ProcessHloModule(const HloModuleInterface<T>& hlo_module,
                         bool return_on_training = false,
-                        bool return_on_barnacore = false) {
-    DCHECK(!(return_on_training && return_on_barnacore));
+                        bool return_on_scv0 = false) {
+    DCHECK(!(return_on_training && return_on_scv0));
     for (const auto* instr : hlo_module.Instructions()) {
       ProcessInstructionMetadata(*instr);
       if (return_on_training && IsTraining()) return;
-      if (return_on_barnacore && UsesBarnaCore()) return;
+      if (return_on_scv0 && UsesSCV0()) return;
     }
   }
 
@@ -53,7 +53,7 @@ class ModelTracker {
   bool HasBertTfOp() const { return has_bert_tf_op_; }
   bool HasLambTfOp() const { return has_lamb_tf_op_; }
 
-  bool UsesBarnaCore() const { return has_barna_core_op_; }
+  bool UsesSCV0() const { return has_scv0_core_op_; }
   bool HasSendRecvOps() const { return has_send_recv_op_; }
 
   bool HasGradients() const;
@@ -87,7 +87,7 @@ class ModelTracker {
 
   // XLA
   bool has_all_reduce_op_ = false;
-  bool has_barna_core_op_ = false;
+  bool has_scv0_core_op_ = false;
   bool has_send_recv_op_ = false;
 };
 

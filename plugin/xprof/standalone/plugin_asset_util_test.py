@@ -1,5 +1,5 @@
-from google3.testing.pybase import googletest
-from google3.testing.pybase import parameterized
+from absl.testing import absltest
+from absl.testing import parameterized
 from xprof.standalone import plugin_asset_util
 
 
@@ -33,4 +33,4 @@ class PluginAssetUtilTest(parameterized.TestCase):
 
 
 if __name__ == "__main__":
-  googletest.main()
+  absltest.main()

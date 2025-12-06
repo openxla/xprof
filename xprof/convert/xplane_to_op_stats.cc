@@ -23,6 +23,7 @@ limitations under the License.
 #include <ostream>
 #include <string>
 #include <vector>
+#include <queue>
 
 #include "absl/cleanup/cleanup.h"
 #include "absl/container/flat_hash_set.h"
@@ -56,6 +57,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
+#include "xprof/utils/custom_call_cost_estimator.h"
 #include "xprof/utils/device_caps_utils.h"
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/gpu_event_stats.h"
@@ -66,6 +68,7 @@ limitations under the License.
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_utils.h"
 #include "xprof/utils/xprof_gpu_cost_analysis_types.h"
+#include "absl/container/flat_hash_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -77,6 +80,7 @@ using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
 using tsl::profiler::Timespan;
 using ::tsl::profiler::XPlaneBuilder;
+using tsl::profiler::kXlaOpLineName;
 
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";
@@ -272,6 +276,138 @@ void UpdateOpMetricsDbFromHloModuleMap(OpMetricsDb& op_metrics_db,
   }
 }
 
+void ProcessCustomCallOpMetrics(const XPlane* device_plane,
+                                const HloModuleMap& hlo_module_map,
+                                OpMetricsDb& op_metrics_db) {
+  absl::flat_hash_map<std::string,
+               absl::flat_hash_map<std::string, uint>>
+                 custom_call_to_block_count_exp;
+
+  std::queue<XEventVisitor> custom_call_events_exp;
+
+
+  XPlaneVisitor events_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  events_visitor.ForEachLine([&](const XLineVisitor& line) {
+    if (line.Name() == kXlaOpLineName) {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        bool custom_call = false;
+        event.Metadata().ForEachStat([&]
+          (const XStatVisitor& stat) {
+          if (stat.Type().has_value()) {
+            switch (static_cast<StatType>(*stat.Type())) {
+              case StatType::kHloCategory:
+                custom_call =
+                (stat.StrOrRefValue() == "custom-call");
+                break;
+              default:
+                break;
+            }
+          }
+        });
+        if (custom_call){
+          custom_call_events_exp.push(event);
+        }
+      });
+    }
+  });
+
+
+  events_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+      events_visitor.ForEachLine([&](const XLineVisitor& line) {
+    if (line.Name() == "XLA TraceMe") {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        if (absl::StartsWith(event.Name(), "__block_")){
+          // Custom Call Events that are prior to this TraceMe event are not
+          // relevant.
+          while ( !custom_call_events_exp.empty() &&
+            GetDeviceEventTimespan(custom_call_events_exp.front())
+            .end_ps()  < GetDeviceEventTimespan(event).begin_ps()){
+              custom_call_events_exp.pop();
+          }
+          if (custom_call_events_exp.empty()){
+            LOG(WARNING) << "Unmatched TraceMe: " <<event.Name();
+          }else{
+            tsl::profiler::Timespan custom_call_timespan =
+            GetDeviceEventTimespan(custom_call_events_exp.front());
+            tsl::profiler::Timespan block_timespan =
+            GetDeviceEventTimespan(event);
+            // Consider only those TraceMe events that completely within
+            // the custom call event timespan.
+            if ((custom_call_timespan.begin_ps() <=
+              block_timespan.begin_ps()) &&
+              (block_timespan.end_ps() <=
+                custom_call_timespan.end_ps())
+              ){
+              custom_call_to_block_count_exp
+                [custom_call_events_exp.front().DisplayName()]
+                [event.Name()] += 1;
+            }else{
+              LOG(WARNING) << "Unmatched Block: " <<event.Name();
+            }
+          }
+        }
+      });
+    }
+  });
+  for (OpMetrics& op_metrics : *op_metrics_db.mutable_metrics_db()) {
+    const HloInstructionWrapper* instr_wrapper =
+        GetHloInstruction(hlo_module_map, op_metrics.hlo_module_id(),
+                          op_metrics.name());
+    if (instr_wrapper != nullptr) {
+      if (instr_wrapper->Category() == "custom-call") {
+        bool has_block_costs =
+            custom_call_to_block_count_exp.contains(op_metrics.name());
+        if (has_block_costs) {
+          uint64 total_flops = 0;
+          uint64 total_bytes_accessed = 0;
+          for (auto& [block_name, occurrence] :
+               custom_call_to_block_count_exp[op_metrics.name()]) {
+            auto block_cost_pair =
+                instr_wrapper->GetCustomCallBlockCosts(block_name);
+            if (block_cost_pair.has_value()) {
+              OpMetrics* child_metric =
+                  op_metrics.mutable_children()->add_metrics_db();
+              child_metric->set_name(block_name);
+              child_metric->set_occurrences(occurrence);
+              child_metric->set_flops(block_cost_pair.value().flops);
+              child_metric->set_model_flops(block_cost_pair.value().flops);
+              child_metric->set_bytes_accessed(
+                  block_cost_pair.value().bytes_consumed);
+              total_flops += (occurrence * block_cost_pair.value().flops);
+              total_bytes_accessed +=
+                  (occurrence * block_cost_pair.value().bytes_consumed);
+            } else {
+              LOG(WARNING) << "No Costs Found for : " << block_name;
+            }
+          }
+          if (instr_wrapper->FusedChildren().empty()) {
+            const CustomCallCostEstimator::OperationCost& ccall_cost =
+              instr_wrapper->GetCustomCallCost();
+            // Total Flops is Sum of Flops of a Basic Block * Occurrence Count
+            op_metrics.set_flops(total_flops);
+            op_metrics.set_bytes_accessed(total_bytes_accessed);
+            op_metrics.set_model_flops(total_flops);
+            // Memory Access is Computed as
+            // Kernel_Invokes * (HBM (Read + Write) )
+            op_metrics.clear_memory_accessed_breakdown();
+            auto* memory_accessed =
+                op_metrics.add_memory_accessed_breakdown();
+            memory_accessed->set_operation_type(
+                OpMetrics::MemoryAccessed::READ);
+            memory_accessed->set_memory_space(MemorySpace::MEMORY_SPACE_HBM);
+            memory_accessed->set_bytes_accessed(ccall_cost.hbm_rw_bytes);
+          }
+        }else{
+          LOG(WARNING) << "No Block Costs Found for Custom Call : "
+                       << op_metrics.name();
+        }
+      }
+    }
+  }
+}
+
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   DutyCycleTracker duty_cycle_tracker;
   visitor.ForEachLine([&](const XLineVisitor& line) {
@@ -380,6 +516,8 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
                      .has_value()) {
               op_metrics_db =
                   ConvertTpuDeviceTraceXPlaneToOpMetricsDb(*device_plane);
+              ProcessCustomCallOpMetrics(device_plane, hlo_module_map,
+                                         op_metrics_db);
               UpdateOpMetricsDbFromHloModuleMap(op_metrics_db, hlo_module_map);
             }
           }

@@ -1,5 +1,6 @@
 import {Component} from '@angular/core';
 import {MatDialogRef} from '@angular/material/dialog';
+import {ProfileOptions} from 'google3/third_party/tensorflow/tsl/profiler/protobuf/profiler_options.proto';
 
 /** A capture profile dialog component. */
 @Component({
@@ -12,12 +13,14 @@ export class CaptureProfileDialog {
   captureButtonLabel = 'Capture';
   closeButtonLabel = 'Close';
   serviceAddr = '';
-  isTpuName = false;
   addressType = 'ip';
+  deviceType = 'gpu';
   duration = 1000;
   numRetry = 3;
   workerList = '';
   hostTracerLevel = '2';
+  readonly TraceMode = ProfileOptions.TraceMode;
+  traceMode: ProfileOptions.TraceMode = this.TraceMode.TRACE_COMPUTE;
   hostTracerTooltip = 'lower trace level to reduce amount of host traces ' +
       'collected, some tools will not function well when the host tracer ' +
       'level is less than info';
@@ -29,10 +32,6 @@ export class CaptureProfileDialog {
   constructor(private readonly dialogRef:
                   MatDialogRef<CaptureProfileDialog>) {}
 
-  addressTypeChanged(value: string) {
-    this.isTpuName = value === 'tpu';
-  }
-
   serviceAddrChanged(value: string) {
     this.serviceAddr = value.trim();
   }
@@ -40,7 +39,7 @@ export class CaptureProfileDialog {
   captureProfile() {
     const options: {[key: string]: string|number|boolean} = {
       serviceAddr: this.serviceAddr,
-      isTpuName: this.isTpuName,
+
       duration: this.duration,
       numRetry: this.numRetry,
       workerList: this.workerList,
@@ -49,6 +48,11 @@ export class CaptureProfileDialog {
       pythonTracerLevel: Number(this.pythonTracerLevel),
       delay: this.delay,
     };
+    // TraceMode is applicable when deviceType is 'tpu', regardless of whether
+    // serviceAddr is a TPU name or IP addresses.
+    if (this.deviceType === 'tpu') {
+      options['traceMode'] = this.traceMode;
+    }
 
     for (const option of this.extraOptions) {
       options[option.key] = option.value;

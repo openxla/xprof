@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/utils/tfstreamz_utils.h"
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -35,7 +36,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 namespace {
 
@@ -78,7 +78,7 @@ tfstreamz::Percentiles ToProto(
 }  // namespace
 
 absl::Status SerializeToXPlane(const std::vector<TfStreamzSnapshot>& snapshots,
-                               XPlane* plane, uint64 line_start_time_ns) {
+                               XPlane* plane, uint64_t line_start_time_ns) {
   tsl::profiler::XPlaneBuilder xplane(plane);
   tsl::profiler::XLineBuilder line =
       xplane.GetOrCreateLine(0);  // This plane has single line.

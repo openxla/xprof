@@ -23,15 +23,13 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
-#include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/utils/timespan.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
-using tsl::uint64;
 
 // The various event types. Enumerations are numbered such that a bigger number
 // has a higher priority than a smaller number when used in execution-time
@@ -140,8 +138,8 @@ struct StepMarker {
   explicit StepMarker(StepMarkerType step_marker_type, absl::string_view name,
                       tsl::profiler::Timespan s)
       : type(step_marker_type), event_name(name), span(s) {
-        core_id = std::nullopt;
-      }
+    core_id = std::nullopt;
+  }
   explicit StepMarker(StepMarkerType step_marker_type, uint32_t core_id,
                       absl::string_view name, tsl::profiler::Timespan s)
       : StepMarker(step_marker_type, name, s) {
@@ -165,14 +163,14 @@ class StepDetails {
   const std::vector<StepMarker>& Markers() const { return markers_; }
   const std::vector<EventTypeSpan>& Events() const { return events_; }
 
-  const absl::flat_hash_map<uint32, AllReduceDbResult>& Collectives() const {
+  const absl::flat_hash_map<uint32_t, AllReduceDbResult>& Collectives() const {
     return collectives_;
   }
   const std::vector<DeviceMemoryTransfer>& DeviceMemoryTransfers() const {
     return device_memory_transfers_;
   }
 
-  absl::flat_hash_map<uint32, OpMetricsDb>& PerCoreOpMetricsDb() {
+  absl::flat_hash_map<uint32_t, OpMetricsDb>& PerCoreOpMetricsDb() {
     return per_core_op_metrics_db_;
   }
   // Returns the step time.
@@ -183,13 +181,13 @@ class StepDetails {
   // Adds an EventTypeSpan to this step.
   void AddEvent(const EventTypeSpan& e);
   // Adds a collective op to this step.
-  void AddCollectiveOpEvent(uint64 core_id, const AllReduceInfo& e);
+  void AddCollectiveOpEvent(uint64_t core_id, const AllReduceInfo& e);
   // Appends device memory transfer events to this step.
   // Only event type of HOST_TO_DEVICE/DEVICE_TO_DEVICE/DEVICE_TO_HOST are
   // allowed.
   void AddDeviceMemoryTransferEvent(EventType event_type,
                                     const tsl::profiler::Timespan& time_span,
-                                    uint64 bytes);
+                                    uint64_t bytes);
   // Returns the step name.
   std::string StepName() const { return step_name_; }
   // Sets the name of this step.
@@ -209,7 +207,7 @@ class StepDetails {
   // Returns a string that prints the content of this object.
   std::string DebugString() const;
 
-  void SetPerCoreOpMetricsDb(OpMetricsDb db, uint32 core_id) {
+  void SetPerCoreOpMetricsDb(OpMetricsDb db, uint32_t core_id) {
     per_core_op_metrics_db_[core_id] = db;
   }
 
@@ -227,14 +225,14 @@ class StepDetails {
   // All events belonging to this step.
   std::vector<EventTypeSpan> events_;
   // Collective operation related events such as all-reduce etc.
-  absl::flat_hash_map<uint32, AllReduceDbResult> collectives_;
+  absl::flat_hash_map<uint32_t, AllReduceDbResult> collectives_;
   // Device memory transfers (including time and bytes involved).
   // TODO(jiesun): Consider to use IntervalSet instead of just sum up the event
   // durations.
   std::vector<DeviceMemoryTransfer> device_memory_transfers_;
   std::string step_name_;
 
-  absl::flat_hash_map<uint32, OpMetricsDb> per_core_op_metrics_db_;
+  absl::flat_hash_map<uint32_t, OpMetricsDb> per_core_op_metrics_db_;
 };
 
 // Map from step_id to the events happened in that step.

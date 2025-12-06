@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/utils/kernel_stats_utils.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -33,7 +34,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
 
 namespace {
 
@@ -71,8 +71,8 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
   const std::vector<absl::string_view> params =
       absl::StrSplit(xstat_kernel_details, absl::ByAnyChar(" \n"));
 
-  constexpr uint32 kNumDimensions = 3;
-  for (uint32 dim = 0; dim < kNumDimensions; ++dim) {
+  constexpr uint32_t kNumDimensions = 3;
+  for (uint32_t dim = 0; dim < kNumDimensions; ++dim) {
     kernel->add_block_dim(1);
     kernel->add_grid_dim(1);
   }
@@ -86,7 +86,7 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
     }
     absl::string_view key = key_value[0];
     absl::string_view value_str = key_value[1];
-    uint32 value = 0;
+    uint32_t value = 0;
     double pct = 0.0;
     // Cases that consume a pair of tokens "key:value".
     if (key == "regs" && absl::SimpleAtoi(value_str, &value)) {
@@ -98,7 +98,7 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
     } else if (key == "block") {
       const std::vector<absl::string_view>& block =
           absl::StrSplit(value_str, ',');
-      uint32 tmp[3];
+      uint32_t tmp[3];
       if (block.size() == 3 && absl::SimpleAtoi(block[0], &tmp[0]) &&
           absl::SimpleAtoi(block[1], &tmp[1]) &&
           absl::SimpleAtoi(block[2], &tmp[2])) {
@@ -107,7 +107,7 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
     } else if (key == "grid") {
       const std::vector<absl::string_view>& grid =
           absl::StrSplit(value_str, ',');
-      uint32 tmp[3];
+      uint32_t tmp[3];
       if (grid.size() == 3 && absl::SimpleAtoi(grid[0], &tmp[0]) &&
           absl::SimpleAtoi(grid[1], &tmp[1]) &&
           absl::SimpleAtoi(grid[2], &tmp[2])) {

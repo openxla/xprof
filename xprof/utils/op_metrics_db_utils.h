@@ -31,7 +31,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 // The name of OpMetrics to represent the idle time.
 TF_CONST_INIT extern const absl::string_view kIdle;
@@ -52,7 +51,7 @@ class OpMetricsDbBuilder {
  protected:
   // Looks up the given OP name. If it is already in the database,
   // return its OpMetrics; otherwise, insert a new one.
-  OpMetrics* LookupOrInsertNewOpMetrics(uint64 hlo_module_id,
+  OpMetrics* LookupOrInsertNewOpMetrics(uint64_t hlo_module_id,
                                         absl::string_view name);
 
   OpMetricsDb* db() { return db_; }
@@ -60,7 +59,7 @@ class OpMetricsDbBuilder {
  private:
   // Map op (hlo_module_id, name) to the corresponding metrics in the op
   // database.
-  absl::flat_hash_map<uint64 /*hlo_module_id*/,
+  absl::flat_hash_map<uint64_t /*hlo_module_id*/,
                       absl::flat_hash_map<std::string /*name*/, OpMetrics*>>
       op_metrics_map_;
 
@@ -117,7 +116,7 @@ inline uint64_t TotalTimePs(const OpMetricsDb& db, bool exclude_idle = false) {
 double IdleTimeRatio(const OpMetricsDb& db);
 
 // Returns the idle time in picoseconds.
-uint64 IdleTimePs(const OpMetricsDb& db);
+uint64_t IdleTimePs(const OpMetricsDb& db);
 
 // Populates an OpMetrics record representing idle time, i.e., the amount of
 // time spent without any op execution.

@@ -15,6 +15,7 @@ limitations under the License.
 #ifndef XPROF_UTILS_TFSTREAMZ_UTILS_H_
 #define XPROF_UTILS_TFSTREAMZ_UTILS_H_
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -25,16 +26,15 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint64;
 
 struct TfStreamzSnapshot {
   std::unique_ptr<tsl::monitoring::CollectedMetrics> metrics;
-  uint64 start_time_ns;  // time before collection.
-  uint64 end_time_ns;    // time after collection.
+  uint64_t start_time_ns;  // time before collection.
+  uint64_t end_time_ns;    // time after collection.
 };
 
 absl::Status SerializeToXPlane(const std::vector<TfStreamzSnapshot>& snapshots,
-                               XPlane* plane, uint64 line_start_time_ns);
+                               XPlane* plane, uint64_t line_start_time_ns);
 
 }  // namespace profiler
 }  // namespace tensorflow

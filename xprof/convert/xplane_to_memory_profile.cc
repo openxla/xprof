@@ -43,7 +43,6 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-using ::tsl::uint64;
 using ::tsl::profiler::HostEventType;
 
 namespace {
@@ -198,11 +197,11 @@ void UpdateStepId(PerAllocatorMemoryProfile* memory_profile) {
 // Update the MemoryActivityMetadata for each deallocation event by copying from
 // matching allocation.
 void UpdateDeallocation(PerAllocatorMemoryProfile* memory_profile) {
-  absl::flat_hash_map<uint64 /*address*/, const MemoryActivityMetadata*>
+  absl::flat_hash_map<uint64_t /*address*/, const MemoryActivityMetadata*>
       addr_metadata_map;
   for (auto& snapshot : *memory_profile->mutable_memory_profile_snapshots()) {
     // Match the deallocation with previous allocation based on address.
-    uint64 address = snapshot.activity_metadata().address();
+    uint64_t address = snapshot.activity_metadata().address();
     if (snapshot.activity_metadata().memory_activity() == DEALLOCATION) {
       if (addr_metadata_map.contains(address)) {
         const MemoryActivityMetadata* alloc_meta = addr_metadata_map[address];

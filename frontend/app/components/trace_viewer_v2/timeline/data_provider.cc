@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <memory>

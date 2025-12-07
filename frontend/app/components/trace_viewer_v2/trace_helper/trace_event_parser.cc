@@ -158,19 +158,32 @@ ParsedTraceEvents ParseTraceEvents(const emscripten::val& trace_data) {
 }
 
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data) {
-  const ParsedTraceEvents parsed_events = ParseTraceEvents(trace_data);
-
+  ParsedTraceEvents parsed_events = ParseTraceEvents(trace_data);
+  Application::Instance().set_parsed_events(std::move(parsed_events));
   Application::Instance().data_provider().ProcessTraceEvents(
-      parsed_events, Application::Instance().timeline());
+      Application::Instance().parsed_events(),
+      Application::Instance().timeline());
 }
 
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
+  emscripten::register_map<std::string, std::string>("StringMap");
+
+  emscripten::value_object<traceviewer::EventMetaData>("EventMetaData")
+      .field("name", &traceviewer::EventMetaData::name)
+      .field("start", &traceviewer::EventMetaData::start)
+      .field("duration", &traceviewer::EventMetaData::duration)
+      .field("processName", &traceviewer::EventMetaData::processName)
+      .field("arguments", &traceviewer::EventMetaData::arguments);
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
-      .function("getProcessList", &traceviewer::DataProvider::GetProcessList);
+      .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
+      .function("getEventMetaData",
+                &traceviewer::DataProvider::GetEventMetaData);
+
+  emscripten::register_optional<traceviewer::EventMetaData>();
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
@@ -179,7 +192,8 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider);
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference());
 }
 
 }  // namespace traceviewer

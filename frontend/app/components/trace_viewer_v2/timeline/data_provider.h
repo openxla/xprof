@@ -1,10 +1,12 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_DATA_PROVIDER_H_
 
+#include <map>
 #include <string>
 #include <tuple>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -24,6 +26,14 @@ inline constexpr absl::string_view kThreadSortIndex = "thread_sort_index";
 inline constexpr absl::string_view kSortIndex = "sort_index";
 inline constexpr absl::string_view kName = "name";
 
+struct EventMetaData {
+  std::string name;
+  Microseconds start;
+  Microseconds duration;
+  std::string processName;
+  std::map<std::string, std::string> arguments;
+};
+
 class DataProvider {
  public:
   // Returns a list of process names.
@@ -34,7 +44,7 @@ class DataProvider {
                           Timeline& timeline);
 
  private:
-  std::vector<std::string> process_list_;
+  absl::flat_hash_map<ProcessId, std::string> process_names_;
 };
 
 }  // namespace traceviewer

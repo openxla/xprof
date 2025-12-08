@@ -1,9 +1,12 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -13,9 +16,10 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 #include "absl/algorithm/container.h"
 #include "absl/container/btree_map.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/span.h"
 #include "util/gtl/comparator.h"
 
 namespace traceviewer {
@@ -69,8 +73,8 @@ std::string GetNameWithDefault(const TraceEvent& event,
 //   "pid": 3,
 //   "tid": 1
 // }
-void HandleMetadataEvent(const TraceEvent& event,
-                         TraceInformation& trace_info) {
+void HandleMetadataEvent(
+    const TraceEvent& event, TraceInformation& trace_info) {
   if (event.name == kThreadName) {
     trace_info.thread_names[{event.pid, event.tid}] =
         GetNameWithDefault(event, GetDefaultThreadName(event.tid));
@@ -97,8 +101,15 @@ void HandleMetadataEvent(const TraceEvent& event,
 //   }
 // }
 void HandleCompleteEvent(const TraceEvent& event,
-                         TraceInformation& trace_info) {
+            TraceInformation& trace_info,
+            absl::btree_map<ProcessId, std::string>& process_names) {
   trace_info.events_by_pid_tid[event.pid][event.tid].push_back(&event);
+  if (!process_names.contains(event.pid)) {
+    const auto it = trace_info.process_names.find(event.pid);
+    process_names[event.pid] = it != trace_info.process_names.end()
+                                   ? it->second
+                                   : GetDefaultProcessName(event.pid);
+  }
 }
 
 struct TimeBounds {
@@ -106,27 +117,34 @@ struct TimeBounds {
   Microseconds max = std::numeric_limits<Microseconds>::min();
 };
 
+struct TimelineDataResult {
+  FlameChartTimelineData data;
+  std::vector<TraceEvent*> timeline_events;
+};
+
 // Appends the given nodes (an array of trees) to the data, starting at the
 // given level. Returns the maximum level of the nodes.
 int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
                        int current_level, FlameChartTimelineData& data,
+                       std::vector<TraceEvent*>& timeline_events,
                        TimeBounds& bounds) {
   int max_level = current_level;
 
   for (const std::unique_ptr<TraceEventNode>& node : nodes) {
-    const TraceEvent* event = node->event;
+    TraceEvent* event = const_cast<TraceEvent*>(node->event);
 
     data.entry_start_times.push_back(event->ts);
     data.entry_total_times.push_back(event->dur);
     data.entry_levels.push_back(current_level);
     data.entry_names.push_back(event->name);
+    timeline_events.push_back(event);
 
     bounds.min = std::min(bounds.min, event->ts);
     bounds.max = std::max(bounds.max, event->ts + event->dur);
 
     if (!node->children.empty()) {
-      int child_max_level =
-          AppendNodesAtLevel(node->children, current_level + 1, data, bounds);
+      int child_max_level = AppendNodesAtLevel(
+          node->children, current_level + 1, data, timeline_events, bounds);
       max_level = std::max(max_level, child_max_level);
     }
   }
@@ -137,7 +155,9 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
 void PopulateThreadTrack(ProcessId pid, ThreadId tid,
                          absl::Span<const TraceEvent* const> events,
                          const TraceInformation& trace_info, int& current_level,
-                         FlameChartTimelineData& data, TimeBounds& bounds) {
+                         FlameChartTimelineData& data,
+                         std::vector<TraceEvent*>& timeline_events,
+                         TimeBounds& bounds) {
   const auto it = trace_info.thread_names.find({pid, tid});
   const std::string thread_group_name = it == trace_info.thread_names.end()
                                             ? GetDefaultThreadName(tid)
@@ -149,8 +169,8 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
   TraceEventTree event_tree = BuildTree(events);
 
   // Get the maximum level index used by events in this thread.
-  int max_level =
-      AppendNodesAtLevel(event_tree.roots, current_level, data, bounds);
+  int max_level = AppendNodesAtLevel(event_tree.roots, current_level, data,
+                                     timeline_events, bounds);
 
   current_level = max_level + 1;
 }
@@ -160,7 +180,8 @@ void PopulateProcessTrack(
     const absl::btree_map<ThreadId, std::vector<const TraceEvent*>>&
         events_by_tid,
     const TraceInformation& trace_info, int& current_level,
-    FlameChartTimelineData& data, TimeBounds& bounds) {
+    FlameChartTimelineData& data,
+    std::vector<TraceEvent*>& timeline_events, TimeBounds& bounds) {
   const auto it = trace_info.process_names.find(pid);
   const std::string process_group_name = it == trace_info.process_names.end()
                                              ? GetDefaultProcessName(pid)
@@ -170,28 +191,41 @@ void PopulateProcessTrack(
 
   for (const auto& [tid, events] : events_by_tid) {
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
-                        bounds);
+                        timeline_events, bounds);
   }
 }
 
-FlameChartTimelineData CreateTimelineData(const TraceInformation& trace_info,
-                                          TimeBounds& bounds) {
-  FlameChartTimelineData data;
+TimelineDataResult CreateTimelineData(const TraceInformation& trace_info,
+                                      TimeBounds& bounds) {
+  TimelineDataResult result;
   int current_level = 0;
 
   for (const auto& [pid, events_by_tid] : trace_info.events_by_pid_tid) {
-    PopulateProcessTrack(pid, events_by_tid, trace_info, current_level, data,
-                         bounds);
+    PopulateProcessTrack(pid, events_by_tid, trace_info, current_level,
+                         result.data, result.timeline_events, bounds);
   }
 
-  data.events_by_level.resize(current_level);
-  for (int i = 0; i < data.entry_levels.size(); ++i) {
-    data.events_by_level[data.entry_levels[i]].push_back(i);
+  result.data.events_by_level.resize(current_level);
+  for (int i = 0; i < result.data.entry_levels.size(); ++i) {
+    result.data.events_by_level[result.data.entry_levels[i]].push_back(i);
   }
-  return data;
+  return result;
 }
 
 }  // namespace
+
+void DataProvider::ParseHloModuleName(const TraceEvent& event) {
+  size_t paren_pos = event.name.find('(');
+  if (paren_pos != std::string::npos) {
+    std::string module_name = event.name.substr(0, paren_pos);
+    size_t close_paren_pos = event.name.find(')', paren_pos);
+    if (close_paren_pos != std::string::npos) {
+      std::string program_id =
+          event.name.substr(paren_pos + 1, close_paren_pos - paren_pos - 1);
+      program_id_to_hlo_module_[program_id] = module_name;
+    }
+  }
+}
 
 // Processes a vector of TraceEvent structs.
 // This function is independent of Emscripten types.
@@ -201,17 +235,49 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
     timeline.set_timeline_data({});
     timeline.set_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
+    timeline_events_.clear();
+    events_.clear();
     return;
   }
 
+  // Store pointers to the events
+  events_.clear();
+  events_.reserve(event_list.size());
+  for (const TraceEvent& event : event_list) {
+    events_.push_back(&event);
+  }
+
+  process_names_.clear();
+  xla_modules_by_pid_.clear();
+  program_id_to_hlo_module_.clear();
   TraceInformation trace_info;
+  absl::flat_hash_map<ProcessId, absl::flat_hash_set<ThreadId>>
+      xla_module_threads;
+
+  for (const auto& event : events_) {
+    if (event->ph == Phase::kMetadata) {
+      HandleMetadataEvent(*event, trace_info);
+      if (event->name == kThreadName &&
+          GetNameWithDefault(*event, GetDefaultThreadName(event->tid)) ==
+              "XLA Modules") {
+        xla_module_threads[event->pid].insert(event->tid);
+      }
+    }
+  }
+
   for (const auto& event : event_list) {
+    ParseHloModuleName(event);
+
     switch (event.ph) {
       case Phase::kMetadata:
-        HandleMetadataEvent(event, trace_info);
+        // Already handled in the first pass.
         break;
       case Phase::kComplete:
-        HandleCompleteEvent(event, trace_info);
+        HandleCompleteEvent(event, trace_info, process_names_);
+        if (xla_module_threads.contains(event.pid) &&
+            xla_module_threads[event.pid].contains(event.tid)) {
+          xla_modules_by_pid_[event.pid].push_back(&event);
+        }
         break;
       default:
         // Ignore other event types.
@@ -233,22 +299,36 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
     }
   }
 
-  TimeBounds time_bounds;
-
-  // Populate process_list_ from trace_info.
-  if (process_list_.empty()) {
-    for (const auto& [pid, name] : trace_info.process_names) {
-      process_list_.push_back(absl::StrCat(name, " (pid: ", pid, ")"));
-    }
+  // Sort XLA Module events by start time.
+  for (auto& [pid, modules] : xla_modules_by_pid_) {
+    absl::c_stable_sort(modules, gtl::OrderBy([](const TraceEvent* e) {
+      return e->ts;
+    }));
   }
 
-  timeline.set_timeline_data(CreateTimelineData(trace_info, time_bounds));
+  // Clear timeline_events_ before populating.
+  timeline_events_.clear();
+
+  TimeBounds time_bounds;
+
+  TimelineDataResult timeline_data_result =
+      CreateTimelineData(trace_info, time_bounds);
+  timeline.set_timeline_data(std::move(timeline_data_result.data));
+  timeline_events_ = std::move(timeline_data_result.timeline_events);
+
+  event_map_.clear();
+  for (TraceEvent* event : timeline_events_) {
+    event_map_[std::make_tuple(event->name, event->ts, event->dur)] = event;
+  }
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.
   if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
-    timeline.set_data_time_range({time_bounds.min, time_bounds.max});
-    timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
+    // Default initialization: Set the visible range to the full data time range
+    // only if the visible range hasn't been set yet.
+    if (timeline.visible_range() == TimeRange::Zero()) {
+      timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
+    }
   } else {
     timeline.set_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
@@ -256,7 +336,77 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
 }
 
 std::vector<std::string> DataProvider::GetProcessList() const {
-  return process_list_;
+  std::vector<std::string> process_list;
+  for (const auto& [pid, name] : process_names_) {
+    process_list.push_back(absl::StrCat(name, " (pid: ", pid, ")"));
+  }
+  return process_list;
+}
+
+std::optional<EventMetaData> DataProvider::GetEventMetaData(
+    const std::string& name, Microseconds start, Microseconds duration) const {
+  auto it = event_map_.find({name, start, duration});
+  if (it == event_map_.end()) {
+    return std::nullopt;
+  }
+  const TraceEvent* event = it->second;
+  EventMetaData metadata;
+  metadata.name = event->name;
+  metadata.start = event->ts;
+  metadata.duration = event->dur;
+  auto process_it = process_names_.find(event->pid);
+  metadata.processName = process_it == process_names_.end()
+                               ? GetDefaultProcessName(event->pid)
+                               : process_it->second;
+  metadata.arguments = event->args;
+  return metadata;
+}
+
+std::string DataProvider::GetHloModuleForEvent(const std::string& name,
+                                               Microseconds start,
+                                               Microseconds duration) const {
+  auto it = event_map_.find(std::make_tuple(name, start, duration));
+  if (it == event_map_.end()) {
+    return "";
+  }
+  const TraceEvent* event = it->second;
+  // HLO Module events have their name in the format "module_name(program_id)".
+  // We extract the module_name part.
+  const size_t paren_pos = event->name.find('(');
+  if (paren_pos != std::string::npos) {
+    return event->name.substr(0, paren_pos);
+  }
+
+  // Fallback: Find the HLO Module by time-based enclosure.
+  const auto xla_modules_it = xla_modules_by_pid_.find(event->pid);
+  if (xla_modules_it != xla_modules_by_pid_.end()) {
+    const std::vector<const TraceEvent*>& modules = xla_modules_it->second;
+    // Binary search for a module that contains event->ts.
+    auto module_it =
+        absl::c_upper_bound(modules, event->ts,
+                          [](Microseconds ts, const TraceEvent* module) {
+                            return ts < module->ts;
+                          });
+
+    if (module_it != modules.begin()) {
+      --module_it;  // Go to the module that starts at or before event->ts
+      const TraceEvent* module = *module_it;
+      if (event->ts >= module->ts && event->ts <= module->ts + module->dur) {
+        return module->name;
+      }
+    }
+  }
+
+  // For HLO Op events, find the associated HLO Module using program_id.
+  const auto args_it = event->args.find("program_id");
+  if (args_it != event->args.end()) {
+    const std::string& program_id = args_it->second;
+    const auto module_it = program_id_to_hlo_module_.find(program_id);
+    if (module_it != program_id_to_hlo_module_.end()) {
+      return module_it->second;
+    }
+  }
+  return "";
 }
 
 }  // namespace traceviewer

@@ -7,6 +7,7 @@
 
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -92,28 +93,68 @@ std::vector<TraceEvent> ParseTraceEvents(const emscripten::val& trace_data) {
 }
 
 void ParseAndProcessTraceEvents(const emscripten::val& trace_data) {
-  const std::vector<TraceEvent> event_list = ParseTraceEvents(trace_data);
+  std::vector<TraceEvent> event_list = ParseTraceEvents(trace_data);
+  Application::Instance().set_events(std::move(event_list));
 
   Application::Instance().data_provider().ProcessTraceEvents(
-      event_list, Application::Instance().timeline());
+      Application::Instance().events(), Application::Instance().timeline());
+}
+
+void SetInitialViewport(float start_time_ms, float end_time_ms) {
+  Application::Instance().timeline().SetVisibleRange(
+      {start_time_ms, end_time_ms}, /*animate=*/false);
+}
+
+void SetViewport(float start_time_ms, float end_time_ms) {
+  Application::Instance().timeline().SetVisibleRange(
+      {start_time_ms, end_time_ms}, /*animate=*/true);
+}
+
+std::pair<float, float> GetViewport() {
+  const auto& range = Application::Instance().timeline().visible_range();
+  return {static_cast<float>(range.start()), static_cast<float>(range.end())};
 }
 
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
+  emscripten::register_map<std::string, std::string>("StringMap");
+
+  emscripten::value_object<traceviewer::EventMetaData>("EventMetaData")
+      .field("name", &traceviewer::EventMetaData::name)
+      .field("start", &traceviewer::EventMetaData::start)
+      .field("duration", &traceviewer::EventMetaData::duration)
+      .field("processName", &traceviewer::EventMetaData::processName)
+      .field("arguments", &traceviewer::EventMetaData::arguments);
+
+  // Bind std::pair<float, float>
+  emscripten::value_object<std::pair<float, float>>("FloatPair")
+      .field("start", &std::pair<float, float>::first)
+      .field("end", &std::pair<float, float>::second);
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
-      .function("getProcessList", &traceviewer::DataProvider::GetProcessList);
+      .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
+      .function("getEventMetaData",
+                &traceviewer::DataProvider::GetEventMetaData)
+      .function("getHloModuleForEvent",
+                &traceviewer::DataProvider::GetHloModuleForEvent);
+
+  emscripten::register_optional<traceviewer::EventMetaData>();
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+
+  emscripten::function("setInitialViewport", &traceviewer::SetInitialViewport);
+  emscripten::function("setViewport", &traceviewer::SetViewport);
+  emscripten::function("getViewport", &traceviewer::GetViewport);
 
   // Bind Application class and expose the singleton instance and data_provider
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider);
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference());
 }
 
 }  // namespace traceviewer

@@ -2,7 +2,7 @@ import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
 import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
-import {API_PREFIX, CAPTURE_PROFILE_API, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API, USE_SAVED_RESULT, CONFIG_API} from 'org_xprof/frontend/app/common/constants/constants';
+import {API_PREFIX, CAPTURE_PROFILE_API, CONFIG_API, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API, USE_SAVED_RESULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -10,7 +10,7 @@ import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
-import {DataServiceV2Interface, ProfilerConfig} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {DataServiceV2Interface, FullEventData, ProfilerConfig, TraceEventData} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
@@ -186,6 +186,22 @@ export class DataServiceV2 implements DataServiceV2Interface {
       return `${window.parent.location.origin}?tool=graph_viewer&module_name=${
           moduleName}&node_name=${opName}&run=${sessionId}#profile`;
     }
+    return '';
+  }
+
+  createToolUrl(
+      toolName: string,
+      sessionId: string,
+      params: {[key: string]: string},
+      ): string {
+    return '';
+  }
+
+  createPercaleUrl(
+      sessionId: string,
+      hloOp: string,
+      hasLloDebugTag: boolean,
+      ): string {
     return '';
   }
 
@@ -414,5 +430,13 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   isGraphvizAvailable(): boolean {
     return false;
+  }
+
+  getFullEventData(
+      sessionId: string,
+      tool: string,
+      eventData: TraceEventData,
+      ): Observable<FullEventData|null> {
+    return of(null);
   }
 }

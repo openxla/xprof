@@ -45,8 +45,18 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   if (animate) {
     visible_range_ = range;
   } else {
-    visible_range_.snap_to(range);
+    // visible_range_.snap_to(range);
   }
+  OnViewportChange();
+}
+
+void Timeline::OnViewportChange() {
+  EventData event_data;
+  event_data.insert(
+      {std::string(kViewportChangedStart), visible_range_.target().start()});
+  event_data.insert(
+      {std::string(kViewportChangedEnd), visible_range_.target().end()});
+  event_callback_(kViewportChanged, event_data);
 }
 
 void Timeline::Draw() {
@@ -258,9 +268,9 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
   } else if (range.end() > data_time_range_.end()) {
     // When shifting the end to data_time_range_.end(), ensure the new start
     // does not go before data_time_range_.start() by taking the maximum.
-    range = {std::max(range.start() - range.end() + data_time_range_.end(),
-                      data_time_range_.start()),
-             data_time_range_.end()};
+    // range = {std::max(range.start() - range.end() + data_time_range_.end(),
+    //                   data_time_range_.start()),
+    //          data_time_range_.end()};
   }
 }
 
@@ -425,22 +435,32 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
 }
 
 void Timeline::DrawEventName(absl::string_view event_name,
-                             const EventRect& event_rect,
+                             const EventRect& rect,
                              ImDrawList* absl_nonnull draw_list) const {
-  const float available_width = event_rect.right - event_rect.left;
+  const float available_width = rect.right - rect.left;
 
   if (available_width >= kMinTextWidth) {
     const std::string text_display =
         GetTextForDisplay(event_name, available_width);
 
     if (!text_display.empty()) {
-      const ImVec2 text_pos = CalculateEventTextRect(text_display, event_rect);
+      const ImVec2 text_pos = CalculateEventTextRect(text_display, rect);
+
+      std::string event_name_lower;
+      std::transform(event_name.begin(), event_name.end(),
+                   std::back_inserter(event_name_lower),
+                   [](unsigned char c) { return std::tolower(c); });
+      bool highlighted = !search_query_lower_.empty() &&
+                         event_name_lower.find(search_query_lower_) !=
+                             std::string::npos;
+      const ImU32 text_color =
+          highlighted ? IM_COL32(0, 0, 0, 255) : kDefaultTextColor;
 
       // Push a clipping rectangle to ensure the text is only drawn within the
-      // bounds of the event_rect. This prevents text from overflowing visually.
-      draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
-                              ImVec2(event_rect.right, event_rect.bottom));
-      draw_list->AddText(text_pos, kDefaultTextColor, text_display.c_str());
+      // bounds of the rect. This prevents text from overflowing visually.
+      draw_list->PushClipRect(ImVec2(rect.left, rect.top),
+                              ImVec2(rect.right, rect.bottom));
+      draw_list->AddText(text_pos, text_color, text_display.c_str());
       draw_list->PopClipRect();
     }
   }
@@ -460,7 +480,17 @@ void Timeline::DrawEvent(int event_index, const EventRect& rect,
     const float corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
 
-    const ImU32 event_color = GetColorForId(event_name);
+    std::string event_name_lower;
+    std::transform(event_name.begin(), event_name.end(),
+                   std::back_inserter(event_name_lower),
+                   [](unsigned char c) { return std::tolower(c); });
+    bool highlighted = !search_query_lower_.empty() &&
+                       event_name_lower.find(search_query_lower_) !=
+                           std::string::npos;
+
+    const ImU32 event_color =
+        highlighted ? IM_COL32(255, 255, 0, 255) : GetColorForId(event_name);
+
     draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                              ImVec2(rect.right, rect.bottom), event_color,
                              corner_rounding, kImDrawFlags);
@@ -501,9 +531,16 @@ void Timeline::DrawEvent(int event_index, const EventRect& rect,
           selected_event_index_ = event_index;
 
           EventData event_data;
-          event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
-          event_data.try_emplace(kEventSelectedName, event_name);
 
+          event_data.insert(
+              {std::string(kEventSelectedIndex), selected_event_index_});
+          event_data.insert({std::string(kEventSelectedName), event_name});
+          event_data.insert(
+              {std::string(kEventSelectedStart),
+               timeline_data_.entry_start_times[event_index]});
+          event_data.insert(
+              {std::string(kEventSelectedDuration),
+               timeline_data_.entry_total_times[event_index]});
           event_callback_(kEventSelected, event_data);
         }
       }
@@ -789,6 +826,8 @@ void Timeline::HandleEventDeselection() {
     EventData event_data;
     event_data[std::string(kEventSelectedIndex)] = -1;
     event_data[std::string(kEventSelectedName)] = std::string("");
+    event_data[std::string(kEventSelectedStart)] = 0.0;
+    event_data[std::string(kEventSelectedDuration)] = 0.0;
 
     event_callback_(kEventSelected, event_data);
   }

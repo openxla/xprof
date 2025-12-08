@@ -1,5 +1,5 @@
-#ifndef PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_
-#define PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_
+#ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_
+#define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_
 
 #include <any>
 #include <string>
@@ -22,7 +22,15 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
+inline constexpr absl::string_view kEventSelectedStart = "start";
+inline constexpr absl::string_view kEventSelectedDuration = "duration";
+
+// Following constants are used for viewport changed event.
+inline constexpr absl::string_view kViewportChanged = "viewportchanged";
+
+inline constexpr absl::string_view kViewportChangedStart = "start";
+inline constexpr absl::string_view kViewportChangedEnd = "end";
 
 }  // namespace traceviewer
 
-#endif  // PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_
+#endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

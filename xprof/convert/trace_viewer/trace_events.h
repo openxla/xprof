@@ -1047,6 +1047,9 @@ class TraceEventsContainerBase {
 
   Trace trace_;
   Hash hash_;
+
+  friend class TraceEventsContainerSerializer;
+  friend class TraceEventsContainerSerializerTest;
 };
 
 }  // namespace profiler

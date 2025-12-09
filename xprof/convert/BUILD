@@ -21,6 +21,57 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "preprocess_single_host_xplane_test",
+    srcs = ["preprocess_single_host_xplane_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+        "@org_xprof//xprof/convert/test_xplanes:tpu_inference_2.xplane.pb",
+    ],
+    deps = [
+        ":preprocess_single_host_xplane",
+        "//devtools/build/runtime:get_runfiles_dir",
+        "@com_google_absl//absl/log:check",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_op_stats_benchmark_test",
+    srcs = ["xplane_to_op_stats_benchmark_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+        "@org_xprof//xprof/convert/test_xplanes:tpu_inference_2.xplane.pb",
+    ],
+    deps = [
+        ":xplane_to_op_stats",
+        "//devtools/build/runtime:get_runfiles_dir",
+        "@com_google_absl//absl/log:check",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "xspace_to_trace_container_benchmark_test",
+    srcs = ["xspace_to_trace_container_benchmark_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+        "@org_xprof//xprof/convert/test_xplanes:tpu_inference_2.xplane.pb",
+    ],
+    deps = [
+        ":xplane_to_trace_container",
+        "//devtools/build/runtime:get_runfiles_dir",
+        "@com_google_absl//absl/log:check",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
 cc_library(
     name = "profile_processor",
     hdrs = ["profile_processor.h"],

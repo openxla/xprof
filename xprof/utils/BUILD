@@ -425,11 +425,13 @@ cc_library(
 
 cc_library(
     name = "hlo_module_utils",
+    srcs = ["hlo_module_utils.cc"],
     hdrs = ["hlo_module_utils.h"],
     deps = [
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
         "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
     ],
 )

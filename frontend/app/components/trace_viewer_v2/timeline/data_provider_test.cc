@@ -40,7 +40,7 @@ class DataProviderTest : public ::testing::Test {
 };
 
 TEST_F(DataProviderTest, ProcessEmptyTraceData) {
-  const std::vector<TraceEvent> events;
+  std::vector<TraceEvent> events;
 
   data_provider_.ProcessTraceEvents(events, timeline_);
 
@@ -49,7 +49,7 @@ TEST_F(DataProviderTest, ProcessEmptyTraceData) {
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEvents) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A"),
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1")};
 
@@ -60,7 +60,7 @@ TEST_F(DataProviderTest, ProcessMetadataEvents) {
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, ""),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, ""),
       TraceEvent{Phase::kComplete, 1, 101, "Task A", 5000.0, 1000.0},
@@ -79,7 +79,7 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       TraceEvent{
           Phase::kMetadata, 1, 0, std::string(kProcessName), 0.0, 0.0, {}},
       TraceEvent{
@@ -100,7 +100,7 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
 }
 
 TEST_F(DataProviderTest, ProcessCompleteEvents) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       TraceEvent{Phase::kComplete, 1, 101, "Event 1", 1000.0, 200.0},
       TraceEvent{Phase::kComplete, 1, 102, "Event 2", 1100.0, 300.0}};
 
@@ -135,7 +135,7 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
 }
 
 TEST_F(DataProviderTest, ProcessMixedEvents) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Main Process"),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Worker Thread"),
       TraceEvent{Phase::kComplete, 1, 101, "Task A", 5000.0, 1000.0},
@@ -171,7 +171,7 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
 }
 
 TEST_F(DataProviderTest, ProcessMultipleProcesses) {
-  const std::vector<TraceEvent> events = {
+  std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A1"),
       TraceEvent(Phase::kComplete, 1, 101, "Event A1", 1000.0, 100.0),

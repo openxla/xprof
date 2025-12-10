@@ -1080,7 +1080,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   EXPECT_FALSE(callback_called);
 }
 
-TEST_F(RealTimelineImGuiFixture, DrawsLoadingAnimationWhenTimelineDataIsEmpty) {
+TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
   timeline_.set_timeline_data({});
 
   // We don't use SimulateFrame() here because we need to inspect the draw list
@@ -1089,12 +1089,6 @@ TEST_F(RealTimelineImGuiFixture, DrawsLoadingAnimationWhenTimelineDataIsEmpty) {
   timeline_.Draw();
 
   EXPECT_NE(ImGui::FindWindowByName("Timeline viewer"), nullptr);
-
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
-  ASSERT_NE(draw_list, nullptr);
-  // The loading animation should be drawn to the foreground draw list.
-  EXPECT_FALSE(draw_list->VtxBuffer.empty());
 
   ImGui::EndFrame();
 }

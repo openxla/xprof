@@ -19,7 +19,6 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/draw_utils.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -64,10 +63,6 @@ void Timeline::Draw() {
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
   ImGui::Begin("Timeline viewer", nullptr, kImGuiWindowFlags);
-
-  if (timeline_data_.groups.empty()) {
-    DrawLoadingIndicator(viewport);
-  }
 
   const Pixel timeline_width =
       ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;

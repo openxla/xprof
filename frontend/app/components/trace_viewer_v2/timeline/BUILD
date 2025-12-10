@@ -41,7 +41,6 @@ cc_library(
     ],
     deps = [
         ":constants",
-        ":draw_utils",
         ":time_range",
         "//third_party/dear_imgui",
         "@com_google_absl//absl/base:nullability",
@@ -88,18 +87,6 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
-    ],
-)
-
-cc_library(
-    name = "draw_utils",
-    srcs = ["draw_utils.cc"],
-    hdrs = ["draw_utils.h"],
-    deps = [
-        ":constants",
-        "//third_party/dear_imgui",
-        "@com_google_absl//absl/strings:string_view",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
     ],
 )
 

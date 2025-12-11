@@ -1,6 +1,9 @@
 #ifndef PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
+#include <algorithm>
+#include <cctype>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
@@ -69,6 +72,14 @@ class Timeline {
     event_callback_ = std::move(callback);
   }
 
+  void set_search_query(const std::string& query) {
+    search_query_ = query;
+    search_query_lower_ = "";
+    std::transform(search_query_.begin(), search_query_.end(),
+                   std::back_inserter(search_query_lower_),
+                   [](unsigned char c){ return std::tolower(c); });
+  }
+
   // Sets the visible time range. If animate is true, the transition to the
   // new range will be animated, otherwise it will snap to the new time range.
   // Animation is useful for smoothing out transitions caused by user actions
@@ -89,6 +100,7 @@ class Timeline {
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
   }
+  const TimeRange& data_time_range() const { return data_time_range_; }
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   void Draw();
@@ -185,6 +197,9 @@ class Timeline {
   // Handles mouse input for creating curtains.
   void HandleMouse();
 
+  // Handles viewport change events.
+  void OnViewportChange();
+
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
@@ -223,6 +238,9 @@ class Timeline {
   std::vector<TimeRange> selected_time_ranges_;
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;
+
+  std::string search_query_ = "";
+  std::string search_query_lower_ = "";
 };
 
 }  // namespace traceviewer

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -204,8 +205,11 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
     return;
   }
 
+  event_map_.clear();
+  process_names_.clear();
   TraceInformation trace_info;
   for (const auto& event : event_list) {
+    event_map_[{event.name, event.ts, event.dur}] = &event;
     switch (event.ph) {
       case Phase::kMetadata:
         HandleMetadataEvent(event, trace_info);
@@ -220,6 +224,7 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
         break;
     }
   }
+  process_names_ = trace_info.process_names;
 
   // Sort events, first by timestamp (ascending), then by duration
   // (descending).
@@ -258,5 +263,27 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
 std::vector<std::string> DataProvider::GetProcessList() const {
   return process_list_;
 }
+
+std::optional<EventMetaData> DataProvider::GetEventMetaData(
+    const std::string& name, Microseconds start, Microseconds duration) const {
+  auto it = event_map_.find({name, start, duration});
+  if (it == event_map_.end()) {
+    return std::nullopt;
+  }
+  const TraceEvent* event = it->second;
+  EventMetaData metadata;
+  metadata.name = event->name;
+  metadata.start = event->ts;
+  metadata.duration = event->dur;
+  metadata.arguments = event->args;
+  auto proc_it = process_names_.find(event->pid);
+  if (proc_it != process_names_.end()) {
+    metadata.processName = proc_it->second;
+  } else {
+    metadata.processName = GetDefaultProcessName(event->pid);
+  }
+  return metadata;
+}
+
 
 }  // namespace traceviewer

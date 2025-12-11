@@ -3,9 +3,13 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
@@ -43,12 +47,20 @@ class Application {
   };
   DataProvider& data_provider() { return data_provider_; };
 
+  void set_events(std::vector<TraceEvent> events) {
+    events_ = std::move(events);
+  }
+
+  std::vector<TraceEvent>& events() { return events_; }
+
  private:
   friend class absl::NoDestructor<Application>;
 
   // Members are initialized to nullptr here and will be properly allocated in
   // the Initialize() method.
   Application() = default;
+
+  std::vector<TraceEvent> events_;
 
   std::unique_ptr<WGPURenderPlatform> platform_;
   std::unique_ptr<Timeline> timeline_;
@@ -65,4 +77,4 @@ class Application {
 
 }  // namespace traceviewer
 
-#endif  // PERFTOOLS_ACCELERATORS_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
+#endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_

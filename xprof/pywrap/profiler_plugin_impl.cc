@@ -116,6 +116,23 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
   return absl::OkStatus();
 }
 
+absl::Status StartContinuousProfiling(const char* service_addr,
+                                      const ToolOptions& tool_options) {
+  LOG(INFO) << "StartContinuousProfiling";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  tensorflow::RemoteProfilerSessionManagerOptions options;
+  bool is_cloud_tpu_session;
+  options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
+      service_addr, "", "", false, 2000, tool_options, &is_cloud_tpu_session);
+  return tsl::profiler::StartContinuousProfiling(service_addr, options);
+}
+
+absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
+  LOG(INFO) << "GetSnapshot";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  return tsl::profiler::GetSnapShot(service_addr, logdir);
+}
+
 static absl::once_flag server_init_flag;
 
 void StartGrpcServer(int port) {

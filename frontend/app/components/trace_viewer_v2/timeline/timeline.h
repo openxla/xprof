@@ -89,6 +89,7 @@ class Timeline {
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
   }
+  const TimeRange& data_time_range() const { return data_time_range_; }
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   void Draw();
@@ -184,6 +185,9 @@ class Timeline {
 
   // Handles mouse input for creating curtains.
   void HandleMouse();
+
+  // Handles viewport change events.
+  void OnViewportChange();
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =

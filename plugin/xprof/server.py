@@ -50,6 +50,7 @@ class ServerConfig:
   grpc_port: int
   worker_service_address: str
   hide_capture_profile_button: bool
+  filter_sessions: str
 
 
 def make_wsgi_app(plugin):
@@ -147,6 +148,7 @@ def _launch_server(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)
   )
   context.hide_capture_profile_button = config.hide_capture_profile_button
+  context.filter_sessions = config.filter_sessions
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
   run_server(plugin, _get_wildcard_address(config.port), config.port)
@@ -254,6 +256,15 @@ def _create_argument_parser() -> argparse.ArgumentParser:
           " main server port (--port)."
       ),
   )
+
+  parser.add_argument(
+      "-fs",
+      "--filter_sessions",
+      type=str,
+      default="",
+      help="A regex to filter the available sessions (defaults to no filter).",
+  )
+
   return parser
 
 
@@ -289,6 +300,7 @@ def main() -> int:
       grpc_port=args.grpc_port,
       worker_service_address=worker_service_address,
       hide_capture_profile_button=args.hide_capture_profile_button,
+      filter_sessions=args.filter_sessions,
   )
 
   print("Attempting to start XProf server:")
@@ -296,6 +308,7 @@ def main() -> int:
   print(f"  Port: {config.port}")
   print(f"  Worker Service Address: {config.worker_service_address}")
   print(f"  Hide Capture Button: {config.hide_capture_profile_button}")
+  print(f"  Filter Sessions: {config.filter_sessions}")
 
   if logdir and not epath.Path(logdir).exists():
     print(

@@ -1,5 +1,6 @@
 import {HttpClientModule} from '@angular/common/http';
 import {NgModule} from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
@@ -21,6 +22,7 @@ import {App} from './app';
   imports: [
     BrowserModule,
     HttpClientModule,
+    FormsModule,
     MatProgressBarModule,
     EmptyPageModule,
     MainPageModule,

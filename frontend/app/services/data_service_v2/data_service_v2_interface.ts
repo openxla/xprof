@@ -7,9 +7,47 @@ import {InjectionToken} from '@angular/core';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {Observable} from 'rxjs';
-import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
+
+/**
+ * The detail of an event fetched from WASM.
+ */
+export declare interface TraceEventData {
+  name: string;
+  start: number;
+  duration: number;
+  arguments: {[key: string]: string};
+  processName: string;
+}
+
+/**
+ * The arguments of a trace event.
+ */
+export declare interface TraceEventArgs {
+  [key: string]: string;
+}
+
+/**
+ * A single trace event.
+ */
+export declare interface TraceEvent {
+  ph?: string;
+  pid?: number;
+  tid?: number;
+  name?: string;
+  ts?: number;
+  dur?: number;
+  args?: TraceEventArgs;
+}
+
+/**
+ * The full event data returned from the backend.
+ */
+export declare interface FullEventData {
+  traceEvents: TraceEvent[];
+}
 
 /** A serializable object with profiler configuration details. */
 export interface ProfilerConfig {
@@ -42,6 +80,12 @@ export interface DataServiceV2Interface {
 
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
+
+  createToolUrl(
+      toolName: string,
+      sessionId: string,
+      params: {[key: string]: string},
+      ): string;
 
   getGraphViewerLink(
       sessionId: string,
@@ -118,6 +162,12 @@ export interface DataServiceV2Interface {
 
   openUtilizationGraphviz(sessionId: string): void;
   isGraphvizAvailable(): boolean;
+
+  getFullEventData(
+      sessionId: string,
+      tool: string,
+      eventData: TraceEventData,
+      ): Observable<FullEventData|null>;
 }
 
 /** Injection token for the data service interface. */

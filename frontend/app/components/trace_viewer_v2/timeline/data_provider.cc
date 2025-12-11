@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,6 +14,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 #include "absl/algorithm/container.h"
 #include "absl/container/btree_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -204,14 +206,23 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
     return;
   }
 
+  event_map_.clear();
+  process_names_.clear();
+  xla_modules_by_pid_.clear();
+  program_id_to_hlo_module_.clear();
   TraceInformation trace_info;
   for (const auto& event : event_list) {
+    event_map_[{event.name, event.ts, event.dur}] = &event;
     switch (event.ph) {
       case Phase::kMetadata:
         HandleMetadataEvent(event, trace_info);
         break;
       case Phase::kComplete:
         HandleCompleteEvent(event, trace_info);
+        if (xla_module_threads_.contains(event.pid) &&
+            xla_module_threads_[event.pid].contains(event.tid)) {
+          xla_modules_by_pid_[event.pid].push_back(&event);
+        }
         break;
       default:
         // Ignore other event types.
@@ -220,6 +231,7 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
         break;
     }
   }
+  process_names_ = trace_info.process_names;
 
   // Sort events, first by timestamp (ascending), then by duration
   // (descending).
@@ -231,6 +243,13 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
                       gtl::OrderBy([](const TraceEvent* e) { return e->dur; },
                                    gtl::Greater())));
     }
+  }
+
+  // Sort XLA Module events by start time.
+  for (auto& [pid, modules] : xla_modules_by_pid_) {
+    absl::c_stable_sort(modules, gtl::OrderBy([](const TraceEvent* e) {
+      return e->ts;
+    }));
   }
 
   TimeBounds time_bounds;
@@ -257,6 +276,74 @@ void DataProvider::ProcessTraceEvents(absl::Span<const TraceEvent> event_list,
 
 std::vector<std::string> DataProvider::GetProcessList() const {
   return process_list_;
+}
+
+std::optional<EventMetaData> DataProvider::GetEventMetaData(
+    const std::string& name, Microseconds start, Microseconds duration) const {
+  auto it = event_map_.find({name, start, duration});
+  if (it == event_map_.end()) {
+    return std::nullopt;
+  }
+  const TraceEvent* event = it->second;
+  EventMetaData metadata;
+  metadata.name = event->name;
+  metadata.start = event->ts;
+  metadata.duration = event->dur;
+  metadata.arguments = event->args;
+  auto proc_it = process_names_.find(event->pid);
+  if (proc_it != process_names_.end()) {
+    metadata.processName = proc_it->second;
+  } else {
+    metadata.processName = GetDefaultProcessName(event->pid);
+  }
+  return metadata;
+}
+
+std::string DataProvider::GetHloModuleForEvent(const std::string& name,
+                                               Microseconds start,
+                                               Microseconds duration) const {
+  auto it = event_map_.find(std::make_tuple(name, start, duration));
+  if (it == event_map_.end()) {
+    return "";
+  }
+  const TraceEvent* event = it->second;
+  // HLO Module events have their name in the format "module_name(program_id)".
+  // We extract the module_name part.
+  const size_t paren_pos = event->name.find('(');
+  if (paren_pos != std::string::npos) {
+    return event->name.substr(0, paren_pos);
+  }
+
+  // Fallback: Find the HLO Module by time-based enclosure.
+  const auto xla_modules_it = xla_modules_by_pid_.find(event->pid);
+  if (xla_modules_it != xla_modules_by_pid_.end()) {
+    const std::vector<const TraceEvent*>& modules = xla_modules_it->second;
+    // Binary search for a module that contains event->ts.
+    auto module_it =
+        absl::c_upper_bound(modules, event->ts,
+                          [](Microseconds ts, const TraceEvent* module) {
+                            return ts < module->ts;
+                          });
+
+    if (module_it != modules.begin()) {
+      --module_it;  // Go to the module that starts at or before event->ts
+      const TraceEvent* module = *module_it;
+      if (event->ts >= module->ts && event->ts <= module->ts + module->dur) {
+        return module->name;
+      }
+    }
+  }
+
+  // For HLO Op events, find the associated HLO Module using program_id.
+  const auto args_it = event->args.find("program_id");
+  if (args_it != event->args.end()) {
+    const std::string& program_id = args_it->second;
+    const auto module_it = program_id_to_hlo_module_.find(program_id);
+    if (module_it != program_id_to_hlo_module_.end()) {
+      return module_it->second;
+    }
+  }
+  return "";
 }
 
 }  // namespace traceviewer

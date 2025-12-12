@@ -24,14 +24,6 @@ inline constexpr ImU32 kPurple70 = 0xFFFF97C5;
 inline constexpr ImU32 kYellow90 = 0xFF7CE0FF;
 // go/keep-sorted end
 
-// Baseline palette:
-// go/keep-sorted start
-// Baseline Primary: #0B57D0
-inline constexpr ImU32 kPrimary40 = 0xFFD0570B;
-// Baseline Secondary: #C2E7FF
-inline constexpr ImU32 kSecondary90 = 0xFFFFE7C2;
-// go/keep-sorted end
-
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_COLOR_COLORS_H_

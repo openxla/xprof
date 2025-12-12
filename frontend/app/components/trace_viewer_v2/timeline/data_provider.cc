@@ -34,8 +34,8 @@ struct TraceInformation {
   absl::btree_map<ProcessId,
                   absl::btree_map<ThreadId, std::vector<const TraceEvent*>>>
       events_by_pid_tid;
-  absl::btree_map<ProcessId,
-                  absl::btree_map<std::string, std::vector<const TraceEvent*>>>
+  absl::btree_map<
+      ProcessId, absl::btree_map<std::string, std::vector<const CounterEvent*>>>
       counters_by_pid_name;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names;
   absl::btree_map<ProcessId, std::string> process_names;
@@ -111,29 +111,24 @@ void HandleCompleteEvent(const TraceEvent& event,
 // An example of the JSON structure for such an event is shown below:
 // {
 //   "pid": 3,
-//   "name": "Counter A",
-//   "ts": 6845940.1418570001,
-//   "dur": 3208616.194286,
-//   "cname": "thread_state_running",
+//   "name": "HBM FW Power Meter PL2(W)",
 //   "ph": "C",
-//   "args": {
-//     "group_id": 0,
-//     "step_name": "0",
-//     "entries": [
-//       {
-//         "ts": 6845940.1418570001,
-//         "value": 1.0
-//       },
-//       {
-//         "ts": 6845940.1418570001,
-//         "value": 5.0
-//       }
-//     ]
-//   }
+//   "event_stats": "power",
+//   "entries": [
+//    {
+//      "ts": 6845940.1418570001,
+//      "value": 1.0
+//    },
+//    {
+//      "ts": 6845940.1418570001,
+//      "value": 5.0
+//    }
+//  ]
 // }
 // (See AddCounterEvent in google3/third_party/xprof/convert/trace_viewer/
 // trace_events_to_json.h for a more detailed view of XProf counter events.)
-void HandleCounterEvent(const TraceEvent& event, TraceInformation& trace_info) {
+void HandleCounterEvent(const CounterEvent& event,
+                        TraceInformation& trace_info) {
   trace_info.counters_by_pid_name[event.pid][event.name].push_back(&event);
 }
 
@@ -192,7 +187,7 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
 }
 
 void PopulateCounterTrack(ProcessId pid, const std::string& name,
-                          absl::Span<const TraceEvent* const> events,
+                          absl::Span<const CounterEvent* const> events,
                           const TraceInformation& trace_info,
                           int& current_level, FlameChartTimelineData& data,
                           TimeBounds& bounds) {
@@ -205,28 +200,34 @@ void PopulateCounterTrack(ProcessId pid, const std::string& name,
   size_t total_entries = 0;
   // The number of counter events per counter track won't be too large, so
   // it's fine to iterate twice to reserve vector capacity.
-  for (const TraceEvent* event : events) {
-    total_entries += event->counter_timestamps.size();
+  for (const CounterEvent* event : events) {
+    total_entries += event->timestamps.size();
   }
 
   CounterData counter_data;
   counter_data.timestamps.reserve(total_entries);
   counter_data.values.reserve(total_entries);
 
-  for (const TraceEvent* event : events) {
-    for (size_t i = 0; i < event->counter_timestamps.size(); ++i) {
-      Microseconds ts = event->counter_timestamps[i];
-      double val = event->counter_values[i];
+  // Bulk insert all data first.
+  for (const CounterEvent* event : events) {
+    if (event->timestamps.empty()) continue;
 
-      counter_data.timestamps.push_back(ts);
-      counter_data.values.push_back(val);
+    counter_data.timestamps.insert(counter_data.timestamps.end(),
+                                   event->timestamps.begin(),
+                                   event->timestamps.end());
+    counter_data.values.insert(counter_data.values.end(), event->values.begin(),
+                               event->values.end());
 
-      counter_data.min_value = std::min(counter_data.min_value, val);
-      counter_data.max_value = std::max(counter_data.max_value, val);
+    // Use pre-calculated min/max values from the event.
+    counter_data.min_value = std::min(counter_data.min_value, event->min_value);
+    counter_data.max_value = std::max(counter_data.max_value, event->max_value);
+  }
 
-      bounds.min = std::min(bounds.min, ts);
-      bounds.max = std::max(bounds.max, ts);
-    }
+  if (!counter_data.values.empty()) {
+    // Timestamps are sorted, so we can just look at the first and last
+    // elements.
+    bounds.min = std::min(bounds.min, counter_data.timestamps.front());
+    bounds.max = std::max(bounds.max, counter_data.timestamps.back());
   }
 
   data.groups.push_back(std::move(group));
@@ -327,10 +328,6 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   }
 
   for (const auto& event : parsed_events.counter_events) {
-    if (event.ph != Phase::kCounter) {
-      // Should never happen. But add this check to be safe.
-      continue;
-    }
     HandleCounterEvent(event, trace_info);
   }
 
@@ -359,7 +356,11 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   for (auto& [pid, counters_by_name] : trace_info.counters_by_pid_name) {
     for (auto& [name, events] : counters_by_name) {
       absl::c_stable_sort(
-          events, gtl::OrderBy([](const TraceEvent* e) { return e->ts; }));
+          events, gtl::OrderBy([](const CounterEvent* e) {
+            return e->timestamps.empty()
+                       ? std::numeric_limits<Microseconds>::max()
+                       : e->timestamps.front();
+          }));
     }
   }
 

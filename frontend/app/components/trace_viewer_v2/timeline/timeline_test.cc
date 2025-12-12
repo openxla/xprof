@@ -41,7 +41,7 @@ TEST(TimelineTest, SetTimelineData) {
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
 
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
 
   EXPECT_THAT(timeline.timeline_data().entry_levels, ElementsAre(0));
   EXPECT_THAT(timeline.timeline_data().entry_start_times, ElementsAre(10.0));
@@ -527,7 +527,7 @@ TEST(TimelineTest, NavigateToEvent) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 200.0});
   timeline.SetVisibleRange({0.0, 50.0});
 
@@ -547,7 +547,7 @@ TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
@@ -562,7 +562,7 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
@@ -586,7 +586,7 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.set_timeline_data(
+    timeline_.SetTimelineData(
         {{},
          {},
          {},
@@ -811,7 +811,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.001);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // The event rect width will be kEventMinimumDrawWidth = 2.0f because
@@ -836,7 +836,7 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.255);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // The event rect width will be around 4.51f, which is < kMinTextWidth (5.0f).
@@ -860,7 +860,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -899,7 +899,7 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -928,7 +928,7 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   int callback_count = 0;
@@ -967,7 +967,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
@@ -1010,7 +1010,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
@@ -1061,7 +1061,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -1080,8 +1080,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   EXPECT_FALSE(callback_called);
 }
 
-TEST_F(RealTimelineImGuiFixture, DrawsLoadingAnimationWhenTimelineDataIsEmpty) {
-  timeline_.set_timeline_data({});
+// This is a test for making sure the wasm is not crashing when timeline data
+// is empty.
+TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
+  timeline_.SetTimelineData({});
 
   // We don't use SimulateFrame() here because we need to inspect the draw list
   // before ImGui::EndFrame() is called.
@@ -1089,12 +1091,6 @@ TEST_F(RealTimelineImGuiFixture, DrawsLoadingAnimationWhenTimelineDataIsEmpty) {
   timeline_.Draw();
 
   EXPECT_NE(ImGui::FindWindowByName("Timeline viewer"), nullptr);
-
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
-  ASSERT_NE(draw_list, nullptr);
-  // The loading animation should be drawn to the foreground draw list.
-  EXPECT_FALSE(draw_list->VtxBuffer.empty());
 
   ImGui::EndFrame();
 }
@@ -1108,7 +1104,7 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Mouse is over the event
@@ -1152,7 +1148,7 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_start_times.push_back(50.0);
   data.entry_total_times.push_back(20.0);
   data.entry_total_times.push_back(10.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
@@ -1362,7 +1358,7 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::NewFrame();
@@ -1401,7 +1397,7 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Render first frame to layout windows and find the counter track location.
@@ -1478,7 +1474,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Set a mouse position that is guaranteed to be over the event.
@@ -1506,7 +1502,7 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::NewFrame();
@@ -1570,7 +1566,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[1] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Step 1: Select Flame Event
@@ -1631,7 +1627,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Select event

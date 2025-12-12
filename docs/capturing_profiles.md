@@ -36,6 +36,26 @@ step 8-10 will be session2. The different sessions will be denoted with
 different date stamps under each run. You can capture profiles in different
 sessions either programmatically or on-demand or a mix of both.
 
+## XProf and Tensorboard on Google Cloud
+
+On Google Cloud, we recommend using
+[`cloud-diagnostics-xprof`](https://github.com/AI-Hypercomputer/cloud-diagnostics-xprof)
+library to make it easier to host Tensorboard and XProf. Some of the main
+benefits of using this library on GCP:
+- Easy setup and packaging of XProf and tensorboard dependencies;
+- Store your profiles in GCS which can be useful for long term retention and
+  post-run analysis (local profiles captured will be deleted after researcher
+  finishes run);
+- Fast loading of large profiles and multiple profiles by provisioning
+  Tensorboard on GCE VM or GKE pod, with option to change machine type based on
+  user needs for loading speed and cost;
+- Create a link for easy sharing of profiles and collaboration with team members
+  and Google engineers;
+- Easier on-demand profiling of workloads on GKE and GCE to choose any host
+  running your workload to capture profiles.
+
+## Framework-specific instructions
+
 Check out how to enable programmatic profiling and on-demand profiling in
 different frameworks:
 
@@ -89,20 +109,20 @@ for more information.
 
 ### Profiling on a remote machine
 
-If the JAX program you'd like to profile is running on a remote machine, one
+If the program you'd like to profile is running on a remote machine, one
 option is to run all the instructions above on the remote machine (in
-particular, start the TensorBoard server on the remote machine), then use SSH
-local port forwarding to access the TensorBoard web UI from your local
-machine. Use the following SSH command to forward the default TensorBoard port
-6006 from the local to the remote machine:
+particular, start the XProf server on the remote machine), then use SSH
+local port forwarding to access the XProf web UI from your local
+machine. Use the following SSH command to forward the default XProf port
+8791 from the local to the remote machine:
 
 ```shell
-ssh -L 6006:localhost:6006 <remote server address>
+ssh -L 8791:localhost:8791 <remote server address>
 ```
 
 or if you're using Google Cloud:
 ```bash
-$ gcloud compute ssh <machine-name> -- -L 6006:localhost:6006
+$ gcloud compute ssh <machine-name> -- -L 8791:localhost:8791
 ```
 
 ### Multiple TensorBoard installs

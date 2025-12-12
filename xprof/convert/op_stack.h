@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_STACK_H_
 #define XPROF_CONVERT_OP_STACK_H_
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -24,18 +25,17 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
 
 template <typename OpInfo>
 class OpStack {
  public:
   // Pushes an Op onto the stack.
-  void Push(uint32 op_id, std::unique_ptr<OpInfo> op_info) {
+  void Push(uint32_t op_id, std::unique_ptr<OpInfo> op_info) {
     stack_.emplace_back(op_id, std::move(op_info));
   }
 
   // Pops the Op with the given op_id from the stack.
-  std::unique_ptr<OpInfo> Pop(uint32 op_id) {
+  std::unique_ptr<OpInfo> Pop(uint32_t op_id) {
     // Pop until match or stack_ is empty.
     std::unique_ptr<OpInfo> result;
     while (!stack_.empty()) {
@@ -61,7 +61,7 @@ class OpStack {
   void Clear() { stack_.clear(); }
 
  private:
-  std::vector<std::pair<uint32 /*op_id*/, std::unique_ptr<OpInfo>>> stack_;
+  std::vector<std::pair<uint32_t /*op_id*/, std::unique_ptr<OpInfo>>> stack_;
 };
 
 }  // namespace profiler

@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_UTILS_STEP_INTERSECTION_H_
 #define XPROF_UTILS_STEP_INTERSECTION_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -25,25 +26,24 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
 
 // Description of how two step sequences are aligned.
 struct StepsAlignment {
-  uint32 begin_subordinate_idx;  // where the alignment begins on the
-                                 // subordinate steps.
-  uint32 begin_chief_idx;  // where the alignment begins on the chief steps.
-  uint32 num_steps;        // aligned for how many steps.
+  uint32_t begin_subordinate_idx;  // where the alignment begins on the
+                                   // subordinate steps.
+  uint32_t begin_chief_idx;  // where the alignment begins on the chief steps.
+  uint32_t num_steps;        // aligned for how many steps.
 };
 
 class StepIntersection {
  public:
   StepIntersection(
-      uint32 max_steps,
-      const absl::flat_hash_map</*host_id=*/uint32, const StepDatabaseResult*>&
-          perhost_stepdb);
+      uint32_t max_steps,
+      const absl::flat_hash_map</*host_id=*/uint32_t,
+                                const StepDatabaseResult*>& perhost_stepdb);
 
   // Returns the number of steps in the intersection.
-  uint32 NumSteps() const { return end_chief_idx_ - begin_chief_idx_; }
+  uint32_t NumSteps() const { return end_chief_idx_ - begin_chief_idx_; }
 
   // Returns the value of empty_intersect_ (see the explanation of
   // empty_intersect_ below).
@@ -51,23 +51,23 @@ class StepIntersection {
 
   // Returns the step numbers for the destination (i.e. the intersection
   // result).
-  std::vector<uint32> DstStepNumbers() const;
+  std::vector<uint32_t> DstStepNumbers() const;
 
   // Returns the index to the step in the given host that corresponds to the
   // first step in the intersection.
-  uint32 FirstStepIndex(uint32 host_id) const;
+  uint32_t FirstStepIndex(uint32_t host_id) const;
 
   // Returns the number of steps dropped due to the max_steps constraint
   // specified in the constructor.
-  uint32 StepsDropped() const { return steps_dropped_; }
+  uint32_t StepsDropped() const { return steps_dropped_; }
 
   std::string DebugString() const;
 
  private:
-  absl::flat_hash_map</*host_id=*/uint32, StepsAlignment> perhost_alignment_;
-  uint32
+  absl::flat_hash_map</*host_id=*/uint32_t, StepsAlignment> perhost_alignment_;
+  uint32_t
       chief_host_id_;  // the host whose step sequence is selected as the chief.
-  uint32 steps_dropped_;  // number of steps dropped.
+  uint32_t steps_dropped_;  // number of steps dropped.
   // If NumSteps() is 0, empty_intersect indicates one of two possible reasons:
   //   (i) At least one host has some steps, but the intersection over all hosts
   //   is empty. In this case, empty_intersect is true,
@@ -78,8 +78,8 @@ class StepIntersection {
   // The begin and end indices to the chief step sequence for this step
   // intersection. Note that the begin index is inclusive but the end index is
   // exclusive.
-  uint32 begin_chief_idx_;
-  uint32 end_chief_idx_;
+  uint32_t begin_chief_idx_;
+  uint32_t end_chief_idx_;
 };
 
 }  // namespace profiler

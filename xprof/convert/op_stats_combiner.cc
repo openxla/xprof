@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -38,7 +39,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
-using tsl::uint32;
 
 namespace {
 
@@ -53,7 +53,7 @@ void CombinePerCoreStepInfo(
 
   // Since we have assigned a new step number to the combined result, update
   // the step number on each core to this new step number.
-  uint32 new_step_num = dst->step_num();
+  uint32_t new_step_num = dst->step_num();
   for (auto& percore_stepinfo : *dst->mutable_step_info_per_core()) {
     auto& stepinfo = percore_stepinfo.second;
     stepinfo.set_step_num(new_step_num);
@@ -75,8 +75,8 @@ void CombineStepDatabase(
     OpMetricsDbCombiner* hlo_metrics_db_complete_steps_only_combiner,
     std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners) {
   if (src.use_incomplete_step()) dst->set_use_incomplete_step(true);
-  uint32 src_first_step_idx = step_intersection.FirstStepIndex(src_host_id);
-  for (uint32 i = 0; i < step_intersection.NumSteps(); i++) {
+  uint32_t src_first_step_idx = step_intersection.FirstStepIndex(src_host_id);
+  for (uint32_t i = 0; i < step_intersection.NumSteps(); i++) {
     CombinePerCoreStepInfo(
         src_host_id, src.step_sequence(src_first_step_idx + i),
         src.use_incomplete_step(), dst->mutable_step_sequence(i),
@@ -256,17 +256,18 @@ bool NoAcceleratorInSystem(const std::vector<OpStatsInfo>& all_op_stats_info) {
   return true;
 }
 
-uint32 GlobalCoreId(int host_id, uint32 device_ordinal) {
-  constexpr uint32 kMaxDevicesPerHost = 1000;  // power-of-10 for debuggability
+uint32_t GlobalCoreId(int host_id, uint32_t device_ordinal) {
+  constexpr uint32_t kMaxDevicesPerHost =
+      1000;  // power-of-10 for debuggability
   return host_id * kMaxDevicesPerHost + device_ordinal;
 }
 
 StepIntersection ComputeStepIntersectionToMergeOpStats(
     const std::vector<OpStatsInfo>& all_op_stats_info,
-    uint32 max_step_per_host) {
+    uint32_t max_step_per_host) {
   bool no_accelerator_in_system = NoAcceleratorInSystem(all_op_stats_info);
 
-  absl::flat_hash_map<uint32, const StepDatabaseResult*> per_host_step_db;
+  absl::flat_hash_map<uint32_t, const StepDatabaseResult*> per_host_step_db;
   for (const auto& op_stats_info : all_op_stats_info) {
     if (IsCoordinator(no_accelerator_in_system, op_stats_info.hardware_type))
       continue;
@@ -290,7 +291,7 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
   StepDatabaseResult* combined_step_db = combined_op_stats->mutable_step_db();
   // Initialize the StepDatabaseResult field that depends on the number of
   // steps.
-  for (uint32 dst_step_num : step_intersection.DstStepNumbers()) {
+  for (uint32_t dst_step_num : step_intersection.DstStepNumbers()) {
     combined_step_db->add_step_sequence()->set_step_num(dst_step_num);
   }
   // Record the number of steps that are dropped.

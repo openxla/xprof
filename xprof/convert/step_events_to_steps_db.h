@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef XPROF_CONVERT_STEP_EVENTS_TO_STEPS_DB_H_
 #define XPROF_CONVERT_STEP_EVENTS_TO_STEPS_DB_H_
 
+#include <cstdint>
+
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/platform/types.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
@@ -24,7 +26,7 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-TF_CONST_INIT extern const tsl::uint32 kDefaultGpuLocalCoreId;
+TF_CONST_INIT extern const uint32_t kDefaultGpuLocalCoreId;
 
 // Converts from overlapped Step-Events to StepDatabaseResult.
 StepDatabaseResult ConvertStepEventsToStepDb(

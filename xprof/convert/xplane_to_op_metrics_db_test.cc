@@ -43,7 +43,6 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-using ::tsl::uint64;
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XEventMetadata;
@@ -59,8 +58,8 @@ using ::testing::proto::IgnoringRepeatedFieldOrdering;
 
 void AddTensorFlowTpuOpEvent(std::string&& name, std::string&& tf_op_fullname,
                              int64_t start_timestamp_ns, int64_t duration_ns,
-                             std::string&& hlo_category, uint64 flops,
-                             uint64 bytes_accessed, int64_t occurrences,
+                             std::string&& hlo_category, uint64_t flops,
+                             uint64_t bytes_accessed, int64_t occurrences,
                              int64_t self_duration, int64_t program_id,
                              int64_t symbol_id, double time_scale_multiplier,
                              XPlaneBuilder* plane, XLineBuilder* line) {
@@ -140,10 +139,10 @@ TEST(ConvertXPlaneToOpMetricsDb, HostOpMetricsDb) {
   OpMetricsDb op_metrics = ConvertHostThreadsXPlaneToOpMetricsDb(*xplane);
   // Op1, Op2, Idle.
   EXPECT_EQ(3, op_metrics.metrics_db_size());
-  uint64 total_op_duration =
+  uint64_t total_op_duration =
       tsl::profiler::NanoToPico(kTfOp1DurationNs * 2 + kTfOp2DurationNs);
   EXPECT_EQ(total_op_duration, op_metrics.total_op_time_ps());
-  uint64 total_duration = tsl::profiler::NanoToPico(
+  uint64_t total_duration = tsl::profiler::NanoToPico(
       kTfOp2StartNs - kTfOp1StartNs + kTfOp2DurationNs + kTfOp1DurationNs);
   EXPECT_EQ(total_duration, op_metrics.total_time_ps());
 
@@ -211,12 +210,12 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDb) {
 
   // kernel1, kernel2, kernel3, Idle.
   EXPECT_EQ(4, op_metrics.metrics_db_size());
-  uint64 total_op_duration = tsl::profiler::NanoToPico(
+  uint64_t total_op_duration = tsl::profiler::NanoToPico(
       kKernel1DurationNs * 2 + kKernel2DurationNs * 2 + kKernel3DurationNs);
   EXPECT_EQ(total_op_duration, op_metrics.total_op_time_ps());
   // For device, the total_duration for each device is the total duration
   // merged from all GPU streams, which is from 100000 to 130000.
-  uint64 total_duration = tsl::profiler::NanoToPico(
+  uint64_t total_duration = tsl::profiler::NanoToPico(
       kKernel3StartNs + kKernel3DurationNs - kKernel1StartNs);
   EXPECT_EQ(std::max(total_duration, total_op_duration),
             op_metrics.total_time_ps());

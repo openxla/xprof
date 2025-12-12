@@ -34,17 +34,14 @@ namespace profiler {
 
 namespace {
 
-using tsl::uint32;
-using tsl::uint64;
-
 // Returns the timespan in this step (across all cores).
 tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
-  uint64 min_ps = std::numeric_limits<uint64_t>::max();
-  uint64 max_ps = 0;
+  uint64_t min_ps = std::numeric_limits<uint64_t>::max();
+  uint64_t max_ps = 0;
   for (const auto& core_stepinfo : percore_stepinfo.step_info_per_core()) {
     const auto& stepinfo = core_stepinfo.second;
-    uint64 begin_ps = stepinfo.begin_ps();
-    uint64 end_ps = begin_ps + stepinfo.duration_ps();
+    uint64_t begin_ps = stepinfo.begin_ps();
+    uint64_t end_ps = begin_ps + stepinfo.duration_ps();
     min_ps = std::min(min_ps, begin_ps);
     max_ps = std::max(max_ps, end_ps);
   }
@@ -55,12 +52,12 @@ tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
 
 // Returns the timespan across all steps in the given step_db.
 tsl::profiler::Timespan AllStepsTimespan(const StepDatabaseResult& step_db) {
-  uint64 min_ps = std::numeric_limits<uint64_t>::max();
-  uint64 max_ps = 0;
+  uint64_t min_ps = std::numeric_limits<uint64_t>::max();
+  uint64_t max_ps = 0;
   for (const auto& step : step_db.step_sequence()) {
     tsl::profiler::Timespan timespan = StepTimespan(step);
-    uint64 begin_ps = timespan.begin_ps();
-    uint64 end_ps = timespan.end_ps();
+    uint64_t begin_ps = timespan.begin_ps();
+    uint64_t end_ps = timespan.end_ps();
     min_ps = std::min(min_ps, begin_ps);
     max_ps = std::max(max_ps, end_ps);
   }
@@ -88,9 +85,9 @@ double StepSimilarity(const PerCoreStepInfo& subordinate_step,
 // the chief_anchor step on the chief sequence), returns the corresponding
 // AlignmentInfo.
 AlignmentInfo ComputeAlignmentInfo(const StepDatabaseResult& subordinate,
-                                   uint32 subordinate_anchor,
+                                   uint32_t subordinate_anchor,
                                    const StepDatabaseResult& chief,
-                                   uint32 chief_anchor) {
+                                   uint32_t chief_anchor) {
   // Assumes that the step at subordinate_anchor on the subordinate sequence is
   // aligned with the step at the chief_anchor on the chief sequence. Then the
   // number of steps before the anchor is the minimum of the number of steps
@@ -98,20 +95,20 @@ AlignmentInfo ComputeAlignmentInfo(const StepDatabaseResult& subordinate,
   // chief. Similarly, the number of steps after the anchor is the minimum of
   // the number of steps after the anchor in the subordinate and that after the
   // anchor in the chief.
-  uint32 pre_anchor_steps = std::min(subordinate_anchor, chief_anchor);
-  uint32 post_anchor_steps =
+  uint32_t pre_anchor_steps = std::min(subordinate_anchor, chief_anchor);
+  uint32_t post_anchor_steps =
       std::min(subordinate.step_sequence_size() - subordinate_anchor,
                chief.step_sequence_size() - chief_anchor);
   // total number of steps aligned = pre_anchor_steps + post_anchor_steps.
-  uint32 alignment_steps = pre_anchor_steps + post_anchor_steps;
+  uint32_t alignment_steps = pre_anchor_steps + post_anchor_steps;
 
   double similarity = 0;
   // Where the aligned steps begin on the subordinate sequence.
-  uint32 begin_subordinate_idx = subordinate_anchor - pre_anchor_steps;
+  uint32_t begin_subordinate_idx = subordinate_anchor - pre_anchor_steps;
   // Where the aligned steps begin on the chief sequence.
-  uint32 begin_chief_idx = chief_anchor - pre_anchor_steps;
+  uint32_t begin_chief_idx = chief_anchor - pre_anchor_steps;
 
-  for (uint32 i = 0; i < alignment_steps; i++) {
+  for (uint32_t i = 0; i < alignment_steps; i++) {
     // Accumulates the similarity at each step.
     similarity +=
         StepSimilarity(subordinate.step_sequence(begin_subordinate_idx + i),
@@ -155,7 +152,7 @@ std::string StringStepsAlignment(const StepsAlignment& alignment) {
       ", num_steps: ", alignment.num_steps, "]");
 }
 
-std::string StringDstStepNumbers(const std::vector<uint32>& step_numbers) {
+std::string StringDstStepNumbers(const std::vector<uint32_t>& step_numbers) {
   std::string str;
   absl::StrAppend(&str, "[");
   for (auto i = 0; i < step_numbers.size(); i++) {
@@ -166,8 +163,8 @@ std::string StringDstStepNumbers(const std::vector<uint32>& step_numbers) {
   return str;
 }
 
-std::string StringSrcToDstIndexMap(uint32 src_first_step_idx,
-                                   uint32 num_steps) {
+std::string StringSrcToDstIndexMap(uint32_t src_first_step_idx,
+                                   uint32_t num_steps) {
   std::string str;
   absl::StrAppend(&str, "[");
   for (auto i = 0; i < num_steps; i++) {
@@ -181,15 +178,15 @@ std::string StringSrcToDstIndexMap(uint32 src_first_step_idx,
 }  // namespace
 
 StepIntersection::StepIntersection(
-    uint32 max_steps,
-    const absl::flat_hash_map<uint32, const StepDatabaseResult*>&
+    uint32_t max_steps,
+    const absl::flat_hash_map<uint32_t, const StepDatabaseResult*>&
         perhost_stepdb) {
   empty_intersect_ = false;
 
   // Figures out the host with the shortest timespan among their steps (called
   // this host the "chief").
   chief_host_id_ = std::numeric_limits<uint32_t>::max();
-  uint64 min_duration_ps = std::numeric_limits<uint64_t>::max();
+  uint64_t min_duration_ps = std::numeric_limits<uint64_t>::max();
   const StepDatabaseResult* chief_step_db = nullptr;
   for (const auto& hostid_stepdb : perhost_stepdb) {
     auto host_id = hostid_stepdb.first;
@@ -209,8 +206,8 @@ StepIntersection::StepIntersection(
     return;
   }
 
-  uint32 max_begin_chief_idx = 0;
-  uint32 min_end_chief_idx = std::numeric_limits<uint32_t>::max();
+  uint32_t max_begin_chief_idx = 0;
+  uint32_t min_end_chief_idx = std::numeric_limits<uint32_t>::max();
   // Aligns the steps in all hosts with those in the chief.
   for (const auto& hostid_stepdb : perhost_stepdb) {
     auto host_id = hostid_stepdb.first;
@@ -219,15 +216,15 @@ StepIntersection::StepIntersection(
       // Simply aligns with itself.
       perhost_alignment_[host_id] = {
           /*begin_subordinate_idx=*/0, /*begin_chief_idx=*/0,
-          static_cast<uint32>(step_db->step_sequence_size())};
+          static_cast<uint32_t>(step_db->step_sequence_size())};
     } else {
       perhost_alignment_[host_id] =
           FindStepsAlignment(*step_db, *chief_step_db);
     }
     // Intersects this host's alignment with other hosts' alignments.
-    uint32 host_begin_chief_idx = perhost_alignment_[host_id].begin_chief_idx;
+    uint32_t host_begin_chief_idx = perhost_alignment_[host_id].begin_chief_idx;
     max_begin_chief_idx = std::max(max_begin_chief_idx, host_begin_chief_idx);
-    uint32 host_end_chief_idx = perhost_alignment_[host_id].begin_chief_idx +
+    uint32_t host_end_chief_idx = perhost_alignment_[host_id].begin_chief_idx +
                                 perhost_alignment_[host_id].num_steps;
     min_end_chief_idx = std::min(min_end_chief_idx, host_end_chief_idx);
   }
@@ -243,7 +240,7 @@ StepIntersection::StepIntersection(
   begin_chief_idx_ = max_begin_chief_idx;
 
   // Takes max_steps into account.
-  uint32 num_steps = min_end_chief_idx - max_begin_chief_idx;
+  uint32_t num_steps = min_end_chief_idx - max_begin_chief_idx;
   if (num_steps > max_steps) {
     steps_dropped_ = num_steps - max_steps;
     // TODO(ckluk): Drops from both ends to avoid incomplete steps at the
@@ -255,23 +252,23 @@ StepIntersection::StepIntersection(
   }
 }
 
-std::vector<uint32> StepIntersection::DstStepNumbers() const {
+std::vector<uint32_t> StepIntersection::DstStepNumbers() const {
   // TODO(ckluk): Honors training-loop boundaries (if more than one loop
   // sampled).
-  std::vector<uint32> result;
+  std::vector<uint32_t> result;
   result.reserve(NumSteps());
-  for (uint32 i = 0; i < NumSteps(); i++) {
+  for (uint32_t i = 0; i < NumSteps(); i++) {
     result.push_back(i);
   }
   return result;
 }
 
-uint32 StepIntersection::FirstStepIndex(uint32 host_id) const {
+uint32_t StepIntersection::FirstStepIndex(uint32_t host_id) const {
   const auto* alignment = tsl::gtl::FindOrNull(perhost_alignment_, host_id);
   if (alignment == nullptr) return 0;
   DCHECK(alignment->begin_chief_idx <= begin_chief_idx_);
-  uint32 shift = begin_chief_idx_ - alignment->begin_chief_idx;
-  uint32 begin_subordinate_idx = alignment->begin_subordinate_idx + shift;
+  uint32_t shift = begin_chief_idx_ - alignment->begin_chief_idx;
+  uint32_t begin_subordinate_idx = alignment->begin_subordinate_idx + shift;
   return begin_subordinate_idx;
 }
 
@@ -283,7 +280,7 @@ std::string StepIntersection::DebugString() const {
   absl::StrAppend(
       &str, "DstStepNumbers(): ", StringDstStepNumbers(DstStepNumbers()), "\n");
 
-  std::vector<uint32> host_ids;
+  std::vector<uint32_t> host_ids;
   host_ids.reserve(perhost_alignment_.size());
   for (const auto& hostid_alignment : perhost_alignment_) {
     auto host_id = hostid_alignment.first;

@@ -16,7 +16,9 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 #define THIRD_PARTY_XPROF_CONVERT_SMART_SUGGESTION_SIGNAL_PROVIDER_H_
 
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -38,6 +40,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -47,6 +50,12 @@ namespace profiler {
 // signals from the tool data.
 class SignalProvider {
  public:
+  struct HostStraggler {
+    std::string hostname;
+    double avg_fraction_percent;
+    double modified_z_score;
+  };
+
   explicit SignalProvider(std::unique_ptr<ToolDataProvider> tool_data_provider)
       : tool_data_provider_(std::move(tool_data_provider)) {}
 
@@ -172,9 +181,8 @@ class SignalProvider {
       return it->second;
     }
 
-    TF_ASSIGN_OR_RETURN(
-        const auto* analyzer_result,
-        tool_data_provider_->GetEventTimeFractionAnalyzerResult(event_name));
+    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
+                        GetEventTimeFractionAnalyzerResult(event_name));
 
     tsl::Stat<float> event_time_fractions;
     for (auto& fractions_per_chip :
@@ -185,10 +193,12 @@ class SignalProvider {
       }
     }
 
-    if (event_time_fractions.count() == 0) {
-      return 0.0;
+    double result = 0.0;
+    if (event_time_fractions.count() > 0) {
+      result = event_time_fractions.avg() * 100.0;
     }
-    return event_time_fractions.avg() * 100.0;
+    avg_event_time_percent_cache_[event_name] = result;
+    return result;
   }
 
   // Returns the percentage of time that is spent on SparseCore.
@@ -248,6 +258,61 @@ class SignalProvider {
     TF_ASSIGN_OR_RETURN(auto data_shuffle_fractions,
                         GetDataShuffleTimeFractionEachStep());
     return CalculateAveragePercent(data_shuffle_fractions);
+  }
+
+  // Identifies straggler hosts based on the event time fraction.
+  // Uses Modified Z-Score based on Median Absolute Deviation (MAD).
+  // A threshold of 3.5 is commonly used to detect outliers.
+  absl::StatusOr<std::vector<HostStraggler>> GetHostStragglers(
+      const std::string& event_name, double threshold = 3.5) const {
+    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
+                        GetEventTimeFractionAnalyzerResult(event_name));
+
+    std::vector<std::pair<std::string, double>> host_stats;
+    tsl::StatWithPercentiles<double> fractions_stats;
+    for (const auto& [hostname, host_data] :
+         analyzer_result->host_event_time_fractions()) {
+      if (host_data.event_time_fractions().empty()) continue;
+      tsl::Stat<float> stat;
+      for (float f : host_data.event_time_fractions()) {
+        stat.UpdateStat(f);
+      }
+      double avg_percent = stat.avg() * 100.0;
+      host_stats.push_back({hostname, avg_percent});
+      fractions_stats.UpdateStat(avg_percent);
+    }
+
+    if (fractions_stats.count() < 3) {
+      return std::vector<HostStraggler>();
+    }
+
+    double median = fractions_stats.percentile(50);
+
+    tsl::StatWithPercentiles<double> deviations_stats;
+    for (const auto& [hostname, avg_percent] : host_stats) {
+      deviations_stats.UpdateStat(std::abs(avg_percent - median));
+    }
+    double mad = deviations_stats.percentile(50);
+
+    std::vector<HostStraggler> stragglers;
+    // Constant k = 0.6745. Modified Z-score = k * (x - median) / MAD.
+    constexpr double k = 0.6745;
+
+    for (const auto& [hostname, avg_percent] : host_stats) {
+      double score = 0.0;
+      if (mad == 0) {
+        if (std::abs(avg_percent - median) > 1e-6) {
+          score = std::numeric_limits<double>::infinity();
+        }
+      } else {
+        score = k * (avg_percent - median) / mad;
+      }
+
+      if (std::abs(score) > threshold) {
+        stragglers.push_back({hostname, avg_percent, score});
+      }
+    }
+    return stragglers;
   }
 
  private:
@@ -327,9 +392,25 @@ class SignalProvider {
     return kDataShuffle.contains(value);
   }
 
+  absl::StatusOr<const tensorflow::profiler::EventTimeFractionAnalyzerResult*>
+  GetEventTimeFractionAnalyzerResult(const std::string& event_name) const {
+    auto it = event_time_fraction_analyzer_cache_.find(event_name);
+    if (it != event_time_fraction_analyzer_cache_.end()) {
+      return it->second;
+    }
+    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
+                        tool_data_provider_->GetEventTimeFractionAnalyzerResult(
+                            event_name));
+    event_time_fraction_analyzer_cache_[event_name] = analyzer_result;
+    return analyzer_result;
+  }
+
   std::unique_ptr<ToolDataProvider> tool_data_provider_;
   mutable absl::flat_hash_map<std::string, double>
       avg_event_time_percent_cache_;
+  mutable absl::flat_hash_map<
+      std::string, const tensorflow::profiler::EventTimeFractionAnalyzerResult*>
+      event_time_fraction_analyzer_cache_;
 };
 
 }  // namespace profiler

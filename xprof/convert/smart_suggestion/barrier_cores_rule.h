@@ -59,8 +59,33 @@ class BarrierCoresRule : public SmartSuggestionRule {
     double special_op_percent =
         signal_provider.GetAvgEventTimePercent(kSpecialOpName).value();
     auto display_name = absl::StrCat("TPU ", kSpecialOpName);
-    // TODO(zhuruiyang): The current suggestion text is hard-coded for just
-    // barrier-cores. We will need to update it to support other special ops.
+    // Identify potential straggler hosts.
+    std::string workload_balance_suggestion;
+    auto stragglers = signal_provider.GetHostStragglers(kSpecialOpName);
+    if (stragglers.ok() && !stragglers->empty()) {
+      std::string stragglers_list_html = "<ul>";
+      for (const auto& straggler : *stragglers) {
+        absl::StrAppend(&stragglers_list_html, "<li>Host <b>",
+                        straggler.hostname,
+                        "</b> average barrier-cores time fraction: <b>",
+                        absl::StrFormat("%.1f", straggler.avg_fraction_percent),
+                        "%</b></li>");
+      }
+      absl::StrAppend(&stragglers_list_html, "</ul>");
+      workload_balance_suggestion = absl::StrCat(
+          "<li><b>Investigate Stragglers:</b> The following hosts are "
+          "identified as potential stragglers with "
+          "significantly different barrier time fraction compared to "
+          "others:",
+          stragglers_list_html, "</li>");
+    } else {
+      workload_balance_suggestion =
+          "<li><b>Investigate Workload Balance:</b> Check for stragglers, "
+          "i.e., "
+          "workers that are significantly slower than others. Uneven workloads "
+          "can cause faster workers to wait at the barrier.</li>";
+    }
+
     std::string suggestion_text = absl::StrCat(
         "<p>Your program is likely bottlenecked by <b>", display_name,
         "</b> operations: <b> an average of ",
@@ -69,10 +94,7 @@ class BarrierCoresRule : public SmartSuggestionRule {
         "often indicates a synchronization issue between workers in a "
         "distributed training setup. Please consider the following "
         "optimizations:</p>",
-        "<ul>"
-        "<li><b>Investigate Workload Balance:</b> Check for stragglers, i.e., "
-        "workers that are significantly slower than others. Uneven workloads "
-        "can cause faster workers to wait at the barrier.</li>"
+        "<ul>", workload_balance_suggestion,
         "<li><b>Optimize Collective Operations:</b> Operations like AllReduce "
         "involve synchronization. Ensure they are used efficiently. Check "
         "the size of data being communicated.</li>"

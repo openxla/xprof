@@ -105,6 +105,65 @@ TEST(BarrierCoresRuleTest, ErrorFetchingPercentile) {
   EXPECT_THAT(suggestion, IsOkAndHolds(Eq(std::nullopt)));
 }
 
+TEST(BarrierCoresRuleTest, MeetsConditionsWithStragglers) {
+  auto mock_tool_data_provider = std::make_unique<MockToolDataProvider>();
+  EventTimeFractionAnalyzerResult result;
+  // Host 0: (50+50)/2 = 50%
+  EventTimeFractionPerHost host0;
+  host0.set_hostname("host0");
+  host0.add_event_time_fractions(0.50);
+  host0.add_event_time_fractions(0.50);
+  result.mutable_host_event_time_fractions()->insert({"host0", host0});
+
+  // Host 1: (50+50)/2 = 50%
+  EventTimeFractionPerHost host1;
+  host1.set_hostname("host1");
+  host1.add_event_time_fractions(0.50);
+  host1.add_event_time_fractions(0.50);
+  result.mutable_host_event_time_fractions()->insert({"host1", host1});
+
+  // Host 2: (50+50)/2 = 50%
+  EventTimeFractionPerHost host2;
+  host2.set_hostname("host2");
+  host2.add_event_time_fractions(0.50);
+  host2.add_event_time_fractions(0.50);
+  result.mutable_host_event_time_fractions()->insert({"host2", host2});
+
+  // Host 3: (90+90)/2 = 10% (Straggler)
+  EventTimeFractionPerHost host3;
+  host3.set_hostname("host3");
+  host3.add_event_time_fractions(0.10);
+  host3.add_event_time_fractions(0.10);
+  result.mutable_host_event_time_fractions()->insert({"host3", host3});
+
+  EventTimeFractionPerChip chip0;
+  chip0.set_id("chip0");
+  // Assuming each host has 1 chip so all fractions go to chip0 at chip-level.
+  for (int i = 0; i < 6; ++i) {
+    chip0.add_event_time_fractions(0.50);
+  }
+  for (int j = 0; j < 2; ++j) {
+    chip0.add_event_time_fractions(0.10);
+  }
+  result.mutable_chip_event_time_fractions()->insert({"chip0", chip0});
+
+  EXPECT_CALL(*mock_tool_data_provider,
+              GetEventTimeFractionAnalyzerResult(kSpecialOpName))
+      .WillRepeatedly(Return(&result));
+
+  SignalProvider signal_provider(std::move(mock_tool_data_provider));
+  BarrierCoresRule rule;
+
+  absl::StatusOr<std::optional<SmartSuggestion>> suggestion =
+      rule.Apply(signal_provider);
+  EXPECT_THAT(suggestion, IsOkAndHolds(testing::Not(Eq(std::nullopt))));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              HasSubstr("<li>Host <b>host3</b> average barrier-cores time "
+                        "fraction: <b>10.0%</b></li>"));
+  EXPECT_THAT((*suggestion)->suggestion_text(),
+              HasSubstr("Investigate Stragglers"));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

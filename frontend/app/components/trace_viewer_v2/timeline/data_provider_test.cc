@@ -1,5 +1,6 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +34,21 @@ class DataProviderTest : public ::testing::Test {
             0.0,
             0.0,
             {{std::string(kName), std::move(thread_or_process_name)}}};
+  }
+
+  CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
+                                  std::vector<double> timestamps,
+                                  std::vector<double> values) {
+    CounterEvent event;
+    event.pid = pid;
+    event.name = std::move(name);
+    event.timestamps = timestamps;
+    event.values = values;
+    for (double val : values) {
+      event.min_value = std::min(event.min_value, val);
+      event.max_value = std::max(event.max_value, val);
+    }
+    return event;
   }
 
   Timeline timeline_;
@@ -209,14 +225,8 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
 }
 
 TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
-  TraceEvent counter_event;
-  counter_event.ph = Phase::kCounter;
-  counter_event.pid = 1;
-  counter_event.name = "Counter A";
-  counter_event.counter_timestamps = {10.0, 20.0, 30.0};
-  counter_event.counter_values = {1.0, 5.0, 2.0};
-
-  const std::vector<TraceEvent> events = {counter_event};
+  const std::vector<CounterEvent> events = {
+      CreateCounterEvent(1, "Counter A", {10.0, 20.0, 30.0}, {1.0, 5.0, 2.0})};
 
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
@@ -244,22 +254,54 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 30.0);
 }
 
-TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
-  TraceEvent event1;
-  event1.ph = Phase::kCounter;
-  event1.pid = 1;
-  event1.name = "Counter A";
-  event1.ts = 100.0;  // ordering key
-  event1.counter_timestamps = {100.0, 110.0};
-  event1.counter_values = {10.0, 11.0};
+TEST_F(DataProviderTest, ProcessCounterEventWithNegativeValues) {
+  const std::vector<CounterEvent> events = {CreateCounterEvent(
+      1, "Counter A", {10.0, 20.0, 30.0}, {-1.0, -5.0, -2.0})};
 
-  TraceEvent event2;
-  event2.ph = Phase::kCounter;
-  event2.pid = 1;
-  event2.name = "Counter A";
-  event2.ts = 50.0;  // ordering key, should come before event1
-  event2.counter_timestamps = {50.0, 60.0};
-  event2.counter_values = {5.0, 6.0};
+  data_provider_.ProcessTraceEvents({{}, events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+
+  EXPECT_DOUBLE_EQ(counter_data.min_value, -5.0);
+  EXPECT_DOUBLE_EQ(counter_data.max_value, -1.0);
+}
+
+TEST_F(DataProviderTest, ProcessCounterEventWithSingleValue) {
+  const std::vector<CounterEvent> events = {
+      CreateCounterEvent(1, "Counter A", {10.0}, {42.0})};
+
+  data_provider_.ProcessTraceEvents({{}, events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+
+  EXPECT_DOUBLE_EQ(counter_data.min_value, 42.0);
+  EXPECT_DOUBLE_EQ(counter_data.max_value, 42.0);
+}
+
+TEST_F(DataProviderTest, ProcessCounterEventWithEmptyValues) {
+  const std::vector<CounterEvent> events = {
+      CreateCounterEvent(1, "Counter A", {}, {})};
+
+  data_provider_.ProcessTraceEvents({{}, events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_EQ(data.counter_data_by_group_index.size(), 1);
+  ASSERT_TRUE(data.counter_data_by_group_index.count(1));
+  const CounterData& counter_data = data.counter_data_by_group_index.at(1);
+  EXPECT_TRUE(counter_data.timestamps.empty());
+  EXPECT_TRUE(counter_data.values.empty());
+}
+
+TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
+  CounterEvent event1 =
+      CreateCounterEvent(1, "Counter A", {100.0, 110.0}, {10.0, 11.0});
+
+  CounterEvent event2 =
+      CreateCounterEvent(1, "Counter A", {50.0, 60.0}, {5.0, 6.0});
 
   data_provider_.ProcessTraceEvents(
       {{TraceEvent{Phase::kComplete, 1, 1, "Complete Event", 0.0, 10.0}},
@@ -277,12 +319,8 @@ TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
-  TraceEvent counter_event;
-  counter_event.ph = Phase::kCounter;
-  counter_event.pid = 1;
-  counter_event.name = "Counter A";
-  counter_event.counter_timestamps = {10.0, 20.0, 30.0};
-  counter_event.counter_values = {1.0, 5.0, 2.0};
+  CounterEvent counter_event =
+      CreateCounterEvent(1, "Counter A", {10.0, 20.0, 30.0}, {1.0, 5.0, 2.0});
 
   data_provider_.ProcessTraceEvents(
       {{TraceEvent{Phase::kComplete, 1, 1, "Complete Event", 0.0, 10.0}},
@@ -318,12 +356,8 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
-  TraceEvent counter_event;
-  counter_event.ph = Phase::kCounter;
-  counter_event.pid = 1;
-  counter_event.name = "Counter A";
-  counter_event.counter_timestamps = {10.0, 20.0, 30.0};
-  counter_event.counter_values = {1.0, 5.0, 2.0};
+  CounterEvent counter_event =
+      CreateCounterEvent(1, "Counter A", {10.0, 20.0, 30.0}, {1.0, 5.0, 2.0});
 
   data_provider_.ProcessTraceEvents(
       {{TraceEvent{Phase::kComplete, 2, 1, "Complete Event", 0.0, 10.0}},
@@ -356,12 +390,7 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
   // Process 2: Thread 2
   TraceEvent t1_event{Phase::kComplete, 1, 1, "Thread1Event", 0.0, 10.0};
 
-  TraceEvent counter_event;
-  counter_event.ph = Phase::kCounter;
-  counter_event.pid = 1;
-  counter_event.name = "CounterA";
-  counter_event.counter_timestamps = {0.0};
-  counter_event.counter_values = {0.0};
+  CounterEvent counter_event = CreateCounterEvent(1, "CounterA", {0.0}, {0.0});
 
   TraceEvent t2_event{Phase::kComplete, 2, 2, "Thread2Event", 0.0, 10.0};
 
@@ -391,24 +420,23 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
-  TraceEvent counter_event;
-  counter_event.ph = Phase::kCounter;
-  counter_event.pid = 1;
-  counter_event.name = "Counter A";
-
   // Use a number that is likely to cause capacity mismatch if not reserved.
   // 100 elements.
   // Without reserve: 1 -> 2 -> 4 -> 8 -> 16 -> 32 -> 64 -> 128. Capacity = 128.
   // With reserve(100): Capacity = 100 (typically).
   const int kNumEntries = 100;
-  counter_event.counter_timestamps.reserve(kNumEntries);
-  counter_event.counter_values.reserve(kNumEntries);
+  std::vector<double> timestamps;
+  std::vector<double> values;
+  timestamps.reserve(kNumEntries);
+  values.reserve(kNumEntries);
   for (int i = 0; i < kNumEntries; ++i) {
-    counter_event.counter_timestamps.push_back(static_cast<double>(i));
-    counter_event.counter_values.push_back(static_cast<double>(i));
+    timestamps.push_back(static_cast<double>(i));
+    values.push_back(static_cast<double>(i));
   }
+  CounterEvent counter_event = CreateCounterEvent(
+      1, "Counter A", std::move(timestamps), std::move(values));
 
-  const std::vector<TraceEvent> events = {counter_event};
+  const std::vector<CounterEvent> events = {counter_event};
 
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 

@@ -2,6 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TRACE_HELPER_TRACE_EVENT_H_
 
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -46,13 +47,20 @@ struct TraceEvent {
   Microseconds ts = 0.0;
   Microseconds dur = 0.0;
   std::map<std::string, std::string> args;
-  std::vector<Microseconds> counter_timestamps;
-  std::vector<double> counter_values;
+};
+
+struct CounterEvent {
+  ProcessId pid = 0;
+  std::string name;
+  std::vector<Microseconds> timestamps;
+  std::vector<double> values;
+  double min_value = std::numeric_limits<double>::infinity();
+  double max_value = -std::numeric_limits<double>::infinity();
 };
 
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
-  std::vector<TraceEvent> counter_events;
+  std::vector<CounterEvent> counter_events;
 };
 
 }  // namespace traceviewer

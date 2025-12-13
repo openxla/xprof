@@ -3,7 +3,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
-#include <optional>
+#include <algorithm>
 
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
@@ -34,7 +34,7 @@ Phase ParsePhase(const std::string& ph_str) {
 // The JSON object is expected to have a top-level key "traceEvents", which is
 // an array of event objects.
 // Each event object should follow the Trace Event Format: go/trace-event-format
-// Expected fields for XProf events:
+// Expected fields for XProf complete events:
 // - "ph": Phase of the event. We are interested in:
 //     - "M" (Metadata): For thread names ("thread_name").
 //     - "X" (Complete Event): Represents a duration event.
@@ -43,61 +43,88 @@ Phase ParsePhase(const std::string& ph_str) {
 // - "ts": Timestamp in microseconds.
 // - "dur": Duration in microseconds.
 // - "name": Name of the event.
-// - "args": Arguments associated with the event.
-std::optional<TraceEvent> FromVal(const emscripten::val& event) {
+// - "args": An optional arguments associated with the event.
+// Expected fields for XProf counter events:
+// - "ph": Phase of the event. We are interested in:
+//     - "C" (Counter): Represents a counter event.
+// - "pid": Process ID.
+// - "name": Name of the counter.
+// - "entries": An array of counter entries. Each entry is an array of length 2,
+//     where the first element is the timestamp in microseconds and the second
+//     element is the counter value.
+//     Example:
+//     [
+//       [1000000.0, 1.0],
+//       [1000001.0, 2.0]
+//     ]
+void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
   if (!event.hasOwnProperty("ph")) {
-    return std::nullopt;
+    return;
   }
 
-  TraceEvent ev;
-  ev.ph = ParsePhase(event["ph"].as<std::string>());
+  std::string ph_str = event["ph"].as<std::string>();
+  Phase ph = ParsePhase(ph_str);
 
-  if (ev.ph == Phase::kCounter) {
+  if (ph == Phase::kCounter) {
     if (!event.hasOwnProperty("entries")) {
       // Discard counter events without entries.
-      return std::nullopt;
+      return;
     }
+    CounterEvent ev;
+    if (event.hasOwnProperty("pid")) ev.pid = event["pid"].as<ProcessId>();
+    if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
+
     emscripten::val entries = event["entries"];
-    const auto js_entries =
-        emscripten::vecFromJSArray<emscripten::val>(entries);
-    ev.counter_timestamps.reserve(js_entries.size());
-    ev.counter_values.reserve(js_entries.size());
-    // The points in the counter event are sorted by timestamp, so just simply
-    // append them to the end.
-    for (const auto& entry : js_entries) {
+    // Avoid converting the entry to a vector or intermediate objects to
+    // reduce memory allocation and GC pressure.
+    // We can access array elements by index directly.
+    const int length = entries["length"].as<int>();
+    ev.timestamps.reserve(length);
+    ev.values.reserve(length);
+    // The points in the counter event are sorted by timestamp (this should be
+    // guaranteed by the trace event producer), so we can simply append them.
+    for (int i = 0; i < length; ++i) {
+      emscripten::val entry = entries[i];
       // The length of the entry is expected to be 2, where the first element
       // is the timestamp and the second element is the value.
       // If the length is not 2, we discard the entry.
       if (entry["length"].as<int>() == 2) {
-        ev.counter_timestamps.push_back(entry[0].as<Microseconds>());
-        ev.counter_values.push_back(entry[1].as<double>());
+        Microseconds ts = entry[0].as<Microseconds>();
+        double val = entry[1].as<double>();
+        ev.timestamps.push_back(ts);
+        ev.values.push_back(val);
+        ev.min_value = std::min(ev.min_value, val);
+        ev.max_value = std::max(ev.max_value, val);
       }
     }
-  }
-
-  if (event.hasOwnProperty("pid")) ev.pid = event["pid"].as<ProcessId>();
-  if (event.hasOwnProperty("tid")) ev.tid = event["tid"].as<ThreadId>();
-  if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
-  if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
-  if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
-  if (event.hasOwnProperty("args")) {
-    emscripten::val args_val = event["args"];
-    emscripten::val keys =
-        emscripten::val::global("Object").call<emscripten::val>("keys",
-                                                                args_val);
-    int length = keys["length"].as<int>();
-    for (int i = 0; i < length; ++i) {
-      std::string key = keys[i].as<std::string>();
-      if (args_val[key].isString()) {
-        ev.args[key] = args_val[key].as<std::string>();
-      } else if (args_val[key].isNumber()) {
-        ev.args[key] = std::to_string(args_val[key].as<double>());
+    result.counter_events.push_back(std::move(ev));
+  } else {
+    TraceEvent ev;
+    ev.ph = ph;
+    if (event.hasOwnProperty("pid")) ev.pid = event["pid"].as<ProcessId>();
+    if (event.hasOwnProperty("tid")) ev.tid = event["tid"].as<ThreadId>();
+    if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
+    if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
+    if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
+    if (event.hasOwnProperty("args")) {
+      emscripten::val args_val = event["args"];
+      emscripten::val keys =
+          emscripten::val::global("Object").call<emscripten::val>("keys",
+                                                                  args_val);
+      int length = keys["length"].as<int>();
+      for (int i = 0; i < length; ++i) {
+        std::string key = keys[i].as<std::string>();
+        if (args_val[key].isString()) {
+          ev.args[key] = args_val[key].as<std::string>();
+        } else if (args_val[key].isNumber()) {
+          ev.args[key] = std::to_string(args_val[key].as<double>());
+        }
+        // Other types such as boolean, nested objects, or arrays are currently
+        // ignored as they are not required for the flame chart in trace viewer.
       }
-      // Other types such as boolean, nested objects, or arrays are currently
-      // ignored as they are not required for the flame chart in trace viewer.
     }
+    result.flame_events.push_back(std::move(ev));
   }
-  return ev;
 }
 
 }  // namespace
@@ -117,14 +144,7 @@ ParsedTraceEvents ParseTraceEvents(const emscripten::val& trace_data) {
   result.flame_events.reserve(js_events.size());
 
   for (const auto& js_event : js_events) {
-    auto event_opt = FromVal(js_event);
-    if (event_opt.has_value()) {
-      if (event_opt->ph == Phase::kCounter) {
-        result.counter_events.push_back(std::move(*event_opt));
-      } else {
-        result.flame_events.push_back(std::move(*event_opt));
-      }
-    }
+    ParseAndAppend(js_event, result);
   }
   // Reclaim unused memory.
   result.flame_events.shrink_to_fit();

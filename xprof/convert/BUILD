@@ -30,7 +30,6 @@ cc_test(
     ],
     deps = [
         ":preprocess_single_host_xplane",
-        "//devtools/build/runtime:get_runfiles_dir",
         # TODO(muditgokhale): Check if we can use benchmark_main instead of gunit_main.
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/log:check",
@@ -48,7 +47,6 @@ cc_test(
     ],
     deps = [
         ":xplane_to_op_stats",
-        "//devtools/build/runtime:get_runfiles_dir",
         "@com_google_absl//absl/log:check",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -1262,7 +1260,7 @@ cc_library(
     name = "preprocess_single_host_xplane",
     srcs = ["preprocess_single_host_xplane.cc"],
     hdrs = ["preprocess_single_host_xplane.h"],
-    # copybara:uncomment visibility = ["//visibility:private"],
+    visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:derived_timeline",
@@ -1431,7 +1429,7 @@ cc_library(
     name = "hlo_proto_to_memory_visualization_utils",
     srcs = ["hlo_proto_to_memory_visualization_utils.cc"],
     hdrs = ["hlo_proto_to_memory_visualization_utils.h"],
-    # copybara:uncomment visibility = ["@org_tensorflow//tensorflow/core/profiler/protobuf:memory_viewer_friends"],
+    visibility = ["//visibility:public"],
     deps = [
         ":graphviz_helper",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -1528,8 +1526,8 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_github_nlohmann_json//:json",
         "@com_google_protobuf//:protobuf",
-        # copybara:uncomment "@com_google_protobuf//:json",
-        # copybara:uncomment(b/360874576) "@org_tensorflow//tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter:direct_hlo_to_json_graph_convert",
+        "@com_google_protobuf//:json",
+        # copybara:uncomment(b/360874576) "//third_party/tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter:direct_hlo_to_json_graph_convert",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_graph_dumper",
         "@xla//xla/service:hlo_proto_cc",
@@ -1607,7 +1605,6 @@ cc_test(
     srcs = ["repository_test.cc"],
     deps = [
         ":repository",
-        "//testing/lib/sponge:undeclared_outputs",
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:protobuf",
@@ -2005,7 +2002,7 @@ cc_library(
     name = "compute_inference_latency",
     srcs = ["compute_inference_latency.cc"],
     hdrs = ["compute_inference_latency.h"],
-    visibility = ["//perftools/accelerators/xprof/convert:__pkg__"],
+    visibility = ["@xla//xla/tsl/profiler:friends"],
     deps = [
         "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",

@@ -9,7 +9,7 @@ package(
 package_group(
     name = "friends",
     includes = [
-        "@org_tensorflow//tensorflow/core/profiler:friends",
+        "//third_party/tensorflow/core/profiler:friends",
     ],
 )
 
@@ -697,10 +697,7 @@ cc_library(
     name = "tpu_counter_ids",
     hdrs = ["tpu_counter_ids.h"],
     compatible_with = ["//buildenv/target:libtpu"],
-    visibility = [
-        "//perftools/gputools/profiler/collector:__pkg__",
-        "@org_tensorflow//tensorflow/core/profiler:__subpackages__",
-    ],
+    visibility = ["//visibility:public"],
     deps = [
     ],
 )

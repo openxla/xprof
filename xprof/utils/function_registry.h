@@ -118,8 +118,7 @@ limitations under the License.
 //
 // That way, the owner's global registry is clear of clients' registrations for
 // testing. Moreover, the owner may wish to have versions of the binaries with
-// different registrations linked in. See:
-// g3doc/third_party/crosstool/g3doc/practices#how-do-i-maintain-implicit-dependencies-alwayslink
+// different registrations linked in.
 //
 // === Creating a registry ====================================================
 //

@@ -27,7 +27,10 @@ namespace profiler {
 using TraceEventsContainer = TraceEventsContainerBase<EventFactory, RawData>;
 
 // Converts XEvents within the XSpace into trace_viewer events container.
+// The host_id is used to re-hashing the device_id to avoid device name
+// collision across hosts.
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
+                                         int host_id,
                                          const XSpace& xspace,
                                          TraceEventsContainer* container);
 

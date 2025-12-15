@@ -921,10 +921,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return list(self.generate_tools_of_run(run, run_dir))
 
   def _run_host_impl(
-      self,
-      run: str,
-      run_dir: str,
-      tool: str | None = None,
+      self, run: str, run_dir: str, tool: str
   ) -> List[HostMetadata]:
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)

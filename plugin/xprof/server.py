@@ -193,24 +193,12 @@ def _create_argument_parser() -> argparse.ArgumentParser:
       ),
   )
 
-  logdir_group = parser.add_mutually_exclusive_group(required=False)
-
-  logdir_group.add_argument(
-      "-l",
+  parser.add_argument(
+      "logdir",
       "--logdir",
-      dest="logdir_opt",
       metavar="<logdir>",
       type=str,
       help="The directory where profile files will be stored.",
-  )
-
-  logdir_group.add_argument(
-      "logdir_pos",
-      nargs="?",
-      metavar="logdir",
-      type=str,
-      default=None,
-      help="Positional argument for the profile log directory.",
   )
 
   parser.add_argument(

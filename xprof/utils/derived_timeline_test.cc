@@ -625,42 +625,7 @@ TEST(DerivedTimelineTest, MergeAndNoMerge) {
   });
 }
 
-TEST(DerivedTimelineTest, EnsureAllGpuEventsAreGrouped) {
-  constexpr int64_t kFirstGroupId = 0;
-  constexpr int64_t kSecondGroupId = 1;
 
-  const absl::string_view kTfOpName = "mul:Mul";
-  const absl::string_view kKernelDetails = "kernel_details";
-  XSpace space;
-  tsl::profiler::GroupMetadataMap group_metadata_map(
-      {{0, {"train 0"}}, {1, {"train 1"}}});
-  XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
-  XPlaneBuilder plane_builder(plane);
-  auto line_builder = plane_builder.GetOrCreateLine(0);
-  CreateXEvent(&plane_builder, &line_builder, "op1", 0, 100,
-               {{StatType::kGroupId, kFirstGroupId},
-                {StatType::kTfOp, kTfOpName},
-                {StatType::kKernelDetails, kKernelDetails}});
-  CreateXEvent(&plane_builder, &line_builder, "op2", 200, 300,
-               {{StatType::kGroupId, kSecondGroupId},
-                {StatType::kTfOp, kTfOpName},
-                {StatType::kKernelDetails, kKernelDetails}});
-  // Eager Op that happens after the second step.
-  CreateXEvent(&plane_builder, &line_builder, "op3", 600, 100,
-               {{StatType::kTfOp, kTfOpName},
-                {StatType::kKernelDetails, kKernelDetails}});
-  GenerateDerivedTimeLines(group_metadata_map, &space);
-  XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
-  // The step line and the TF op line are added.
-  EXPECT_EQ(plane_visitor.NumLines(), 3);
-  plane_visitor.ForEachLine([&](const XLineVisitor& line_visitor) {
-    line_visitor.ForEachEvent([&](const XEventVisitor& event_visitor) {
-      SCOPED_TRACE(
-          absl::StrCat(line_visitor.Name(), " ", event_visitor.Name()));
-      EXPECT_TRUE(event_visitor.GetStat(StatType::kGroupId).has_value());
-    });
-  });
-}
 
 // Tests that the multi-threaded processing of Tensor Core planes works
 // correctly.

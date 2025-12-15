@@ -1,5 +1,10 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("//defs:backend_defs.bzl", "if_oss", "tf_profiler_alias")
+load(
+    "//testing/performance/workflow/build_defs:workflow.bzl",
+    "perf",
+    "perf_guitar_workflow_test",
+)
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
@@ -36,6 +41,30 @@ cc_test(
         "@com_google_absl//absl/log:check",
         "@xla//xla/tsl/platform:env",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+perf_guitar_workflow_test(
+    name = "xprof_third_party_benchmark_workflow",
+    configuration = {
+        "postprocessing_config": {
+            "microbenchmark_sponge_data_uploading_config": {
+                "perfgate_project": "xprof",
+                "perfgate_owners": ["xprof-devs@prod.google.com"],
+            },
+        },
+    },
+    phases = [
+        perf.RunBorgTests(
+            name = "xprof_third_party_performance_tests",
+            blaze_flags = [
+                "--compilation_mode=opt",
+                "--dynamic_mode=off",
+            ],
+            targets = [
+                ":preprocess_single_host_xplane_test",
+            ],
+        ),
     ],
 )
 

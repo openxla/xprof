@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <tuple>
 
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -16,6 +17,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/fonts/fonts.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/input_handler.h"  // NO_LINT
+#include "xprof/frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
@@ -27,6 +29,15 @@ const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 10.0f;
 
+void ApplyDefaultTraceViewerStyles() {
+  ImGuiStyle& style = ImGui::GetStyle();
+  style.ScrollbarSize = kScrollbarSize;
+  style.WindowRounding = 0.0f;
+  style.WindowPadding = ImVec2(0.0f, 0.0f);
+  style.CellPadding = ImVec2(0.0f, 0.0f);
+  style.ItemSpacing = ImVec2(0.0f, 0.0f);
+}
+
 void ApplyLightTheme() {
   ImGui::StyleColorsLight();
   ImGuiStyle& style = ImGui::GetStyle();
@@ -37,6 +48,12 @@ void ApplyLightTheme() {
   // We only use this color for the vertical lines between track title and
   // framechart. Horizontal lines are rendered in timeline.
   style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+}
+
+EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
+                 void* userData) {
+  Application::Instance().RequestRedraw();
+  return EM_FALSE;
 }
 
 }  // namespace
@@ -57,7 +74,7 @@ void Application::Initialize() {
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
   // TODO: b/450584482 - Add a dark theme for the timeline.
   ApplyLightTheme();
-  ImGui::GetStyle().ScrollbarSize = kScrollbarSize;
+  ApplyDefaultTraceViewerStyles();
 
   // Initialize the platform
   platform_ = std::make_unique<WGPURenderPlatform>();
@@ -95,7 +112,13 @@ void Application::Initialize() {
   // Register wheel event handlers to the canvas element.
   emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/this,
                                 /*use_capture=*/true, HandleWheel);
+  emscripten_set_resize_callback(kWindowTarget, /*user_data=*/nullptr,
+                                 /*use_capture=*/true, OnResize);
+
+  Scheduler::Instance().SetMainLoopCallback([this]() { MainLoop(); });
 }
+
+void Application::RequestRedraw() { Scheduler::Instance().RequestRedraw(); }
 
 void Application::MainLoop() {
   // TODO: b/454172203 - Replace polling `CanvasState::Update()` with a
@@ -117,14 +140,10 @@ void Application::MainLoop() {
   platform_->NewFrame();
   timeline_->Draw();
   platform_->RenderFrame();
-}
 
-void Application::Main() {
-  emscripten_set_main_loop_arg(
-      [](void* app) {
-        static_cast<traceviewer::Application*>(app)->MainLoop();
-      },
-      this, 0, true);
+  if (Animation::HasActiveAnimations()) {
+    RequestRedraw();
+  }
 }
 
 float Application::GetDeltaTime() {

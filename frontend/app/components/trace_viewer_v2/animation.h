@@ -38,6 +38,9 @@ class Animation {
     finished_->clear();
   }
 
+  // Returns true if there are any active animations.
+  static bool HasActiveAnimations() { return !animations_->empty(); }
+
  protected:
   virtual void on_finished() = 0;
 

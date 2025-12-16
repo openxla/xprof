@@ -24,8 +24,8 @@ First time user? Come and check out this [Colab Demo](https://docs.jaxstack.ai/e
 
 ### Prerequisites
 
-* xprof >= 2.20.0
-* (optional) TensorBoard >= 2.20.0
+* xprof >= 2.21.0
+* (optional) TensorBoard >= 2.21.0
 
 Note: XProf requires access to the Internet to load the [Google Chart library](https://developers.google.com/chart/interactive/docs/basic_load_libs#basic-library-loading).
 Some charts and tables may be missing if you run XProf entirely offline on

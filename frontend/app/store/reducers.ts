@@ -215,7 +215,17 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
             runToolsMap: action.runToolsMap,
           };
         },
-        ));
+        ),
+    on(
+        actions.setProfilerConfigAction,
+        (state: AppState, action: ActionCreatorAny) => {
+          return {
+            ...state,
+            config: action.config,
+          };
+        },
+        ),
+);
 
 /** Reducer */
 export function rootReducer(state: AppState|undefined, action: Action) {

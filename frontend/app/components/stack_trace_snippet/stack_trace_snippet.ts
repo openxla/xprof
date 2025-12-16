@@ -31,6 +31,14 @@ export class StackTraceSnippet implements OnChanges {
    * The number of lines to show around the stack frame.
    */
   @Input() sourceContextWindow = 40;
+  /**
+   * The prefix of the source file path.
+   *
+   * This is used to construct the src link given different repositories that
+   * serves the source code.
+   */
+  @Input() srcPathPrefix = '';
+
   sourceCodeSnippetAddresses: readonly Address[] = [];
 
   ngOnChanges(changes: SimpleChanges) {

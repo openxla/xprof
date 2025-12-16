@@ -16,3 +16,9 @@ export interface CaptureProfileOptions {
   pythonTracerLevel: number;
   delay: number;
 }
+
+/** A serializable object with profiler configuration details. */
+export interface ProfilerConfig {
+  hideCaptureProfileButton: boolean;
+  srcPathPrefix: string;
+}

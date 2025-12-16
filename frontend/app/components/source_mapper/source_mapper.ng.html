@@ -9,6 +9,7 @@
       </mat-select>
     </mat-form-field>
     <stack-trace-snippet
+      [srcPathPrefix]="srcPathPrefix"
       [sourceFileAndLineNumber]="adaptedSourceFileAndLineNumber"
       [stackTrace]="adaptedStackTrace"
       [sourceContextWindow]="sourceContextWindow"

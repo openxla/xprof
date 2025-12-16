@@ -187,6 +187,7 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_proto_to_module",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
     ],
     alwayslink = 1,

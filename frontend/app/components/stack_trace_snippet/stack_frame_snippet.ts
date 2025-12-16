@@ -20,6 +20,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   @Input() sourceCodeSnippetAddress: Address|undefined = undefined;
   @Input() topOfStack: boolean|undefined = undefined;
   @Input() usingSourceFileAndLineNumber: boolean|undefined = undefined;
+  @Input() srcPathPrefix = '';
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly sourceCodeService: SourceCodeServiceInterface =
       inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN);
@@ -30,12 +31,15 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   codeSearchLink: string|undefined = undefined;
   codeSearchLinkTooltip: string|undefined = undefined;
   lineNumberToMetricMap: Map<number, Metric>|undefined = undefined;
+  isCodeFetchEnabled = false;
 
   constructor() {
     this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'];
+      this.sessionId = (params || {})['sessionId'] || (params || {})['run'] ||
+          this.sessionId;
       this.reload();
     });
+    this.isCodeFetchEnabled = this.sourceCodeService.isCodeFetchEnabled();
   }
 
   ngOnDestroy(): void {
@@ -60,7 +64,8 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   }
 
   get loaded() {
-    return this.frame !== undefined || this.failure !== undefined;
+    return this.frame !== undefined || this.failure !== undefined ||
+        !this.isCodeFetchEnabled;
   }
 
   get isAtTopOfStack(): boolean {
@@ -111,7 +116,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     this.sourceCodeService
         .codeSearchLink(
             this.sessionId, this.sourceCodeSnippetAddress.fileName,
-            this.sourceCodeSnippetAddress.lineNumber)
+            this.sourceCodeSnippetAddress.lineNumber, this.srcPathPrefix)
         .pipe(takeUntil(this.destroy$))
         .subscribe({
           next: (link) => {

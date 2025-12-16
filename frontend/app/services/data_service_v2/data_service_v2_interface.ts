@@ -4,17 +4,13 @@
  */
 
 import {InjectionToken} from '@angular/core';
+import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {Observable} from 'rxjs';
-import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
-
-/** A serializable object with profiler configuration details. */
-export interface ProfilerConfig {
-  hideCaptureProfileButton: boolean;
-}
 
 /** The data service class that calls API and return response. */
 export interface DataServiceV2Interface {

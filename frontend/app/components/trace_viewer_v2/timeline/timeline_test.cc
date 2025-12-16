@@ -1,8 +1,10 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
 #include <any>
+#include <functional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
@@ -42,11 +44,70 @@ TEST(TimelineTest, SetTimelineData) {
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
 
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
 
   EXPECT_THAT(timeline.timeline_data().entry_levels, ElementsAre(0));
   EXPECT_THAT(timeline.timeline_data().entry_start_times, ElementsAre(10.0));
   EXPECT_THAT(timeline.timeline_data().entry_total_times, ElementsAre(5.0));
+}
+
+TEST(TimelineTest, CalculateOffsets) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+
+  // Group 0: Flame chart with 2 levels (0, 1).
+  // Height = 2 * (kEventHeight + kEventPaddingBottom) = 2 * 17.0 = 34.0.
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 0", .start_level = 0});
+
+  // Group 1: Counter track.
+  // Height = kCounterTrackHeight = 40.0.
+  data.groups.push_back(
+      {.type = Group::Type::kCounter, .name = "Group 1", .start_level = 2});
+
+  // Group 2: Empty flame chart (0 levels).
+  // Height = 1 * (kEventHeight + kEventPaddingBottom) = 17.0 (min height).
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 2", .start_level = 3});
+
+  // Simulate 3 levels in total (0, 1, 2).
+  // Resize events_by_level to 4, meaning levels 0, 1, 2, 3 exist.
+  // Group 2 starts at level 3. Since no events are added to level 3,
+  // this group contains an empty level.
+  data.events_by_level.resize(4);
+
+  timeline.SetTimelineData(std::move(data));
+
+  const std::vector<float>& offsets = timeline.group_offsets();
+
+  // We expect 4 offsets: 0, height(G0), height(G0)+height(G1), total height.
+  ASSERT_THAT(offsets, ::testing::SizeIs(4));
+
+  EXPECT_THAT(offsets[0], FloatEq(0.0f));
+  EXPECT_THAT(offsets[1], FloatEq(34.0f));
+  EXPECT_THAT(offsets[2], FloatEq(34.0f + 40.0f));  // 74.0f
+  EXPECT_THAT(offsets[3], FloatEq(74.0f + 17.0f));  // 91.0f
+
+  const std::vector<float>& visible_level_offsets =
+      timeline.visible_level_offsets();
+
+  // Max level is 3. So size is 3 + 1 + 1 (end offset) = 5.
+  ASSERT_THAT(visible_level_offsets, ::testing::SizeIs(5));
+
+  // Group 0
+  // Level 0: 0.0 + 0 * 17.0 = 0.0
+  EXPECT_THAT(visible_level_offsets[0], FloatEq(0.0f));
+
+  // Level 1: 0.0 + 1 * 17.0 = 17.0
+  EXPECT_THAT(visible_level_offsets[1], FloatEq(17.0f));
+
+  // Group 1 (Counter) - Level 2
+  // Populated by CalculateOffsets for counter groups.
+  EXPECT_THAT(visible_level_offsets[2], FloatEq(34.0f));
+
+  // Group 2 (Flame) - Level 3
+  // It covers level 3.
+  EXPECT_THAT(visible_level_offsets[3], FloatEq(74.0f));
 }
 
 TEST(TimelineTest, SetVisibleRange) {
@@ -116,7 +177,7 @@ TEST(TimelineTest, TimeToScreenX) {
 constexpr double kPxPerTimeUnit = 1.0;
 constexpr Pixel kScreenXOffset = 0.0f;
 constexpr Pixel kScreenYOffset = 0.0f;
-constexpr int kLevelInGroup = 0;
+constexpr Pixel kRelativeYPos = 0.0f;
 constexpr Pixel kTimelineWidth = 100.0f;
 
 TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
@@ -127,7 +188,7 @@ TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
   // Screen range before adjustments: [10.0, 20.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 10.0f);
   EXPECT_FLOAT_EQ(rect.right, 20.0f - kEventPaddingRight);
@@ -143,7 +204,7 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedLeft) {
   // Screen range after left clipping: [0.0, 10.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/90.0, /*end=*/110.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 0.0f);
   EXPECT_FLOAT_EQ(rect.right, 10.0f - kEventPaddingRight);
@@ -157,7 +218,7 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedRight) {
   // Screen range after right clipping: [90.0, 100.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/190.0, /*end=*/210.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 90.0f);
   EXPECT_FLOAT_EQ(rect.right, 100.0f);
@@ -173,7 +234,7 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   // won't effect here because the event is clipped to the left edge).
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/80.0, /*end=*/90.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 0.0f);
   EXPECT_FLOAT_EQ(rect.right, 0.0f);
@@ -189,7 +250,7 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideRight) {
   // right won't effect here because the event is clipped to the right edge).
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/210.0, /*end=*/220.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 100.0f);
   EXPECT_FLOAT_EQ(rect.right, 100.0f);
@@ -203,7 +264,7 @@ TEST(TimelineTest, CalculateEventRect_EventSmallerThanMinimumWidth) {
   // Screen width is expanded to kEventMinimumDrawWidth.
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/110.1, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kRelativeYPos, kTimelineWidth);
 
   EXPECT_FLOAT_EQ(rect.left, 10.0f);
   EXPECT_FLOAT_EQ(rect.right,
@@ -218,7 +279,7 @@ TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
   // kEventMinimumDrawWidth.
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
-      /*px_per_time_unit=*/0.0, kLevelInGroup, kTimelineWidth);
+      /*px_per_time_unit=*/0.0, kRelativeYPos, kTimelineWidth);
 
   // left becomes screen_x_offset (0), right becomes max(0, 0 +
   // kEventMinimumDrawWidth)
@@ -528,7 +589,7 @@ TEST(TimelineTest, NavigateToEvent) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 200.0});
   timeline.SetVisibleRange({0.0, 50.0});
 
@@ -548,7 +609,7 @@ TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
@@ -563,7 +624,7 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  timeline.set_timeline_data(std::move(data));
+  timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
@@ -574,6 +635,185 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   EXPECT_EQ(timeline.visible_range().end(), initial_range.end());
 }
 
+// Specialized class for testing internal behavior and state.
+class TestableTimeline : public Timeline {
+ public:
+  // Expose protected methods for testing.
+  using Timeline::GetVisibleGroupRange;
+
+  // Intercept CalculateOffsets to verify internal state during updates.
+  Offsets CalculateOffsets(const FlameChartTimelineData& data) const override {
+    if (on_calculate_group_offsets) {
+      on_calculate_group_offsets();
+    }
+    return Timeline::CalculateOffsets(data);
+  }
+
+  std::function<void()> on_calculate_group_offsets;
+};
+
+TEST(TimelineTest, DataRemainsOldDuringCalculation) {
+  TestableTimeline timeline;
+
+  // 1. Set initial data
+  FlameChartTimelineData old_data;
+  old_data.groups.push_back({.name = "Old Group", .start_level = 0});
+  timeline.SetTimelineData(old_data);  // Initial set
+
+  ASSERT_EQ(timeline.timeline_data().groups.size(), 1);
+  ASSERT_EQ(timeline.timeline_data().groups[0].name, "Old Group");
+
+  // 2. Prepare new data
+  FlameChartTimelineData new_data;
+  new_data.groups.push_back({.name = "New Group", .start_level = 0});
+
+  // 3. Setup verification hook
+  bool checked = false;
+  timeline.on_calculate_group_offsets = [&]() {
+    checked = true;
+    // CRITICAL CHECK: The timeline should still hold the old data
+    EXPECT_EQ(timeline.timeline_data().groups.size(), 1);
+    EXPECT_EQ(timeline.timeline_data().groups[0].name, "Old Group");
+
+    // And obviously not the new data (though size=1 check above is weak if both
+    // are size 1)
+    EXPECT_NE(timeline.timeline_data().groups[0].name, "New Group");
+  };
+
+  // 4. Trigger update
+  timeline.SetTimelineData(std::move(new_data));
+
+  EXPECT_TRUE(checked);
+
+  // 5. Verify final state
+  EXPECT_EQ(timeline.timeline_data().groups.size(), 1);
+  EXPECT_EQ(timeline.timeline_data().groups[0].name, "New Group");
+}
+
+class GetVisibleGroupRangeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // Setup some dummy data with predictable offsets.
+    // 10 groups, each height 10.0 (simulated).
+    // group_offsets_ will be {0, 10, 20, ..., 100}
+    FlameChartTimelineData data;
+    for (int i = 0; i < 10; ++i) {
+      data.groups.push_back({.name = "Group " + std::to_string(i)});
+    }
+    // We can't control CalculateGroupOffsets easily to produce exact numbers
+    // without mocking or setting up complex events.
+    // Instead, we rely on setting up data such that CalculateGroupOffsets
+    // produces known values.
+    // Let's assume kCounterTrackHeight is 40.0f.
+    // We'll use counter tracks for simplicity.
+    data.groups.clear();
+    for (int i = 0; i < 10; ++i) {
+      data.groups.push_back({.type = Group::Type::kCounter,
+                             .name = "Group " + std::to_string(i),
+                             .start_level = 0});
+    }
+    // Height of each group will be kCounterTrackHeight (40.0f).
+    // Offsets: 0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400.
+    timeline_.SetTimelineData(std::move(data));
+  }
+
+  TestableTimeline timeline_;
+  const float kRowHeight = kCounterTrackHeight;  // 40.0f
+};
+
+TEST_F(GetVisibleGroupRangeTest, EmptyData) {
+  TestableTimeline empty_timeline;
+  empty_timeline.SetTimelineData({});
+  auto [start, end] = empty_timeline.GetVisibleGroupRange(0.0f, 100.0f);
+
+  // Implementation returns {0, -1} for empty offsets.
+  EXPECT_EQ(start, 0);
+  EXPECT_EQ(end, -1);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollAtTop_VisibleOneRow) {
+  // Scroll 0, Visible 40 (1 row).
+  // Visible: Group 0 [0, 40).
+  // Start: 0.
+  // End: 0.
+  // Expected: [0, 0].
+  auto [start, end] = timeline_.GetVisibleGroupRange(0.0f, kRowHeight);
+
+  EXPECT_EQ(start, 0);
+  EXPECT_EQ(end, 0);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollAtTop_VisibleTwoRows) {
+  // Scroll 0, Visible 80 (2 rows).
+  // Visible: Group 0 [0, 40), Group 1 [40, 80).
+  // Start: 0.
+  // End: 1.
+  auto [start, end] = timeline_.GetVisibleGroupRange(0.0f, kRowHeight * 2);
+
+  EXPECT_EQ(start, 0);
+  EXPECT_EQ(end, 1);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollInMiddle_ExactAlign) {
+  // Scroll 40 (start of Group 1), Visible 40.
+  // Visible: Group 1 [40, 80).
+  // Start: 1.
+  // End: 1.
+  auto [start, end] = timeline_.GetVisibleGroupRange(kRowHeight, kRowHeight);
+
+  EXPECT_EQ(start, 1);
+  EXPECT_EQ(end, 1);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollInMiddle_PartialAlign) {
+  // Scroll 60 (middle of Group 1), Visible 40.
+  // Visible Range: [60, 100).
+  // Covers Group 1 [40, 80) and Group 2 [80, 120).
+  // Start: Group 1.
+  // End: Group 2.
+  auto [start, end] =
+      timeline_.GetVisibleGroupRange(kRowHeight * 1.5f, kRowHeight);
+
+  EXPECT_EQ(start, 1);
+  EXPECT_EQ(end, 2);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollAtBottom) {
+  // Scroll 360 (start of Group 9, last one), Visible 40.
+  // Visible: Group 9 [360, 400).
+  // Start: 9.
+  // End: 9.
+  auto [start, end] =
+      timeline_.GetVisibleGroupRange(kRowHeight * 9, kRowHeight);
+
+  EXPECT_EQ(start, 9);
+  EXPECT_EQ(end, 9);
+}
+
+TEST_F(GetVisibleGroupRangeTest, ScrollPastBottom) {
+  // Scroll 500 (beyond 400), Visible 100.
+  // Visible Range: [500, 600).
+  // Start: > 400. upper_bound returns end(), distance is 11. start_index 10.
+  // End: > 400. lower_bound returns end(), distance 11. end_index 10.
+  // Clamped to 9.
+  // Result: [10, 9]. (Empty range because start > end)
+  auto [start, end] = timeline_.GetVisibleGroupRange(500.0f, 100.0f);
+
+  EXPECT_EQ(start, 10);
+  EXPECT_EQ(end, 9);
+}
+
+TEST_F(GetVisibleGroupRangeTest, VisibleHeightLargerThanContent) {
+  // Scroll 0, Visible 1000.
+  // Visible Range [0, 1000).
+  // Start: 0.
+  // End: 9 (clamped).
+  auto [start, end] = timeline_.GetVisibleGroupRange(0.0f, 1000.0f);
+
+  EXPECT_EQ(start, 0);
+  EXPECT_EQ(end, 9);
+}
+
 // Test fixture for tests that require an ImGui context.
 template <typename TimelineT>
 class TimelineImGuiTestFixture : public Test {
@@ -581,13 +821,21 @@ class TimelineImGuiTestFixture : public Test {
   void SetUp() override {
     ImGui::CreateContext();
 
+    // Match the default styles applied in Application::Initialize().
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScrollbarSize = 10.0f;
+    style.WindowRounding = 0.0f;
+    style.WindowPadding = ImVec2(0.0f, 0.0f);
+    style.CellPadding = ImVec2(0.0f, 0.0f);
+    style.ItemSpacing = ImVec2(0.0f, 0.0f);
+
     ImGuiIO& io = ImGui::GetIO();
     // Set dummy display size and delta time, required for ImGui to function.
     io.DisplaySize = ImVec2(1920, 1080);
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.set_timeline_data(
+    timeline_.SetTimelineData(
         {{},
          {},
          {},
@@ -915,7 +1163,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.001);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // The event rect width will be kEventMinimumDrawWidth = 2.0f because
@@ -940,7 +1188,7 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.255);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // The event rect width will be around 4.51f, which is < kMinTextWidth (5.0f).
@@ -979,7 +1227,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -994,9 +1242,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
 
   // Set a mouse position that is guaranteed to be over the event, since the
   // event spans the entire timeline.
-  // y=28 is safely within the event rect (starts at 20, height 16 -> ends at
-  // 36).
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -1020,7 +1266,7 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -1049,7 +1295,7 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   int callback_count = 0;
@@ -1058,7 +1304,7 @@ TEST_F(RealTimelineImGuiFixture,
         callback_count++;
       });
 
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);
 
   // First click.
   ImGui::GetIO().MouseDown[0] = true;
@@ -1088,11 +1334,11 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // A position over the event.
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);  // A position over the event.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
@@ -1131,11 +1377,11 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // A position over the event.
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);  // A position over the event.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
@@ -1182,7 +1428,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   bool callback_called = false;
@@ -1201,8 +1447,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   EXPECT_FALSE(callback_called);
 }
 
+// This is a test for making sure the wasm is not crashing when timeline data
+// is empty.
 TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
-  timeline_.set_timeline_data({});
+  timeline_.SetTimelineData({});
 
   // We don't use SimulateFrame() here because we need to inspect the draw list
   // before ImGui::EndFrame() is called.
@@ -1223,11 +1471,11 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Mouse is over the event
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(500.f, 30.f);
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
   ImGui::GetIO().MouseDown[0] = true;
 
@@ -1267,13 +1515,13 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_start_times.push_back(50.0);
   data.entry_total_times.push_back(20.0);
   data.entry_total_times.push_back(10.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
 
   // First shift-click on event 1.
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);  // Position over event 1.
+  ImGui::GetIO().MousePos = ImVec2(500.f, 30.f);  // Position over event 1.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -1286,7 +1534,7 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   // Second shift-click on event 2.
-  ImGui::GetIO().MousePos = ImVec2(1100.f, 28.f);  // Position over event 2.
+  ImGui::GetIO().MousePos = ImVec2(1100.f, 30.f);  // Position over event 2.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -1301,7 +1549,7 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   // Third shift-click on event 1 again to deselect.
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);  // Position over event 1.
+  ImGui::GetIO().MousePos = ImVec2(500.f, 30.f);  // Position over event 1.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -1363,8 +1611,8 @@ class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
     RealTimelineImGuiFixture::SetUp();
     // Set a visible range that results in a round number for px_per_time_unit
     // to make test calculations predictable. With a timeline width of 1669px
-    // (based on 1920px window width, 250px label width, and 1px padding),
-    // a duration of 166.9 gives 10px per microsecond.
+    // (based on 1920px window width and no paddings), a duration of 166.9 gives
+    // 10px per microsecond.
     timeline_.SetVisibleRange({0.0, 166.9});
     timeline_.set_data_time_range({0.0, 166.9});
 
@@ -1574,7 +1822,7 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::NewFrame();
@@ -1613,7 +1861,7 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Render first frame to layout windows and find the counter track location.
@@ -1690,11 +1938,11 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Set a mouse position that is guaranteed to be over the event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -1718,7 +1966,7 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[0] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   ImGui::NewFrame();
@@ -1782,11 +2030,11 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   counter_data.max_value = 10.0;
   data.counter_data_by_group_index[1] = std::move(counter_data);
 
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Step 1: Select Flame Event
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // Over flame event
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);  // Over flame event
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;
@@ -1825,7 +2073,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   EXPECT_EQ(timeline_.selected_counter_index(), 0);
 
   // Step 3: Select Flame Event Again
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -1843,11 +2091,11 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Select event
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(300.f, 30.f);
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;
@@ -1869,7 +2117,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   // Ensure we have some data so tracks are drawn.
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1", .start_level = 0});
-  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetTimelineData(std::move(data));
 
   ImGui::NewFrame();
   timeline_.Draw();
@@ -1896,6 +2144,114 @@ TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   EXPECT_TRUE(found_overlay) << "SelectionOverlay child window not found";
   EXPECT_TRUE(overlay_is_after_tracks)
       << "SelectionOverlay should be drawn after Tracks to appear on top";
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawsOnlyVisibleGroups) {
+  FlameChartTimelineData data;
+  // Create 100 groups.
+  for (int i = 0; i < 100; ++i) {
+    data.groups.push_back(
+        {.name = "Group " + std::to_string(i), .start_level = 0});
+  }
+  // Ensure we have enough levels so DrawGroup doesn't crash or skip?
+  // Timeline::CalculateGroupOffsets ensures min height of 1 level (17px).
+  // So empty groups have height 17px.
+
+  timeline_.SetTimelineData(std::move(data));
+  // Total height ~ 1700px.
+  // Viewport ~1080px.
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  int child_window_count = 0;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "TimelineChild_")) {
+      child_window_count++;
+    }
+  }
+
+  // Should verify culling.
+  // If visible height is 1080 (minus ruler ~20, minus labels...), say 1000.
+  // 1000/17 ~ 58.
+  // Plus buffer (1 before, 1 after). ~60.
+  // Definitely < 100.
+  EXPECT_LT(child_window_count, 90);
+  // And > 0.
+  EXPECT_GT(child_window_count, 10);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, ContentHeightMatchesTotalGroupHeight) {
+  FlameChartTimelineData data;
+  // Add enough groups to have some height.
+  // 10 groups of height 40 (Counter). Total 400.
+  for (int i = 0; i < 10; ++i) {
+    data.groups.push_back({.type = Group::Type::kCounter,
+                           .name = "Group " + std::to_string(i),
+                           .start_level = 0});
+  }
+  timeline_.SetTimelineData(std::move(data));
+  // Total height should be 400.0f.
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Find the "Tracks" child window.
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "Tracks") &&
+        !absl::StrContains(w->Name, "TimelineChild")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  // The expected total height is the last offset.
+  const float expected_height = timeline_.group_offsets().back();
+
+  // ContentSize is updated at the end of the frame/child. Since we are
+  // calling this after Draw() (which calls EndChild()), ContentSize should be
+  // valid. However, if it's 0, it might be because the table handling defers
+  // size report.
+  // Instead, let's look at the cursor position which tracks the layout.
+  // DC.CursorMaxPos tracks the maximum position reached by the cursor (content
+  // size).
+  float content_height =
+      tracks_window->DC.CursorMaxPos.y - tracks_window->DC.CursorStartPos.y;
+
+  // We expect it to match exactly.
+  EXPECT_FLOAT_EQ(content_height, expected_height);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawGroupChildWindowHeightMatchesOffsetDifference) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kCounter, .name = "TestGroup", .start_level = 0});
+  timeline_.SetTimelineData(std::move(data));
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* group_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(w->Name, "TimelineChild_TestGroup_0")) {
+      group_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(group_window, nullptr);
+
+  const float expected_height =
+      timeline_.group_offsets()[1] - timeline_.group_offsets()[0];
+  EXPECT_FLOAT_EQ(group_window->Size.y, expected_height);
 
   ImGui::EndFrame();
 }

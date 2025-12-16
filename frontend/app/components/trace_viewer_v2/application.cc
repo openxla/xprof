@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <tuple>
 
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -26,6 +27,15 @@ namespace {
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 10.0f;
+
+void ApplyDefaultTraceViewerStyles() {
+  ImGuiStyle& style = ImGui::GetStyle();
+  style.ScrollbarSize = kScrollbarSize;
+  style.WindowRounding = 0.0f;
+  style.WindowPadding = ImVec2(0.0f, 0.0f);
+  style.CellPadding = ImVec2(0.0f, 0.0f);
+  style.ItemSpacing = ImVec2(0.0f, 0.0f);
+}
 
 void ApplyLightTheme() {
   ImGui::StyleColorsLight();
@@ -57,7 +67,7 @@ void Application::Initialize() {
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
   // TODO: b/450584482 - Add a dark theme for the timeline.
   ApplyLightTheme();
-  ImGui::GetStyle().ScrollbarSize = kScrollbarSize;
+  ApplyDefaultTraceViewerStyles();
 
   // Initialize the platform
   platform_ = std::make_unique<WGPURenderPlatform>();

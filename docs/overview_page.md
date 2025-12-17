@@ -13,32 +13,66 @@ Both TPU and GPU are supported.
 
 ### Overview Page Components
 
-The Overview page shows two main sections:
+The overview page differs between TPU and GPU environments. Here is a breakdown
+of both variations:
 
-*   **Performance Summary** displays details on the average step time, the ratio
-    of framework ops executed on the host vs. the device, the percentage of time
-    spent on eager execution, and device compute precisions.
+#### TPU (training)
 
-*   **Step-time Graph** displays a graph of device step time (in milliseconds)
-    over all the steps profiled. Each step is broken into the multiple
-    categories.
-    (with different colors) of where time is spent.
+- **Performance Summary** displays details containing:
+  - **Average Step Time (training only)**: The step time averaged over all steps
+    sampled.
+  - **FLOPS Utilization**
+  - **TPU Duty Cycle**
+  - **Memory Bandwidth Utilization**
+  - **Program Goodput Efficiency**: Measures how your model is performing
+    relative to ideal performance on this hardware.
+  - **TF Op Placement**: Whether the op is running on the host or device.
+  - **Op Time Spent on Eager Executions**: This metric helps guide potential
+    optimizations related to the eager execution.
+  - **Device Compute Precisions**: The percentage of device compute time that
+    used 16-bit computation and that used 32-bit computation are reported.
+- **Step-time Graph (training)** plots a graph of step time (in milliseconds)
+  over all the steps sampled. Each of the chart's stacked colors represents
+  a category of step time, such as TensorCore idle time or time spent
+  communicating with the host.
 
-The overview page adapts the information it shows based on the type of
-accelerator being profiled. For TPUs, for instance, it shows a matrix-unit (MXU)
-utilization number (training only) based on hardware performance counters,
-whereas for GPUs, it shows a breakdown of time spent on kernel launches vs.
-compute.
+#### TPU (inference)
 
-### Key Details for the Overview Page
+For TPU inference jobs, the view is slightly different:
 
-*   XProf differentiates training and inference profiles by examining them for
-    the presence of specific XLA ops that are executed during backpropagation;
-    it then automatically adapts the information presented on the overview page
-    accordingly.
-*   For training runs, step time computation works best if the user program
-    explicitly annotates steps in the training loop. In the absence of this
-    explicit information, XProf employs heuristics to estimate the step time,
-    with potentially lower accuracy.
-*   Support for an overview of inference runs is currently work-in-progress;
-    some data may be incorrect.
+The **Step-Time Graph** section is replaced by the **Inference Session Latency Breakdown**
+section and includes a chart of:
+
+- **Inference Session Latency at Percentile**: Shows the proportion of
+  the inference job's time spent in host compute, device compute, and
+  host-device communication.
+
+In the **Performance Summary** section, **Average Step Time** is replaced by:
+
+- **Average Session Time (inference only)**: Chart showing session time
+  averaged over all sessions and their distribution.
+
+#### GPU specific
+
+In the **Step-time Breakdown**, the average step time is divided into
+multiple categories:
+
+- **All Other Time**: All other time, including Python overhead.
+- **Compilation Time**: Time spent on compiling kernels.
+- **Output Time**: Time spent on writing output data.
+- **Input Time**: Time spent on reading input data.
+- **Kernel Launch Time**: Host time for launching kernels.
+- **Host Compute Time**: Host computation time.
+- **Device Collective Communication Time**: Time spent in collective GPU
+  communications.
+- **Device to Device Time**: Device-to-device communication time.
+- **Device Compute Time**: On-device computation time.
+
+The following fields are also available in the **Performance Summary**:
+
+- **TF Op Placement**: Whether the op is running on the host or device.
+- **Op Time Spent on Eager Executions**: This metric helps guide potential
+  optimizations related to overuse of eager execution (in contrast to the graph
+  execution).
+- **Device Compute Precisions**: Reports the percentage of device compute time
+  that uses 16-bit computation and 32-bit computation.

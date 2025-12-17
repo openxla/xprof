@@ -164,5 +164,35 @@ TEST(TimeRangeTest, AnimatedTimeRangeAfterUpdate) {
   EXPECT_EQ(*animated_range, TimeRange(20.0, 30.0));
 }
 
+TEST(TimeRangeTest, Scale) {
+  TimeRange range(10.0, 20.0);
+  TimeRange scaled = range.Scale(2.0);
+
+  EXPECT_EQ(scaled, TimeRange(5.0, 25.0));
+}
+
+TEST(TimeRangeTest, Contains) {
+  TimeRange range(10.0, 20.0);
+
+  EXPECT_TRUE(range.Contains(TimeRange(12.0, 18.0)));
+  EXPECT_TRUE(range.Contains(TimeRange(10.0, 20.0)));
+  EXPECT_FALSE(range.Contains(TimeRange(5.0, 15.0)));
+  EXPECT_FALSE(range.Contains(TimeRange(15.0, 25.0)));
+}
+
+TEST(TimeRangeTest, Intersect) {
+  TimeRange range1(10.0, 20.0);
+  TimeRange range2(15.0, 25.0);
+
+  EXPECT_EQ(range1.Intersect(range2), TimeRange(15.0, 20.0));
+
+  TimeRange range3(5.0, 15.0);
+  EXPECT_EQ(range1.Intersect(range3), TimeRange(10.0, 15.0));
+
+  TimeRange range4(0.0, 5.0);
+  TimeRange intersection = range1.Intersect(range4);
+  EXPECT_EQ(intersection.start(), intersection.end());
+}
+
 }  // namespace
 }  // namespace traceviewer

@@ -6,7 +6,7 @@ import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_tabl
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
-import {Observable, of, ReplaySubject} from 'rxjs';
+import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
 
 const GROUP_BY_RULES = ['program', 'category', 'provenance'];
@@ -37,15 +37,18 @@ export class OpProfile implements OnDestroy {
       route: ActivatedRoute,
       private readonly store: Store<{}>,
   ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
-    this.tool = params['tag'] || params['tool'] || this.tool;
+    this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;
   }
 
@@ -77,6 +80,9 @@ export class OpProfile implements OnDestroy {
   }
 
   update() {
+    if (!this.sessionId || !this.tool) {
+      return;
+    }
     const $data = this.fetchData(this.groupBy);
     const $moduleList = this.dataService.getModuleList(
         this.sessionId,

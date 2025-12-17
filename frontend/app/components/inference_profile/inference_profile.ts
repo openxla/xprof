@@ -1,13 +1,12 @@
 import {Component, inject, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {InferenceProfileData, InferenceProfileDataProperty, InferenceProfileMetadata, InferenceProfileMetadataProperty, InferenceProfileTable,} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import {InferenceProfileData, InferenceProfileDataProperty, InferenceProfileMetadata, InferenceProfileMetadataProperty, InferenceProfileTable, } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** An inference profile component. */
@@ -27,8 +26,8 @@ export class InferenceProfile implements OnDestroy {
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   // All the model IDs and data.
-  hasBatching: boolean = false;
-  hasTensorPattern: boolean = false;
+  hasBatching = false;
+  hasTensorPattern = false;
   allModelIds: string[] = [];
   allRequestTables: google.visualization.DataTable[] = [];
   allRequestProperties: InferenceProfileDataProperty[] = [];
@@ -57,16 +56,21 @@ export class InferenceProfile implements OnDestroy {
       route: ActivatedRoute,
       private readonly store: Store<{}>,
   ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      if (params as NavigationEvent) {
-        this.sessionId = (params as NavigationEvent).run || '';
-        this.tool = (params as NavigationEvent).tag || 'inference_profile';
-        this.host = (params as NavigationEvent).host || '';
-      }
-      this.sessionId = (params || {})['sessionId'] || this.sessionId;
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
+  }
+
+  processQueryParams(queryParams: Params) {
+    this.sessionId =
+        queryParams['run'] || queryParams['sessionId'] || this.sessionId;
+    this.tool = queryParams['tag'] || this.tool;
+    this.host = queryParams['host'] || this.host;
   }
 
   parseMetadata(metadataOrNull: InferenceProfileTable) {

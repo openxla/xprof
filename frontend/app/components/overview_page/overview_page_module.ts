@@ -10,10 +10,10 @@ import {InferenceLatencyChartModule} from 'org_xprof/frontend/app/components/ove
 import {PerformanceSummaryModule} from 'org_xprof/frontend/app/components/overview_page/performance_summary/performance_summary_module';
 import {RunEnvironmentViewModule} from 'org_xprof/frontend/app/components/overview_page/run_environment_view/run_environment_view_module';
 import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph_module';
-import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
 import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
+import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {combineLatest, ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 
 const GENERAL_ANALYSIS_INDEX = 0;
 const INPUT_PIPELINE_ANALYSIS_INDEX = 1;
@@ -51,9 +51,11 @@ export class OverviewPage implements OnDestroy {
   private readonly store: Store = inject(Store);
 
   constructor() {
-    this.route.params.pipe(takeUntil(this.destroyed))
-        .subscribe((params: Params) => {
-          this.processQuery(params);
+    combineLatest([this.route.params, this.route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
           this.update();
         });
   }
@@ -74,9 +76,9 @@ export class OverviewPage implements OnDestroy {
     return !this.isInference;
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.host = params['host'] || this.host || '';
-    this.sessionId = params['run'] || params['sessionId'] || '';
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || 'overview_page';
   }
 

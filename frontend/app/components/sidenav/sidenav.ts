@@ -433,13 +433,13 @@ export class SideNav implements OnInit, OnDestroy {
 
     // This router.navigate call remains, as it's responsible for Angular
     // routing
+    // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
+    // are subscribing to the queryParams in the components.
     this.router.navigate(
         [
           this.selectedTag || 'empty',
           navigationEvent,
         ],
-        // TODO - b/401596855: Clean up query processing in tools component with
-        // addition of the query params in navigation.
         {
           queryParams: navigationEvent,
         });

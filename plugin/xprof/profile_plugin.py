@@ -91,53 +91,25 @@ CACHE_VERSION_FILE = 'cache_version.txt'
 # 2) '#': data is in gzip format.
 # 3) '@': data generate from proto, or tracetable for streaming trace viewer.
 # 4) no suffix: data is in json format, ready to feed to frontend.
-TOOLS = {
-    'xplane': 'xplane.pb',
-    'hlo_proto': 'hlo_proto.pb',
-}
+TOOLS = {}
 
 ALL_HOSTS = 'ALL_HOSTS'
 
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
-_EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
+_EXTENSION_TO_TOOL = {}
 
-_FILENAME_RE = re.compile(r'(?:(.*)\.)?(' +
-                          '|'.join(TOOLS.values()).replace('.', r'\.') + r')')
+_FILENAME_RE = re.compile(r'(?!).*')
 
 
 # Tools that can be generated from xplane end with ^.
-XPLANE_TOOLS = [
-    'trace_viewer',  # non-streaming before TF 2.13
-    'trace_viewer@',  # streaming since TF 2.14
-    'overview_page',
-    'input_pipeline_analyzer',
-    'framework_op_stats',
-    'kernel_stats',
-    'memory_profile',
-    'pod_viewer',
-    'op_profile',
-    'hlo_stats',
-    'roofline_model',
-    'inference_profile',
-    'memory_viewer',
-    'graph_viewer',
-    'megascale_stats',
-]
+XPLANE_TOOLS = []
 
 # XPlane generated tools that support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
-    'input_pipeline_analyzer',
-    'framework_op_stats',
-    'kernel_stats',
-    'overview_page',
-    'pod_viewer',
-    'megascale_stats',
-])
+XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([])
 
 # XPlane generated tools that only support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
-    ['overview_page', 'pod_viewer'])
+XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset([])
 
 # Rate limiter constants, the GCS quota defined below
 # https://cloud.google.com/storage/quotas#rate-quotas.
@@ -155,7 +127,7 @@ def use_xplane(tool: str) -> bool:
 
 
 # HLO generated tools.
-HLO_TOOLS = frozenset(['graph_viewer', 'memory_viewer'])
+HLO_TOOLS = frozenset([])
 
 
 def use_hlo(tool: str) -> bool:
@@ -1484,29 +1456,21 @@ class ProfilePlugin(base_plugin.TBPlugin):
     Returns:
       A list of strings representing the available tools
     """
-    tool_sort_order = [
-        'overview_page',
-        'trace_viewer',
-        'trace_viewer@',
-        'graph_viewer',
-        'op_profile',
-        'hlo_op_profile',
-        'input_pipeline_analyzer',
-        'input_pipeline',
-        'kernel_stats',
-        'memory_profile',
-        'memory_viewer',
-        'roofline_model',
-        'perf_counters',
-        'pod_viewer',
-        'framework_op_stats',
-        'tensorflow_stats',  # Legacy name for framework_op_stats
-        'hlo_op_stats',
-        'hlo_stats',  # Legacy name for hlo_op_stats
-        'inference_profile',
-        'megascale_stats',
-    ]
+    tool_sort_order = []
     tools = _get_tools(filenames, profile_run_dir)
+    tools.discard('input_pipeline_analyzer')
+    tools.discard('input_pipeline')
+    tools.discard('pod_viewer')
+    tools.discard('framework_op_stats')
+    tools.discard('tensorflow_stats')
+    tools.discard('hlo_op_stats')
+    tools.discard('hlo_stats')
+    tools.discard('inference_profile')
+    tools.discard('megascale_stats')
+    tools.discard('perf_counters')
+    tools.discard('roofline_model')
+    tools.discard('kernel_stats')
+    tools.discard('memory_profile')
     if 'trace_viewer@' in tools:
       # streaming trace viewer always override normal trace viewer.
       # the trailing '@' is to inform tf-profile-dashboard.html and

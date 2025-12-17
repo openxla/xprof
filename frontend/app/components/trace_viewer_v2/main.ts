@@ -1,5 +1,23 @@
 import type {WasmModule} from './trace_viewer_v2_wasm/trace_viewer_v2';
 
+/**
+ * The name of the loading status update custom event, dispatched from WASM in
+ * Trace Viewer v2.
+ */
+export const LOADING_STATUS_UPDATE_EVENT_NAME = 'loadingstatusupdate';
+
+/**
+ * The loading status of the trace viewer, used to update the loading status
+ * indicator in the UI.
+ */
+export enum TraceViewerV2LoadingStatus {
+  IDLE = 'Idle',
+  INITIALIZING = 'Initializing',
+  LOADING_DATA = 'Loading data',
+  PROCESSING_DATA = 'Processing data',
+  ERROR = 'Error',
+}
+
 declare function loadWasmTraceViewerModule(
   options?: object,
 ): Promise<TraceViewerV2Module>;
@@ -156,8 +174,8 @@ async function loadJsonDataInternal(url: string): Promise<unknown> {
  *
  * @return A promise that resolves with the initialized TraceViewerV2Module.
  */
-export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
-  let traceviewerModule: TraceViewerV2Module | null = null;
+export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
+  let traceviewerModule: TraceViewerV2Module|null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
@@ -172,14 +190,43 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
   // Add a method to the module to load data from a URL
   traceviewerModule.loadJsonData = async (url: string) => {
     try {
+      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
+      }));
+
       const jsonData = await loadJsonDataInternal(url);
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
+
+        window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.IDLE},
+        }));
+
         return;
       }
+
+      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+      }));
+
+      // Yield to the event loop to allow the UI to re-render and display the
+      // 'Processing data' status before the potentially long-running
+      // processTraceEvents call.
+      await new Promise(resolve => {
+        setTimeout(resolve, 0);
+      });
+
       traceviewerModule.processTraceEvents(jsonData);
+
+      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.IDLE},
+      }));
     } catch (e) {
       console.error('Error processing file:', e);
+
+      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.ERROR},
+      }));
     }
   };
 

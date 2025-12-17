@@ -63,6 +63,7 @@ class BarrierCoresRule : public SmartSuggestionRule {
     std::string workload_balance_suggestion;
     auto stragglers = signal_provider.GetHostStragglers(kSpecialOpName);
     if (stragglers.ok() && !stragglers->empty()) {
+      suggestion.set_suppress_others(true);
       std::string stragglers_list_html = "<ul>";
       for (const auto& straggler : *stragglers) {
         absl::StrAppend(&stragglers_list_html, "<li>Host <b>",

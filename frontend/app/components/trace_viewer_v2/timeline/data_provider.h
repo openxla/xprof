@@ -11,6 +11,15 @@ namespace traceviewer {
 
 inline constexpr absl::string_view kThreadName = "thread_name";
 inline constexpr absl::string_view kProcessName = "process_name";
+// The name of the metadata event used to sort processes (e.g., device rows
+// in trace viewer).
+inline constexpr absl::string_view kProcessSortIndex = "process_sort_index";
+// The name of the metadata event used to sort threads within a process (e.g.,
+// resource rows in trace viewer).
+inline constexpr absl::string_view kThreadSortIndex = "thread_sort_index";
+// The argument name for sort index in process_sort_index and
+// thread_sort_index metadata events.
+inline constexpr absl::string_view kSortIndex = "sort_index";
 inline constexpr absl::string_view kName = "name";
 
 class DataProvider {

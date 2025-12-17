@@ -122,6 +122,13 @@ class Timeline {
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
 
+  void set_mpmd_pipeline_view_enabled(bool enabled) {
+    mpmd_pipeline_view_enabled_ = enabled;
+  }
+  bool mpmd_pipeline_view_enabled() const {
+    return mpmd_pipeline_view_enabled_;
+  }
+
   void Draw();
 
   // Calculates the screen coordinates of the rectangle for an event.
@@ -274,6 +281,8 @@ class Timeline {
   // If false, the drag operation is a pan/scroll.
   // This flag is latched at the start of the drag.
   bool is_selecting_ = false;
+
+  bool mpmd_pipeline_view_enabled_ = false;
 
   std::vector<TimeRange> selected_time_ranges_;
   Microseconds drag_start_time_ = 0.0;

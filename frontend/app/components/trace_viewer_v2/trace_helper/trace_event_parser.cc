@@ -136,6 +136,10 @@ ParsedTraceEvents ParseTraceEvents(const emscripten::val& trace_data) {
     return result;
   }
 
+  if (trace_data.hasOwnProperty("mpmdPipelineView")) {
+    result.mpmd_pipeline_view = trace_data["mpmdPipelineView"].as<bool>();
+  }
+
   emscripten::val events = trace_data["traceEvents"];
   const auto js_events = emscripten::vecFromJSArray<emscripten::val>(events);
   // Reserve space for the most common event type (flame events) to avoid

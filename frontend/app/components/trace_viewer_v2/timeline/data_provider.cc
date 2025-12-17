@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
@@ -10,6 +11,8 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/container/btree_map.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -39,6 +42,7 @@ struct TraceInformation {
       counters_by_pid_name;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names;
   absl::btree_map<ProcessId, std::string> process_names;
+  absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
 };
 
 std::string GetDefaultThreadName(ThreadId tid) {
@@ -81,6 +85,15 @@ void HandleMetadataEvent(const TraceEvent& event,
   } else if (event.name == kProcessName) {
     trace_info.process_names[event.pid] =
         GetNameWithDefault(event, GetDefaultProcessName(event.pid));
+  } else if (event.name == kProcessSortIndex) {
+    if (auto it = event.args.find(std::string(kSortIndex));
+        it != event.args.end()) {
+      double sort_index_double;
+      if (absl::SimpleAtod(it->second, &sort_index_double)) {
+        trace_info.process_sort_indices[event.pid] =
+            static_cast<uint32_t>(sort_index_double);
+      }
+    }
   }
 }
 
@@ -280,12 +293,38 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
   }
 }
 
+std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
+  std::vector<ProcessId> pids;
+  pids.reserve(trace_info.process_names.size());
+  for (const auto& [pid, _] : trace_info.process_names) {
+    pids.push_back(pid);
+  }
+
+  absl::c_stable_sort(pids, [&](ProcessId a, ProcessId b) {
+    uint32_t index_a = a;
+    if (auto it = trace_info.process_sort_indices.find(a);
+        it != trace_info.process_sort_indices.end()) {
+      index_a = it->second;
+    }
+    uint32_t index_b = b;
+    if (auto it = trace_info.process_sort_indices.find(b);
+        it != trace_info.process_sort_indices.end()) {
+      index_b = it->second;
+    }
+    if (index_a != index_b) return index_a < index_b;
+    return a < b;
+  });
+  return pids;
+}
+
 FlameChartTimelineData CreateTimelineData(const TraceInformation& trace_info,
                                           TimeBounds& bounds) {
   FlameChartTimelineData data;
   int current_level = 0;
 
-  for (const auto& [pid, _] : trace_info.process_names) {
+  std::vector<ProcessId> pids = GetSortedProcessIds(trace_info);
+
+  for (ProcessId pid : pids) {
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds);
   }
 
@@ -309,6 +348,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
     timeline.SetVisibleRange(TimeRange::Zero());
     return;
   }
+
+  timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
 
   TraceInformation trace_info;
   for (const auto& event : parsed_events.flame_events) {

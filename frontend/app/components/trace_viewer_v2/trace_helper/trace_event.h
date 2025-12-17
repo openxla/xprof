@@ -61,6 +61,7 @@ struct CounterEvent {
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
+  bool mpmd_pipeline_view = false;
 };
 
 }  // namespace traceviewer

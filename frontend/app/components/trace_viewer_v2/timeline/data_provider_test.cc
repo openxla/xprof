@@ -456,6 +456,106 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
   EXPECT_EQ(counter_data.values.capacity(), kNumEntries);
 }
 
+TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      TraceEvent{Phase::kMetadata,
+                 1,
+                 0,
+                 "process_sort_index",
+                 0.0,
+                 0.0,
+                 {{"sort_index", "2"}}},
+      // Add a complete event for Process 1
+      TraceEvent{Phase::kComplete, 1, 101, "Event 1", 0.0, 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      TraceEvent{Phase::kMetadata,
+                 2,
+                 0,
+                 "process_sort_index",
+                 0.0,
+                 0.0,
+                 {{"sort_index", "1"}}},
+      // Add a complete event for Process 2
+      TraceEvent{Phase::kComplete, 2, 201, "Event 2", 0.0, 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process 3"),
+      // Process 3 has no sort index, defaults to pid (3)
+      // Add a complete event for Process 3
+      TraceEvent{Phase::kComplete, 3, 301, "Event 3", 0.0, 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 3 processes, each having 1 thread track -> 6 groups total.
+  ASSERT_THAT(data.groups, SizeIs(6));
+
+  // Expected order: Process 2 (index 1), Process 1 (index 2), Process 3 (index
+  // 3 / default)
+  // Groups for Process 2 are at indices 0 (process) and 1 (thread)
+  // Groups for Process 1 are at indices 2 (process) and 3 (thread)
+  // Groups for Process 3 are at indices 4 (process) and 5 (thread)
+  EXPECT_EQ(data.groups[0].name, "Process 2");
+  EXPECT_EQ(data.groups[2].name, "Process 1");
+  EXPECT_EQ(data.groups[4].name, "Process 3");
+}
+
+TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      TraceEvent{Phase::kMetadata,
+                 1,
+                 0,
+                 "process_sort_index",
+                 0.0,
+                 0.0,
+                 {{"sort_index", "1"}}},
+      // Add a complete event for Process 1
+      TraceEvent{Phase::kComplete, 1, 101, "Event 1", 0.0, 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      TraceEvent{Phase::kMetadata,
+                 2,
+                 0,
+                 "process_sort_index",
+                 0.0,
+                 0.0,
+                 {{"sort_index", "1"}}},
+      // Add a complete event for Process 2
+      TraceEvent{Phase::kComplete, 2, 201, "Event 2", 0.0, 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 2 processes, each having 1 thread track -> 4 groups total.
+  ASSERT_THAT(data.groups, SizeIs(4));
+
+  // Stable sort: Process 1 (pid 1) comes before Process 2 (pid 2) as they have
+  // same sort index.
+  // Groups for Process 1 are at indices 0 (process) and 1 (thread)
+  // Groups for Process 2 are at indices 2 (process) and 3 (thread)
+  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[2].name, "Process 2");
+}
+
+TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
+  ParsedTraceEvents events;
+  events.mpmd_pipeline_view = true;
+  // Add a dummy event to prevent early return
+  events.flame_events.push_back(
+      TraceEvent{Phase::kComplete, 1, 1, "Event", 0.0, 10.0});
+
+  data_provider_.ProcessTraceEvents(events, timeline_);
+
+  EXPECT_TRUE(timeline_.mpmd_pipeline_view_enabled());
+
+  events.mpmd_pipeline_view = false;
+  // Clear timeline data to process again (or just process again as it
+  // overwrites)
+  data_provider_.ProcessTraceEvents(events, timeline_);
+  EXPECT_FALSE(timeline_.mpmd_pipeline_view_enabled());
+}
+
 TEST_F(DataProviderTest,
        ProcessMultipleCounterEventsReservesCapacityCorrectly) {
   // Use sizes that trigger reallocation if not reserved upfront.

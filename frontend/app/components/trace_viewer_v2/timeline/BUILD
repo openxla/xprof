@@ -86,6 +86,7 @@ cc_library(
         "//util/gtl:comparator",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",

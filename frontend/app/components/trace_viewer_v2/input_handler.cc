@@ -5,6 +5,7 @@
 
 #include "absl/strings/string_view.h"
 #include "third_party/dear_imgui/imgui.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "util/gtl/flat_map.h"
 
 namespace traceviewer {
@@ -45,7 +46,24 @@ int IsActiveElementInput() {
   });
 }
 
+// Input Event Handlers
+//
+// Common behavior for all the following input handlers:
+//
+// 1. Redraw Requests:
+//    All handlers unconditionally request a redraw for the next animation frame
+//    via Scheduler::Instance().RequestRedraw(). Since drawing is asynchronous
+//    (scheduled for the next frame), the input updates processed here will be
+//    correctly applied before that frame is rendered.
+//
+// 2. Return Values (Event Propagation):
+//    The return value (EM_BOOL) indicates whether the event was handled:
+//    - EM_TRUE (true): The event was handled and should NOT be propagated.
+//    - EM_FALSE (false): The event was not handled and SHOULD be propagated to
+//      other listeners (e.g., browser default behavior).
+
 EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
 
   // If a native input element has focus, do not let ImGui capture the keyboard.
@@ -61,6 +79,7 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
 }
 
 EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
 
   // If a native input element has focus, do not let ImGui capture the keyboard.
@@ -76,24 +95,28 @@ EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
 }
 
 EM_BOOL HandleMouseMove(int, const EmscriptenMouseEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
   io.AddMousePosEvent(event->targetX, event->targetY);
   return io.WantCaptureMouse;
 }
 
 EM_BOOL HandleMouseDown(int, const EmscriptenMouseEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseButtonEvent(event->button, true);
   return io.WantCaptureMouse;
 }
 
 EM_BOOL HandleMouseUp(int, const EmscriptenMouseEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseButtonEvent(event->button, false);
   return io.WantCaptureMouse;
 }
 
 EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
+  Scheduler::Instance().RequestRedraw();
   ImGuiIO& io = ImGui::GetIO();
 
   io.AddKeyEvent(ImGuiMod_Ctrl, event->mouse.ctrlKey);

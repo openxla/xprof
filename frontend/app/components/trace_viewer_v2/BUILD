@@ -23,6 +23,31 @@ bzl_library(
     ],
 )
 
+wasm_cc_library(
+    name = "scheduler",
+    srcs = ["scheduler.cc"],
+    hdrs = ["scheduler.h"],
+    deps = [
+        "@com_google_absl//absl/base:no_destructor",
+    ],
+)
+
+# This test won't be run by TAP because emscripten tests require special build flags.
+# To run this test locally, use:
+# blaze test //third_party/xprof/frontend/app/components/trace_viewer_v2:scheduler_test
+wasm_cc_test(
+    name = "scheduler_test",
+    srcs = ["scheduler_test.cc"],
+    linkopts = [
+        "-sASYNCIFY=1",
+        "-sNO_EXIT_RUNTIME=1",
+    ],
+    deps = [
+        ":scheduler",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "animation",
     hdrs = ["animation.h"],
@@ -70,6 +95,7 @@ wasm_cc_library(
         ":canvas_state",
         ":event_manager",
         ":input_handler",
+        ":scheduler",
         ":webgpu_render_platform",
         "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
@@ -86,6 +112,7 @@ wasm_cc_library(
     srcs = ["input_handler.cc"],
     hdrs = ["input_handler.h"],
     deps = [
+        ":scheduler",
         "//third_party/dear_imgui",
         "//util/gtl:flat_map",
         "@com_google_absl//absl/strings",
@@ -115,6 +142,9 @@ wasm_cc_library(
     ],
 )
 
+# This test won't be run by TAP because emscripten tests require special build flags.
+# To run this test locally, use:
+# blaze test //third_party/xprof/frontend/app/components/trace_viewer_v2:event_manager_test
 wasm_cc_test(
     name = "event_manager_test",
     srcs = ["event_manager_test.cc"],
@@ -182,6 +212,7 @@ cc_binary(
         ":canvas_state",
         ":imgui_webgpu_backend",
         ":input_handler",
+        ":scheduler",
         ":webgpu_render_platform",
         "//third_party/emscripten:embind",
         "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",

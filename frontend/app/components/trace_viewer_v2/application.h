@@ -35,7 +35,8 @@ class Application {
   ~Application() { ImGui::DestroyContext(); }
 
   void Initialize();
-  void Main();
+  void Main() { RequestRedraw(); }
+  void RequestRedraw();
 
   Timeline& timeline() { return *timeline_; };
   const std::vector<std::string> process_list() {

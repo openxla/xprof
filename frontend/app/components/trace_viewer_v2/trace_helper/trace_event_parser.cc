@@ -162,6 +162,7 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data) {
 
   Application::Instance().data_provider().ProcessTraceEvents(
       parsed_events, Application::Instance().timeline());
+  Application::Instance().RequestRedraw();
 }
 
 EMSCRIPTEN_BINDINGS(trace_event_parser) {

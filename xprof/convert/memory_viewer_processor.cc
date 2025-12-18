@@ -15,14 +15,12 @@ limitations under the License.
 
 #include "xprof/convert/memory_viewer_processor.h"
 
-#include <optional>
 #include <string>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
-#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
@@ -45,29 +43,17 @@ limitations under the License.
 
 namespace xprof {
 
-using ::tensorflow::profiler::GetHloProtoByModuleName;
-using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::GetParamWithDefault;
+using ::tensorflow::profiler::kMemorySpaceOption;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 
-constexpr absl::string_view kModuleNameOption = "module_name";
-constexpr absl::string_view kMemorySpaceOption = "memory_space";
-
 absl::Status MemoryViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  std::optional<std::string> hlo_module_name =
-      GetParam<std::string>(options, std::string(kModuleNameOption));
-  if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return absl::InvalidArgumentError(
-        "Can not find HLO module name from options.");
-  }
-  LOG(INFO) << "Processing memory viewer for HLO module: " << *hlo_module_name;
-
-  // Load HLO module from file.
-  TF_ASSIGN_OR_RETURN(
-      xla::HloProto hlo_proto,
-      GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
+                      GetHloProtoByOptions(session_snapshot, options));
+  LOG(INFO) << "Processing memory viewer for HLO module: "
+            << hlo_proto.hlo_module().name();
 
   // Convert from HLO proto to tools data.
   int memory_space_color = 0;

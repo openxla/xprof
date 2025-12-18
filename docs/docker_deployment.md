@@ -12,9 +12,9 @@ XProf. You may need to modify it to fit your specific security requirements,
 base image preferences, or other environmental needs.
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-ARG XPROF_VERSION=2.21.0
+ARG XPROF_VERSION=2.21.3
 
 ENV PYTHONUNBUFFERED=1
 
@@ -35,7 +35,7 @@ CMD ["--logdir=/app/logs", "--port=8791"]
 2.  Build the image using the following command:
 
     ```bash
-    docker build -t xprof:2.21.0 .
+    docker build -t xprof:2.21.3 .
     ```
 
 You can change the version by modifying the `XPROF_VERSION` argument in the
@@ -51,7 +51,7 @@ Map your local log directory to `/app/logs` in the container.
 ```bash
 docker run -p 8791:8791 \
   -v /tmp/xprof_logs:/app/logs \
-  xprof:2.21.0
+  xprof:2.21.3
 ```
 
 ### Run with GCS Logs
@@ -62,6 +62,6 @@ Storage.
 ```bash
 docker run -p 8791:8791 \
   -v ~/.config/gcloud:/root/.config/gcloud \
-  xprof:2.21.0 \
+  xprof:2.21.3 \
   --logdir=gs://your-bucket-name/xprof_logs --port=8791
 ```

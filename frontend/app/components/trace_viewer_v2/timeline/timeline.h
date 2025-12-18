@@ -122,6 +122,8 @@ class Timeline {
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
 
+  void set_is_loading(bool is_loading) { is_loading_ = is_loading; }
+
   void Draw();
 
   // Calculates the screen coordinates of the rectangle for an event.
@@ -238,6 +240,8 @@ class Timeline {
   static constexpr ImGuiWindowFlags kLaneFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
+  void MaybeRequestData();
+
   FlameChartTimelineData timeline_data_;
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = 250.0f;
@@ -278,6 +282,10 @@ class Timeline {
   std::vector<TimeRange> selected_time_ranges_;
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;
+
+  // Initialize to true to prevent sending request in the initial load where
+  // JS side is already fetching the data.
+  bool is_loading_ = true;
 };
 
 }  // namespace traceviewer

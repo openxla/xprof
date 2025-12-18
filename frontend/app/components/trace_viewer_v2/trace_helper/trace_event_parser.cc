@@ -162,6 +162,11 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data) {
 
   Application::Instance().data_provider().ProcessTraceEvents(
       parsed_events, Application::Instance().timeline());
+
+  // Reset the loading flag to allow subsequent data requests (e.g. on panning).
+  // This is necessary because is_loading_ is initialized to true to prevent
+  // duplicate requests during the initial load.
+  Application::Instance().timeline().set_is_loading(false);
 }
 
 EMSCRIPTEN_BINDINGS(trace_event_parser) {

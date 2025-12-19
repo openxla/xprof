@@ -248,18 +248,21 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
     range = {center - kMinDurationMicros / 2.0,
              center + kMinDurationMicros / 2.0};
   }
-  if (range.start() < data_time_range_.start()) {
-    // When shifting the start to data_time_range_.start(), ensure the new end
-    // does not exceed data_time_range_.end().
-    range = {data_time_range_.start(),
-             std::min(range.end() + data_time_range_.start() - range.start(),
-                      data_time_range_.end())};
-  } else if (range.end() > data_time_range_.end()) {
-    // When shifting the end to data_time_range_.end(), ensure the new start
-    // does not go before data_time_range_.start() by taking the maximum.
-    range = {std::max(range.start() - range.end() + data_time_range_.end(),
-                      data_time_range_.start()),
-             data_time_range_.end()};
+  if (range.start() < fetched_data_time_range_.start()) {
+    // When shifting the start to fetched_data_time_range_.start(), ensure the
+    // new end does not exceed fetched_data_time_range_.end().
+    range = {fetched_data_time_range_.start(),
+             std::min(range.end() + fetched_data_time_range_.start() -
+                          range.start(),
+                      fetched_data_time_range_.end())};
+  } else if (range.end() > fetched_data_time_range_.end()) {
+    // When shifting the end to fetched_data_time_range_.end(), ensure the new
+    // start does not go before fetched_data_time_range_.start() by taking the
+    // maximum.
+    range = {std::max(range.start() - range.end() +
+                          fetched_data_time_range_.end(),
+                      fetched_data_time_range_.start()),
+             fetched_data_time_range_.end()};
   }
 }
 
@@ -372,7 +375,7 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
       const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
 
       const Microseconds view_start = visible_range().start();
-      const Microseconds trace_start = data_time_range_.start();
+      const Microseconds trace_start = fetched_data_time_range_.start();
 
       const Microseconds view_start_relative = view_start - trace_start;
       const Microseconds first_tick_time_relative =

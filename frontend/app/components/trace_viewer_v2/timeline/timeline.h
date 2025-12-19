@@ -111,7 +111,9 @@ class Timeline {
     return current_selected_time_range_;
   }
 
-  void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
+  void set_fetched_data_time_range(const TimeRange& range) {
+    fetched_data_time_range_ = range;
+  }
 
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
@@ -252,7 +254,7 @@ class Timeline {
   // trace data. This range is set when trace data is processed and used as the
   // boundaries for constraining panning and zooming. It does not change during
   // user interactions like pan or zoom.
-  TimeRange data_time_range_ = TimeRange::Zero();
+  TimeRange fetched_data_time_range_ = TimeRange::Zero();
 
   // The index of the group of the currently selected event (flame or counter),
   // or -1 if no event is selected.

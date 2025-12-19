@@ -386,7 +386,7 @@ TEST(TimelineTest, ConstrainTimeRange_NoChange) {
   // Range:        {----------------------}
   // Constrained:  (----------------------)
   Timeline timeline;
-  timeline.set_data_time_range({0.0, 100.0});
+  timeline.set_fetched_data_time_range({0.0, 100.0});
   TimeRange range(10.0, 90.0);
 
   timeline.ConstrainTimeRange(range);
@@ -400,7 +400,7 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRange) {
   // Range:      {---------}
   // Constrained:     (---------)
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 50.0);
 
   timeline.ConstrainTimeRange(range);
@@ -414,7 +414,7 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
   // Range:      {----------------------------}
   // Constrained:     (========================)
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 99.0);
 
   timeline.ConstrainTimeRange(range);
@@ -428,7 +428,7 @@ TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRange) {
   // Range:                  {--------------}
   // Constrained:       (--------------)
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   TimeRange range(60.0, 110.0);
 
   timeline.ConstrainTimeRange(range);
@@ -442,7 +442,7 @@ TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRangeStartCapped) {
   // Range:         {---------------------------}
   // Constrained: (====================)
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   TimeRange range(11.0, 110.0);
 
   timeline.ConstrainTimeRange(range);
@@ -456,7 +456,7 @@ TEST(TimelineTest, ConstrainTimeRange_RangeCoversDataRange) {
   // Range: {------------------------------}
   // Constrained:     (================)
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 120.0);
 
   timeline.ConstrainTimeRange(range);
@@ -467,7 +467,7 @@ TEST(TimelineTest, ConstrainTimeRange_RangeCoversDataRange) {
 
 TEST(TimelineTest, ConstrainTimeRange_EnforceMinDuration) {
   Timeline timeline;
-  timeline.set_data_time_range({0.0, 100.0});
+  timeline.set_fetched_data_time_range({0.0, 100.0});
   TimeRange range(50.0, 50.0);
 
   timeline.ConstrainTimeRange(range);
@@ -480,7 +480,7 @@ TEST(TimelineTest, ConstrainTimeRange_EnforceMinDuration) {
 
 TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   // This range has duration kMinDurationMicros / 2, centered at 10.0.
   TimeRange range(10.0 - kMinDurationMicros / 4, 10.0 + kMinDurationMicros / 4);
 
@@ -488,7 +488,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
 
   // It should be expanded to kMinDurationMicros centered around 10.0,
   // becoming {10.0 - kMinDur/2, 10.0 + kMinDur/2}.
-  // The start 10.0 - kMinDur/2 is less than data_time_range.start(),
+  // The start 10.0 - kMinDur/2 is less than fetched_data_time_range_.start(),
   // so it should be clamped to {10.0, 10.0 + kMinDurationMicros}.
   EXPECT_DOUBLE_EQ(range.start(), 10.0);
   EXPECT_DOUBLE_EQ(range.end(), 10.0 + kMinDurationMicros);
@@ -497,7 +497,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
 
 TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
   Timeline timeline;
-  timeline.set_data_time_range({10.0, 100.0});
+  timeline.set_fetched_data_time_range({10.0, 100.0});
   // This range has duration kMinDurationMicros / 2, centered at 100.0.
   TimeRange range(100.0 - kMinDurationMicros / 4,
                   100.0 + kMinDurationMicros / 4);
@@ -506,7 +506,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 
   // It should be expanded to kMinDurationMicros centered around 100.0,
   // becoming {100.0 - kMinDur/2, 100.0 + kMinDur/2}.
-  // The end 100.0 + kMinDur/2 is greater than data_time_range.end(),
+  // The end 100.0 + kMinDur/2 is greater than fetched_data_time_range_.end(),
   // so it should be clamped to {100.0 - kMinDurationMicros, 100.0}.
   EXPECT_DOUBLE_EQ(range.start(), 100.0 - kMinDurationMicros);
   EXPECT_DOUBLE_EQ(range.end(), 100.0);
@@ -528,7 +528,7 @@ TEST(TimelineTest, NavigateToEvent) {
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
   timeline.set_timeline_data(std::move(data));
-  timeline.set_data_time_range({0.0, 200.0});
+  timeline.set_fetched_data_time_range({0.0, 200.0});
   timeline.SetVisibleRange({0.0, 50.0});
 
   timeline.NavigateToEvent(1);
@@ -835,7 +835,7 @@ TEST_F(MockTimelineImGuiFixture,
   // Setup similar to TimelineDragSelectionTest to ensure predictable
   // coordinates.
   timeline_.SetVisibleRange({0.0, 165.3});
-  timeline_.set_data_time_range({0.0, 165.3});
+  timeline_.set_fetched_data_time_range({0.0, 165.3});
   ImGuiIO& io = ImGui::GetIO();
 
   // Start with Shift held down.
@@ -871,7 +871,7 @@ TEST_F(MockTimelineImGuiFixture,
 TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   // Setup similar to TimelineDragSelectionTest.
   timeline_.SetVisibleRange({0.0, 165.3});
-  timeline_.set_data_time_range({0.0, 165.3});
+  timeline_.set_fetched_data_time_range({0.0, 165.3});
   ImGuiIO& io = ImGui::GetIO();
 
   // Start without Shift.
@@ -1297,7 +1297,7 @@ TEST_F(RealTimelineImGuiFixture,
 }
 
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
-  timeline_.set_data_time_range({10.0, 100.0});
+  timeline_.set_fetched_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});
 
   // Simulate holding 'A' (Pan Left). Panning left will attempt to move the
@@ -1310,7 +1310,7 @@ TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
 }
 
 TEST_F(RealTimelineImGuiFixture, PanRightBeyondDataRangeShouldBeConstrained) {
-  timeline_.set_data_time_range({10.0, 100.0});
+  timeline_.set_fetched_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({49.0, 99.0});
 
   // Simulate holding 'D' (Pan Right). Panning right will attempt to move the
@@ -1323,7 +1323,7 @@ TEST_F(RealTimelineImGuiFixture, PanRightBeyondDataRangeShouldBeConstrained) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ZoomInBeyondMinDurationShouldBeConstrained) {
-  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.set_fetched_data_time_range({0.0, 100.0});
   // set duration to be very close to kMinDurationMicros
   timeline_.SetVisibleRange(
       {50.0 - kMinDurationMicros / 2.0, 50.0 + kMinDurationMicros / 2.0});
@@ -1348,7 +1348,7 @@ class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
     // (based on 1920px window width and paddings), a duration of 165.3 gives
     // 10px per microsecond.
     timeline_.SetVisibleRange({0.0, 165.3});
-    timeline_.set_data_time_range({0.0, 165.3});
+    timeline_.set_fetched_data_time_range({0.0, 165.3});
 
     ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
   }

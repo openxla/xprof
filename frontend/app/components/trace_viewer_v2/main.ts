@@ -98,6 +98,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
 
 declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
+  fullTimespan?: [number, number];
 }
 
 // Type guard to check if an object conforms to the TraceData interface

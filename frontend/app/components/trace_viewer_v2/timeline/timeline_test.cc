@@ -488,7 +488,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
 
   // It should be expanded to kMinDurationMicros centered around 10.0,
   // becoming {10.0 - kMinDur/2, 10.0 + kMinDur/2}.
-  // The start 10.0 - kMinDur/2 is less than data_time_range.start(),
+  // The start 10.0 - kMinDur/2 is less than fetched_data_time_range_.start(),
   // so it should be clamped to {10.0, 10.0 + kMinDurationMicros}.
   EXPECT_DOUBLE_EQ(range.start(), 10.0);
   EXPECT_DOUBLE_EQ(range.end(), 10.0 + kMinDurationMicros);
@@ -506,7 +506,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 
   // It should be expanded to kMinDurationMicros centered around 100.0,
   // becoming {100.0 - kMinDur/2, 100.0 + kMinDur/2}.
-  // The end 100.0 + kMinDur/2 is greater than data_time_range.end(),
+  // The end 100.0 + kMinDur/2 is greater than fetched_data_time_range_.end(),
   // so it should be clamped to {100.0 - kMinDurationMicros, 100.0}.
   EXPECT_DOUBLE_EQ(range.start(), 100.0 - kMinDurationMicros);
   EXPECT_DOUBLE_EQ(range.end(), 100.0);

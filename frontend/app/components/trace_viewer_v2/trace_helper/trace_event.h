@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace traceviewer {
@@ -61,6 +63,7 @@ struct CounterEvent {
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
+  std::optional<std::pair<Microseconds, Microseconds>> full_timespan;
 };
 
 }  // namespace traceviewer

@@ -249,14 +249,15 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
              center + kMinDurationMicros / 2.0};
   }
   if (range.start() < data_time_range_.start()) {
-    // When shifting the start to data_time_range_.start(), ensure the new end
-    // does not exceed data_time_range_.end().
+    // When shifting the start to data_time_range_.start(), ensure the
+    // new end does not exceed data_time_range_.end().
     range = {data_time_range_.start(),
              std::min(range.end() + data_time_range_.start() - range.start(),
                       data_time_range_.end())};
   } else if (range.end() > data_time_range_.end()) {
-    // When shifting the end to data_time_range_.end(), ensure the new start
-    // does not go before data_time_range_.start() by taking the maximum.
+    // When shifting the end to data_time_range_.end(), ensure the new
+    // start does not go before data_time_range_.start() by taking the
+    // maximum.
     range = {std::max(range.start() - range.end() + data_time_range_.end(),
                       data_time_range_.start()),
              data_time_range_.end()};

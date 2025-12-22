@@ -5,6 +5,7 @@ package tensorflow.profiler.op_profile;
 import "plugin/xprof/protobuf/source_info.proto";
 
 // Profile is the top-level data that summarizes a program.
+// Next ID: 12
 message Profile {
   reserved 2;
   reserved "by_program_structure";
@@ -29,6 +30,11 @@ message Profile {
   // Root of a profile broken down by program and provenance.
   Node by_provenance = 8;
   Node by_provenance_exclude_idle = 9;
+
+  // copybara.strip_begin(internal)
+  // Program goodput for the op: go/ml-metrics-program-goodput.
+  double program_goodput = 11;
+  // copybara.strip_end(internal)
 }
 
 // An entry in the profile tree. (An instruction, or set of instructions).

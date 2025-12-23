@@ -154,6 +154,15 @@ ParsedTraceEvents ParseTraceEvents(const emscripten::val& trace_data) {
   // memory usage matches the actual data size.
   result.counter_events.shrink_to_fit();
 
+  if (trace_data.hasOwnProperty("fullTimespan")) {
+    emscripten::val span = trace_data["fullTimespan"];
+    if (span["length"].as<int>() == 2) {
+      Microseconds start = span[0].as<Microseconds>();
+      Microseconds end = span[1].as<Microseconds>();
+      result.full_timespan = std::make_pair(start, end);
+    }
+  }
+
   return result;
 }
 

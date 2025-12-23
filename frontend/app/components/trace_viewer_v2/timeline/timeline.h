@@ -111,7 +111,15 @@ class Timeline {
     return current_selected_time_range_;
   }
 
+  void set_fetched_data_time_range(const TimeRange& range) {
+    fetched_data_time_range_ = range;
+  }
+  const TimeRange& fetched_data_time_range() const {
+    return fetched_data_time_range_;
+  }
+
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
+  const TimeRange& data_time_range() const { return data_time_range_; }
 
   void set_timeline_data(FlameChartTimelineData data) {
     timeline_data_ = std::move(data);
@@ -249,9 +257,13 @@ class Timeline {
   // range.
   Animated<TimeRange> visible_range_;
   // The total time range [min_time, max_time] in microseconds of the loaded
-  // trace data. This range is set when trace data is processed and used as the
-  // boundaries for constraining panning and zooming. It does not change during
-  // user interactions like pan or zoom.
+  // trace data. This range is set when trace data is processed.
+  TimeRange fetched_data_time_range_ = TimeRange::Zero();
+
+  // The total time range [min_time, max_time] in microseconds of the entire
+  // trace. This might be larger than fetched_data_time_range_ if only a part
+  // of the trace is loaded. This is used as the boundaries for constraining
+  // panning and zooming.
   TimeRange data_time_range_ = TimeRange::Zero();
 
   // The index of the group of the currently selected event (flame or counter),

@@ -122,6 +122,8 @@ void Timeline::Draw() {
   // window, without affecting global foreground elements like tooltips.
   DrawSelectedTimeRanges(timeline_width, px_per_time_unit_val);
 
+  MaybeRequestData();
+
   ImGui::EndChild();
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
@@ -961,6 +963,24 @@ void Timeline::HandleEventDeselection() {
     event_data[std::string(kEventSelectedName)] = std::string("");
 
     event_callback_(kEventSelected, event_data);
+  }
+}
+
+void Timeline::MaybeRequestData() {
+  if (is_loading_) return;
+
+  const TimeRange current_visible = visible_range();
+  const TimeRange preserve = current_visible.Scale(kPreserveRatio);
+
+  if (!data_time_range_.Contains(preserve)) {
+    const TimeRange fetch = current_visible.Scale(kFetchRatio);
+
+    EventData event_data;
+    event_data.try_emplace(std::string(kFetchDataStart), fetch.start());
+    event_data.try_emplace(std::string(kFetchDataEnd), fetch.end());
+
+    event_callback_(kFetchData, event_data);
+    is_loading_ = true;
   }
 }
 

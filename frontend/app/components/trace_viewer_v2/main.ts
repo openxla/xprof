@@ -82,6 +82,11 @@ export declare interface TraceViewerV2Module extends WasmModule {
   processTraceEvents(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
   getProcessList?(url: string): Promise<string[] | undefined>;
+  getEventData?(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<EventData|undefined>;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -91,6 +96,12 @@ export declare interface TraceViewerV2Module extends WasmModule {
     Instance(): {
       data_provider(): {
         getProcessList(): TraceViewerV2Module['StringVector'];
+        getEventMetaData(
+            name: string,
+            start: number,
+            duration: number,
+            ): EventData |
+        undefined;
       };
     };
   };
@@ -98,6 +109,14 @@ export declare interface TraceViewerV2Module extends WasmModule {
 
 declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
+}
+
+declare interface EventData {
+  name: string;
+  processName: string;
+  start: number;
+  duration: number;
+  arguments: {[key: string]: string};
 }
 
 // Type guard to check if an object conforms to the TraceData interface
@@ -351,6 +370,22 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
       );
     }
     return processArray;
+  };
+
+  traceviewerModule.getEventData = async(
+      name: string,
+      start: number,
+      duration: number,
+      ): Promise<EventData|undefined> => {
+    try {
+      const eventData = traceviewerModule.Application.Instance()
+                            .data_provider()
+                            .getEventMetaData(name, start, duration);
+      return eventData || undefined;
+    } catch (e) {
+      console.error('Error in getEventData:', e);
+      return undefined;
+    }
   };
 
   return traceviewerModule;

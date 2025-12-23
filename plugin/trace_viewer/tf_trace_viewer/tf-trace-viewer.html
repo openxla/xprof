@@ -833,10 +833,38 @@ dashboard would integrate trace viewer app using iframe.
         // Don't need to repopulate the details for the same event selection.
         if (this._selectedSingleEvent == event) return;
 
+        if (this._eventDetails) {
+          this._eventDetails.innerHTML = '<div id="event-details" ' +
+              'style="display: block;">Loading event details...</div>';
+        }
         await this._maybeFetchEventArgs(event);
         if (this._eventDetails) {
           this._eventDetails.innerHTML = '<div id="event-details" ' +
               'style="display: block;"></div>';
+          const div = document.createElement('div');
+          div.innerHTML = `
+            <div><b>Name:</b> ${event.title}</div>
+            <div><b>Process:</b> ${event.parentContainer.parent.name}</div>
+            <div><b>Start:</b> ${event.start.toFixed(3)} ms</div>
+            <div><b>Duration:</b> ${this._formatDuration(event.duration)}</div>
+          `;
+          this._eventDetails.appendChild(div);
+          if (event.args && Object.keys(event.args).length > 0) {
+            const argsDiv = document.createElement('div');
+            argsDiv.innerHTML = '<b>Arguments:</b>';
+            const argsList = document.createElement('ul');
+            argsList.style.listStyle = 'none';
+            argsList.style.paddingLeft = '10px';
+            for (const key in event.args) {
+              if (event.args.hasOwnProperty(key)) {
+                const li = document.createElement('li');
+                li.innerHTML = `<b>${key}:</b> ${event.args[key]}`;
+                argsList.appendChild(li);
+              }
+            }
+            argsDiv.appendChild(argsList);
+            this._eventDetails.appendChild(argsDiv);
+          }
         }
         var currentThread = event.parentContainer;
         var currentProcess = currentThread.parent;

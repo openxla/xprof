@@ -1750,6 +1750,103 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   EXPECT_EQ(timeline_.selected_counter_index(), -1);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [60, 300].
+  // Preserve range start (50) < Data range start (60), so it should trigger
+  // fetch.
+  timeline_.set_data_time_range({60.0, 300.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.set_is_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kRequestData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  SimulateFrame();
+
+  EXPECT_TRUE(request_triggered);
+  // Fetch range (Scale 3.0 of visible): [0, 300].
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kRequestDataStart))),
+      0.0);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kRequestDataEnd))),
+      300.0);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [0, 300].
+  // Preserve range is fully contained in Data range.
+  timeline_.set_data_time_range({0.0, 300.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.set_is_loading(false);
+
+  bool request_triggered = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kRequestData) {
+          request_triggered = true;
+        }
+      });
+
+  SimulateFrame();
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST_F(RealTimelineImGuiFixture, MaybeRequestDataNotTriggeredWhenLoading) {
+  timeline_.set_data_time_range({60.0, 300.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  // Simulate loading state
+  timeline_.set_is_loading(true);
+
+  bool request_triggered = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kRequestData) {
+          request_triggered = true;
+        }
+      });
+
+  SimulateFrame();
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST_F(RealTimelineImGuiFixture, MaybeRequestDataSetsIsLoadingToTrue) {
+  timeline_.set_data_time_range({60.0, 300.0});
+  timeline_.SetVisibleRange({100.0, 200.0});
+  timeline_.set_is_loading(false);
+
+  int request_count = 0;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kRequestData) {
+          request_count++;
+        }
+      });
+
+  SimulateFrame();
+  EXPECT_EQ(request_count, 1);
+
+  // Should not trigger again because is_loading_ should be set to true inside
+  // MaybeRequestData.
+  SimulateFrame();
+  EXPECT_EQ(request_count, 1);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

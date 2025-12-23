@@ -23,6 +23,11 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
 
+// Constants for request data event.
+inline constexpr absl::string_view kRequestData = "request_data";
+inline constexpr absl::string_view kRequestDataStart = "start";
+inline constexpr absl::string_view kRequestDataEnd = "end";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

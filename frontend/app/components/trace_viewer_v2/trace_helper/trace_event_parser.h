@@ -7,7 +7,9 @@
 
 namespace traceviewer {
 
-ParsedTraceEvents ParseTraceEvents(const emscripten::val& trace_data);
+ParsedTraceEvents ParseTraceEvents(
+    const emscripten::val& trace_data,
+    const emscripten::val& visible_range_from_url);
 
 }  // namespace traceviewer
 

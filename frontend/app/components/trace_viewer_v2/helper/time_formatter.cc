@@ -3,9 +3,9 @@
 #include <cmath>
 #include <string>
 
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace {
@@ -45,6 +45,14 @@ std::string FormatTime(Microseconds time_us) {
   } else {  // >= 1 second
     return absl::StrFormat(kSecondsFormat, time_us / kMicrosPerSecond);
   }
+}
+
+Microseconds MillisToMicros(double time_ms) {
+  return time_ms * kMicrosPerMilli;
+}
+
+Milliseconds MicrosToMillis(Microseconds time_us) {
+  return time_us / kMicrosPerMilli;
 }
 
 Microseconds CalculateNiceInterval(Microseconds min_interval) {

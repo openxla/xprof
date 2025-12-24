@@ -16,6 +16,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -344,7 +345,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty()) {
     timeline.set_timeline_data({});
-    timeline.set_data_time_range(TimeRange::Zero());
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
     return;
   }
@@ -419,11 +420,33 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.
   if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
-    timeline.set_data_time_range({time_bounds.min, time_bounds.max});
-    timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
+    timeline.set_fetched_data_time_range({time_bounds.min, time_bounds.max});
+    if (parsed_events.visible_range_from_url.has_value()) {
+      Microseconds start =
+          MillisToMicros(parsed_events.visible_range_from_url->first);
+      Microseconds end =
+          MillisToMicros(parsed_events.visible_range_from_url->second);
+
+      timeline.SetVisibleRange({start, end});
+    } else {
+      // If the visible range is not zero, we just keep it. This happens when
+      // the incremental loading is triggered and we don't want to override the
+      // current visible range.
+      if (timeline.visible_range() == TimeRange::Zero()) {
+        timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
+      }
+    }
   } else {
-    timeline.set_data_time_range(TimeRange::Zero());
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
+  }
+
+  if (parsed_events.full_timespan.has_value()) {
+    Microseconds start = MillisToMicros(parsed_events.full_timespan->first);
+    Microseconds end = MillisToMicros(parsed_events.full_timespan->second);
+    timeline.set_data_time_range({start, end});
+  } else {
+    timeline.set_data_time_range(timeline.fetched_data_time_range());
   }
 }
 

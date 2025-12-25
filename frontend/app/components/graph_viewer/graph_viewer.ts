@@ -100,6 +100,8 @@ export class GraphViewer implements OnDestroy {
       private readonly router: Router,
       private readonly snackBar: MatSnackBar,
   ) {
+    // TODO(xprof): combine the two subscriptions and mange the order of
+    // operations (see changes in other tools, eg. hlo_stats).
     this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.parseNavEvent(params);
       // init data that replis on the session id

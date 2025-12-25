@@ -7,7 +7,7 @@ import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofli
 import {getGigaflopsReadableString, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {take, takeUntil} from 'rxjs/operators';
 
 import {OperationLevelAnalysis} from './operation_level_analysis/operation_level_analysis';
@@ -117,10 +117,13 @@ export class RooflineModel implements OnDestroy {
       route: ActivatedRoute,
       private readonly store: Store<{}>,
   ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
@@ -158,13 +161,16 @@ export class RooflineModel implements OnDestroy {
     this.opLevelAnalysis?.resetDashboard();
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
-    this.tool = params['tag'] || params['tool'] || this.tool;
+    this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;
   }
 
   update() {
+    if (!this.sessionId || !this.tool) {
+      return;
+    }
     setLoadingState(true, this.store, 'Loading roofline model data');
     this.throbber.start();
     this.refreshDashboards();

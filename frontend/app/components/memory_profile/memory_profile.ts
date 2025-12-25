@@ -1,13 +1,12 @@
 import {Component, inject, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {MemoryProfileBase} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_base';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A Memory Profile component. */
@@ -36,21 +35,26 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
       private readonly store: Store<{}>,
   ) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      params = params || {};
-      this.sessionId = params['sessionId'] || '';
-      this.selectedHostId = params['host_id'] || 0;
-      this.update(params as NavigationEvent);
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(
         setCurrentToolStateAction({currentTool: 'memory_profile'}),
     );
   }
 
-  update(event?: NavigationEvent) {
-    this.sessionId = event?.run || this.sessionId;
-    this.tool = event?.tag || this.tool;
-    this.host = event?.host || this.host;
+  processQueryParams(params: Params) {
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+    this.tool = params['tag'] || this.tool;
+    this.host = params['host'] || this.host;
+    this.selectedHostId = params['host_id'] || this.selectedHostId;
+  }
+
+  update() {
     this.loading = true;
     this.throbber.start();
 

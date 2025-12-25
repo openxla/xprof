@@ -1,20 +1,17 @@
 import {Component, inject, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {
-  BAR_CHART_OPTIONS,
-  PIE_CHART_OPTIONS,
-} from 'org_xprof/frontend/app/components/chart/chart_options';
+import {BAR_CHART_OPTIONS, PIE_CHART_OPTIONS, } from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {FilterDataProcessor} from 'org_xprof/frontend/app/components/chart/filter_data_processor';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const UNIT_CHART_OPTIONS: google.visualization.BarChartOptions = {
@@ -74,6 +71,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   private readonly throbber = new Throbber(this.tool);
 
   sessionId = '';
+  host = '';
   dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
   dataProvider = new DefaultDataProvider();
   dataInfoTensorNodesUnit: Partial<NodeChartDataInfoMap> = {};
@@ -94,8 +92,21 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
       this.sessionId = (params || {})['sessionId'] || '';
       this.update();
     });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
+
+  processQueryParams(params: Params) {
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+    this.host = params['host'] || this.host;
+  }
+
   update() {
     setLoadingState(true, this.store, 'Loading utilization viewer data');
     this.throbber.start();

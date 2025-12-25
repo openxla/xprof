@@ -6,7 +6,7 @@ import {FrameworkOpStatsModule} from 'org_xprof/frontend/app/components/framewor
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction, setDataRequestStateAction} from 'org_xprof/frontend/app/store/actions';
 import * as actions from 'org_xprof/frontend/app/store/framework_op_stats/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** An overview adapter component. */
@@ -31,13 +31,17 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
       route: ActivatedRoute,
       private readonly store: Store<{}>,
   ) {
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.store.dispatch(
-          actions.setHasDiffAction({hasDiff: Boolean(this.diffBaseSessionId)}),
-      );
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.store.dispatch(
+              actions.setHasDiffAction(
+                  {hasDiff: Boolean(this.diffBaseSessionId)}),
+          );
+          this.update();
+        });
     this.store.dispatch(
         setCurrentToolStateAction({currentTool: 'framework_op_stats'}),
     );
@@ -50,7 +54,7 @@ export class FrameworkOpStatsAdapter implements OnDestroy {
     );
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.diffBaseSessionId =
         this.dataService.getSearchParams().get('diff_base') || '';

@@ -7,7 +7,7 @@ import {InputPipelineDataTable, SimpleDataTable, } from 'org_xprof/frontend/app/
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 import {InputPipelineCommon} from './input_pipeline_common';
@@ -48,14 +48,17 @@ export class InputPipeline extends InputPipelineCommon implements OnDestroy {
 
   constructor(route: ActivatedRoute, private readonly store: Store<{}>) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.tool = params['tag'] || this.tool;
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.host = params['host'] || this.host;

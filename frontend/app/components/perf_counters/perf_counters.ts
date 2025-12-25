@@ -1,5 +1,5 @@
 import {Component, inject, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -7,7 +7,7 @@ import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A perf counters component. */
@@ -18,7 +18,8 @@ import {takeUntil} from 'rxjs/operators';
   styleUrls: ['./perf_counters.scss'],
 })
 export class PerfCounters extends Dashboard implements OnDestroy {
-  readonly tool = 'perf_counters';
+  tool = 'perf_counters';
+  host = '';
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   readonly pageSizeOptions = [30, 50, 100, 200];
@@ -36,11 +37,20 @@ export class PerfCounters extends Dashboard implements OnDestroy {
     private readonly store: Store<{}>,
   ) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.sessionId = (params || {})['sessionId'] || '';
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
+  }
+
+  processQueryParams(params: Params) {
+    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
+    this.tool = params['tag'] || this.tool;
+    this.host = params['host'] || this.host;
   }
 
   update() {

@@ -1,22 +1,19 @@
 import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
-import {parseDiagnosticsDataTable} from 'org_xprof/frontend/app/common/utils/utils';
+import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {
-  setCurrentToolStateAction,
-} from 'org_xprof/frontend/app/store/actions';
+import {setCurrentToolStateAction, } from 'org_xprof/frontend/app/store/actions';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const MEGASCALE_STATS_INDEX = 0;
@@ -59,10 +56,13 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
       private readonly router: Router,
   ) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.store
       .select(getHostsState)
@@ -81,7 +81,7 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
       });
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;

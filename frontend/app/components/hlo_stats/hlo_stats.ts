@@ -15,7 +15,7 @@ import {DefaultDataProvider, ReplicaGroupDataProvider} from 'org_xprof/frontend/
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const AVG_TIME_ID = 'avg_time';
@@ -130,10 +130,13 @@ export class HloStats extends Dashboard implements OnDestroy {
       private readonly store: Store<{}>,
   ) {
     super();
-    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.processQuery(params);
-      this.update();
-    });
+    combineLatest([route.params, route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
+          this.update();
+        });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.tableColumnsControl.valueChanges.subscribe((newValue) => {
       this.updateTableColumns(newValue || []);
@@ -151,7 +154,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     }
   }
 
-  processQuery(params: Params) {
+  processQueryParams(params: Params) {
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || this.tool;
     this.host = params['host'] || this.host;

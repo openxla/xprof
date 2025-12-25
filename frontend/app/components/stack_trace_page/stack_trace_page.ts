@@ -1,7 +1,7 @@
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
-import {ActivatedRoute} from '@angular/router';
+import {ActivatedRoute, Params} from '@angular/router';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /**
@@ -52,22 +52,24 @@ export class StackTracePage implements OnDestroy {
     );
     this.sourceCodeServiceIsAvailable =
         sourceCodeService?.isAvailable() === true;
-
-    this.route.queryParams.pipe(takeUntil(this.destroyed))
-        .subscribe((params) => {
-          this.hloModule = params[this.hloModuleKey] || '';
-          this.hloOp = params[this.hloOpKey] || '';
-          this.sourceFileAndLineNumber = params[this.sourceKey] || '';
-          this.stackTrace = params[this.stackTraceKey] || '';
-          const regex = /\((.*?)\)/;
-          const programIdMatch = this.hloModule.match(regex);
-          this.programId = programIdMatch ? programIdMatch[1] : '';
-          this.sessionId = params[this.sessionIdKey] || params['run'] || '';
-          this.opCategory = params[this.opCategoryKey] || '';
+    combineLatest([this.route.params, this.route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
+          this.processQueryParams(queryParams);
         });
-    this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.sessionId = params['sessionId'] || this.sessionId;
-    });
+  }
+
+  processQueryParams(params: Params) {
+    this.hloModule = params[this.hloModuleKey] || '';
+    this.hloOp = params[this.hloOpKey] || '';
+    this.sourceFileAndLineNumber = params[this.sourceKey] || '';
+    this.stackTrace = params[this.stackTraceKey] || '';
+    const regex = /\((.*?)\)/;
+    const programIdMatch = this.hloModule.match(regex);
+    this.programId = programIdMatch ? programIdMatch[1] : '';
+    this.sessionId = params[this.sessionIdKey] || params['run'] || '';
+    this.opCategory = params[this.opCategoryKey] || '';
   }
 
   ngOnDestroy(): void {

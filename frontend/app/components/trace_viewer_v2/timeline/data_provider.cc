@@ -344,7 +344,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty()) {
     timeline.set_timeline_data({});
-    timeline.set_data_time_range(TimeRange::Zero());
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
     return;
   }
@@ -419,10 +419,10 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.
   if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
-    timeline.set_data_time_range({time_bounds.min, time_bounds.max});
+    timeline.set_fetched_data_time_range({time_bounds.min, time_bounds.max});
     timeline.SetVisibleRange({time_bounds.min, time_bounds.max});
   } else {
-    timeline.set_data_time_range(TimeRange::Zero());
+    timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
   }
 }

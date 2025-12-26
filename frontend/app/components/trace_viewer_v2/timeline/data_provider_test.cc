@@ -556,6 +556,69 @@ TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
   EXPECT_FALSE(timeline_.mpmd_pipeline_view_enabled());
 }
 
+TEST_F(DataProviderTest, ProcessTraceEventsWithFullTimespan) {
+  const std::vector<TraceEvent> events = {
+      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // full_timespan is in milliseconds. 0.1ms = 100us.
+  parsed_events.full_timespan = std::make_pair(0.0, 0.1);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // visible_range and fetched_data_time_range should be set to the event's
+  // timespan (10.0 to 20.0).
+  // Add this sanity check to make sure nothing is broken.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 20.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 20.0);
+
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 100.0);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsWithoutFullTimespan) {
+  const std::vector<TraceEvent> events = {
+      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // full_timespan is not set
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // visible_range and fetched_data_time_range should be set to the event's
+  // timespan (10.0 to 20.0).
+  // Add this sanity check to make sure the code before data_time_range
+  // calculation is correct.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 20.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 20.0);
+
+  // data_time_range should fallback to fetched_data_time_range (10.0 to 20.0)
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.data_time_range().end(), 20.0);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsWithVisibleRangeFromUrl) {
+  const std::vector<TraceEvent> events = {
+      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  // Initial visible range in milliseconds. 0.015ms = 15us. 0.018ms = 18us.
+  parsed_events.visible_range_from_url = std::make_pair(0.015, 0.018);
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 15.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 18.0);
+
+  // fetched_data_time_range should still be the event's timespan (10.0 to 20.0)
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 20.0);
+}
+
 TEST_F(DataProviderTest,
        ProcessMultipleCounterEventsReservesCapacityCorrectly) {
   // Use sizes that trigger reallocation if not reserved upfront.
@@ -600,6 +663,32 @@ TEST_F(DataProviderTest,
   // But usually it reserves exactly n if vector is empty.
   EXPECT_EQ(counter_data.timestamps.capacity(), kTotalEntries);
   EXPECT_EQ(counter_data.values.capacity(), kTotalEntries);
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsPreservesVisibleRange) {
+  // Initial load
+  const std::vector<TraceEvent> events1 = {
+      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 1000.0, 100.0}};
+  data_provider_.ProcessTraceEvents({events1, {}}, timeline_);
+
+  // Set visible range to something specific (simulating zoom).
+  timeline_.SetVisibleRange({1020.0, 1050.0});
+  TimeRange visible_before = timeline_.visible_range();
+
+  // Incremental load (new events, but within or related to current view)
+  const std::vector<TraceEvent> events2 = {
+      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 1000.0, 100.0},
+      TraceEvent{Phase::kComplete, 1, 1, "Event 2", 1200.0, 100.0}};
+
+  data_provider_.ProcessTraceEvents({events2, {}}, timeline_);
+
+  // Verify visible range is preserved.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), visible_before.start());
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), visible_before.end());
+
+  // Verify fetched data range is updated.
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 1300.0);
 }
 
 }  // namespace

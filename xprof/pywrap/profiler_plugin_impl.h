@@ -35,6 +35,12 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,
                      tsl::string* result);
 
+absl::Status StartContinuousProfiling(
+    const char* service_addr,
+    const tensorflow::profiler::ToolOptions& tool_options);
+
+absl::Status GetSnapshot(const char* service_addr, const char* logdir);
+
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(
     std::vector<std::string> xspace_paths, const std::string& tool_name,
     const tensorflow::profiler::ToolOptions& tool_options);

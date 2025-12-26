@@ -122,6 +122,10 @@ inline constexpr float kZoomSpeed = 0.5f;
 // picosecond). This limits the maximum zoom-in level: time range duration
 // cannot shrink below this value when zooming in.
 inline constexpr double kMinDurationMicros = 1e-6;
+// The ratio of the viewport width to fetch data for.
+inline constexpr float kFetchRatio = 3.0f;
+// The ratio of the viewport width to keep data loaded for.
+inline constexpr float kPreserveRatio = 2.0f;
 // go/keep-sorted end
 
 // UI Strings Constants

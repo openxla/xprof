@@ -79,15 +79,21 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
   // <options> must provide a hlo module_name field to identify the HLO module.
   std::optional<std::string> hlo_module_name =
       GetParam<std::string>(options, "module_name");
-  if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return tsl::errors::InvalidArgument(
-        "Can not find HLO module name from options.");
-  }
+  std::optional<std::string> program_id =
+      GetParam<std::string>(options, "program_id");
 
-  // Load HLO module from file.
-  TF_ASSIGN_OR_RETURN(
-      xla::HloProto hlo_proto,
-      GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  xla::HloProto hlo_proto;
+  if (hlo_module_name.has_value() && !hlo_module_name->empty()) {
+    // Load HLO module from file.
+    TF_ASSIGN_OR_RETURN(
+        hlo_proto, GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  } else if (program_id.has_value() && !program_id->empty()) {
+    TF_ASSIGN_OR_RETURN(hlo_proto, GetHloProtoByProgramId(session_snapshot,
+                                                         *program_id));
+  } else {
+    return tsl::errors::InvalidArgument(
+        "Can not load hlo proto from options.");
+  }
 
   // Convert from HLO proto to tools data.
   int memory_space_color = 0;

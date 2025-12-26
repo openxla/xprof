@@ -28,6 +28,10 @@ namespace profiler {
 absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
     const SessionSnapshot& session_snapshot, absl::string_view module_name);
 
+// Get HLO proto by program id.
+absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
+    const SessionSnapshot& session_snapshot, absl::string_view program_id);
+
 // Converts multiple XSpaces to HLO protos.
 // Stores the HLO protos as files in the same directory as the xspace files.
 // Returns whether there are HLO protos in this profile.

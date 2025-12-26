@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
@@ -61,6 +62,7 @@ using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 
 constexpr absl::string_view kModuleNameOption = "module_name";
+constexpr absl::string_view kProgramIdOption = "program_id";
 
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
@@ -93,17 +95,23 @@ absl::Status GraphViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   std::optional<std::string> hlo_module_name =
       GetParam<std::string>(options, std::string(kModuleNameOption));
-  if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return absl::InvalidArgumentError(
-        "Can not find HLO module name from options.");
+  std::optional<std::string> program_id =
+      GetParam<std::string>(options, std::string(kProgramIdOption));
+
+  xla::HloProto hlo_proto;
+  if (hlo_module_name.has_value() && !hlo_module_name->empty()) {
+    // Load HLO module from file.
+    TF_ASSIGN_OR_RETURN(
+        hlo_proto, GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  } else if (program_id.has_value() && !program_id->empty()) {
+    TF_ASSIGN_OR_RETURN(hlo_proto,
+                        GetHloProtoByProgramId(session_snapshot, *program_id));
+  } else {
+    return tsl::errors::InvalidArgument("Can not load hlo proto from options.");
   }
 
-  LOG(INFO) << "Processing graph viewer for  hlo module: " << *hlo_module_name;
-
-  // Load HLO module from file.
-  TF_ASSIGN_OR_RETURN(
-      xla::HloProto hlo_proto,
-      GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  LOG(INFO) << "Processing graph viewer for  hlo module: "
+            << hlo_proto.hlo_module().name();
 
   std::string graph_viewer_json;
 

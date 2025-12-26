@@ -1,9 +1,10 @@
 import {createAction, props} from '@ngrx/store';
-import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
+import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 
 import {DataRequest, LoadingState, ToolsInfoState} from './state';
 import {ActionCreatorAny} from './types';
@@ -124,4 +125,10 @@ export const setRunToolsMapAction: ActionCreatorAny =
 export const updateRunToolsMapAction: ActionCreatorAny = createAction(
     '[App State] Update run - tools map state',
     props<{run: string, tools: string[]}>(),
+);
+
+/** Action to set profiler config */
+export const setProfilerConfigAction: ActionCreatorAny = createAction(
+    '[App State] Set profiler config',
+    props<{config: ProfilerConfig | null}>(),
 );

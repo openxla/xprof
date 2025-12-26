@@ -489,7 +489,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
 
   // It should be expanded to kMinDurationMicros centered around 10.0,
   // becoming {10.0 - kMinDur/2, 10.0 + kMinDur/2}.
-  // The start 10.0 - kMinDur/2 is less than data_time_range.start(),
+  // The start 10.0 - kMinDur/2 is less than fetched_data_time_range_.start(),
   // so it should be clamped to {10.0, 10.0 + kMinDurationMicros}.
   EXPECT_DOUBLE_EQ(range.start(), 10.0);
   EXPECT_DOUBLE_EQ(range.end(), 10.0 + kMinDurationMicros);
@@ -507,7 +507,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 
   // It should be expanded to kMinDurationMicros centered around 100.0,
   // becoming {100.0 - kMinDur/2, 100.0 + kMinDur/2}.
-  // The end 100.0 + kMinDur/2 is greater than data_time_range.end(),
+  // The end 100.0 + kMinDur/2 is greater than fetched_data_time_range_.end(),
   // so it should be clamped to {100.0 - kMinDurationMicros, 100.0}.
   EXPECT_DOUBLE_EQ(range.start(), 100.0 - kMinDurationMicros);
   EXPECT_DOUBLE_EQ(range.end(), 100.0);
@@ -572,6 +572,107 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   // Visible range should not change because event index is out of bounds.
   EXPECT_EQ(timeline.visible_range().start(), initial_range.start());
   EXPECT_EQ(timeline.visible_range().end(), initial_range.end());
+}
+
+TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
+  Timeline timeline;
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [60, 300].
+  // Preserve range start (50) < Data range start (60), so it should trigger
+  // fetch.
+  timeline.set_data_time_range({60.0, 300.0});
+  timeline.set_fetched_data_time_range({60.0, 300.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // Simulate panning outside preserve range.
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  EXPECT_TRUE(request_triggered);
+  // Fetch range (Scale 3.0 of visible): [0, 300].
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
+      0.0);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
+      0.3);
+}
+
+TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
+  Timeline timeline;
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [0, 300].
+  // Preserve range is fully contained in Data range.
+  timeline.set_data_time_range({0.0, 300.0});
+  timeline.set_fetched_data_time_range({0.0, 300.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Simulate panning inside preserve range.
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenLoading) {
+  Timeline timeline;
+  timeline.set_data_time_range({60.0, 300.0});
+  timeline.set_fetched_data_time_range({60.0, 300.0});
+  // Simulate loading state
+  timeline.set_is_incremental_loading(true);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
+  Timeline timeline;
+  timeline.set_data_time_range({60.0, 300.0});
+  timeline.set_fetched_data_time_range({60.0, 300.0});
+  timeline.set_is_incremental_loading(false);
+
+  int request_count = 0;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_count++;
+        }
+      });
+
+  timeline.SetVisibleRange({100.0, 200.0});
+  EXPECT_EQ(request_count, 1);
+
+  // Should not trigger again because is_incremental_loading_ should be set to
+  // true inside `MaybeRequestData`.
+  timeline.SetVisibleRange({100.0, 200.0});
+  EXPECT_EQ(request_count, 1);
 }
 
 // Test fixture for tests that require an ImGui context.
@@ -871,6 +972,10 @@ TEST_F(MockTimelineImGuiFixture,
 
 TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   // Setup similar to TimelineDragSelectionTest.
+  timeline_.SetVisibleRange({0.0, 166.9});
+  timeline_.set_fetched_data_time_range({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 166.9});
+  timeline_.set_data_time_range({0.0, 166.9});
   timeline_.SetVisibleRange({0.0, 166.9});
   timeline_.set_data_time_range({0.0, 166.9});
   ImGuiIO& io = ImGui::GetIO();

@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace traceviewer {
@@ -17,6 +19,7 @@ using ThreadId = uint32_t;
 // We are not using absl::Duration because the data source provides timestamps
 // as doubles, converted from picoseconds, which are not always integer values.
 using Microseconds = double;
+using Milliseconds = double;
 
 // The phase of the event.
 // More phases are defined in:
@@ -61,6 +64,12 @@ struct CounterEvent {
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
+  // The full timespan of the trace, from the earliest event timestamp to the
+  // latest event timestamp, in milliseconds.
+  std::optional<std::pair<Milliseconds, Milliseconds>> full_timespan;
+  // The initial visible range in milliseconds.
+  std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
+
   bool mpmd_pipeline_view = false;
 };
 

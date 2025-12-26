@@ -30,6 +30,23 @@ class TimeRange {
     end_ = std::fmax(end_, other.end_);
   }
 
+  // Returns the intersection of this time range and the other.
+  // If the ranges do not overlap, returns a range with start > end (empty).
+  TimeRange Intersect(const TimeRange& other) const {
+    return {std::max(start_, other.start_), std::min(end_, other.end_)};
+  }
+
+  // Returns true if this time range fully contains the other.
+  bool Contains(const TimeRange& other) const {
+    return start_ <= other.start_ && end_ >= other.end_;
+  }
+
+  // Scales the time range around its center by the given ratio.
+  // Returns a new TimeRange and does not modify the current instance.
+  // This is useful for calculating derived ranges (e.g., for data re-fetching)
+  // without altering the current visible range.
+  TimeRange Scale(double ratio) const;
+
   // Zooms in or out around the center of the time range by zoom_factor.
   // If zoom_factor > 1, it zooms out, if zoom_factor < 1, it zooms in.
   void Zoom(double zoom_factor);

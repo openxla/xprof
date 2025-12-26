@@ -50,6 +50,7 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   } else {
     visible_range_.snap_to(range);
   }
+  MaybeRequestData();
 }
 
 void Timeline::Draw() {
@@ -261,14 +262,15 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
              center + kMinDurationMicros / 2.0};
   }
   if (range.start() < data_time_range_.start()) {
-    // When shifting the start to data_time_range_.start(), ensure the new end
-    // does not exceed data_time_range_.end().
+    // When shifting the start to data_time_range_.start(), ensure the
+    // new end does not exceed data_time_range_.end().
     range = {data_time_range_.start(),
              std::min(range.end() + data_time_range_.start() - range.start(),
                       data_time_range_.end())};
   } else if (range.end() > data_time_range_.end()) {
-    // When shifting the end to data_time_range_.end(), ensure the new start
-    // does not go before data_time_range_.start() by taking the maximum.
+    // When shifting the end to data_time_range_.end(), ensure the new
+    // start does not go before data_time_range_.start() by taking the
+    // maximum.
     range = {std::max(range.start() - range.end() + data_time_range_.end(),
                       data_time_range_.start()),
              data_time_range_.end()};
@@ -1059,6 +1061,24 @@ void Timeline::HandleEventDeselection() {
     event_data[std::string(kEventSelectedName)] = std::string("");
 
     event_callback_(kEventSelected, event_data);
+  }
+}
+
+void Timeline::MaybeRequestData() {
+  if (is_incremental_loading_) return;
+
+  const TimeRange current_visible = visible_range();
+  const TimeRange preserve = current_visible.Scale(kPreserveRatio);
+
+  if (!fetched_data_time_range_.Contains(preserve)) {
+    const TimeRange fetch = current_visible.Scale(kFetchRatio);
+
+    EventData event_data;
+    event_data.try_emplace(kFetchDataStart, MicrosToMillis(fetch.start()));
+    event_data.try_emplace(kFetchDataEnd, MicrosToMillis(fetch.end()));
+
+    event_callback_(kFetchData, event_data);
+    is_incremental_loading_ = true;
   }
 }
 

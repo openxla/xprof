@@ -2,8 +2,8 @@
 
 #include <algorithm>
 
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "absl/log/log.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 
@@ -14,6 +14,11 @@ TimeRange::TimeRange(Microseconds start, Microseconds end) {
   }
   start_ = start;
   end_ = std::max(start_, end);
+}
+
+TimeRange TimeRange::Scale(double ratio) const {
+  const double delta = duration() * ratio / 2.0;
+  return {center() - delta, center() + delta};
 }
 
 void TimeRange::Zoom(double zoom_factor) {

@@ -9,6 +9,12 @@ namespace traceviewer {
 
 std::string FormatTime(Microseconds time_us);
 
+// Converts milliseconds to microseconds.
+Microseconds MillisToMicros(double time_ms);
+
+// Converts microseconds to milliseconds.
+Milliseconds MicrosToMillis(Microseconds time_us);
+
 // Calculates a "nice" time interval for ruler ticks. The interval is chosen
 // from a set of values {1, 2, 5} scaled by a power of 10, ensuring it is
 // greater than or equal to `min_interval`.

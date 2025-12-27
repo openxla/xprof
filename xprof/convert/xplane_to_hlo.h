@@ -20,6 +20,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/service/hlo.pb.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/tool_options.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -27,6 +28,13 @@ namespace profiler {
 // Get HLO proto by module name.
 absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
     const SessionSnapshot& session_snapshot, absl::string_view module_name);
+
+// Get HLO proto by program id.
+absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
+    const SessionSnapshot& session_snapshot, absl::string_view program_id);
+
+absl::StatusOr<xla::HloProto> GetHloProtoByOptions(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options);
 
 // Converts multiple XSpaces to HLO protos.
 // Stores the HLO protos as files in the same directory as the xspace files.

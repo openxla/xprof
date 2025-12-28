@@ -1381,6 +1381,9 @@ dashboard would integrate trace viewer app using iframe.
         this._mpmdPipelineView = !this._mpmdPipelineView;
         labelDiv.textContent = this._mpmdPipelineView ? 'Disable MPMD Pipeline View' : 'Enable MPMD Pipeline View';
         url.searchParams.set('mpmd_pipeline_view', this._mpmdPipelineView);
+        if (this._mpmdPipelineView) {
+          url.searchParams.set('hosts', 'all');
+        }
         window.open(url.toString(), '_top');
       });
       Polymer.dom(this._traceViewer.rightControls).insertBefore(mpmdButton, detailsSelector);

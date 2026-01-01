@@ -87,6 +87,27 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
     return content;
   });
 
+  m.def("start_continuous_profiling",
+        [](const char* service_addr, py::dict options) {
+          absl::Status status;
+          ToolOptions tool_options = ToolOptionsFromPythonDict(options);
+          {
+            py::gil_scoped_release release;
+            status = xprof::pywrap::StartContinuousProfiling(service_addr,
+                                                             tool_options);
+          }
+          xla::ThrowIfError(status);
+        });
+
+  m.def("get_snapshot", [](const char* service_addr, const char* logdir) {
+    absl::Status status;
+    {
+      py::gil_scoped_release release;
+      status = xprof::pywrap::GetSnapshot(service_addr, logdir);
+    }
+    xla::ThrowIfError(status);
+  });
+
   m.def(
       "xspace_to_tools_data",
       [](const py::list& xspace_path_list, const py::str& py_tool_name,

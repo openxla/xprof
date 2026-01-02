@@ -2,9 +2,10 @@ import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@an
 import {Store} from '@ngrx/store';
 import {GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
+import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {getTagsState} from 'org_xprof/frontend/app/store/selectors';
+import {getProfilerConfig, getTagsState} from 'org_xprof/frontend/app/store/selectors';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -63,6 +64,8 @@ export class SourceMapper implements OnDestroy, OnChanges {
   sourceFileNames: string[] = [];
   selectedSourceFileName = '';
   tags: string[] = [];
+  // The prefix of the source file path if specified by users.
+  srcPathPrefix = '';
 
   constructor(private readonly store: Store<{}>) {
     this.store.select(getTagsState)
@@ -70,6 +73,12 @@ export class SourceMapper implements OnDestroy, OnChanges {
         .subscribe((tags: string[]) => {
           if (!tags || tags.length === 0) return;
           this.tags = tags;
+        });
+    this.store.select(getProfilerConfig)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((config: ProfilerConfig) => {
+          if (!config) return;
+          this.srcPathPrefix = config.srcPathPrefix;
         });
   }
 

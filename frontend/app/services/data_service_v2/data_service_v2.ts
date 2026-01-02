@@ -4,13 +4,13 @@ import {Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {API_PREFIX, CAPTURE_PROFILE_API, CONFIG_API, DATA_API, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL, HLO_MODULE_LIST_API, HOSTS_API, LOCAL_URL, PLUGIN_NAME, RUN_TOOLS_API, RUNS_API, USE_SAVED_RESULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
-import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
+import {CaptureProfileOptions, CaptureProfileResponse, ProfilerConfig, } from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData, OpProfileSummary} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
-import {DataServiceV2Interface, ProfilerConfig} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setErrorMessageStateAction} from 'org_xprof/frontend/app/store/actions';
 import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
@@ -328,14 +328,17 @@ export class DataServiceV2 implements DataServiceV2Interface {
     // Host is not specified for hlo text view now, as we assume metadata the
     // same across all hosts.
     const host = '';
-    const params = this.getHttpParams('', '')
-                       .set('run', sessionId)
-                       .set('tag', tool)
-                       .set('host', host)
-                       .set('graph_type', graphType)
-                       .set('module_name', moduleName)
-                       .set('type', type)
-                       .set('show_metadata', String(showMetadata));
+    let params = this.getHttpParams('', '')
+                     .set('run', sessionId)
+                     .set('tag', tool)
+                     .set('host', host)
+                     .set('graph_type', graphType)
+                     .set('module_name', moduleName)
+                     .set('type', type)
+                     .set('show_metadata', String(showMetadata));
+    if (programId) {
+      params = params.set('program_id', String(programId));
+    }
     return this.get(this.pathPrefix + DATA_API, {
       'params': params,
       'responseType': responseType,

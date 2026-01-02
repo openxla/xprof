@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "google/protobuf/arena.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/env.h"
@@ -41,6 +42,8 @@ using tsl::profiler::ProfilerJoinPath;
 
 constexpr char kNoModuleIdentifier[] = "NO_MODULE";
 constexpr char kHloProtoSuffix[] = ".hlo_proto.pb";
+
+
 
 // Extracts and deduplicates the HLO protos from all the XSpaces.
 // Stores the HLO protos as files in the same directory as the xspace files.
@@ -96,6 +99,40 @@ absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
   TF_RETURN_IF_ERROR(
       tsl::ReadBinaryProto(tsl::Env::Default(), file_name, &hlo_proto));
   return hlo_proto;
+}
+
+absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
+    const SessionSnapshot& session_snapshot,
+    const absl::string_view program_id_str) {
+  std::vector<std::string> files;
+  TF_RETURN_IF_ERROR(tsl::Env::Default()->GetChildren(
+      std::string(session_snapshot.GetSessionRunDir()), &files));
+
+  std::string target_module_name = "";
+
+  for (const std::string& file : files) {
+    if (absl::EndsWith(file, kHloProtoSuffix)) {
+      absl::string_view module_name = file;
+      if (!absl::ConsumeSuffix(&module_name, kHloProtoSuffix)) {
+        continue;  // Should not happen based on the EndsWith check
+      }
+
+      // Fuzzy search: Check if the module name contains the program_id string.
+      if (absl::StrContains(module_name, program_id_str)) {
+        // Assuming the first match is the desired one.
+        target_module_name = std::string(module_name);
+        break;
+      }
+    }
+  }
+
+  if (target_module_name.empty()) {
+    return tsl::errors::NotFound(
+        absl::StrCat("HLO proto file containing program ID ", program_id_str,
+                     " not found in ", session_snapshot.GetSessionRunDir()));
+  }
+
+  return GetHloProtoByModuleName(session_snapshot, target_module_name);
 }
 
 absl::StatusOr<bool> ConvertMultiXSpaceToHloProto(

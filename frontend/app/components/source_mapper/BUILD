@@ -25,6 +25,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_select",
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/stack_trace_snippet",
         "@org_xprof//frontend/app/components/stack_trace_snippet:message",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",

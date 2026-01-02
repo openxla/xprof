@@ -1,9 +1,10 @@
-import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
+import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 
 /** Type for active heap object state */
 type ActiveHeapObjectState = HeapObject|null;
@@ -107,6 +108,7 @@ export interface AppState {
   currentRun: string;
   profilingGeneralState: ProfilingGeneralState;
   opAnalysisState: OpAnalysisState;
+  config: ProfilerConfig|null;
 }
 
 /** Initial state of active heap object */
@@ -184,6 +186,9 @@ const INIT_HOSTS_STATE: HostMetadata[] = [];
 /** Initial state of tags list */
 const INIT_TAGS_STATE: string[] = [];
 
+/** Initial state of config */
+const INIT_CONFIG_STATE: ProfilerConfig|null = null;
+
 /** Initial state object */
 export const INIT_APP_STATE: AppState = {
   memoryViewerState: INIT_MEMORY_VIEWER_STATE,
@@ -202,6 +207,7 @@ export const INIT_APP_STATE: AppState = {
   currentRun: INIT_CURRENT_RUN,
   profilingGeneralState: INIT_PROFILING_GENERAL_STATE,
   opAnalysisState: INIT_OP_ANALYSIS_STATE,
+  config: INIT_CONFIG_STATE,
 };
 
 /** Feature key for store */

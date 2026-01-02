@@ -7,7 +7,7 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
-import {setCurrentRunAction, updateRunToolsMapAction} from 'org_xprof/frontend/app/store/actions';
+import {setCurrentRunAction, setProfilerConfigAction, updateRunToolsMapAction} from 'org_xprof/frontend/app/store/actions';
 import {getCurrentRun, getRunToolsMap} from 'org_xprof/frontend/app/store/selectors';
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -171,6 +171,7 @@ export class SideNav implements OnInit, OnDestroy {
     const config = await firstValueFrom(
         this.dataService.getConfig().pipe(takeUntil(this.destroyed)));
     if (config) {
+      this.store.dispatch(setProfilerConfigAction({config}));
       this.hideCaptureProfileButton = config.hideCaptureProfileButton;
     }
   }

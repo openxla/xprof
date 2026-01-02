@@ -76,26 +76,6 @@ using ::tsl::profiler::StatType;
 using ::tsl::profiler::XPlaneBuilder;
 using ::tsl::profiler::XPlaneVisitor;
 
-// Assigns the latest group_id to ungrouped events.
-// This handles a mix of eager-mode and graph-mode events by propagating the
-// group_id from the most recent graph-mode event to the eager event.
-void ProcessUngroupedEvents(XPlane* plane) {
-  XPlaneBuilder plane_builder(plane);
-  const XStatMetadata* group_id_stat_metadata =
-      plane_builder.GetStatMetadata(GetStatTypeStr(StatType::kGroupId));
-  if (group_id_stat_metadata == nullptr) return;
-  std::optional<int64_t> group_id;
-  for (XEventBuilder& event :
-       tsl::profiler::GetSortedEvents<XEventBuilder>(plane_builder)) {
-    const XStat* group_id_stat = event.GetStat(*group_id_stat_metadata);
-    if (group_id_stat != nullptr) {
-      group_id = group_id_stat->int64_value();
-    } else if (group_id.has_value()) {
-      event.AddStatValue(*group_id_stat_metadata, *group_id);
-    }
-  }
-}
-
 inline std::string HloModuleEventName(const GpuEventStats& stats) {
   return stats.program_id ? tsl::profiler::HloModuleNameWithProgramId(
                                 stats.hlo_module_name, *stats.program_id)
@@ -695,8 +675,6 @@ void GenerateDerivedTimeLines(
   for (XPlane* plane : device_planes) {
     // Use Execute instead of Schedule
     executor->Execute([group_metadata_map, plane]() {
-      // Ensure all GPU events are grouped before deriving other lines.
-      ProcessUngroupedEvents(plane);
       DeriveStepEventsFromGroups(group_metadata_map, plane);
     });
   }

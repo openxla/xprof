@@ -27,6 +27,7 @@ export class SideNav implements OnInit, OnDestroy {
 
   runToolsMap: RunToolsMap = {};
   runs: string[] = [];
+  filteredRuns: string[] = [];
   tags: string[] = [];
   hosts: string[] = [];
   moduleList: string[] = [];
@@ -43,6 +44,7 @@ export class SideNav implements OnInit, OnDestroy {
   allHostsSelected = false;
 
   hideCaptureProfileButton = false;
+  filterSessions = '';
 
   constructor(
       private readonly router: Router,
@@ -60,12 +62,28 @@ export class SideNav implements OnInit, OnDestroy {
     this.runToolsMap$.subscribe((runTools: RunToolsMap) => {
       this.runToolsMap = runTools;
       this.runs = Object.keys(this.runToolsMap);
+      this.filterRuns();
     });
     this.currentRun$.subscribe(run => {
       if (run && !this.selectedRunInternal) {
         this.selectedRunInternal = run;
       }
     });
+  }
+
+  filterRuns(): void {
+    if (!this.filterSessions) {
+      this.filteredRuns = this.runs;
+      return;
+    }
+    try {
+      const regex = new RegExp(this.filterSessions, 'i');
+      this.filteredRuns = this.runs.filter(run => regex.test(run));
+    } catch (e) {
+      console.error('Invalid regex for session filter:', e);
+      // fallback to no filtering or previous state if regex is invalid
+      this.filteredRuns = this.runs;
+    }
   }
 
   get is_hlo_tool() {
@@ -79,8 +97,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   // Getter for valid run given url router or user selection.
   get selectedRun() {
-    return this.runs.find(validRun => validRun === this.selectedRunInternal) ||
-        this.runs[0] || '';
+    return this.filteredRuns.find(
+               validRun => validRun === this.selectedRunInternal) ||
+        this.filteredRuns[0] || '';
   }
 
   // Getter for valid tag given url router or user selection.
@@ -171,7 +190,8 @@ export class SideNav implements OnInit, OnDestroy {
     const config = await firstValueFrom(
         this.dataService.getConfig().pipe(takeUntil(this.destroyed)));
     if (config) {
-      this.hideCaptureProfileButton = config.hideCaptureProfileButton;
+      this.filterSessions = config.filterSessions;
+      this.filterRuns();
     }
   }
 
@@ -256,6 +276,12 @@ export class SideNav implements OnInit, OnDestroy {
         await firstValueFrom(this.dataService.getModuleList(this.selectedRun)
                                  .pipe(takeUntil(this.destroyed)));
     return response.split(',');
+  }
+
+  applyFilterAndSelectFirst() {
+    if (this.filteredRuns.length > 0) {
+      this.onRunSelectionChange(this.filteredRuns[0]);
+    }
   }
 
   onRunSelectionChange(run: string) {

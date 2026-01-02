@@ -57,9 +57,10 @@ ToolOptions ToolOptionsFromPythonDict(const py::dict& dictionary) {
 
 PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
   m.def(
-      "trace", [](const char* service_addr, const char* logdir,
-                  const char* worker_list, bool include_dataset_ops,
-                  int duration_ms, int num_tracing_attempts, py::dict options) {
+      "trace",
+      [](const char* service_addr, const char* logdir, const char* worker_list,
+         bool include_dataset_ops, int duration_ms, int num_tracing_attempts,
+         py::dict options) {
         absl::Status status;
         ToolOptions tool_options = ToolOptionsFromPythonDict(options);
         {
@@ -70,22 +71,29 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
         }
         // Py_INCREF and Py_DECREF must be called holding the GIL.
         xla::ThrowIfError(status);
-      });
+      },
+      py::arg("service_addr"), py::arg("logdir"), py::arg("worker_list"),
+      py::arg("include_dataset_ops"), py::arg("duration_ms"),
+      py::arg("num_tracing_attempts"), py::arg("options"));
 
-  m.def("monitor", [](const char* service_addr, int duration_ms,
-                      int monitoring_level, bool display_timestamp) {
-    std::string content;
-    absl::Status status;
-    {
-      py::gil_scoped_release release;
-      status =
-          xprof::pywrap::Monitor(service_addr, duration_ms, monitoring_level,
-                                 display_timestamp, &content);
-    }
-    // Py_INCREF and Py_DECREF must be called holding the GIL.
-    xla::ThrowIfError(status);
-    return content;
-  });
+  m.def(
+      "monitor",
+      [](const char* service_addr, int duration_ms, int monitoring_level,
+         bool display_timestamp) {
+        std::string content;
+        absl::Status status;
+        {
+          py::gil_scoped_release release;
+          status = xprof::pywrap::Monitor(service_addr, duration_ms,
+                                          monitoring_level, display_timestamp,
+                                          &content);
+        }
+        // Py_INCREF and Py_DECREF must be called holding the GIL.
+        xla::ThrowIfError(status);
+        return content;
+      },
+      py::arg("service_addr"), py::arg("duration_ms"),
+      py::arg("monitoring_level"), py::arg("display_timestamp"));
 
   m.def(
       "xspace_to_tools_data",
@@ -98,8 +106,7 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
           xspace_paths.push_back(xspace_path);
         }
         std::string tool_name = std::string(py_tool_name);
-        ToolOptions tool_options =
-            ToolOptionsFromPythonDict(options);
+        ToolOptions tool_options = ToolOptionsFromPythonDict(options);
         absl::StatusOr<std::pair<std::string, bool>> result;
         {
           py::gil_scoped_release release;
@@ -113,7 +120,8 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
         return py::make_tuple(py::bytes(result->first),
                               py::bool_(result->second));
       },
-      py::arg(), py::arg(), py::arg() = py::dict());
+      py::arg("xspace_path_list"), py::arg("tool_name"),
+      py::arg("options") = py::dict());
 
   m.def(
       "xspace_to_tools_data_from_byte_string",
@@ -132,8 +140,7 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
         }
 
         std::string tool_name = std::string(py_tool_name);
-        ToolOptions tool_options =
-            ToolOptionsFromPythonDict(options);
+        ToolOptions tool_options = ToolOptionsFromPythonDict(options);
 
         absl::StatusOr<std::pair<std::string, bool>> result;
         {
@@ -148,17 +155,24 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
         return py::make_tuple(py::bytes(result->first),
                               py::bool_(result->second));
       },
-      py::arg(), py::arg(), py::arg(), py::arg() = py::dict());
+      py::arg("xspace_string_list"), py::arg("filenames_list"),
+      py::arg("tool_name"), py::arg("options") = py::dict());
 
-  m.def("start_grpc_server", [](int port) {
-    py::gil_scoped_release release;
-    xprof::pywrap::StartGrpcServer(port);
-  });
+  m.def(
+      "start_grpc_server",
+      [](int port) {
+        py::gil_scoped_release release;
+        xprof::pywrap::StartGrpcServer(port);
+      },
+      py::arg("port"));
 
-  m.def("initialize_stubs", [](const std::string& worker_service_addresses) {
-    py::gil_scoped_release release;
-    xprof::profiler::InitializeStubs(worker_service_addresses);
-  });
+  m.def(
+      "initialize_stubs",
+      [](const std::string& worker_service_addresses) {
+        py::gil_scoped_release release;
+        xprof::profiler::InitializeStubs(worker_service_addresses);
+      },
+      py::arg("worker_service_addresses"));
 };
 
 }  // namespace

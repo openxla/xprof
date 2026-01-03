@@ -436,6 +436,7 @@ class ProfilePluginTest(absltest.TestCase):
         'graph_viewer_options': {
             'node_name': None,
             'module_name': None,
+            'program_id': None,
             'graph_width': 3,
             'show_metadata': 0,
             'merge_fusion': 0,
@@ -445,6 +446,7 @@ class ProfilePluginTest(absltest.TestCase):
         'tqx': None,
         'host': 'host1',
         'module_name': None,
+        'program_id': None,
         'use_saved_result': False,
         'memory_space': '0',
         'trace_viewer_options': {

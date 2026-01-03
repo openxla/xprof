@@ -7,7 +7,7 @@ Kubernetes, using separate deployments for workers and an aggregator.
 
 ## Prerequisites
 
-*   A Kubernetes cluster.
+*   A Kubernetes cluster. For a minimal setup in this tutorial we're using minikube.
 *   A Docker image of XProf. See
     [Building an XProf Docker Image](docker_deployment.md) for instructions on
     how to build one.
@@ -37,6 +37,8 @@ replica counts may not be correctly propagated to the aggregator.
 
 ### Aggregator
 
+First let's create `agg.yaml` file and paste the contents:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -56,8 +58,8 @@ spec:
     spec:
       containers:
       - name: aggregator-container
-        image: <your-xprof-docker-image>
-        imagePullPolicy: Always
+        image: xprof:2.21.3
+        imagePullPolicy: Never
         env:
         - name: GRPC_LB_POLICY
           value: "round_robin"
@@ -81,14 +83,17 @@ metadata:
 spec:
   selector:
     app: xprof-aggregator-app
-  clusterIP: None
+  type: NodePort
   ports:
   - protocol: TCP
     port: 80
     targetPort: 10000
+    nodePort: 30001
 ```
 
 ### Worker
+
+For worker we create `worker.yaml` file:
 
 ```yaml
 apiVersion: apps/v1
@@ -109,8 +114,8 @@ spec:
     spec:
       containers:
       - name: worker-container
-        image: <your-xprof-docker-image>
-        imagePullPolicy: Always
+        image: xprof:2.21.3
+        imagePullPolicy: Never
         args:
           - "--port=9999"
           - "-gp=8891"
@@ -134,3 +139,40 @@ spec:
     port: 80
     targetPort: 8891
 ```
+
+### Minikube setup
+
+To deploy our setup run:
+
+```sh
+kubectl apply -f worker.yaml
+kubectl apply -f agg.yaml
+```
+
+You should be able to inspect deployed objects:
+
+```sh
+kubectl get services
+```
+
+```
+NAME                   TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+kubernetes             ClusterIP   10.96.0.1      <none>        443/TCP          13h
+xprof-agg-service      NodePort    10.96.13.172   <none>        8080:30001/TCP   13h
+xprof-worker-service   ClusterIP   None           <none>        80/TCP           13h
+```
+
+Now let's connect to our aggregator:
+
+```sh
+minikube service xprof-agg-service --url
+```
+
+```
+http://127.0.0.1:50609
+❗  Because you are using a Docker driver on darwin, the terminal needs to be open to run it.
+```
+
+Now you can access it in your browser:
+
+![XProf Aggregator Landing Page](images/kubernetes/xprof_aggregator_landing_page.png)

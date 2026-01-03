@@ -60,8 +60,6 @@ using ::tensorflow::profiler::ParseGraphViewerParams;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 
-constexpr absl::string_view kModuleNameOption = "module_name";
-
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(GraphViewerParams params,
@@ -91,19 +89,11 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
 
 absl::Status GraphViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  std::optional<std::string> hlo_module_name =
-      GetParam<std::string>(options, std::string(kModuleNameOption));
-  if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return absl::InvalidArgumentError(
-        "Can not find HLO module name from options.");
-  }
+  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
+                      GetHloProtoByOptions(session_snapshot, options));
 
-  LOG(INFO) << "Processing graph viewer for  hlo module: " << *hlo_module_name;
-
-  // Load HLO module from file.
-  TF_ASSIGN_OR_RETURN(
-      xla::HloProto hlo_proto,
-      GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  LOG(INFO) << "Processing graph viewer for  hlo module: "
+            << hlo_proto.hlo_module().name();
 
   std::string graph_viewer_json;
 

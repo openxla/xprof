@@ -78,21 +78,27 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
     const ToolOptions& options) {
   // <options> must provide a hlo module_name field to identify the HLO module.
   std::optional<std::string> hlo_module_name =
-      GetParam<std::string>(options, "module_name");
-  if (!hlo_module_name.has_value() || hlo_module_name->empty()) {
-    return tsl::errors::InvalidArgument(
-        "Can not find HLO module name from options.");
-  }
+      GetParam<std::string>(options, kModuleNameOption);
+  std::optional<std::string> program_id =
+      GetParam<std::string>(options, kProgramIdOption);
 
-  // Load HLO module from file.
-  TF_ASSIGN_OR_RETURN(
-      xla::HloProto hlo_proto,
-      GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  xla::HloProto hlo_proto;
+  if (hlo_module_name.has_value() && !hlo_module_name->empty()) {
+    // Load HLO module from file.
+    TF_ASSIGN_OR_RETURN(
+        hlo_proto, GetHloProtoByModuleName(session_snapshot, *hlo_module_name));
+  } else if (program_id.has_value() && !program_id->empty()) {
+    TF_ASSIGN_OR_RETURN(hlo_proto, GetHloProtoByProgramId(session_snapshot,
+                                                         *program_id));
+  } else {
+    return tsl::errors::InvalidArgument(
+        "Can not load hlo proto from options.");
+  }
 
   // Convert from HLO proto to tools data.
   int memory_space_color = 0;
   if (!absl::SimpleAtoi(
-          GetParamWithDefault(options, "memory_space", std::string("0")),
+          GetParamWithDefault(options, kMemorySpaceOption, std::string("0")),
           &memory_space_color)) {
     memory_space_color = 0;
   }
@@ -101,9 +107,9 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
     MemoryViewerOption memory_viewer_option;
     memory_viewer_option.memory_color = memory_space_color;
     memory_viewer_option.timeline_option.render_timeline =
-        !!GetParamWithDefault(options, "view_memory_allocation_timeline", 0);
+        !!GetParamWithDefault(options, kViewMemoryAllocationTimelineOption, 0);
     memory_viewer_option.timeline_option.timeline_noise =
-        !!GetParamWithDefault(options, "timeline_noise", 0);
+        !!GetParamWithDefault(options, kTimelineNoiseOption, 0);
     memory_viewer_option.small_buffer_size = kSmallBufferSize;
     return ConvertHloProtoToMemoryViewer(hlo_proto, memory_viewer_option);
   } else if (tool_name == "graph_viewer") {

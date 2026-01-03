@@ -1099,6 +1099,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     hosts_param = request.args.get('hosts')
     host = request.args.get('host')
     module_name = request.args.get('module_name')
+    program_id = request.args.get('program_id')
     tqx = request.args.get('tqx')
     use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
     full_dma = _get_bool_arg(request.args, 'full_dma', False)
@@ -1127,6 +1128,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         'tqx': tqx,
         'host': host,
         'module_name': module_name,
+        'program_id': program_id,
         'use_saved_result': use_saved_result,
     }
     if request.args.get('group_by'):
@@ -1325,9 +1327,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
     graph_width = int(graph_width_str) if graph_width_str.isdigit() else 3
     show_metadata = int(request.args.get('show_metadata') == 'true')
     merge_fusion = int(request.args.get('merge_fusion') == 'true')
+    program_id = request.args.get('program_id')
     return {
         'node_name': node_name,
         'module_name': module_name,
+        'program_id': program_id,
         'graph_width': graph_width,
         'show_metadata': show_metadata,
         'merge_fusion': merge_fusion,

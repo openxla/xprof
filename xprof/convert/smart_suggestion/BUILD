@@ -19,8 +19,10 @@ cc_library(
         ":tool_data_provider",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -157,6 +159,37 @@ cc_library(
 )
 
 cc_library(
+    name = "sparse_core_offload_rule",
+    hdrs = ["sparse_core_offload_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_test(
+    name = "sparse_core_offload_rule_test",
+    srcs = ["sparse_core_offload_rule_test.cc"],
+    deps = [
+        ":mock_tool_data_provider",
+        ":signal_provider",
+        ":sparse_core_offload_rule",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:memory_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_library(
     name = "barrier_cores_rule",
     hdrs = ["barrier_cores_rule.h"],
     deps = [
@@ -219,6 +252,7 @@ cc_library(
         ":host_processing_bound_rule",
         ":memory_bound_rule",
         ":smart_suggestion_rule_factory",
+        ":sparse_core_offload_rule",
         ":tensor_core_idle_bound_rule",
     ],
 )

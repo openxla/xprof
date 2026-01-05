@@ -43,6 +43,16 @@ toc:
   section:
   - title: XProf Demo
     path: /xprof/xprof_demo
+- title: Capturing profiles
+  path: /xprof/capturing_profiles
+- title: Framework-specific profiling
+  section:
+  - title: JAX
+    path: /xprof/jax_profiling
+  - title: PyTorch/XLA
+    path: /xprof/pytorch_xla_profiling
+  - title: Tensorflow
+    path: /xprof/tensorflow_profiling
 - title: Deployment
   section:
   - title: Docker Deployment

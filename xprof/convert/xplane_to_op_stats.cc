@@ -408,6 +408,9 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     auto step_events_cleanup =
         absl::MakeCleanup([&all_step_events, &step_events, is_tpu]() {
           for (auto& device_step_events : all_step_events) {
+            if (device_step_events.empty()) {
+              continue;
+            }
             if (is_tpu) {
               // In TPU, we take the intersection of step events across cores
               // as well as hosts.see b/158249775 and cl/331842545.

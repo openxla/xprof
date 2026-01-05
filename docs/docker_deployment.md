@@ -35,7 +35,7 @@ CMD ["--logdir=/app/logs", "--port=8791"]
 2.  Build the image using the following command:
 
     ```bash
-    docker build -t xprof:2.21.0 .
+    docker build --platform=linux/amd64 -t xprof:2.21.0 .
     ```
 
 You can change the version by modifying the `XPROF_VERSION` argument in the

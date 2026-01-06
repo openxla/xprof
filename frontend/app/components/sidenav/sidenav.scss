@@ -10,6 +10,17 @@
   padding: 20px 20px 0 20px;
 }
 
+.tooltip-icon {
+  color: #e8710a;
+  font-size: 25px;
+  vertical-align: bottom;
+  cursor: pointer;
+}
+
+.mat-form-field {
+  margin-bottom: 10px;
+}
+
 .mat-subheading-2 {
   margin-bottom: 0;
 }
@@ -21,7 +32,6 @@
 
 // Target the custom panel class defined in sidenav.ng.html
 .multi-host-select-panel {
-
   .full-width {
     width: 100%;
   }

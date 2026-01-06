@@ -40,11 +40,31 @@ export class App implements OnInit {
       this.loading = false;
       return;
     }
+
+    let filteredRuns = runs;
+
+    const config = await firstValueFrom(this.dataService.getConfig());
+    if (config?.filterSessions) {
+      try {
+        const regex = new RegExp(config.filterSessions, 'i');
+        filteredRuns = runs.filter(run => regex.test(run));
+      } catch (e) {
+        console.error('Invalid regex for session filter:', e);
+        // fallback to no filtering if regex is invalid
+        filteredRuns = runs;
+      }
+
+      // fallback to no filtering if regex finds nothing
+      if (filteredRuns.length === 0) {
+        filteredRuns = runs;
+      }
+    }
+
     this.dataFound = true;
-    this.store.dispatch(actions.setCurrentRunAction({currentRun: runs[0]}));
+    this.store.dispatch(actions.setCurrentRunAction({currentRun: filteredRuns[0]}));
     const tools =
-        await firstValueFrom(this.dataService.getRunTools(runs[0])) as string[];
-    const runToolsMap: RunToolsMap = {[runs[0]]: tools};
+        await firstValueFrom(this.dataService.getRunTools(filteredRuns[0])) as string[];
+    const runToolsMap: RunToolsMap = {[filteredRuns[0]]: tools};
     for (let i = 1; i < runs.length; i++) {
       runToolsMap[runs[i]] = [];
     }

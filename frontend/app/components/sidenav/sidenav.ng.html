@@ -3,14 +3,40 @@
 </div>
 
 <!-- TODO(bhupendradubey): Rename internal variables and function names (e.g., `runs`, `selectedRun`, `onRunSelectionChange`) to use `session` instead of `run` for consistency. -->
+<div class="item-container" *ngIf="runs.length > 1">
+  <div [ngClass]="{'mat-subheading-2': true}">
+    Filter Sessions
+    <mat-icon
+      class="tooltip-icon"
+      matTooltip=
+        "Input a regex to filter the sessions. Press 'Enter' to select the first filtered
+         session or select the session you want from the dropdown."
+      matTooltipPosition="right">
+      info
+    </mat-icon>
+  </div>
+
+  <mat-form-field class="full-width" appearance="outline">
+    <mat-icon matPrefix>search</mat-icon>
+    <input
+      matInput
+      placeholder="Filter sessions"
+      aria-label="Filter sessions"
+      [(ngModel)]="filterSessions"
+      (keyup)="filterRuns()"
+      (keyup.enter)="applyFilterAndSelectFirst()"
+    />
+  </mat-form-field>
+</div>
+
 <div class="item-container">
   <div [ngClass]="{'mat-subheading-2': true, 'disabled': !runs.length}">
-    Sessions ({{runs.length}})
+    Sessions ({{filteredRuns.length}}/{{runs.length}})
   </div>
 
   <mat-form-field class="full-width" appearance="outline">
     <mat-select panelClass="panel-override" [value]="selectedRun" [disabled]="!runs.length" (selectionChange)="onRunSelectionChange($event.value)">
-      <mat-option *ngFor="let run of runs" [value]="run">
+      <mat-option *ngFor="let run of filteredRuns" [value]="run">
         {{run}}
       </mat-option>
     </mat-select>

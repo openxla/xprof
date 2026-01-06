@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -68,6 +69,8 @@ using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
+using ::tsl::profiler::GetSnapshot;
+using ::tsl::profiler::StartContinuousProfiling;
 
 absl::StatusOr<std::pair<std::string, bool>> SessionSnapshotToToolsData(
     const absl::StatusOr<SessionSnapshot>& status_or_session_snapshot,
@@ -114,6 +117,28 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
                                               display_timestamp, result));
   }
   return absl::OkStatus();
+}
+
+absl::Status StartContinuousProfiling(const char* service_addr,
+                                      const ToolOptions& tool_options) {
+  LOG(INFO) << "StartContinuousProfiling";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  tensorflow::RemoteProfilerSessionManagerOptions options;
+  bool is_cloud_tpu_session;
+  // Even though the duration is set to 2 seconds, the profiling will continue
+  // until GetSnapshot is called, it is only done since
+  // GetRemoteSessionManagerOptionsLocked requires a duration.
+  const int32_t kContinuousProfilingdurationMs = 2000;
+  options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
+      service_addr, "", "", false, kContinuousProfilingdurationMs, tool_options,
+      &is_cloud_tpu_session);
+  return StartContinuousProfiling(service_addr, options);
+}
+
+absl::Status GetSnapshotTest(const char* service_addr, const char* logdir) {
+  LOG(INFO) << "GetSnapshot";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  return GetSnapshot(service_addr, logdir);
 }
 
 static absl::once_flag server_init_flag;

@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -114,6 +115,28 @@ absl::Status Monitor(const char* service_addr, int duration_ms,
                                               display_timestamp, result));
   }
   return absl::OkStatus();
+}
+
+absl::Status StartContinuousProfiling(const char* service_addr,
+                                      const ToolOptions& tool_options) {
+  LOG(INFO) << "StartContinuousProfiling";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  tensorflow::RemoteProfilerSessionManagerOptions options;
+  bool is_cloud_tpu_session;
+  // Even though the duration is set to 2 seconds, the profiling will continue
+  // until GetSnapshot is called, it is only done since
+  // GetRemoteSessionManagerOptionsLocked requires a duration.
+  const int32_t kContinuousProfilingdurationMs = 2000;
+  options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
+      service_addr, "", "", false, kContinuousProfilingdurationMs, tool_options,
+      &is_cloud_tpu_session);
+  return tsl::profiler::StartContinuousProfiling(service_addr, options);
+}
+
+absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
+  LOG(INFO) << "GetSnapshot";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  return tsl::profiler::GetSnapshot(service_addr, logdir);
 }
 
 static absl::once_flag server_init_flag;

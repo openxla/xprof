@@ -1,9 +1,10 @@
 import {PlatformLocation} from '@angular/common';
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
-import {ActivatedRoute, Params} from '@angular/router';
+import {ActivatedRoute} from '@angular/router';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
+import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A trace viewer component. */
@@ -20,12 +21,6 @@ export class TraceViewer implements OnDestroy {
 
   url = '';
   pathPrefix = '';
-  sessionId = '';
-  host = '';
-  hosts = '';  // Comma-separated list of hosts, to support multi-host sessions.
-  tool = 'trace_viewer';
-  runPath = '';
-  sessionPath = '';
 
   constructor(
       platformLocation: PlatformLocation,
@@ -35,39 +30,30 @@ export class TraceViewer implements OnDestroy {
       this.pathPrefix =
           String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
     }
-    combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          this.update();
-        });
+    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+      this.update(params as NavigationEvent);
+    });
   }
 
-  processQueryParams(params: Params) {
-    this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
-    this.tool = params['tag'] || this.tool;
-    this.host = params['host'] || this.host;
-    this.hosts = params['hosts'] || this.hosts;
-    this.runPath = params['run_path'] || this.runPath;
-    this.sessionPath = params['session_path'] || this.sessionPath;
-  }
+  update(event: NavigationEvent) {
+    const isStreaming = (event.tag === 'trace_viewer@');
+    const run = event.run || '';
+    const tag = event.tag || '';
+    const runPath = event.run_path || '';
+    const sessionPath = event.session_path || '';
+    let queryString = `run=${run}&tag=${tag}`;
 
-  update() {
-    const isStreaming = (this.tool === 'trace_viewer@');
-    let queryString = `run=${this.sessionId}&tag=${this.tool}`;
-
-    if (this.sessionPath) {
-      queryString += `&session_path=${this.sessionPath}`;
-    } else if (this.runPath) {
-      queryString += `&run_path=${this.runPath}`;
+    if (sessionPath) {
+      queryString += `&session_path=${sessionPath}`;
+    } else if (runPath) {
+      queryString += `&run_path=${runPath}`;
     }
 
-    if (this.hosts && typeof this.hosts === 'string') {
+    if (event.hosts && typeof event.hosts === 'string') {
       // Since event.hosts is a comma-separated string, we can use it directly.
-      queryString += `&hosts=${this.hosts}`;
-    } else if (this.host) {
-      queryString += `&host=${this.host}`;
+      queryString += `&hosts=${event.hosts}`;
+    } else if (event.host) {
+      queryString += `&host=${event.host}`;
     }
 
     const traceDataUrl = `${this.pathPrefix}${DATA_API}?${queryString}`;

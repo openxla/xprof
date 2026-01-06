@@ -526,16 +526,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
           EventData event_data;
           event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
           event_data.try_emplace(kEventSelectedName, event_name);
-          event_data.try_emplace(kEventSelectedStart,
-                                 timeline_data_.entry_start_times[event_index]);
-          event_data.try_emplace(kEventSelectedDuration,
-                                 timeline_data_.entry_total_times[event_index]);
-          event_data.try_emplace(
-              kEventSelectedStartFormatted,
-              FormatTime(timeline_data_.entry_start_times[event_index]));
-          event_data.try_emplace(
-              kEventSelectedDurationFormatted,
-              FormatTime(timeline_data_.entry_total_times[event_index]));
+
           event_callback_(kEventSelected, event_data);
         }
       }
@@ -1075,8 +1066,6 @@ void Timeline::HandleEventDeselection() {
     EventData event_data;
     event_data[std::string(kEventSelectedIndex)] = -1;
     event_data[std::string(kEventSelectedName)] = std::string("");
-    event_data[std::string(kEventSelectedStart)] = 0.0;
-    event_data[std::string(kEventSelectedDuration)] = 0.0;
 
     event_callback_(kEventSelected, event_data);
   }

@@ -1364,28 +1364,6 @@ dashboard would integrate trace viewer app using iframe.
       }
     },
 
-    _createMpmdButton: function() {
-      const mpmdButton = document.createElement('tr-ui-b-toolbar-button');
-      const detailsSelector = document.getElementById('details_selector');
-      mpmdButton.setAttribute('id', 'mpmd_pipeline_view_button');
-      mpmdButton.classList.add('tooltip');
-      const tooltipSpan = document.createElement('span');
-      tooltipSpan.classList.add('tooltiptext');
-      tooltipSpan.textContent = 'Toogle to enable/disable MPMD Pipeline view';
-      const labelDiv = document.createElement('div');
-      labelDiv.textContent = this._mpmdPipelineView ? 'Disable MPMD Pipeline View' : 'Enable MPMD Pipeline View';
-      mpmdButton.appendChild(labelDiv);
-      mpmdButton.appendChild(tooltipSpan);
-      mpmdButton.addEventListener('click', () => {
-        const url = new URL(window.parent.location.href);
-        this._mpmdPipelineView = !this._mpmdPipelineView;
-        labelDiv.textContent = this._mpmdPipelineView ? 'Disable MPMD Pipeline View' : 'Enable MPMD Pipeline View';
-        url.searchParams.set('mpmd_pipeline_view', this._mpmdPipelineView);
-        window.open(url.toString(), '_top');
-      });
-      Polymer.dom(this._traceViewer.rightControls).insertBefore(mpmdButton, detailsSelector);
-    },
-
     _createDetailFilter: function() {
       const detailsSelector = document.createElement('tr-ui-b-dropdown');
       const flowEventsDropdown = document.getElementById('flow_event_filter_dropdown');
@@ -1725,9 +1703,6 @@ dashboard would integrate trace viewer app using iframe.
       if (this._isStreaming) {
         // Need to create detail filter in init since it contributes to the baseUrl building.
         this._createDetailFilter();
-        if (!this._isOss) {
-          this._createMpmdButton();
-        }
         this._updateSearchBehavior();
       }
       let initialRequestedRange = null;

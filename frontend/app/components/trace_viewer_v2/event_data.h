@@ -22,12 +22,10 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
-inline constexpr absl::string_view kEventSelectedStart = "startMs";
-inline constexpr absl::string_view kEventSelectedDuration = "durationMs";
 inline constexpr absl::string_view kEventSelectedStartFormatted =
-    "startMsFormatted";
+    "startUsFormatted";
 inline constexpr absl::string_view kEventSelectedDurationFormatted =
-    "durationMsFormatted";
+    "durationUsFormatted";
 
 // Constants for fetch data event.
 inline constexpr absl::string_view kFetchData = "fetch_data";

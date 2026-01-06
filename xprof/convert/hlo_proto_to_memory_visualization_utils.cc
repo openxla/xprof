@@ -444,9 +444,11 @@ HeapObject MakeHeapObject(const StackFrameIndexProto& stack_frame_index,
   result.set_op_code(hlo_instruction.opcode());
   tsl::profiler::OpSourceInfo source_info =
       GetSourceInfo(hlo_instruction, stack_frame_index);
-  result.mutable_source_info()->set_file_name(source_info.source_file);
-  result.mutable_source_info()->set_line_number(source_info.source_line);
-  result.mutable_source_info()->set_stack_frame(source_info.stack_frame);
+  if (!source_info.source_file.empty()) {
+    result.mutable_source_info()->set_file_name(source_info.source_file);
+    result.mutable_source_info()->set_line_number(source_info.source_line);
+    result.mutable_source_info()->set_stack_frame(source_info.stack_frame);
+  }
   return result;
 }
 

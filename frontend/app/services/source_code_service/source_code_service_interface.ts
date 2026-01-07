@@ -93,8 +93,12 @@ export interface SourceCodeServiceInterface {
    * @param lineNumber The line number.
    * @return A link to the code search.
    */
-  codeSearchLink(sessionId: string, fileName: string, lineNumber: number):
-      Observable<string>;
+  codeSearchLink(
+      sessionId: string,
+      fileName: string,
+      lineNumber: number,
+      pathPrefix: string,
+      ): Observable<string>;
 
   /**
    * Returns true if the source code service is available.
@@ -106,6 +110,13 @@ export interface SourceCodeServiceInterface {
    * content accordingly.
    */
   isAvailable(): boolean;
+
+  /**
+   * Returns true if the code fetch is enabled.
+   *
+   * This is used to control the rollout of the code fetch feature.
+   */
+  isCodeFetchEnabled(): boolean;
 }
 
 /** Injection token for the source code service interface. */

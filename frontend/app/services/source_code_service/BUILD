@@ -44,6 +44,9 @@ xprof_ng_module(
     ],
     deps = [
         ":source_code_service_interface",
+        "@npm//@ngrx/store",
         "@npm//rxjs",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/store",
     ],
 )

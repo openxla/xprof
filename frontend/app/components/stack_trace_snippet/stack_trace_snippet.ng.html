@@ -5,7 +5,8 @@
       *ngFor="let addr of sourceCodeSnippetAddresses; let isFirst = first; trackBy: trackByIndex"
       [sourceCodeSnippetAddress]="addr"
       [topOfStack]="isFirst"
-      [usingSourceFileAndLineNumber]="usingSourceFileAndLineNumber">
+      [usingSourceFileAndLineNumber]="usingSourceFileAndLineNumber"
+      [srcPathPrefix]="srcPathPrefix">
     </stack-frame-snippet>
   </ng-container>
 

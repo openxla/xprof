@@ -1,4 +1,4 @@
-import {createFeatureSelector, createSelector,} from '@ngrx/store';
+import {createFeatureSelector, createSelector, } from '@ngrx/store';
 
 import {AppState, MemoryViewerState, OpProfileState, PodViewerState, STORE_KEY} from './state';
 import {MemoizedSelectorAny} from './types';
@@ -94,3 +94,7 @@ export const getRunToolsMap: MemoizedSelectorAny =
 /** Selector for current run */
 export const getCurrentRun: MemoizedSelectorAny =
     createSelector(appState, (appState: AppState) => appState.currentRun);
+
+/** Selector for ProfilerConfig */
+export const getProfilerConfig: MemoizedSelectorAny =
+    createSelector(appState, (appState: AppState) => appState.config);

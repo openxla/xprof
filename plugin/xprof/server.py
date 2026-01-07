@@ -50,6 +50,7 @@ class ServerConfig:
   grpc_port: int
   worker_service_address: str
   hide_capture_profile_button: bool
+  src_prefix: Optional[str]
 
 
 def make_wsgi_app(plugin):
@@ -147,6 +148,7 @@ def _launch_server(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)
   )
   context.hide_capture_profile_button = config.hide_capture_profile_button
+  context.src_prefix = config.src_prefix
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
   run_server(plugin, _get_wildcard_address(config.port), config.port)
@@ -254,6 +256,14 @@ def _create_argument_parser() -> argparse.ArgumentParser:
           " main server port (--port)."
       ),
   )
+
+  parser.add_argument(
+      "-spp",
+      "--src_prefix",
+      type=str,
+      default=None,
+      help="The path prefix for the source code being profiled.",
+  )
   return parser
 
 
@@ -289,6 +299,7 @@ def main() -> int:
       grpc_port=args.grpc_port,
       worker_service_address=worker_service_address,
       hide_capture_profile_button=args.hide_capture_profile_button,
+      src_prefix=args.src_prefix,
   )
 
   print("Attempting to start XProf server:")

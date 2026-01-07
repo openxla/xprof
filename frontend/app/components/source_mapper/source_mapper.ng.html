@@ -9,6 +9,7 @@
       </mat-select>
     </mat-form-field>
     <stack-trace-snippet
+      [srcPathPrefix]="srcPathPrefix"
       [sourceFileAndLineNumber]="adaptedSourceFileAndLineNumber"
       [stackTrace]="adaptedStackTrace"
       [sourceContextWindow]="sourceContextWindow"
@@ -57,7 +58,7 @@
                 <tr
                   *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
                   [class.line-selected]="isFocusLine(line)">
-                  <td><pre class="line-number"><code>{{ lineIndex }}</code></pre></td>
+                  <td><pre class="line-number"><code>{{ 1 + lineIndex }}</code></pre></td>
                   <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
                 </tr>
               </ng-container>

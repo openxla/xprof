@@ -691,6 +691,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self.hide_capture_profile_button = getattr(
         context, 'hide_capture_profile_button', False
     )
+    self.src_prefix = getattr(context, 'src_prefix', '')
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
@@ -749,10 +750,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
   def config_route(self, request: wrappers.Request) -> wrappers.Response:
     # pytype: enable=wrong-arg-types
     """Returns UI configuration details."""
-    logger.info('config_route: %s', self.logdir)
     config_data = {
         'hideCaptureProfileButton': self.hide_capture_profile_button,
+        'srcPathPrefix': self.src_prefix,
     }
+    logger.info('config_route: %s', config_data)
     return respond(config_data, 'application/json')
 
   def frontend_metadata(self):

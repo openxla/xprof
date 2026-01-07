@@ -84,6 +84,10 @@ class ToolDataProviderImpl : public ToolDataProvider {
     return absl::UnimplementedError("Not implemented yet.");
   }
 
+  absl::StatusOr<const MemoryProfile*> GetMemoryProfile() override {
+    return absl::UnimplementedError("Not implemented yet.");
+  }
+
  private:
   const SessionSnapshot& session_snapshot_;
   std::unique_ptr<OverviewPage> overview_page_cache_;

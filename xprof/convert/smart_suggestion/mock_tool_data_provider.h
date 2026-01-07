@@ -43,6 +43,8 @@ class MockToolDataProvider : public ToolDataProvider {
               (), (override));
   MOCK_METHOD(absl::StatusOr<const op_profile::Profile*>, GetOpProfile, (),
               (override));
+  MOCK_METHOD(absl::StatusOr<const MemoryProfile*>, GetMemoryProfile, (),
+              (override));
 };
 
 }  // namespace profiler

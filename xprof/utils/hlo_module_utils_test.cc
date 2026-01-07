@@ -33,10 +33,12 @@ class HloModuleUtilsTest : public xla::HloTestBase {
  protected:
   absl::StatusOr<std::unique_ptr<xla::HloModule>> GetModuleWithStackFrames() {
     const char file_name[] = "main.py";
-    const char function_name[] = "func1";
-    const int line_number = 10;
-    const int column_number = 5;
-    const int frame_id = 1;
+    const char function_name1[] = "func1";
+    const int line_number1 = 10;
+    const int column_number1 = 5;
+    const char function_name2[] = "func2";
+    const int line_number2 = 20;
+    const int column_number2 = 1;
     const char text[] = R"(
     HloModule a_module
 
@@ -49,25 +51,39 @@ class HloModuleUtilsTest : public xla::HloTestBase {
 
     auto module_proto = module->ToProto();
     auto index = module_proto.mutable_stack_frame_index();
-    index->add_file_names(file_name);
-    index->add_function_names(function_name);
-    auto location = index->add_file_locations();
-    location->set_file_name_id(frame_id);
-    location->set_function_name_id(1);
-    location->set_line(line_number);
-    location->set_column(column_number);
+    index->add_file_names(file_name);        // id 1
+    index->add_function_names(function_name1);  // id 1
+    index->add_function_names(function_name2);  // id 2
 
-    auto frame = index->add_stack_frames();
-    frame->set_file_location_id(1);
+    auto location1 = index->add_file_locations();  // id 1
+    location1->set_file_name_id(1);
+    location1->set_function_name_id(1);
+    location1->set_line(line_number1);
+    location1->set_column(column_number1);
 
-    // Set the stack frame id of the root instruction.
+    auto location2 = index->add_file_locations();  // id 2
+    location2->set_file_name_id(1);
+    location2->set_function_name_id(2);
+    location2->set_line(line_number2);
+    location2->set_column(column_number2);
+
+    auto frame1 = index->add_stack_frames();  // id 1
+    frame1->set_file_location_id(1);
+    frame1->set_parent_frame_id(0);
+
+    auto frame2 = index->add_stack_frames();  // id 2
+    frame2->set_file_location_id(2);
+    frame2->set_parent_frame_id(1);
+
+    // Set the stack frame id of the root instruction to frame 2.
+    const int stack_frame_id = 2;
     for (auto& computation : *module_proto.mutable_computations()) {
       if (computation.id() == module_proto.entry_computation_id()) {
         for (auto& instruction : *computation.mutable_instructions()) {
           if (instruction.id() == computation.root_id()) {
-            instruction.mutable_metadata()->set_stack_frame_id(frame_id);
+            instruction.mutable_metadata()->set_stack_frame_id(stack_frame_id);
             instruction.mutable_metadata()->set_source_file(file_name);
-            instruction.mutable_metadata()->set_source_line(line_number);
+            instruction.mutable_metadata()->set_source_line(line_number2);
           }
         }
       }
@@ -79,7 +95,7 @@ class HloModuleUtilsTest : public xla::HloTestBase {
   absl::StatusOr<std::unique_ptr<xla::HloModule>>
   GetModuleWithSourceLocation() {
     const char file_name[] = "main.py";
-    const int line_number = 10;
+    const int line_number = 20;
     const char text[] = R"(
     HloModule a_module
 
@@ -113,7 +129,8 @@ TEST_F(HloModuleUtilsTest, TestGetLocationStack) {
       GetModuleWithStackFrames());
   const auto* root_instruction =
       module_with_stack_frames->entry_computation()->root_instruction();
-  EXPECT_EQ(GetOpLocationStack(1, *root_instruction), "main.py:10:5\n");
+  EXPECT_EQ(GetOpLocationStack(2, *root_instruction),
+            "main.py:20:1\nmain.py:10:5\n");
 }
 
 TEST_F(HloModuleUtilsTest, TestGetSourceInfo) {
@@ -124,8 +141,8 @@ TEST_F(HloModuleUtilsTest, TestGetSourceInfo) {
       module_with_stack_frames->entry_computation()->root_instruction();
   auto source_info = GetSourceInfo(*root_instruction);
   EXPECT_EQ(source_info.source_file, "main.py");
-  EXPECT_EQ(source_info.source_line, 10);
-  EXPECT_EQ(source_info.stack_frame, "main.py:10:5\n");
+  EXPECT_EQ(source_info.source_line, 20);
+  EXPECT_EQ(source_info.stack_frame, "main.py:20:1\nmain.py:10:5\n");
 }
 
 TEST_F(HloModuleUtilsTest, TestGetSourceInfoFallback) {
@@ -136,7 +153,7 @@ TEST_F(HloModuleUtilsTest, TestGetSourceInfoFallback) {
       module_with_source_location->entry_computation()->root_instruction();
   auto source_info = GetSourceInfo(*root_instruction);
   EXPECT_EQ(source_info.source_file, "main.py");
-  EXPECT_EQ(source_info.source_line, 10);
+  EXPECT_EQ(source_info.source_line, 20);
   EXPECT_EQ(source_info.stack_frame, "");
 }
 

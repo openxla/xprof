@@ -12,6 +12,7 @@
 #include "third_party/dear_imgui/imgui_internal.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 
@@ -581,7 +582,7 @@ TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
   // Data range: [60, 300].
   // Preserve range start (50) < Data range start (60), so it should trigger
   // fetch.
-  timeline.set_data_time_range({60.0, 300.0});
+  timeline.set_data_time_range({0.0, 300.0});
   timeline.set_fetched_data_time_range({60.0, 300.0});
   timeline.set_is_incremental_loading(false);
 
@@ -598,13 +599,93 @@ TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
   // Simulate panning outside preserve range.
   timeline.SetVisibleRange({100.0, 200.0});
 
-  EXPECT_TRUE(request_triggered);
+  ASSERT_TRUE(request_triggered);
   // Fetch range (Scale 3.0 of visible): [0, 300].
   EXPECT_DOUBLE_EQ(
       std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
-      0.0);
+      MicrosToMillis(0.0));
   EXPECT_DOUBLE_EQ(
-      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))), 0.3);
+      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
+      MicrosToMillis(300.0));
+}
+
+TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRange) {
+  Timeline timeline;
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [60, 300].
+  // Preserve range start (50) < Data range start (60).
+  // Before fix: Triggered fetch for [50, ...].
+  // After fix: ConstrainTimeRange clamps preserve to [60, ...], which is
+  // contained in fetched.
+  const TimeRange data_range = {60.0, 300.0};
+  timeline.set_data_time_range(data_range);
+  timeline.set_fetched_data_time_range(data_range);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Simulate panning.
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest,
+     MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRangeStart) {
+  Timeline timeline;
+  // Visible range: [100, 200]. Duration: 100. Center: 150.
+  // Preserve range (Scale 2.0): [50, 250].
+  // Data range: [60, 300].
+  // Preserve range start (50) < Data range start (60).
+  const TimeRange data_range = {60.0, 300.0};
+  timeline.set_data_time_range(data_range);
+  timeline.set_fetched_data_time_range(data_range);
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Simulate panning.
+  timeline.SetVisibleRange({100.0, 200.0});
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest,
+     MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRangeEnd) {
+  Timeline timeline;
+  // Visible range: [800, 900]. Duration: 100. Center: 850.
+  // Preserve range (Scale 2.0): [750, 950].
+  // Data range: [700, 940].
+  // Preserve range end (950) > Data range end (940).
+  const TimeRange data_range = {700.0, 940.0};
+  timeline.set_data_time_range(data_range);
+  timeline.set_fetched_data_time_range(data_range);
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Simulate panning.
+  timeline.SetVisibleRange({800.0, 900.0});
+
+  EXPECT_FALSE(request_triggered);
 }
 
 TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
@@ -653,7 +734,7 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenLoading) {
 
 TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
   Timeline timeline;
-  timeline.set_data_time_range({60.0, 300.0});
+  timeline.set_data_time_range({0.0, 300.0});
   timeline.set_fetched_data_time_range({60.0, 300.0});
   timeline.set_is_incremental_loading(false);
 
@@ -672,6 +753,89 @@ TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
   // true inside `MaybeRequestData`.
   timeline.SetVisibleRange({100.0, 200.0});
   EXPECT_EQ(request_count, 1);
+}
+
+TEST(TimelineTest, MaybeRequestDataRefetchWhenZoomedIn) {
+  Timeline timeline;
+  // Data range: [0, 1000].
+  // Fetched range: [0, 1000].
+  // Visible range: [100, 101]. Duration 1.
+  // Fetch range (Scale 3.0): [99, 102]. Duration 3.
+  // fetched_duration / fetch_duration = 1000 / 3 = 333.3 > kRefetchZoomRatio
+  // (8.0).
+  // Expect refetch.
+
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.set_fetched_data_time_range({0.0, 1000.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  timeline.SetVisibleRange({100.0, 101.0});
+
+  ASSERT_TRUE(request_triggered);
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
+      MicrosToMillis(99.0));
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
+      MicrosToMillis(102.0));
+}
+
+TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
+  Timeline timeline;
+  // Data range: [0, 1000].
+  // Fetched range: [0, 200].
+  // Visible range: [800, 900]. Duration 100.
+  // Preserve range (Scale 2.0): [750, 950].
+  // Fetch range (Scale 3.0): [700, 1000].
+  // Unconstrained Fetch Range (Scale 3.0): [700, 1000].
+  // If we move visible range to [900, 1000].
+  // Visible: [900, 1000]. Center: 950. Duration: 100.
+  // Preserve (Scale 2.0): [850, 1050].
+  // Fetch (Scale 3.0): [800, 1100].
+  // Constrained Fetch: [800, 1000] (clamped to data range end).
+
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.set_fetched_data_time_range({0.0, 200.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // Move visible range to the end of the data range.
+  timeline.SetVisibleRange({900.0, 1000.0});
+
+  ASSERT_TRUE(request_triggered);
+  // Fetch start should be around 700.0.
+  // Original fetch: [800, 1100]. Duration 300.
+  // ConstrainTimeRange shifts it left to fit in [0, 1000] while preserving
+  // duration (if possible).
+  // Shift amount = 1100 - 1000 = 100.
+  // New start = 800 - 100 = 700.
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
+      MicrosToMillis(700.0));
+  // Fetch end should be clamped to 1000.0.
+  // If unconstrained, it would be 1100.0 (center 950 + 1.5*100 = 1100).
+  EXPECT_DOUBLE_EQ(
+      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
+      MicrosToMillis(1000.0));
 }
 
 // Test fixture for tests that require an ImGui context.
@@ -2002,40 +2166,6 @@ TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
       << "SelectionOverlay should be drawn after Tracks to appear on top";
 
   ImGui::EndFrame();
-}
-
-TEST_F(RealTimelineImGuiFixture, MaybeRequestDataRefetchWhenZoomedIn) {
-  // Data range: [0, 1000].
-  // Fetched range: [0, 1000].
-  // Visible range: [100, 101]. Duration 1.
-  // Fetch range (Scale 3.0): [99, 102]. Duration 3.
-  // fetched_duration / fetch_duration = 1000 / 3 = 333.3 > kRefetchZoomRatio
-  // (8.0).
-  // Expect refetch.
-
-  timeline_.set_data_time_range({0.0, 1000.0});
-  timeline_.set_fetched_data_time_range({0.0, 1000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  timeline_.SetVisibleRange({100.0, 101.0});
-
-  ASSERT_TRUE(request_triggered);
-  EXPECT_DOUBLE_EQ(
-      std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
-      99.0 / 1000.0);
-  EXPECT_DOUBLE_EQ(
-      std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
-      102.0 / 1000.0);
 }
 
 }  // namespace

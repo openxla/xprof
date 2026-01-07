@@ -1093,8 +1093,15 @@ void Timeline::MaybeRequestData() {
   // - fetched_data_time_range_: The time range covered by data currently
   // loaded.
   const TimeRange current_visible = visible_range();
-  const TimeRange preserve = current_visible.Scale(kPreserveRatio);
-  const TimeRange fetch = current_visible.Scale(kFetchRatio);
+
+  TimeRange preserve = current_visible.Scale(kPreserveRatio);
+  TimeRange fetch = current_visible.Scale(kFetchRatio);
+
+  // Constrain the ranges to the valid data range. This ensures that we don't
+  // try to fetch data outside the available trace duration (e.g. negative time
+  // or future time), preventing infinite refetch loops at the boundaries.
+  ConstrainTimeRange(preserve);
+  ConstrainTimeRange(fetch);
 
   // Refetch data if user scrolled out of range.
   const bool scrolled_out_of_range =

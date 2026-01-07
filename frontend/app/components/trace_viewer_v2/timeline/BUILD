@@ -73,6 +73,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
     ],
 )
 

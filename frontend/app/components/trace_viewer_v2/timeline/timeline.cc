@@ -1083,31 +1083,56 @@ void Timeline::MaybeRequestData() {
 
   // We have several ranges of interest for incremental loading:
   //
-  // |-----------data_time_range_---------|                  Full trace duration
-  //     |---------fetch----------|         Amount to fetch on load (viewport*3)
-  //         |----preserve----|               Buffer to keep loaded (viewport*2)
-  //             |viewport|              aka current_visible: On-screen viewport
+  // Normal case:
+  // |-----------------data_time_range_-----------------|
+  //         |---------next_fetch_range---------|
+  //               |buffer_threshold_range|
+  //                     | viewport |  (aka current_visible: On-screen viewport)
   //
-  // If 'preserve' isn't contained in 'fetched_data_time_range_', or resolution
-  // is too coarse, a new load of 'fetch' range is triggered.
+  // Edge case (clamped by ConstrainTimeRange):
+  // |-----------------------data_time_range_-----------------------|
+  // |-----------next_fetch_range-----------|
+  // |----buffer_threshold_range----|
+  // |viewport|
+  //
+  // If 'buffer_threshold_range' isn't contained in 'fetched_data_time_range_',
+  // or resolution is too coarse, a new load of 'next_fetch_range' is triggered.
   // - fetched_data_time_range_: The time range covered by data currently
   // loaded.
+  // - buffer_threshold_range: The safety buffer we must keep loaded around the
+  // viewport. If the user scrolls such that the edges of this range exceed what
+  // we have currently fetched, we trigger a new fetch.
+  //
+  // We use `buffer_threshold_range` (smaller) as the trigger threshold and
+  // `next_fetch_range` (larger) as the target fetch amount to create a
+  // hysteresis loop. After a fetch, the loaded buffer exceeds the minimum
+  // requirement, allowing the user to scroll "for free" within the newly
+  // fetched data before triggering another network request.
   const TimeRange current_visible = visible_range();
-  const TimeRange preserve = current_visible.Scale(kPreserveRatio);
-  const TimeRange fetch = current_visible.Scale(kFetchRatio);
+
+  TimeRange buffer_threshold_range = current_visible.Scale(kPreserveRatio);
+  TimeRange next_fetch_range = current_visible.Scale(kFetchRatio);
+
+  // Constrain the ranges to the valid data range. This ensures that we don't
+  // try to fetch data outside the available trace duration (e.g. negative time
+  // or future time), preventing infinite refetch loops at the boundaries.
+  ConstrainTimeRange(buffer_threshold_range);
+  ConstrainTimeRange(next_fetch_range);
 
   // Refetch data if user scrolled out of range.
   const bool scrolled_out_of_range =
-      !fetched_data_time_range_.Contains(preserve);
+      !fetched_data_time_range_.Contains(buffer_threshold_range);
   // Refetch data if user zoomed in significantly, making resolution too coarse.
   const bool zoomed_in_too_much =
-      fetched_data_time_range_.duration() / fetch.duration() >
+      fetched_data_time_range_.duration() / next_fetch_range.duration() >
       kRefetchZoomRatio;
 
   if (scrolled_out_of_range || zoomed_in_too_much) {
     EventData event_data;
-    event_data.try_emplace(kFetchDataStart, MicrosToMillis(fetch.start()));
-    event_data.try_emplace(kFetchDataEnd, MicrosToMillis(fetch.end()));
+    event_data.try_emplace(kFetchDataStart,
+                           MicrosToMillis(next_fetch_range.start()));
+    event_data.try_emplace(kFetchDataEnd,
+                           MicrosToMillis(next_fetch_range.end()));
 
     event_callback_(kFetchData, event_data);
     is_incremental_loading_ = true;

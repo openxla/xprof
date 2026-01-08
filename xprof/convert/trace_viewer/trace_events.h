@@ -38,6 +38,8 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
@@ -786,9 +788,14 @@ class TraceEventsContainerBase {
       std::unique_ptr<tsl::WritableFile> trace_events_file,
       std::unique_ptr<tsl::WritableFile> trace_events_metadata_file,
       std::unique_ptr<tsl::WritableFile> trace_events_prefix_trie_file) const {
+    absl::Time start_time = absl::Now();
     Trace trace = trace_;
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
+    absl::string_view trace_events_file_name;
+    TF_RETURN_IF_ERROR(trace_events_file->Name(&trace_events_file_name));
+    LOG(INFO) << "Preprocess events for storing as leveldb table: "
+              << trace_events_file_name << "Time: " << absl::Now() - start_time;
     return DoStoreAsLevelDbTables(events_by_level, trace, trace_events_file,
                                   trace_events_metadata_file,
                                   trace_events_prefix_trie_file);

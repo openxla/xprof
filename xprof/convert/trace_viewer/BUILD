@@ -137,6 +137,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
@@ -151,7 +152,6 @@ cc_library(
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:macros",
-        "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],
 )

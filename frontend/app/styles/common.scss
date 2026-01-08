@@ -236,6 +236,22 @@ mat-progress-bar {
   padding: 12px 24px;
 }
 
+.callout-list {
+  margin: 10px;
+  max-height: 20vh;
+  overflow-y: auto;
+  list-style-position: outside;
+}
+
+.callout-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  padding: 5px;
+  background: rgba(25, 118, 210, 0.20);
+}
+
 .callout.is-critical {
   border-color: #dd0031;
   background: rgba(221, 0, 49, 0.05);

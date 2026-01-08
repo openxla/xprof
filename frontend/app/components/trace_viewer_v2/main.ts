@@ -106,7 +106,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
       timeRangeFromUrl?: [number, number],
       ): void;
   loadJsonData?(url: string): Promise<void>;
-  getProcessList?(url: string): Promise<string[] | undefined>;
+  getProcessList?(url: string): Promise<string[]|undefined>;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -114,9 +114,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
   };
   Application: {
     Instance(): {
-      data_provider(): {
-        getProcessList(): TraceViewerV2Module['StringVector'];
-      };
+      data_provider(): {getProcessList(): TraceViewerV2Module['StringVector'];};
     };
   };
 }

@@ -121,9 +121,16 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
           ev.args[key] = args_val[key].as<std::string>();
         } else if (args_val[key].isNumber()) {
           ev.args[key] = std::to_string(args_val[key].as<double>());
+        } else if (args_val[key].typeOf().strictlyEquals(
+                       emscripten::val("boolean"))) {
+          ev.args[key] = args_val[key].as<bool>() ? "true" : "false";
+        } else if (args_val[key].isNull() || args_val[key].isUndefined()) {
+          ev.args[key] = "null";
+        } else {
+          // For other types like objects or arrays, use JSON.stringify.
+          ev.args[key] = emscripten::val::global("JSON").call<std::string>(
+              "stringify", args_val[key]);
         }
-        // Other types such as boolean, nested objects, or arrays are currently
-        // ignored as they are not required for the flame chart in trace viewer.
       }
     }
     result.flame_events.push_back(std::move(ev));
@@ -201,6 +208,14 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
+  emscripten::register_map<std::string, std::string>("StringMap");
+
+  emscripten::value_object<traceviewer::EventMetaData>("EventMetaData")
+      .field("name", &traceviewer::EventMetaData::name)
+      .field("start", &traceviewer::EventMetaData::start)
+      .field("duration", &traceviewer::EventMetaData::duration)
+      .field("processName", &traceviewer::EventMetaData::processName)
+      .field("arguments", &traceviewer::EventMetaData::arguments);
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
@@ -213,7 +228,8 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider);
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference());
 }
 
 }  // namespace traceviewer

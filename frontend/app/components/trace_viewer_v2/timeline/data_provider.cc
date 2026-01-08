@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,7 +43,7 @@ struct TraceInformation {
       ProcessId, absl::btree_map<std::string, std::vector<const CounterEvent*>>>
       counters_by_pid_name;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names;
-  absl::btree_map<ProcessId, std::string> process_names;
+  absl::flat_hash_map<ProcessId, std::string> process_names;
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
 };
 
@@ -165,6 +166,8 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
     data.entry_total_times.push_back(event->dur);
     data.entry_levels.push_back(current_level);
     data.entry_names.push_back(event->name);
+    data.entry_pids.push_back(event->pid);
+    data.entry_args.push_back(event->args);
 
     bounds.min = std::min(bounds.min, event->ts);
     bounds.max = std::max(bounds.max, event->ts + event->dur);
@@ -352,6 +355,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
   timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
 
+  process_names_.clear();
   TraceInformation trace_info;
   for (const auto& event : parsed_events.flame_events) {
     switch (event.ph) {
@@ -368,13 +372,10 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
         break;
     }
   }
-
   for (const auto& event : parsed_events.counter_events) {
     HandleCounterEvent(event, trace_info);
   }
 
-  // Sort events, first by timestamp (ascending), then by duration
-  // (descending).
   // Ensure all processes have a name in process_names.
   for (const auto& [pid, _] : trace_info.events_by_pid_tid) {
     trace_info.process_names.try_emplace(pid, GetDefaultProcessName(pid));
@@ -382,6 +383,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   for (const auto& [pid, _] : trace_info.counters_by_pid_name) {
     trace_info.process_names.try_emplace(pid, GetDefaultProcessName(pid));
   }
+  process_names_ = trace_info.process_names;
 
   // Sort events, first by timestamp (ascending), then by duration
   // (descending).
@@ -407,13 +409,6 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   }
 
   TimeBounds time_bounds;
-
-  // Populate process_list_ from trace_info.
-  if (process_list_.empty()) {
-    for (const auto& [pid, name] : trace_info.process_names) {
-      process_list_.push_back(absl::StrCat(name, " (pid: ", pid, ")"));
-    }
-  }
 
   timeline.set_timeline_data(CreateTimelineData(trace_info, time_bounds));
 
@@ -454,7 +449,13 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 }
 
 std::vector<std::string> DataProvider::GetProcessList() const {
-  return process_list_;
+  std::vector<std::string> process_list;
+  process_list.reserve(process_names_.size());
+  for (const auto& [pid, name] : process_names_) {
+    process_list.push_back(absl::StrCat(name, " (pid: ", pid, ")"));
+  }
+  std::sort(process_list.begin(), process_list.end());
+  return process_list;
 }
 
 }  // namespace traceviewer

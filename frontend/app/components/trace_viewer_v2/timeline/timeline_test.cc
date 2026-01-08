@@ -42,6 +42,8 @@ TEST(TimelineTest, SetTimelineData) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
 
   timeline.set_timeline_data(std::move(data));
 
@@ -529,6 +531,10 @@ TEST(TimelineTest, NavigateToEvent) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
+  data.entry_pids.push_back(1);
+  data.entry_pids.push_back(2);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
   timeline.set_timeline_data(std::move(data));
   timeline.set_data_time_range({0.0, 200.0});
   timeline.SetVisibleRange({0.0, 50.0});
@@ -549,6 +555,8 @@ TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline.set_timeline_data(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
@@ -564,6 +572,8 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline.set_timeline_data(std::move(data));
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
@@ -856,7 +866,11 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {},
          {},
-         {{.name = "group", .start_level = 0, .nesting_level = 0}}});
+         {},
+         {},
+         {{.name = "group", .start_level = 0, .nesting_level = 0}},
+        {},
+        {}});
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -1183,6 +1197,8 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.001);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1208,6 +1224,8 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.255);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1247,6 +1265,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1288,6 +1308,8 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1317,6 +1339,8 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1356,6 +1380,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1399,6 +1425,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1450,6 +1478,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1491,6 +1521,8 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1535,6 +1567,10 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_start_times.push_back(50.0);
   data.entry_total_times.push_back(20.0);
   data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_pids.push_back(2);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -1958,6 +1994,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 
@@ -2036,6 +2074,8 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
 
   // Group 1: Counter Events
   data.groups.push_back({.type = Group::Type::kCounter,
@@ -2111,6 +2151,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
 

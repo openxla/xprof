@@ -122,14 +122,18 @@ absl::Status StartContinuousProfiling(const char* service_addr,
   LOG(INFO) << "StartContinuousProfiling";
   TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
   tensorflow::RemoteProfilerSessionManagerOptions options;
+  ToolOptions mutable_tool_options = tool_options;
+  mutable_tool_options["tpu_circular_buffer_tracing"] = true;
+  mutable_tool_options["host_tracer_level"] = 0;
+  mutable_tool_options["python_tracer_level"] = 0;
   bool is_cloud_tpu_session;
   // Even though the duration is set to 2 seconds, the profiling will continue
   // until GetSnapshot is called, it is only done since
   // GetRemoteSessionManagerOptionsLocked requires a duration.
   const int32_t kContinuousProfilingdurationMs = 2000;
   options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
-      service_addr, "", "", false, kContinuousProfilingdurationMs, tool_options,
-      &is_cloud_tpu_session);
+      service_addr, "", "", false, kContinuousProfilingdurationMs,
+      mutable_tool_options, &is_cloud_tpu_session);
   return tsl::profiler::StartContinuousProfiling(service_addr, options);
 }
 

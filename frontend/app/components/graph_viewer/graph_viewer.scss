@@ -99,3 +99,26 @@ mat-progress-bar {
 .progress-container-graphviz {
   display: flex;
 }
+
+.mat-subheading-2 {
+  margin-bottom: 0;
+}
+
+mat-checkbox {
+  padding: 5px 0;
+}
+
+.row {
+  display: flex;
+}
+
+.actions {
+  padding: 20px 0;
+}
+
+.search-button {
+  // Override the MDC button style (not using palette contrast color somehow)
+  // Seems fixed in higher angular versions
+  // TODO(yinzz) remove this override once it's fixed
+  color: white;
+}

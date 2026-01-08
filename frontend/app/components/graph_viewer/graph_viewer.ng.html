@@ -1,15 +1,91 @@
 <mat-sidenav-container>
   <mat-sidenav mode="side" opened>
     <div class="item-container">
-      <graph-config
-        [initialInputs]="initialParams"
-        [moduleList]="moduleList"
-        [loadingModuleList]="loadingModuleList"
-        [graphTypes]="graphTypes"
-        (plot)="onSearchGraph($event)"
-        (updateSelectedModule)="onModuleSelectionChange($event)"
-        (updateGraphType)="onGraphTypeSelectionChange($event)"
-      ></graph-config>
+      <div class="form-container">
+        <form (ngSubmit)="onSearchGraph()">
+          <mat-form-field *ngIf="graphTypes.length > 0" class="full-width" id="graph-type-selector" appearance="outline">
+            <mat-label>Graph Type</mat-label>
+            <mat-select
+              name="graphType"
+              panelClass="panel-override"
+              [(ngModel)]="graphType"
+              (selectionChange)="onGraphTypeSelectionChange($event.value)"
+            >
+              <mat-option *ngFor="let type of graphTypes" [value]="type.value">
+                {{ type.label }}
+              </mat-option>
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field class="full-width" id="xla-module-list-selector" appearance="outline">
+            <mat-label> XLA Modules ({{ loadingModuleList ? 'loading...' : moduleList.length }})</mat-label>
+            <mat-select
+              name="selectedModule"
+              panelClass="panel-override"
+              [(ngModel)]="selectedModule"
+              (selectionChange)="onModuleSelectionChange($event.value)"
+            >
+              <mat-option *ngFor="let module of moduleListOptions" [value]="module">
+                {{ module }}
+              </mat-option>
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field class="full-width">
+            <mat-label>XLA Op Name</mat-label>
+            <input
+              matInput
+              matTooltip="XLA Op name for the center node."
+              aria-label="op-name"
+              required
+              autocomplete="off"
+              [(ngModel)]="opName"
+              name="opName"
+            />
+          </mat-form-field>
+          <mat-form-field class="full-width">
+            <mat-label>Graph Width</mat-label>
+            <input
+              matInput
+              matTooltip="Graph width from the center node. Suggest < 10."
+              aria-label="graph-width"
+              type="number"
+              min="1"
+              step="1"
+              [(ngModel)]="graphWidth"
+              name="graphWidth"
+            />
+          </mat-form-field>
+
+          <mat-checkbox
+            *ngIf="!showMeGraph"
+            [(ngModel)]="showMetadata"
+            name="showMetadata"
+            class="full-width"
+            >Show Metadata</mat-checkbox
+          >
+          <mat-checkbox
+            *ngIf="!showMeGraph"
+            [(ngModel)]="mergeFusion"
+            name="mergeFusion"
+            matTooltip="Hide the fusion subcomputations in the rendered graph"
+            class="full-width"
+          >
+            Merge Fusion
+          </mat-checkbox>
+          <div class="actions">
+            <button
+              mat-flat-button
+              extended
+              name="submit"
+              type="submit"
+              color="primary"
+              class="search-button"
+              [disabled]="!validToPlot()"
+            >
+              <mat-icon>search</mat-icon> Search Graph
+            </button>
+          </div>
+        </form>
+      </div>
       <div class="hlo-download">
         <download-hlo
           [moduleName]="selectedModule"

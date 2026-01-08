@@ -67,16 +67,6 @@ export const DIAGNOSTICS_DEFAULT = {
   errors: [] as string[],
 };
 
-/** The keys for form inputs for generating graph viewer */
-export const GRAPH_CONFIG_KEYS = [
-  'selectedModule',
-  'opName',
-  'graphWidth',
-  'showMetadata',
-  'mergeFusion',
-  'graphType',
-];
-
 /**
  * The default graph type instruct graph processing on backend for graph viewer
  */

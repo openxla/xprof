@@ -1,15 +1,16 @@
+import 'org_xprof/frontend/app/common/interfaces/window';
+
 import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild} from '@angular/core';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_CENTER_NODE_COLOR, GRAPH_OP_COLORS} from 'org_xprof/frontend/app/common/constants/colors';
-import {DIAGNOSTICS_DEFAULT, GRAPH_CONFIG_KEYS, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL} from 'org_xprof/frontend/app/common/constants/constants';
+import {DIAGNOSTICS_DEFAULT, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL} from 'org_xprof/frontend/app/common/constants/constants';
 import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
-import {GraphConfigInput, GraphTypeObject, GraphViewerQueryParams} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
+import {GraphTypeObject, GraphViewerQueryParams} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
-import {GraphConfig} from 'org_xprof/frontend/app/components/graph_viewer/graph_config/graph_config';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
@@ -43,7 +44,6 @@ export class GraphViewer implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
-  @ViewChild(GraphConfig) config!: GraphConfig;
   @ViewChild('iframe', {static: false})
   graphRef!: ElementRef<HTMLIFrameElement>;
 
@@ -51,7 +51,6 @@ export class GraphViewer implements OnDestroy {
   host = '';
   /** The hlo module list. */
   moduleList: string[] = [];
-  initialParams: GraphConfigInput|undefined = undefined;
   selectedModule = '';
   opName = '';
   programId = '';
@@ -113,7 +112,7 @@ export class GraphViewer implements OnDestroy {
           this.parseQueryParams(params);
           // Any graph viewer url query param change should trigger a potential
           // reload
-          this.updateView();
+          this.onPlot();
         });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
 
@@ -152,13 +151,6 @@ export class GraphViewer implements OnDestroy {
     this.host = params['host'] || this.host || '';
   }
 
-  updateView() {
-    // update graph_config input data
-    this.initialParams = this.getParams();
-    // refresh the graph view
-    this.onPlot();
-  }
-
   initData() {
     this.loadHloOpProfileDataLight();
     this.loadGraphTypes();
@@ -170,7 +162,7 @@ export class GraphViewer implements OnDestroy {
     this.dataService.getGraphTypes(this.sessionId).subscribe((types) => {
       if (types) {
         this.graphTypes = types;
-        this.updateView();
+        this.onPlot();
       }
     });
   }
@@ -207,7 +199,7 @@ export class GraphViewer implements OnDestroy {
                   this.selectedModule;
             }
           }
-          this.updateView();
+          this.onPlot();
           this.loadingModuleList = false;
         });
   }
@@ -570,13 +562,8 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Function called whenever user click the search graph button
-  // Input params are passed from the graph config component.
-  onSearchGraph(params?: Partial<GraphConfigInput>) {
-    // update local variables with the new params
-    if (params) {
-      this.updateParams(params);
-    }
-
+  // search inputs should already be reflected in local variables.
+  onSearchGraph() {
     // rerouter instead of calling updateView directly to populate the url and
     // trigger re-parsing of the query params accordingly.
     this.router.navigate([], {
@@ -586,7 +573,6 @@ export class GraphViewer implements OnDestroy {
   }
 
   onGraphTypeSelectionChange(graphType: string) {
-    if (graphType === this.graphType) return;
     this.graphType = graphType;
     this.zone.run(() => {
       this.moduleList = [];
@@ -604,27 +590,14 @@ export class GraphViewer implements OnDestroy {
     this.programId = programIdMatch ? programIdMatch[1] : '';
   }
 
-  // Get a GraphConfigInput object for usage in the angular components.
-  getParams(): GraphConfigInput {
-    return {
-      selectedModule: this.selectedModule,
-      opName: this.opName,
-      graphWidth: this.graphWidth,
-      showMetadata: this.showMetadata,
-      mergeFusion: this.mergeFusion,
-      programId: this.programId,
-      symbolId: this.symbolId,
-      symbolType: this.symbolType,
-      graphType: this.graphType,
-    };
-  }
-
-  updateParams(param: Partial<GraphConfigInput>) {
-    Object.entries(param).forEach(([key, value]) => {
-      if (GRAPH_CONFIG_KEYS.includes(key)) {
-        Object.assign(this, {[key]: value});
-      }
-    });
+  get moduleListOptions() {
+    if (this.moduleList.length > 0) {
+      return this.moduleList;
+    } else if (this.selectedModule) {
+      return [this.selectedModule];
+    } else {
+      return [];
+    }
   }
 
   validToPlot() {
@@ -639,6 +612,10 @@ export class GraphViewer implements OnDestroy {
     return this.opName && (this.selectedModule || this.programId);
   }
 
+  get shouldRenderMeGraph() {
+    return this.dataService.meGraphEnabled() && this.showMeGraph;
+  }
+
   onPlot() {
     if (!this.validToPlot()) return;
     // Always reset before new rendering
@@ -646,7 +623,8 @@ export class GraphViewer implements OnDestroy {
     // - For graphvizHtml: clear the iframe so the `graphIframeLoaded`
     // detection is accurate
     // - If `show_me_graph` is true, render ModelExplorer Graph instead
-    if (this.showMeGraph) {
+    if (this.shouldRenderMeGraph) {
+      console.error('ME graph rendering is not implemented in 3P yet.');
     } else {
       this.renderGraphvizHtml();
     }

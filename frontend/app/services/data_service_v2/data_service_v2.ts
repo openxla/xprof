@@ -203,6 +203,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return '';
   }
 
+  meGraphEnabled(): boolean {
+    return false;
+  }
+
   getGraphTypes(sessionId: string) {
     const types = [
       {

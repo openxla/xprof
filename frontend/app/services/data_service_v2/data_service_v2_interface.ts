@@ -46,6 +46,7 @@ export interface DataServiceV2Interface {
       programId: string,
       ): string;
 
+  meGraphEnabled(): boolean;
   getGraphTypes(sessionId: string): Observable<GraphTypeObject[]>;
   getGraphOpStyles(sessionId: string): Observable<string>;
   getGraphVizUri(sessionId: string, params: Map<string, string>): string;

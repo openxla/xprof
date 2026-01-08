@@ -422,6 +422,7 @@ class ProfilePluginTest(absltest.TestCase):
     self.multiplexer.Reload()
     # Mock the return value to avoid errors during the call
     mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    self.plugin._xspace_to_tool_data = mock_xspace_to_tool_data
     run_dir = os.path.join(
         plugin_asset_util.PluginDirectory(
             self.logdir, profile_plugin.ProfilePlugin.plugin_name

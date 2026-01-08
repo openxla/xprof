@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 from collections.abc import Callable, Iterator, Mapping
+import concurrent.futures
 import gzip
 import json
 import logging
@@ -84,6 +85,7 @@ CAPTURE_ROUTE = '/capture_profile'
 LOCAL_ROUTE = '/local'
 CONFIG_ROUTE = '/config'
 CACHE_VERSION_FILE = 'cache_version.txt'
+GENERATE_CACHE_ROUTE = '/generate_cache'
 
 # Suffixes of "^, #, @" symbols represent different input data formats for the
 # same tool.
@@ -124,6 +126,9 @@ XPLANE_TOOLS = [
     'graph_viewer',
     'megascale_stats',
 ]
+
+XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
+DEFAULT_CACHE_TOOLS = ('overview_page', 'trace_viewer@')
 
 # XPlane generated tools that support all host mode.
 XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
@@ -678,12 +683,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
   plugin_name = PLUGIN_NAME
 
-  def __init__(self, context):
+  def __init__(
+      self,
+      context,
+      *,
+      epath_module: Any = epath,
+      xspace_to_tool_data_fn: Callable[..., Any] = convert.xspace_to_tool_data,
+      version_module: Any = version,
+      cache_generation_executor: Optional[concurrent.futures.Executor] = None,
+  ):
     """Constructs a profiler plugin for TensorBoard.
 
     This plugin adds handlers for performance-related frontends.
     Args:
       context: A base_plugin.TBContext instance.
+      epath_module: The epath module to use, can be injected for testing.
+      xspace_to_tool_data_fn: Function to convert xspace to tool data.
+      version_module: The version module to use, can be injected for testing.
+      cache_generation_executor: Optional; a
+        `concurrent.futures.ThreadPoolExecutor` instance for async cache
+        generation. If None, a default executor is created.
     """
     self.logdir = context.logdir
     self.data_provider = context.data_provider
@@ -692,15 +711,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
         context, 'hide_capture_profile_button', False
     )
     self.src_prefix = getattr(context, 'src_prefix', '')
+    self._epath = epath_module
+    self._xspace_to_tool_data = xspace_to_tool_data_fn
+    self._version = version_module
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
     self._is_active = False
     # Lock to ensure at most one thread computes _is_active at a time.
     self._is_active_lock = threading.Lock()
+    # Lock to protect access to _run_to_profile_run_dir.
+    self._run_dir_cache_lock = threading.Lock()
     # Cache to map profile run name to corresponding tensorboard dir name
     self._run_to_profile_run_dir = {}
     self._tf_profiler = _TfProfiler(tf) if tf else None
+    # Limit to 1 worker to prevent OOMs as per design doc.
+    self._cache_generation_pool = cache_generation_executor or (
+        concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix='XprofCacheGen'
+        )
+    )
 
   def is_active(self) -> bool:
     """Whether this plugin is active and has any profile data to show.
@@ -737,6 +767,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         CAPTURE_ROUTE: self.capture_route,
         LOCAL_ROUTE: self.default_handler,
         CONFIG_ROUTE: self.config_route,
+        GENERATE_CACHE_ROUTE: self.generate_cache_route,
     }
 
   # pytype: disable=wrong-arg-types
@@ -824,13 +855,13 @@ class ProfilePlugin(base_plugin.TBPlugin):
     )
     run_map = None
     if session_path_arg:
-      session_path = epath.Path(session_path_arg)
+      session_path = self._epath.Path(session_path_arg)
       run_name = session_path.name
       run_map = {}
       if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
         run_map[run_name] = str(session_path)
     elif run_path_arg:
-      run_path = epath.Path(run_path_arg)
+      run_path = self._epath.Path(run_path_arg)
       run_map = {}
       for session in run_path.iterdir():
         if session.is_dir() and any(session.glob('*.xplane.pb')):
@@ -869,8 +900,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
       else:
         raise ValueError(f'Run {run} not found in run map: {run_map}')
 
-    if run in self._run_to_profile_run_dir:
-      return self._run_to_profile_run_dir[run]
+    with self._run_dir_cache_lock:
+      if run in self._run_to_profile_run_dir:
+        return self._run_to_profile_run_dir[run]
 
     if not self.logdir:
       raise RuntimeError(
@@ -880,7 +912,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not tb_run_name:
       tb_run_name = '.'
     tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
-    if not epath.Path(tb_run_directory).is_dir():
+    if not self._epath.Path(tb_run_directory).is_dir():
       raise RuntimeError('No matching run directory for run %s' % run)
     plugin_directory = plugin_asset_util.PluginDirectory(
         tb_run_directory, PLUGIN_NAME
@@ -931,7 +963,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     tool_pattern = '*.xplane.pb'
     filenames = []
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       filenames = path.glob(tool_pattern)
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %s', run_dir, e)
@@ -1025,7 +1057,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # Find all available xplane files for the run and map them by host.
     file_pattern = make_filename('*', 'xplane')
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       for xplane_path in path.glob(file_pattern):
         host_name, _ = _parse_filename(xplane_path.name)
         if host_name:
@@ -1077,6 +1109,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     return selected_hosts, asset_paths
 
+  def _write_cache_version_file(self, run_dir: str) -> None:
+    """Writes the current version to the cache version file."""
+    try:
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+          'w'
+      ) as f:
+        f.write(self._version.__version__)
+    except OSError as e:
+      logger.warning('Cannot write cache version file to %s: %r', run_dir, e)
+
   def data_impl(
       self, request: wrappers.Request
   ) -> tuple[Optional[str], str, Optional[str]]:
@@ -1110,15 +1152,15 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
     try:
-      if epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).exists():
-        with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-            'r'
-        ) as f:
-          cache_version = f.read().strip()
-          if cache_version < version.__version__:
-            use_saved_result = False
-      else:
-        use_saved_result = False
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+          'r'
+      ) as f:
+        cache_version = f.read().strip()
+        if cache_version < self._version.__version__:
+          use_saved_result = False
+    except FileNotFoundError:
+      logger.info('Cache version file not found, invalidating cache.')
+      use_saved_result = False
     except OSError as e:
       logger.warning('Cannot read cache version file: %r', e)
       use_saved_result = False
@@ -1174,8 +1216,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
       params['hosts'] = selected_hosts
       try:
-        data, content_type = convert.xspace_to_tool_data(
-            asset_paths, tool, params)
+        data, content_type = self._xspace_to_tool_data(
+            asset_paths, tool, params
+        )
       except AttributeError as e:
         logger.warning('Error generating analysis results due to %r', e)
         raise AttributeError(
@@ -1183,20 +1226,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
         ) from e
       except ValueError as e:
         logger.warning('XPlane convert to tool data failed as %r', e)
-        raise e
+        raise
       except FileNotFoundError as e:
         logger.warning('XPlane convert to tool data failed as %r', e)
-        raise e
+        raise
 
       # Write cache version file if use_saved_result is False.
       if not use_saved_result:
-        try:
-          with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-              'w'
-          ) as f:
-            f.write(version.__version__)
-        except OSError as e:
-          logger.warning('Cannot write cache version file: %r', e)
+        self._write_cache_version_file(run_dir)
 
       return data, content_type, content_encoding
 
@@ -1216,7 +1253,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     tool_pattern = '*.hlo_proto.pb'
     filenames = []
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       filenames = path.glob(tool_pattern)
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
@@ -1401,7 +1438,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     #
     # This change still enforce the requirement that the subdirectories must
     # end with plugins/profile directory, as enforced by TensorBoard.
-    logdir_path = epath.Path(self.logdir)
+    logdir_path = self._epath.Path(self.logdir)
     schemeless_logdir = str(logdir_path)
     if '://' in schemeless_logdir:
       schemeless_logdir = schemeless_logdir.split('://', 1)[1]
@@ -1411,7 +1448,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       try:
         fs = etils.epath.backend.fsspec_backend.fs(self.logdir)
         for path_str in fs.glob(os.path.join(self.logdir, '**', PLUGIN_NAME)):
-          path = epath.Path(path_str)
+          path = self._epath.Path(path_str)
           if fs.isdir(path) and path.parent.name == TB_NAME:
             tb_run_dir = path.parent.parent
             tb_run = tb_run_dir.relative_to(schemeless_logdir)
@@ -1440,10 +1477,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
         if tb_run_name == '.':
           frontend_run = profile_run
         else:
-          frontend_run = str(epath.Path(tb_run_name) / profile_run)
-        profile_run_dir = str(epath.Path(tb_plugin_dir) / profile_run)
-        if epath.Path(profile_run_dir).is_dir():
-          self._run_to_profile_run_dir[frontend_run] = profile_run_dir
+          frontend_run = str(self._epath.Path(tb_run_name) / profile_run)
+        profile_run_dir = str(self._epath.Path(tb_plugin_dir) / profile_run)
+        if self._epath.Path(profile_run_dir).is_dir():
+          with self._run_dir_cache_lock:
+            self._run_to_profile_run_dir[frontend_run] = profile_run_dir
           if frontend_run not in visited_runs:
             visited_runs.add(frontend_run)
             yield frontend_run
@@ -1453,7 +1491,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return
-    profile_run_dir = epath.Path(run_dir)
+    profile_run_dir = self._epath.Path(run_dir)
     cache = ToolsCache(profile_run_dir)
 
     cached_tools = cache.load()
@@ -1524,3 +1562,198 @@ class ProfilePlugin(base_plugin.TBPlugin):
     sorted_tools.extend(sorted(remaining_tools))
 
     return sorted_tools
+
+  # pytype: disable=wrong-arg-types
+  @wrappers.Request.application
+  def generate_cache_route(
+      self, request: wrappers.Request
+  ) -> wrappers.Response:
+    # pytype: enable=wrong-arg-types
+    """Generates tool data cache in the background."""
+    return self.generate_cache_impl(request)
+
+  def generate_cache_impl(
+      self, request: wrappers.Request
+  ) -> wrappers.Response:
+    """Generates tool data cache in the background.
+
+    Args:
+      request: The Werkzeug request object. Expected parameters in
+        `request.args`:
+          - session_path: The path to the session directory containing XPlane
+            files. (Required)
+          - tools: An optional comma-separated list of tool names to generate
+            cache for. If not provided, defaults to `DEFAULT_CACHE_TOOLS`.
+
+    Returns:
+      A JSON response indicating whether the task was accepted.
+    """
+    logger.info('Received generate_cache request.')
+    if request.method != 'POST':
+      return respond('Method Not Allowed', 'text/plain', code=405)
+
+    params = request.args
+    session_path = params.get('session_path')
+    logger.info('generate_cache called with params: %s', params)
+
+    if not session_path:
+      return respond('Missing "session_path" parameter', 'text/plain', code=400)
+
+    try:
+      path = self._epath.Path(session_path)
+      asset_paths = sorted([str(p) for p in path.glob('*.xplane.pb')])
+      if not asset_paths:
+        return respond(
+            'No XPlane files found in session_path', 'text/plain', code=404
+        )
+      logger.info(
+          'Found %d *.xplane.pb files in %s.', len(asset_paths), session_path
+      )
+    except OSError as e:
+      return respond(
+          f'Error listing files in session_path: {e!r}', 'text/plain', code=500
+      )
+
+    runs = self.runs_imp(request)
+    if not runs:
+      return respond(
+          'No runs found for the provided session_path',
+          'text/plain',
+          code=404,
+      )
+    run_name = runs[0]
+    logger.info(
+        'Querying available tools for run %s via run_tools_imp.',
+        run_name,
+    )
+    available_run_tools = set(self.run_tools_imp(run_name, request))
+    logger.info(
+        'Discovered tools for cache generation: %s for run %s',
+        available_run_tools,
+        run_name,
+    )
+
+    tools_str = params.get('tools')
+    tool_list = (
+        [t.strip() for t in tools_str.split(',') if t.strip()]
+        if tools_str
+        else DEFAULT_CACHE_TOOLS
+    )
+    if tools_str:
+      logger.info('Request tools for cache generation: %s', tool_list)
+    else:
+      logger.info(
+          'No tools specified in request, using default tools: %s',
+          DEFAULT_CACHE_TOOLS,
+      )
+
+    requested_tools = set(tool_list)
+    available_xplane_tools = available_run_tools.intersection(XPLANE_TOOLS_SET)
+
+    filtered_tool_list = [
+        tool for tool in tool_list if tool in available_xplane_tools
+    ]
+
+    skipped_tools = requested_tools.difference(filtered_tool_list)
+    for tool in skipped_tools:
+      if tool not in available_run_tools:
+        logger.info(
+            'Tool %s was requested for caching but is not available for run %s,'
+            ' skipping.',
+            tool,
+            run_name,
+        )
+      else:
+        logger.warning(
+            'Tool %s is available for run %s but not in XPLANE_TOOLS_SET,'
+            ' skipping cache generation.',
+            tool,
+            run_name,
+        )
+
+    if not filtered_tool_list:
+      return respond(
+          'No valid XPlane tools found or specified for caching in run %s.'
+          % run_name,
+          'text/plain',
+          code=400,
+      )
+
+    logger.info(
+        'Filtered tools for cache generation: %s for session %s',
+        filtered_tool_list,
+        session_path,
+    )
+
+    try:
+      logger.info(
+          'Submitting cache generation task to thread pool for session %s...',
+          session_path,
+      )
+      self._cache_generation_pool.submit(
+          self._generate_cache_task,
+          asset_paths=asset_paths,
+          tool_list=filtered_tool_list,
+          params=params,
+          session_path=session_path,
+      )
+    except RuntimeError as e:
+      return respond(f'Failed to schedule task: {e!r}', 'text/plain', code=500)
+    else:
+      return respond(
+          {'status': 'ACCEPTED', 'message': 'Cache generation started'},
+          'application/json',
+          code=202,
+      )
+
+  def _generate_cache_task(
+      self,
+      *,
+      asset_paths: Sequence[str],
+      tool_list: Sequence[str],
+      params: Mapping[str, Any],
+      session_path: str,
+  ) -> None:
+    """Generates and caches tool data from XPlane files in a background thread.
+
+    Args:
+      asset_paths: A list of paths to the XPlane files.
+      tool_list: A list of tool names for which to generate cache.
+      params: Additional parameters from the request.
+      session_path: The path to the session directory.
+    """
+    logger.info(
+        'Background cache generation task started for tools: %s', tool_list
+    )
+    logger.info('Writing cache version file to %s', session_path)
+    self._write_cache_version_file(session_path)
+
+    filenames = [os.path.basename(p) for p in asset_paths]
+
+    base_tool_params = dict(params)
+
+    for tool in tool_list:
+      try:
+        logger.info('Generating cache for tool %s...', tool)
+        tool_params = base_tool_params.copy()
+        tool_params['hosts'] = filenames_to_hosts(filenames, tool)
+        self._xspace_to_tool_data(asset_paths, tool, tool_params)
+        logger.info(
+            'Successfully generated cache for tool %s for %d files.',
+            tool,
+            len(asset_paths),
+        )
+      # Catch all exceptions to prevent the background thread from crashing.
+      # This ensures that even if one tool fails to generate, other tools
+      # can still be processed. The error is logged for debugging.
+      except (AttributeError, ValueError, FileNotFoundError, IOError):
+        logger.exception(
+            'Background cache generation failed for tool %s in session %s',
+            tool,
+            session_path,
+        )
+      except Exception:  # pylint: disable=broad-except
+        logger.exception(
+            'Unexpected error during background cache generation for tool %s',
+            tool,
+        )

@@ -36,6 +36,8 @@ limitations under the License.
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -234,6 +236,7 @@ absl::Status ReadFileTraceMetadata(std::string& filepath, Trace* trace) {
 absl::Status CreateAndSavePrefixTrie(
     tsl::WritableFile* trace_events_prefix_trie_file,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level) {
+  absl::Time start_time = absl::Now();
   PrefixTrie prefix_trie;
   for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
     for (const TraceEvent* event : events_by_level[zoom_level]) {
@@ -244,6 +247,10 @@ absl::Status CreateAndSavePrefixTrie(
       }
     }
   }
+  absl::string_view filename;
+  TF_RETURN_IF_ERROR(trace_events_prefix_trie_file->Name(&filename));
+  LOG(INFO) << "Prefix trie created to be stored in file: " << filename
+            << " took " << absl::Now() - start_time;
   return prefix_trie.SaveAsLevelDbTable(trace_events_prefix_trie_file);
 }
 
@@ -335,8 +342,7 @@ absl::Status DoStoreAsLevelDbTable(
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
     std::function<std::optional<TraceEvent>(const TraceEvent*)>
         generate_event_copy_fn) {
-  LOG(INFO) << "Storing " << trace.num_events()
-            << " events to LevelDb table fast file: ";
+  absl::Time start_time = absl::Now();
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
   options.compression = tsl::table::kSnappyCompression;
@@ -368,7 +374,8 @@ absl::Status DoStoreAsLevelDbTable(
   TF_RETURN_IF_ERROR(file->Name(&filename));
   LOG(INFO) << "Storing " << trace.num_events() - num_of_events_dropped
             << " as LevelDb table fast file: " << filename << " with "
-            << num_of_events_dropped << " events dropped.";
+            << num_of_events_dropped << " events dropped"
+            << " took " << absl::Now() - start_time;
 
   TF_RETURN_IF_ERROR(builder.Finish());
   return file->Close();

@@ -198,10 +198,12 @@ cc_library(
     hdrs = ["prefix_trie.h"],
     deps = [
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
         "@org_xprof//plugin/xprof/protobuf:prefix_trie_node_proto_cc",
         "@xla//xla/tsl/lib/io:block",
         "@xla//xla/tsl/lib/io:iterator",

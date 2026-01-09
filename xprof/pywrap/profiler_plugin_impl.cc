@@ -18,7 +18,9 @@ limitations under the License.
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/base/call_once.h"
@@ -122,14 +124,33 @@ absl::Status StartContinuousProfiling(const char* service_addr,
   LOG(INFO) << "StartContinuousProfiling";
   TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
   tensorflow::RemoteProfilerSessionManagerOptions options;
+  ToolOptions mutable_tool_options = tool_options;
+  mutable_tool_options["tpu_circular_buffer_tracing"] = true;
+  mutable_tool_options["host_tracer_level"] = 0;
+  mutable_tool_options["python_tracer_level"] = 0;
+  for (const auto& [key, value] : mutable_tool_options) {
+    std::visit(
+        [&](const auto& arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, std::string> ||
+                        std::is_same_v<T, int64_t> || std::is_same_v<T, bool> ||
+                        std::is_same_v<T, double>) {
+            LOG(INFO) << "ToolOption: " << key << " = " << arg;
+          } else {
+            LOG(INFO) << "ToolOption: " << key
+                      << " = (vector elements not printed)";
+          }
+        },
+        value);
+  }
   bool is_cloud_tpu_session;
   // Even though the duration is set to 2 seconds, the profiling will continue
   // until GetSnapshot is called, it is only done since
   // GetRemoteSessionManagerOptionsLocked requires a duration.
   const int32_t kContinuousProfilingdurationMs = 2000;
   options = tsl::profiler::GetRemoteSessionManagerOptionsLocked(
-      service_addr, "", "", false, kContinuousProfilingdurationMs, tool_options,
-      &is_cloud_tpu_session);
+      service_addr, "", "", false, kContinuousProfilingdurationMs,
+      mutable_tool_options, &is_cloud_tpu_session);
   return tsl::profiler::StartContinuousProfiling(service_addr, options);
 }
 

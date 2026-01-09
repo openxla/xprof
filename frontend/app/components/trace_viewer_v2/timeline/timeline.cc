@@ -931,7 +931,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
           rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
 
       DrawDeleteButton(draw_list, ImVec2(text_x, text_y), text_size, range);
-      draw_list->AddText(ImVec2(text_x, text_y), kRulerTextColor, text.c_str());
+      draw_list->AddText(ImVec2(text_x, text_y), kBlackColor, text.c_str());
     }
   }
 }

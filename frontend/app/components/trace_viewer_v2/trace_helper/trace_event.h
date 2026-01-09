@@ -9,11 +9,17 @@
 #include <utility>
 #include <vector>
 
+#include "tsl/profiler/lib/context_types.h"
+
 namespace traceviewer {
 
 // Type aliases for clarity
 using ProcessId = uint32_t;
 using ThreadId = uint32_t;
+// EventId is a unique identifier for an event.
+// Event timestamp, duration and its name are used to generate the event ID.
+// See http://shortn/_lVpPbx16ZS for more details.
+using EventId = uint64_t;
 // Timestamps are in microseconds, as specified in go/trace-event-format.
 // An example ts: 6845940.1418570001
 // We are not using absl::Duration because the data source provides timestamps
@@ -29,6 +35,8 @@ enum class Phase : char {
   kComplete = 'X',
   kCounter = 'C',
   kMetadata = 'M',
+  kFlowStart = 'b',
+  kFlowEnd = 'e',
 
   // Represents an unknown or unspecified event phase.
   // This makes the default state more explicit and type-safe.
@@ -44,11 +52,14 @@ enum class Phase : char {
 // used for storage.
 struct TraceEvent {
   Phase ph = Phase::kUnknown;
+  EventId event_id = 0;
   ProcessId pid = 0;
   ThreadId tid = 0;
   std::string name;
   Microseconds ts = 0.0;
   Microseconds dur = 0.0;
+  std::string id;
+  tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
   std::map<std::string, std::string> args;
 };
 
@@ -64,6 +75,7 @@ struct CounterEvent {
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
+  std::vector<TraceEvent> flow_events;
   // The full timespan of the trace, from the earliest event timestamp to the
   // latest event timestamp, in milliseconds.
   std::optional<std::pair<Milliseconds, Milliseconds>> full_timespan;

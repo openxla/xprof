@@ -4,7 +4,14 @@
 #include <emscripten/val.h>
 
 #include <algorithm>
+#include <map>
 
+#include "absl/base/no_destructor.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/hash/hash.h"
+#include "absl/strings/string_view.h"
+#include "tsl/platform/fingerprint.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -24,11 +31,77 @@ Phase ParsePhase(const std::string& ph_str) {
         return Phase::kCounter;
       case static_cast<char>(Phase::kMetadata):
         return Phase::kMetadata;
+      case static_cast<char>(Phase::kFlowStart):
+        return Phase::kFlowStart;
+      case static_cast<char>(Phase::kFlowEnd):
+        return Phase::kFlowEnd;
       default:
         return Phase::kUnknown;
     }
   }
   return Phase::kUnknown;
+}
+
+const absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>&
+GetPrettyNames() {
+  static const absl::NoDestructor<
+      absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>>
+      kPrettyNames({
+          {tsl::profiler::ContextType::kGeneric, "Generic"},
+          {tsl::profiler::ContextType::kLegacy, "Legacy"},
+          {tsl::profiler::ContextType::kTfExecutor, "TF Executor"},
+          {tsl::profiler::ContextType::kTfrtExecutor, "TFRT Executor"},
+          {tsl::profiler::ContextType::kSharedBatchScheduler,
+           "Shared Batch Scheduler"},
+          {tsl::profiler::ContextType::kPjRt, "PjRt"},
+          {tsl::profiler::ContextType::kAdaptiveSharedBatchScheduler,
+           "Adaptive Shared Batch Scheduler"},
+          {tsl::profiler::ContextType::kTfrtTpuRuntime, "TFRT Tpu Runtime"},
+          {tsl::profiler::ContextType::kTpuEmbeddingEngine,
+           "Tpu Embedding Engine"},
+          {tsl::profiler::ContextType::kGpuLaunch, "Gpu Launch"},
+          {tsl::profiler::ContextType::kBatcher, "Batcher"},
+          {tsl::profiler::ContextType::kTpuStream, "Tpu Stream"},
+          {tsl::profiler::ContextType::kTpuLaunch, "Tpu Launch"},
+          {tsl::profiler::ContextType::kPathwaysExecutor, "Pathways Executor"},
+          {tsl::profiler::ContextType::kPjrtLibraryCall, "Pjrt Library Call"},
+          {tsl::profiler::ContextType::kThreadpoolEvent, "Threadpool Event"},
+          {tsl::profiler::ContextType::kJaxServingExecutor,
+           "Jax Serving Executor"},
+          {tsl::profiler::ContextType::kScOffload, "Sc Offload"},
+      });
+  return *kPrettyNames;
+}
+
+tsl::profiler::ContextType GetContextTypeFromString(
+    absl::string_view category) {
+  static const absl::NoDestructor<
+      absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType>>
+      kCategoryMap([] {
+        absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType> map;
+
+        // 1. Add pretty names
+        for (const auto& [type, name] : GetPrettyNames()) {
+          map[name] = type;
+        }
+
+        // 2. Add canonical names from tsl::profiler::GetContextTypeString
+        for (int i = 0; i <= static_cast<int>(
+                                 tsl::profiler::ContextType::kLastContextType);
+             ++i) {
+          auto type = static_cast<tsl::profiler::ContextType>(i);
+          absl::string_view name(tsl::profiler::GetContextTypeString(type));
+          if (!name.empty()) {
+            map.emplace(name, type);
+          }
+        }
+        return map;
+      }());
+
+  if (auto it = kCategoryMap->find(category); it != kCategoryMap->end()) {
+    return it->second;
+  }
+  return tsl::profiler::ContextType::kGeneric;
 }
 
 // Helper function to convert emscripten::val to TraceEvent
@@ -109,6 +182,27 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();
+    if (event.hasOwnProperty("cat")) {
+      emscripten::val cat = event["cat"];
+      if (cat.isNumber()) {
+        ev.category = tsl::profiler::GetSafeContextType(cat.as<uint32_t>());
+      } else if (cat.isString()) {
+        ev.category = GetContextTypeFromString(cat.as<std::string>());
+      }
+    }
+    if (event.hasOwnProperty("id")) {
+      if (event["id"].isString()) {
+        ev.id = event["id"].as<std::string>();
+      } else {
+        ev.id = std::to_string((int64_t)event["id"].as<double>());
+      }
+    } else if (event.hasOwnProperty("bind_id")) {
+      if (event["bind_id"].isString()) {
+        ev.id = event["bind_id"].as<std::string>();
+      } else {
+        ev.id = std::to_string((int64_t)event["bind_id"].as<double>());
+      }
+    }
     if (event.hasOwnProperty("args")) {
       emscripten::val args_val = event["args"];
       emscripten::val keys =
@@ -126,7 +220,30 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
         // ignored as they are not required for the flame chart in trace viewer.
       }
     }
-    result.flame_events.push_back(std::move(ev));
+    // We use Fingerprint64 for a stable event ID because absl::HashOf
+    // does not guarantee stability across different executions or binaries,
+    // and we need consistency for event associations.
+    ev.event_id =
+        tsl::Fingerprint64(absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+    switch (ev.ph) {
+      case Phase::kFlowStart:
+      case Phase::kFlowEnd:
+        if (!ev.id.empty()) {
+          result.flow_events.push_back(std::move(ev));
+        }
+        break;
+      case Phase::kComplete:
+        if (!ev.id.empty()) {
+          result.flow_events.push_back(ev);
+        }
+        result.flame_events.push_back(std::move(ev));
+        break;
+      case Phase::kMetadata:
+        result.flame_events.push_back(std::move(ev));
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -145,7 +262,8 @@ ParsedTraceEvents ParseTraceEvents(
   }
 
   emscripten::val events = trace_data["traceEvents"];
-  const auto js_events = emscripten::vecFromJSArray<emscripten::val>(events);
+  const std::vector<emscripten::val> js_events =
+      emscripten::vecFromJSArray<emscripten::val>(events);
   // Reserve space for the most common event type (flame events) to avoid
   // reallocations.
   // We don't reserve space for counter events as they are significantly fewer
@@ -161,6 +279,7 @@ ParsedTraceEvents ParseTraceEvents(
   // Vectors typically double in capacity upon reallocation; shrinking ensures
   // memory usage matches the actual data size.
   result.counter_events.shrink_to_fit();
+  result.flow_events.shrink_to_fit();
 
   if (trace_data.hasOwnProperty(kFullTimespan)) {
     emscripten::val span = trace_data[kFullTimespan];
@@ -188,7 +307,6 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                 const emscripten::val& visible_range_from_url) {
   const ParsedTraceEvents parsed_events =
       ParseTraceEvents(trace_data, visible_range_from_url);
-
   Application::Instance().data_provider().ProcessTraceEvents(
       parsed_events, Application::Instance().timeline());
 
@@ -198,22 +316,59 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   Application::Instance().timeline().set_is_incremental_loading(false);
 }
 
+emscripten::val GetAllFlowCategories() {
+  emscripten::val categories = emscripten::val::array();
+  for (int i = 0;
+       i <= static_cast<int>(tsl::profiler::ContextType::kLastContextType);
+       ++i) {
+    auto type = static_cast<tsl::profiler::ContextType>(i);
+    std::string name;
+    // Prefer Pretty Name
+    const absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>&
+        pretty_map = GetPrettyNames();
+    if (auto it = pretty_map.find(type); it != pretty_map.end()) {
+      name = it->second;
+    } else {
+      // Fallback to canonical name
+      const char* str = tsl::profiler::GetContextTypeString(type);
+      if (str && *str) {
+        name = str;
+      } else {
+        name = "Unknown";
+      }
+    }
+
+    emscripten::val category = emscripten::val::object();
+    category.set("id", i);
+    category.set("name", name);
+    categories.call<void>("push", category);
+  }
+  return categories;
+}
+
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
+  emscripten::register_vector<int>("IntVector");
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
-      .function("getProcessList", &traceviewer::DataProvider::GetProcessList);
+      .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
+      .function("getFlowCategories",
+                &traceviewer::DataProvider::GetFlowCategories);
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+  emscripten::function("getAllFlowCategories",
+                       &traceviewer::GetAllFlowCategories);
 
   // Bind Application class and expose the singleton instance and data_provider
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider);
+      .function("data_provider", &traceviewer::Application::data_provider)
+      .function("setVisibleFlowCategory",
+                &traceviewer::Application::SetVisibleFlowCategory);
 }
 
 }  // namespace traceviewer

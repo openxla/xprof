@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
@@ -9,10 +10,12 @@
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "third_party/dear_imgui/imgui.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
@@ -20,6 +23,11 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
+
+namespace FlowCategoryFilter {
+static constexpr int kAll = -1;
+static constexpr int kNone = -2;
+}  // namespace FlowCategoryFilter
 
 // Represents a rectangle on the screen.
 struct EventRect {
@@ -50,6 +58,19 @@ struct Group {
   // TODO - b/444029726: Add other fields like expanded, hidden
 };
 
+struct FlowLine {
+  Microseconds source_ts = 0.0;
+
+  Microseconds target_ts = 0.0;
+
+  int source_level = 0;
+
+  int target_level = 0;
+
+  uint32_t color = traceviewer::kBlackColor;
+  tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
+};
+
 // Holds all the data required to render a flame chart and counter lines,
 // including event timing, grouping information, and mappings between levels
 // and events.
@@ -58,6 +79,7 @@ struct FlameChartTimelineData {
   std::vector<Microseconds> entry_total_times;
   std::vector<Microseconds> entry_start_times;
   std::vector<std::string> entry_names;
+  std::vector<EventId> entry_event_ids;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
@@ -66,6 +88,11 @@ struct FlameChartTimelineData {
   // are the same. But given there might be tens of thousands events, this
   // optimization is worth it.
   std::vector<std::vector<int>> events_by_level;
+  std::vector<FlowLine> flow_lines;
+  // Map from event_id to list of flow ids that connect to this event.
+  absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
+  // Map from flow_id to list of flow lines that belong to this flow.
+  absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
   // A map from group index to counter data.
   // We use group index instead of PID as the key because a process (PID) can
   // have multiple counter tracks associated with it. The group index uniquely
@@ -130,6 +157,10 @@ class Timeline {
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
 
+  const std::vector<float>& GetLevelYPositions() const {
+    return level_y_positions_;
+  }
+
   void set_mpmd_pipeline_view_enabled(bool enabled) {
     mpmd_pipeline_view_enabled_ = enabled;
   }
@@ -142,6 +173,10 @@ class Timeline {
   }
 
   void Draw();
+
+  void SetVisibleFlowCategory(int category_id) {
+    flow_category_filter_ = category_id;
+  }
 
   // Calculates the screen coordinates of the rectangle for an event.
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
@@ -173,6 +208,11 @@ class Timeline {
 
   // Navigates to and selects the event with the given index.
   void NavigateToEvent(int event_index);
+
+  // Calculates the control points for a cubic Bezier curve used to draw flows.
+  static void CalculateBezierControlPoints(float start_x, float start_y,
+                                           float end_x, float end_y,
+                                           ImVec2& cp0, ImVec2& cp1);
 
  protected:
   // Virtual method to allow mocking in tests.
@@ -222,6 +262,15 @@ class Timeline {
                         Pixel height);
 
   void DrawGroup(int group_index, double px_per_time_unit_val);
+
+  // Draws a single flow line.
+  void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
+                      double px_per_time, ImDrawList* draw_list);
+
+  // Draws flow lines connecting events. Each flow line is rendered as a Bezier
+  // curve connecting a start point (time and level) to an end point (time and
+  // level).
+  void DrawFlows(Pixel timeline_width);
 
   // Draws a single selected time range.
   void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
@@ -273,6 +322,9 @@ class Timeline {
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = 250.0f;
 
+  // Stores the screen Y coordinate of each level in the current frame.
+  std::vector<float> level_y_positions_;
+
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.
   // This range is updated through `SetVisibleRange`.
@@ -304,6 +356,11 @@ class Timeline {
 
   // Whether the user is currently dragging the mouse on the timeline.
   bool is_dragging_ = false;
+  // Controls which flow categories are visible:
+  //   `FlowCategoryFilter::kAll`: Show all categories.
+  //   `FlowCategoryFilter::kNone`: Show no categories.
+  //   `>=0`: Show only the specific category with this ID.
+  int flow_category_filter_ = FlowCategoryFilter::kNone;
   // Whether the current drag operation is a selection (Shift + Drag).
   // If false, the drag operation is a pan/scroll.
   // This flag is latched at the start of the drag.

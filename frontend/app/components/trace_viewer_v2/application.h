@@ -43,6 +43,10 @@ class Application {
   };
   DataProvider& data_provider() { return data_provider_; };
 
+  void SetVisibleFlowCategory(int category_id) {
+    timeline_->SetVisibleFlowCategory(category_id);
+  }
+
  private:
   friend class absl::NoDestructor<Application>;
 

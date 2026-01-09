@@ -9,6 +9,7 @@ package(default_visibility = [
 cc_library(
     name = "trace_event",
     hdrs = ["trace_event.h"],
+    deps = ["@tsl//tsl/profiler/lib:context_types"],
 )
 
 wasm_cc_library(
@@ -18,8 +19,13 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         "//third_party/emscripten:embind",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/strings",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@tsl//tsl/platform:fingerprint",
     ],
     alwayslink = True,
 )

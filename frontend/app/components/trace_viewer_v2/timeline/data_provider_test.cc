@@ -7,6 +7,8 @@
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/algorithm/container.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -18,6 +20,7 @@ namespace {
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 using ::testing::SizeIs;
+using ::testing::UnorderedElementsAre;
 
 class DataProviderTest : public ::testing::Test {
  public:
@@ -27,13 +30,14 @@ class DataProviderTest : public ::testing::Test {
   TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
                                  ThreadId tid,
                                  std::string thread_or_process_name) {
-    return {Phase::kMetadata,
-            pid,
-            tid,
-            std::move(event_name),
-            0.0,
-            0.0,
-            {{std::string(kName), std::move(thread_or_process_name)}}};
+    return {.ph = Phase::kMetadata,
+            .pid = pid,
+            .tid = tid,
+            .name = std::move(event_name),
+            .ts = 0.0,
+            .dur = 0.0,
+            .id = "",
+            .args = {{std::string(kName), std::move(thread_or_process_name)}}};
   }
 
   CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
@@ -79,7 +83,14 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, ""),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, ""),
-      TraceEvent{Phase::kComplete, 1, 101, "Task A", 5000.0, 1000.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 5000.0,
+       .dur = 1000.0,
+       .id = "",
+       .args = {}},
   };
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
@@ -96,11 +107,30 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
   const std::vector<TraceEvent> events = {
-      TraceEvent{
-          Phase::kMetadata, 1, 0, std::string(kProcessName), 0.0, 0.0, {}},
-      TraceEvent{
-          Phase::kMetadata, 1, 101, std::string(kThreadName), 0.0, 0.0, {}},
-      TraceEvent{Phase::kComplete, 1, 101, "Task A", 5000.0, 1000.0},
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 0,
+       .name = std::string(kProcessName),
+       .ts = 0.0,
+       .dur = 0.0,
+       .id = "",
+       .args = {}},
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 101,
+       .name = std::string(kThreadName),
+       .ts = 0.0,
+       .dur = 0.0,
+       .id = "",
+       .args = {}},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 5000.0,
+       .dur = 1000.0,
+       .id = "",
+       .args = {}},
   };
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
@@ -116,9 +146,22 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
 }
 
 TEST_F(DataProviderTest, ProcessCompleteEvents) {
-  const std::vector<TraceEvent> events = {
-      TraceEvent{Phase::kComplete, 1, 101, "Event 1", 1000.0, 200.0},
-      TraceEvent{Phase::kComplete, 1, 102, "Event 2", 1100.0, 300.0}};
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event 1",
+                                           .ts = 1000.0,
+                                           .dur = 200.0,
+                                           .id = "",
+                                           .args = {}},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 102,
+                                           .name = "Event 2",
+                                           .ts = 1100.0,
+                                           .dur = 300.0,
+                                           .id = "",
+                                           .args = {}}};
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
@@ -150,15 +193,102 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 1400.0);
 }
 
+TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event A",
+                                           .ts = 100.0,
+                                           .dur = 100.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event B",
+                                           .ts = 110.0,
+                                           .dur = 50.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event C",
+                                           .ts = 120.0,
+                                           .dur = 20.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  ASSERT_THAT(data.groups, SizeIs(2));
+
+  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].start_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[1].name, "Thread 101");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[1].nesting_level, 1);
+
+  EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 110.0, 120.0));
+  EXPECT_THAT(data.entry_total_times, ElementsAre(100.0, 50.0, 20.0));
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
+  EXPECT_THAT(data.entry_names, ElementsAre("Event A", "Event B", "Event C"));
+
+  ASSERT_THAT(data.events_by_level, SizeIs(3));
+
+  EXPECT_THAT(data.events_by_level[0], ElementsAre(0));
+  EXPECT_THAT(data.events_by_level[1], ElementsAre(1));
+  EXPECT_THAT(data.events_by_level[2], ElementsAre(2));
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
+}
+
+TEST_F(DataProviderTest, TimeRangeCoversDuration) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event 1",
+                                           .ts = 100.0,
+                                           .dur = 100.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event 2",
+                                           .ts = 150.0,
+                                           .dur = 10.0}};
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
+}
+
 TEST_F(DataProviderTest, ProcessMixedEvents) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Main Process"),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Worker Thread"),
-      TraceEvent{Phase::kComplete, 1, 101, "Task A", 5000.0, 1000.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 5000.0,
+       .dur = 1000.0,
+       .id = "",
+       .args = {}},
       // No metadata for tid 102, uses default "Thread 102".
-      TraceEvent{Phase::kComplete, 1, 102, "Task B", 5500.0, 1500.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 5500.0,
+       .dur = 1500.0,
+       .id = "",
+       .args = {}},
       // No metadata for pid 2, uses default "Process 2".
-      TraceEvent{Phase::kComplete, 2, 201, "Task C", 6000.0, 500.0}};
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task C",
+       .ts = 6000.0,
+       .dur = 500.0,
+       .id = "",
+       .args = {}}};
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
@@ -190,12 +320,33 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A1"),
-      TraceEvent(Phase::kComplete, 1, 101, "Event A1", 1000.0, 100.0),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Event A1",
+       .ts = 1000.0,
+       .dur = 100.0,
+       .id = "",
+       .args = {}},
       CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process B"),
       CreateMetadataEvent(std::string(kThreadName), 2, 201, "Thread B1"),
-      TraceEvent(Phase::kComplete, 2, 201, "Event B1", 1200.0, 100.0),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Event B1",
+       .ts = 1200.0,
+       .dur = 100.0,
+       .id = "",
+       .args = {}},
       CreateMetadataEvent(std::string(kThreadName), 1, 102, "Thread A2"),
-      TraceEvent(Phase::kComplete, 1, 102, "Event A2", 1100.0, 100.0),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "Event A2",
+       .ts = 1100.0,
+       .dur = 100.0,
+       .id = "",
+       .args = {}},
   };
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
@@ -303,10 +454,14 @@ TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
   CounterEvent event2 =
       CreateCounterEvent(1, "Counter A", {50.0, 60.0}, {5.0, 6.0});
 
-  data_provider_.ProcessTraceEvents(
-      {{TraceEvent{Phase::kComplete, 1, 1, "Complete Event", 0.0, 10.0}},
-       {event1, event2}},
-      timeline_);
+  data_provider_.ProcessTraceEvents({{{.ph = Phase::kComplete,
+                                       .pid = 1,
+                                       .tid = 1,
+                                       .name = "Complete Event",
+                                       .ts = 0.0,
+                                       .dur = 10.0}},
+                                     {event1, event2}},
+                                    timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
@@ -322,10 +477,14 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
   CounterEvent counter_event =
       CreateCounterEvent(1, "Counter A", {10.0, 20.0, 30.0}, {1.0, 5.0, 2.0});
 
-  data_provider_.ProcessTraceEvents(
-      {{TraceEvent{Phase::kComplete, 1, 1, "Complete Event", 0.0, 10.0}},
-       {counter_event}},
-      timeline_);
+  data_provider_.ProcessTraceEvents({{{.ph = Phase::kComplete,
+                                       .pid = 1,
+                                       .tid = 1,
+                                       .name = "Complete Event",
+                                       .ts = 0.0,
+                                       .dur = 10.0}},
+                                     {counter_event}},
+                                    timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
@@ -359,10 +518,14 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
   CounterEvent counter_event =
       CreateCounterEvent(1, "Counter A", {10.0, 20.0, 30.0}, {1.0, 5.0, 2.0});
 
-  data_provider_.ProcessTraceEvents(
-      {{TraceEvent{Phase::kComplete, 2, 1, "Complete Event", 0.0, 10.0}},
-       {counter_event}},
-      timeline_);
+  data_provider_.ProcessTraceEvents({{{.ph = Phase::kComplete,
+                                       .pid = 2,
+                                       .tid = 1,
+                                       .name = "Complete Event",
+                                       .ts = 0.0,
+                                       .dur = 10.0}},
+                                     {counter_event}},
+                                    timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
@@ -388,11 +551,21 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
 TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
   // Process 1: Thread 1 (1 level), Counter A
   // Process 2: Thread 2
-  TraceEvent t1_event{Phase::kComplete, 1, 1, "Thread1Event", 0.0, 10.0};
+  TraceEvent t1_event{.ph = Phase::kComplete,
+                      .pid = 1,
+                      .tid = 1,
+                      .name = "Thread1Event",
+                      .ts = 0.0,
+                      .dur = 10.0};
 
   CounterEvent counter_event = CreateCounterEvent(1, "CounterA", {0.0}, {0.0});
 
-  TraceEvent t2_event{Phase::kComplete, 2, 2, "Thread2Event", 0.0, 10.0};
+  TraceEvent t2_event{.ph = Phase::kComplete,
+                      .pid = 2,
+                      .tid = 2,
+                      .name = "Thread2Event",
+                      .ts = 0.0,
+                      .dur = 10.0};
 
   data_provider_.ProcessTraceEvents({{t1_event, t2_event}, {counter_event}},
                                     timeline_);
@@ -459,29 +632,44 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
 TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
-      TraceEvent{Phase::kMetadata,
-                 1,
-                 0,
-                 "process_sort_index",
-                 0.0,
-                 0.0,
-                 {{"sort_index", "2"}}},
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "2"}}},
       // Add a complete event for Process 1
-      TraceEvent{Phase::kComplete, 1, 101, "Event 1", 0.0, 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Event 1",
+       .ts = 0.0,
+       .dur = 10.0},
       CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
-      TraceEvent{Phase::kMetadata,
-                 2,
-                 0,
-                 "process_sort_index",
-                 0.0,
-                 0.0,
-                 {{"sort_index", "1"}}},
+      {.ph = Phase::kMetadata,
+       .pid = 2,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "1"}}},
       // Add a complete event for Process 2
-      TraceEvent{Phase::kComplete, 2, 201, "Event 2", 0.0, 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Event 2",
+       .ts = 0.0,
+       .dur = 10.0},
       CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process 3"),
       // Process 3 has no sort index, defaults to pid (3)
       // Add a complete event for Process 3
-      TraceEvent{Phase::kComplete, 3, 301, "Event 3", 0.0, 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 3,
+       .tid = 301,
+       .name = "Event 3",
+       .ts = 0.0,
+       .dur = 10.0},
   };
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
@@ -503,25 +691,35 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
 TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
-      TraceEvent{Phase::kMetadata,
-                 1,
-                 0,
-                 "process_sort_index",
-                 0.0,
-                 0.0,
-                 {{"sort_index", "1"}}},
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "1"}}},
       // Add a complete event for Process 1
-      TraceEvent{Phase::kComplete, 1, 101, "Event 1", 0.0, 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Event 1",
+       .ts = 0.0,
+       .dur = 10.0},
       CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
-      TraceEvent{Phase::kMetadata,
-                 2,
-                 0,
-                 "process_sort_index",
-                 0.0,
-                 0.0,
-                 {{"sort_index", "1"}}},
+      {.ph = Phase::kMetadata,
+       .pid = 2,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "1"}}},
       // Add a complete event for Process 2
-      TraceEvent{Phase::kComplete, 2, 201, "Event 2", 0.0, 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Event 2",
+       .ts = 0.0,
+       .dur = 10.0},
   };
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
@@ -542,8 +740,12 @@ TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
   ParsedTraceEvents events;
   events.mpmd_pipeline_view = true;
   // Add a dummy event to prevent early return
-  events.flame_events.push_back(
-      TraceEvent{Phase::kComplete, 1, 1, "Event", 0.0, 10.0});
+  events.flame_events.push_back({.ph = Phase::kComplete,
+                                 .pid = 1,
+                                 .tid = 1,
+                                 .name = "Event",
+                                 .ts = 0.0,
+                                 .dur = 10.0});
 
   data_provider_.ProcessTraceEvents(events, timeline_);
 
@@ -557,8 +759,12 @@ TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsWithFullTimespan) {
-  const std::vector<TraceEvent> events = {
-      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
   ParsedTraceEvents parsed_events;
   parsed_events.flame_events = events;
   // full_timespan is in milliseconds. 0.1ms = 100us.
@@ -579,8 +785,12 @@ TEST_F(DataProviderTest, ProcessTraceEventsWithFullTimespan) {
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsWithoutFullTimespan) {
-  const std::vector<TraceEvent> events = {
-      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
   ParsedTraceEvents parsed_events;
   parsed_events.flame_events = events;
   // full_timespan is not set
@@ -602,8 +812,12 @@ TEST_F(DataProviderTest, ProcessTraceEventsWithoutFullTimespan) {
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsWithVisibleRangeFromUrl) {
-  const std::vector<TraceEvent> events = {
-      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 10.0, 10.0}};
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
   ParsedTraceEvents parsed_events;
   parsed_events.flame_events = events;
   // Initial visible range in milliseconds. 0.015ms = 15us. 0.018ms = 18us.
@@ -665,10 +879,456 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(counter_data.values.capacity(), kTotalEntries);
 }
 
+TEST_F(DataProviderTest, ProcessFlowEvents) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 1,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 120.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 1, Thread 102
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 2,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow1",
+       .ts = 210.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 3,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow1",
+       .ts = 230.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 2, Thread 201
+      {.ph = Phase::kComplete,
+       .event_id = 12,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task C",
+       .ts = 300.0,
+       .dur = 100.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 4,
+       .pid = 2,
+       .tid = 201,
+       .name = "flow2",
+       .ts = 310.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 5,
+       .pid = 2,
+       .tid = 201,
+       .name = "flow2",
+       .ts = 380.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+
+  FlameChartTimelineData* mutable_data =
+      const_cast<FlameChartTimelineData*>(&timeline_.timeline_data());
+  absl::c_sort(mutable_data->flow_lines,
+               [](const FlowLine& a, const FlowLine& b) {
+                 if (a.source_ts != b.source_ts) {
+                   return a.source_ts < b.source_ts;
+                 }
+                 return a.target_ts < b.target_ts;
+               });
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Check categories - list should be sorted.
+  EXPECT_THAT(data_provider_.GetFlowCategories(),
+              UnorderedElementsAre(
+                  static_cast<int>(tsl::profiler::ContextType::kGeneric),
+                  static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)));
+
+  // Check flow lines
+  // Flow 1: 101 -> 102 (120->210), 102 -> 102 (210->230)
+  // Flow 2: 201 -> 201 (310->380)
+  ASSERT_THAT(data.flow_lines, SizeIs(3));
+
+  // pid 1 tid 101 is level 0
+  // pid 1 tid 102 is level 1
+  // pid 2 tid 201 is level 2
+  // Flow 1, part 1
+  EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 210.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+  EXPECT_EQ(data.flow_lines[0].category,
+            tsl::profiler::ContextType::kGpuLaunch);
+
+  // Flow 1, part 2
+  EXPECT_EQ(data.flow_lines[1].source_ts, 210.0);
+  EXPECT_EQ(data.flow_lines[1].target_ts, 230.0);
+  EXPECT_EQ(data.flow_lines[1].source_level, 1);
+  EXPECT_EQ(data.flow_lines[1].target_level, 1);
+  EXPECT_EQ(data.flow_lines[1].category,
+            tsl::profiler::ContextType::kGpuLaunch);
+
+  // Flow 2
+  EXPECT_EQ(data.flow_lines[2].source_ts, 310.0);
+  EXPECT_EQ(data.flow_lines[2].target_ts, 380.0);
+  EXPECT_EQ(data.flow_lines[2].source_level, 2);
+  EXPECT_EQ(data.flow_lines[2].target_level, 2);
+  EXPECT_EQ(data.flow_lines[2].category, tsl::profiler::ContextType::kGeneric);
+
+  // Check flow_lines_by_flow_id
+  ASSERT_TRUE(data.flow_lines_by_flow_id.contains("1"));
+  EXPECT_THAT(data.flow_lines_by_flow_id.at("1"), SizeIs(2));
+  ASSERT_TRUE(data.flow_lines_by_flow_id.contains("2"));
+  EXPECT_THAT(data.flow_lines_by_flow_id.at("2"), SizeIs(1));
+
+  // Check flow_ids_by_event_id for flow events
+  EXPECT_THAT(data.flow_ids_by_event_id.at(1), ElementsAre("1"));
+  EXPECT_THAT(data.flow_ids_by_event_id.at(2), ElementsAre("1"));
+  EXPECT_THAT(data.flow_ids_by_event_id.at(3), ElementsAre("1"));
+  EXPECT_THAT(data.flow_ids_by_event_id.at(4), ElementsAre("2"));
+  EXPECT_THAT(data.flow_ids_by_event_id.at(5), ElementsAre("2"));
+}
+
+TEST_F(DataProviderTest, FlowEventsAffectTimeRange) {
+  const std::vector<TraceEvent> all_events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 50.0,
+       .id = "1"},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 200.0,
+       .id = "1"},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
+}
+
+TEST_F(DataProviderTest, FlowEventFindLevelDefaultsToThreadStartLevel) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kFlowStart,
+       .event_id = 1,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 120.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 1, Thread 102
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0},
+      // Flow end ts=180 doesn't fall in Task B
+      {.ph = Phase::kFlowEnd,
+       .event_id = 2,
+       .pid = 1,
+       .tid = 102,
+       .name = "flow1",
+       .ts = 180.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  // p1/t101 is level 0, p1/t102 is level 1.
+  // Flow start is at 120, falls in Task A, so source_level should be 0.
+  // Flow end is at 180, doesn't fall in Task B (200-250), so target_level
+  // should be thread 102's start_level, which is 1.
+  EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 180.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest, FlowEventFindLevelDeepestLevel) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      // Task A contains Task B
+      {.ph = Phase::kComplete,
+       .event_id = 100,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B",
+       .ts = 120.0,
+       .dur = 50.0},
+      // Flow starts in Task B
+      {.ph = Phase::kFlowStart,
+       .event_id = 200,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 130.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Flow ends in Task B
+      {.ph = Phase::kFlowEnd,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 140.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  // p1/t101 has 2 levels. Task A is level 0, Task B is level 1.
+  // Flow starts at 130, falls in Task B, deepest level is 1.
+  // Flow ends at 140, falls in Task B, deepest level is 1.
+  EXPECT_EQ(data.flow_lines[0].source_ts, 130.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 140.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest, FlowEventFindLevelMultipleEventsOnLevel) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 100,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .event_id = 101,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B",
+       .ts = 120.0,
+       .dur = 10.0},
+      {.ph = Phase::kComplete,
+       .event_id = 102,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task C",
+       .ts = 140.0,
+       .dur = 10.0},
+      // Flow starts in Task C
+      {.ph = Phase::kFlowStart,
+       .event_id = 200,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 145.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Flow ends in Task C
+      {.ph = Phase::kFlowEnd,
+       .event_id = 201,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 146.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  // p1/t101: Task A lvl 0, Task B lvl 1, Task C lvl 1.
+  // Flow starts at 145, falls in Task C, deepest level is 1.
+  EXPECT_EQ(data.flow_lines[0].source_ts, 145.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 146.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
+TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
+  const std::vector<TraceEvent> all_events = {
+      // Process 1, Thread 101
+      {.ph = Phase::kComplete,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      // Process 1, Thread 102
+      {.ph = Phase::kComplete,
+       .event_id = 11,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+  };
+  std::vector<TraceEvent> flame_events;
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (event.ph == Phase::kComplete) {
+      flame_events.push_back(event);
+    }
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+  EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
+  EXPECT_EQ(data.flow_lines[0].target_ts, 200.0);
+  EXPECT_EQ(data.flow_lines[0].source_level, 0);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+  EXPECT_EQ(data.flow_lines[0].category,
+            tsl::profiler::ContextType::kGpuLaunch);
+  EXPECT_THAT(data_provider_.GetFlowCategories(),
+              UnorderedElementsAre(
+                  static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)));
+}
+
+TEST_F(DataProviderTest, FlowEventWithSameIdAndEventId) {
+  const std::vector<TraceEvent> all_events = {
+      {.ph = Phase::kFlowStart,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 100.0,
+       .id = "1"},
+      {.ph = Phase::kFlowEnd,
+       .event_id = 10,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 200.0,
+       .id = "1"},
+  };
+  std::vector<TraceEvent> flow_events;
+  for (const auto& event : all_events) {
+    if (!event.id.empty()) {
+      flow_events.push_back(event);
+    }
+  }
+
+  data_provider_.ProcessTraceEvents({{}, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.flow_ids_by_event_id.at(10), ElementsAre("1"));
+}
+
 TEST_F(DataProviderTest, ProcessTraceEventsPreservesVisibleRange) {
   // Initial load
-  const std::vector<TraceEvent> events1 = {
-      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 1000.0, 100.0}};
+  const std::vector<TraceEvent> events1 = {{.ph = Phase::kComplete,
+                                            .pid = 1,
+                                            .tid = 1,
+                                            .name = "Event 1",
+                                            .ts = 1000.0,
+                                            .dur = 100.0}};
   data_provider_.ProcessTraceEvents({events1, {}}, timeline_);
 
   // Set visible range to something specific (simulating zoom).
@@ -676,9 +1336,18 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesVisibleRange) {
   TimeRange visible_before = timeline_.visible_range();
 
   // Incremental load (new events, but within or related to current view)
-  const std::vector<TraceEvent> events2 = {
-      TraceEvent{Phase::kComplete, 1, 1, "Event 1", 1000.0, 100.0},
-      TraceEvent{Phase::kComplete, 1, 1, "Event 2", 1200.0, 100.0}};
+  const std::vector<TraceEvent> events2 = {{.ph = Phase::kComplete,
+                                            .pid = 1,
+                                            .tid = 1,
+                                            .name = "Event 1",
+                                            .ts = 1000.0,
+                                            .dur = 100.0},
+                                           {.ph = Phase::kComplete,
+                                            .pid = 1,
+                                            .tid = 1,
+                                            .name = "Event 2",
+                                            .ts = 1200.0,
+                                            .dur = 100.0}};
 
   data_provider_.ProcessTraceEvents({events2, {}}, timeline_);
 

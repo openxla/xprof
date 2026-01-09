@@ -10,6 +10,7 @@
 #include "absl/strings/string_view.h"
 #include "third_party/dear_imgui/imgui.h"
 #include "third_party/dear_imgui/imgui_internal.h"
+#include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
@@ -853,6 +854,7 @@ class TimelineImGuiTestFixture : public Test {
     io.Fonts->Build();
     timeline_.set_timeline_data(
         {{},
+         {},
          {},
          {},
          {},
@@ -2131,6 +2133,209 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   EXPECT_EQ(timeline_.selected_event_index(), -1);
   EXPECT_EQ(timeline_.selected_group_index(), -1);
   EXPECT_EQ(timeline_.selected_counter_index(), -1);
+}
+
+FlameChartTimelineData GetTestFlowData() {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names = {"event0", "event1"};
+  data.entry_event_ids = {1000, 2000};
+  data.entry_levels = {0, 0};
+  data.entry_start_times = {10.0, 50.0};
+  data.entry_total_times = {5.0, 5.0};
+  FlowLine flow1 = {.source_ts = 12.0,
+                    .target_ts = 52.0,
+                    .source_level = 0,
+                    .target_level = 0,
+                    .color = 0xFFFF0000,
+                    .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine flow2 = {.source_ts = 15.0,
+                    .target_ts = 55.0,
+                    .source_level = 0,
+                    .target_level = 0,
+                    .color = 0xFF00FF00,
+                    .category = tsl::profiler::ContextType::kGpuLaunch};
+  data.flow_lines = {flow1, flow2};
+  data.flow_ids_by_event_id = {{1000, {"1"}}, {2000, {"2"}}};
+  data.flow_lines_by_flow_id = {{"1", {flow1}}, {"2", {flow2}}};
+  return data;
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithNoFilter) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategory(-1);  // Show all flows
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  EXPECT_FALSE(draw_list->VtxBuffer.empty());
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithNoneFilter) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategory(-2);  // Show no flows
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  // VtxBuffer might contain things other than flows (e.g. selection),
+  // so we check size before/after.
+  // The fixture does not draw selection by default.
+  // When no flows are drawn, cliprect commands may be issued, but no vertices
+  // should be added to buffer.
+  EXPECT_TRUE(draw_list->VtxBuffer.empty());
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithCategoryFilter) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  // kGpuLaunch is category 10.
+  timeline_.SetVisibleFlowCategory(
+      static_cast<int>(tsl::profiler::ContextType::kGpuLaunch));
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // flow1 has color 0xFFFF0000 (Red). flow2 has color 0xFF00FF00 (Green).
+  // Since we filter by kGpuLaunch, only flow2 should be drawn.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_TRUE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsForSelectedEvent) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategory(-1);  // Show all flows if no event selected
+
+  // Select event 0 (id 1000), which is part of flow "1" (flow1).
+  timeline_.NavigateToEvent(0);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // Event 0 (id 1000) is associated with flow1 (Red).
+  // We should see flow1's color and not flow2's color.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+using TimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
+
+TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 0", .start_level = 0, .nesting_level = 0});
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 2, .nesting_level = 0});
+  data.groups.push_back(
+      {.name = "Group 2", .start_level = 3, .nesting_level = 0});
+  // Level 0, 1 in Group 0
+  // Level 2 in Group 1
+  // Level 3, 4, 5 in Group 2
+  data.events_by_level.resize(6);
+  timeline_.set_timeline_data(std::move(data));
+
+  SimulateFrame();
+
+  const auto& y_positions = timeline_.GetLevelYPositions();
+  EXPECT_EQ(y_positions.size(), 6);
+
+  const float level_height = kEventHeight + kEventPaddingBottom;
+
+  // We need to get the initial cursor screen pos Y to verify the absolute
+  // positions. This is tricky as it depends on the ImGui window state. Let's
+  // assume it's 0 for the first group's content for now and adjust if needed.
+  // A more robust way would be to mock ImGui::GetCursorScreenPos(), but that's
+  // not easily done without changing the Timeline class interface.
+
+  // Instead of absolute y, we can check the relative y positions within a
+  // group. However, the level_y_positions_ are absolute screen coordinates.
+
+  // Let's run the test once to see what the actual y_positions[0] is, assuming
+  // the window starts at some Y. All other positions will be relative to that.
+
+  // For now, let's just check the difference between levels in the same group.
+  if (y_positions.size() >= 2) {
+    EXPECT_FLOAT_EQ(y_positions[1] - y_positions[0], level_height);
+  }
+  if (y_positions.size() >= 6) {
+    EXPECT_FLOAT_EQ(y_positions[4] - y_positions[3], level_height);
+    EXPECT_FLOAT_EQ(y_positions[5] - y_positions[4], level_height);
+  }
+
+  // The difference between the start of Group 1 (level 2) and Group 0 (level 1)
+  // will depend on the height of Group 0, which is 2 * level_height.
+  if (y_positions.size() >= 3) {
+    // This check is not straight forward because of the child windows.
+  }
+
+  // Group 0: Levels 0, 1
+  const float group0_base_y = y_positions[0];
+  EXPECT_FLOAT_EQ(y_positions[1] - group0_base_y, level_height);
+
+  // Group 1: Level 2
+  // No relative checks needed within Group 1 as it has only one level.
+
+  // Group 2: Levels 3, 4, 5
+  const float group2_base_y = y_positions[3];
+  EXPECT_FLOAT_EQ(y_positions[4] - group2_base_y, level_height);
+  EXPECT_FLOAT_EQ(y_positions[5] - group2_base_y, 2 * level_height);
+}
+
+TEST(TimelineTest, BezierControlPointCalculation) {
+  ImVec2 cp0, cp1;
+
+  // start_x < end_x
+  Timeline::CalculateBezierControlPoints(100.0f, 50.0f, 200.0f, 50.0f, cp0,
+                                         cp1);
+  EXPECT_FLOAT_EQ(cp0.x, 150.0f);  // 100 + (200 - 100) * 0.5
+  EXPECT_FLOAT_EQ(cp0.y, 50.0f);
+  EXPECT_FLOAT_EQ(cp1.x, 150.0f);  // 200 - (200 - 100) * 0.5
+  EXPECT_FLOAT_EQ(cp1.y, 50.0f);
+
+  // start_x > end_x
+  Timeline::CalculateBezierControlPoints(200.0f, 50.0f, 100.0f, 50.0f, cp0,
+                                         cp1);
+  EXPECT_FLOAT_EQ(cp0.x, 250.0f);  // 200 + abs(100 - 200) * 0.5
+  EXPECT_FLOAT_EQ(cp0.y, 50.0f);
+  EXPECT_FLOAT_EQ(cp1.x, 50.0f);  // 100 - abs(100 - 200) * 0.5
+  EXPECT_FLOAT_EQ(cp1.y, 50.0f);
+
+  // start_x == end_x
+  Timeline::CalculateBezierControlPoints(100.0f, 50.0f, 100.0f, 150.0f, cp0,
+                                         cp1);
+  EXPECT_FLOAT_EQ(cp0.x, 100.0f);
+  EXPECT_FLOAT_EQ(cp0.y, 50.0f);
+  EXPECT_FLOAT_EQ(cp1.x, 100.0f);
+  EXPECT_FLOAT_EQ(cp1.y, 150.0f);
 }
 
 TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {

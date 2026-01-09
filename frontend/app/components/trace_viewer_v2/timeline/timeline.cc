@@ -11,6 +11,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -56,6 +57,7 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
 
 void Timeline::Draw() {
   event_clicked_this_frame_ = false;
+  level_y_positions_.assign(timeline_data_.events_by_level.size(), -FLT_MAX);
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
@@ -134,6 +136,12 @@ void Timeline::Draw() {
                         ImGuiWindowFlags_NoSavedSettings |
                         ImGuiWindowFlags_NoInputs |
                         ImGuiWindowFlags_NoBackground);
+  // `DrawFlows` and `DrawSelectedTimeRanges` should be called after all other
+  // timeline content (events, ruler, etc.) has been drawn. This ensures that
+  // flow lines and selected time ranges are rendered on top of everything
+  // else within the current ImGui window, without affecting global foreground
+  // elements like tooltips.
+  DrawFlows(timeline_width);
   DrawSelectedTimeRanges(timeline_width, px_per_time_unit_val);
   ImGui::EndChild();
 
@@ -728,9 +736,20 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   const std::string timeline_child_id =
       absl::StrCat("TimelineChild_", group.name, "_", group_index);
 
+  // Calculate level Y positions regardless of whether the child window is
+  // visible. This ensures that flow lines connecting to off-screen groups are
+  // drawn correctly.
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  for (int level = start_level; level < end_level; ++level) {
+    if (level < level_y_positions_.size()) {
+      level_y_positions_[level] =
+          pos.y + (level - start_level) * (kEventHeight + kEventPaddingBottom) +
+          kEventHeight * 0.5f;
+    }
+  }
+
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
                         ImGuiChildFlags_None, kLaneFlags)) {
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
     const ImVec2 max = ImGui::GetContentRegionMax();
 
     if (group.type == Group::Type::kCounter) {
@@ -763,6 +782,88 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                        ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
                        kLightGrayColor);
   }
+}
+
+void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
+                              double px_per_time, ImDrawList* draw_list) {
+  if (flow_category_filter_ >= 0 &&
+      static_cast<int>(flow.category) != flow_category_filter_) {
+    return;
+  }
+  if (flow.source_level >= level_y_positions_.size() ||
+      flow.target_level >= level_y_positions_.size()) {
+    return;
+  }
+
+  const float start_y = level_y_positions_[flow.source_level];
+  const float end_y = level_y_positions_[flow.target_level];
+
+  if (start_y == -FLT_MAX || end_y == -FLT_MAX) {
+    return;
+  }
+
+  const float start_x =
+      TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
+  const float end_x =
+      TimeToScreenX(flow.target_ts, timeline_x_start, px_per_time);
+
+  const ImVec2 p0(start_x, start_y);
+  const ImVec2 p1(end_x, end_y);
+
+  ImVec2 cp0, cp1;
+  Timeline::CalculateBezierControlPoints(start_x, start_y, end_x, end_y, cp0,
+                                         cp1);
+
+  draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color, 1.0f);
+  draw_list->AddCircleFilled(p0, 3.0f, flow.color);
+  draw_list->AddCircleFilled(p1, 3.0f, flow.color);
+}
+
+void Timeline::DrawFlows(Pixel timeline_width) {
+  const ImVec2 table_rect_min = ImGui::GetItemRectMin();
+  const Pixel timeline_x_start = table_rect_min.x + label_width_;
+
+  // Use ForegroundDrawList to draw on top of opaque child windows (groups).
+  ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
+
+  // Clip to the current window ("Tracks") to avoid drawing outside the timeline
+  // area.
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 clip_min = ImVec2(window_pos.x + label_width_, window_pos.y);
+  const ImVec2 clip_max = ImVec2(window_pos.x + ImGui::GetWindowWidth(),
+                                 window_pos.y + ImGui::GetWindowHeight());
+  draw_list->PushClipRect(clip_min, clip_max,
+                          /*intersect_with_current_clip_rect=*/true);
+
+  const double px_per_time = px_per_time_unit(timeline_width);
+
+  const bool has_selected_event =
+      selected_event_index_ != -1 &&
+      selected_event_index_ < timeline_data_.entry_event_ids.size();
+
+  if (has_selected_event) {
+    EventId selected_event_id =
+        timeline_data_.entry_event_ids[selected_event_index_];
+    absl::flat_hash_map<EventId, std::vector<std::string>>::iterator it_ids =
+        timeline_data_.flow_ids_by_event_id.find(selected_event_id);
+    if (it_ids != timeline_data_.flow_ids_by_event_id.end()) {
+      for (const std::string& flow_id : it_ids->second) {
+        auto it_lines = timeline_data_.flow_lines_by_flow_id.find(flow_id);
+        if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
+          for (const auto& flow : it_lines->second) {
+            DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+          }
+        }
+      }
+    }
+  } else if (flow_category_filter_ != FlowCategoryFilter::kNone) {
+    // If flow_category_filter_ is kNone, it means 'None', so we draw nothing.
+    for (const auto& flow : timeline_data_.flow_lines) {
+      DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+    }
+  }
+
+  draw_list->PopClipRect();
 }
 
 void Timeline::DrawSelectedTimeRange(const TimeRange& range,
@@ -1076,6 +1177,14 @@ void Timeline::HandleEventDeselection() {
 
     event_callback_(kEventSelected, event_data);
   }
+}
+
+void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
+                                            float end_x, float end_y,
+                                            ImVec2& cp0, ImVec2& cp1) {
+  const float dist = std::abs(end_x - start_x) * 0.5f;
+  cp0 = ImVec2(start_x + dist, start_y);
+  cp1 = ImVec2(end_x - dist, end_y);
 }
 
 void Timeline::MaybeRequestData() {

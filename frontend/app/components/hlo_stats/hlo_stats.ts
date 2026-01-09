@@ -147,11 +147,14 @@ export class HloStats extends Dashboard implements OnDestroy {
     // UI accordingly.
     const sourceCodeService =
         this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    this.sourceCodeServiceIsAvailable =
-        sourceCodeService?.isAvailable() === true;
-    if (this.sourceCodeServiceIsAvailable) {
-      this.addSourceInfoClickListener();
-    }
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+          if (this.sourceCodeServiceIsAvailable) {
+            this.addSourceInfoClickListener();
+          }
+        });
   }
 
   processQueryParams(params: Params) {

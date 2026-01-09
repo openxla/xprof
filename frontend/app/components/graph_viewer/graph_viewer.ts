@@ -121,8 +121,11 @@ export class GraphViewer implements OnDestroy {
     // UI accordingly.
     const sourceCodeService =
         this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    this.sourceCodeServiceIsAvailable =
-        sourceCodeService?.isAvailable() === true;
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
   }
 
   // process query params from in component navigation event

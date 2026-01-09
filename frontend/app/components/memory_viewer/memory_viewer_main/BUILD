@@ -19,6 +19,7 @@ xprof_ng_module(
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//angular-split",
+        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_checkbox",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",

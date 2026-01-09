@@ -59,8 +59,11 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     // UI accordingly.
     const sourceCodeService =
         this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    this.sourceCodeServiceIsAvailable =
-        sourceCodeService?.isAvailable() === true;
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
   }
 
   processQuery(params: Params) {}

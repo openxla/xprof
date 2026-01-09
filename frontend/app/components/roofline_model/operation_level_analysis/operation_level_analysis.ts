@@ -7,7 +7,6 @@ import {PIE_CHART_OPTIONS, SCATTER_CHART_OPTIONS} from 'org_xprof/frontend/app/c
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
-import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
 
@@ -22,8 +21,6 @@ type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
 })
 export class OperationLevelAnalysis extends Dashboard implements OnInit,
                                                                  OnChanges {
-  private readonly sourceCodeService =
-      inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, {optional: true});
   private readonly zone = inject(NgZone);
   /** The roofline model data, original dataset */
   // used for table chart and pie chart
@@ -34,6 +31,8 @@ export class OperationLevelAnalysis extends Dashboard implements OnInit,
   @Input() scatterChartOptions: google.visualization.ScatterChartOptions = {};
   // Op name prepopulated from url
   @Input() selectedOp = '';
+  // Whether the source code service is available.
+  @Input() sourceCodeServiceIsAvailable = false;
 
   @Output()
   readonly filterUpdated =
@@ -71,15 +70,9 @@ export class OperationLevelAnalysis extends Dashboard implements OnInit,
   sourceFileAndLineNumber = '';
   stackTrace = '';
   showStackTrace = false;
-  sourceCodeServiceIsAvailable = false;
 
   constructor() {
     super();
-    this.sourceCodeServiceIsAvailable =
-        this.sourceCodeService?.isAvailable() === true;
-    if (this.sourceCodeServiceIsAvailable) {
-      this.addSourceInfoClickListener();
-    }
   }
 
   ngOnInit() {
@@ -116,6 +109,10 @@ export class OperationLevelAnalysis extends Dashboard implements OnInit,
   }
 
   ngOnChanges(changes: SimpleChanges) {
+    if (changes['sourceCodeServiceIsAvailable'] &&
+        this.sourceCodeServiceIsAvailable) {
+      this.addSourceInfoClickListener();
+    }
     this.update();
   }
 

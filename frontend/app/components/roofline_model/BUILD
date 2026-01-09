@@ -34,6 +34,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/roofline_model/operation_level_analysis",
         "@org_xprof//frontend/app/components/roofline_model/program_level_analysis",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",
     ],
 )

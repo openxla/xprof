@@ -69,7 +69,7 @@
     </div>
   </div>
   <div [hidden]="loadingAnalysis" class="block-content">
-    <operation-level-analysis #opLevelAnalysis [selectedOp]="selectedOpName" [rooflineModelData]="dataTableOp" [viewColumns]="columnsIdxOp" [rooflineSeriesData]="scatterDataOp" [scatterChartOptions]="scatterChartOptionsOp" (filterUpdated)="updateDataTableOp($event)"></operation-level-analysis>
+    <operation-level-analysis #opLevelAnalysis [selectedOp]="selectedOpName" [rooflineModelData]="dataTableOp" [viewColumns]="columnsIdxOp" [rooflineSeriesData]="scatterDataOp" [scatterChartOptions]="scatterChartOptionsOp" [sourceCodeServiceIsAvailable]="sourceCodeServiceIsAvailable" (filterUpdated)="updateDataTableOp($event)"></operation-level-analysis>
   </div>
   <div class="progress-container" [hidden]="!loadingAnalysis">
     <div class="loading-message">Loading analysis...</div>

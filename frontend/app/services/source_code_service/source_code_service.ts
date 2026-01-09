@@ -3,6 +3,7 @@ import {Store} from '@ngrx/store';
 import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {getProfilerConfig} from 'org_xprof/frontend/app/store/selectors';
 import {Observable, of, throwError} from 'rxjs';
+import {map} from 'rxjs/operators';
 
 import {Address, Content, SourceCodeServiceInterface} from './source_code_service_interface';
 
@@ -13,15 +14,7 @@ import {Address, Content, SourceCodeServiceInterface} from './source_code_servic
  */
 @Injectable()
 export class SourceCodeService implements SourceCodeServiceInterface {
-  private srcPathPrefix = '';
-
-  constructor(private readonly store: Store) {
-    this.store.select(getProfilerConfig).subscribe((config: ProfilerConfig) => {
-      if (config?.srcPathPrefix) {
-        this.srcPathPrefix = config.srcPathPrefix;
-      }
-    });
-  }
+  constructor(private readonly store: Store) {}
 
   loadContent(sessionId: string, addr: Address): Observable<Content> {
     return throwError(() => new Error('Not implemented'));
@@ -39,8 +32,11 @@ export class SourceCodeService implements SourceCodeServiceInterface {
     return of(`${pathPrefix}/${fileName}`);
   }
 
-  isAvailable(): boolean {
-    return !!this.srcPathPrefix;
+  isAvailable(): Observable<boolean> {
+    return this.store.select(getProfilerConfig)
+        .pipe(
+            map((config: ProfilerConfig) => !!config?.srcPathPrefix),
+        );
   }
 
   isCodeFetchEnabled(): boolean {

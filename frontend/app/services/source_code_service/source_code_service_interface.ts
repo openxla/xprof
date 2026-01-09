@@ -109,7 +109,7 @@ export interface SourceCodeServiceInterface {
    * allows the UI to check if the service is available and show a proper
    * content accordingly.
    */
-  isAvailable(): boolean;
+  isAvailable(): Observable<boolean>;
 
   /**
    * Returns true if the code fetch is enabled.

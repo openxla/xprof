@@ -6,6 +6,7 @@ import {DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_NAMES, ROO
 import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
 import {getGigaflopsReadableString, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {take, takeUntil} from 'rxjs/operators';
@@ -52,6 +53,8 @@ export class RooflineModel implements OnDestroy {
 
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly sourceCodeService =
+      inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, {optional: true});
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -113,6 +116,8 @@ export class RooflineModel implements OnDestroy {
   // Prepopulated op name from url
   selectedOpName = '';
 
+  sourceCodeServiceIsAvailable = false;
+
   constructor(
       route: ActivatedRoute,
       private readonly store: Store<{}>,
@@ -125,6 +130,11 @@ export class RooflineModel implements OnDestroy {
           this.update();
         });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
+    this.sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
   }
 
   /**

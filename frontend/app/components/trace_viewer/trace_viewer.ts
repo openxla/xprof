@@ -21,6 +21,7 @@ export class TraceViewer implements OnDestroy {
 
   url = '';
   pathPrefix = '';
+  sourceCodeServiceIsAvailable = false;
 
   constructor(
       platformLocation: PlatformLocation,
@@ -33,6 +34,17 @@ export class TraceViewer implements OnDestroy {
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.update(params as NavigationEvent);
     });
+
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
+    const sourceCodeService =
+        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
   }
 
   update(event: NavigationEvent) {
@@ -61,18 +73,7 @@ export class TraceViewer implements OnDestroy {
         PLUGIN_NAME}/trace_viewer_index.html?is_streaming=${
         isStreaming}&is_oss=true&trace_data_url=${
         encodeURIComponent(traceDataUrl)}&source_code_service=${
-        this.isSourceCodeServiceAvailable()}`;
-  }
-
-  private isSourceCodeServiceAvailable() {
-    // We don't need the source code service to be persistently available.
-    // We temporarily use the service to check if it is available and show
-    // UI accordingly.
-    const sourceCodeService = this.injector.get(
-        SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
-        null,
-    );
-    return sourceCodeService?.isAvailable() === true;
+        this.sourceCodeServiceIsAvailable}`;
   }
 
   ngOnDestroy() {

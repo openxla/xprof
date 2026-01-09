@@ -50,8 +50,11 @@ export class StackTracePage implements OnDestroy {
         SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
         null,
     );
-    this.sourceCodeServiceIsAvailable =
-        sourceCodeService?.isAvailable() === true;
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
     combineLatest([this.route.params, this.route.queryParams])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {

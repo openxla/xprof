@@ -8,6 +8,8 @@ import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
+import {ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
 
 interface BufferSpan {
   alloc: number;
@@ -36,6 +38,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   private readonly store: Store<{}> = inject(Store);
   private readonly injector = inject(Injector);
+  private readonly destroyed = new ReplaySubject<void>(1);
 
   peakInfo?: BufferAllocationInfo;
   activeInfo?: BufferAllocationInfo;
@@ -72,8 +75,11 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     // UI accordingly.
     const sourceCodeService =
         this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    this.sourceCodeServiceIsAvailable =
-        sourceCodeService?.isAvailable() === true;
+    sourceCodeService?.isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
   }
 
   ngOnChanges() {
@@ -82,6 +88,8 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   ngOnDestroy() {
     this.dispatchActiveHeapObject();
+    this.destroyed.next();
+    this.destroyed.complete();
   }
 
   toggleShowStackTrace() {

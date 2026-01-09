@@ -30,7 +30,6 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/controls/category_filter",
         "@org_xprof//frontend/app/components/controls/string_filter",
         "@org_xprof//frontend/app/components/stack_trace_snippet",
-        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
     ],
 )
 

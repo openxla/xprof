@@ -605,6 +605,7 @@ class TraceEventsContainerBase {
   TraceEventsContainerBase& operator=(TraceEventsContainerBase&&) = default;
   TraceEventsContainerBase(const TraceEventsContainerBase&) = delete;
   TraceEventsContainerBase& operator=(const TraceEventsContainerBase&) = delete;
+  virtual ~TraceEventsContainerBase() = default;
 
   void Merge(TraceEventsContainerBase&& other, int host_id);
 

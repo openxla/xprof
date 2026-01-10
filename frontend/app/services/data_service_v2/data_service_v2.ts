@@ -310,6 +310,20 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return '';
   }
 
+  getCustomCallRegvizLink(
+      sessionId: string,
+      moduleName: string,
+      opName: string,
+      programId = '',
+  ) {
+    if (moduleName && opName) {
+      return `${window.parent.location.origin}/${
+          DATA_API}?tag=graph_viewer&module_name=${moduleName}&node_name=${
+          opName}&run=${sessionId}&type=custom_call&regviz=true#profile`;
+    }
+    return '';
+  }
+
   getCustomCallText(
       sessionId: string, moduleName: string, opName: string,
       programId: string): Observable<string> {

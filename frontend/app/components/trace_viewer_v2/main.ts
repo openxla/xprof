@@ -512,5 +512,40 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
     return processArray;
   };
 
+  const preventNavigation = (e: Event) => {
+    // Block zoom actions (Ctrl + Wheel) during loading to prevent unintended
+    // scaling or scrolling of the parent XProf window.
+    if ((e as WheelEvent).ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const addBlockingListeners = () => {
+    window.addEventListener('wheel', preventNavigation, {capture: true});
+  };
+
+  const removeBlockingListeners = () => {
+    window.removeEventListener('wheel', preventNavigation, {capture: true});
+  };
+
+  window.addEventListener(LOADING_STATUS_UPDATE_EVENT_NAME, (event: Event) => {
+    const customEvent = event as CustomEvent;
+    if (!customEvent.detail || !customEvent.detail.status) return;
+
+    switch (customEvent.detail.status) {
+      case TraceViewerV2LoadingStatus.LOADING_DATA:
+      case TraceViewerV2LoadingStatus.PROCESSING_DATA:
+        addBlockingListeners();
+        break;
+      case TraceViewerV2LoadingStatus.IDLE:
+      case TraceViewerV2LoadingStatus.ERROR:
+        removeBlockingListeners();
+        break;
+      default:
+        break;
+    }
+  });
+
   return traceviewerModule;
 }

@@ -56,14 +56,14 @@
           </mat-form-field>
 
           <mat-checkbox
-            *ngIf="!showMeGraph"
+            *ngIf="!shouldRenderMeGraph"
             [(ngModel)]="showMetadata"
             name="showMetadata"
             class="full-width"
             >Show Metadata</mat-checkbox
           >
           <mat-checkbox
-            *ngIf="!showMeGraph"
+            *ngIf="!shouldRenderMeGraph"
             [(ngModel)]="mergeFusion"
             name="mergeFusion"
             matTooltip="Hide the fusion subcomputations in the rendered graph"
@@ -130,16 +130,16 @@
         </div>
       </ng-template>
     </mat-expansion-panel>
-    <div *ngIf="!hasGraphOrLoading()" class="default-graph">
+    <div *ngIf="!hasGraphOrLoading() && showDefaultGraphOptions()" class="default-graph">
       <div><p>You can select a module and op to draw the graph. </p></div>
-      <div *ngIf="showDefaultGraphOptions()">
+      <div>
         <p>To quick start, choose from the chips below to view its graph.</p>
         <mat-chip-listbox multiple aria-label="profile quick options">
           <mat-chip-option *ngFor="let option of defaultGraphOptions" [matTooltip]="option.tooltip" (click)="onClickDefaultGraphOption(option)" appearance="hairline-filter">{{ defaultGraphOptionLabel(option) }}</mat-chip-option>
         </mat-chip-listbox>
       </div>
     </div>
-    <div *ngIf="!showMeGraph" class="graph-container">
+    <div *ngIf="!shouldRenderMeGraph" class="graph-container">
       <iframe #iframe id="graph-html"></iframe>
     </div>
   </mat-sidenav-content>

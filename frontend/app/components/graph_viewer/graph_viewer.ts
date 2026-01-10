@@ -16,7 +16,7 @@ import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/fr
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveOpProfileNodeAction, setCurrentToolStateAction, setOpProfileRootNodeAction, setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
-import {ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 import {locationReplace} from 'safevalues/dom';
 
@@ -99,17 +99,13 @@ export class GraphViewer implements OnDestroy {
       private readonly router: Router,
       private readonly snackBar: MatSnackBar,
   ) {
-    // TODO(xprof): combine the two subscriptions and mange the order of
-    // operations (see changes in other tools, eg. hlo_stats).
-    this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
-      this.parseNavEvent(params);
-      // init data that replis on the session id
-      this.initData();
-    });
-    this.route.queryParams.pipe(takeUntil(this.destroyed))
-        .subscribe((params) => {
+    combineLatest([this.route.params, this.route.queryParams])
+        .pipe(takeUntil(this.destroyed))
+        .subscribe(([params, queryParams]) => {
+          this.sessionId = params['sessionId'] || this.sessionId;
           this.resetPage();
-          this.parseQueryParams(params);
+          this.parseQueryParams(queryParams);
+          this.initData();
           // Any graph viewer url query param change should trigger a potential
           // reload
           this.onPlot();
@@ -130,6 +126,8 @@ export class GraphViewer implements OnDestroy {
 
   // process query params from in component navigation event
   parseQueryParams(params: Params) {
+    this.sessionId = params['run'] || this.sessionId;
+    this.host = params['host'] || this.host;
     this.showMeGraph = params['show_me_graph'] === 'true';
     // Plot the graph if node_name (op name) is provided in URL.
     this.opName = params['node_name'] || params['opName'] || '';
@@ -146,16 +144,8 @@ export class GraphViewer implements OnDestroy {
     this.opProfileLimit = params['op_profile_limit'] || 300;
   }
 
-  // Process session id and host from sidenav navigation event
-  parseNavEvent(params: Params) {
-    this.sessionId =
-        params['sessionId'] || params['run'] || this.sessionId || '';
-    // host is a 3P only variable.
-    this.host = params['host'] || this.host || '';
-  }
-
   initData() {
-    this.loadHloOpProfileDataLight();
+    this.loadDefaultGraphOptionsFromOpProfile();
     this.loadGraphTypes();
     this.loadModuleList();
     this.loadHloOpProfileData();
@@ -192,7 +182,6 @@ export class GraphViewer implements OnDestroy {
                     this.moduleList[0];
               } else {
                 this.selectedModule = this.moduleList[0];
-                this.onPlot();
               }
             } else if (!modules.includes(this.selectedModule)) {
               this.selectedModule =
@@ -287,20 +276,25 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Data service call to get light op profile data for default graph painting.
-  loadHloOpProfileDataLight() {
-    this.loadingOpProfileLight = true;
-    const params = new Map<string, string>();
-    params.set('op_profile_limit', '1');
-    params.set('use_xplane', '1');
-    this.dataService.getOpProfileData(this.sessionId, this.host, params)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (data) {
-            this.defaultGraphOptions =
-                this.getDefaultGraphOptions(data as OpProfileProto | null);
-          }
-          this.loadingOpProfileLight = false;
-        });
+  // TODO(xprof) Support default options for other graph types.
+  loadDefaultGraphOptionsFromOpProfile() {
+    if (this.graphType === GRAPH_TYPE_DEFAULT) {
+      this.loadingOpProfileLight = true;
+      const params = new Map<string, string>();
+      params.set('op_profile_limit', '1');
+      params.set('use_xplane', '1');
+      this.dataService.getOpProfileData(this.sessionId, this.host, params)
+          .pipe(takeUntil(this.destroyed))
+          .subscribe((data) => {
+            if (data) {
+              this.defaultGraphOptions =
+                  this.getDefaultGraphOptions(data as OpProfileProto | null);
+            }
+            this.loadingOpProfileLight = false;
+          });
+    } else {
+      this.defaultGraphOptions = [];
+    }
   }
 
   loadHloOpProfileData() {
@@ -432,14 +426,9 @@ export class GraphViewer implements OnDestroy {
   }
 
   private updateSourceInfo(node: Node|null) {
-    console.log('updateSourceInfo', node);
     this.programIdForSourceMapper = node?.xla?.programId || '';
     this.opNameForSourceMapper = node?.name || '';
     this.opCategoryForSourceMapper = node?.xla?.category || '';
-    console.log(
-        'updateSourceInfo', this.programIdForSourceMapper,
-        this.opNameForSourceMapper, this.opCategoryForSourceMapper,
-        this.sessionId);
     this.updateStackTrace(node);
   }
 
@@ -565,14 +554,17 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Function called whenever user click the search graph button
+  // or any event that triggers the graph re-search/plot.
   // search inputs should already be reflected in local variables.
   onSearchGraph() {
-    // rerouter instead of calling updateView directly to populate the url and
-    // trigger re-parsing of the query params accordingly.
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: this.getGraphSearchParams(),
-    });
+    history.pushState(
+        null,
+        '',
+        this.router.serializeUrl(this.router.createUrlTree([], {
+          queryParams: this.getGraphSearchParams(),
+        })),
+    );
+    this.onPlot();
   }
 
   onGraphTypeSelectionChange(graphType: string) {
@@ -580,8 +572,14 @@ export class GraphViewer implements OnDestroy {
     this.zone.run(() => {
       this.moduleList = [];
       this.selectedModule = '';
+      this.opName = '';
+      this.programId = '';
+      this.resetPage();
     });
+    // TODO(xprof) Cache the module list for the selected graph type.
     this.loadModuleList();
+    // TODO(yinzz) Cache the default graph options for the selected graph type.
+    this.loadDefaultGraphOptionsFromOpProfile();
   }
 
   // Event handler for module selection change in graph config form,
@@ -616,16 +614,19 @@ export class GraphViewer implements OnDestroy {
   }
 
   get shouldRenderMeGraph() {
-    return this.dataService.meGraphEnabled() && this.showMeGraph;
+    return this.dataService.meGraphEnabled() && this.showMeGraph &&
+        this.graphType === GRAPH_TYPE_DEFAULT;
   }
 
   onPlot() {
     if (!this.validToPlot()) return;
+    if (this.showMeGraph && this.graphType !== GRAPH_TYPE_DEFAULT) {
+      this.openSnackBar('ME graph is only supported for HLO graphs.');
+    }
     // Always reset before new rendering
     this.resetPage();
     // - For graphvizHtml: clear the iframe so the `graphIframeLoaded`
     // detection is accurate
-    // - If `show_me_graph` is true, render ModelExplorer Graph instead
     if (this.shouldRenderMeGraph) {
       console.error('ME graph rendering is not implemented in 3P yet.');
     } else {
@@ -637,7 +638,7 @@ export class GraphViewer implements OnDestroy {
     this.loadingGraph = true;
     const searchParams = new Map<string, string>();
     for (const [key, value] of Object.entries(this.getGraphSearchParams())) {
-      searchParams.set(key, value);
+      searchParams.set(key, value.toString());
     }
     this.tryRenderGraphvizHtml(searchParams);
   }

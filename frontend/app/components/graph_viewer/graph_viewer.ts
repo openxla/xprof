@@ -16,7 +16,7 @@ import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/fr
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveOpProfileNodeAction, setCurrentToolStateAction, setOpProfileRootNodeAction, setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 import {locationReplace} from 'safevalues/dom';
 
@@ -101,11 +101,12 @@ export class GraphViewer implements OnDestroy {
   ) {
     combineLatest([this.route.params, this.route.queryParams])
         .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
+        .subscribe(async ([params, queryParams]) => {
           this.sessionId = params['sessionId'] || this.sessionId;
           this.resetPage();
           this.parseQueryParams(queryParams);
-          this.initData();
+          this.loadDefaultGraphOptionsFromOpProfile();
+          await this.initData();
           // Any graph viewer url query param change should trigger a potential
           // reload
           this.onPlot();
@@ -144,56 +145,65 @@ export class GraphViewer implements OnDestroy {
     this.opProfileLimit = params['op_profile_limit'] || 300;
   }
 
-  initData() {
-    this.loadDefaultGraphOptionsFromOpProfile();
-    this.loadGraphTypes();
-    this.loadModuleList();
-    this.loadHloOpProfileData();
+  async initData() {
+    const graphTypesPromise = this.loadGraphTypes();
+    const moduleListPromise = this.loadModuleList();
+    const hloOpProfileDataPromise = this.loadHloOpProfileData();
+    return Promise.all([
+      graphTypesPromise,
+      moduleListPromise,
+      hloOpProfileDataPromise,
+    ]);
   }
 
-  loadGraphTypes() {
-    this.dataService.getGraphTypes(this.sessionId).subscribe((types) => {
-      if (types) {
-        this.graphTypes = types;
-        this.onPlot();
-      }
-    });
+  async loadGraphTypes() {
+    const types =
+        await firstValueFrom(this.dataService.getGraphTypes(this.sessionId)
+                                 .pipe(takeUntil(this.destroyed)));
+    if (types) {
+      this.graphTypes = types;
+    }
   }
 
-  loadModuleList() {
+  async loadModuleList() {
     // Graph Viewer initial loading complete: module list loaded
     this.throbber.start();
     this.loadingModuleList = true;
-    this.dataService.getModuleList(this.sessionId, this.graphType)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((moduleList) => {
-          this.throbber.stop();
-          if (moduleList) {
-            const modules = moduleList.split(',');
-            this.moduleList = this.sortModules(modules);
-            if (!this.selectedModule) {
-              // If moduleName not set in url, use default and try plot
-              // again
-              if (this.programId) {
-                this.selectedModule =
-                    this.moduleList.find(
-                        (module: string) => module.includes(this.programId),
-                        ) ||
-                    this.moduleList[0];
-              } else {
-                this.selectedModule = this.moduleList[0];
-              }
-            } else if (!modules.includes(this.selectedModule)) {
-              this.selectedModule =
-                  modules.find(
-                      (module: string) => module.includes(this.selectedModule),
-                      ) ||
-                  this.selectedModule;
-            }
+    try {
+      const moduleList = await firstValueFrom(
+          this.dataService.getModuleList(this.sessionId, this.graphType)
+              .pipe(takeUntil(this.destroyed)));
+      this.throbber.stop();
+      if (moduleList) {
+        const modules = moduleList.split(',');
+        this.moduleList = this.sortModules(modules);
+        if (!this.selectedModule) {
+          // If moduleName not set in url, use default and try plot
+          // again
+          if (this.programId) {
+            this.selectedModule =
+                this.moduleList.find(
+                    (module: string) => module.includes(this.programId),
+                    ) ||
+                this.moduleList[0];
+          } else {
+            this.selectedModule = this.moduleList[0];
           }
-          this.onPlot();
-          this.loadingModuleList = false;
-        });
+        } else if (!modules.includes(this.selectedModule)) {
+          this.selectedModule =
+              modules.find(
+                  (module: string) => module.includes(this.selectedModule),
+                  ) ||
+              this.selectedModule;
+        }
+      }
+      this.loadingModuleList = false;
+    } catch (error) {
+      this.throbber.stop();
+      this.loadingModuleList = false;
+      // Handle error appropriately
+      console.error('Error loading module list:', error);
+    }
   }
 
   private sortModules(modules: string[]): string[] {
@@ -278,6 +288,11 @@ export class GraphViewer implements OnDestroy {
   // Data service call to get light op profile data for default graph painting.
   // TODO(xprof) Support default options for other graph types.
   loadDefaultGraphOptionsFromOpProfile() {
+    // No need to fetch for options if required params for graph loading is
+    // already specified.
+    if (this.selectedModule !== '' && this.opName !== '') {
+      return;
+    }
     if (this.graphType === GRAPH_TYPE_DEFAULT) {
       this.loadingOpProfileLight = true;
       const params = new Map<string, string>();
@@ -297,37 +312,41 @@ export class GraphViewer implements OnDestroy {
     }
   }
 
-  loadHloOpProfileData() {
+  async loadHloOpProfileData() {
     this.loadingOpProfile = true;
     const params = new Map<string, string>();
     params.set('op_profile_limit', this.opProfileLimit.toString());
     // TODO: b/428756831 - Remove once `use_xplane=1` becomes the default.
     params.set('use_xplane', '1');
-    this.dataService.getOpProfileData(this.sessionId, this.host, params)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (data) {
-            this.opProfile = data as OpProfileProto | null;
-            if (this.opProfile) {
-              this.store.dispatch(
-                  setProfilingDeviceTypeAction({
-                    deviceType: this.opProfile.deviceType,
-                  }),
-              );
-            }
-            // The root node will be ONLY used to calculate the TimeFraction
-            // introduced in (CL/505580494) and this info will be used to
-            // determine the FLOPS utilization of a node. However, unlike hlo op
-            // profile, users can't speicify the root node. To have a consistent
-            // result, use the default root node in hlo op profile.
-            this.rootNode = this.opProfile!.byProgramExcludeIdle;
-            this.store.dispatch(
-                setOpProfileRootNodeAction({rootNode: this.rootNode}),
-            );
-          }
-          this.loadingOpProfile = false;
-          this.injectRuntimeData();
-        });
+    try {
+      const data = await firstValueFrom(
+          this.dataService.getOpProfileData(this.sessionId, this.host, params)
+              .pipe(takeUntil(this.destroyed)));
+      if (data) {
+        this.opProfile = data as OpProfileProto | null;
+        if (this.opProfile) {
+          this.store.dispatch(
+              setProfilingDeviceTypeAction({
+                deviceType: this.opProfile.deviceType,
+              }),
+          );
+        }
+        // The root node will be ONLY used to calculate the TimeFraction
+        // introduced in (CL/505580494) and this info will be used to
+        // determine the FLOPS utilization of a node. However, unlike hlo op
+        // profile, users can't speicify the root node. To have a consistent
+        // result, use the default root node in hlo op profile.
+        this.rootNode = this.opProfile!.byProgramExcludeIdle;
+        this.store.dispatch(
+            setOpProfileRootNodeAction({rootNode: this.rootNode}),
+        );
+      }
+      this.loadingOpProfile = false;
+      this.injectRuntimeData();
+    } catch (error) {
+      this.loadingOpProfile = false;
+      console.error('Error loading HLO op profile data:', error);
+    }
   }
 
   installEventListeners() {
@@ -555,7 +574,7 @@ export class GraphViewer implements OnDestroy {
 
   // Function called whenever user click the search graph button
   // or any event that triggers the graph re-search/plot.
-  // search inputs should already be reflected in local variables.
+  // Only update the url when the search graph is triggered.
   onSearchGraph() {
     history.pushState(
         null,
@@ -589,6 +608,9 @@ export class GraphViewer implements OnDestroy {
     const regex = /\((.*?)\)/;
     const programIdMatch = this.selectedModule.match(regex);
     this.programId = programIdMatch ? programIdMatch[1] : '';
+    this.opName = '';
+    this.resetPage();
+    this.loadDefaultGraphOptionsFromOpProfile();
   }
 
   get moduleListOptions() {
@@ -751,6 +773,7 @@ export class GraphViewer implements OnDestroy {
   resetPage() {
     // Clear iframe html so the rule to detect `graphIframeLoaded` can satisfy
     this.clearGraphIframeHtml();
+    this.url = '';
     this.diagnostics = {...DIAGNOSTICS_DEFAULT};
   }
 

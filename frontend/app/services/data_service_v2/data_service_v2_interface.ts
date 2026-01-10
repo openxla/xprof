@@ -6,6 +6,7 @@
 import {InjectionToken} from '@angular/core';
 import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
@@ -32,9 +33,8 @@ export interface DataServiceV2Interface {
       parameters?: Map<string, string>,
       ): string;
 
-  getSmartSuggestions(
-      sessionId: string,
-      parameters?: Map<string, string>): Observable<SmartSuggestionReport | null>;
+  getSmartSuggestions(sessionId: string, parameters?: Map<string, string>):
+      Observable<SmartSuggestionReport|null>;
 
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
@@ -79,6 +79,7 @@ export interface DataServiceV2Interface {
       sessionId: string, host: string,
       params: Map<string, string>): Observable<DataTable|null>;
 
+  getTraceViewerDiagnostics(sessionId: string): Observable<Diagnostics>;
   getOpProfileSummary(data: OpProfileData): OpProfileSummary[];
   // TODO(b/429042977): Do not include Custom Call text for provenance nodes.
   getCustomCallTextLink(

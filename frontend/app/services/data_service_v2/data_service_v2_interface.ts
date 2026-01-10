@@ -101,7 +101,8 @@ export interface DataServiceV2Interface {
   getSearchParams(): URLSearchParams;
   setSearchParams(searchParams: URLSearchParams): void;
 
-  exportDataAsCSV(sessionId: string, tool: string, host: string): void;
+  exportDataAsCSV(sessionId: string, tool: string, host: string, tqx?: string):
+      void;
 
   getDataByModuleNameAndMemorySpace(
       tool: string,

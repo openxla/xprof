@@ -14,10 +14,12 @@ export class ExportAsCsv {
   @Input() tool = '';
   @Input() sessionId = '';
   @Input() host = '';
+  @Input() tqx = '';
 
   dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   exportDataAsCSV() {
-    this.dataService.exportDataAsCSV(this.sessionId, this.tool, this.host);
+    this.dataService.exportDataAsCSV(
+        this.sessionId, this.tool, this.host, this.tqx);
   }
 }

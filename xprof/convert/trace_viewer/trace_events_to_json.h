@@ -587,6 +587,22 @@ void WriteTraceFullTimespan(const Trace* trace, IOBuffer* output) {
 }
 
 template <typename TraceEventsContainer>
+bool HasTraceBufferDropped(const TraceEventsContainer& events) {
+  bool has_trace_buffer_dropped = false;
+  const Trace& trace = events.trace();
+  events.ForAllEvents([&](const TraceEvent& event) {
+    if (has_trace_buffer_dropped) return;
+    const std::string& event_name =
+        event.has_name_ref() ? trace.name_table().at(event.name_ref())
+                             : event.name();
+    if (event_name == "Trace Buffers Dropped") {
+      has_trace_buffer_dropped = true;
+    }
+  });
+  return has_trace_buffer_dropped;
+}
+
+template <typename TraceEventsContainer>
 void DeviceToLayerId(
     const TraceEventsContainer& events,
     absl::flat_hash_map<uint32_t, uint32_t>& device_to_layer_id) {
@@ -616,6 +632,10 @@ void TraceEventsToJson(const JsonTraceOptions& options,
       R"({"displayTimeUnit":"ns","metadata":{"highres-ticks":true}, "codeLink":")",
       options.code_link, R"(",)");
 
+  if (HasTraceBufferDropped(events)) {
+    output->Append(
+        R"("diagnostics":["This session has trace buffer dropped. Please visit go/xprof-trace-buffer-drop-playbook for more details."],)");
+  }
   output->Append(absl::StrFormat(R"("useNewBackend": %s,)",
                                  options.use_new_backend ? "true" : "false"));
   absl::flat_hash_map<uint32_t, uint32_t> device_to_layer_id;

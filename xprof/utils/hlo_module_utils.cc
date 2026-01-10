@@ -130,6 +130,13 @@ bool ParseOpSourceInfoFromStackFrame(absl::string_view stack_frame,
 OpSourceInfo GetSourceInfo(absl::string_view source_file, int32_t source_line,
                            absl::string_view stack_frame) {
   OpSourceInfo source_info;
+  // TODO(b/473650129) - Revert to prioritize the stack frame parsing once the
+  // upstream bug is fixed.
+  if (!source_file.empty()) {
+    return {.source_file = std::string(source_file),
+            .source_line = source_line,
+            .stack_frame = std::string(stack_frame)};
+  }
   if (!stack_frame.empty()) {
     bool parse_success =
         ParseOpSourceInfoFromStackFrame(stack_frame, source_info);
@@ -137,9 +144,7 @@ OpSourceInfo GetSourceInfo(absl::string_view source_file, int32_t source_line,
       return source_info;
     }
   }
-  return {.source_file = std::string(source_file),
-          .source_line = source_line,
-          .stack_frame = std::string(stack_frame)};
+  return source_info;
 }
 }  // namespace
 

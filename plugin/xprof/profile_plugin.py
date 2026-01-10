@@ -121,7 +121,6 @@ XPLANE_TOOLS = [
     'roofline_model',
     'inference_profile',
     'memory_viewer',
-    'graph_viewer',
     'megascale_stats',
 ]
 

@@ -22,6 +22,9 @@ export const HOSTS_API = API_PREFIX + PLUGIN_NAME + '/hosts';
 /** Data API */
 export const DATA_API = API_PREFIX + PLUGIN_NAME + '/data';
 
+/** Version API */
+export const VERSION_API = API_PREFIX + PLUGIN_NAME + '/version';
+
 /** HLO Module List API */
 export const HLO_MODULE_LIST_API = API_PREFIX + PLUGIN_NAME + '/module_list';
 

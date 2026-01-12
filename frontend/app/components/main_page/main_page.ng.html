@@ -8,6 +8,9 @@
     <mat-icon>menu</mat-icon>
   </button>
   <span>XProf</span>
+  <span class="version-label" *ngIf="pluginVersion">
+    v{{pluginVersion}}
+  </span>
   <span class="toolbar-spacer"></span>
 </mat-toolbar>
 

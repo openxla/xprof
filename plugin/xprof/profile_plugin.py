@@ -76,6 +76,7 @@ TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
 TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
 ZONE_JS_ROUTE = '/zone.js'
 DATA_ROUTE = '/data'
+VERSION_ROUTE = '/version'
 RUNS_ROUTE = '/runs'
 RUN_TOOLS_ROUTE = '/run_tools'
 HOSTS_ROUTE = '/hosts'
@@ -258,6 +259,14 @@ def _get_tools(filenames: list[str], profile_run_dir: str) -> set[str]:
     except AttributeError:
       logger.warning('XPlane converters are available after Tensorflow 2.4')
   return tools
+
+
+# pytype: disable=wrong-arg-types
+@wrappers.Request.application
+def version_route() -> wrappers.Response:
+  # pytype: enable=wrong-arg-types
+  logger.info('version_route: %s', version.__version__)
+  return respond(version.__version__, 'text/plain')
 
 
 def respond(
@@ -733,6 +742,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         RUN_TOOLS_ROUTE: self.run_tools_route,
         HOSTS_ROUTE: self.hosts_route,
         DATA_ROUTE: self.data_route,
+        VERSION_ROUTE: version_route,
         HLO_MODULE_LIST_ROUTE: self.hlo_module_list_route,
         CAPTURE_ROUTE: self.capture_route,
         LOCAL_ROUTE: self.default_handler,

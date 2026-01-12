@@ -105,6 +105,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
       data: TraceData,
       timeRangeFromUrl?: [number, number],
       ): void;
+  getAllFlowCategories(): Array<{id: number; name: string}>;
   loadJsonData?(url: string): Promise<void>;
   getProcessList?(url: string): Promise<string[] | undefined>;
   StringVector: {
@@ -112,11 +113,14 @@ export declare interface TraceViewerV2Module extends WasmModule {
     get(index: number): string;
     toArray(): string[];
   };
+  IntVector: {size(): number; get(index: number): number;};
   Application: {
     Instance(): {
       data_provider(): {
         getProcessList(): TraceViewerV2Module['StringVector'];
+        getFlowCategories(): TraceViewerV2Module['IntVector'];
       };
+      setVisibleFlowCategory(categoryId: number): void;
     };
   };
 }

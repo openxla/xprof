@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <map>
+#include <optional>
 
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
@@ -14,6 +15,7 @@
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -215,9 +217,16 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
           ev.args[key] = args_val[key].as<std::string>();
         } else if (args_val[key].isNumber()) {
           ev.args[key] = std::to_string(args_val[key].as<double>());
+        } else if (args_val[key].typeOf().strictlyEquals(
+                       emscripten::val("boolean"))) {
+          ev.args[key] = args_val[key].as<bool>() ? "true" : "false";
+        } else if (args_val[key].isNull() || args_val[key].isUndefined()) {
+          ev.args[key] = "null";
+        } else {
+          // For other types like objects or arrays, use JSON.stringify.
+          ev.args[key] = emscripten::val::global("JSON").call<std::string>(
+              "stringify", args_val[key]);
         }
-        // Other types such as boolean, nested objects, or arrays are currently
-        // ignored as they are not required for the flame chart in trace viewer.
       }
     }
     // We use Fingerprint64 for a stable event ID because absl::HashOf
@@ -307,8 +316,22 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
                                 const emscripten::val& visible_range_from_url) {
   const ParsedTraceEvents parsed_events =
       ParseTraceEvents(trace_data, visible_range_from_url);
+
+  std::optional<TimeRange> full_time_span;
+  if (trace_data.hasOwnProperty("fullTimespan")) {
+    emscripten::val fullTimespanVal = trace_data["fullTimespan"];
+    if (fullTimespanVal.isArray() && fullTimespanVal["length"].as<int>() == 2) {
+      full_time_span = TimeRange(fullTimespanVal[0].as<Microseconds>(),
+                                 fullTimespanVal[1].as<Microseconds>());
+    }
+  }
+
   Application::Instance().data_provider().ProcessTraceEvents(
-      parsed_events, Application::Instance().timeline());
+      parsed_events, Application::Instance().timeline(), full_time_span);
+}
+
+void SetViewportRange(Microseconds start, Microseconds end) {
+  Application::Instance().SetVisibleRange(start, end);
 
   // Reset the loading flag to allow subsequent data requests (e.g. on panning).
   // This is necessary because is_incremental_loading_ is initialized to true to
@@ -350,23 +373,35 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
   emscripten::register_vector<int>("IntVector");
+  emscripten::register_map<std::string, std::string>("StringMap");
+
+  emscripten::value_object<traceviewer::EventMetaData>("EventMetaData")
+      .field("name", &traceviewer::EventMetaData::name)
+      .field("start", &traceviewer::EventMetaData::start)
+      .field("duration", &traceviewer::EventMetaData::duration)
+      .field("processName", &traceviewer::EventMetaData::processName)
+      .field("arguments", &traceviewer::EventMetaData::arguments);
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
       .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
       .function("getFlowCategories",
-                &traceviewer::DataProvider::GetFlowCategories);
+                &traceviewer::DataProvider::GetFlowCategories)
+      .function("getHloModuleForEvent",
+                &traceviewer::DataProvider::GetHloModuleForEvent);
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);
+  emscripten::function("setViewportRange", &traceviewer::SetViewportRange);
 
   // Bind Application class and expose the singleton instance and data_provider
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider)
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference())
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory);
 }

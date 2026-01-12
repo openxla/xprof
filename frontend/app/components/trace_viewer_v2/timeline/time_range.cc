@@ -33,17 +33,8 @@ void TimeRange::Zoom(double zoom_factor) {
   const Microseconds new_start = center() - delta;
   const Microseconds new_end = center() + delta;
 
-  if (new_start < 0) {
-    // This condition only occurs when zooming out (zoom_factor > 1), which can
-    // cause new_start to be negative. If this happens, clamp start to 0.0 and
-    // set end to `current_duration * zoom_factor` to maintain the correct
-    // zoomed duration.
-    start_ = 0.0;
-    end_ = current_duration * zoom_factor;
-  } else {
-    start_ = new_start;
-    end_ = new_end;
-  }
+  start_ = new_start;
+  end_ = new_end;
 }
 
 }  // namespace traceviewer

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
@@ -10,6 +12,7 @@
 #include "third_party/dear_imgui/imgui.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
 namespace traceviewer {
@@ -42,6 +45,10 @@ class Application {
     return data_provider_.GetProcessList();
   };
   DataProvider& data_provider() { return data_provider_; };
+
+  void SetVisibleRange(Microseconds start, Microseconds end) {
+    timeline_->SetVisibleRange(TimeRange(start, end));
+  }
 
   void SetVisibleFlowCategory(int category_id) {
     timeline_->SetVisibleFlowCategory(category_id);

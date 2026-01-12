@@ -22,16 +22,26 @@ inline constexpr absl::string_view kEventSelected = "eventselected";
 
 inline constexpr absl::string_view kEventSelectedIndex = "eventIndex";
 inline constexpr absl::string_view kEventSelectedName = "name";
+inline constexpr absl::string_view kEventSelectedStart = "startUs";
+inline constexpr absl::string_view kEventSelectedDuration = "durationUs";
 inline constexpr absl::string_view kEventSelectedStartFormatted =
     "startUsFormatted";
 inline constexpr absl::string_view kEventSelectedDurationFormatted =
     "durationUsFormatted";
+inline constexpr absl::string_view kEventSelectedPid = "pid";
+inline constexpr absl::string_view kEventSelectedUid = "uid";
 
 // Constants for fetch data event.
 inline constexpr absl::string_view kFetchData = "fetch_data";
 
 inline constexpr absl::string_view kFetchDataStart = "start_time_ms";
 inline constexpr absl::string_view kFetchDataEnd = "end_time_ms";
+
+// Following constants are used for viewport changed event.
+inline constexpr absl::string_view kViewportChanged = "viewportchanged";
+
+inline constexpr absl::string_view kViewportChangedStart = "start";
+inline constexpr absl::string_view kViewportChangedEnd = "end";
 
 }  // namespace traceviewer
 

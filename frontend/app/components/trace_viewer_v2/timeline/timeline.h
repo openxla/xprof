@@ -79,6 +79,8 @@ struct FlameChartTimelineData {
   std::vector<Microseconds> entry_total_times;
   std::vector<Microseconds> entry_start_times;
   std::vector<std::string> entry_names;
+  std::vector<ProcessId> entry_pids;
+  std::vector<std::map<std::string, std::string>> entry_args;
   std::vector<EventId> entry_event_ids;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
@@ -300,6 +302,9 @@ class Timeline {
   void HandleMouseDown(float timeline_origin_x);
   void HandleMouseDrag(float timeline_origin_x);
   void HandleMouseRelease();
+
+  // Handles viewport change events.
+  void OnViewportChange();
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =

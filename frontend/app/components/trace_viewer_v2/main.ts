@@ -105,9 +105,10 @@ export declare interface TraceViewerV2Module extends WasmModule {
       data: TraceData,
       timeRangeFromUrl?: [number, number],
       ): void;
+  setViewportRange(start: number, end: number): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
   loadJsonData?(url: string): Promise<void>;
-  getProcessList?(url: string): Promise<string[] | undefined>;
+  getProcessList?(url: string): Promise<string[]|undefined>;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -264,8 +265,8 @@ export function updateUrlWithResolution(
 
 function getTimeRangeFromUrl(urlObj: URL): [number, number]|undefined {
   const params = urlObj.searchParams;
-  const viewStart = params.get(VIEW_START);
-  const viewEnd = params.get(VIEW_END);
+  const viewStart = params.get(TRACE_VIEW_OPTION.START_TIME_MS);
+  const viewEnd = params.get(TRACE_VIEW_OPTION.END_TIME_MS);
   if (viewStart && viewEnd) {
     const start = Number(viewStart);
     const end = Number(viewEnd);

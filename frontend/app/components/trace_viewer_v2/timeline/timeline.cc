@@ -53,6 +53,16 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
     visible_range_.snap_to(range);
   }
   MaybeRequestData();
+  OnViewportChange();
+}
+
+void Timeline::OnViewportChange() {
+  EventData event_data;
+  event_data.insert(
+      {std::string(kViewportChangedStart), visible_range_.target().start()});
+  event_data.insert(
+      {std::string(kViewportChangedEnd), visible_range_.target().end()});
+  event_callback_(kViewportChanged, event_data);
 }
 
 void Timeline::Draw() {
@@ -282,9 +292,6 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
     // When shifting the end to data_time_range_.end(), ensure the new
     // start does not go before data_time_range_.start() by taking the
     // maximum.
-    range = {std::max(range.start() - range.end() + data_time_range_.end(),
-                      data_time_range_.start()),
-             data_time_range_.end()};
   }
 }
 
@@ -534,12 +541,22 @@ void Timeline::DrawEvent(int group_index, int event_index,
           EventData event_data;
           event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
           event_data.try_emplace(kEventSelectedName, event_name);
+          event_data.try_emplace(kEventSelectedStart,
+                                 timeline_data_.entry_start_times[event_index]);
+          event_data.try_emplace(kEventSelectedDuration,
+                                 timeline_data_.entry_total_times[event_index]);
           event_data.try_emplace(
               kEventSelectedStartFormatted,
               FormatTime(timeline_data_.entry_start_times[event_index]));
           event_data.try_emplace(
               kEventSelectedDurationFormatted,
               FormatTime(timeline_data_.entry_total_times[event_index]));
+          event_data.try_emplace(kEventSelectedPid,
+                                 timeline_data_.entry_pids[event_index]);
+          auto& args = timeline_data_.entry_args[event_index];
+          if (auto it = args.find("uid"); it != args.end()) {
+            event_data.try_emplace(kEventSelectedUid, it->second);
+          }
           event_callback_(kEventSelected, event_data);
         }
       }
@@ -1172,6 +1189,8 @@ void Timeline::HandleEventDeselection() {
     EventData event_data;
     event_data[std::string(kEventSelectedIndex)] = -1;
     event_data[std::string(kEventSelectedName)] = std::string("");
+    event_data[std::string(kEventSelectedStart)] = 0.0;
+    event_data[std::string(kEventSelectedDuration)] = 0.0;
     event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
     event_data[std::string(kEventSelectedDurationFormatted)] = std::string("");
 

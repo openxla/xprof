@@ -24,8 +24,10 @@ from __future__ import division
 from __future__ import print_function
 
 import logging
+from typing import Any
 
 from xprof.convert import csv_writer
+
 from xprof.convert import trace_events_json
 from xprof.protobuf import trace_events_old_pb2
 from xprof.convert import _pywrap_profiler_plugin
@@ -105,8 +107,6 @@ def xspace_to_tool_data(
     )
   data = None
   content_type = 'application/json'
-  # tqx: gViz output format
-  tqx = params.get('tqx', '')
   options = {}
   options['use_saved_result'] = params.get('use_saved_result', True)
   if tool == 'trace_viewer':
@@ -133,29 +133,12 @@ def xspace_to_tool_data(
   elif tool == 'framework_op_stats':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      if tqx == 'out:csv':
-        data = csv_writer.json_to_csv(json_data)
-      else:
-        data = json_data
+      data = json_data
     # Try legacy tool name: Handle backward compatibility with lower TF version
-    else:
-      # TODO(b/419013992): Remove this tool completely as it has been deprecated
-      legacy_tool = 'tensorflow_stats'
-      json_data, success = xspace_wrapper_func(
-          xspace_paths, legacy_tool, options
-      )
-      if success:
-        if tqx == 'out:csv':
-          data = csv_writer.json_to_csv(json_data)
-        else:
-          data = json_data
   elif tool == 'kernel_stats':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      if tqx == 'out:csv':
-        data = csv_writer.json_to_csv(json_data)
-      else:
-        data = json_data
+      data = json_data
   elif tool == 'memory_profile':
     # Memory profile handles one host at a time.
     assert len(xspace_paths) == 1
@@ -231,3 +214,8 @@ def xspace_to_tool_data(
   else:
     logger.warning('%s is not a known xplane tool', tool)
   return data, content_type
+
+
+def json_to_csv_string(json_data: Any) -> str:
+  """Converts internal profile JSON format to a CSV string."""
+  return csv_writer.json_to_csv_string(json_data)

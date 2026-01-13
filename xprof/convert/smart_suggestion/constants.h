@@ -68,6 +68,14 @@ inline constexpr double kTensorCoreIdleTimeThresholdInPercent = 10.0;
 // this threshold, it is considered a bottleneck.
 inline constexpr double kSpecialOpBoundThresholdInPercent = 10;
 
+// If the percentage of async-done time is higher than this threshold, it is
+// considered a bottleneck.
+inline constexpr double kAsyncDoneThresholdInPercent = 10;
+
+// If the memory utilization is higher than this threshold, it is considered
+// high.
+inline constexpr double kMemoryUtilizationHighThreshold = 50;
+
 }  // namespace profiler
 }  // namespace tensorflow
 

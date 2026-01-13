@@ -28,19 +28,20 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
-#include "xprof/utils/op_metrics_db_utils.h"
-#include "plugin/xprof/protobuf/input_pipeline.pb.h"
-#include "plugin/xprof/protobuf/overview_page.pb.h"
-#include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
-#include "absl/strings/string_view.h"
-#include "plugin/xprof/protobuf/op_stats.pb.h"
-#include "plugin/xprof/protobuf/op_metrics.pb.h"
-#include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
+#include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/overview_page.pb.h"
+#include "plugin/xprof/protobuf/steps_db.pb.h"
+#include "plugin/xprof/protobuf/tpu_input_pipeline.pb.h"
+#include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -318,6 +319,56 @@ class SignalProvider {
       }
     }
     return stragglers;
+  }
+
+  absl::StatusOr<double> GetAsyncDoneOpPercent() const {
+    static const absl::flat_hash_set<absl::string_view> kAsyncDoneOpPrefixes = {
+        "all-gather",
+        "all-reduce",
+        "all-to-all",
+        "ragged-all-to-all"
+        "reduce-gather",
+        "reduce-scatter",
+    };
+
+    TF_ASSIGN_OR_RETURN(const auto* op_profile,
+                        tool_data_provider_->GetOpProfile());
+    const auto& root_node = op_profile->by_program_exclude_idle();
+    if (root_node.children().empty()) {
+      return 0.0;
+    }
+
+    double async_done_op_time_ps = 0;
+    for (const auto& node : root_node.children(0).children()) {
+      if (node.name() == "async-done") {
+        for (const auto& child : node.children()) {
+          // TODO(b/475282356): Determine by Node's offload_type instead of HLO
+          // op name's prefix.
+          std::vector<absl::string_view> parts =
+              absl::StrSplit(child.name(), '.');
+          if (kAsyncDoneOpPrefixes.contains(parts[0])) {
+            async_done_op_time_ps += child.metrics().raw_time();
+          }
+        }
+      }
+    }
+    return async_done_op_time_ps / root_node.metrics().raw_time() * 100.0;
+  }
+
+  absl::StatusOr<double> GetPeakMemoryUtilization() const {
+    TF_ASSIGN_OR_RETURN(const auto* memory_profile,
+                        tool_data_provider_->GetMemoryProfile());
+    double memory_usage = 0.0;
+    double memory_capacity = 0.0;
+    for (const auto& [memory_id, per_allocator_profile] :
+         memory_profile->memory_profile_per_allocator()) {
+      memory_usage += per_allocator_profile.profile_summary()
+                          .peak_stats()
+                          .peak_bytes_in_use();
+      memory_capacity +=
+          per_allocator_profile.profile_summary().memory_capacity();
+    }
+    return memory_usage / memory_capacity * 100.0;
   }
 
  private:

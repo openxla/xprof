@@ -18,7 +18,7 @@
 import csv
 import io
 import json
-from typing import List, Optional, Any
+from typing import List, Optional
 
 
 def json_to_csv(
@@ -83,57 +83,5 @@ def json_to_csv(
           value = str(value)
     cells_list.append(value)
   writer.writerow(cells_list)
-
-  return csv_buffer.getvalue()
-
-
-def json_to_csv_string(json_data: Any) -> str:
-  """Converts profile JSON to CSV using strict quoting to handle stack traces."""
-  # 1. Handle Byte Strings
-  if isinstance(json_data, (bytes, bytearray)):
-    json_data = json_data.decode("utf-8")
-
-  # 2. Parse JSON
-  try:
-    data = json.loads(json_data) if isinstance(json_data, str) else json_data
-  except json.JSONDecodeError as e:
-    raise ValueError(f"Invalid JSON string: {e}") from e
-
-  # 3. Handle list structure (Take first element)
-  if isinstance(data, list):
-    if not data: return ""
-    data = data[0]
-
-  if not isinstance(data, dict) or "cols" not in data:
-    raise ValueError("Data format not suitable for CSV (missing 'cols')")
-
-  csv_buffer = io.StringIO()
-  writer = csv.writer(
-      csv_buffer,
-      delimiter=",",
-      quoting=csv.QUOTE_ALL,
-      lineterminator="\n"
-  )
-
-  # 4. Write Headers
-  headers = [col.get("label", col.get("id", "")) for col in data["cols"]]
-  writer.writerow(headers)
-
-  # 5. Write Rows
-  for row in data.get("rows", []):
-    cells = row.get("c", [])
-    row_values = []
-    for cell in cells:
-      if isinstance(cell, dict):
-        val = cell.get("v")
-        if val is None:
-          row_values.append("")
-        else:
-          row_values.append(str(val))
-      else:
-        row_values.append("")
-
-    if row_values:
-      writer.writerow(row_values)
 
   return csv_buffer.getvalue()

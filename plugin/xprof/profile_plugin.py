@@ -76,7 +76,6 @@ TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
 TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
 ZONE_JS_ROUTE = '/zone.js'
 DATA_ROUTE = '/data'
-DATA_CSV_ROUTE = '/data_csv'
 RUNS_ROUTE = '/runs'
 RUN_TOOLS_ROUTE = '/run_tools'
 HOSTS_ROUTE = '/hosts'
@@ -734,7 +733,6 @@ class ProfilePlugin(base_plugin.TBPlugin):
         RUN_TOOLS_ROUTE: self.run_tools_route,
         HOSTS_ROUTE: self.hosts_route,
         DATA_ROUTE: self.data_route,
-        DATA_CSV_ROUTE: self.data_csv_route,
         HLO_MODULE_LIST_ROUTE: self.hlo_module_list_route,
         CAPTURE_ROUTE: self.capture_route,
         LOCAL_ROUTE: self.default_handler,
@@ -1251,36 +1249,6 @@ class ProfilePlugin(base_plugin.TBPlugin):
     except FileNotFoundError as e:
       return respond(str(e), 'text/plain', code=500)
     except IOError as e:
-      return respond(str(e), 'text/plain', code=500)
-
-  # pytype: disable=wrong-arg-types
-  @wrappers.Request.application
-  # pytype: enable=wrong-arg-types
-  def data_csv_route(self, request: wrappers.Request) -> wrappers.Response:
-    """Retrieves tool data and converts it to CSV before responding."""
-    try:
-      data, content_type, _ = self.data_impl(request)
-
-      if data is None:
-        return respond('No Data Found', 'text/plain', code=404)
-
-      if content_type == 'application/json':
-        csv_data = convert.json_to_csv_string(data)
-        return respond(csv_data, 'text/csv', content_encoding=None)
-
-      return respond(
-          'CSV format not supported for this tool type', 'text/plain', code=400
-      )
-
-    except (
-        TimeoutError,
-        AttributeError,
-        ValueError,
-        FileNotFoundError,
-        IOError,
-        TypeError,
-    ) as e:
-      logger.exception('CSV conversion error')
       return respond(str(e), 'text/plain', code=500)
 
   # pytype: disable=wrong-arg-types

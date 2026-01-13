@@ -46,7 +46,6 @@ py_library(
     srcs = ["raw_to_tool_data.py"],
     visibility = visibility,
     deps = [
-        ":csv_writer",
         ":trace_events_json",
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",

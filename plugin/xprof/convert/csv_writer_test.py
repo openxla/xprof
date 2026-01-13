@@ -78,6 +78,63 @@ class TestJsonToCsv(unittest.TestCase):
     expected_csv = "a,b\n1,\n"
     self.assertEqual(csv_writer.json_to_csv(json_string), expected_csv)
 
+  def test_valid_json_list_input(self):
+    """Test standard input structure: a list containing one data dictionary."""
+    input_data = [{
+        "cols": [{"label": "Rank"}, {"label": "Op"}],
+        "rows": [{"c": [{"v": 1.0}, {"v": "Add"}]}]
+    }]
+    result = csv_writer.json_to_csv_string(input_data)
+    # Expect quoted values because of csv.QUOTE_ALL
+    expected = '"Rank","Op"\n"1.0","Add"\n'
+    self.assertEqual(result, expected)
+
+  def test_byte_string_input(self):
+    """Test that byte strings (b'...') are correctly decoded and parsed."""
+    input_bytes = b'[{"cols":[{"label":"ID"}],"rows":[{"c":[{"v":"A1"}]}]}]'
+    result = csv_writer.json_to_csv_string(input_bytes)
+    expected = '"ID"\n"A1"\n'
+    self.assertEqual(result, expected)
+
+  def test_handle_multiline_stack_traces(self):
+    """Test that quoting correctly handles newlines within a cell."""
+    multiline_val = "line1\nline2"
+    input_data = {
+        "cols": [{"label": "Trace"}],
+        "rows": [{"c": [{"v": multiline_val}]}]
+    }
+    result = csv_writer.json_to_csv_string(input_data)
+    # The newline should be contained within the double quotes
+    expected = '"Trace"\n"line1\nline2"\n'
+    self.assertEqual(result, expected)
+
+  def test_missing_cols_error(self):
+    """Test that the function returns an error string if 'cols' is missing."""
+    input_data = [{"invalid": "data"}]
+    with self.assertRaisesRegex(ValueError, "Data format not suitable"):
+      csv_writer.json_to_csv_string(input_data)
+
+  def test_invalid_json_string(self):
+    """Test behavior when an unparseable string is provided."""
+    with self.assertRaisesRegex(ValueError, "Invalid JSON string"):
+      csv_writer.json_to_csv_string("{ invalid json ]")
+
+  def test_none_and_missing_values(self):
+    """Test that null values in JSON are converted to empty quoted strings."""
+    input_data = {
+        "cols": [{"label": "Value"}],
+        "rows": [{"c": [{"v": None}]}, {"c": []}]
+    }
+    result = csv_writer.json_to_csv_string(input_data)
+    # Row 1 is empty string, Row 2 is empty list resulting in no row writer call
+    # (per your logic)
+    expected = '"Value"\n""\n'
+    self.assertEqual(result, expected)
+
+  def test_empty_list(self):
+    """Test that an empty list returns an empty string."""
+    self.assertEqual(csv_writer.json_to_csv_string([]), "")
+
 
 if __name__ == "__main__":
   unittest.main()

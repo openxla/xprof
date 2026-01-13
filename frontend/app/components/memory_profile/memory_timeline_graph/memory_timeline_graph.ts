@@ -1,5 +1,5 @@
 import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild} from '@angular/core';
-import {type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {type HloModule, type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
 
 const MAX_CHART_WIDTH = 1500;
@@ -24,21 +24,94 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   height = 465;
   width = 0;
   chart: google.visualization.AreaChart|null = null;
+  minHloStartTimeMs = 0;
+  maxHloEndTimeMs = 0;
+  allHloModules: HloModule[] = [];
+  hloModules: HloModule[] = [];
+  timeFilter = '';
+  selectedHloModule: HloModule|null = null;
+  selectedRowIndex = -1;
+  readonly picoToMilli = picoToMilli;
+  sortByStartTimeAscending = true;
+  sortByIdAscending = true;
 
   ngAfterViewInit() {
     this.loadGoogleChart();
   }
 
   ngOnChanges(changes: SimpleChanges) {
+    this.allHloModules = this.memoryProfileProto?.hloModules || [];
+    if (this.allHloModules.length > 0) {
+      this.minHloStartTimeMs = Math.min(
+          ...this.allHloModules.map((m) => this.picoToMilli(m.startTimePs)),
+      );
+      this.maxHloEndTimeMs = Math.max(
+          ...this.allHloModules.map((m) => this.picoToMilli(m.endTimePs)),
+      );
+    } else {
+      this.minHloStartTimeMs = 0;
+      this.maxHloEndTimeMs = 0;
+    }
+    this.hloModules = [...this.allHloModules];
+    this.selectedHloModule = null;
+    this.selectedRowIndex = -1;
+    this.sortByStartTimeAscending = true;
+    this.sortByIdAscending = true;
     setTimeout(() => {
       this.width = 0;
       this.drawChart();
     }, 100);
   }
 
+  applyFilter() {
+    const filterValue = Number(this.timeFilter);
+    if (this.timeFilter === '' || isNaN(filterValue) ||
+        (filterValue < this.minHloStartTimeMs) ||
+        (filterValue > this.maxHloEndTimeMs)) {
+      this.hloModules = [...this.allHloModules];
+    } else {
+      this.hloModules = this.allHloModules.filter((module) => {
+        const startTimeMs = this.picoToMilli(module.startTimePs);
+        const endTimeMs = this.picoToMilli(module.endTimePs);
+        return filterValue >= startTimeMs && filterValue <= endTimeMs;
+      });
+    }
+    this.sortByIdAscending = true;
+    this.sortByStartTimeAscending = false;
+    this.sortHloModulesByStartTime();
+  }
+
   @HostListener('window:resize')
   onResize() {
     this.drawChart();
+  }
+
+  selectHloModule(module: HloModule, index: number) {
+    if (index === this.selectedRowIndex) {
+      this.selectedHloModule = null;
+      this.selectedRowIndex = -1;
+    } else {
+      this.selectedHloModule = module;
+      this.selectedRowIndex = index;
+    }
+    this.drawChart();
+  }
+
+  sortHloModulesByStartTime() {
+    this.sortByStartTimeAscending = !this.sortByStartTimeAscending;
+    this.hloModules.sort((a, b) => {
+      const result =
+          (Number(a.startTimePs) || 0) - (Number(b.startTimePs) || 0);
+      return this.sortByStartTimeAscending ? result : -result;
+    });
+  }
+
+  sortHloModulesById() {
+    this.sortByIdAscending = !this.sortByIdAscending;
+    this.hloModules.sort((a, b) => {
+      const result = (Number(a.id) || 0) - (Number(b.id) || 0);
+      return this.sortByIdAscending ? result : -result;
+    });
   }
 
   drawChart() {
@@ -130,6 +203,14 @@ export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
       hAxis: {
         title: 'Timestamp (ms)',
         textStyle: {bold: true},
+        viewWindow:
+            (this.selectedHloModule && this.selectedHloModule.startTimePs &&
+             this.selectedHloModule.endTimePs) ?
+            {
+              min: picoToMilli(this.selectedHloModule.startTimePs),
+              max: picoToMilli(this.selectedHloModule.endTimePs),
+            } :
+            {min: null, max: null},
       },
       vAxes: {
         0: {

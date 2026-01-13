@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -29,6 +30,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
@@ -558,11 +560,35 @@ MemoryProfile ConvertXPlaneToMemoryProfile(const XPlane& host_plane,
   return memory_profile;
 }
 
+void GenerateHloModules(const XSpace& space, MemoryProfile* memory_profile) {
+  int64_t hlo_module_id = 0;
+  std::vector<const XPlane*> device_planes =
+      tsl::profiler::FindPlanesWithPrefix(space,
+                                           tsl::profiler::kTpuPlanePrefix);
+  for (const XPlane* plane : device_planes) {
+    XPlaneVisitor plane_visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
+    plane_visitor.ForEachLine([&](const XLineVisitor& line) {
+      if (line.Name() == tsl::profiler::kXlaModuleLineName) {
+        line.ForEachEvent([&](const XEventVisitor& event) {
+          HloModule* hlo_module = memory_profile->add_hlo_modules();
+          hlo_module->set_id(hlo_module_id++);
+          hlo_module->set_name(event.Name());
+          hlo_module->set_start_time_ps(event.OffsetPs());
+          hlo_module->set_end_time_ps(event.OffsetPs() + event.DurationPs());
+          hlo_module->set_plane_name(
+              absl::StripPrefix(plane->name(), "/device:"));
+        });
+      }
+    });
+  }
+}
+
 absl::Status ConvertXSpaceToMemoryProfileJson(const XSpace& xspace,
                                               std::string* json_output) {
   if (const XPlane* host_plane = tsl::profiler::FindPlaneWithName(
           xspace, tsl::profiler::kHostThreadsPlaneName)) {
     MemoryProfile memory_profile = ConvertXPlaneToMemoryProfile(*host_plane);
+    GenerateHloModules(xspace, &memory_profile);
     TF_RETURN_IF_ERROR(ConvertProtoToJson(memory_profile, json_output));
   }
   return absl::OkStatus();

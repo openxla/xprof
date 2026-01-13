@@ -42,6 +42,8 @@ using tsl::profiler::XStatVisitor;
 MemoryProfile ConvertXPlaneToMemoryProfile(const XPlane& host_plane,
                                            int64_t max_num_snapshots = 1000);
 
+void GenerateHloModules(const XSpace& space, MemoryProfile* memory_profile);
+
 absl::Status ConvertXSpaceToMemoryProfileJson(const XSpace& xspace,
                                               std::string* json_output);
 }  // namespace profiler

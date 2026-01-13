@@ -242,8 +242,19 @@ export type HloProto = hloProto.HloProto;
 export type MemoryViewerPreprocessResult =
     memoryViewerPreprocess.PreprocessResult;
 
+/** The interface for a HLO module. */
+export declare interface HloModule {
+  name?: string;
+  planeName?: string;
+  startTimePs?: string;
+  endTimePs?: string;
+  id?: string;
+}
+
 /** The data table type for a MemoryProfile. */
-export type MemoryProfileProto = memoryProfileProto.MemoryProfile;
+export type MemoryProfileProto = memoryProfileProto.MemoryProfile&{
+  hloModules?: HloModule[];
+};
 
 /** The data table type for a MemoryProfileSnapshot. */
 export type MemoryProfileSnapshot = memoryProfileProto.MemoryProfileSnapshot;

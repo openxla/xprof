@@ -2,8 +2,57 @@
   <mat-card-title>{{ title }}</mat-card-title>
   <mat-card-content>
     <div [style.display]="true">
-      Tips: Zoom in: left click and drag; Zoom out: right click; Metadata: click on heap data point.
+      Tips: Zoom in by left click and drag. Click on a row in HLO Modules table to zoom into corresponding time range, click again to reset zoom. Click on heap data point for metadata.
     </div>
     <div #chart class="chart" [style.height]="height + 'px'"></div>
+    <div *ngIf="allHloModules.length > 0">
+      <div class="hlo-title-bar">
+        <div class="mat-headline">HLO Modules</div>
+        <div>
+          <mat-form-field>
+            <input
+              matInput
+              type="number"
+              placeholder="HLO's at time (ms)"
+              aria-label="HLO's at time (ms)"
+              [value]="timeFilter"
+              (change)="timeFilter = $event.target.value; applyFilter()"
+            />
+          </mat-form-field>
+          <button mat-stroked-button color="primary" (click)="sortHloModulesById()">
+            Sort by ID {{ sortByIdAscending ? '▲' : '▼' }}
+          </button>
+          <button mat-stroked-button color="primary" (click)="sortHloModulesByStartTime()">
+            Sort by Start Time {{ sortByStartTimeAscending ? '▲' : '▼' }}
+          </button>
+        </div>
+      </div>
+      <div class="hlo-table-container">
+        <table class="hlo-table">
+          <thead>
+            <tr>
+              <th>Id</th>
+              <th>HLO Module</th>
+              <th>Device</th>
+              <th>Start Time (ms)</th>
+              <th>End Time (ms)</th>
+              <th>Duration (ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let module of hloModules; let i = index"
+              (click)="selectHloModule(module, i)"
+              [class.selected]="i === selectedRowIndex">
+              <td>{{module.id}}</td>
+              <td>{{module.name}}</td>
+              <td>{{module.planeName}}</td>
+              <td>{{picoToMilli(module.startTimePs).toFixed(3)}}</td>
+              <td>{{picoToMilli(module.endTimePs).toFixed(3)}}</td>
+              <td>{{(picoToMilli(module.endTimePs) - picoToMilli(module.startTimePs)).toFixed(3)}}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </mat-card-content>
 </mat-card>

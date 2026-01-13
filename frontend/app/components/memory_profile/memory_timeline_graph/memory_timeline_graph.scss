@@ -21,3 +21,51 @@ mat-card-title {
   margin: 0 auto;
   max-width: 1500px;
 }
+
+.hlo-table-container {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 20px;
+}
+
+.hlo-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hlo-table th,
+.hlo-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.hlo-table th {
+  background-color: #f2f2f2;
+}
+
+.hlo-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hlo-title-bar button {
+  margin-left: 10px;
+}
+
+.hlo-table tbody tr {
+  cursor: pointer;
+}
+
+.hlo-table tbody tr:hover {
+  background-color: #f8f9fa; // gray 50
+}
+
+.hlo-table tbody tr.selected {
+  background-color: #e8f0fe; // Google blue 50
+}
+
+mat-form-field {
+  margin: 0 8px;
+}

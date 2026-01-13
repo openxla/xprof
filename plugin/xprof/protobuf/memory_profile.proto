@@ -114,6 +114,14 @@ message PerAllocatorMemoryProfile {
   repeated MemoryProfileSnapshot sampled_timeline_snapshots = 5;
 }
 
+message HloModule {
+  string name = 1;
+  int64 start_time_ps = 2;
+  int64 end_time_ps = 3;
+  int64 id = 4;
+  string plane_name = 5;
+}
+
 // Data for memory usage analysis in one host.
 message MemoryProfile {
   // A map from memory allocator's id to PerAllocatorMemoryProfile for memory
@@ -123,11 +131,13 @@ message MemoryProfile {
   // Number of hosts profiled, used to populate host selection list at front
   // end.
   int32 num_hosts = 2;
-  // Ids for profiled memory allocators, used to populate memory selection list
+  // Ids for profiled memory devices, used to populate memory selection list
   // at front end.
   repeated string memory_ids = 3;
   // Version number of MemoryProfile proto.
   int32 version = 5;
+  // HLO modules information.
+  repeated HloModule hlo_modules = 6;
 
   reserved 4;
 }

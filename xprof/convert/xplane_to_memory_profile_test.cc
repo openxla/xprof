@@ -88,6 +88,7 @@ TEST(ConvertXPlaneToMemoryProfile, OneAllocatorMultiActivitiesTest) {
 
   tsl::profiler::GroupTfEvents(&space);
   MemoryProfile memory_profile = ConvertXPlaneToMemoryProfile(*host_plane);
+  GenerateHloModules(space, &memory_profile);
   EXPECT_EQ(memory_profile.memory_profile_per_allocator().size(), 1);
   EXPECT_EQ(memory_profile.num_hosts(), 1);
   EXPECT_EQ(memory_profile.memory_ids_size(), 1);

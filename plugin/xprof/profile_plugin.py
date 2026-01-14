@@ -264,9 +264,8 @@ def _get_tools(filenames: list[str], profile_run_dir: str) -> set[str]:
 
 # pytype: disable=wrong-arg-types
 @wrappers.Request.application
-def version_route() -> wrappers.Response:
+def version_route(_: wrappers.Request) -> wrappers.Response:
   # pytype: enable=wrong-arg-types
-  logger.info('version_route: %s', version.__version__)
   return respond(version.__version__, 'text/plain')
 
 

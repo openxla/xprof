@@ -115,6 +115,8 @@ export interface DataServiceV2Interface {
 
   openUtilizationGraphviz(sessionId: string): void;
   isGraphvizAvailable(): boolean;
+
+  getPluginVersion(): Observable<string|null>;
 }
 
 /** Injection token for the data service interface. */

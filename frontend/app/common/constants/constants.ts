@@ -25,6 +25,9 @@ export const DATA_API = API_PREFIX + PLUGIN_NAME + '/data';
 /** Data CSV API */
 export const DATA_CSV_API = API_PREFIX + PLUGIN_NAME + '/data_csv';
 
+/** Version API */
+export const VERSION_API = API_PREFIX + PLUGIN_NAME + '/version';
+
 /** HLO Module List API */
 export const HLO_MODULE_LIST_API = API_PREFIX + PLUGIN_NAME + '/module_list';
 

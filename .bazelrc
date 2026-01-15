@@ -137,6 +137,11 @@ build:rbe_windows_amd64 --nobuild_python_zip
 
 build:rbe_windows_amd64 --config=ci_windows_amd64
 
+## AArch64 configs
+build:ci_linux_aarch64 --color=yes
+build:ci_linux_aarch64 --config=clang_local
+build:ci_linux_aarch64 --repo_env=CC=clang
+
 # #############################################################################
 # Cache options below.
 # #############################################################################

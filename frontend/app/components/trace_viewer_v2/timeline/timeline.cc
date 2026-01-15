@@ -1206,6 +1206,12 @@ void Timeline::MaybeRequestData() {
   TimeRange preserve = current_visible.Scale(kPreserveRatio);
   TimeRange fetch = current_visible.Scale(kFetchRatio);
 
+  if (fetch.duration() < kMinFetchDurationMicros) {
+    Microseconds center = fetch.center();
+    fetch = {center - kMinFetchDurationMicros / 2.0,
+             center + kMinFetchDurationMicros / 2.0};
+  }
+
   // Constrain the ranges to the valid data range. This ensures that we don't
   // try to fetch data outside the available trace duration (e.g. negative time
   // or future time), preventing infinite refetch loops at the boundaries.

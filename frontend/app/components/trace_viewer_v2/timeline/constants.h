@@ -3,6 +3,7 @@
 
 #include "third_party/dear_imgui/imgui.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 
@@ -124,7 +125,11 @@ inline constexpr float kZoomSpeed = 0.5f;
 // The minimum duration of the visible time range in microseconds (= 1
 // picosecond). This limits the maximum zoom-in level: time range duration
 // cannot shrink below this value when zooming in.
-inline constexpr double kMinDurationMicros = 1e-6;
+inline constexpr Microseconds kMinDurationMicros = 1e-6;
+// The minimum duration of a fetch request in microseconds.
+// This is to prevent fetching too small chunks of data when the user
+// zooms in very deep.
+inline constexpr Microseconds kMinFetchDurationMicros = 1000.0;
 // The ratio of the viewport width to fetch data for.
 inline constexpr float kFetchRatio = 3.0f;
 // The ratio of the viewport width to keep data loaded for.

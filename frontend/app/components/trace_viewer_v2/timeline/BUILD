@@ -11,6 +11,7 @@ cc_library(
     deps = [
         "//third_party/dear_imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
 

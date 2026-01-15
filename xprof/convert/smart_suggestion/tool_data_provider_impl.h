@@ -20,9 +20,12 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "xla/tsl/platform/errors.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/op_stats_to_overview_page.h"
@@ -44,12 +47,11 @@ class ToolDataProviderImpl : public ToolDataProvider {
       : session_snapshot_(session_snapshot) {}
 
   absl::StatusOr<const OverviewPage*> GetOverviewPage() override {
+    absl::MutexLock lock(mutex_);
     if (!overview_page_cache_) {
-      OpStats combined_op_stats;
-      TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-          session_snapshot_, &combined_op_stats));
+      TF_ASSIGN_OR_RETURN(const OpStats* combined_op_stats, GetOpStatsLocked());
       OverviewPage overview_page =
-          ConvertOpStatsToOverviewPage(combined_op_stats);
+          ConvertOpStatsToOverviewPage(*combined_op_stats);
       overview_page_cache_ =
           std::make_unique<OverviewPage>(std::move(overview_page));
     }
@@ -58,12 +60,11 @@ class ToolDataProviderImpl : public ToolDataProvider {
 
   absl::StatusOr<const InputPipelineAnalysisResult*>
   GetInputPipelineAnalysisResult() override {
+    absl::MutexLock lock(mutex_);
     if (!input_pipeline_analysis_cache_) {
-      OpStats combined_op_stats;
-      TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-          session_snapshot_, &combined_op_stats));
+      TF_ASSIGN_OR_RETURN(const OpStats* combined_op_stats, GetOpStatsLocked());
       InputPipelineAnalysisResult input_pipeline_analysis =
-          ConvertOpStatsToInputPipelineAnalysis(combined_op_stats);
+          ConvertOpStatsToInputPipelineAnalysis(*combined_op_stats);
       input_pipeline_analysis_cache_ =
           std::make_unique<InputPipelineAnalysisResult>(
               std::move(input_pipeline_analysis));
@@ -76,8 +77,11 @@ class ToolDataProviderImpl : public ToolDataProvider {
     return absl::UnimplementedError("Not implemented yet.");
   }
 
+  // Returns a non-owning pointer to OpStats. The lifetime of the returned
+  // pointer is tied to the ToolDataProviderImpl instance.
   absl::StatusOr<const OpStats*> GetOpStats() override {
-    return absl::UnimplementedError("Not implemented yet.");
+    absl::MutexLock lock(mutex_);
+    return GetOpStatsLocked();
   }
 
   absl::StatusOr<const op_profile::Profile*> GetOpProfile() override {
@@ -89,9 +93,24 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
  private:
+  // Returns OpStats, assumes mutex_ is already held.
+  absl::StatusOr<const OpStats*> GetOpStatsLocked()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_) {
+    if (!op_stats_cache_) {
+      op_stats_cache_ = std::make_unique<OpStats>();
+      TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
+          session_snapshot_, op_stats_cache_.get()));
+    }
+    return op_stats_cache_.get();
+  }
+
   const SessionSnapshot& session_snapshot_;
-  std::unique_ptr<OverviewPage> overview_page_cache_;
-  std::unique_ptr<InputPipelineAnalysisResult> input_pipeline_analysis_cache_;
+
+  absl::Mutex mutex_;
+  std::unique_ptr<OverviewPage> overview_page_cache_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<InputPipelineAnalysisResult> input_pipeline_analysis_cache_
+      ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace profiler

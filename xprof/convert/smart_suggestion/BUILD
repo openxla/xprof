@@ -67,8 +67,10 @@ cc_library(
     hdrs = ["tool_data_provider_impl.h"],
     deps = [
         ":tool_data_provider",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/synchronization",
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:memory_profile_proto_cc",
@@ -80,6 +82,7 @@ cc_library(
         "@org_xprof//xprof/convert:op_stats_to_overview_page",
         "@org_xprof//xprof/convert:repository",
         "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 

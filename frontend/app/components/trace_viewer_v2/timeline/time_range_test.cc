@@ -1,5 +1,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 
+#include <cmath>
+
 #include "<gtest/gtest.h>"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 
@@ -192,6 +194,108 @@ TEST(TimeRangeTest, Intersect) {
   TimeRange range4(0.0, 5.0);
   TimeRange intersection = range1.Intersect(range4);
   EXPECT_EQ(intersection.start(), intersection.end());
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance) {
+  // Simulate double precision issues with large timestamps
+  double center = 1e12;
+  double duration = 100.0;
+
+  double kPreserveRatio = 2.0;
+  double kFetchRatio = 3.0;
+
+  TimeRange visible(center - duration / 2,
+                    center + duration / 2);  // [950, 1050]
+
+  // Calculate fetch and preserve
+  // TimeRange preserve = visible.Scale(kPreserveRatio); // [900, 1100]
+  TimeRange fetch = visible.Scale(kFetchRatio);  // [850, 1150]
+
+  // Assume fetched data matches fetch exactly
+  TimeRange fetched = fetch;
+
+  // Now simulate a tiny pan that causes floating point drift.
+  double pan_amount = 1e-13;
+  TimeRange visible_panned = visible + pan_amount;
+  TimeRange preserve_panned = visible_panned.Scale(kPreserveRatio);
+
+  EXPECT_TRUE(fetched.Contains(preserve_panned));
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance_JustOutside) {
+  // this: [100, 200]
+  // other: [99.99999, 200.00001]
+  // With tolerance 1e-4 (absolute):
+  // 1e-5 is within tolerance.
+  TimeRange range(100.0, 200.0);
+  // Slightly wider range within tolerance
+  TimeRange other(100.0 - 1e-5, 200.0 + 1e-5);
+
+  EXPECT_TRUE(range.Contains(other));
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance_WayOutside) {
+  TimeRange range(100.0, 200.0);
+  // Significantly wider range.
+  // Tolerance is approx 0.01. 1.0 is way outside.
+  TimeRange other(100.0 - 1.0, 200.0 + 1.0);
+  EXPECT_FALSE(range.Contains(other));
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance_Absolute) {
+  // Small numbers where absolute tolerance 1e-4 dominates.
+  // this: [0, 1e-5]
+  // other: [-0.5e-4, 1e-5 + 0.5e-4]
+  // 0.5e-4 < 1e-4 (absolute tolerance). Should be contained.
+  TimeRange range(0.0, 1e-5);
+  TimeRange other(-0.5e-4, 1e-5 + 0.5e-4);
+
+  EXPECT_TRUE(range.Contains(other));
+
+  // Outside absolute tolerance
+  // other: [-2e-4, ...]
+  // 2e-4 > 1e-4. Should NOT be contained.
+  TimeRange other_bad(-2e-4, 1e-5);
+
+  EXPECT_FALSE(range.Contains(other_bad));
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance_NextAfter) {
+  // Verify that values just outside the strict boundary by 1 ULP (Unit in the
+  // Last Place) are considered contained.
+  double start = 100.0;
+  double end = 200.0;
+  TimeRange outer(start, end);
+
+  // inner is slightly larger than outer by 1 ULP at the boundaries.
+  double inner_start = std::nextafter(start, start - 1.0);  // start - epsilon
+  double inner_end = std::nextafter(end, end + 1.0);        // end + epsilon
+
+  TimeRange inner(inner_start, inner_end);
+
+  // Strictly speaking, inner_start < start and inner_end > end.
+  EXPECT_LT(inner_start, start);
+  EXPECT_GT(inner_end, end);
+
+  // But with tolerance, it should return true.
+  EXPECT_TRUE(outer.Contains(inner));
+}
+
+TEST(TimeRangeTest, ContainsWithTolerance_ZeroBoundary) {
+  // Edge case at 0.0
+  TimeRange outer(0.0, 100.0);
+
+  // A tiny negative start value (within absolute tolerance 1e-4)
+  double tiny_negative = -1e-10;
+  TimeRange inner(tiny_negative, 100.0);
+
+  EXPECT_TRUE(outer.Contains(inner));
+
+  // A large negative start value (outside absolute tolerance)
+  double large_negative = -1.0;
+  TimeRange inner_bad(large_negative, 100.0);
+
+  EXPECT_FALSE(outer.Contains(inner_bad));
 }
 
 }  // namespace

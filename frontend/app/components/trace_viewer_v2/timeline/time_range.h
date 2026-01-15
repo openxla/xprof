@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIME_RANGE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIME_RANGE_H_
 
+#include <algorithm>
 #include <cmath>
 
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -36,9 +37,27 @@ class TimeRange {
     return {std::max(start_, other.start_), std::min(end_, other.end_)};
   }
 
-  // Returns true if this time range fully contains the other.
+  // Returns true if this time range fully contains the other (considering
+  // floating point tolerances).
   bool Contains(const TimeRange& other) const {
-    return start_ <= other.start_ && end_ >= other.end_;
+    // We use a tolerance to handle floating point inaccuracies, similar to
+    // Animation::Converged().
+
+    auto almost_leq = [&](double a, double b) {
+      double diff = a - b;
+      // If a <= b, diff <= 0.
+      if (diff <= 0) return true;
+      // If a > b, check if diff is within tolerance.
+      return diff < kAbsoluteTolerance;
+    };
+
+    auto almost_geq = [&](double a, double b) {
+      double diff = b - a;
+      if (diff <= 0) return true;
+      return diff < kAbsoluteTolerance;
+    };
+
+    return almost_leq(start_, other.start_) && almost_geq(end_, other.end_);
   }
 
   // Scales the time range around its center by the given ratio.
@@ -88,6 +107,8 @@ class TimeRange {
 
  private:
   Microseconds start_ = 0.0, end_ = 0.0;
+
+  static constexpr Microseconds kAbsoluteTolerance = 1e-4;
 };
 
 // Defines an abs() operation for TimeRange. This is used by

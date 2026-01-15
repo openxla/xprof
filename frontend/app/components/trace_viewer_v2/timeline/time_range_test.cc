@@ -110,6 +110,29 @@ TEST(TimeRangeTest,
   EXPECT_EQ(range, TimeRange(0.0, 20.0));
 }
 
+TEST(TimeRangeTest, ZoomInAroundPivot) {
+  TimeRange range(10.0, 30.0);
+  range.Zoom(0.5, /*pivot=*/15.0);
+
+  EXPECT_EQ(range, TimeRange(12.5, 22.5));
+}
+
+TEST(TimeRangeTest, ZoomOutAroundPivot) {
+  TimeRange range(12.5, 22.5);
+  range.Zoom(2.0, /*pivot=*/15.0);
+
+  EXPECT_EQ(range, TimeRange(10.0, 30.0));
+}
+
+TEST(TimeRangeTest, ZoomAroundPivotClamping) {
+  TimeRange range(0.0, 10.0);
+  // Pivot near 0. Zooming out creates negative start.
+  range.Zoom(2.0, /*pivot=*/2.0);
+
+  // Should clamp to 0 and maintain zoomed duration.
+  EXPECT_EQ(range, TimeRange(0.0, 20.0));
+}
+
 TEST(TimeRangeTest, OperatorPlusScalar) {
   TimeRange range(10.0, 20.0);
 
@@ -189,10 +212,12 @@ TEST(TimeRangeTest, Intersect) {
   EXPECT_EQ(range1.Intersect(range2), TimeRange(15.0, 20.0));
 
   TimeRange range3(5.0, 15.0);
+
   EXPECT_EQ(range1.Intersect(range3), TimeRange(10.0, 15.0));
 
   TimeRange range4(0.0, 5.0);
   TimeRange intersection = range1.Intersect(range4);
+
   EXPECT_EQ(intersection.start(), intersection.end());
 }
 

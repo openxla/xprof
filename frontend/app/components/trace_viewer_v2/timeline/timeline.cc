@@ -334,6 +334,24 @@ void Timeline::Scroll(Pixel pixel_amount) {
 }
 
 void Timeline::Zoom(float zoom_factor) {
+  const ImRect timeline_area = GetTimelineArea();
+  // Use the latest mouse position as the zoom pivot. However, if the mouse is
+  // outside the timeline area, we fallback to using the current visible range
+  // center.
+  // We use IsMouseHoveringRect solely to check if the mouse position is within
+  // the timeline bounds, as we don't rely on the window's hover state.
+  if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
+    const double px_per_time = px_per_time_unit();
+    const Microseconds pivot =
+        PixelToTime(ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time);
+
+    Zoom(zoom_factor, pivot);
+  } else {
+    Zoom(zoom_factor, visible_range_->center());
+  }
+}
+
+void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // If the zoom factor is 1, we don't need to zoom.
   if (zoom_factor == 1.0) return;
 
@@ -342,7 +360,7 @@ void Timeline::Zoom(float zoom_factor) {
   zoom_factor = std::max(zoom_factor, kMinZoomFactor);
 
   TimeRange new_range = visible_range_.target();
-  new_range.Zoom(zoom_factor);
+  new_range.Zoom(zoom_factor, pivot);
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -1055,18 +1073,7 @@ void Timeline::HandleKeyboard() {
 }
 
 void Timeline::HandleMouse() {
-  // Determine the bounding box for the timeline area.
-  const ImVec2 main_window_pos = ImGui::GetWindowPos();
-  const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
-  const ImVec2 timeline_area_pos(
-      main_window_pos.x + content_min.x + label_width_,
-      main_window_pos.y + content_min.y);
-  const Pixel timeline_width =
-      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
-  const ImRect timeline_area(
-      timeline_area_pos, ImVec2(timeline_area_pos.x + timeline_width,
-                                main_window_pos.y + ImGui::GetWindowHeight()));
-
+  const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
@@ -1177,6 +1184,21 @@ void Timeline::HandleEventDeselection() {
 
     event_callback_(kEventSelected, event_data);
   }
+}
+
+ImRect Timeline::GetTimelineArea() const {
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
+  const Pixel start_x = window_pos.x + content_min.x + label_width_;
+  const Pixel start_y = window_pos.y + content_min.y;
+
+  const Pixel timeline_width =
+      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
+
+  const Pixel end_x = start_x + timeline_width;
+  const Pixel end_y = window_pos.y + ImGui::GetWindowHeight();
+
+  return {start_x, start_y, end_x, end_y};
 }
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,

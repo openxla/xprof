@@ -21,7 +21,9 @@ TimeRange TimeRange::Scale(double ratio) const {
   return {center() - delta, center() + delta};
 }
 
-void TimeRange::Zoom(double zoom_factor) {
+void TimeRange::Zoom(double zoom_factor) { Zoom(zoom_factor, center()); }
+
+void TimeRange::Zoom(double zoom_factor, Microseconds pivot) {
   if (zoom_factor <= 0) {
     // Zoom factor must be positive. This should not happen.
     return;
@@ -29,13 +31,13 @@ void TimeRange::Zoom(double zoom_factor) {
 
   const Microseconds current_duration = duration();
 
-  const double delta = current_duration * zoom_factor / 2.0;
-  const Microseconds new_start = center() - delta;
-  const Microseconds new_end = center() + delta;
+  Microseconds new_start = pivot - (pivot - start_) * zoom_factor;
+  Microseconds new_end = pivot + (end_ - pivot) * zoom_factor;
 
   if (new_start < 0) {
-    // This condition only occurs when zooming out (zoom_factor > 1), which can
-    // cause new_start to be negative. If this happens, clamp start to 0.0 and
+    // This condition occurs when the calculated `new_start` falls below zero.
+    // While often caused by zooming out with a pivot near the start, it can
+    // also happen in other scenarios. If this happens, clamp start to 0.0 and
     // set end to `current_duration * zoom_factor` to maintain the correct
     // zoomed duration.
     start_ = 0.0;

@@ -22,6 +22,7 @@ namespace testing {
 namespace {
 
 using ::testing::_;
+using ::testing::DoubleEq;
 using ::testing::ElementsAre;
 using ::testing::FloatEq;
 using ::testing::Return;
@@ -32,7 +33,7 @@ class MockTimeline : public Timeline {
  public:
   MOCK_METHOD(ImVec2, GetTextSize, (absl::string_view text), (const, override));
   MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
-  MOCK_METHOD(void, Zoom, (float zoom_factor), (override));
+  MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
 };
 
@@ -1080,7 +1081,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime)));
+              Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime), _));
 
   SimulateFrame();
 }
@@ -1091,7 +1092,45 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey) {
   // No acceleration is applied because io.DeltaTime (0.1f) <
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f + kZoomSpeed * ImGui::GetIO().DeltaTime)));
+              Zoom(FloatEq(1.0f + kZoomSpeed * ImGui::GetIO().DeltaTime), _));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseInsideTimeline) {
+  // Set a visible range that results in a round number for px_per_time_unit
+  // to make test calculations predictable. With a timeline width of 1669px
+  // (based on 1920px window width, 250px label width, and 1px padding),
+  // a duration of 166.9 gives 10px per microsecond.
+  timeline_.SetVisibleRange({0.0, 166.9});
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Timeline starts at label_width (250).
+  // Set mouse at x=350, y=50.
+  // Relative x = 350 - 250 = 100.
+  // Scale = 10 px/us.
+  // Pivot = 100 / 10 = 10.0 us.
+  io.MousePos = ImVec2(350.0f, 50.0f);
+  io.AddKeyEvent(ImGuiKey_W, true);
+
+  // No acceleration is applied.
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(10.0)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseOutsideTimeline) {
+  timeline_.SetVisibleRange({0.0, 166.9});
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Mouse outside timeline (x < 250).
+  io.MousePos = ImVec2(100.0f, 50.0f);
+  io.AddKeyEvent(ImGuiKey_W, true);
+
+  // Pivot should be center of visible range [0, 166.9] -> 83.45.
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(83.45)));
 
   SimulateFrame();
 }
@@ -1136,7 +1175,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_Accelerated) {
   // total multiplier = 1.0f + std::min(4.0f, kMaxAccelerateFactor) = 5.0f
   EXPECT_CALL(
       timeline_,
-      Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime * 5.0f)));
+      Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime * 5.0f), _));
 
   SimulateFrame();
 }
@@ -1172,25 +1211,37 @@ TEST_F(MockTimelineImGuiFixture, ScrollUpWithMouseWheel) {
 }
 
 TEST_F(MockTimelineImGuiFixture, ZoomOutWithMouseWheelAndCtrlKey) {
+  // Set a visible range for predictable pivot calculation.
+  timeline_.SetVisibleRange({0.0, 166.9});
+
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseWheelEvent(0.0f, 1.0f);
   io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  // Mouse inside timeline area. x=350 -> Relative x = 100.
+  // px_per_unit = 10.0. Pivot = 10.0.
+  io.MousePos = ImVec2(350.0f, 50.0f);
 
   const float expected_zoom_factor = 1.0f + 1.0f * kMouseWheelZoomSpeed;
 
-  EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor)));
+  EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor), DoubleEq(10.0)));
 
   SimulateFrame();
 }
 
 TEST_F(MockTimelineImGuiFixture, ZoomInWithMouseWheelAndCtrlKey) {
+  // Set a visible range for predictable pivot calculation.
+  timeline_.SetVisibleRange({0.0, 166.9});
+
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseWheelEvent(0.0f, -1.0f);
   io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  // Mouse inside timeline area. x=350 -> Relative x = 100.
+  // px_per_unit = 10.0. Pivot = 10.0.
+  io.MousePos = ImVec2(350.0f, 50.0f);
 
   const float expected_zoom_factor = 1.0f + (-1.0f) * kMouseWheelZoomSpeed;
 
-  EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor)));
+  EXPECT_CALL(timeline_, Zoom(FloatEq(expected_zoom_factor), DoubleEq(10.0)));
 
   SimulateFrame();
 }

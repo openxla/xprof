@@ -69,6 +69,9 @@ class TimeRange {
   // Zooms in or out around the center of the time range by zoom_factor.
   // If zoom_factor > 1, it zooms out, if zoom_factor < 1, it zooms in.
   void Zoom(double zoom_factor);
+  // Zooms in or out around the pivot of the time range by zoom_factor.
+  // If zoom_factor > 1, it zooms out, if zoom_factor < 1, it zooms in.
+  void Zoom(double zoom_factor, Microseconds pivot);
 
   // Adds two TimeRanges. While not representing a real-world time range
   // operation, this is used by `Animated<TimeRange>` for linear interpolation

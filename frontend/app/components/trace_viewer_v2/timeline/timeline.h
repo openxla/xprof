@@ -15,6 +15,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "third_party/dear_imgui/imgui.h"
+#include "third_party/dear_imgui/imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
@@ -236,10 +237,13 @@ class Timeline {
   // panning behavior.
   virtual void Scroll(Pixel pixel_amount);
 
-  // Zooms the visible time range by the given zoom factor.
-  // This method is virtual to allow derived classes to customize or extend
+  // Zooms the visible time range by the given zoom factor, centered around the
+  // mouse position, or the center of the visible range if the mouse is outside
+  // the trace events area.
+  // These methods are virtual to allow derived classes to customize or extend
   // zooming behavior.
   virtual void Zoom(float zoom_factor);
+  virtual void Zoom(float zoom_factor, Microseconds pivot);
 
  private:
   double px_per_time_unit() const;
@@ -306,6 +310,9 @@ class Timeline {
   void HandleMouseDown(float timeline_origin_x);
   void HandleMouseDrag(float timeline_origin_x);
   void HandleMouseRelease();
+
+  // Helper to calculate the timeline area.
+  ImRect GetTimelineArea() const;
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =

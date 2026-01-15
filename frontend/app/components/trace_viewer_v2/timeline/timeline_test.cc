@@ -839,6 +839,99 @@ TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
       MicrosToMillis(1000.0));
 }
 
+TEST(TimelineTest,
+     MaybeRequestDataRefetchWhenZoomedIn_EvenIfRequestContainsPreserve) {
+  Timeline timeline;
+  // Scenario: We have data [0, 3000]. We requested [0, 3000].
+  // User zooms in very deep to [500, 501].
+  // Preserve is small, contained in [0, 3000].
+  // But resolution is insufficient.
+  // Expect: Refetch triggered.
+
+  timeline.set_data_time_range({0.0, 10000.0});
+
+  // Simulate that we previously asked for [0, 3000] and received it.
+  // We use set_fetched_data_time_range to initialize last_fetch_request_range_.
+  // When last_fetch_request_range_ is empty (initial state), setting fetched
+  // data range also sets the last requested range to prevent immediate
+  // redundant fetches upon the first update.
+  timeline.set_fetched_data_time_range({0.0, 3000.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // Step 3: Zoom in deep.
+  // Visible=[500, 501]. Duration=1.
+  // Fetch=3*Visible = 3.
+  // Existing=3000. Ratio = 1000 > 8.
+  timeline.SetVisibleRange({500.0, 501.0});
+
+  // Expect refetch!
+  EXPECT_TRUE(request_triggered)
+      << "Should refetch due to zoom resolution even if range is contained.";
+
+  if (request_triggered) {
+    EXPECT_DOUBLE_EQ(
+        std::any_cast<double>(received_data.at(std::string(kFetchDataStart))),
+        MicrosToMillis(499.0));
+    EXPECT_DOUBLE_EQ(
+        std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
+        MicrosToMillis(502.0));
+  }
+}
+
+TEST(TimelineTest,
+     MaybeRequestDataSkipFetchIfRequestContainsPreserve_Optimization) {
+  Timeline timeline;
+  // Scenario: We requested [0, 3000].
+  // We currently have [0, 2500] (maybe partial load).
+  // We pan to a place that needs [2600].
+  // Preserve is in [0, 3000], but NOT in [0, 2500].
+  // Expect: NO refetch (because we already asked for it).
+
+  timeline.set_data_time_range({0.0, 10000.0});
+
+  // Simulate that we previously asked for [0, 3000].
+  // We use set_fetched_data_time_range to initialize last_fetch_request_range_
+  // to [0, 3000] (since it's initially empty).
+  timeline.set_fetched_data_time_range({0.0, 3000.0});
+  timeline.set_is_incremental_loading(false);
+
+  // Update fetched data to simulate partial arrival.
+  // last_fetch_request_range_ remains [0, 3000].
+  timeline.set_fetched_data_time_range({500.0, 2500.0});
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Step 3: Pan to right edge of what we have.
+  // Use a duration that avoids "zoomed in too much" (ratio > 8).
+  // Visible=[2400, 2600]. Duration 200.
+  // Fetch (3x) = [2100, 2900] -> Duration 600.
+  // last_fetch ([0, 3000], duration 3000).
+  // Ratio = 3000 / 600 = 5.0 <= 8.0. Zoom check passes.
+  // Preserve (2x) = [2300, 2700].
+  // last_fetch ([0, 3000]) contains preserve ([2300, 2700]).
+  // Should NOT refetch.
+  timeline.SetVisibleRange({2400.0, 2600.0});
+
+  EXPECT_FALSE(request_triggered)
+      << "Should skip refetch because last request covered it.";
+}
+
 // Test fixture for tests that require an ImGui context.
 template <typename TimelineT>
 class TimelineImGuiTestFixture : public Test {

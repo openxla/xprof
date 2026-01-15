@@ -1197,9 +1197,9 @@ void Timeline::MaybeRequestData() {
   //         |----preserve----|               Buffer to keep loaded (viewport*2)
   //             |viewport|              aka current_visible: On-screen viewport
   //
-  // If 'preserve' isn't contained in 'fetched_data_time_range_', or resolution
+  // If 'preserve' isn't contained in 'last_fetch_request_range_', or resolution
   // is too coarse, a new load of 'fetch' range is triggered.
-  // - fetched_data_time_range_: The time range covered by data currently
+  // - last_fetch_request_range_: The time range covered by data currently
   // loaded.
   const TimeRange current_visible = visible_range();
 
@@ -1212,22 +1212,38 @@ void Timeline::MaybeRequestData() {
   ConstrainTimeRange(preserve);
   ConstrainTimeRange(fetch);
 
-  // Refetch data if user scrolled out of range.
-  const bool scrolled_out_of_range =
-      !fetched_data_time_range_.Contains(preserve);
   // Refetch data if user zoomed in significantly, making resolution too coarse.
+  // We use last_fetch_request_range_ here because it reflects the density of
+  // the data we hold (asked for), whereas fetched_data_time_range_ might be
+  // smaller/sparse depending on actual event content.
   const bool zoomed_in_too_much =
-      fetched_data_time_range_.duration() / fetch.duration() >
-      kRefetchZoomRatio;
+      (last_fetch_request_range_.duration() / fetch.duration() >
+       kRefetchZoomRatio);
 
-  if (scrolled_out_of_range || zoomed_in_too_much) {
-    EventData event_data;
-    event_data.try_emplace(kFetchDataStart, MicrosToMillis(fetch.start()));
-    event_data.try_emplace(kFetchDataEnd, MicrosToMillis(fetch.end()));
-
-    event_callback_(kFetchData, event_data);
-    is_incremental_loading_ = true;
+  // Utilize the last fetch request range as a guard to prevent redundant
+  // fetches only if we don't need higher resolution data.
+  //
+  // If `last_fetch_request_range_` contains `preserve`, it means we've already
+  // successfully requested a superset of the required data.
+  // EXCEPT IF `zoomed_in_too_much` is true: in that case, even if we have the
+  // range, the data density might be too low, so we MUST refetch to get
+  // higher-resolution data.
+  if (!zoomed_in_too_much && last_fetch_request_range_.Contains(preserve)) {
+    return;
   }
+
+  EventData event_data;
+  event_data.try_emplace(kFetchDataStart, MicrosToMillis(fetch.start()));
+  event_data.try_emplace(kFetchDataEnd, MicrosToMillis(fetch.end()));
+
+  event_callback_(kFetchData, event_data);
+
+  last_fetch_request_range_ = fetch;
+
+  // We set is_incremental_loading_ to true to prevent sending duplicate
+  // requests. The flag will be reset to false when the data is received and
+  // processed.
+  is_incremental_loading_ = true;
 }
 
 }  // namespace traceviewer

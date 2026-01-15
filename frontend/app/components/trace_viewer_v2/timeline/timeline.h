@@ -140,6 +140,12 @@ class Timeline {
 
   void set_fetched_data_time_range(const TimeRange& range) {
     fetched_data_time_range_ = range;
+    // If the last fetch request range is empty, it means we haven't made any
+    // incremental loading yet. In this case, we initialize it to the fetched
+    // data range to prevent immediate redundant fetches upon the first update.
+    if (last_fetch_request_range_.duration() == 0) {
+      last_fetch_request_range_ = range;
+    }
   }
   const TimeRange& fetched_data_time_range() const {
     return fetched_data_time_range_;
@@ -375,6 +381,11 @@ class Timeline {
   // Initialize to true to prevent sending request in the initial load where
   // JS side is already fetching the data.
   bool is_incremental_loading_ = true;
+
+  // Stores the last requested data range to prevent redundant refetches when
+  // the returned data is empty or sparse (and thus fetched_data_time_range_
+  // doesn't cover the full requested range).
+  TimeRange last_fetch_request_range_ = TimeRange::Zero();
 };
 
 }  // namespace traceviewer

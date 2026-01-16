@@ -309,6 +309,14 @@ void Timeline::NavigateToEvent(int event_index) {
   SetVisibleRange(new_range, /*animate=*/true);
 }
 
+void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
+                                            float end_x, float end_y,
+                                            ImVec2& cp0, ImVec2& cp1) {
+  const float dist = std::abs(end_x - start_x) * 0.5f;
+  cp0 = ImVec2(start_x + dist, start_y);
+  cp1 = ImVec2(end_x - dist, end_y);
+}
+
 void Timeline::Pan(Pixel pixel_amount) {
   // If the pixel amount is 0, we don't need to pan.
   if (pixel_amount == 0.0) return;
@@ -1082,6 +1090,55 @@ void Timeline::HandleKeyboard() {
   }
 }
 
+void Timeline::HandleWheel() {
+  const ImGuiIO& io = ImGui::GetIO();
+
+  if (io.MouseWheel == 0.0f && io.MouseWheelH == 0.0f) {
+    return;
+  }
+
+  if (io.KeyCtrl || io.KeySuper) {
+    // If the mouse wheel is being used with the control or command key, zoom
+    // in or out.
+    const float zoom_factor = 1.0f + io.MouseWheel * kMouseWheelZoomSpeed;
+    Zoom(zoom_factor);
+  } else if (io.MouseWheelH != 0.0f) {
+    // Handle horizontal scrolling (e.g., with a trackpad or mouse with
+    // horizontal wheel).
+    Pan(io.MouseWheelH);
+  } else if (io.KeyShift) {
+    // If the mouse wheel is being used with the shift key, pan the timeline
+    // horizontally.
+    Pan(io.MouseWheel);
+  } else {
+    // Otherwise, scroll the timeline vertically.
+    Scroll(io.MouseWheel);
+  }
+}
+
+void Timeline::HandleEventDeselection() {
+  // If an event was selected, and the user clicks on an empty area
+  // (i.e., not on any event), deselect the event.
+  if ((selected_event_index_ != -1 || selected_group_index_ != -1) &&
+      ImGui::IsMouseClicked(0) &&
+      ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+      !event_clicked_this_frame_) {
+    selected_event_index_ = -1;
+    selected_group_index_ = -1;
+    selected_counter_index_ = -1;
+
+    EventData event_data;
+    event_data[std::string(kEventSelectedIndex)] = -1;
+    event_data[std::string(kEventSelectedName)] = std::string("");
+    event_data[std::string(kEventSelectedStart)] = 0.0;
+    event_data[std::string(kEventSelectedDuration)] = 0.0;
+    event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
+    event_data[std::string(kEventSelectedDurationFormatted)] = std::string("");
+
+    event_callback_(kEventSelected, event_data);
+  }
+}
+
 void Timeline::HandleMouse() {
   const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
@@ -1149,55 +1206,6 @@ void Timeline::HandleMouseRelease() {
   }
 }
 
-void Timeline::HandleWheel() {
-  const ImGuiIO& io = ImGui::GetIO();
-
-  if (io.MouseWheel == 0.0f && io.MouseWheelH == 0.0f) {
-    return;
-  }
-
-  if (io.KeyCtrl || io.KeySuper) {
-    // If the mouse wheel is being used with the control or command key, zoom
-    // in or out.
-    const float zoom_factor = 1.0f + io.MouseWheel * kMouseWheelZoomSpeed;
-    Zoom(zoom_factor);
-  } else if (io.MouseWheelH != 0.0f) {
-    // Handle horizontal scrolling (e.g., with a trackpad or mouse with
-    // horizontal wheel).
-    Pan(io.MouseWheelH);
-  } else if (io.KeyShift) {
-    // If the mouse wheel is being used with the shift key, pan the timeline
-    // horizontally.
-    Pan(io.MouseWheel);
-  } else {
-    // Otherwise, scroll the timeline vertically.
-    Scroll(io.MouseWheel);
-  }
-}
-
-void Timeline::HandleEventDeselection() {
-  // If an event was selected, and the user clicks on an empty area
-  // (i.e., not on any event), deselect the event.
-  if ((selected_event_index_ != -1 || selected_group_index_ != -1) &&
-      ImGui::IsMouseClicked(0) &&
-      ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
-      !event_clicked_this_frame_) {
-    selected_event_index_ = -1;
-    selected_group_index_ = -1;
-    selected_counter_index_ = -1;
-
-    EventData event_data;
-    event_data[std::string(kEventSelectedIndex)] = -1;
-    event_data[std::string(kEventSelectedName)] = std::string("");
-    event_data[std::string(kEventSelectedStart)] = 0.0;
-    event_data[std::string(kEventSelectedDuration)] = 0.0;
-    event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
-    event_data[std::string(kEventSelectedDurationFormatted)] = std::string("");
-
-    event_callback_(kEventSelected, event_data);
-  }
-}
-
 ImRect Timeline::GetTimelineArea() const {
   const ImVec2 window_pos = ImGui::GetWindowPos();
   const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
@@ -1211,14 +1219,6 @@ ImRect Timeline::GetTimelineArea() const {
   const Pixel end_y = window_pos.y + ImGui::GetWindowHeight();
 
   return {start_x, start_y, end_x, end_y};
-}
-
-void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
-                                            float end_x, float end_y,
-                                            ImVec2& cp0, ImVec2& cp1) {
-  const float dist = std::abs(end_x - start_x) * 0.5f;
-  cp0 = ImVec2(start_x + dist, start_y);
-  cp1 = ImVec2(end_x - dist, end_y);
 }
 
 void Timeline::MaybeRequestData() {

@@ -381,7 +381,7 @@ def _tb_run_directory(session_dir: str, run: str) -> str:
   return session_dir if run == '.' else os.path.join(session_dir, run)
 
 
-def filenames_to_hosts(filenames: list[str], tool: str) -> list[str]:
+def hosts_from_xplane_filenames(filenames: list[str], tool: str) -> list[str]:
   """Convert a list of filenames to a list of host names given a tool.
 
   Args:
@@ -940,15 +940,18 @@ class ProfilePlugin(base_plugin.TBPlugin):
       logger.warning('Cannot find asset directory for: %s', run)
       return []
     tool_pattern = '*.xplane.pb'
-    filenames = []
+    xplane_filenames = []
     try:
       path = epath.Path(run_dir)
-      filenames = path.glob(tool_pattern)
+      xplane_filenames = path.glob(tool_pattern)
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %s', run_dir, e)
-    filenames = [os.fspath(os.path.basename(f)) for f in filenames]
+    filenames = [os.fspath(os.path.basename(f)) for f in xplane_filenames]
 
-    return [{'hostname': host} for host in filenames_to_hosts(filenames, tool)]
+    return [
+        {'hostname': host}
+        for host in hosts_from_xplane_filenames(filenames, tool)
+    ]
 
   def host_impl(
       self, run: str, tool: str, request: Optional[wrappers.Request] = None
@@ -1046,6 +1049,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
       raise IOError(
           'Cannot read asset directory: %s, OpError %r' % (run_dir, e)
       ) from e
+    if not all_xplane_files:
+      logger.warning('no xplane files found for run: %s, tool: %s', run, tool)
+      raise FileNotFoundError(
+          'No xplane file found for run: %s, tool: %s' % (run, tool)
+      )
 
     if hosts_param and self._does_tool_support_multi_hosts_processing(tool):
       selected_hosts = hosts_param.split(',')
@@ -1069,7 +1077,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
         raise FileNotFoundError(
             'No xplane file found for host: %s in run: %s' % (host, run)
         )
-    elif not host and not hosts_param and len(all_xplane_files) == 1:
+    # for request that does not specify host or hosts param, use all hosts.
+    # would also be no-op for tools that is host-agnostic.
+    elif not host and not hosts_param:
       selected_hosts = list(all_xplane_files.keys())
       asset_paths = list(all_xplane_files.values())
 

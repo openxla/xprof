@@ -292,7 +292,9 @@ class ProfilePluginTest(absltest.TestCase):
     with self.assertRaises(FileNotFoundError):
       self.plugin.data_impl(
           utils.make_data_request(
-              utils.DataRequestOptions(run='foo', tool='trace_viewer', host='')
+              utils.DataRequestOptions(
+                  run='foo', tool='trace_viewer', host='invalid_host'
+              )
           )
       )
     data, _, _ = self.plugin.data_impl(
@@ -331,7 +333,7 @@ class ProfilePluginTest(absltest.TestCase):
       self.plugin.data_impl(
           utils.make_data_request(
               utils.DataRequestOptions(
-                  run='a/foo', tool='trace_viewer', host=''
+                  run='a/foo', tool='trace_viewer', host='invalid_host'
               )
           )
       )

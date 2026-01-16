@@ -14,9 +14,16 @@ bzl_library(
     ],
 )
 
+genrule(
+    name = "googlesanscode_ttf",
+    srcs = ["//third_party/googlefonts/api/ofl:data_files"],
+    outs = ["GoogleSansCode[wght].ttf"],
+    cmd = "cp third_party/googlefonts/api/ofl/googlesanscode/GoogleSansCode\\[wght\\].ttf $@",
+)
+
 imgui_font_headers(
     name = "font_headers_fileset",
-    srcs = ["//third_party/roboto:roboto_unhinted"],
+    srcs = [":googlesanscode_ttf"],
     args = ["-base85"],
 )
 

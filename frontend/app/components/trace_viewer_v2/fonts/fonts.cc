@@ -6,8 +6,7 @@
 #include "absl/log/log.h"
 #include "third_party/dear_imgui/imgui.h"
 #include "third_party/dear_imgui/misc/freetype/imgui_freetype.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/fonts/roboto_light.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/fonts/roboto_regular.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/fonts/googlesanscode_wght.h"
 
 namespace traceviewer::fonts {
 
@@ -44,7 +43,7 @@ void LoadFonts(float pixel_ratio) {
       0,
   };
 
-  const char* kFontRegular = roboto_regular_compressed_data_base85;
+  const char* kFontRegular = googlesanscode_wght_compressed_data_base85;
 
   // TODO: b/444025890 - Get the fonts and sizes from the UX design.
   auto styles =

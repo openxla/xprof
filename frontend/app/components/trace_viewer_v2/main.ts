@@ -107,7 +107,6 @@ export declare interface TraceViewerV2Module extends WasmModule {
       ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
   loadJsonData?(url: string): Promise<void>;
-  getProcessList?(url: string): Promise<string[] | undefined>;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -116,10 +115,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
   IntVector: {size(): number; get(index: number): number;};
   Application: {
     Instance(): {
-      data_provider(): {
-        getProcessList(): TraceViewerV2Module['StringVector'];
-        getFlowCategories(): TraceViewerV2Module['IntVector'];
-      };
+      data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
       setVisibleFlowCategory(categoryId: number): void;
     };
   };
@@ -492,29 +488,6 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
   window.addEventListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
     handleFetchDataEvent(event, currentDataUrl, traceviewerModule);
   });
-
-  // TODO(b/459575608): This should be updated when emscripten bindings
-  // are updated.
-  traceviewerModule.getProcessList = async (url: string) => {
-    const processList = traceviewerModule.Application.Instance()
-      .data_provider()
-      .getProcessList();
-    const processArray: string[] = [];
-    if (
-      typeof processList.size === 'function' &&
-      typeof processList.get === 'function'
-    ) {
-      const size = processList.size();
-      for (let i = 0; i < size; i++) {
-        processArray.push(processList.get(i));
-      }
-    } else {
-      console.error(
-        'getProcessList result does not have size() or get() methods.',
-      );
-    }
-    return processArray;
-  };
 
   return traceviewerModule;
 }

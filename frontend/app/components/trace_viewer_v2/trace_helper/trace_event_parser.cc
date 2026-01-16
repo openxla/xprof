@@ -353,7 +353,6 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
 
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
-      .function("getProcessList", &traceviewer::DataProvider::GetProcessList)
       .function("getFlowCategories",
                 &traceviewer::DataProvider::GetFlowCategories);
 
@@ -366,7 +365,8 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::class_<traceviewer::Application>("Application")
       .class_function("Instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider)
+      .function("data_provider", &traceviewer::Application::data_provider,
+                emscripten::return_value_policy::reference())
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory);
 }

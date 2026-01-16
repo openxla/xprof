@@ -736,6 +736,70 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   EXPECT_EQ(data.groups[2].name, "Process 2");
 }
 
+TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      // Process 1 has malformed sort index, fallback to pid 1.
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "invalid"}}},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Event 1",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      // Process 2 has sort index 0.
+      {.ph = Phase::kMetadata,
+       .pid = 2,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{"sort_index", "0"}}},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Event 2",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process 3"),
+      // Process 3 has process_sort_index event but missing sort_index arg,
+      // fallback to pid 3.
+      {.ph = Phase::kMetadata,
+       .pid = 3,
+       .tid = 0,
+       .name = "process_sort_index",
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {}},
+      {.ph = Phase::kComplete,
+       .pid = 3,
+       .tid = 301,
+       .name = "Event 3",
+       .ts = 0.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(6));
+
+  // pid 1 -> sort key 1 (fallback)
+  // pid 2 -> sort key 0
+  // pid 3 -> sort key 3 (fallback)
+  // Expected order: 2, 1, 3
+  EXPECT_EQ(data.groups[0].name, "Process 2");
+  EXPECT_EQ(data.groups[2].name, "Process 1");
+  EXPECT_EQ(data.groups[4].name, "Process 3");
+}
+
 TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
   ParsedTraceEvents events;
   events.mpmd_pipeline_view = true;

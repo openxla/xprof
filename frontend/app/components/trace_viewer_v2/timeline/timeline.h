@@ -81,6 +81,11 @@ struct FlameChartTimelineData {
   std::vector<Microseconds> entry_start_times;
   std::vector<std::string> entry_names;
   std::vector<EventId> entry_event_ids;
+  // TODO: b/474668991 - Check if we can fetch PID and entry args from backend
+  // instead of storing them here, to reduce memory usage.
+  // Compare latency from network to memory-heavy local storage.
+  std::vector<ProcessId> entry_pids;
+  std::vector<std::map<std::string, std::string>> entry_args;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.

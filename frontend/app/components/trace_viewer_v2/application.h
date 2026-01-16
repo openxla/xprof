@@ -1,7 +1,5 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
-#include <stdlib.h>
-
 #include <memory>
 
 #include "absl/base/no_destructor.h"
@@ -38,9 +36,6 @@ class Application {
   void Main();
 
   Timeline& timeline() { return *timeline_; };
-  const std::vector<std::string> process_list() {
-    return data_provider_.GetProcessList();
-  };
   DataProvider& data_provider() { return data_provider_; };
 
   void SetVisibleFlowCategory(int category_id) {

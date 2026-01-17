@@ -17,7 +17,6 @@ xprof_ng_module(
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@angular/router",
-        "@npm//@ngrx/store",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/constants",
@@ -25,7 +24,6 @@ xprof_ng_module(
         "@org_xprof//frontend/app/pipes",
         "@org_xprof//frontend/app/services/communication_service",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
-        "@org_xprof//frontend/app/store",
     ],
 )
 

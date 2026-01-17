@@ -105,10 +105,6 @@ export class GraphViewer implements OnDestroy {
           this.sessionId = params['sessionId'] || this.sessionId;
           this.resetPage();
           this.parseQueryParams(queryParams);
-          // Don't load graph if session id / run is not populated yet.
-          // TODO(xprof) apply the same early return logic for other tools, or
-          // verify why an empty run string is send through the observable.
-          if (!this.sessionId) return;
           this.loadDefaultGraphOptionsFromOpProfile();
           await this.initData();
           // Any graph viewer url query param change should trigger a potential

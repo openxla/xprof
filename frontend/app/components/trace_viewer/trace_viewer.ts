@@ -1,13 +1,10 @@
 import {PlatformLocation} from '@angular/common';
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
-import {Store} from '@ngrx/store';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
-import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** A trace viewer component. */
@@ -21,12 +18,10 @@ export class TraceViewer implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly injector = inject(Injector);
-  private readonly store = inject(Store<{}>);
 
   url = '';
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
-  hostList: string[] = [];
 
   constructor(
       platformLocation: PlatformLocation,
@@ -36,16 +31,9 @@ export class TraceViewer implements OnDestroy {
       this.pathPrefix =
           String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
     }
-    combineLatest(
-        [route.params, route.queryParams, this.store.select(getHostsState)])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams, hostsMetadata]) => {
-          if (hostsMetadata && hostsMetadata.length > 0) {
-            this.hostList =
-                hostsMetadata.map((host: HostMetadata) => host.hostname);
-          }
-          this.update(params as NavigationEvent);
-        });
+    route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+      this.update(params as NavigationEvent);
+    });
 
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
@@ -78,9 +66,6 @@ export class TraceViewer implements OnDestroy {
       queryString += `&hosts=${event.hosts}`;
     } else if (event.host) {
       queryString += `&host=${event.host}`;
-    } else {
-      queryString +=
-          `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
     }
 
     const traceDataUrl = `${this.pathPrefix}${DATA_API}?${queryString}`;

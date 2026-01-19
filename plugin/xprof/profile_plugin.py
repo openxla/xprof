@@ -262,10 +262,8 @@ def _get_tools(filenames: list[str], profile_run_dir: str) -> set[str]:
   return tools
 
 
-# pytype: disable=wrong-arg-types
 @wrappers.Request.application
 def version_route(_: wrappers.Request) -> wrappers.Response:
-  # pytype: enable=wrong-arg-types
   return respond(version.__version__, 'text/plain')
 
 

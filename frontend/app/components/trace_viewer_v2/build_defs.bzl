@@ -4,7 +4,7 @@ This module contains global variables and configurations used in the BUILD files
 
 load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_web_test")
+load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_web_test", _wasm_cc_binary = "wasm_cc_binary")
 
 # Tags to apply to targets that are part of the WASM build and cannot be built with standard tools.
 # This includes libraries, binaries, and tests that will be run in a WASM environment.
@@ -53,5 +53,17 @@ def wasm_cc_library(name, **kwargs):
     cc_library(
         name = name,
         tags = WASM_TAGS,
+        **kwargs
+    )
+
+def wasm_cc_binary(name, **kwargs):
+    """Generates a wasm_cc_binary target.
+
+    Args:
+      name: The name of the binary.
+      **kwargs: Additional arguments to pass to the wasm_cc_binary.
+    """
+    _wasm_cc_binary(
+        name = name,
         **kwargs
     )

@@ -261,6 +261,31 @@ message OverviewInferenceLatency {
   optional double sessions_per_second = 5;
 }
 
+// Overview result for the disaggregated serving latency stats.
+message OverviewDisaggregatedServingLatency {
+  // Distribution stats for prefill step time in microseconds.
+  DistributionStats prefill_step_time_us = 1;
+  int64 num_prefill_steps = 2;
+  // Distribution stats for decode step time in microseconds.
+  DistributionStats decode_step_time_us = 3;
+  // Total number of decode steps in this session.
+  int64 num_decode_steps = 4;
+  // Distribution stats for insert time in microseconds.
+  DistributionStats insert_time_us = 5;
+  // Distribution stats for transfer time from prefill to decode in
+  // microseconds.
+  DistributionStats transfer_time_us = 6;
+}
+
+// Distribution stats for a given metric.
+message DistributionStats {
+  double avg = 1;
+  double p50 = 2;
+  double p90 = 3;
+  double p95 = 4;
+  double p99 = 5;
+}
+
 message OverviewPage {
   // The run environment of the profiled session.
   OverviewPageRunEnvironment run_environment = 6;

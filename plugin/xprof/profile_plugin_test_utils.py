@@ -19,10 +19,14 @@ from __future__ import division
 from __future__ import print_function
 
 import dataclasses
+from typing import Any, Callable
 
+from etils import epath
 from werkzeug import Request
 
 from xprof import profile_plugin
+from xprof import version
+from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import data_provider
 from xprof.standalone.tensorboard_shim import plugin_event_multiplexer
@@ -35,15 +39,27 @@ class _FakeFlags(object):
     self.master_tpu_unsecure_channel = master_tpu_unsecure_channel
 
 
-def create_profile_plugin(logdir,
-                          multiplexer=None,
-                          master_tpu_unsecure_channel=''):
+def create_profile_plugin(
+    logdir,
+    multiplexer=None,
+    master_tpu_unsecure_channel='',
+    *,
+    epath_module: Any = epath,
+    xspace_to_tool_data_fn: Callable[
+        [list[epath.Path], str, dict[str, Any]],
+        tuple[bytes | str | None, str],
+    ] = convert.xspace_to_tool_data,
+    version_module: Any = version,
+):
   """Instantiates ProfilePlugin with data from the specified directory.
 
   Args:
     logdir: Directory containing TensorBoard data.
     multiplexer: A TensorBoard plugin_event_multiplexer.EventMultiplexer
     master_tpu_unsecure_channel: Master TPU address for streaming trace viewer.
+    epath_module: The epath module to use.
+    xspace_to_tool_data_fn: Function to convert xspace to tool data.
+    version_module: The version module to use.
 
   Returns:
     An instance of ProfilePlugin.
@@ -56,8 +72,14 @@ def create_profile_plugin(logdir,
       logdir=logdir,
       multiplexer=multiplexer,
       data_provider=data_provider.MultiplexerDataProvider(multiplexer, logdir),
-      flags=_FakeFlags(logdir, master_tpu_unsecure_channel))
-  return profile_plugin.ProfilePlugin(context)
+      flags=_FakeFlags(logdir, master_tpu_unsecure_channel),
+  )
+  return profile_plugin.ProfilePlugin(
+      context,
+      epath_module=epath_module,
+      xspace_to_tool_data_fn=xspace_to_tool_data_fn,
+      version_module=version_module,
+  )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

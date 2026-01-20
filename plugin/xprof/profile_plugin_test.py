@@ -81,7 +81,8 @@ EVENT_FILE_SUFFIX = '.profile-empty'
 # TODO(muditgokhale): Add support for xplane test generation.
 def generate_testdata(logdir):
   plugin_logdir = plugin_asset_util.PluginDirectory(
-      logdir, profile_plugin.ProfilePlugin.plugin_name)
+      logdir, profile_plugin.ProfilePlugin.plugin_name
+  )
   os.makedirs(plugin_logdir)
   for run in RUN_TO_TOOLS:
     run_dir = os.path.join(plugin_logdir, run)
@@ -157,16 +158,18 @@ class ProfilePluginTest(absltest.TestCase):
     # Fail if we call PluginDirectory with a non-normalized logdir path, since
     # that won't work on GCS, as a regression test for b/235606632.
     original_plugin_directory = plugin_asset_util.PluginDirectory
-    plugin_directory_patcher = mock.patch.object(plugin_asset_util,
-                                                 'PluginDirectory')
+    plugin_directory_patcher = mock.patch.object(
+        plugin_asset_util, 'PluginDirectory'
+    )
     mock_plugin_directory = plugin_directory_patcher.start()
     self.addCleanup(plugin_directory_patcher.stop)
 
     def plugin_directory_spy(logdir, plugin_name):
       if os.path.normpath(logdir) != logdir:
         self.fail(
-            'PluginDirectory called with a non-normalized logdir path: %r' %
-            logdir)
+            'PluginDirectory called with a non-normalized logdir path: %r'
+            % logdir
+        )
       return original_plugin_directory(logdir, plugin_name)
 
     mock_plugin_directory.side_effect = plugin_directory_spy
@@ -424,6 +427,12 @@ class ProfilePluginTest(absltest.TestCase):
     self.multiplexer.Reload()
     # Mock the return value to avoid errors during the call
     mock_xspace_to_tool_data.return_value = ('mocked_data', 'application/json')
+    # Create a plugin instance with the mocked dependency injected.
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
     run_dir = os.path.join(
         plugin_asset_util.PluginDirectory(
             self.logdir, profile_plugin.ProfilePlugin.plugin_name
@@ -460,7 +469,7 @@ class ProfilePluginTest(absltest.TestCase):
         'hosts': ['host1'],
     }
 
-    _, _, _ = self.plugin.data_impl(
+    _, _, _ = plugin.data_impl(
         utils.make_data_request(
             utils.DataRequestOptions(
                 run='foo',

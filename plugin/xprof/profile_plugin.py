@@ -26,7 +26,7 @@ import os
 import re
 import sys
 import threading
-from typing import Any, Dict, List, Optional, Sequence, TypedDict
+from typing import Any, Sequence, TypedDict
 
 from etils import epath
 import etils.epath.backend
@@ -104,8 +104,20 @@ HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
 _EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
 
-_FILENAME_RE = re.compile(r'(?:(.*)\.)?(' +
-                          '|'.join(TOOLS.values()).replace('.', r'\.') + r')')
+_FILENAME_RE = re.compile(
+    r"""
+    (?:            # Start optional non-capturing group for the host.
+      (.*)         #   Capture group 1: The host name.
+      \.           #   A literal dot.
+    )?             # End optional non-capturing group.
+    (              # Start capture group 2: The tool extension.
+    """
+    + '|'.join(re.escape(v) for v in TOOLS.values())
+    + r"""
+    )              # End capture group 2.
+    """,
+    re.VERBOSE,
+)
 
 
 # Tools that can be generated from xplane end with ^.
@@ -138,8 +150,7 @@ XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
 ])
 
 # XPlane generated tools that only support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
-    ['overview_page', 'pod_viewer'])
+XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(['overview_page', 'pod_viewer'])
 
 # Rate limiter constants, the GCS quota defined below
 # https://cloud.google.com/storage/quotas#rate-quotas.
@@ -183,7 +194,7 @@ def make_filename(host: str, tool: str) -> str:
   return filename + TOOLS[tool]
 
 
-def _parse_filename(filename: str) -> tuple[Optional[str], Optional[str]]:
+def _parse_filename(filename: str) -> tuple[str | None, str | None]:
   """Returns the host and tool encoded in a filename in the run directory.
 
   Args:
@@ -271,7 +282,7 @@ def respond(
     body: Any,
     content_type: str,
     code: int = 200,
-    content_encoding: Optional[tuple[str, str]] = None,
+    content_encoding: tuple[str, str] | None = None,
 ) -> wrappers.Response:
   """Create a Werkzeug response, handling JSON serialization and CSP.
 
@@ -289,7 +300,8 @@ def respond(
     A `werkzeug.wrappers.Response` object.
   """
   if content_type == 'application/json' and isinstance(
-      body, (dict, list, set, tuple)):
+      body, (dict, list, set, tuple)
+  ):
     body = json.dumps(body, sort_keys=True)
   if not isinstance(body, bytes):
     body = body.encode('utf-8')
@@ -438,7 +450,7 @@ class ToolsCache:
     self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
     logger.info('ToolsCache initialized for %s', self._cache_file)
 
-  def _get_local_file_identifier(self, file_path_str: str) -> Optional[str]:
+  def _get_local_file_identifier(self, file_path_str: str) -> str | None:
     """Gets a string identifier for a local file.
 
     The identifier is a combination of the file's last modification time (mtime)
@@ -458,11 +470,14 @@ class ToolsCache:
       return None
     except OSError as e:
       logger.error(
-          'OSError getting stat for local file %s: %r', file_path_str, e
+          'OSError getting stat for local file %s: %r',
+          file_path_str,
+          e,
+          exc_info=True,
       )
       return None
 
-  def _get_gcs_file_hash(self, file_path_str: str) -> Optional[str]:
+  def _get_gcs_file_hash(self, file_path_str: str) -> str | None:
     """Gets the MD5 hash for a GCS file.
 
     Args:
@@ -490,7 +505,11 @@ class ToolsCache:
       logger.warning('GCS path not found: %s', file_path_str)
       return None
     except IndexError:
-      logger.error('Could not get filesystem for GCS path: %s', file_path_str)
+      logger.error(
+          'Could not get filesystem for GCS path: %s',
+          file_path_str,
+          exc_info=True,
+      )
       return None
     except Exception as e:  # pylint: disable=broad-exception-caught
       logger.exception(
@@ -498,7 +517,7 @@ class ToolsCache:
       )
       return None
 
-  def get_file_identifier(self, file_path_str: str) -> Optional[str]:
+  def get_file_identifier(self, file_path_str: str) -> str | None:
     """Gets a string identifier for a file.
 
     For GCS files, this is the MD5 hash.
@@ -515,7 +534,7 @@ class ToolsCache:
     else:
       return self._get_local_file_identifier(file_path_str)
 
-  def _get_current_xplane_file_states(self) -> Optional[Dict[str, str]]:
+  def _get_current_xplane_file_states(self) -> dict[str, str] | None:
     """Gets the current state of XPlane files in the profile run directory.
 
     Returns:
@@ -535,10 +554,15 @@ class ToolsCache:
         file_identifiers[xplane_file.name] = file_id
       return file_identifiers
     except OSError as e:
-      logger.warning('Could not glob files in %s: %r', self._profile_run_dir, e)
+      logger.warning(
+          'Could not glob files in %s: %r',
+          self._profile_run_dir,
+          e,
+          exc_info=True,
+      )
       return None
 
-  def load(self) -> Optional[List[str]]:
+  def load(self) -> list[str] | None:
     """Loads the cached list of tools if the cache is valid.
 
     The cache is valid if the cache file exists, the version matches, and
@@ -555,6 +579,7 @@ class ToolsCache:
           'Error reading or decoding cache file %s: %r, invalidating.',
           self._cache_file,
           e,
+          exc_info=True,
       )
       self.invalidate()
       return None
@@ -614,7 +639,9 @@ class ToolsCache:
         json.dump(new_cache_data, f, sort_keys=True, indent=2)
       logger.info('ToolsCache saved: %s', self._cache_file)
     except (OSError, TypeError) as e:
-      logger.error('Error writing cache file %s: %r', self._cache_file, e)
+      logger.error(
+          'Error writing cache file %s: %r', self._cache_file, e, exc_info=True
+      )
 
   def invalidate(self) -> None:
     """Deletes the cache file, forcing regeneration on the next load."""
@@ -624,7 +651,9 @@ class ToolsCache:
     except FileNotFoundError:
       pass
     except OSError as e:
-      logger.error('Error removing cache file %s: %r', self._cache_file, e)
+      logger.error(
+          'Error removing cache file %s: %r', self._cache_file, e, exc_info=True
+      )
 
 
 class _TfProfiler:
@@ -683,14 +712,28 @@ class _TfProfiler:
 
 class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
+
   plugin_name = PLUGIN_NAME
 
-  def __init__(self, context):
+  def __init__(
+      self,
+      context,
+      *,
+      epath_module: Any = epath,
+      xspace_to_tool_data_fn: Callable[
+          [list[epath.Path], str, dict[str, Any]],
+          tuple[bytes | str | None, str],
+      ] = convert.xspace_to_tool_data,
+      version_module: Any = version,
+  ):
     """Constructs a profiler plugin for TensorBoard.
 
     This plugin adds handlers for performance-related frontends.
     Args:
       context: A base_plugin.TBContext instance.
+      epath_module: The epath module to use, can be injected for testing.
+      xspace_to_tool_data_fn: Function to convert xspace to tool data.
+      version_module: The version module to use, can be injected for testing.
     """
     self.logdir = context.logdir
     self.data_provider = context.data_provider
@@ -699,12 +742,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
         context, 'hide_capture_profile_button', False
     )
     self.src_prefix = getattr(context, 'src_prefix', '')
+    self._epath = epath_module
+    self._xspace_to_tool_data = xspace_to_tool_data_fn
+    self._version = version_module
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
     self._is_active = False
     # Lock to ensure at most one thread computes _is_active at a time.
     self._is_active_lock = threading.Lock()
+    # Lock to protect access to _run_to_profile_run_dir.
+    self._run_dir_cache_lock = threading.Lock()
     # Cache to map profile run name to corresponding tensorboard dir name
     self._run_to_profile_run_dir = {}
     self._tf_profiler = _TfProfiler(tf) if tf else None
@@ -817,8 +865,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return respond(runs, 'application/json')
 
   def _run_map_from_request(
-      self, request: Optional[wrappers.Request] = None
-  ) -> Optional[dict[str, str]]:
+      self, request: wrappers.Request | None = None
+  ) -> dict[str, str] | None:
     """Returns a map of run names to session directories from the request.
 
     Args:
@@ -833,13 +881,13 @@ class ProfilePlugin(base_plugin.TBPlugin):
     )
     run_map = None
     if session_path_arg:
-      session_path = epath.Path(session_path_arg)
+      session_path = self._epath.Path(session_path_arg)
       run_name = session_path.name
       run_map = {}
       if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
         run_map[run_name] = str(session_path)
     elif run_path_arg:
-      run_path = epath.Path(run_path_arg)
+      run_path = self._epath.Path(run_path_arg)
       run_map = {}
       for session in run_path.iterdir():
         if session.is_dir() and any(session.glob('*.xplane.pb')):
@@ -847,8 +895,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return run_map
 
   def _run_dir(
-      self, run: str, request: Optional[wrappers.Request] = None
-  ) -> Optional[str]:
+      self, run: str, request: wrappers.Request | None = None
+  ) -> str | None:
     """Helper that maps a frontend run name to a profile "run" directory.
 
     The frontend run name consists of the TensorBoard run name (aka the relative
@@ -878,8 +926,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
       else:
         raise ValueError(f'Run {run} not found in run map: {run_map}')
 
-    if run in self._run_to_profile_run_dir:
-      return self._run_to_profile_run_dir[run]
+    with self._run_dir_cache_lock:
+      if run in self._run_to_profile_run_dir:
+        return self._run_to_profile_run_dir[run]
 
     if not self.logdir:
       raise RuntimeError(
@@ -889,14 +938,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not tb_run_name:
       tb_run_name = '.'
     tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
-    if not epath.Path(tb_run_directory).is_dir():
+    if not self._epath.Path(tb_run_directory).is_dir():
       raise RuntimeError('No matching run directory for run %s' % run)
     plugin_directory = plugin_asset_util.PluginDirectory(
         tb_run_directory, PLUGIN_NAME
     )
     return os.path.join(plugin_directory, profile_run_name)
 
-  def runs_imp(self, request: Optional[wrappers.Request] = None) -> list[str]:
+  def runs_imp(self, request: wrappers.Request | None = None) -> list[str]:
     """Returns a list all runs for the profile plugin.
 
     Args:
@@ -919,7 +968,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return respond(run_tools, 'application/json')
 
   def run_tools_imp(
-      self, run, request: Optional[wrappers.Request] = None
+      self, run, request: wrappers.Request | None = None
   ) -> list[str]:
     """Returns a list of tools given a single run.
 
@@ -933,17 +982,22 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
   def _run_host_impl(
       self, run: str, run_dir: str, tool: str
-  ) -> List[HostMetadata]:
+  ) -> list[HostMetadata]:
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return []
     tool_pattern = '*.xplane.pb'
     xplane_filenames = []
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       xplane_filenames = path.glob(tool_pattern)
     except OSError as e:
-      logger.warning('Cannot read asset directory: %s, OpError %s', run_dir, e)
+      logger.warning(
+          'Cannot read asset directory: %s, OpError %s',
+          run_dir,
+          e,
+          exc_info=True,
+      )
     filenames = [os.fspath(os.path.basename(f)) for f in xplane_filenames]
 
     return [
@@ -952,8 +1006,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     ]
 
   def host_impl(
-      self, run: str, tool: str, request: Optional[wrappers.Request] = None
-  ) -> List[HostMetadata]:
+      self, run: str, tool: str, request: wrappers.Request | None = None
+  ) -> list[HostMetadata]:
     """Returns available hosts and their metadata for the run and tool in the log directory.
 
     In the plugin log directory, each directory contains profile data for a
@@ -1012,7 +1066,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
   def _get_valid_hosts(
       self, run_dir: str, run: str, tool: str, hosts_param: str, host: str
-  ) -> tuple[List[str], List[epath.Path]]:
+  ) -> tuple[list[str], list[epath.Path]]:
     """Retrieves and validates the hosts and asset paths for a run and tool.
 
     Args:
@@ -1037,7 +1091,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # Find all available xplane files for the run and map them by host.
     file_pattern = make_filename('*', 'xplane')
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       for xplane_path in path.glob(file_pattern):
         host_name, _ = _parse_filename(xplane_path.name)
         if host_name:
@@ -1096,9 +1150,21 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     return selected_hosts, asset_paths
 
+  def _write_cache_version_file(self, run_dir: str) -> None:
+    """Writes the current version to the cache version file."""
+    try:
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+          'w'
+      ) as f:
+        f.write(self._version.__version__)
+    except OSError as e:
+      logger.warning(
+          'Cannot write cache version file to %s: %r', run_dir, e, exc_info=True
+      )
+
   def data_impl(
       self, request: wrappers.Request
-  ) -> tuple[Optional[str], str, Optional[str]]:
+  ) -> tuple[bytes | str | None, str, str | None]:
     """Retrieves and processes the tool data for a run and a host.
 
     Args:
@@ -1129,17 +1195,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
     try:
-      if epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).exists():
-        with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-            'r'
-        ) as f:
-          cache_version = f.read().strip()
-          if cache_version < version.__version__:
-            use_saved_result = False
-      else:
-        use_saved_result = False
+      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
+          'r'
+      ) as f:
+        cache_version = f.read().strip()
+        if cache_version < self._version.__version__:
+          use_saved_result = False
+    except FileNotFoundError:
+      logger.info('Cache version file not found, invalidating cache.')
+      use_saved_result = False
     except OSError as e:
-      logger.warning('Cannot read cache version file: %r', e)
+      logger.warning('Cannot read cache version file: %r', e, exc_info=True)
       use_saved_result = False
 
     graph_viewer_options = self._get_graph_viewer_options(request)
@@ -1193,8 +1259,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
       params['hosts'] = selected_hosts
       try:
-        data, content_type = convert.xspace_to_tool_data(
-            asset_paths, tool, params)
+        data, content_type = self._xspace_to_tool_data(
+            asset_paths,
+            tool,
+            params,
+        )
       except AttributeError as e:
         logger.warning('Error generating analysis results due to %r', e)
         raise AttributeError(
@@ -1202,29 +1271,21 @@ class ProfilePlugin(base_plugin.TBPlugin):
         ) from e
       except ValueError as e:
         logger.warning('XPlane convert to tool data failed as %r', e)
-        raise e
+        raise
       except FileNotFoundError as e:
         logger.warning('XPlane convert to tool data failed as %r', e)
-        raise e
+        raise
 
       # Write cache version file if use_saved_result is False.
       if not use_saved_result:
-        try:
-          with epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-              'w'
-          ) as f:
-            f.write(version.__version__)
-        except OSError as e:
-          logger.warning('Cannot write cache version file: %r', e)
+        self._write_cache_version_file(run_dir)
 
       return data, content_type, content_encoding
 
     logger.info('%s does not use xplane', tool)
     return None, content_type, None
 
-  def hlo_module_list_impl(
-      self, request: wrappers.Request
-  ) -> str:
+  def hlo_module_list_impl(self, request: wrappers.Request) -> str:
     """Returns a string of HLO module names concatenated by comma for the given run."""
     run = request.args.get('run')
     run_dir = self._run_dir(run, request)
@@ -1235,7 +1296,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     tool_pattern = '*.hlo_proto.pb'
     filenames = []
     try:
-      path = epath.Path(run_dir)
+      path = self._epath.Path(run_dir)
       filenames = path.glob(tool_pattern)
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
@@ -1387,7 +1448,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         'show_metadata': show_metadata,
         'merge_fusion': merge_fusion,
         'format': request.args.get('format'),
-        'type': request.args.get('type')
+        'type': request.args.get('type'),
     }
 
   def generate_runs(self) -> Iterator[str]:
@@ -1450,7 +1511,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     #
     # This change still enforce the requirement that the subdirectories must
     # end with plugins/profile directory, as enforced by TensorBoard.
-    logdir_path = epath.Path(self.logdir)
+    logdir_path = self._epath.Path(self.logdir)
     schemeless_logdir = str(logdir_path)
     if '://' in schemeless_logdir:
       schemeless_logdir = schemeless_logdir.split('://', 1)[1]
@@ -1460,7 +1521,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       try:
         fs = etils.epath.backend.fsspec_backend.fs(self.logdir)
         for path_str in fs.glob(os.path.join(self.logdir, '**', PLUGIN_NAME)):
-          path = epath.Path(path_str)
+          path = self._epath.Path(path_str)
           if fs.isdir(path) and path.parent.name == TB_NAME:
             tb_run_dir = path.parent.parent
             tb_run = tb_run_dir.relative_to(schemeless_logdir)
@@ -1468,7 +1529,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       except ValueError:
         # gcsfs not available, fall back to legacy path walk.
         for cur_dir, _, _ in logdir_path.walk():
-          if (cur_dir.name == PLUGIN_NAME and cur_dir.parent.name == TB_NAME):
+          if cur_dir.name == PLUGIN_NAME and cur_dir.parent.name == TB_NAME:
             tb_run_dir = cur_dir.parent.parent
             tb_run = tb_run_dir.relative_to(logdir_path)
             tb_runs.add(str(tb_run))
@@ -1489,10 +1550,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
         if tb_run_name == '.':
           frontend_run = profile_run
         else:
-          frontend_run = str(epath.Path(tb_run_name) / profile_run)
-        profile_run_dir = str(epath.Path(tb_plugin_dir) / profile_run)
-        if epath.Path(profile_run_dir).is_dir():
-          self._run_to_profile_run_dir[frontend_run] = profile_run_dir
+          frontend_run = str(self._epath.Path(tb_run_name) / profile_run)
+        profile_run_dir = str(self._epath.Path(tb_plugin_dir) / profile_run)
+        if self._epath.Path(profile_run_dir).is_dir():
+          with self._run_dir_cache_lock:
+            self._run_to_profile_run_dir[frontend_run] = profile_run_dir
           if frontend_run not in visited_runs:
             visited_runs.add(frontend_run)
             yield frontend_run
@@ -1502,7 +1564,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return
-    profile_run_dir = epath.Path(run_dir)
+    profile_run_dir = self._epath.Path(run_dir)
     cache = ToolsCache(profile_run_dir)
 
     cached_tools = cache.load()
@@ -1518,7 +1580,10 @@ class ProfilePlugin(base_plugin.TBPlugin):
       all_filenames = [f.name for f in profile_run_dir.iterdir()]
     except OSError as e:
       logger.warning(
-          'Cannot read asset directory: %s, Error %r', profile_run_dir, e
+          'Cannot read asset directory: %s, Error %r',
+          profile_run_dir,
+          e,
+          exc_info=True,
       )
       return tools
 

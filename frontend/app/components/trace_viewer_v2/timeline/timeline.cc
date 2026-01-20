@@ -1102,18 +1102,16 @@ void Timeline::HandleWheel() {
     // in or out.
     const float zoom_factor = 1.0f + io.MouseWheel * kMouseWheelZoomSpeed;
     Zoom(zoom_factor);
-  } else if (io.MouseWheelH != 0.0f) {
-    // Handle horizontal scrolling (e.g., with a trackpad or mouse with
-    // horizontal wheel).
-    Pan(io.MouseWheelH);
-  } else if (io.KeyShift) {
-    // If the mouse wheel is being used with the shift key, pan the timeline
-    // horizontally.
-    Pan(io.MouseWheel);
-  } else {
-    // Otherwise, scroll the timeline vertically.
-    Scroll(io.MouseWheel);
+    return;
   }
+
+  const float horizontal_pan_delta =
+      io.KeyShift ? io.MouseWheel : io.MouseWheelH;
+  const float vertical_scroll_delta =
+      io.KeyShift ? io.MouseWheelH : io.MouseWheel;
+
+  if (horizontal_pan_delta != 0.0f) Pan(horizontal_pan_delta);
+  if (vertical_scroll_delta != 0.0f) Scroll(vertical_scroll_delta);
 }
 
 void Timeline::HandleEventDeselection() {

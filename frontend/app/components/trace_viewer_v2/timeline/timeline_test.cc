@@ -1454,6 +1454,40 @@ TEST_F(MockTimelineImGuiFixture,
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {
+  // Simulate diagonal scrolling (both horizontal and vertical wheel).
+  ImGui::GetIO().AddMouseWheelEvent(1.0f, 2.0f);  // X=1, Y=2
+
+  // Expect standard behavior:
+  // MouseWheelH (X) -> Pan
+  // MouseWheel (Y) -> Scroll
+  EXPECT_CALL(timeline_, Pan(FloatEq(1.0f)));
+  EXPECT_CALL(timeline_, Scroll(FloatEq(2.0f)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
+  // Simulate diagonal scrolling with Shift key.
+  ImGui::GetIO().AddMouseWheelEvent(1.0f, 2.0f);  // X=1, Y=2
+
+  // Manually run the frame loop to inject KeyShift after NewFrame updates the
+  // IO. This avoids issues where NewFrame might reset io.KeyShift if the key
+  // event isn't processed as expected in the mock.
+  ImGui::NewFrame();
+  ImGui::GetIO().KeyShift = true;
+
+  // Expect swapped behavior:
+  // MouseWheel (Y) -> Pan
+  // MouseWheelH (X) -> Scroll
+  EXPECT_CALL(timeline_, Pan(FloatEq(2.0f)));
+  EXPECT_CALL(timeline_, Scroll(FloatEq(1.0f)));
+
+  timeline_.Draw();
+  Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+  ImGui::EndFrame();
+}
+
 using RealTimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
 
 // Add a sanity check that the window padding is set to zero.

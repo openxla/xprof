@@ -28,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
+#include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/op_stats_to_overview_page.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
@@ -85,7 +86,16 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
   absl::StatusOr<const op_profile::Profile*> GetOpProfile() override {
-    return absl::UnimplementedError("Not implemented yet.");
+    absl::MutexLock lock(mutex_);
+    if (!op_profile_cache_) {
+      TF_ASSIGN_OR_RETURN(const OpStats* combined_op_stats, GetOpStatsLocked());
+      op_profile_cache_ = std::make_unique<op_profile::Profile>();
+      ConvertOpStatsToOpProfile(
+          *combined_op_stats,
+          combined_op_stats->run_environment().hardware_type(),
+          *op_profile_cache_);
+    }
+    return op_profile_cache_.get();
   }
 
   absl::StatusOr<const MemoryProfile*> GetMemoryProfile() override {
@@ -111,6 +121,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
   std::unique_ptr<InputPipelineAnalysisResult> input_pipeline_analysis_cache_
       ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<op_profile::Profile> op_profile_cache_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace profiler

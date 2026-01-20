@@ -1,4 +1,3 @@
-import type {WasmModule} from './trace_viewer_v2_wasm/trace_viewer_v2';
 
 /**
  * The over-fetching factor for trace events.
@@ -102,7 +101,7 @@ declare function loadWasmTraceViewerModule(
  * compiled C++ Trace Viewer logic, including canvas access, WebGPU device
  * injection, and trace data processing.
  */
-export declare interface TraceViewerV2Module extends WasmModule {
+  export declare interface TraceViewerV2Module extends EmscriptenModule {
   HEAPU8: Uint8Array;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
@@ -172,9 +171,13 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  void device.lost.then(() => {
-    throw new Error('WebGPU Cannot be initialized - Device has been lost');
-  });
+  // tslint:disable-next-line:no-any
+  (device as any)
+      .lost
+      .then(() => {
+        throw new Error('WebGPU Cannot be initialized - Device has been lost');
+      })
+      .catch(() => {});
   return device;
 }
 
@@ -227,7 +230,7 @@ function setupFileInputHandler(traceviewerModule: TraceViewerV2Module) {
 
       try {
         const fileContent = await file.text();
-        const jsonData = JSON.parse(fileContent);
+        const jsonData = JSON.parse(fileContent) as unknown;
         if (!isTraceData(jsonData)) {
           console.error('File does not contain valid trace events.');
           return;

@@ -101,7 +101,12 @@ export interface DataServiceV2Interface {
   getSearchParams(): URLSearchParams;
   setSearchParams(searchParams: URLSearchParams): void;
 
-  exportDataAsCSV(sessionId: string, tool: string, host: string): void;
+  // Export tool data for the given session as a CSV.
+  // tqx: additional query parameters to pass to the server. The format should
+  // be a semicolon-separated list of key-value pairs, for example,
+  // "key1:value1;key2:value2".
+  exportDataAsCSV(sessionId: string, tool: string, host: string, tqx?: string):
+      void;
 
   getDataByModuleNameAndMemorySpace(
       tool: string,

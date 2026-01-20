@@ -369,12 +369,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
     window.history.replaceState({}, '', newUrl);
   }
 
-  exportDataAsCSV(sessionId: string, tool: string, host: string) {
+  exportDataAsCSV(sessionId: string, tool: string, host: string, tqx = '') {
     let params = this.getHttpParamsWithPath();
     params = params.set('run', sessionId)
                  .set('tag', tool)
                  .set('host', host)
-                 .set('tqx', 'out:csv;');
+                 .set('tqx', 'out:csv;' + tqx);
     windowOpen(
         window, this.pathPrefix + DATA_CSV_API + '?' + params.toString(),
         '_blank');

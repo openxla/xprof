@@ -1106,6 +1106,15 @@ bool Timeline::HandleKeyboard() {
     is_interacting = true;
   }
 
+  // Cancel selection
+  if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (is_selecting_) {
+      is_selecting_ = false;
+      is_dragging_ = false;
+      current_selected_time_range_.reset();
+    }
+  }
+
   return is_interacting;
 }
 

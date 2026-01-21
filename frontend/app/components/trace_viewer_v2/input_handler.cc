@@ -19,7 +19,8 @@ ImGuiKey TranslateKey(absl::string_view code) {
            {"KeyS", ImGuiKey_S},
            {"KeyW", ImGuiKey_W},
            {"ArrowDown", ImGuiKey_DownArrow},
-           {"ArrowUp", ImGuiKey_UpArrow}});
+           {"ArrowUp", ImGuiKey_UpArrow},
+           {"Escape", ImGuiKey_Escape}});
   if (auto it = kKeyMap.find(code); it != kKeyMap.end()) return it->second;
   return ImGuiKey_None;
 }

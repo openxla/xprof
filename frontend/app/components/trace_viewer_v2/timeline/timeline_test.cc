@@ -2268,6 +2268,36 @@ TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 25.0);
 }
 
+TEST_F(TimelineDragSelectionTest, EscapeCancelsSelection) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag (Shift is already held by SetUp).
+  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag to 400.0f
+  io.MousePos = ImVec2(400.0f, 50.0f);
+  SimulateFrame();
+
+  // Verify selection is active.
+  ASSERT_TRUE(timeline_.current_selected_time_range().has_value());
+  EXPECT_GT(timeline_.current_selected_time_range()->duration(), 0);
+
+  // Press Escape.
+  io.AddKeyEvent(ImGuiKey_Escape, true);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiKey_Escape, false);
+
+  // Verify selection is cancelled.
+  EXPECT_FALSE(timeline_.current_selected_time_range().has_value());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // Release mouse button to clean up
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
 TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   ImGuiIO& io = ImGui::GetIO();
 

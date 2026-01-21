@@ -22,7 +22,10 @@ from __future__ import division
 from __future__ import print_function
 
 import atexit
+import concurrent.futures
+import gzip
 import inspect
+import json
 import logging
 import os
 import shutil
@@ -30,6 +33,9 @@ import tempfile
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
+from etils import epath
+from werkzeug import wrappers
 
 from xprof import profile_plugin
 from xprof import profile_plugin_test_utils as utils
@@ -38,6 +44,7 @@ from xprof.convert import raw_to_tool_data as convert
 from xprof.protobuf import trace_events_pb2
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.standalone.tensorboard_shim import plugin_event_multiplexer
+
 
 RUN_TO_TOOLS = {
     'foo': ['trace_viewer', 'trace_viewer@'],
@@ -562,6 +569,326 @@ class ProfilePluginTest(absltest.TestCase):
     )
     runs = self.plugin.runs_imp(request)
     self.assertListEqual(['run1'], runs)
+
+
+class GenerateCacheTaskTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.logdir = self.create_tempdir().full_path
+    self.multiplexer = plugin_event_multiplexer.EventMultiplexer()
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(
+            convert, 'xspace_to_tool_data', autospec=True, spec_set=True
+        )
+    )
+    self.mock_write_cache_version_file = self.enter_context(
+        mock.patch.object(
+            profile_plugin.ProfilePlugin,
+            '_write_cache_version_file',
+            autospec=True,
+            spec_set=True,
+        )
+    )
+    self.plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=self.mock_xspace_to_tool_data,
+    )
+
+  def test_generate_cache_task_generates_cache(self):
+    session_path = self.create_tempdir().full_path
+    asset_paths = [
+        os.path.join(session_path, 'host1.xplane.pb'),
+    ]
+    epath.Path(asset_paths[0]).touch()
+    tool_list = ['overview_page', 'trace_viewer@']
+    params = {'session_path': session_path}
+    self.mock_xspace_to_tool_data.return_value = ('data', 'application/json')
+
+    self.plugin._generate_cache_task(
+        asset_paths=asset_paths,
+        tool_list=tool_list,
+        params=params,
+        session_path=session_path,
+    )
+
+    self.mock_write_cache_version_file.assert_called_once_with(
+        self.plugin, session_path
+    )
+    expected_calls = [
+        mock.call(mock.ANY, 'overview_page', mock.ANY),
+        mock.call(mock.ANY, 'trace_viewer@', mock.ANY),
+    ]
+    self.assertLen(
+        expected_calls,
+        self.mock_xspace_to_tool_data.call_count,
+    )
+    self.mock_xspace_to_tool_data.assert_has_calls(
+        expected_calls, any_order=True
+    )
+
+  def test_generate_cache_task_continues_on_tool_error(self):
+    session_path = self.create_tempdir().full_path
+    asset_paths = [
+        os.path.join(session_path, 'host1.xplane.pb'),
+    ]
+    epath.Path(asset_paths[0]).touch()
+    tool_list = ['overview_page', 'trace_viewer@']
+    params = {'session_path': session_path}
+    # Simulate an error for the first tool, 'overview_page'
+    self.mock_xspace_to_tool_data.side_effect = [
+        ValueError('Failed to generate overview'),
+        ('trace_data', 'application/json'),
+    ]
+
+    self.plugin._generate_cache_task(
+        asset_paths=asset_paths,
+        tool_list=tool_list,
+        params=params,
+        session_path=session_path,
+    )
+
+    self.mock_write_cache_version_file.assert_called_once_with(
+        self.plugin, session_path
+    )
+    self.assertEqual(
+        2,
+        self.mock_xspace_to_tool_data.call_count,
+        msg='Expect 2 calls despite the first one failing',
+    )
+    self.mock_xspace_to_tool_data.assert_has_calls([
+        mock.call(mock.ANY, 'overview_page', mock.ANY),
+        mock.call(mock.ANY, 'trace_viewer@', mock.ANY),
+    ])
+
+
+def _get_response_data(response: wrappers.Response) -> bytes:
+  try:
+    return gzip.decompress(response.get_data())
+  except OSError:
+    return response.get_data()
+
+
+class GenerateCacheImplTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.logdir = self.create_tempdir().full_path
+    self.multiplexer = plugin_event_multiplexer.EventMultiplexer()
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+
+    # Patch dependencies
+    self.mock_xspace_to_tool_data = self.enter_context(
+        mock.patch.object(
+            convert, 'xspace_to_tool_data', autospec=True, spec_set=True
+        )
+    )
+    self.mock_write_cache_version_file = self.enter_context(
+        mock.patch.object(
+            profile_plugin.ProfilePlugin,
+            '_write_cache_version_file',
+            autospec=True,
+            spec_set=True,
+        )
+    )
+    self.mock_runs_imp = self.enter_context(
+        mock.patch.object(
+            profile_plugin.ProfilePlugin,
+            'runs_imp',
+            autospec=True,
+            spec_set=True,
+        )
+    )
+    self.mock_run_tools_imp = self.enter_context(
+        mock.patch.object(
+            profile_plugin.ProfilePlugin,
+            'run_tools_imp',
+            autospec=True,
+            spec_set=True,
+        )
+    )
+    self.mock_executor = mock.create_autospec(
+        concurrent.futures.ThreadPoolExecutor, instance=True, spec_set=True
+    )
+    self.mock_submit = self.mock_executor.submit
+
+    # Instance of the plugin to test
+    self.plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=self.mock_xspace_to_tool_data,
+        cache_generation_executor=self.mock_executor,
+    )
+
+    # Default mock behaviors
+    self.mock_runs_imp.return_value = ['test_run']
+    self.mock_run_tools_imp.return_value = ['overview_page', 'trace_viewer@']
+
+  def test_generate_cache_rejects_get_request(self):
+    request = wrappers.Request.from_values(method='GET')
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 405)
+
+  def test_generate_cache_fails_if_session_path_missing(self):
+    request = wrappers.Request.from_values(method='POST', query_string='')
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 400)
+    self.assertIn(
+        b'Missing "session_path" parameter', _get_response_data(response)
+    )
+
+  def test_generate_cache_fails_if_no_xplane_files_found(self):
+    session_path = self.create_tempdir().full_path
+    request = wrappers.Request.from_values(
+        method='POST', query_string=f'session_path={session_path}'
+    )
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 404)
+    self.assertIn(
+        b'No XPlane files found', _get_response_data(response)
+    )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='no_runs',
+          runs_imp_return=[],
+          expected_message=(
+              b'Expected exactly one run for the provided session_path, but'
+              b' found 0: [].'
+          ),
+      ),
+      dict(
+          testcase_name='multiple_runs',
+          runs_imp_return=['run1', 'run2'],
+          expected_message=(
+              b'Expected exactly one run for the provided session_path, but'
+              b" found 2: ['run1', 'run2']."
+          ),
+      ),
+  )
+  def test_generate_cache_fails_if_runs_is_not_one(
+      self, runs_imp_return, expected_message
+  ):
+    session_path = self.create_tempdir().full_path
+    epath.Path(session_path, 'host1.xplane.pb').touch()
+    self.mock_runs_imp.return_value = runs_imp_return
+    request = wrappers.Request.from_values(
+        method='POST', query_string=f'session_path={session_path}'
+    )
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 400)
+    self.assertIn(expected_message, _get_response_data(response))
+
+  def test_generate_cache_fails_if_no_valid_tools_to_cache(self):
+    session_path = self.create_tempdir().full_path
+    epath.Path(session_path, 'host1.xplane.pb').touch()
+    self.mock_run_tools_imp.return_value = ['unsupported_tool']
+    request = wrappers.Request.from_values(
+        method='POST',
+        query_string=f'session_path={session_path}&tools=unsupported_tool',
+    )
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 400)
+    self.assertIn(
+        b'No valid XPlane tools', _get_response_data(response)
+    )
+
+  def test_generate_cache_fails_on_thread_pool_error(self):
+    session_path = self.create_tempdir().full_path
+    epath.Path(session_path, 'host1.xplane.pb').touch()
+    self.mock_submit.side_effect = RuntimeError('Pool closed')
+    request = wrappers.Request.from_values(
+        method='POST', query_string=f'session_path={session_path}'
+    )
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 500)
+    self.assertIn(
+        b'Failed to schedule task', _get_response_data(response)
+    )
+
+  def test_generate_cache_fails_on_os_error(self):
+    """Verifies that an OSError during file listing returns a 500 status code."""
+    session_path = self.create_tempdir().full_path
+    request = wrappers.Request.from_values(
+        method='POST', query_string=f'session_path={session_path}'
+    )
+
+    with mock.patch.object(
+        self.plugin, '_epath', autospec=True, spec_set=True
+    ) as mock_epath:
+      mock_epath.Path.return_value.glob.side_effect = OSError('Disk error')
+      response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 500)
+    self.assertIn(b'Error listing files', _get_response_data(response))
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='default_tools',
+          tools_param=None,
+          available_tools=['overview_page', 'trace_viewer@'],
+          expected_submitted_tools=['overview_page', 'trace_viewer@'],
+      ),
+      dict(
+          testcase_name='whitespace_tools',
+          tools_param=' overview_page , trace_viewer@ ',
+          available_tools=['overview_page', 'trace_viewer@'],
+          expected_submitted_tools=['overview_page', 'trace_viewer@'],
+      ),
+      dict(
+          testcase_name='unavailable_tools_are_skipped',
+          tools_param='overview_page,trace_viewer@,graph_viewer',
+          available_tools=['overview_page', 'graph_viewer'],
+          expected_submitted_tools=['overview_page', 'graph_viewer'],
+      ),
+      dict(
+          testcase_name='specific_tools_are_submitted',
+          tools_param='overview_page',
+          available_tools=[
+              'overview_page',
+              'trace_viewer@',
+              'input_pipeline_analyzer',
+          ],
+          expected_submitted_tools=['overview_page'],
+      ),
+  )
+  def test_generate_cache_impl_submits_correct_tools(
+      self,
+      tools_param: str | None,
+      available_tools: list[str],
+      expected_submitted_tools: list[str],
+  ):
+    session_path = self.create_tempdir().full_path
+    epath.Path(session_path, 'host1.xplane.pb').touch()
+    self.mock_run_tools_imp.return_value = available_tools
+    query = f'session_path={session_path}'
+    if tools_param:
+      query += f'&tools={tools_param}'
+    request = wrappers.Request.from_values(method='POST', query_string=query)
+
+    response = self.plugin._generate_cache_impl(request)
+
+    self.assertEqual(response.status_code, 202)
+    response_data = json.loads(_get_response_data(response))
+    self.assertEqual(response_data['status'], 'ACCEPTED')
+    self.mock_submit.assert_called_once()
+    _, kwargs = self.mock_submit.call_args
+    self.assertEqual(kwargs['session_path'], session_path)
+    self.assertCountEqual(kwargs['tool_list'], expected_submitted_tools)
 
 
 if __name__ == '__main__':

@@ -18,8 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import concurrent.futures
 import dataclasses
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from etils import epath
 from werkzeug import Request
@@ -46,10 +47,11 @@ def create_profile_plugin(
     *,
     epath_module: Any = epath,
     xspace_to_tool_data_fn: Callable[
-        [list[epath.Path], str, dict[str, Any]],
+        [Sequence[epath.Path], str, dict[str, Any]],
         tuple[bytes | str | None, str],
     ] = convert.xspace_to_tool_data,
     version_module: Any = version,
+    cache_generation_executor: concurrent.futures.Executor | None = None,
 ):
   """Instantiates ProfilePlugin with data from the specified directory.
 
@@ -60,6 +62,7 @@ def create_profile_plugin(
     epath_module: The epath module to use.
     xspace_to_tool_data_fn: Function to convert xspace to tool data.
     version_module: The version module to use.
+    cache_generation_executor: Executor for async cache generation.
 
   Returns:
     An instance of ProfilePlugin.
@@ -79,6 +82,7 @@ def create_profile_plugin(
       epath_module=epath_module,
       xspace_to_tool_data_fn=xspace_to_tool_data_fn,
       version_module=version_module,
+      cache_generation_executor=cache_generation_executor,
   )
 
 

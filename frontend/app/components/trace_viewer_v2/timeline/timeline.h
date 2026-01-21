@@ -226,6 +226,14 @@ class Timeline {
                                            float end_x, float end_y,
                                            ImVec2& cp0, ImVec2& cp1);
 
+  // Checks if the visible time range is close to the edge of the loaded data
+  // range. If the user pans or zooms to an area where data might soon be
+  // needed (i.e., outside the `preserve` range), this function triggers a data
+  // fetch request for a larger range (`fetch` range) to ensure data is
+  // available before it becomes visible, providing a smoother user experience.
+  // Exposed for testing.
+  void MaybeRequestData();
+
  protected:
   // Virtual method to allow mocking in tests.
   virtual ImVec2 GetTextSize(absl::string_view text) const {
@@ -301,16 +309,19 @@ class Timeline {
                               double px_per_time_unit_val);
 
   // Handles keyboard input for panning and zooming.
-  void HandleKeyboard();
+  // Returns true if any interaction occurred.
+  bool HandleKeyboard();
 
   // Handles mouse wheel input for scrolling.
-  void HandleWheel();
+  // Returns true if any interaction occurred.
+  bool HandleWheel();
 
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
 
   // Handles mouse input for creating curtains.
-  void HandleMouse();
+  // Returns true if any interaction occurred.
+  bool HandleMouse();
 
   void HandleMouseDown(float timeline_origin_x);
   void HandleMouseDrag(float timeline_origin_x);
@@ -328,13 +339,6 @@ class Timeline {
       ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV;
   static constexpr ImGuiWindowFlags kLaneFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-
-  // Checks if the visible time range is close to the edge of the loaded data
-  // range. If the user pans or zooms to an area where data might soon be
-  // needed (i.e., outside the `preserve` range), this function triggers a data
-  // fetch request for a larger range (`fetch` range) to ensure data is
-  // available before it becomes visible, providing a smoother user experience.
-  void MaybeRequestData();
 
   FlameChartTimelineData timeline_data_;
   // TODO - b/444026851: Set the label width based on the real screen width.

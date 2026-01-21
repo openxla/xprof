@@ -621,6 +621,7 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
   // Start: 5.0001 - 0.5 = 4.9996s.
   // End: 5.0001 + 0.5 = 5.0006s.
   timeline.SetVisibleRange({5000000.0, 5000200.0});
+  timeline.MaybeRequestData();
 
   ASSERT_TRUE(request_triggered);
   EXPECT_DOUBLE_EQ(
@@ -654,6 +655,7 @@ TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
 
   // Simulate panning outside preserve range.
   timeline.SetVisibleRange({100.0, 200.0});
+  timeline.MaybeRequestData();
 
   ASSERT_TRUE(request_triggered);
   // Fetch range (Scale 3.0 of visible): [0, 300].
@@ -740,6 +742,7 @@ TEST(TimelineTest,
 
   // Simulate panning.
   timeline.SetVisibleRange({800.0, 900.0});
+  timeline.MaybeRequestData();
 
   EXPECT_FALSE(request_triggered);
 }
@@ -764,6 +767,7 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
 
   // Simulate panning inside preserve range.
   timeline.SetVisibleRange({100.0, 200.0});
+  timeline.MaybeRequestData();
 
   EXPECT_FALSE(request_triggered);
 }
@@ -803,11 +807,13 @@ TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
       });
 
   timeline.SetVisibleRange({100.0, 200.0});
+  timeline.MaybeRequestData();
   EXPECT_EQ(request_count, 1);
 
   // Should not trigger again because is_incremental_loading_ should be set to
   // true inside `MaybeRequestData`.
   timeline.SetVisibleRange({100.0, 200.0});
+  timeline.MaybeRequestData();
   EXPECT_EQ(request_count, 1);
 }
 
@@ -841,6 +847,7 @@ TEST(TimelineTest, MaybeRequestDataRefetchWhenZoomedIn) {
   // Start: 5.2 - 0.6 = 4.6s.
   // End: 5.2 + 0.6 = 5.8s.
   timeline.SetVisibleRange({5000000.0, 5400000.0});
+  timeline.MaybeRequestData();
 
   ASSERT_TRUE(request_triggered);
   EXPECT_DOUBLE_EQ(
@@ -877,6 +884,7 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
   // Start: 5.00005s - 500us = 4.99955s.
   // End: 5.00005s + 500us = 5.00055s.
   timeline.SetVisibleRange({5000000.0, 5000100.0});
+  timeline.MaybeRequestData();
 
   ASSERT_TRUE(request_triggered);
   EXPECT_DOUBLE_EQ(
@@ -915,6 +923,7 @@ TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
 
   // Move visible range to the end of the data range.
   timeline.SetVisibleRange({9000000.0, 10000000.0});
+  timeline.MaybeRequestData();
 
   ASSERT_TRUE(request_triggered);
   EXPECT_DOUBLE_EQ(
@@ -960,6 +969,7 @@ TEST(TimelineTest, MaybeRequestDataSkipsFetchIfRangeAlreadyRequested) {
   // normally this WOULD trigger refetch.
   // But last_fetch ([0, 3000]) DOES contain Preserve.
   timeline.SetVisibleRange({2400.0, 2500.0});
+  timeline.MaybeRequestData();
 
   EXPECT_FALSE(request_triggered);
 }
@@ -989,6 +999,8 @@ TEST(TimelineTest, MaybeRequestDataSuppressesRedundantFetchWithExpandedRange) {
 
   // Visible [5.0s, 5.0004s].
   timeline.SetVisibleRange({5000000.0, 5000400.0});
+  timeline.MaybeRequestData();
+
   ASSERT_TRUE(request_triggered);
   // last_fetch approx [4.9996s, 5.0008s] (Duration 1200us > 1000us Min).
 
@@ -1153,7 +1165,8 @@ TEST_F(MockTimelineImGuiFixture, ScrollUpWithUpArrowKey) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_UpArrow, true);
 
   EXPECT_CALL(timeline_,
-              Scroll(FloatEq(-kScrollSpeed * ImGui::GetIO().DeltaTime)));
+              Scroll(FloatEq(-kScrollSpeed * ImGui::GetIO().DeltaTime)))
+      .Times(1);
 
   SimulateFrame();
 }
@@ -1162,7 +1175,8 @@ TEST_F(MockTimelineImGuiFixture, ScrollDownWithDownArrowKey) {
   ImGui::GetIO().AddKeyEvent(ImGuiKey_DownArrow, true);
 
   EXPECT_CALL(timeline_,
-              Scroll(FloatEq(kScrollSpeed * ImGui::GetIO().DeltaTime)));
+              Scroll(FloatEq(kScrollSpeed * ImGui::GetIO().DeltaTime)))
+      .Times(1);
 
   SimulateFrame();
 }
@@ -1486,6 +1500,243 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
   timeline_.Draw();
   Animation::UpdateAll(ImGui::GetIO().DeltaTime);
   ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringInteraction) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline_.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // 1. Initial State
+  timeline_.SetVisibleRange({0.0, 1000000.0});
+
+  // Reset trigger before interaction starts to verify NO fetches occur until
+  // the end.
+  request_triggered = false;
+
+  // 2. Trigger interaction (Pan)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);  // Pan Right
+  SimulateFrame();
+
+  // 3. Force visible range to somewhere needing fetch
+  timeline_.SetVisibleRange({9000000.0, 10000000.0});
+
+  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
+  // during interaction.
+  SimulateFrame();
+
+  // 5. Should verify NO request because interaction is active.
+  EXPECT_FALSE(request_triggered);
+
+  // 6. Stop interaction (Key Up)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, false);
+
+  // 7. Simulate Frame
+  SimulateFrame();
+
+  // 8. Expect Fetch after interaction ends.
+  EXPECT_TRUE(request_triggered);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       MaybeRequestDataDeferredDuringPanLeftInteraction) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline_.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // 1. Initial State
+  timeline_.SetVisibleRange({0.0, 1000000.0});
+
+  // Reset trigger before interaction starts to verify NO fetches occur until
+  // the end.
+  request_triggered = false;
+
+  // 2. Trigger interaction (Pan)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);  // Pan Left
+  SimulateFrame();
+
+  // 3. Force visible range to somewhere needing fetch
+  timeline_.SetVisibleRange({9000000.0, 10000000.0});
+
+  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
+  // during interaction.
+  SimulateFrame();
+
+  // 5. Should verify NO request because interaction is active.
+  EXPECT_FALSE(request_triggered);
+
+  // 6. Stop interaction (Key Up)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, false);
+
+  // 7. Simulate Frame
+  SimulateFrame();
+
+  // 8. Expect Fetch after interaction ends.
+  EXPECT_TRUE(request_triggered);
+}
+
+TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringScroll) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline_.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // 1. Initial State
+  timeline_.SetVisibleRange({0.0, 1000000.0});
+
+  // Reset trigger before interaction starts
+  request_triggered = false;
+
+  // 2. Trigger interaction (Scroll)
+  // Simulate mouse wheel event. This makes HandleWheel return true for this
+  // frame.
+  ImGui::GetIO().AddMouseWheelEvent(0.0f, -1.0f);  // Scroll down
+
+  // 3. Force visible range to somewhere needing fetch
+  // (Scroll might also update visible range if we were using real scroll logic,
+  // but here we force it to ensure fetch conditions are met independent of
+  // scroll amount)
+  timeline_.SetVisibleRange({9000000.0, 10000000.0});
+
+  // 4. Simulate Frame (immediate)
+  // This processes the wheel event. is_interacting will be true.
+  SimulateFrame();
+
+  // 5. Should verify NO request because interaction is active.
+  EXPECT_FALSE(request_triggered);
+
+  // 6. Stop interaction
+  // By NOT adding a new MouseWheelEvent, io.MouseWheel will be 0 in the next
+  // frame. HandleWheel will return false.
+
+  // 7. Simulate Next Frame
+  SimulateFrame();
+
+  // 8. Expect Fetch after interaction ends.
+  EXPECT_TRUE(request_triggered);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       MaybeRequestDataDeferredDuringZoomInInteraction) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline_.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // 1. Initial State
+  timeline_.SetVisibleRange({0.0, 1000000.0});
+
+  // Reset trigger before interaction starts to verify NO fetches occur until
+  // the end.
+  request_triggered = false;
+
+  // 2. Trigger interaction (Zoom In)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
+  SimulateFrame();
+
+  // 3. Force visible range to somewhere needing fetch
+  timeline_.SetVisibleRange({9000000.0, 10000000.0});
+
+  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
+  // during interaction.
+  SimulateFrame();
+
+  // 5. Should verify NO request because interaction is active.
+  EXPECT_FALSE(request_triggered);
+
+  // 6. Stop interaction (Key Up)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
+
+  // 7. Simulate Frame
+  SimulateFrame();
+
+  // 8. Expect Fetch after interaction ends.
+  EXPECT_TRUE(request_triggered);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       MaybeRequestDataDeferredDuringZoomOutInteraction) {
+  timeline_.set_data_time_range({0.0, 10000000.0});
+  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline_.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  EventData received_data;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+          received_data = detail;
+        }
+      });
+
+  // 1. Initial State
+  timeline_.SetVisibleRange({0.0, 1000000.0});
+
+  // Reset trigger before interaction starts to verify NO fetches occur until
+  // the end.
+  request_triggered = false;
+
+  // 2. Trigger interaction (Zoom Out)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, true);
+  SimulateFrame();
+
+  // 3. Force visible range to somewhere needing fetch
+  timeline_.SetVisibleRange({9000000.0, 10000000.0});
+
+  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
+  // during interaction.
+  SimulateFrame();
+
+  // 5. Should verify NO request because interaction is active.
+  EXPECT_FALSE(request_triggered);
+
+  // 6. Stop interaction (Key Up)
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, false);
+
+  // 7. Simulate Frame
+  SimulateFrame();
+
+  // 8. Expect Fetch after interaction ends.
+  EXPECT_TRUE(request_triggered);
 }
 
 using RealTimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;

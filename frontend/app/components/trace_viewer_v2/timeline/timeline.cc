@@ -52,7 +52,6 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   } else {
     visible_range_.snap_to(range);
   }
-  MaybeRequestData();
 }
 
 void Timeline::Draw() {
@@ -119,9 +118,19 @@ void Timeline::Draw() {
   // interaction.
   // The performance impact is fine because HandleKeyboard/HandleWheel() only
   // performs lightweight checks and calculations.
-  HandleKeyboard();
-  HandleWheel();
-  HandleMouse();
+  bool is_interacting = false;
+  is_interacting |= HandleKeyboard();
+  is_interacting |= HandleWheel();
+  is_interacting |= HandleMouse();
+
+  // We call MaybeRequestData() to check if we need to fetch more data.
+  // We do this here instead of in SetVisibleRange because we want to debounce
+  // the request during continuous interaction (like panning/zooming).
+  // The check is skipped if the user is currently interacting with
+  // the timeline to avoid sending requests during interaction.
+  if (!is_interacting) {
+    MaybeRequestData();
+  }
 
   ImGui::EndChild();
 
@@ -1055,20 +1064,26 @@ void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
   }
 }
 
-void Timeline::HandleKeyboard() {
+bool Timeline::HandleKeyboard() {
   const ImGuiIO& io = ImGui::GetIO();
+  bool is_interacting = false;
 
   // Pan left
   if (ImGui::IsKeyDown(ImGuiKey_A)) {
     float multiplier = GetSpeedMultiplier(io, ImGuiKey_A);
     Pan(-kPanningSpeed * io.DeltaTime * multiplier);
+    is_interacting = true;
   }
   // Pan right
   if (ImGui::IsKeyDown(ImGuiKey_D)) {
     float multiplier = GetSpeedMultiplier(io, ImGuiKey_D);
     Pan(kPanningSpeed * io.DeltaTime * multiplier);
+    is_interacting = true;
   }
 
+  // Unlike panning and zooming, vertical scrolling does not affect the visible
+  // time range, so it doesn't need to pause data requests by setting
+  // is_interacting = true.
   // Scroll up
   if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
     Scroll(-kScrollSpeed * io.DeltaTime);
@@ -1082,19 +1097,23 @@ void Timeline::HandleKeyboard() {
   if (ImGui::IsKeyDown(ImGuiKey_W)) {
     float multiplier = GetSpeedMultiplier(io, ImGuiKey_W);
     Zoom(1.0f - kZoomSpeed * io.DeltaTime * multiplier);
+    is_interacting = true;
   }
   // Zoom out
   if (ImGui::IsKeyDown(ImGuiKey_S)) {
     float multiplier = GetSpeedMultiplier(io, ImGuiKey_S);
     Zoom(1.0f + kZoomSpeed * io.DeltaTime * multiplier);
+    is_interacting = true;
   }
+
+  return is_interacting;
 }
 
-void Timeline::HandleWheel() {
+bool Timeline::HandleWheel() {
   const ImGuiIO& io = ImGui::GetIO();
 
   if (io.MouseWheel == 0.0f && io.MouseWheelH == 0.0f) {
-    return;
+    return false;
   }
 
   if (io.KeyCtrl || io.KeySuper) {
@@ -1102,7 +1121,7 @@ void Timeline::HandleWheel() {
     // in or out.
     const float zoom_factor = 1.0f + io.MouseWheel * kMouseWheelZoomSpeed;
     Zoom(zoom_factor);
-    return;
+    return true;
   }
 
   const float horizontal_pan_delta =
@@ -1112,6 +1131,8 @@ void Timeline::HandleWheel() {
 
   if (horizontal_pan_delta != 0.0f) Pan(horizontal_pan_delta);
   if (vertical_scroll_delta != 0.0f) Scroll(vertical_scroll_delta);
+
+  return true;
 }
 
 void Timeline::HandleEventDeselection() {
@@ -1137,13 +1158,13 @@ void Timeline::HandleEventDeselection() {
   }
 }
 
-void Timeline::HandleMouse() {
+bool Timeline::HandleMouse() {
   const ImRect timeline_area = GetTimelineArea();
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
   if (!is_mouse_over_timeline && !is_dragging_) {
-    return;
+    return false;
   }
 
   if (is_mouse_over_timeline) {
@@ -1153,7 +1174,10 @@ void Timeline::HandleMouse() {
   if (is_dragging_) {
     HandleMouseDrag(timeline_area.Min.x);
     HandleMouseRelease();
+    return true;
   }
+
+  return false;
 }
 
 void Timeline::HandleMouseDown(float timeline_origin_x) {
@@ -1220,6 +1244,7 @@ ImRect Timeline::GetTimelineArea() const {
 }
 
 void Timeline::MaybeRequestData() {
+  // Don't request more data if a request is already in flight.
   if (is_incremental_loading_) return;
 
   // We have several ranges of interest for incremental loading:

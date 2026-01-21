@@ -23,17 +23,23 @@ limitations under the License.
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/json/json.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
 #include "xprof/convert/op_stats_to_overview_page.h"
+#include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "xprof/convert/xplane_to_memory_profile.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
+#include "plugin/xprof/protobuf/memory_profile.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
@@ -99,7 +105,29 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
   absl::StatusOr<const MemoryProfile*> GetMemoryProfile() override {
-    return absl::UnimplementedError("Not implemented yet.");
+    absl::MutexLock lock(mutex_);
+    if (!memory_profile_cache_) {
+      if (session_snapshot_.XSpaceSize() != 1) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Memory profile tool expects only 1 XSpace path but gets ",
+            session_snapshot_.XSpaceSize()));
+      }
+      std::string memory_profile_json;
+      google::protobuf::Arena arena;
+      TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                          session_snapshot_.GetXSpace(0, &arena));
+      PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                                 /*derived_timeline=*/false);
+      TF_RETURN_IF_ERROR(
+          ConvertXSpaceToMemoryProfileJson(*xspace, &memory_profile_json));
+      auto proto = std::make_unique<MemoryProfile>();
+      google::protobuf::util::JsonParseOptions options;
+      options.ignore_unknown_fields = true;
+      TF_RETURN_IF_ERROR(google::protobuf::util::JsonStringToMessage(
+          memory_profile_json, proto.get(), options));
+      memory_profile_cache_ = std::move(proto);
+    }
+    return memory_profile_cache_.get();
   }
 
  private:
@@ -123,6 +151,7 @@ class ToolDataProviderImpl : public ToolDataProvider {
   std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<op_profile::Profile> op_profile_cache_
       ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<MemoryProfile> memory_profile_cache_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace profiler

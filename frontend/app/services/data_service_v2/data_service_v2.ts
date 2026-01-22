@@ -207,6 +207,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return false;
   }
 
+  createToolUrl(
+      toolName: string,
+      sessionId: string,
+      params: {[key: string]: string},
+      ): string {
+    return '';
+  }
+
   getGraphTypes(sessionId: string) {
     const types = [
       {

@@ -39,6 +39,13 @@ export interface DataServiceV2Interface {
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
 
+  /** Creates a tool URL for cross tool linking. */
+  createToolUrl(
+      toolName: string,
+      sessionId: string,
+      params: {[key: string]: string},
+      ): string;
+
   getGraphViewerLink(
       sessionId: string,
       moduleName: string,

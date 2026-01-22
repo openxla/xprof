@@ -1,7 +1,8 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_INPUT_HANDLER_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_INPUT_HANDLER_H_
 
-#include <emscripten/html5.h>  // NOLINT
+#include <emscripten/em_types.h>
+#include <emscripten/html5.h>
 
 namespace traceviewer {
 

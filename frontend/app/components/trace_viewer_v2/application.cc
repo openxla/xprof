@@ -1,21 +1,24 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 
 #include <dirent.h>
-#include <emscripten/emscripten.h>  // NO_LINT
+#include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "third_party/dear_imgui/imgui.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/fonts/fonts.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/input_handler.h"  // NO_LINT
+#include "xprof/frontend/app/components/trace_viewer_v2/input_handler.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 

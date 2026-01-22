@@ -1,12 +1,6 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_CANVAS_STATE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_CANVAS_STATE_H_
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten/emscripten.h>  // NO_LINT
-#else
-#define EM_ASM(...)
-#endif
-
 #include <cstdint>
 #include <optional>
 #include <type_traits>

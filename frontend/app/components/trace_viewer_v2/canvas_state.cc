@@ -1,5 +1,13 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/em_asm.h>
+#else
+// Stub EM_ASM for non-Emscripten builds to allow compilation in non-WASM
+// environments (e.g. for host tests or IDE analysis).
+#define EM_ASM(...)
+#endif
+
 #include "util/math/mathutil.h"
 
 namespace traceviewer {

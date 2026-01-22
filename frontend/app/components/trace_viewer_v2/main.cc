@@ -1,5 +1,3 @@
-#include <emscripten/bind.h>
-
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 
 int main(int argc, char** argv) {

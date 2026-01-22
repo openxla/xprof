@@ -71,12 +71,11 @@ wasm_cc_library(
         ":event_manager",
         ":input_handler",
         ":webgpu_render_platform",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
+        "//third_party/dear_imgui",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/time",
-        "//third_party/dear_imgui",
-        #data provider
+        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
     ],
 )
@@ -177,15 +176,9 @@ cc_binary(
         "requires_wasm_config",
     ],
     deps = [
-        ":animation",
         ":application",
-        ":canvas_state",
-        ":imgui_webgpu_backend",
         ":input_handler",
-        ":webgpu_render_platform",
         "//third_party/emscripten:embind",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
-        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
     ],
 )

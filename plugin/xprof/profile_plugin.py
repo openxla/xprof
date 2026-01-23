@@ -341,6 +341,10 @@ def respond(
           'blob:',
           'data:',
       ],
+      'frame-src': [
+          "'self'",
+          'https://ui.perfetto.dev',
+      ],
       'script-src-elem': [
           "'self'",
           "'unsafe-inline'",
@@ -1207,6 +1211,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     module_name = request.args.get('module_name')
     program_id = request.args.get('program_id')
     tqx = request.args.get('tqx')
+    perfetto = _get_bool_arg(request.args, 'perfetto', False)
     use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
     full_dma = _get_bool_arg(request.args, 'full_dma', False)
     run_dir = self._run_dir(run, request)
@@ -1232,6 +1237,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     params = {
         'graph_viewer_options': graph_viewer_options,
         'tqx': tqx,
+        'perfetto': perfetto,
         'host': host,
         'module_name': module_name,
         'program_id': program_id,

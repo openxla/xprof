@@ -284,3 +284,26 @@ http_archive(
 load("@org_tensorflow_tensorboard//third_party:js.bzl", "tensorboard_js_workspace")
 
 tensorboard_js_workspace()
+
+# Required by Perfetto.
+http_archive(
+    name = "rules_android",
+    sha256 = "fe3d8c4955857b44019d83d05a0b15c2a0330a6a0aab990575bb397e9570ff1b",
+    strip_prefix = "rules_android-0.6.0-alpha1",
+    url = "https://github.com/bazelbuild/rules_android/releases/download/v0.6.0-alpha1/rules_android-v0.6.0-alpha1.tar.gz",
+)
+
+http_archive(
+    name = "perfetto",
+    sha256 = "b25023f3281165a1a7d7cde9f3ed2dfcfce022ffd727e77f6589951e0ba6af9a",
+    strip_prefix = "perfetto-53.0",
+    urls = ["https://github.com/google/perfetto/archive/refs/tags/v53.0.tar.gz"],
+)
+
+http_archive(
+    name = "perfetto_cfg",
+    build_file_content = "exports_files([\"perfetto_cfg.bzl\"])",
+    sha256 = "b25023f3281165a1a7d7cde9f3ed2dfcfce022ffd727e77f6589951e0ba6af9a",
+    strip_prefix = "perfetto-53.0/bazel/standalone",
+    urls = ["https://github.com/google/perfetto/archive/refs/tags/v53.0.tar.gz"],
+)

@@ -462,6 +462,7 @@ class ProfilePluginTest(absltest.TestCase):
             'type': None,
         },
         'tqx': None,
+        'perfetto': False,
         'host': 'host1',
         'module_name': None,
         'program_id': None,

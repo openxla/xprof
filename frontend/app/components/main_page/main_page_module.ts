@@ -20,6 +20,8 @@ import {InputPipelineModule} from 'org_xprof/frontend/app/components/input_pipel
 import {KernelStatsAdapter, KernelStatsAdapterModule} from 'org_xprof/frontend/app/components/kernel_stats/kernel_stats_adapter';
 import {MegascaleStats} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats';
 import {MegascaleStatsModule} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats_module';
+import {MegascalePerfetto} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto';
+import {MegascalePerfettoModule} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto_module';
 import {MemoryProfile} from 'org_xprof/frontend/app/components/memory_profile/memory_profile';
 import {MemoryProfileModule} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_module';
 import {MemoryViewer} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer';
@@ -53,6 +55,7 @@ export const routes: Routes = [
   {path: 'trace_viewer', component: TraceViewer},
   {path: 'trace_viewer@', component: TraceViewer},
   {path: 'graph_viewer', component: GraphViewer},
+  {path: 'megascale_perfetto/:sessionId', component: MegascalePerfetto},
   {path: 'megascale_stats', component: MegascaleStats},
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
@@ -83,6 +86,7 @@ export const routes: Routes = [
     GraphViewerModule,
     FrameworkOpStatsAdapterModule,
     MegascaleStatsModule,
+    MegascalePerfettoModule,
     HloStatsModule,
     RooflineModelModule,
     InferenceProfileModule,

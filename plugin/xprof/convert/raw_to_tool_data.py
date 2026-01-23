@@ -201,10 +201,15 @@ def xspace_to_tool_data(
       if view_memory_allocation_timeline:
         content_type = 'text/html'
   elif tool == 'megascale_stats':
-    options = {'host_name': params.get('host')}
+    options = {
+        'host_name': params.get('host'),
+        'perfetto': params.get('perfetto', False),
+    }
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
+      if options['perfetto']:
+        content_type = 'application/octet-stream'
   elif tool == 'inference_profile':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:

@@ -53,7 +53,6 @@ void Application::Initialize() {
   ImGui::CreateContext();
 
   // Get initial canvas state
-  CanvasState::Update();
   const CanvasState& initial_canvas_state = CanvasState::Current();
 
   // Load fonts, colors and styles.
@@ -104,22 +103,15 @@ void Application::Initialize() {
 }
 
 void Application::MainLoop() {
-  // TODO: b/454172203 - Replace polling `CanvasState::Update()` with a
-  // push-based model. Use the `ResizeObserver` API in TypeScript to listen for
-  // canvas resize events and notify the C++ application via Emscripten.
-  if (CanvasState::Update()) {
-    const CanvasState& canvas_state = CanvasState::Current();
-    platform_->ResizeSurface(canvas_state);
-
-    UpdateImGuiDisplaySize(canvas_state);
-    fonts::LoadFonts(canvas_state.device_pixel_ratio());
-  }
-
   ImGuiIO& io = ImGui::GetIO();
   io.DeltaTime = GetDeltaTime();
 
   Animation::UpdateAll(io.DeltaTime);
 
+  Draw();
+}
+
+void Application::Draw() {
   platform_->NewFrame();
   timeline_->Draw();
   UpdateMouseCursor();
@@ -179,6 +171,18 @@ void Application::UpdateImGuiDisplaySize(const CanvasState& canvas_state) {
   // the high-DPI framebuffer.
   const float dpr = canvas_state.device_pixel_ratio();
   io.DisplayFramebufferScale = {dpr, dpr};
+}
+
+void Application::Resize(float dpr, int width, int height) {
+  CanvasState::SetState(dpr, width, height);
+  const CanvasState& canvas_state = CanvasState::Current();
+  platform_->ResizeSurface(canvas_state);
+
+  UpdateImGuiDisplaySize(canvas_state);
+  fonts::LoadFonts(canvas_state.device_pixel_ratio());
+
+  // Force a redraw immediately to avoid flashing/blank canvas.
+  Draw();
 }
 
 }  // namespace traceviewer

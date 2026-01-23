@@ -22,24 +22,25 @@ CanvasState::CanvasState() {
         const canvas = document.getElementById('canvas');
         if (!canvas) return;
         setValue($0, window.devicePixelRatio, 'float');
-        setValue($1, canvas.clientHeight, 'i32');
-        setValue($2, canvas.clientWidth, 'i32');
+        setValue($1, canvas.clientWidth, 'i32');
+        setValue($2, canvas.clientHeight, 'i32');
       },
-      &device_pixel_ratio_, &height_, &width_);
+      &device_pixel_ratio_, &width_, &height_);
 }
 
 const CanvasState& CanvasState::Current() { return instance_; }
 
-bool CanvasState::Update() {
-  const CanvasState new_state;
-  if (instance_ == new_state) return false;
+void CanvasState::SetState(float dpr, int32_t width, int32_t height) {
+  const CanvasState new_state(dpr, width, height);
+
+  if (instance_ == new_state) return;
+
   instance_ = new_state;
   current_version_++;
-  return true;
 }
 
 bool CanvasState::operator==(const CanvasState& other) const {
-  return height_ == other.height_ && width_ == other.width_ &&
+  return width_ == other.width_ && height_ == other.height_ &&
          MathUtil::AlmostEquals(device_pixel_ratio_, other.device_pixel_ratio_);
 }
 

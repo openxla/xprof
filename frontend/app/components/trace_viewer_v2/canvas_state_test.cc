@@ -10,8 +10,8 @@ namespace traceviewer {
 
 class CanvasStateTest : public ::testing::Test {
  protected:
-  void SetCanvasState(float dpr, int height, int width) {
-    CanvasState::instance_ = CanvasState(dpr, height, width);
+  void SetCanvasState(float dpr, int width, int height) {
+    CanvasState::instance_ = CanvasState(dpr, width, height);
     CanvasState::current_version_++;
   }
 
@@ -23,19 +23,19 @@ namespace {
 using ::testing::FloatEq;
 
 TEST_F(CanvasStateTest, EqualityOperators) {
-  SetCanvasState(1.0f, 600, 800);
+  SetCanvasState(1.0f, 800, 600);
   const CanvasState state1 = CanvasState::Current();
-  SetCanvasState(1.0f, 600, 800);
+  SetCanvasState(1.0f, 800, 600);
   const CanvasState state2 = CanvasState::Current();
 
   EXPECT_EQ(state1, state2);
 
-  SetCanvasState(2.0f, 600, 800);
+  SetCanvasState(2.0f, 800, 600);
   const CanvasState state3 = CanvasState::Current();
 
   EXPECT_NE(state1, state3);
 
-  SetCanvasState(1.0f, 700, 800);
+  SetCanvasState(1.0f, 800, 700);
   const CanvasState state4 = CanvasState::Current();
 
   EXPECT_NE(state3, state4);
@@ -43,7 +43,7 @@ TEST_F(CanvasStateTest, EqualityOperators) {
 }
 
 TEST_F(CanvasStateTest, BasicGetters) {
-  SetCanvasState(1.5f, 600, 800);
+  SetCanvasState(1.5f, 800, 600);
 
   EXPECT_THAT(CanvasState::Current().device_pixel_ratio(), FloatEq(1.5f));
   EXPECT_EQ(CanvasState::Current().height(), 600);
@@ -51,7 +51,7 @@ TEST_F(CanvasStateTest, BasicGetters) {
 }
 
 TEST_F(CanvasStateTest, PhysicalPixelsGetter) {
-  SetCanvasState(1.5f, 600, 800);
+  SetCanvasState(1.5f, 800, 600);
 
   const ImVec2 physical_pixels = CanvasState::Current().physical_pixels();
 
@@ -60,7 +60,7 @@ TEST_F(CanvasStateTest, PhysicalPixelsGetter) {
 }
 
 TEST_F(CanvasStateTest, LogicalPixelsGetter) {
-  SetCanvasState(1.5f, 600, 800);
+  SetCanvasState(1.5f, 800, 600);
 
   const ImVec2 logical_pixels = CanvasState::Current().logical_pixels();
 
@@ -68,32 +68,34 @@ TEST_F(CanvasStateTest, LogicalPixelsGetter) {
   EXPECT_THAT(logical_pixels.y, FloatEq(600));
 }
 
-TEST_F(CanvasStateTest, Update) {
-  // Set canvas state to something different from default construction in test.
-  // Default construction in test will result in dpr=1.0, height=0, width=0.
-  SetCanvasState(2.0f, 600, 800);
+TEST_F(CanvasStateTest, SetState) {
+  // Set canvas state to initial value.
+  CanvasState::SetState(2.0f, 800, 600);
   uint8_t version_before = CanvasState::version();
 
-  // Update should detect a change because CanvasState() will be {1.0, 0, 0}.
-  EXPECT_TRUE(CanvasState::Update());
+  EXPECT_THAT(CanvasState::Current().device_pixel_ratio(), FloatEq(2.0f));
+  EXPECT_EQ(CanvasState::Current().height(), 600);
+  EXPECT_EQ(CanvasState::Current().width(), 800);
+
+  // SetState with same values should not change version.
+  CanvasState::SetState(2.0f, 800, 600);
+  EXPECT_EQ(CanvasState::version(), version_before);
+
+  // SetState with different values should change version.
+  CanvasState::SetState(1.0f, 400, 300);
   EXPECT_EQ(CanvasState::version(), version_before + 1);
   EXPECT_THAT(CanvasState::Current().device_pixel_ratio(), FloatEq(1.0f));
-  EXPECT_EQ(CanvasState::Current().height(), 0);
-  EXPECT_EQ(CanvasState::Current().width(), 0);
-
-  // Calling update again should not detect a change.
-  version_before = CanvasState::version();
-  EXPECT_FALSE(CanvasState::Update());
-  EXPECT_EQ(CanvasState::version(), version_before);
+  EXPECT_EQ(CanvasState::Current().height(), 300);
+  EXPECT_EQ(CanvasState::Current().width(), 400);
 }
 
 TEST_F(CanvasStateTest, DprAware) {
-  SetCanvasState(1.0f, 600, 800);
+  SetCanvasState(1.0f, 800, 600);
   const DprAware<int> dpr_aware_int(10);
 
   EXPECT_THAT(*dpr_aware_int, FloatEq(10.0f));
 
-  SetCanvasState(2.0f, 600, 800);
+  SetCanvasState(2.0f, 800, 600);
 
   EXPECT_THAT(*dpr_aware_int, FloatEq(20.0f));
 

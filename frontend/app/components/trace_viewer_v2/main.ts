@@ -117,6 +117,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
     Instance(): {
       data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
       setVisibleFlowCategory(categoryId: number): void;
+      Resize(dpr: number, width: number, height: number): void;
     };
   };
 }
@@ -401,6 +402,18 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
   }
 
   setupFileInputHandler(traceviewerModule);
+
+  const resizeObserver = new ResizeObserver(() => {
+    if (traceviewerModule?.canvas) {
+      // We use clientWidth/clientHeight to get the logical (CSS) pixel size of
+      // the canvas element.
+      const width = traceviewerModule.canvas.clientWidth;
+      const height = traceviewerModule.canvas.clientHeight;
+      const dpr = window.devicePixelRatio;
+      traceviewerModule.Application.Instance().Resize(dpr, width, height);
+    }
+  });
+  resizeObserver.observe(traceviewerModule.canvas);
 
   // Add a method to the module to load data from a URL
   traceviewerModule.loadJsonData = async (url: string) => {

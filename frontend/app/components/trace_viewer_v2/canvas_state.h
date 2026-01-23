@@ -18,9 +18,8 @@ namespace traceviewer {
 class CanvasState {
  public:
   static const CanvasState& Current();
-  // Checks for changes in canvas state and updates the current instance if
-  // needed. Returns true if the state was updated, false otherwise.
-  static bool Update();
+  // Updates the canvas state with new dimensions and device pixel ratio.
+  static void SetState(float dpr, int32_t width, int32_t height);
   static uint8_t version() { return current_version_; }
 
   bool operator==(const CanvasState& other) const;
@@ -59,15 +58,15 @@ class CanvasState {
   friend class CanvasStateTest;
 
   CanvasState();
-  CanvasState(float dpr, int32_t height, int32_t width)
-      : device_pixel_ratio_(dpr), height_(height), width_(width) {}
+  CanvasState(float dpr, int32_t width, int32_t height)
+      : device_pixel_ratio_(dpr), width_(width), height_(height) {}
 
   static CanvasState instance_;
   static uint8_t current_version_;
 
   float device_pixel_ratio_ = 1.0f;
-  int32_t height_ = 0;
   int32_t width_ = 0;
+  int32_t height_ = 0;
 };
 
 // The DprAware class is used to wrap numerical values that need to be adjusted

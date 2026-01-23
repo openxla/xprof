@@ -42,6 +42,8 @@ class Application {
     timeline_->SetVisibleFlowCategory(category_id);
   }
 
+  void Resize(float dpr, int width, int height);
+
  private:
   friend class absl::NoDestructor<Application>;
 
@@ -55,6 +57,7 @@ class Application {
   DataProvider data_provider_;
 
   void MainLoop();
+  void Draw();
 
   absl::Time last_frame_time_ = absl::Now();
   float GetDeltaTime();

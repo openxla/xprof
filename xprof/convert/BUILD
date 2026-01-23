@@ -1320,6 +1320,40 @@ cc_library(
 )
 
 cc_library(
+    name = "xplane_to_perf_counters",
+    srcs = ["xplane_to_perf_counters.cc"],
+    hdrs = ["xplane_to_perf_counters.h"],
+    deps = [
+        ":data_table_utils",
+        ":repository",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_perf_counters_test",
+    srcs = ["xplane_to_perf_counters_test.cc"],
+    deps = [
+        ":repository",
+        ":xplane_to_perf_counters",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:status",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_library(
     name = "xplane_to_tools_data",
     srcs = ["xplane_to_tools_data.cc"],
     hdrs = ["xplane_to_tools_data.h"],
@@ -1338,6 +1372,10 @@ cc_library(
         ":multi_xspace_to_inference_stats",
         ":op_profile_processor",
         ":op_stats_to_op_profile",
+        ":op_stats_to_overview_page",
+        ":op_stats_to_pod_viewer",
+        ":op_stats_to_roofline_model",
+        ":op_stats_to_tf_stats",
         ":overview_page_processor",
         ":pod_viewer_processor",
         ":preprocess_single_host_xplane",
@@ -1350,6 +1388,7 @@ cc_library(
         ":xplane_to_dcn_collective_stats",
         ":xplane_to_hlo",
         ":xplane_to_memory_profile",
+        ":xplane_to_perf_counters",
         ":xplane_to_tf_data_stats",
         ":xplane_to_tool_names",
         ":xplane_to_trace_container",

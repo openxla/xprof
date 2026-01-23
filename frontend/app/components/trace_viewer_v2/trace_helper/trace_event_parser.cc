@@ -369,7 +369,9 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                 emscripten::return_value_policy::reference())
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
-      .function("Resize", &traceviewer::Application::Resize);
+      .function("Resize", &traceviewer::Application::Resize)
+      .function("setVisibleFlowCategories",
+                &traceviewer::Application::SetVisibleFlowCategories);
 }
 
 }  // namespace traceviewer

@@ -411,6 +411,7 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
     ImGui::TableNextRow();
     ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                            ImGui::GetColorU32(ImGuiCol_WindowBg));
+
     ImGui::TableNextColumn();
     ImGui::TableNextColumn();
 
@@ -831,10 +832,6 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
 
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                               double px_per_time, ImDrawList* draw_list) {
-  if (flow_category_filter_ >= 0 &&
-      static_cast<int>(flow.category) != flow_category_filter_) {
-    return;
-  }
   if (flow.source_level >= level_y_positions_.size() ||
       flow.target_level >= level_y_positions_.size()) {
     return;
@@ -864,7 +861,21 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
   draw_list->AddCircleFilled(p1, 3.0f, flow.color);
 }
 
+void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
+  visible_flow_categories_.clear();
+  visible_flow_categories_.insert(category_ids.begin(), category_ids.end());
+}
+
 void Timeline::DrawFlows(Pixel timeline_width) {
+  const bool has_selected_event =
+      selected_event_index_ != -1 &&
+      selected_event_index_ < timeline_data_.entry_event_ids.size();
+
+  if ((visible_flow_categories_.empty() && !has_selected_event) ||
+      timeline_data_.flow_lines.empty()) {
+    return;
+  }
+
   const ImVec2 table_rect_min = ImGui::GetItemRectMin();
   const Pixel timeline_x_start = table_rect_min.x + label_width_;
 
@@ -881,16 +892,17 @@ void Timeline::DrawFlows(Pixel timeline_width) {
                           /*intersect_with_current_clip_rect=*/true);
 
   const double px_per_time = px_per_time_unit(timeline_width);
-
-  const bool has_selected_event =
-      selected_event_index_ != -1 &&
-      selected_event_index_ < timeline_data_.entry_event_ids.size();
+  // If px_per_time is non-positive, it indicates an invalid or zero-width
+  // timeline or view duration, so we cannot draw flows.
+  if (px_per_time <= 0) {
+    draw_list->PopClipRect();
+    return;
+  }
 
   if (has_selected_event) {
     EventId selected_event_id =
         timeline_data_.entry_event_ids[selected_event_index_];
-    absl::flat_hash_map<EventId, std::vector<std::string>>::iterator it_ids =
-        timeline_data_.flow_ids_by_event_id.find(selected_event_id);
+    auto it_ids = timeline_data_.flow_ids_by_event_id.find(selected_event_id);
     if (it_ids != timeline_data_.flow_ids_by_event_id.end()) {
       for (const std::string& flow_id : it_ids->second) {
         auto it_lines = timeline_data_.flow_lines_by_flow_id.find(flow_id);
@@ -901,10 +913,11 @@ void Timeline::DrawFlows(Pixel timeline_width) {
         }
       }
     }
-  } else if (flow_category_filter_ != FlowCategoryFilter::kNone) {
-    // If flow_category_filter_ is kNone, it means 'None', so we draw nothing.
+  } else {
     for (const auto& flow : timeline_data_.flow_lines) {
-      DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+      if (visible_flow_categories_.contains(static_cast<int>(flow.category))) {
+        DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+      }
     }
   }
 

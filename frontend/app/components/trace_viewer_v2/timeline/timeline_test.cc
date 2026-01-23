@@ -2734,66 +2734,14 @@ FlameChartTimelineData GetTestFlowData() {
   return data;
 }
 
-TEST_F(RealTimelineImGuiFixture, DrawFlowsWithNoFilter) {
-  timeline_.set_timeline_data(GetTestFlowData());
-  timeline_.SetVisibleRange({0.0, 100.0});
-  timeline_.SetVisibleFlowCategory(-1);  // Show all flows
-
-  ImGui::NewFrame();
-  timeline_.Draw();
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-  EXPECT_FALSE(draw_list->VtxBuffer.empty());
-  ImGui::EndFrame();
-}
-
-TEST_F(RealTimelineImGuiFixture, DrawFlowsWithNoneFilter) {
-  timeline_.set_timeline_data(GetTestFlowData());
-  timeline_.SetVisibleRange({0.0, 100.0});
-  timeline_.SetVisibleFlowCategory(-2);  // Show no flows
-
-  ImGui::NewFrame();
-  timeline_.Draw();
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-  // VtxBuffer might contain things other than flows (e.g. selection),
-  // so we check size before/after.
-  // The fixture does not draw selection by default.
-  // When no flows are drawn, cliprect commands may be issued, but no vertices
-  // should be added to buffer.
-  EXPECT_TRUE(draw_list->VtxBuffer.empty());
-  ImGui::EndFrame();
-}
-
-TEST_F(RealTimelineImGuiFixture, DrawFlowsWithCategoryFilter) {
-  timeline_.set_timeline_data(GetTestFlowData());
-  timeline_.SetVisibleRange({0.0, 100.0});
-  // kGpuLaunch is category 10.
-  timeline_.SetVisibleFlowCategory(
-      static_cast<int>(tsl::profiler::ContextType::kGpuLaunch));
-
-  ImGui::NewFrame();
-  timeline_.Draw();
-  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
-  ASSERT_FALSE(draw_list->VtxBuffer.empty());
-
-  // flow1 has color 0xFFFF0000 (Red). flow2 has color 0xFF00FF00 (Green).
-  // Since we filter by kGpuLaunch, only flow2 should be drawn.
-  bool found_flow1_color = false;
-  bool found_flow2_color = false;
-  for (const auto& vtx : draw_list->VtxBuffer) {
-    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
-    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
-  }
-  EXPECT_FALSE(found_flow1_color);
-  EXPECT_TRUE(found_flow2_color);
-
-  ImGui::EndFrame();
-}
-
 TEST_F(RealTimelineImGuiFixture, DrawFlowsForSelectedEvent) {
   timeline_.set_timeline_data(GetTestFlowData());
   timeline_.SetVisibleRange({0.0, 100.0});
-  timeline_.SetVisibleFlowCategory(-1);  // Show all flows if no event selected
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric),
+       static_cast<int>(
+           tsl::profiler::ContextType::kGpuLaunch)});  // Show all flows if no
+                                                       // event selected
 
   // Select event 0 (id 1000), which is part of flow "1" (flow1).
   timeline_.NavigateToEvent(0);
@@ -2815,6 +2763,173 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsForSelectedEvent) {
   EXPECT_TRUE(found_flow1_color);
   EXPECT_FALSE(found_flow2_color);
 
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawFlowsForSelectedEventWithNoVisibleCategories) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories({});  // No flow categories visible
+
+  // Select event 0 (id 1000), which is part of flow "1" (flow1).
+  timeline_.NavigateToEvent(0);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // Event 0 (id 1000) is associated with flow1 (Red).
+  // We should see flow1's color and not flow2's color, even with no visible
+  // categories, because an event is selected.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_FALSE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithVisibleFlowCategoriesNone) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories({});  // Show no flows
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  EXPECT_TRUE(draw_list->VtxBuffer.empty());
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEmptyFlowLinesButSelectedEvent) {
+  FlameChartTimelineData data = GetTestFlowData();
+  data.flow_lines.clear();  // flow_lines is empty
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories({});  // categories empty
+
+  // Select event 0 (id 1000), which is part of flow "1" (flow1).
+  // flow1 is in flow_lines_by_flow_id from GetTestFlowData().
+  timeline_.NavigateToEvent(0);  // has_selected_event is true
+
+  // With flow_lines empty, DrawFlows should return early, and nothing should
+  // be drawn. If the early return is skipped, flows for selected events will be
+  // drawn from flow_lines_by_flow_id, causing this test to fail.
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  EXPECT_TRUE(draw_list->VtxBuffer.empty());
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithSelectedEventButNoEventIds) {
+  FlameChartTimelineData data = GetTestFlowData();
+  data.entry_event_ids.clear();
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGpuLaunch),
+       static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  // Select event 0.
+  timeline_.NavigateToEvent(0);
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  // If selected_event_index_ is out of bounds for entry_event_ids,
+  // has_selected_event should be false, and flows should be drawn based on
+  // visible categories.
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // flow1 (Red) and flow2 (Green) should be drawn.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_TRUE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithVisibleFlowCategoriesSingle) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  // kGpuLaunch is category for flow2.
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // flow1 has color 0xFFFF0000 (Red). flow2 has color 0xFF00FF00 (Green).
+  // Since we filter by kGpuLaunch, only flow2 should be drawn.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_FALSE(found_flow1_color);
+  EXPECT_TRUE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithVisibleFlowCategoriesMultiple) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({0.0, 100.0});
+  // Show kGpuLaunch (flow2) and kGeneric (flow1).
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGpuLaunch),
+       static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // flow1 (Red) and flow2 (Green) should be drawn.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_TRUE(found_flow2_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
+  timeline_.set_timeline_data(GetTestFlowData());
+  timeline_.SetVisibleRange({10.0, 10.0});  // 0 duration
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGpuLaunch),
+       static_cast<int>(tsl::profiler::ContextType::kGeneric)});
+
+  ImGui::NewFrame();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  int initial_clip_rect_stack_size = draw_list->_ClipRectStack.Size;
+  timeline_.Draw();
+  EXPECT_TRUE(draw_list->VtxBuffer.empty());
+  EXPECT_EQ(draw_list->_ClipRectStack.Size, initial_clip_rect_stack_size);
   ImGui::EndFrame();
 }
 

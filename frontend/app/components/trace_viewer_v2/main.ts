@@ -117,6 +117,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
     Instance(): {
       data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
       setVisibleFlowCategory(categoryId: number): void;
+      setVisibleFlowCategories(categoryIds: number[]): void;
       Resize(dpr: number, width: number, height: number): void;
     };
   };

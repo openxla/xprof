@@ -1,6 +1,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/application.h"
 
 #include <dirent.h>
+#include <emscripten/bind.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <stdio.h>
@@ -171,6 +172,12 @@ void Application::UpdateImGuiDisplaySize(const CanvasState& canvas_state) {
   // the high-DPI framebuffer.
   const float dpr = canvas_state.device_pixel_ratio();
   io.DisplayFramebufferScale = {dpr, dpr};
+}
+
+void Application::SetVisibleFlowCategories(
+    const emscripten::val& category_ids) {
+  timeline_->SetVisibleFlowCategories(
+      emscripten::vecFromJSArray<int>(category_ids));
 }
 
 void Application::Resize(float dpr, int width, int height) {

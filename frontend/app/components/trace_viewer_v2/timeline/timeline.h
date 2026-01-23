@@ -11,6 +11,7 @@
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -189,6 +190,7 @@ class Timeline {
   void SetVisibleFlowCategory(int category_id) {
     flow_category_filter_ = category_id;
   }
+  void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
   // Calculates the screen coordinates of the rectangle for an event.
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
@@ -383,6 +385,8 @@ class Timeline {
   //   `FlowCategoryFilter::kNone`: Show no categories.
   //   `>=0`: Show only the specific category with this ID.
   int flow_category_filter_ = FlowCategoryFilter::kNone;
+  // Stores the set of flow category IDs that are currently visible.
+  absl::flat_hash_set<int> visible_flow_categories_;
   // Whether the current drag operation is a selection (Shift + Drag).
   // If false, the drag operation is a pan/scroll.
   // This flag is latched at the start of the drag.

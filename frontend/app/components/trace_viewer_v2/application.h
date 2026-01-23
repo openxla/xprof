@@ -2,6 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
 #include <memory>
 
+#include "emscripten/val.h"
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -41,6 +42,8 @@ class Application {
   void SetVisibleFlowCategory(int category_id) {
     timeline_->SetVisibleFlowCategory(category_id);
   }
+
+  void SetVisibleFlowCategories(const emscripten::val& category_ids);
 
   void Resize(float dpr, int width, int height);
 

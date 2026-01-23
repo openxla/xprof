@@ -21,6 +21,7 @@ limitations under the License.
 #include <utility>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -32,6 +33,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_overview_page.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
@@ -74,8 +76,19 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
   absl::StatusOr<const EventTimeFractionAnalyzerResult*>
-  GetEventTimeFractionAnalyzerResult(const std::string& target_event_name) {
-    return absl::UnimplementedError("Not implemented yet.");
+  GetEventTimeFractionAnalyzerResult(const std::string& target_event_name)
+      override {
+    absl::MutexLock lock(mutex_);
+    if (!event_time_fraction_analyzer_cache_.contains(target_event_name)) {
+      TF_ASSIGN_OR_RETURN(
+          EventTimeFractionAnalyzerResult combined_result,
+          ConvertMultiXSpacesToEventTimeFractionAnalyzerResult(
+              session_snapshot_, target_event_name));
+      event_time_fraction_analyzer_cache_[target_event_name] =
+          std::make_unique<EventTimeFractionAnalyzerResult>(
+              std::move(combined_result));
+    }
+    return event_time_fraction_analyzer_cache_[target_event_name].get();
   }
 
   // Returns a non-owning pointer to OpStats. The lifetime of the returned
@@ -123,6 +136,9 @@ class ToolDataProviderImpl : public ToolDataProvider {
   std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<op_profile::Profile> op_profile_cache_
       ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<std::string,
+                      std::unique_ptr<EventTimeFractionAnalyzerResult>>
+      event_time_fraction_analyzer_cache_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace profiler

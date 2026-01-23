@@ -2181,3 +2181,43 @@ cc_library(
         "@com_google_protobuf//:protobuf",
     ],
 )
+
+cc_library(
+    name = "xspace_to_event_time_fraction_analyzer",
+    srcs = ["xspace_to_event_time_fraction_analyzer.cc"],
+    hdrs = ["xspace_to_event_time_fraction_analyzer.h"],
+    deps = [
+        ":preprocess_single_host_xplane",
+        ":repository",
+        ":xplane_to_step_events",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
+        "@org_xprof//xprof/utils:event_span",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
+cc_test(
+    name = "xspace_to_event_time_fraction_analyzer_test",
+    srcs = ["xspace_to_event_time_fraction_analyzer_test.cc"],
+    deps = [
+        ":repository",
+        ":xspace_to_event_time_fraction_analyzer",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)

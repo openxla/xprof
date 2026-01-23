@@ -68,6 +68,7 @@ cc_library(
     deps = [
         ":tool_data_provider",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/synchronization",
@@ -82,6 +83,7 @@ cc_library(
         "@org_xprof//xprof/convert:op_stats_to_op_profile",
         "@org_xprof//xprof/convert:op_stats_to_overview_page",
         "@org_xprof//xprof/convert:repository",
+        "@org_xprof//xprof/convert:xspace_to_event_time_fraction_analyzer",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
     ],

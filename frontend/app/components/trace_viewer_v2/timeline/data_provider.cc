@@ -20,7 +20,8 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "third_party/dear_imgui/imgui.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/color/color_generator.h"
+#include "tsl/profiler/lib/context_types.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
@@ -127,10 +128,10 @@ void HandleCompleteEvent(const TraceEvent& event,
 }
 
 void HandleFlowEvent(const TraceEvent& event, TraceInformation& trace_info,
-                     absl::flat_hash_set<int>& present_categories) {
+                     absl::btree_map<int, int>& category_counts) {
   if (!event.id.empty()) {
     trace_info.flow_events_by_id[event.id].push_back(&event);
-    present_categories.insert(static_cast<int>(event.category));
+    category_counts[static_cast<int>(event.category)]++;
   }
 }
 
@@ -171,6 +172,47 @@ struct ThreadLevelInfo {
   int end_level;
 };
 
+// Returns a color for a flow event category. If the category is kGeneric,
+// kRed80 is returned. If the category is one of the top 5 flow categories,
+// a color from top_5_colors is returned based on its rank. Otherwise, kPurple80
+// is returned.
+std::vector<int> GetTop5FlowCategories(
+    const absl::btree_map<int, int>& flow_category_counts) {
+  std::vector<std::pair<int, int>> sorted_flow_categories;
+  for (const auto& [cat, count] : flow_category_counts) {
+    if (cat != static_cast<int>(tsl::profiler::ContextType::kGeneric)) {
+      sorted_flow_categories.push_back({cat, count});
+    }
+  }
+  absl::c_stable_sort(
+      sorted_flow_categories,
+      gtl::ChainComparators(gtl::OrderBySecondGreater(), gtl::OrderByFirst()));
+  std::vector<int> top_5_flow_categories;
+  for (int i = 0; i < std::min<size_t>(sorted_flow_categories.size(), 5); ++i) {
+    top_5_flow_categories.push_back(sorted_flow_categories[i].first);
+  }
+  return top_5_flow_categories;
+}
+
+ImU32 GetFlowColorForCategory(tsl::profiler::ContextType category,
+                              const std::vector<int>& top_5_flow_categories) {
+  if (category == tsl::profiler::ContextType::kGeneric) {
+    return kRed80;
+  }
+
+  constexpr ImU32 top_5_colors[] = {kOrange80, kYellow80, kGreen80, kBlue80,
+                                    kCyan80};
+  const size_t loop_limit =
+      std::min(top_5_flow_categories.size(), std::size(top_5_colors));
+
+  for (size_t i = 0; i < loop_limit; ++i) {
+    if (static_cast<int>(category) == top_5_flow_categories[i]) {
+      return top_5_colors[i];
+    }
+  }
+  return kPurple80;
+}
+
 // Returns the flame chart level of the given event.
 int GetEventFlameChartLevel(
     const TraceEvent* e,
@@ -207,11 +249,9 @@ int GetEventFlameChartLevel(
 void GenerateFlowLines(const TraceInformation& trace_info,
                        const absl::btree_map<std::pair<ProcessId, ThreadId>,
                                              ThreadLevelInfo>& thread_levels,
+                       const std::vector<int>& top_5_flow_categories,
                        FlameChartTimelineData& data, TimeBounds& bounds) {
   for (const auto& [id, flow_events] : trace_info.flow_events_by_id) {
-    const ImU32 flow_color =
-        GetColorForId(id);  // Use the flow ID to generate a consistent color
-
     for (const TraceEvent* event : flow_events) {
       std::vector<std::string>& event_flow_ids =
           data.flow_ids_by_event_id[event->event_id];
@@ -223,7 +263,8 @@ void GenerateFlowLines(const TraceInformation& trace_info,
     for (size_t i = 0; i < flow_events.size() - 1; ++i) {
       const TraceEvent* u = flow_events[i];
       const TraceEvent* v = flow_events[i + 1];
-
+      const ImU32 flow_color = GetFlowColorForCategory(
+          u->category, top_5_flow_categories);  // Use flow category for color
       FlowLine flow_line{
           .source_ts = u->ts,
           .target_ts = v->ts,
@@ -419,8 +460,9 @@ std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
   return pids;
 }
 
-FlameChartTimelineData CreateTimelineData(const TraceInformation& trace_info,
-                                          TimeBounds& bounds) {
+FlameChartTimelineData CreateTimelineData(
+    const TraceInformation& trace_info,
+    const std::vector<int>& top_5_flow_categories, TimeBounds& bounds) {
   FlameChartTimelineData data;
   int current_level = 0;
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
@@ -436,7 +478,8 @@ FlameChartTimelineData CreateTimelineData(const TraceInformation& trace_info,
     data.events_by_level[data.entry_levels[i]].push_back(i);
   }
 
-  GenerateFlowLines(trace_info, thread_levels, data, bounds);
+  GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,
+                    bounds);
   return data;
 }
 
@@ -474,13 +517,15 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
     }
   }
 
-  absl::flat_hash_set<int> present_flow_categories_set;
+  absl::btree_map<int, int> flow_category_counts;
   for (const auto& event : parsed_events.flow_events) {
-    HandleFlowEvent(event, trace_info, present_flow_categories_set);
+    HandleFlowEvent(event, trace_info, flow_category_counts);
   }
-  present_flow_categories_.assign(present_flow_categories_set.begin(),
-                                  present_flow_categories_set.end());
-  absl::c_sort(present_flow_categories_);
+  present_flow_categories_.clear();
+  for (const auto& pair : flow_category_counts) {
+    present_flow_categories_.push_back(pair.first);
+  }
+
   for (const auto& event : parsed_events.counter_events) {
     HandleCounterEvent(event, trace_info);
   }
@@ -535,7 +580,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
   TimeBounds time_bounds;
 
-  timeline.set_timeline_data(CreateTimelineData(trace_info, time_bounds));
+  timeline.set_timeline_data(CreateTimelineData(
+      trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds));
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

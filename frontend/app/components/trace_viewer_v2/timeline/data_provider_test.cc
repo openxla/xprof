@@ -8,7 +8,10 @@
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/algorithm/container.h"
+#include "absl/strings/str_cat.h"
+#include "third_party/dear_imgui/imgui.h"
 #include "tsl/profiler/lib/context_types.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -1049,6 +1052,8 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   // pid 1 tid 101 is level 0
   // pid 1 tid 102 is level 1
   // pid 2 tid 201 is level 2
+  ImU32 flow1_color = kOrange80;
+  ImU32 flow2_color = kRed80;
   // Flow 1, part 1
   EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
   EXPECT_EQ(data.flow_lines[0].target_ts, 210.0);
@@ -1056,6 +1061,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
   EXPECT_EQ(data.flow_lines[0].category,
             tsl::profiler::ContextType::kGpuLaunch);
+  EXPECT_EQ(data.flow_lines[0].color, flow1_color);
 
   // Flow 1, part 2
   EXPECT_EQ(data.flow_lines[1].source_ts, 210.0);
@@ -1064,6 +1070,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[1].target_level, 1);
   EXPECT_EQ(data.flow_lines[1].category,
             tsl::profiler::ContextType::kGpuLaunch);
+  EXPECT_EQ(data.flow_lines[1].color, flow1_color);
 
   // Flow 2
   EXPECT_EQ(data.flow_lines[2].source_ts, 310.0);
@@ -1071,6 +1078,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   EXPECT_EQ(data.flow_lines[2].source_level, 2);
   EXPECT_EQ(data.flow_lines[2].target_level, 2);
   EXPECT_EQ(data.flow_lines[2].category, tsl::profiler::ContextType::kGeneric);
+  EXPECT_EQ(data.flow_lines[2].color, flow2_color);
 
   // Check flow_lines_by_flow_id
   ASSERT_TRUE(data.flow_lines_by_flow_id.contains("1"));
@@ -1351,6 +1359,7 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
   EXPECT_EQ(data.flow_lines[0].category,
             tsl::profiler::ContextType::kGpuLaunch);
+  EXPECT_EQ(data.flow_lines[0].color, kOrange80);
   EXPECT_THAT(data_provider_.GetFlowCategories(),
               UnorderedElementsAre(
                   static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)));
@@ -1422,6 +1431,140 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesVisibleRange) {
   // Verify fetched data range is updated.
   EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 1000.0);
   EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 1300.0);
+}
+
+TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
+  std::vector<TraceEvent> flow_events;
+  int flow_id_counter = 0;
+  auto add_cat_flows = [&](tsl::profiler::ContextType cat, int count) {
+    for (int i = 0; i < count; ++i) {
+      std::string flow_id = absl::StrCat("f", flow_id_counter++);
+      flow_events.push_back({.ph = Phase::kFlowStart,
+                             .pid = 1,
+                             .tid = 1,
+                             .ts = 1.0,
+                             .id = flow_id,
+                             .category = cat});
+      flow_events.push_back({.ph = Phase::kFlowEnd,
+                             .pid = 1,
+                             .tid = 1,
+                             .ts = 2.0,
+                             .id = flow_id,
+                             .category = cat});
+    }
+  };
+
+  add_cat_flows(tsl::profiler::ContextType::kGeneric, 110);
+  add_cat_flows(tsl::profiler::ContextType::kGpuLaunch, 100);
+  add_cat_flows(tsl::profiler::ContextType::kTfExecutor, 90);
+  add_cat_flows(tsl::profiler::ContextType::kPjRt, 80);
+  add_cat_flows(tsl::profiler::ContextType::kTfrtTpuRuntime, 70);
+  add_cat_flows(tsl::profiler::ContextType::kTpuEmbeddingEngine, 60);
+  add_cat_flows(tsl::profiler::ContextType::kSharedBatchScheduler, 50);
+  add_cat_flows(tsl::profiler::ContextType::kLegacy, 40);
+
+  data_provider_.ProcessTraceEvents({{}, {}, flow_events}, timeline_);
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  auto get_color = [&](tsl::profiler::ContextType cat) {
+    for (const auto& line : data.flow_lines) {
+      if (line.category == cat) return line.color;
+    }
+    return static_cast<ImU32>(0);
+  };
+
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGeneric), kRed80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kOrange80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kYellow80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kPjRt), kGreen80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfrtTpuRuntime), kBlue80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTpuEmbeddingEngine),
+            kCyan80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kSharedBatchScheduler),
+            kPurple80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kLegacy), kPurple80);
+}
+
+TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
+  auto create_flow_events =
+      [](tsl::profiler::ContextType cat) -> std::vector<TraceEvent> {
+    return {{.ph = Phase::kFlowStart,
+             .pid = 1,
+             .tid = 1,
+             .ts = 1.0,
+             .id = "1",
+             .category = cat},
+            {.ph = Phase::kFlowEnd,
+             .pid = 1,
+             .tid = 1,
+             .ts = 2.0,
+             .id = "1",
+             .category = cat}};
+  };
+
+  data_provider_.ProcessTraceEvents(
+      {{}, {}, create_flow_events(tsl::profiler::ContextType::kGpuLaunch)},
+      timeline_);
+  {
+    const FlameChartTimelineData& data = timeline_.timeline_data();
+    ASSERT_THAT(data.flow_lines, SizeIs(1));
+    EXPECT_EQ(data.flow_lines[0].category,
+              tsl::profiler::ContextType::kGpuLaunch);
+    EXPECT_EQ(data.flow_lines[0].color, kOrange80);
+  }
+
+  data_provider_.ProcessTraceEvents(
+      {{}, {}, create_flow_events(tsl::profiler::ContextType::kTfExecutor)},
+      timeline_);
+  {
+    const FlameChartTimelineData& data = timeline_.timeline_data();
+    ASSERT_THAT(data.flow_lines, SizeIs(1));
+    EXPECT_EQ(data.flow_lines[0].category,
+              tsl::profiler::ContextType::kTfExecutor);
+    EXPECT_EQ(data.flow_lines[0].color, kOrange80);
+  }
+}
+
+TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsFlowCategories) {
+  const std::vector<TraceEvent> flow_events1 = {
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 120.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 130.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGpuLaunch}};
+  data_provider_.ProcessTraceEvents({{}, {}, flow_events1}, timeline_);
+  EXPECT_THAT(data_provider_.GetFlowCategories(),
+              UnorderedElementsAre(
+                  static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)));
+
+  const std::vector<TraceEvent> flow_events2 = {
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow2",
+       .ts = 140.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric},
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow2",
+       .ts = 150.0,
+       .id = "2",
+       .category = tsl::profiler::ContextType::kGeneric}};
+  data_provider_.ProcessTraceEvents({{}, {}, flow_events2}, timeline_);
+  EXPECT_THAT(data_provider_.GetFlowCategories(),
+              UnorderedElementsAre(
+                  static_cast<int>(tsl::profiler::ContextType::kGeneric)));
 }
 
 }  // namespace

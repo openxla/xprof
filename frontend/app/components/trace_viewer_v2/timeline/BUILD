@@ -103,6 +103,7 @@ cc_library(
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
+        "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )
 
@@ -113,8 +114,11 @@ cc_test(
         ":data_provider",
         ":time_range",
         ":timeline",
+        "//third_party/dear_imgui",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],

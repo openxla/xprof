@@ -26,12 +26,27 @@ inline constexpr ImU32 kYellow90 = 0xFF7CE0FF;
 
 // Baseline palette:
 // go/keep-sorted start
-// GM3 "inverse on surface" #F2F2F2
+// "inverse on surface" #F2F2F2
 inline constexpr ImU32 kInverseOnSurfaceColor = 0xFFF2F2F2;
-// GM3 "outline" #747775
+// "outline" #747775
 inline constexpr ImU32 kOutlineColor = 0xFF757774;
-// GM3 "outline variant" #C4C7C5
+// "outline variant" #C4C7C5
 inline constexpr ImU32 kOutlineVariantColor = 0xFFC5C7C4;
+// go/keep-sorted end
+
+// palette for flow categories:
+// kBlue80 and kGreen80 are also used for flow categories.
+// go/keep-sorted start
+// Cyan80: #A1E4F2
+inline constexpr ImU32 kCyan80 = 0xFFF2E4A1;
+// Orange80: #FDC69C
+inline constexpr ImU32 kOrange80 = 0xFF9CC6FD;
+// Purple80: #D7AEFB
+inline constexpr ImU32 kPurple80 = 0xFFFBAED7;
+// Red80: #F6AEA9
+inline constexpr ImU32 kRed80 = 0xFFA9AEF6;
+// Yellow80: #FDE293
+inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 // go/keep-sorted end
 
 }  // namespace traceviewer

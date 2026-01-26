@@ -38,6 +38,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_tools_data.h"
+#include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "plugin/xprof/worker/grpc_server.h"
 
 ABSL_FLAG(bool, use_profile_processor, true,

@@ -65,6 +65,7 @@ cc_library(
         "@org_xprof//xprof/convert:repository",
         "@org_xprof//xprof/convert:tool_options",
         "@org_xprof//xprof/convert:xplane_to_tools_data",
+        "@org_xprof//xprof/convert:xplane_to_tools_data_with_profile_processor",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc_impl",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:types",

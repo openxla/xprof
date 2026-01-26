@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_H_
-#define XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_H_
+#ifndef XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_WITH_PROFILE_PROCESSOR_H_
+#define XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_WITH_PROFILE_PROCESSOR_H_
 
 #include <string>
 
@@ -26,14 +26,11 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-// Convert XSpace protos to a tool specific data.
-// Return the serialized string of tool specific data when the conversion is
-// successful, else return error status.
-absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
+absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     const SessionSnapshot& session_snapshot, absl::string_view tool_name,
     const ToolOptions& options);
 
 }  // namespace profiler
 }  // namespace tensorflow
 
-#endif  // XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_H_
+#endif  // XPROF_CONVERT_XPLANE_TO_TOOLS_DATA_WITH_PROFILE_PROCESSOR_H_

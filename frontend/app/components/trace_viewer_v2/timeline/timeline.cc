@@ -694,8 +694,8 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
     const Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
 
     // Draw circle
-    draw_list->AddCircleFilled(ImVec2(x, y), 3.0f, kWhiteColor);
-    draw_list->AddCircle(ImVec2(x, y), 3.0f, kBlackColor);
+    draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
+    draw_list->AddCircle(ImVec2(x, y), kPointRadius, kBlackColor);
 
     // Draw tooltip for current counter point's value and timestamp
     ImGui::SetTooltip(kCounterTooltipFormat, FormatTime(mouse_time).c_str(),
@@ -783,8 +783,9 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
     Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
 
-    draw_list->AddCircleFilled(ImVec2(x, y), 3.0f, kWhiteColor);
-    draw_list->AddCircle(ImVec2(x, y), 3.0f, kSelectedBorderColor, 0, 2.0f);
+    draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
+    draw_list->AddCircle(ImVec2(x, y), kPointRadius, kSelectedBorderColor,
+                         /*num_segments=*/0, /*thickness=*/2.0f);
   }
 
   if (ImGui::IsWindowHovered()) {
@@ -894,8 +895,8 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                                          cp1);
 
   draw_list->AddBezierCubic(p0, cp0, cp1, p1, flow.color, 1.0f);
-  draw_list->AddCircleFilled(p0, 3.0f, flow.color);
-  draw_list->AddCircleFilled(p1, 3.0f, flow.color);
+  draw_list->AddCircleFilled(p0, kPointRadius, flow.color);
+  draw_list->AddCircleFilled(p1, kPointRadius, flow.color);
 }
 
 void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {

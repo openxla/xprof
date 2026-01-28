@@ -8,6 +8,16 @@ package(
 )
 
 cc_library(
+    name = "tpu_counter_util",
+    srcs = ["tpu_counter_util.cc"],
+    hdrs = ["tpu_counter_util.h"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
     name = "profile_processor_factory",
     srcs = ["profile_processor_factory.cc"],
     hdrs = ["profile_processor_factory.h"],
@@ -2239,5 +2249,16 @@ cc_test(
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_test(
+    name = "tpu_counter_util_test",
+    srcs = ["tpu_counter_util_test.cc"],
+    deps = [
+        ":tpu_counter_util",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
     ],
 )

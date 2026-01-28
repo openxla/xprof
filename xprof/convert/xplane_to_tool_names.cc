@@ -74,6 +74,7 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     bool has_kernel_stats = false;
     bool has_hlo = false;
     bool has_dcn_collective_stats = false;
+    bool has_perf_counters = false;
 
     // Use only the first host, as the sessions would consist of similar
     // devices, and the tool list can be generated from the first host itself.
@@ -92,6 +93,20 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     has_dcn_collective_stats =
         has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
 
+    for (const XPlane& plane : xspace->planes()) {
+      tsl::profiler::XPlaneVisitor visitor =
+          tsl::profiler::CreateTfXPlaneVisitor(&plane);
+      visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
+        line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
+          if (event.GetStat(tsl::profiler::StatType::kCounterValue)) {
+            has_perf_counters = true;
+          }
+        });
+        if (has_perf_counters) return;
+      });
+      if (has_perf_counters) break;
+    }
+
     if (has_kernel_stats) {
       tools.push_back("kernel_stats");
     }
@@ -103,6 +118,10 @@ absl::StatusOr<std::string> GetAvailableToolNames(
 
     if (has_dcn_collective_stats) {
       tools.push_back("megascale_stats");
+    }
+
+    if (has_perf_counters) {
+      tools.push_back("perf_counters");
     }
   }
 

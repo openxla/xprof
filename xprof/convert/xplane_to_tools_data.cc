@@ -64,6 +64,7 @@ limitations under the License.
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
 #include "xprof/convert/xplane_to_hlo.h"
 #include "xprof/convert/xplane_to_memory_profile.h"
+#include "xprof/convert/xplane_to_perf_counters.h"
 #include "xprof/convert/xplane_to_tf_data_stats.h"
 #include "xprof/convert/xplane_to_tool_names.h"
 #include "xprof/convert/xplane_to_trace_container.h"
@@ -458,6 +459,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     return ConvertHloProtoToToolData(session_snapshot, tool_name, options);
   } else if (tool_name == "megascale_stats") {
     return ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
+  } else if (tool_name == "perf_counters") {
+    return ConvertMultiXSpacesToPerfCounters(session_snapshot);
   } else if (tool_name == "tool_names") {
     // Generate the proto cache for hlo_proto tool.
     // This is needed for getting the module list.

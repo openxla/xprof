@@ -39,6 +39,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/memory_viewer",
         "@org_xprof//frontend/app/components/op_profile",
         "@org_xprof//frontend/app/components/overview_page",
+        "@org_xprof//frontend/app/components/perf_counters",
         "@org_xprof//frontend/app/components/pod_viewer",
         "@org_xprof//frontend/app/components/roofline_model",
         "@org_xprof//frontend/app/components/sidenav",

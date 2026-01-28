@@ -27,7 +27,6 @@
 #include <string>
 
 #include "absl/flags/flag.h"
-#include "devtools/build/runtime/get_runfiles_dir.h"
 #include "testing/base/public/benchmark.h"
 #include "absl/log/check.h"
 #include "xla/tsl/platform/env.h"

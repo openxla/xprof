@@ -99,6 +99,15 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
           xla::ThrowIfError(status);
         });
 
+  m.def("stop_continuous_profiling", [](const char* service_addr) {
+    absl::Status status;
+    {
+      py::gil_scoped_release release;
+      status = xprof::pywrap::StopContinuousProfiling(service_addr);
+    }
+    xla::ThrowIfError(status);
+  });
+
   m.def("get_snapshot", [](const char* service_addr, const char* logdir) {
     absl::Status status;
     {

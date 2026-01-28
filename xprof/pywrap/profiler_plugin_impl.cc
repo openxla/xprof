@@ -155,6 +155,12 @@ absl::Status StartContinuousProfiling(const char* service_addr,
   return tsl::profiler::StartContinuousProfiling(service_addr, options);
 }
 
+absl::Status StopContinuousProfiling(const char* service_addr) {
+  LOG(INFO) << "StopContinuousProfiling";
+  TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));
+  return tsl::profiler::StopContinuousProfiling(service_addr);
+}
+
 absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
   LOG(INFO) << "GetSnapshot";
   TF_RETURN_IF_ERROR(tsl::profiler::ValidateHostPortPair(service_addr));

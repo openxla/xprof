@@ -39,6 +39,8 @@ absl::Status StartContinuousProfiling(
     const char* service_addr,
     const tensorflow::profiler::ToolOptions& tool_options);
 
+absl::Status StopContinuousProfiling(const char* service_addr);
+
 absl::Status GetSnapshot(const char* service_addr, const char* logdir);
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(

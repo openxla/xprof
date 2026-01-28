@@ -1,5 +1,6 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
+#include <cstddef>
 #include <memory>
 
 #include "emscripten/val.h"
@@ -46,6 +47,42 @@ class Application {
   void SetVisibleFlowCategories(const emscripten::val& category_ids);
 
   void Resize(float dpr, int width, int height);
+
+  void SetVisibleRange(Microseconds start, Microseconds end) {
+    timeline_->SetVisibleRange(TimeRange(start, end));
+  }
+
+  void SetSearchQuery(const std::string& query) {
+    if (timeline_) {
+      timeline_->SetSearchQuery(query);
+    }
+  }
+
+  void NavigateToNextSearchResult() {
+    if (timeline_) {
+      timeline_->NavigateToNextSearchResult();
+    }
+  }
+
+  void NavigateToPrevSearchResult() {
+    if (timeline_) {
+      timeline_->NavigateToPrevSearchResult();
+    }
+  }
+
+  size_t GetSearchResultsCount() const {
+    if (timeline_) {
+      return timeline_->get_search_results_count();
+    }
+    return 0;
+  }
+
+  int GetCurrentSearchResultIndex() const {
+    if (!timeline_) {
+      return -1;
+    }
+    return timeline_->get_current_search_result_index();
+  }
 
  private:
   friend class absl::NoDestructor<Application>;

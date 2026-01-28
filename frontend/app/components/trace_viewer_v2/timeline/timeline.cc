@@ -7,12 +7,14 @@
 #include <iterator>
 #include <numeric>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -46,11 +48,30 @@ float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
 }
 }  // namespace
 
+void Timeline::SetSearchQuery(const std::string& query) {
+  search_query_lower_ = absl::AsciiStrToLower(query);
+  pending_navigation_event_id_.reset();
+  RecomputeSearchResults();
+}
+
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   if (animate) {
     visible_range_ = range;
   } else {
     visible_range_.snap_to(range);
+  }
+}
+
+void Timeline::set_timeline_data(FlameChartTimelineData data) {
+  timeline_data_ = std::move(data);
+  if (pending_navigation_event_id_.has_value()) {
+    EventId event_id = pending_navigation_event_id_.value();
+    auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      NavigateToEvent(
+          std::distance(timeline_data_.entry_event_ids.begin(), it));
+      pending_navigation_event_id_.reset();
+    }
   }
 }
 
@@ -297,6 +318,30 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
   }
 }
 
+void Timeline::EmitEventSelected(int event_index) {
+  EventData event_data;
+  event_data.try_emplace(kEventSelectedIndex, event_index);
+  event_data.try_emplace(kEventSelectedName,
+                         timeline_data_.entry_names[event_index]);
+  event_data.try_emplace(kEventSelectedStart,
+                         timeline_data_.entry_start_times[event_index]);
+  event_data.try_emplace(kEventSelectedDuration,
+                         timeline_data_.entry_total_times[event_index]);
+  event_data.try_emplace(
+      kEventSelectedStartFormatted,
+      FormatTime(timeline_data_.entry_start_times[event_index]));
+  event_data.try_emplace(
+      kEventSelectedDurationFormatted,
+      FormatTime(timeline_data_.entry_total_times[event_index]));
+  event_data.try_emplace(kEventSelectedPid,
+                         timeline_data_.entry_pids[event_index]);
+  auto& args = timeline_data_.entry_args[event_index];
+  if (auto it = args.find("uid"); it != args.end()) {
+    event_data.try_emplace(kEventSelectedUid, it->second);
+  }
+  event_callback_(kEventSelected, event_data);
+}
+
 void Timeline::NavigateToEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
@@ -310,12 +355,23 @@ void Timeline::NavigateToEvent(int event_index) {
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   const Microseconds end =
       start + timeline_data_.entry_total_times[event_index];
-  const Microseconds duration = visible_range_->duration();
+  const Microseconds event_duration =
+      timeline_data_.entry_total_times[event_index];
+  // When navigating to an event, set the visible duration to 20 times the
+  // event's duration to provide context around the event. Clamp the
+  // duration between 10ms and 5s to prevent zooming in too far on
+  // short events or zooming out too far on long events.
+  const Microseconds duration =
+      std::clamp(event_duration * kEventNavigationZoomFactor,
+                 kEventNavigationMinDurationMicros,
+                 kEventNavigationMaxDurationMicros);
   const Microseconds center = std::midpoint(start, end);
   TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
   ConstrainTimeRange(new_range);
 
   SetVisibleRange(new_range, /*animate=*/true);
+
+  EmitEventSelected(event_index);
 }
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
@@ -567,26 +623,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
           // Deselect any selected counter event.
           selected_counter_index_ = -1;
 
-          EventData event_data;
-          event_data.try_emplace(kEventSelectedIndex, selected_event_index_);
-          event_data.try_emplace(kEventSelectedName, event_name);
-          event_data.try_emplace(kEventSelectedStart,
-                                 timeline_data_.entry_start_times[event_index]);
-          event_data.try_emplace(kEventSelectedDuration,
-                                 timeline_data_.entry_total_times[event_index]);
-          event_data.try_emplace(
-              kEventSelectedStartFormatted,
-              FormatTime(timeline_data_.entry_start_times[event_index]));
-          event_data.try_emplace(
-              kEventSelectedDurationFormatted,
-              FormatTime(timeline_data_.entry_total_times[event_index]));
-          event_data.try_emplace(kEventSelectedPid,
-                                 timeline_data_.entry_pids[event_index]);
-          auto& args = timeline_data_.entry_args[event_index];
-          if (auto it = args.find("uid"); it != args.end()) {
-            event_data.try_emplace(kEventSelectedUid, it->second);
-          }
-          event_callback_(kEventSelected, event_data);
+          EmitEventSelected(event_index);
         }
       }
     }
@@ -1329,6 +1366,100 @@ void Timeline::MaybeRequestData() {
   // requests. The flag will be reset to false when the data is received and
   // processed.
   is_incremental_loading_ = true;
+}
+
+// This function is called when the search query changes. It re-filters and
+// sorts the event indices based on the current search query.
+void Timeline::RecomputeSearchResults() {
+  search_result_event_ids_.clear();
+  sorted_search_results_.clear();
+  current_search_result_index_ = -1;
+  if (search_query_lower_.empty()) {
+    return;
+  }
+  for (int i = 0; i < timeline_data_.entry_names.size(); ++i) {
+    if (absl::AsciiStrToLower(timeline_data_.entry_names[i])
+            .find(search_query_lower_) != std::string::npos) {
+      EventId event_id = timeline_data_.entry_event_ids[i];
+      search_result_event_ids_.insert(event_id);
+      sorted_search_results_.push_back(
+          {event_id, timeline_data_.entry_levels[i],
+           timeline_data_.entry_start_times[i],
+           timeline_data_.entry_total_times[i]});
+    }
+  }
+  // Sort search results by level and then by start time, so that we can
+  // navigate through results in a top-down, left-to-right order.
+  absl::c_sort(sorted_search_results_, [&](const auto& a, const auto& b) {
+    if (a.level != b.level) {
+      return a.level < b.level;
+    }
+    return a.start_time < b.start_time;
+  });
+  // If search results are not empty, automatically navigate to the first hit
+  // event.
+  if (!sorted_search_results_.empty()) {
+    NavigateToNextSearchResult();
+  }
+}
+
+void Timeline::NavigateToNextSearchResult() {
+  if (sorted_search_results_.empty()) return;
+  current_search_result_index_++;
+  if (current_search_result_index_ >= sorted_search_results_.size()) {
+    current_search_result_index_ = 0;
+  }
+  const auto& result = sorted_search_results_[current_search_result_index_];
+  EventId event_id = result.event_id;
+  auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+  if (it != timeline_data_.entry_event_ids.end()) {
+    NavigateToEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
+  } else {
+    pending_navigation_event_id_ = event_id;
+    // If event is not in current data, zoom to its time range to trigger load.
+    const Microseconds start = result.start_time;
+    const Microseconds event_duration = result.duration;
+    const Microseconds end = start + event_duration;
+    const Microseconds duration =
+        std::clamp(event_duration * kEventNavigationZoomFactor,
+                   kEventNavigationMinDurationMicros,
+                   kEventNavigationMaxDurationMicros);
+    const Microseconds center = std::midpoint(start, end);
+    TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
+  }
+}
+
+void Timeline::NavigateToPrevSearchResult() {
+  if (sorted_search_results_.empty()) return;
+  current_search_result_index_--;
+  if (current_search_result_index_ < 0) {
+    current_search_result_index_ = sorted_search_results_.size() - 1;
+  }
+  const auto& result = sorted_search_results_[current_search_result_index_];
+  EventId event_id = result.event_id;
+  auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+  if (it != timeline_data_.entry_event_ids.end()) {
+    NavigateToEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
+  } else {
+    // TODO(jonahweaver): Remove this section once deep search is implemented.
+    // Expected behavior is that the event might not be loaded yet, and might
+    // still be loading once navigated to.
+    pending_navigation_event_id_ = event_id;
+    // If event is not in current data, zoom to its time range to trigger load.
+    const Microseconds start = result.start_time;
+    const Microseconds event_duration = result.duration;
+    const Microseconds end = start + event_duration;
+    const Microseconds duration =
+        std::clamp(event_duration * kEventNavigationZoomFactor,
+                   kEventNavigationMinDurationMicros,
+                   kEventNavigationMaxDurationMicros);
+    const Microseconds center = std::midpoint(start, end);
+    TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
+  }
 }
 
 }  // namespace traceviewer

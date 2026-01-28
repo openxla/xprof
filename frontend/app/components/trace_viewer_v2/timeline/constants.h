@@ -139,6 +139,17 @@ inline constexpr float kPreserveRatio = 2.0f;
 inline constexpr float kRefetchZoomRatio = 8.0f;
 // go/keep-sorted end
 
+// Event Navigation Constants
+// These constants are used for zooming to an event.
+// go/keep-sorted start
+// The maximum duration to zoom to when navigating to an event (=5s).
+inline constexpr Microseconds kEventNavigationMaxDurationMicros = 5000000.0;
+// The minimum duration to zoom to when navigating to an event (=10ms).
+inline constexpr Microseconds kEventNavigationMinDurationMicros = 10000.0;
+// The factor by which to multiply event duration to determine viewport size.
+inline constexpr double kEventNavigationZoomFactor = 20.0;
+// go/keep-sorted end
+
 // UI Strings Constants
 // go/keep-sorted start
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";

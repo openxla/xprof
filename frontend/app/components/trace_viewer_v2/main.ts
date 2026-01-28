@@ -116,9 +116,14 @@ export declare interface TraceViewerV2Module extends WasmModule {
   Application: {
     Instance(): {
       data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
+      getCurrentSearchResultIndex(): number;
+      getSearchResultsCount(): number;
+      navigateToNextSearchResult(): void;
+      navigateToPrevSearchResult(): void;
+      Resize(dpr: number, width: number, height: number): void;
+      setSearchQuery(query: string): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
-      Resize(dpr: number, width: number, height: number): void;
     };
   };
 }

@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -130,6 +131,10 @@ class Timeline {
     event_callback_ = std::move(callback);
   }
 
+  // Sets the search query to highlight events matching the query.
+  // The search is case-insensitive.
+  void SetSearchQuery(const std::string& query);
+
   // Sets the visible time range. If animate is true, the transition to the
   // new range will be animated, otherwise it will snap to the new time range.
   // Animation is useful for smoothing out transitions caused by user actions
@@ -161,9 +166,7 @@ class Timeline {
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
-  void set_timeline_data(FlameChartTimelineData data) {
-    timeline_data_ = std::move(data);
-  }
+  void set_timeline_data(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   int selected_event_index() const { return selected_event_index_; }
@@ -185,12 +188,19 @@ class Timeline {
     is_incremental_loading_ = is_incremental_loading;
   }
 
-  void Draw();
+  size_t get_search_results_count() const {
+    return sorted_search_results_.size();
+  }
+  int get_current_search_result_index() const {
+    return current_search_result_index_;
+  }
 
   void SetVisibleFlowCategory(int category_id) {
     flow_category_filter_ = category_id;
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
+
+  void Draw();
 
   // Calculates the screen coordinates of the rectangle for an event.
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
@@ -222,6 +232,9 @@ class Timeline {
 
   // Navigates to and selects the event with the given index.
   void NavigateToEvent(int event_index);
+
+  void NavigateToNextSearchResult();
+  void NavigateToPrevSearchResult();
 
   // Calculates the control points for a cubic Bezier curve used to draw flows.
   static void CalculateBezierControlPoints(float start_x, float start_y,
@@ -263,6 +276,9 @@ class Timeline {
  private:
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
+
+  // Emits an event selected event to JS side.
+  void EmitEventSelected(int event_index);
 
   // Draws the timeline ruler. `viewport_bottom` is the y-coordinate of the
   // bottom of the viewport, used to draw vertical grid lines across the tracks.
@@ -331,6 +347,9 @@ class Timeline {
 
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
+
+  // Updates the search results based on the current search query
+  void RecomputeSearchResults();
 
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
@@ -406,6 +425,26 @@ class Timeline {
   // the returned data is empty or sparse (and thus fetched_data_time_range_
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
+
+  struct SearchResult {
+    EventId event_id;
+    int level;
+    Microseconds start_time;
+    Microseconds duration;
+  };
+
+  // The search query in lowercase, used for case-insensitive matching.
+  std::string search_query_lower_ = "";
+  // A set of event IDs that match the search query.
+  absl::flat_hash_set<EventId> search_result_event_ids_;
+  // A sorted list of search results with metadata..
+  std::vector<SearchResult> sorted_search_results_;
+  // The index of the currently highlighted search result in search_results_.
+  int current_search_result_index_ = -1;
+  // If we try to navigate to a search result that is not loaded, we set this
+  // to its event ID, zoom to its time range to trigger loading, and navigate
+  // to it in set_timeline_data once it's loaded.
+  std::optional<EventId> pending_navigation_event_id_;
 };
 
 }  // namespace traceviewer

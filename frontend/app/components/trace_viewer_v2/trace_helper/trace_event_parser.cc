@@ -367,9 +367,18 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                       emscripten::return_value_policy::reference())
       .function("data_provider", &traceviewer::Application::data_provider,
                 emscripten::return_value_policy::reference())
+      .function("getCurrentSearchResultIndex",
+                &traceviewer::Application::GetCurrentSearchResultIndex)
+      .function("getSearchResultsCount",
+                &traceviewer::Application::GetSearchResultsCount)
+      .function("navigateToNextSearchResult",
+                &traceviewer::Application::NavigateToNextSearchResult)
+      .function("navigateToPrevSearchResult",
+                &traceviewer::Application::NavigateToPrevSearchResult)
+      .function("Resize", &traceviewer::Application::Resize)
+      .function("setSearchQuery", &traceviewer::Application::SetSearchQuery)
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
-      .function("Resize", &traceviewer::Application::Resize)
       .function("setVisibleFlowCategories",
                 &traceviewer::Application::SetVisibleFlowCategories);
 }

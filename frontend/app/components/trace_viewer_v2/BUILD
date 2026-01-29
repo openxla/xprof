@@ -4,11 +4,10 @@ load("//javascript/typescript:build_defs.bzl", "ts_declaration", "ts_development
 # load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-# load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_cc_binary")
 load("//tools/build_defs/js:rules.bzl", "js_binary")
 load("//tools/build_defs/js/devserver:web_dev_server.bzl", "web_dev_server")
 load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
-load(":build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
+load(":build_defs.bzl", "wasm_cc_binary", "wasm_cc_library", "wasm_cc_test")
 
 package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
 

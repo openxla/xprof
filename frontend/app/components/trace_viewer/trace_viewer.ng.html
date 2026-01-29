@@ -1,1 +1,7 @@
-<iframe [src]="url | safe"></iframe>
+<trace-viewer-container [url]="url"
+                        [useTraceViewerV2]="useTraceViewerV2"
+                        [traceViewerV2LoadingStatus]="traceViewerV2LoadingStatus"
+                        [traceViewerV2ErrorMessage]="traceViewerV2ErrorMessage"
+                        [tutorials]="tutorials"
+                        [currentTutorialIndex]="currentTutorialIndex">
+</trace-viewer-container>

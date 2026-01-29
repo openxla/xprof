@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_module_metadata.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_cost_analysis.h"
@@ -62,7 +63,7 @@ class HloInstructionInterface {
 
   virtual void ProcessXlaCostAnalysis(
       const xla::HloCostAnalysis* cost_analysis) = 0;
-  virtual std::string OpLocationStack(int32_t frame_id) const = 0;
+  virtual std::string OpLocationStack(xla::StackFrameId frame_id) const = 0;
   virtual tsl::profiler::OpSourceInfo SourceInfo() const = 0;
   virtual const ::tensorflow::profiler::PerformanceInfoWrapper*
   GetPerformanceInfoWrapper() const = 0;
@@ -128,7 +129,7 @@ class HloInstructionWrapper : public HloInstructionInterface {
     return fused_children_;
   }
 
-  std::string OpLocationStack(int32_t frame_id) const override {
+  std::string OpLocationStack(xla::StackFrameId frame_id) const override {
     return GetOpLocationStack(frame_id, *instr_);
   }
 

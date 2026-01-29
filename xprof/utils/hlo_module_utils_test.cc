@@ -22,6 +22,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_module_metadata.h"
 #include "xla/tests/hlo_test_base.h"
 #include "xla/tsl/platform/statusor.h"
 
@@ -129,7 +130,7 @@ TEST_F(HloModuleUtilsTest, TestGetLocationStack) {
       GetModuleWithStackFrames());
   const auto* root_instruction =
       module_with_stack_frames->entry_computation()->root_instruction();
-  EXPECT_EQ(GetOpLocationStack(2, *root_instruction),
+  EXPECT_EQ(GetOpLocationStack(xla::StackFrameId{2}, *root_instruction),
             "main.py:20:1\nmain.py:10:5\n");
 }
 

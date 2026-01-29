@@ -87,6 +87,7 @@ struct FlameChartTimelineData {
   // instead of storing them here, to reduce memory usage.
   // Compare latency from network to memory-heavy local storage.
   std::vector<ProcessId> entry_pids;
+  std::vector<ThreadId> entry_tids;
   std::vector<std::map<std::string, std::string>> entry_args;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
@@ -168,6 +169,9 @@ class Timeline {
 
   void set_timeline_data(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
+
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
 
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
@@ -431,12 +435,12 @@ class Timeline {
     int level;
     Microseconds start_time;
     Microseconds duration;
+    ProcessId pid;
+    ThreadId tid;
   };
 
   // The search query in lowercase, used for case-insensitive matching.
   std::string search_query_lower_ = "";
-  // A set of event IDs that match the search query.
-  absl::flat_hash_set<EventId> search_result_event_ids_;
   // A sorted list of search results with metadata..
   std::vector<SearchResult> sorted_search_results_;
   // The index of the currently highlighted search result in search_results_.

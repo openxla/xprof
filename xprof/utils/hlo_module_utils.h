@@ -27,8 +27,18 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_module_metadata.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
+
+// This is a temporary hack to work around version skew between XLA and xprof.
+// This may be removed after XLA is updated past Feb 16, 2026.
+#ifndef XLA_HAVE_STACK_FRAME_ID
+namespace xla {
+using StackFrameId = int;
+}  // namespace xla
+#endif
+
 
 namespace tensorflow {
 namespace profiler {
@@ -85,11 +95,15 @@ inline std::string UncachedExpression(const xla::HloInstruction& instr,
   return expression;
 }
 
-inline std::string GetOpLocationStack(int32_t frame_id,
+inline std::string GetOpLocationStack(xla::StackFrameId frame_id,
                                       const xla::HloInstruction& instr) {
   std::string stack_lines;
   xla::HloModule* hlo_module = instr.GetModule();
+#ifdef XLA_HAVE_STACK_FRAME_ID
+  while (frame_id.valid()) {
+#else
   while (frame_id != 0) {
+#endif
     xla::HloModule::StackFrame frame = hlo_module->get_stack_frame(frame_id);
     if (frame.empty()) {
       break;

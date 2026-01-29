@@ -1415,6 +1415,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
         "@org_xprof//plugin/xprof/protobuf:worker_service_proto_cc",
         "@org_xprof//plugin/xprof/worker:grpc_utils",
         "@org_xprof//plugin/xprof/worker:stub_factory",

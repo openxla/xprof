@@ -9,6 +9,8 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "grpcpp/client_context.h"
 #include "grpcpp/support/status.h"
 #include "xla/tsl/platform/env.h"
@@ -130,6 +132,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
             << " with options: " << DebugString(options)
             << " using ProfileProcessor";
 
+  absl::Time start_time = absl::Now();
+
   auto processor =
       xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);
   if (!processor) {
@@ -150,6 +154,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     TF_RETURN_IF_ERROR(
         ProcessSession(processor.get(), session_snapshot, options));
   }
+
+  LOG(INFO) << "Total time for tool " << tool_name << ": "
+            << absl::Now() - start_time;
   return processor->GetData();
 }
 

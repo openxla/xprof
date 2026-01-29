@@ -28,6 +28,14 @@ using ::testing::FloatEq;
 using ::testing::Return;
 using ::testing::Test;
 
+// Calculated vertical center of the first event.
+// The first event starts after the ruler (kRulerHeight=20.0f).
+// Y = kRulerHeight + kEventHeight / 2.
+constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
+
+// Timeline starts after the label column.
+constexpr float kTimelineStartX = kDefaultLabelWidth;
+
 // Mock class for Timeline to mock virtual methods.
 class MockTimeline : public Timeline {
  public:
@@ -1112,8 +1120,8 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {},
          {{.name = "group", .start_level = 0, .nesting_level = 0}},
-        {},
-        {}});
+         {},
+         {}});
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -1196,12 +1204,12 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseInsideTimeline) {
   timeline_.SetVisibleRange({0.0, 166.9});
 
   ImGuiIO& io = ImGui::GetIO();
-  // Timeline starts at label_width (250).
+  // Timeline starts at label_width (kTimelineStartX).
   // Set mouse at x=350, y=50.
-  // Relative x = 350 - 250 = 100.
+  // Relative x = 350 - kTimelineStartX = 100.
   // Scale = 10 px/us.
   // Pivot = 100 / 10 = 10.0 us.
-  io.MousePos = ImVec2(350.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 100.0f, 50.0f);
   io.AddKeyEvent(ImGuiKey_W, true);
 
   // No acceleration is applied.
@@ -1215,8 +1223,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseOutsideTimeline) {
   timeline_.SetVisibleRange({0.0, 166.9});
 
   ImGuiIO& io = ImGui::GetIO();
-  // Mouse outside timeline (x < 250).
-  io.MousePos = ImVec2(100.0f, 50.0f);
+  // Mouse outside timeline (x < kTimelineStartX).
+  io.MousePos = ImVec2(kTimelineStartX - 150.0f, 50.0f);
   io.AddKeyEvent(ImGuiKey_W, true);
 
   // Pivot should be center of visible range [0, 166.9] -> 83.45.
@@ -1312,7 +1320,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithMouseWheelAndCtrlKey) {
   io.AddKeyEvent(ImGuiMod_Ctrl, true);
   // Mouse inside timeline area. x=350 -> Relative x = 100.
   // px_per_unit = 10.0. Pivot = 10.0.
-  io.MousePos = ImVec2(350.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 100.0f, 50.0f);
 
   const float expected_zoom_factor = 1.0f + 1.0f * kMouseWheelZoomSpeed;
 
@@ -1330,7 +1338,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithMouseWheelAndCtrlKey) {
   io.AddKeyEvent(ImGuiMod_Ctrl, true);
   // Mouse inside timeline area. x=350 -> Relative x = 100.
   // px_per_unit = 10.0. Pivot = 10.0.
-  io.MousePos = ImVec2(350.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 100.0f, 50.0f);
 
   const float expected_zoom_factor = 1.0f + (-1.0f) * kMouseWheelZoomSpeed;
 
@@ -1377,9 +1385,9 @@ TEST_F(MockTimelineImGuiFixture, PanLeftWithShiftAndMouseWheel) {
 
 TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   ImGuiIO& io = ImGui::GetIO();
-  // Main window pos is (0,0), content_min is (0,0), label_width is 250.
-  // So timeline area starts at x=250.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  // Main window pos is (0,0), content_min is (0,0), label_width is
+  // kTimelineStartX. So timeline area starts at x=kTimelineStartX.
+  io.MousePos = ImVec2(kTimelineStartX + 50.0f, 50.0f);
   SimulateFrame();  // Establish initial state
 
   // Press mouse button without shift.
@@ -1392,7 +1400,7 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   SimulateFrame();  // This will call HandleMouse and set is_dragging_ to true
 
   // Drag the mouse.
-  io.AddMousePosEvent(310.0f, 60.0f);
+  io.AddMousePosEvent(kTimelineStartX + 60.0f, 60.0f);
 
   EXPECT_CALL(timeline_, Pan(FloatEq(-10.0f)));
   EXPECT_CALL(timeline_, Scroll(FloatEq(-10.0f)));
@@ -1416,8 +1424,8 @@ TEST_F(MockTimelineImGuiFixture,
   io.AddKeyEvent(ImGuiMod_Shift, true);
 
   // Start drag in timeline area.
-  // X=300 is safely inside the timeline (250 + padding < 300).
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  // X=300 is safely inside the timeline (kTimelineStartX + padding < 300).
+  io.MousePos = ImVec2(kTimelineStartX + 50.0f, 50.0f);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
@@ -1425,7 +1433,7 @@ TEST_F(MockTimelineImGuiFixture,
   io.AddKeyEvent(ImGuiMod_Shift, false);
 
   // Drag mouse to X=500.
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, 50.0f);
   SimulateFrame();
 
   // End drag.
@@ -1456,7 +1464,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   io.AddKeyEvent(ImGuiMod_Shift, false);
 
   // Start drag in timeline area.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 50.0f, 50.0f);
   io.AddMouseButtonEvent(0, true);
 
   EXPECT_CALL(timeline_, Pan(0.0f));
@@ -1468,7 +1476,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
 
   // Drag mouse to left (simulate pan right).
   // Move from 300 to 200 (-100px).
-  io.MousePos = ImVec2(200.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX - 50.0f, 50.0f);
 
   EXPECT_CALL(timeline_, Pan(FloatEq(100.0f)));
   EXPECT_CALL(timeline_, Scroll(FloatEq(0.0f)));
@@ -1850,7 +1858,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   // event spans the entire timeline.
   // y=28 is safely within the event rect (starts at 20, height 16 -> ends at
   // 36).
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -1886,7 +1894,7 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
       });
 
   // Set a mouse position that is guaranteed to be outside the event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 100.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, 100.f);
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -1916,7 +1924,7 @@ TEST_F(RealTimelineImGuiFixture,
         callback_count++;
       });
 
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, kFirstEventY);
 
   // First click.
   ImGui::GetIO().MouseDown[0] = true;
@@ -1952,7 +1960,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // A position over the event.
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f,
+                                   kFirstEventY);  // A position over the event.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
@@ -1973,7 +1982,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
 
   // Now, click on an empty area.
   ImGui::GetIO().MousePos =
-      ImVec2(300.f, 100.f);  // A position outside the event.
+      ImVec2(kTimelineStartX + 50.0f, 100.f);  // A position outside the event.
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -1997,7 +2006,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // First, select an event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // A position over the event.
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f,
+                                   kFirstEventY);  // A position over the event.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
@@ -2018,7 +2028,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
 
   // Click on an empty area to deselect.
   ImGui::GetIO().MousePos =
-      ImVec2(300.f, 100.f);  // A position outside the event.
+      ImVec2(kTimelineStartX + 50.0f, 100.f);  // A position outside the event.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;
@@ -2057,7 +2067,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
 
   // Now, click on an empty area.
   ImGui::GetIO().MousePos =
-      ImVec2(300.f, 100.f);  // A position outside the event.
+      ImVec2(kTimelineStartX + 50.0f, 100.f);  // A position outside the event.
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -2133,7 +2143,7 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Mouse is over the event
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 250.0f, kFirstEventY);
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
   ImGui::GetIO().MouseDown[0] = true;
 
@@ -2183,7 +2193,8 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
 
   // First shift-click on event 1.
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);  // Position over event 1.
+  ImGui::GetIO().MousePos =
+      ImVec2(kTimelineStartX + 250.0f, kFirstEventY);  // Position over event 1.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -2196,7 +2207,8 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   // Second shift-click on event 2.
-  ImGui::GetIO().MousePos = ImVec2(1100.f, 28.f);  // Position over event 2.
+  ImGui::GetIO().MousePos =
+      ImVec2(kTimelineStartX + 850.0f, kFirstEventY);  // Position over event 2.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -2211,7 +2223,8 @@ TEST_F(RealTimelineImGuiFixture,
   SimulateFrame();
 
   // Third shift-click on event 1 again to deselect.
-  ImGui::GetIO().MousePos = ImVec2(500.f, 28.f);  // Position over event 1.
+  ImGui::GetIO().MousePos =
+      ImVec2(kTimelineStartX + 250.0f, kFirstEventY);  // Position over event 1.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -2269,6 +2282,16 @@ TEST_F(RealTimelineImGuiFixture, ZoomInBeyondMinDurationShouldBeConstrained) {
 
 class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
  protected:
+  // Horizontal offset for the start of test selections/events.
+  static constexpr float kSelectionStartOffset = 50.0f;
+  // A vertical position guaranteed to be below events/ruler (safe for empty
+  // area clicks).
+  static constexpr float kEmptyAreaY = 50.0f;
+  // Drag distance in pixels for TimelineDragSelectionTest.
+  static constexpr float kDragDistance = 100.0f;
+  // Pixels per microsecond for TimelineDragSelectionTest.
+  static constexpr float kPxPerUs = 10.0f;
+
   void SetUp() override {
     RealTimelineImGuiFixture::SetUp();
     // Set a visible range that results in a round number for px_per_time_unit
@@ -2292,12 +2315,12 @@ TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
 
   // Start drag in timeline area.
   // The label column is 250px wide, so timeline starts after that.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // Dragging
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, kEmptyAreaY);
   SimulateFrame();
 
   // End drag
@@ -2306,59 +2329,68 @@ TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   const TimeRange& range = timeline_.selected_time_ranges()[0];
-  EXPECT_DOUBLE_EQ(range.start(), 5.0);
-  EXPECT_DOUBLE_EQ(range.end(), 25.0);
+  EXPECT_DOUBLE_EQ(range.start(), kSelectionStartOffset / kPxPerUs);
+  EXPECT_DOUBLE_EQ(range.end(), (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
 TEST_F(TimelineDragSelectionTest, ShiftDragCreatesMultipleTimeSelections) {
   ImGuiIO& io = ImGui::GetIO();
 
   // First drag
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
-  io.MousePos = ImVec2(400.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset + kDragDistance,
+                       kEmptyAreaY);
   SimulateFrame();
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 15.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(),
+                   kSelectionStartOffset / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(),
+                   (kSelectionStartOffset + kDragDistance) / kPxPerUs);
 
   // Second drag
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
-  io.MousePos = ImVec2(600.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f + kDragDistance, kEmptyAreaY);
   SimulateFrame();
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 15.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 25.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 35.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(),
+                   kSelectionStartOffset / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(),
+                   (kSelectionStartOffset + kDragDistance) / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(),
+                   (250.0f) / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(),
+                   (250.0f + kDragDistance) / kPxPerUs);
 }
 
 TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start drag in timeline area.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // Dragging
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, 50.0f);
   SimulateFrame();
 
   // During drag, current_selected_time_range_ should be set, but
   // selected_time_ranges_ should be empty.
   ASSERT_TRUE(timeline_.current_selected_time_range().has_value());
-  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->start(), 5.0);
-  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->end(), 25.0);
+  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->start(),
+                   kSelectionStartOffset / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.current_selected_time_range()->end(),
+                   (kSelectionStartOffset + 200.0f) / kPxPerUs);
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
 
   // End drag
@@ -2369,20 +2401,23 @@ TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
   // selected_time_ranges_ should contain the new range.
   EXPECT_FALSE(timeline_.current_selected_time_range().has_value());
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 5.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 25.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(),
+                   kSelectionStartOffset / kPxPerUs);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(),
+                   (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
 TEST_F(TimelineDragSelectionTest, EscapeCancelsSelection) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start drag (Shift is already held by SetUp).
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
-  // Drag to 400.0f
-  io.MousePos = ImVec2(400.0f, 50.0f);
+  // Drag to kDragDistance
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset + kDragDistance,
+                       kEmptyAreaY);
   SimulateFrame();
 
   // Verify selection is active.
@@ -2407,12 +2442,12 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start drag in timeline area.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // Dragging
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, 50.0f);
   SimulateFrame();
 
   // End drag
@@ -2428,12 +2463,12 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
 
   // Coordinates:
-  // timeline_x_start = 250.0f (label_width)
-  // range_start_x = 300.0f
-  // range_end_x = 500.0f
-  // text_x = 300 + (200 - text_size.x) / 2
+  // range_start_x = kTimelineStartX + kSelectionStartOffset
+  // range_end_x = kTimelineStartX + 250.0f
+  // text_x = range_start_x + (200 - text_size.x) / 2
   // text_y = 1080 - text_size.y - kSelectedTimeRangeTextBottomPadding (10.0f)
-  const float text_x = 300.0f + (200.0f - text_size.x) / 2.0f;
+  const float range_start_x = kTimelineStartX + kSelectionStartOffset;
+  const float text_x = range_start_x + (200.0f - text_size.x) / 2.0f;
   const float text_y =
       io.DisplaySize.y - text_size.y - kSelectedTimeRangeTextBottomPadding;
 
@@ -2465,12 +2500,12 @@ TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start drag in timeline area.
-  io.MousePos = ImVec2(300.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + kSelectionStartOffset, kEmptyAreaY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // Dragging
-  io.MousePos = ImVec2(500.0f, 50.0f);
+  io.MousePos = ImVec2(kTimelineStartX + 250.0f, 50.0f);
   SimulateFrame();
 
   // End drag
@@ -2483,7 +2518,8 @@ TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
   const std::string text = "20\xc2\xa0us";
   const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
 
-  const float text_x = 300.0f + (200.0f - text_size.x) / 2.0f;
+  const float range_start_x = kTimelineStartX + kSelectionStartOffset;
+  const float text_x = range_start_x + (200.0f - text_size.x) / 2.0f;
   const float text_y =
       io.DisplaySize.y - text_size.y - kSelectedTimeRangeTextBottomPadding;
 
@@ -2636,7 +2672,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Set a mouse position that is guaranteed to be over the event.
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
 
   SimulateFrame();
@@ -2730,7 +2766,8 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Step 1: Select Flame Event
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);  // Over flame event
+  ImGui::GetIO().MousePos =
+      ImVec2(kTimelineStartX + 50.0f, kFirstEventY);  // Over flame event
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;
@@ -2769,7 +2806,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   EXPECT_EQ(timeline_.selected_counter_index(), 0);
 
   // Step 3: Select Flame Event Again
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
@@ -2793,7 +2830,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   timeline_.SetVisibleRange({0.0, 100.0});
 
   // Select event
-  ImGui::GetIO().MousePos = ImVec2(300.f, 28.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
   ImGui::GetIO().MouseDown[0] = false;
@@ -2802,7 +2839,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   EXPECT_NE(timeline_.selected_event_index(), -1);
 
   // Click empty area
-  ImGui::GetIO().MousePos = ImVec2(300.f, 100.f);
+  ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f, 100.f);
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 

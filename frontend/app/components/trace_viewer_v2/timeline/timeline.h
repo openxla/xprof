@@ -363,7 +363,7 @@ class Timeline {
 
   FlameChartTimelineData timeline_data_;
   // TODO - b/444026851: Set the label width based on the real screen width.
-  Pixel label_width_ = 250.0f;
+  Pixel label_width_ = kDefaultLabelWidth;
 
   // Stores the screen Y coordinate of each level in the current frame.
   std::vector<float> level_y_positions_;

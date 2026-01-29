@@ -53,6 +53,7 @@ inline constexpr int kMinorTickDivisions = 5;
 inline constexpr ImDrawFlags kImDrawFlags = ImDrawFlags_RoundCornersDefault_;
 inline constexpr ImU32 kDefaultTextColor = kBlackColor;
 inline constexpr Pixel kCornerRounding = 0.0f;
+inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 16.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
 inline constexpr Pixel kEventPaddingBottom = 1.0f;
@@ -72,6 +73,7 @@ inline constexpr ImU32 kSelectedBorderColor = kBlueColor;
 // The corner rounding applied to hovered events. Set to half of `kEventHeight`
 // to create a half-circle effect on the ends of the event.
 inline constexpr Pixel kHoverCornerRounding = 8.0f;
+inline constexpr Pixel kPointRadius = 3.0f;
 inline constexpr Pixel kSelectedBorderThickness = 2.0f;
 // go/keep-sorted end
 

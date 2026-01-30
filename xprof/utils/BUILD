@@ -694,10 +694,11 @@ xprof_proto_library(
 )
 
 cc_library(
-    name = "tpu_counter_ids",
-    hdrs = ["tpu_counter_ids.h"],
-    compatible_with = ["//buildenv/target:libtpu"],
-    visibility = ["//visibility:public"],
-    deps = [
-    ],
+    name = "tpu_counter_ids_v7x",
+    hdrs = ["tpu_counter_ids_v7x.h"],
+)
+
+cc_library(
+    name = "tpu_counter_ids_v7",
+    hdrs = ["tpu_counter_ids_v7.h"],
 )

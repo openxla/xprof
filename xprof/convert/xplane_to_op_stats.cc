@@ -74,6 +74,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::tensorflow::profiler::DisaggregatedServingLatency;
 using tsl::profiler::FindPlanesWithPrefix;
 using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
@@ -300,6 +301,59 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
     }
   });
   return duty_cycle_tracker;
+}
+
+DisaggregatedServingLatency ComputeDisaggregatedServingLatency(
+    const XPlane* host_plane, const std::vector<const XPlane*>& device_planes) {
+  // TODO(b/477631842): Refactor the logic to make it more stable.
+  DisaggregatedServingLatency disaggregated_serving_latency;
+  bool is_wiz_inference_request = false;
+  if (host_plane != nullptr) {
+    // Identify wiz_inference_request by checking if there is any event with
+    // name starting with "WizServable" in event_metadata.
+    for (const auto& [id, metadata] : host_plane->event_metadata()) {
+      if (absl::StartsWith(metadata.name(), "WizServable")) {
+        is_wiz_inference_request = true;
+        break;
+      }
+    }
+  }
+
+  if (is_wiz_inference_request) {
+    double total_jit_generate_duration_ps = 0;
+    int64_t jit_generate_count = 0;
+    for (const XPlane* plane : device_planes) {
+      // Calculate average decoding step time by averaging the duration of
+      // jit_generate events in the device planes' XlaModule lines.
+      int64_t jit_generate_metadata_id = -1;
+      for (const auto& [id, metadata] : plane->event_metadata()) {
+        if (absl::StartsWith(metadata.name(), "jit_generate")) {
+          jit_generate_metadata_id = id;
+          break;
+        }
+      }
+      for (const tensorflow::profiler::XLine& line : plane->lines()) {
+        if (absl::StartsWith(line.name(), tsl::profiler::kXlaModuleLineName) &&
+            jit_generate_metadata_id != -1) {
+          for (const auto& event : line.events()) {
+            if (event.metadata_id() == jit_generate_metadata_id) {
+              total_jit_generate_duration_ps += event.duration_ps();
+              jit_generate_count++;
+            }
+          }
+        }
+      }
+    }
+
+    if (jit_generate_count > 0) {
+      double avg_duration_us = tsl::profiler::PicoToMicro(
+          total_jit_generate_duration_ps / jit_generate_count);
+      disaggregated_serving_latency.mutable_decode_step_time_us()->set_avg(
+          avg_duration_us);
+      disaggregated_serving_latency.set_num_decode_steps(jit_generate_count);
+    }
+  }
+  return disaggregated_serving_latency;
 }
 
 OpStats ConvertXSpaceToOpStats(const XSpace& space,
@@ -622,6 +676,10 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   hlo_proto_map.AddHloProtosFromXSpace(space);
   SetProgramIdToNameMap(hlo_proto_map, op_stats);
 
+  if (!op_stats.run_environment().is_training()) {
+    *op_stats.mutable_disaggregated_serving_latency() =
+        ComputeDisaggregatedServingLatency(host_plane, device_planes);
+  }
   return op_stats;
 }
 

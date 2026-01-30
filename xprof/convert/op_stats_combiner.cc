@@ -235,6 +235,27 @@ void CombineOpStats(
   dst->mutable_performance_counter_result()->set_hbm_utilization_percent(
       dst->performance_counter_result().hbm_utilization_percent() +
       src.performance_counter_result().hbm_utilization_percent());
+
+  // Combine Disaggregated Serving Latency.
+  if (src.has_disaggregated_serving_latency()) {
+    DisaggregatedServingLatency* dst_stats =
+        dst->mutable_disaggregated_serving_latency();
+    const DisaggregatedServingLatency& src_stats =
+        src.disaggregated_serving_latency();
+    // Combine decode_step_time_us
+    if (src_stats.has_decode_step_time_us()) {
+      double src_avg = src_stats.decode_step_time_us().avg();
+      int64_t src_count = src_stats.num_decode_steps();
+      double dst_avg = dst_stats->decode_step_time_us().avg();
+      int64_t dst_count = dst_stats->num_decode_steps();
+      int64_t total_count = src_count + dst_count;
+      if (total_count > 0) {
+        dst_stats->mutable_decode_step_time_us()->set_avg(
+            (src_avg * src_count + dst_avg * dst_count) / total_count);
+        dst_stats->set_num_decode_steps(total_count);
+      }
+    }
+  }
 }
 
 }  // namespace

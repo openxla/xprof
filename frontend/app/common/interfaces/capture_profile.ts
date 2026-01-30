@@ -7,7 +7,7 @@ export interface CaptureProfileResponse {
 /** The base interface for a options of capture profile api. */
 export interface CaptureProfileOptions {
   serviceAddr: string;
-  isTpuName: boolean;
+  deviceType?: string;
   duration: number;
   numRetry: number;
   workerList: string;

@@ -1,27 +1,13 @@
-load("//javascript/tools/jscompiler/builddefs:flags.bzl", "RECOMMENDED_FLAGS")
-load("//javascript/typescript:build_defs.bzl", "ts_declaration", "ts_development_sources", "ts_library")
+load("@npm//@bazel/concatjs:index.bzl", "ts_declaration", "ts_library")
 
 # load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-# load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_cc_binary")
+load("@rules_wasm//wasm:defs.bzl", "wasm_cc_binary")
 load("//tools/build_defs/js:rules.bzl", "js_binary")
-load("//tools/build_defs/js/devserver:web_dev_server.bzl", "web_dev_server")
-load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
 package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
-
-bzl_library(
-    name = "build_defs_bzl",
-    srcs = ["build_defs.bzl"],
-    parse_tests = False,
-    visibility = ["//visibility:private"],
-    deps = [
-        "//third_party/bazel_rules/rules_cc/cc:core_rules",
-        "//third_party/bazel_rules/rules_wasm/wasm:bzl_lib",
-    ],
-)
 
 cc_library(
     name = "animation",
@@ -204,16 +190,11 @@ ts_library(
     ],
 )
 
-ts_development_sources(
-    name = "devsrcs",
-    deps = [":app_bundle_ts"],
-)
-
 JS_COMPILER_FLAGS = []
 
 js_binary(
     name = "app_bundle",
-    defs = JS_COMPILER_FLAGS + RECOMMENDED_FLAGS,
+    defs = JS_COMPILER_FLAGS + [],
     deps = [":app_bundle_ts"],
 )
 
@@ -225,17 +206,4 @@ filegroup(
         ":trace_viewer_v2_wasm/trace_viewer_v2.js",
         ":trace_viewer_v2_wasm/trace_viewer_v2.wasm",
     ],
-)
-
-web_dev_server(
-    name = "dev_server",
-    concatjs_routes = {":devsrcs": "/app_bundle.js"},
-    static_files = [
-        "index.html",
-        ":trace_viewer_v2_wasm",
-    ],
-    static_files_path_aliases = {
-        "/trace_viewer_v2.js": "third_party/xprof/frontend/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.js",
-        "/trace_viewer_v2.wasm": "third_party/xprof/frontend/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.wasm",
-    },
 )

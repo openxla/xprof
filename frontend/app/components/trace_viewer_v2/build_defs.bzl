@@ -38,11 +38,6 @@ def wasm_cc_test(name, srcs, deps = [], copts = [], linkopts = TEST_LINKOPTS, **
         **kwargs
     )
 
-    wasm_web_test(
-        name = name,
-        cc_target = ":" + name + "_cc",
-    )
-
 def wasm_cc_library(name, **kwargs):
     """Generates a cc_library target with WASM_TAGS.
 

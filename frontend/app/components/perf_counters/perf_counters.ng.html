@@ -1,7 +1,5 @@
 <div class="section-container">
   <div class="row">
-      <category-filter [dataTable]="dataTable" column="Host" (changed)="updateFilters($event)">
-      </category-filter>
       <category-filter [dataTable]="dataTable" column="Device" (changed)="updateFilters($event)">
       </category-filter>
       <category-filter [dataTable]="dataTable" column="Kernel" (changed)="updateFilters($event)">
@@ -20,10 +18,6 @@
       </category-filter>
       <string-filter [dataTable]="dataTable" column="Counter" (changed)="updateFilters($event)">
       </string-filter>
-    <mat-checkbox
-      [(ngModel)]="showZeroValues"
-      (change)="update()"
-      >Show Zero Values</mat-checkbox>
     <div class="flex-space"></div>
     <export-as-csv [tool]="tool" [sessionId]="sessionId"></export-as-csv>
   </div>

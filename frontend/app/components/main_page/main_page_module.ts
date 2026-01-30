@@ -18,10 +18,10 @@ import {InferenceProfileModule} from 'org_xprof/frontend/app/components/inferenc
 import {InputPipeline} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline';
 import {InputPipelineModule} from 'org_xprof/frontend/app/components/input_pipeline/input_pipeline_module';
 import {KernelStatsAdapter, KernelStatsAdapterModule} from 'org_xprof/frontend/app/components/kernel_stats/kernel_stats_adapter';
-import {MegascaleStats} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats';
-import {MegascaleStatsModule} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats_module';
 import {MegascalePerfetto} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto';
 import {MegascalePerfettoModule} from 'org_xprof/frontend/app/components/megascale_perfetto/megascale_perfetto_module';
+import {MegascaleStats} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats';
+import {MegascaleStatsModule} from 'org_xprof/frontend/app/components/megascale_stats/megascale_stats_module';
 import {MemoryProfile} from 'org_xprof/frontend/app/components/memory_profile/memory_profile';
 import {MemoryProfileModule} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_module';
 import {MemoryViewer} from 'org_xprof/frontend/app/components/memory_viewer/memory_viewer';
@@ -29,6 +29,8 @@ import {MemoryViewerModule} from 'org_xprof/frontend/app/components/memory_viewe
 import {OpProfile} from 'org_xprof/frontend/app/components/op_profile/op_profile';
 import {OpProfileModule} from 'org_xprof/frontend/app/components/op_profile/op_profile_module';
 import {OverviewPage, OverviewPageModule} from 'org_xprof/frontend/app/components/overview_page/overview_page_module';
+import {PerfCounters} from 'org_xprof/frontend/app/components/perf_counters/perf_counters';
+import {PerfCountersModule} from 'org_xprof/frontend/app/components/perf_counters/perf_counters_module';
 import {PodViewer} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer';
 import {PodViewerModule} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_module';
 import {RooflineModel} from 'org_xprof/frontend/app/components/roofline_model/roofline_model';
@@ -57,6 +59,7 @@ export const routes: Routes = [
   {path: 'graph_viewer', component: GraphViewer},
   {path: 'megascale_perfetto/:sessionId', component: MegascalePerfetto},
   {path: 'megascale_stats', component: MegascaleStats},
+  {path: 'perf_counters', component: PerfCounters},
   {path: 'inference_profile', component: InferenceProfile},
   {path: 'hlo_stats', component: HloStats},
   {path: 'roofline_model', component: RooflineModel},
@@ -87,6 +90,7 @@ export const routes: Routes = [
     FrameworkOpStatsAdapterModule,
     MegascaleStatsModule,
     MegascalePerfettoModule,
+    PerfCountersModule,
     HloStatsModule,
     RooflineModelModule,
     InferenceProfileModule,

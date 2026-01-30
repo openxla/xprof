@@ -45,12 +45,14 @@ struct XPlaneToToolsTestCase {
   std::string_view plane_name;
   bool has_hlo_module;
   bool has_dcn_collective_stats;
+  bool has_perf_counters;
   std::vector<std::string> expected_tools;
 };
 
 SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
                                       bool has_hlo_module,
-                                      bool has_dcn_collective_stats) {
+                                      bool has_dcn_collective_stats,
+                                      bool has_perf_counters) {
   std::string test_name =
       ::testing::UnitTest::GetInstance()->current_test_info()->name();
   std::string path = absl::StrCat("ram://", test_name, "/");
@@ -75,6 +77,19 @@ SessionSnapshot CreateSessionSnapshot(std::unique_ptr<XSpace> xspace,
     builder.GetOrCreateEventMetadata("MegaScale:Megascale Event");
   }
 
+  if (has_perf_counters) {
+    XPlane* device_plane = xspace->add_planes();
+    tsl::profiler::XPlaneBuilder plane_builder(device_plane);
+    plane_builder.SetName(tsl::profiler::kTpuPlanePrefix);
+    tsl::profiler::XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+    line_builder
+        .AddEvent(*plane_builder.GetOrCreateEventMetadata("dummy_event"))
+        .AddStatValue(*plane_builder.GetOrCreateStatMetadata(
+                          tsl::profiler::GetStatTypeStr(
+                              tsl::profiler::StatType::kCounterValue)),
+                      123);
+  }
+
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.push_back(std::move(xspace));
 
@@ -93,9 +108,9 @@ TEST_P(XPlaneToToolsTest, ToolsList) {
   tsl::profiler::FindOrAddMutablePlaneWithName(xspace.get(),
                                                test_case.plane_name);
 
-  SessionSnapshot sessionSnapshot =
-      CreateSessionSnapshot(std::move(xspace), test_case.has_hlo_module,
-                            test_case.has_dcn_collective_stats);
+  SessionSnapshot sessionSnapshot = CreateSessionSnapshot(
+      std::move(xspace), test_case.has_hlo_module,
+      test_case.has_dcn_collective_stats, test_case.has_perf_counters);
 
   absl::StatusOr<std::string> toolsString =
       GetAvailableToolNames(sessionSnapshot);
@@ -128,14 +143,17 @@ INSTANTIATE_TEST_SUITE_P(
          tsl::profiler::kTpuPlanePrefix,
          false,
          false,
+         false,
          {}},
         {"ToolsForTpuWithHloModule",
          tsl::profiler::kTpuPlanePrefix,
          true,
          false,
+         false,
          {"graph_viewer", "memory_viewer"}},
         {"ToolsForGpuWithoutHloModule",
          tsl::profiler::kGpuPlanePrefix,
+         false,
          false,
          false,
          {"kernel_stats"}},
@@ -143,12 +161,20 @@ INSTANTIATE_TEST_SUITE_P(
          tsl::profiler::kGpuPlanePrefix,
          true,
          false,
+         false,
          {"kernel_stats", "graph_viewer", "memory_viewer"}},
         {"ToolsForTpuWithDcnCollectiveStats",
          tsl::profiler::kTpuPlanePrefix,
          false,
          true,
+         false,
          {"megascale_stats"}},
+        {"ToolsForTpuWithPerfCounters",
+         tsl::profiler::kTpuPlanePrefix,
+         false,
+         false,
+         true,
+         {"perf_counters"}},
     }),
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;

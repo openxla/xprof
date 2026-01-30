@@ -208,12 +208,18 @@ export class SideNav implements OnInit, OnDestroy {
       ['overview_page', 'Overview Page'],
       ['framework_op_stats', 'Framework Op Stats'],
       ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
-      ['memory_profile', 'Memory Profile'], ['pod_viewer', 'Pod Viewer'],
-      ['op_profile', 'HLO Op Profile'], ['memory_viewer', 'Memory Viewer'],
-      ['graph_viewer', 'Graph Viewer'], ['hlo_stats', 'HLO Op Stats'],
+      ['memory_profile', 'Memory Profile'],
+      ['pod_viewer', 'Pod Viewer'],
+      ['op_profile', 'HLO Op Profile'],
+      ['memory_viewer', 'Memory Viewer'],
+      ['graph_viewer', 'Graph Viewer'],
+      ['hlo_stats', 'HLO Op Stats'],
       ['inference_profile', 'Inference Profile'],
-      ['roofline_model', 'Roofline Model'], ['kernel_stats', 'Kernel Stats'],
-      ['trace_viewer', 'Trace Viewer'], ['megascale_stats', 'Megascale Stats']
+      ['roofline_model', 'Roofline Model'],
+      ['kernel_stats', 'Kernel Stats'],
+      ['trace_viewer', 'Trace Viewer'],
+      ['megascale_stats', 'Megascale Stats'],
+      ['perf_counters', 'Perf Counters'],
     ]);
     return toolsDisplayMap.get(tagName) || tagName;
   }

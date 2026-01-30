@@ -65,25 +65,27 @@ absl::StatusOr<std::string> CallWorkerService(const std::string& xspace_path,
   ::xprof::pywrap::WorkerProfileDataRequest request =
       CreateWorkerProfileDataRequest(xspace_path, tool_name, options);
 
-  ::grpc::ClientContext context;
-  ::xprof::pywrap::WorkerProfileDataResponse response;
   auto stub = ::xprof::profiler::GetNextStub();
   if (!stub) {
     return absl::InternalError("No worker service stub available.");
   }
+
+  ::grpc::ClientContext context;
+  ::xprof::pywrap::WorkerProfileDataResponse response;
   ::grpc::Status grpc_status =
       stub->GetProfileData(&context, request, &response);
 
   if (!grpc_status.ok()) {
-    LOG(ERROR) << "gRPC call to worker failed for tool: " << tool_name
-               << ", session: " << xspace_path
-               << ", status_code: " << grpc_status.error_code()
-               << ", error_message: " << grpc_status.error_message();
+    LOG(ERROR) << "gRPC call to worker failed with status_code: "
+               << grpc_status.error_code()
+               << ", error_message: " << grpc_status.error_message()
+               << ", error_details: " << grpc_status.error_details()
+               << ", request: " << request.DebugString();
     return ::xprof::profiler::ToAbslStatus(grpc_status);
   }
   LOG(INFO) << "gRPC response: tool=" << tool_name
-            << ", session=" << xspace_path
-            << ", worker_id=" << response.worker_id();
+            << ", worker_id=" << response.worker_id()
+            << ", session=" << xspace_path;
   return response.output();
 }
 
@@ -113,7 +115,15 @@ absl::Status RunMapReduce(const SessionSnapshot& session_snapshot,
     TF_RETURN_IF_ERROR(map_outputs[i].status());
     map_output_files.push_back(*std::move(map_outputs[i]));
   }
-  return processor->Reduce(session_snapshot, map_output_files);
+  LOG(INFO) << "Started reducing outputs for tool: " << tool_name
+            << " num_hosts: " << num_hosts;
+  absl::Time start_time = absl::Now();
+  absl::Status reduce_status =
+      processor->Reduce(session_snapshot, map_output_files);
+  absl::Duration reduce_time = absl::Now() - start_time;
+  LOG(INFO) << "Finished reducing outputs for tool: " << tool_name
+            << " num_hosts: " << num_hosts << " time taken: " << reduce_time;
+  return reduce_status;
 }
 
 absl::Status ProcessSession(xprof::ProfileProcessor* processor,

@@ -67,6 +67,8 @@ cc_test(
     srcs = ["stub_factory_test.cc"],
     deps = [
         ":stub_factory",
+        "@com_github_grpc_grpc//:grpc++",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:worker_service_cc_grpc_proto",
     ],
 )

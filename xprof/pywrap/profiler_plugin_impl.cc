@@ -169,9 +169,9 @@ absl::Status GetSnapshot(const char* service_addr, const char* logdir) {
 
 static absl::once_flag server_init_flag;
 
-void StartGrpcServer(int port) {
+void StartGrpcServer(int port, int num_cqs, int min_pollers, int max_pollers) {
   absl::call_once(server_init_flag, ::xprof::profiler::InitializeGrpcServer,
-                  port);
+                  port, num_cqs, min_pollers, max_pollers);
 }
 
 absl::StatusOr<std::pair<std::string, bool>> XSpaceToToolsData(

@@ -180,10 +180,14 @@ PYBIND11_MODULE(_pywrap_profiler_plugin, m) {
       },
       py::arg(), py::arg(), py::arg(), py::arg() = py::dict());
 
-  m.def("start_grpc_server", [](int port) {
-    py::gil_scoped_release release;
-    xprof::pywrap::StartGrpcServer(port);
-  });
+  m.def(
+      "start_grpc_server",
+      [](int port, int num_cqs, int min_pollers, int max_pollers) {
+        py::gil_scoped_release release;
+        xprof::pywrap::StartGrpcServer(port, num_cqs, min_pollers, max_pollers);
+      },
+      py::arg("port"), py::arg("num_cqs") = 1, py::arg("min_pollers") = 1,
+      py::arg("max_pollers") = 1);
 
   m.def("initialize_stubs", [](const std::string& worker_service_addresses) {
     py::gil_scoped_release release;

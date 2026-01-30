@@ -24,7 +24,9 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "google/protobuf/json/json.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
@@ -33,6 +35,8 @@ limitations under the License.
 #include "xprof/convert/op_stats_to_overview_page.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
+#include "xprof/convert/tool_options.h"
+#include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
 #include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
@@ -112,7 +116,13 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
   absl::StatusOr<const MemoryProfile*> GetMemoryProfile() override {
-    return absl::UnimplementedError("Not implemented yet.");
+    absl::MutexLock lock(mutex_);
+    if (!memory_profile_cache_) {
+      memory_profile_cache_ = std::make_unique<MemoryProfile>();
+      TF_RETURN_IF_ERROR(
+          GetToolDataHelper("memory_profile", memory_profile_cache_.get()));
+    }
+    return memory_profile_cache_.get();
   }
 
  private:
@@ -127,6 +137,19 @@ class ToolDataProviderImpl : public ToolDataProvider {
     return op_stats_cache_.get();
   }
 
+  // Internal helper to fetch data for the given tool.
+  absl::Status GetToolDataHelper(absl::string_view tool_name,
+                                 google::protobuf::Message* proto) {
+    TF_ASSIGN_OR_RETURN(std::string proto_json_string,
+                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
+                            session_snapshot_, tool_name, ToolOptions()));
+    google::protobuf::util::JsonParseOptions options;
+    options.ignore_unknown_fields = true;
+    TF_RETURN_IF_ERROR(
+        google::protobuf::util::JsonStringToMessage(proto_json_string, proto, options));
+    return absl::OkStatus();
+  }
+
   const SessionSnapshot& session_snapshot_;
 
   absl::Mutex mutex_;
@@ -135,6 +158,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
       ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<op_profile::Profile> op_profile_cache_
+      ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<MemoryProfile> memory_profile_cache_
       ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<std::string,
                       std::unique_ptr<EventTimeFractionAnalyzerResult>>

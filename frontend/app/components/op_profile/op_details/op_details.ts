@@ -160,6 +160,18 @@ export class OpDetails {
     return '';
   }
 
+  getCustomCallRegvizLink() {
+    if (this.selectedModuleName) {
+      return this.dataService.getCustomCallRegvizLink(
+          this.sessionId, this.selectedModuleName, this.selectedOpName, '');
+    }
+    if (this.programId) {
+      return this.dataService.getCustomCallRegvizLink(
+          this.sessionId, '', this.selectedOpName, this.programId);
+    }
+    return '';
+  }
+
   dimensionColor(dimension?: Node.XLAInstruction.LayoutAnalysis.Dimension):
       string {
     if (!dimension || !dimension.alignment) {

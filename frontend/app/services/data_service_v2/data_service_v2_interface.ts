@@ -88,6 +88,13 @@ export interface DataServiceV2Interface {
       programId: string,
       ): string;
 
+  getCustomCallRegvizLink(
+      sessionId: string,
+      moduleName: string,
+      opName: string,
+      programId: string,
+      ): string;
+
   getCustomCallText(
       sessionId: string, moduleName: string, opName: string,
       programId: string): Observable<string>;

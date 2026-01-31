@@ -70,7 +70,7 @@ SessionSnapshot CreateSessionSnapshot() {
       *device_plane_builder.GetOrCreateEventMetadata("KernelA"));
   event_builder.AddStatValue(*device_plane_builder.GetOrCreateStatMetadata(
                                  GetStatTypeStr(StatType::kCounterValue)),
-                             123.0);
+                             123ULL);
   event_builder.AddStatValue(
       *device_plane_builder.GetOrCreateStatMetadata(
           GetStatTypeStr(StatType::kPerformanceCounterDescription)),

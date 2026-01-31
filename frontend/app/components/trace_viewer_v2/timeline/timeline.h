@@ -40,6 +40,12 @@ struct EventRect {
   Pixel bottom = 0.0f;
 };
 
+struct DeleteButtonLayout {
+  ImVec2 button_pos;
+  ImRect hover_rect;
+  bool text_fits = false;
+};
+
 struct CounterData {
   std::vector<Microseconds> timestamps;
   std::vector<double> values;
@@ -254,6 +260,13 @@ class Timeline {
   // Exposed for testing.
   void MaybeRequestData();
 
+  // Calculates the layout for the delete button and its hover area.
+  // Exposed for testing.
+  DeleteButtonLayout GetDeleteButtonLayout(const ImVec2& text_size,
+                                           const ImVec2& text_pos,
+                                           const ImRect& visible_range_rect,
+                                           const ImRect& full_range_rect) const;
+
  protected:
   // Virtual method to allow mocking in tests.
   virtual ImVec2 GetTextSize(absl::string_view text) const {
@@ -323,13 +336,15 @@ class Timeline {
   void DrawFlows(Pixel timeline_width);
 
   // Draws a single selected time range.
+  // The `show_delete_button` will be false for the currently selected time
+  // time range.
   void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
-                             double px_per_time_unit_val);
+                             double px_per_time_unit_val,
+                             bool show_delete_button = true);
 
-  // Draws a delete button next to the text. Deletes the time range if the
-  // button is clicked.
-  void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& text_pos,
-                        const ImVec2& text_size, const TimeRange& range);
+  // Draws a delete button. Deletes the time range if the button is clicked.
+  void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                        const ImRect& hover_rect, const TimeRange& range);
 
   // Draws all the selected time ranges, including the current selected range.
   void DrawSelectedTimeRanges(Pixel timeline_width,

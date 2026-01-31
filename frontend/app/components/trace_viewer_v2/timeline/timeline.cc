@@ -1,7 +1,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
-#include <any>
 #include <algorithm>
+#include <any>
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
@@ -175,8 +175,8 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
         it != event_id_to_level.end()) {
       level = it->second;
     }
-    sorted_search_results_.push_back({event.event_id, level, event.ts,
-                                    event.dur, event.pid, event.tid});
+    sorted_search_results_.push_back(
+        {event.event_id, level, event.ts, event.dur, event.pid, event.tid});
   }
 
   // If no complete events were found, there's nothing more to do.
@@ -206,10 +206,9 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   // If an event was selected before the update, try to find it in the new
   // sorted list and restore the selection index.
   if (selected_event_id != -1) {
-    auto it = absl::c_find_if(sorted_search_results_,
-                            [&](const auto& result) {
-                              return result.event_id == selected_event_id;
-                            });
+    auto it = absl::c_find_if(sorted_search_results_, [&](const auto& result) {
+      return result.event_id == selected_event_id;
+    });
     if (it != sorted_search_results_.end()) {
       current_search_result_index_ =
           std::distance(sorted_search_results_.begin(), it);
@@ -330,11 +329,10 @@ void Timeline::Draw() {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
     Pixel text_height = ImGui::GetTextLineHeight();
     Pixel text_width = ImGui::GetContentRegionAvail().x;
-    ImGui::InputTextMultiline("##name", const_cast<char*>(group.name.data()),
-                              group.name.size() + 1,
-                              ImVec2(text_width, text_height),
-                              ImGuiInputTextFlags_ReadOnly |
-                                  ImGuiInputTextFlags_NoHorizontalScroll);
+    ImGui::InputTextMultiline(
+        "##name", const_cast<char*>(group.name.data()), group.name.size() + 1,
+        ImVec2(text_width, text_height),
+        ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
 
@@ -410,14 +408,10 @@ void Timeline::Draw() {
   ImGui::End();          // Timeline viewer
 }
 
-EventRect Timeline::CalculateEventRect(Microseconds start, Microseconds end,
-                                       Pixel screen_x_offset,
-                                       Pixel screen_y_offset,
-                                       double px_per_time_unit,
-                                       int level_in_group,
-                                       Pixel timeline_width,
-                                       Pixel event_height,
-                                       Pixel padding_bottom) const {
+EventRect Timeline::CalculateEventRect(
+    Microseconds start, Microseconds end, Pixel screen_x_offset,
+    Pixel screen_y_offset, double px_per_time_unit, int level_in_group,
+    Pixel timeline_width, Pixel event_height, Pixel padding_bottom) const {
   const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time_unit);
   Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time_unit);
 
@@ -605,10 +599,9 @@ void Timeline::NavigateToEvent(int event_index) {
   // event's duration to provide context around the event. Clamp the
   // duration between 10ms and 5s to prevent zooming in too far on
   // short events or zooming out too far on long events.
-  const Microseconds duration =
-      std::clamp(event_duration * kEventNavigationZoomFactor,
-                 kEventNavigationMinDurationMicros,
-                 kEventNavigationMaxDurationMicros);
+  const Microseconds duration = std::clamp(
+      event_duration * kEventNavigationZoomFactor,
+      kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
   const Microseconds center = std::midpoint(start, end);
   TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
   ConstrainTimeRange(new_range);
@@ -1166,8 +1159,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
 
       for (int level = start_level; level < end_level; ++level) {
         if (level < timeline_data_.events_by_level.size()) {
-          DrawEventsForLevel(group_index,
-                             timeline_data_.events_by_level[level],
+          DrawEventsForLevel(group_index, timeline_data_.events_by_level[level],
                              px_per_time_unit_val,
                              /*level_in_group=*/level - start_level, pos, max,
                              event_height, padding_bottom);
@@ -1283,7 +1275,8 @@ void Timeline::DrawFlows(Pixel timeline_width) {
 
 void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                                      Pixel timeline_width,
-                                     double px_per_time_unit_val) {
+                                     double px_per_time_unit_val,
+                                     bool show_delete_button) {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const Pixel timeline_x_start = viewport->Pos.x + label_width_;
 
@@ -1336,51 +1329,92 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
 
     const std::string text = FormatTime(range.duration());
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
-    // Only draw the text if the text fits within the selected time range.
-    if (clipped_x_end - clipped_x_start > text_size.x) {
-      const Pixel text_x =
-          clipped_x_start + (clipped_x_end - clipped_x_start - text_size.x) / 2;
-      // Move the text up a little bit to avoid being too close to the bottom
-      // edge.
-      const Pixel text_y =
-          rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
+    // Move the text up a little bit to avoid being too close to the bottom
+    // edge.
+    const float text_y =
+        rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
+    const float text_x = clipped_x_start +
+                         (clipped_x_end - clipped_x_start - text_size.x) / 2.0f;
+    const ImVec2 text_pos(text_x, text_y);
 
-      DrawDeleteButton(draw_list, ImVec2(text_x, text_y), text_size, range);
-      draw_list->AddText(ImVec2(text_x, text_y), kBlackColor, text.c_str());
+    const ImRect visible_range_rect(ImVec2(clipped_x_start, rect_y_min),
+                                    ImVec2(clipped_x_end, rect_y_max));
+    const ImRect full_range_rect(ImVec2(time_range_x_start, rect_y_min),
+                                 ImVec2(time_range_x_end, rect_y_max));
+
+    if (show_delete_button) {
+      const DeleteButtonLayout layout = GetDeleteButtonLayout(
+          text_size, text_pos, visible_range_rect, full_range_rect);
+
+      if (layout.text_fits) {
+        draw_list->AddText(text_pos, kBlackColor, text.c_str());
+      }
+
+      DrawDeleteButton(draw_list, layout.button_pos, layout.hover_rect, range);
+    } else {
+      bool text_fits = visible_range_rect.GetWidth() > text_size.x;
+      if (text_fits) {
+        draw_list->AddText(text_pos, kBlackColor, text.c_str());
+      }
     }
   }
 }
 
-void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& text_pos,
-                                const ImVec2& text_size,
+DeleteButtonLayout Timeline::GetDeleteButtonLayout(
+    const ImVec2& text_size, const ImVec2& text_pos,
+    const ImRect& visible_range_rect, const ImRect& full_range_rect) const {
+  ImVec2 button_pos;
+  ImRect hover_rect;
+  bool text_fits = false;
+
+  // Check if text fits in the visible range.
+  if (visible_range_rect.GetWidth() > text_size.x) {
+    text_fits = true;
+    // Position the button to the right of the text.
+    button_pos = ImVec2(text_pos.x + text_size.x + kCloseButtonPadding,
+                        text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+    // Expand the hover area to include both the text and the button, with a
+    // small margin.
+    ImVec2 hover_min(std::min(text_pos.x, button_pos.x),
+                     std::min(text_pos.y, button_pos.y));
+    ImVec2 hover_max(
+        std::max(text_pos.x + text_size.x, button_pos.x + kCloseButtonSize),
+        std::max(text_pos.y + text_size.y, button_pos.y + kCloseButtonSize));
+
+    hover_min.x -= kHoverPadding;
+    hover_min.y -= kHoverPadding;
+    hover_max.x += kHoverPadding;
+    hover_max.y += kHoverPadding;
+    hover_rect = ImRect(hover_min, hover_max);
+  } else {
+    // If text doesn't fit, center the button in the visible range.
+    const float center_x = visible_range_rect.GetCenter().x;
+    button_pos = ImVec2(center_x - kCloseButtonSize / 2.0f,
+                        text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+    // Set the hover area to the visible selected time range, expanded to
+    // include the button.
+    hover_rect = visible_range_rect;
+    const ImRect button_rect(button_pos,
+                             ImVec2(button_pos.x + kCloseButtonSize,
+                                    button_pos.y + kCloseButtonSize));
+    hover_rect.Add(button_rect);
+  }
+
+  return {button_pos, hover_rect, text_fits};
+}
+
+void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                                const ImRect& hover_rect,
                                 const TimeRange& range) {
-  const Pixel button_size = kCloseButtonSize;
-  const Pixel padding = kCloseButtonPadding;
-
-  const ImVec2 button_pos(text_pos.x + text_size.x + padding,
-                          text_pos.y + (text_size.y - button_size) / 2.0f);
-
-  const ImVec2 text_min = text_pos;
-  const ImVec2 text_max(text_pos.x + text_size.x, text_pos.y + text_size.y);
-
+  const float button_size = kCloseButtonSize;
   const ImVec2 button_min = button_pos;
   const ImVec2 button_max(button_pos.x + button_size,
                           button_pos.y + button_size);
 
-  // Expand the hover area to include both the text and the button, with a
-  // small margin.
-  ImVec2 hover_min(std::min(text_min.x, button_min.x),
-                   std::min(text_min.y, button_min.y));
-  ImVec2 hover_max(std::max(text_max.x, button_max.x),
-                   std::max(text_max.y, button_max.y));
-
-  hover_min.x -= 2.0f;
-  hover_min.y -= 2.0f;
-  hover_max.x += 2.0f;
-  hover_max.y += 2.0f;
-
-  // If the mouse is hovering over the text area, draw the button.
-  if (ImGui::IsMouseHoveringRect(hover_min, hover_max)) {
+  // If the mouse is hovering over the designated area, draw the button.
+  if (ImGui::IsMouseHoveringRect(hover_rect.Min, hover_rect.Max)) {
     ImU32 button_color = kCloseButtonColor;
 
     // If the mouse is hovering over the button, change the color to the
@@ -1396,6 +1430,10 @@ void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& text_pos,
         auto it = absl::c_find(selected_time_ranges_, range);
         if (it != selected_time_ranges_.end()) {
           selected_time_ranges_.erase(it);
+        }
+        if (current_selected_time_range_ &&
+            *current_selected_time_range_ == range) {
+          current_selected_time_range_.reset();
         }
       }
     }
@@ -1430,7 +1468,7 @@ void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
 
   if (current_selected_time_range_) {
     DrawSelectedTimeRange(*current_selected_time_range_, timeline_width,
-                          px_per_time_unit_val);
+                          px_per_time_unit_val, /*show_delete_button=*/false);
   }
 }
 
@@ -1701,12 +1739,11 @@ void Timeline::RecomputeSearchResults() {
     if (absl::StrContains(absl::AsciiStrToLower(timeline_data_.entry_names[i]),
                           search_query_lower_)) {
       EventId event_id = timeline_data_.entry_event_ids[i];
-      sorted_search_results_.push_back({event_id,
-                                        timeline_data_.entry_levels[i],
-                                        timeline_data_.entry_start_times[i],
-                                        timeline_data_.entry_total_times[i],
-                                        timeline_data_.entry_pids[i],
-                                        timeline_data_.entry_tids[i]});
+      sorted_search_results_.push_back(
+          {event_id, timeline_data_.entry_levels[i],
+           timeline_data_.entry_start_times[i],
+           timeline_data_.entry_total_times[i], timeline_data_.entry_pids[i],
+           timeline_data_.entry_tids[i]});
     }
   }
   // Sort shallow results by start time, to have some order.

@@ -1,6 +1,8 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
 import {type GeneralAnalysis, type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GeneralProps, SummaryInfo, SummaryInfoConfig} from 'org_xprof/frontend/app/common/interfaces/summary_info';
+import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+
 
 /**
  * Configuration Assumptions:
@@ -149,8 +151,6 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
       {
         title: 'Compared to Program\'s Optimal FLOPS',
         valueKey: 'flop_rate_utilization_relative_to_roofline',
-        description: `see <a href="/roofline_model/${
-            window.location.pathname.split('/')[2]}">roofline_model</a>`,
       },
     ]
   },
@@ -202,6 +202,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   styleUrls: ['./performance_summary.scss']
 })
 export class PerformanceSummary implements OnChanges, OnInit {
+  private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
   /** Identify if this is an inference or training session */
   @Input() isInference?: boolean;
 
@@ -213,6 +214,8 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   /** Inference latency analysis data */
   @Input() inferenceLatencyData?: GeneralAnalysis;
+
+  @Input() sessionId = '';
 
   title = 'Performance Summary';
   summaryInfoCombined: SummaryInfo[] = [];
@@ -299,6 +302,16 @@ export class PerformanceSummary implements OnChanges, OnInit {
     const propertyValues = config.getChildValues ?
         config.getChildValues(customInput || props) :
         [];
+    if (config.description) {
+      descriptions.push(config.description);
+    }
+
+    // Add dynamic Roofline link with preserved parameters
+    if (config.valueKey === 'flop_rate_utilization_relative_to_roofline') {
+      const url = this.dataService.getRooflineModelLink(this.sessionId);
+      descriptions.push(`see <a href="${url}">roofline_model</a>`);
+    }
+
     const childrenInfoCombined: SummaryInfo[] = [];
     if (config.childrenInfoConfig) {
       this.parseDataFromConfig(

@@ -18,6 +18,20 @@ cc_library(
 )
 
 cc_library(
+    name = "tpuv7generic_utilization_utils",
+    srcs = ["tpuv7generic_utilization_utils.cc"],
+    hdrs = ["tpuv7generic_utilization_utils.h"],
+    deps = [
+        ":tpu_counter_util",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v7",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
+    ],
+)
+
+cc_library(
     name = "profile_processor_factory",
     srcs = ["profile_processor_factory.cc"],
     hdrs = ["profile_processor_factory.h"],

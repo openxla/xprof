@@ -83,7 +83,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
               event.GetStat(StatType::kCounterValue);
           if (!counter_value_stat) return;
 
-          double value = counter_value_stat->DoubleValue();
+          uint64_t value = counter_value_stat->IntOrUintValue();
           // Assuming we want to show all including zeros unless filtered by
           // frontend But existing code filtered zeros. Let's keep it consistent
           // if needed, but frontend usually handles filtering via args. For
@@ -100,7 +100,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPerfCounters(
               .AddTextCell(std::string(line.Name()))
               .AddNumberCell(line.Id())
               .AddTextCell(absl::AsciiStrToLower(event.Name()))
-              .AddHexCell(static_cast<uint64_t>(value))
+              .AddHexCell(value)
               .AddTextCell(description_stat
                                ? std::string(description_stat->StrOrRefValue())
                                : "")

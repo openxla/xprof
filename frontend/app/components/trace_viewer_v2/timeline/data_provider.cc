@@ -298,6 +298,7 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
     data.entry_names.push_back(event->name);
     data.entry_event_ids.push_back(event->event_id);
     data.entry_pids.push_back(event->pid);
+    data.entry_tids.push_back(event->tid);
     data.entry_args.push_back(event->args);
 
     bounds.min = std::min(bounds.min, event->ts);

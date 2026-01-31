@@ -316,6 +316,12 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   Application::Instance().timeline().set_is_incremental_loading(false);
 }
 
+void SetSearchResultsInWasm(const emscripten::val& trace_data) {
+  const ParsedTraceEvents parsed_events =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+  Application::Instance().timeline().SetSearchResults(parsed_events);
+}
+
 emscripten::val GetAllFlowCategories() {
   emscripten::val categories = emscripten::val::array();
   for (int i = 0;
@@ -358,6 +364,8 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+  emscripten::function("setSearchResultsInWasm",
+                       &traceviewer::SetSearchResultsInWasm);
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);
 

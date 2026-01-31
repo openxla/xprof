@@ -101,10 +101,27 @@ export class MemoryUsage {
     this.timelineUrl = preprocess.allocationTimeline || '';
     if (!this.timelineUrl.startsWith('/memory_viewer.json')) {
       // redirecting memory allocation timeline to this url on TensorBoard
+      const searchParamsFromStorage = new URLSearchParams(
+          window.sessionStorage.getItem('searchParams') || '');
+      const sessionPath = searchParamsFromStorage.get('session_path');
+      const runPath = searchParamsFromStorage.get('run_path');
+
+      const params = new URLSearchParams();
+      params.set('run', currentRun || '');
+      params.set('tag', 'memory_viewer');
+      params.set('module_name', currentModule || '');
+      params.set('view_memory_allocation_timeline', 'true');
+
+      if (sessionPath) {
+        params.set('session_path', sessionPath);
+      }
+      if (runPath) {
+        params.set('run_path', runPath);
+      }
+
       this.timelineUrl =
-          `${window.parent.location.origin}/data/plugin/profile/data?run=${
-              currentRun}&tag=memory_viewer&module_name=${
-              currentModule}&view_memory_allocation_timeline=true`;
+          `${window.parent.location.origin}/data/plugin/profile/data?${
+              params.toString()}`;
     }
     this.totalBufferAllocationBytes =
         (preprocess.totalBufferAllocationMib || 0) * 1024 * 1024;

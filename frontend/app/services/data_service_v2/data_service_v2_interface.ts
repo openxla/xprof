@@ -23,6 +23,7 @@ export interface DataServiceV2Interface {
       host?: string,
       parameters?: Map<string, string|boolean>,
       ignoreError?: boolean,
+      updateSearchParams?: boolean,
       ): Observable<DataTable|DataTable[]|null>;
 
   getDataUrl(
@@ -134,7 +135,7 @@ export interface DataServiceV2Interface {
 
   openUtilizationGraphviz(sessionId: string): void;
   isGraphvizAvailable(): boolean;
-
+  getRooflineModelLink(sessionId: string): string;
   getPluginVersion(): Observable<string|null>;
 }
 

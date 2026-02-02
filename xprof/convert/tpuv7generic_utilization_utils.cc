@@ -7,7 +7,10 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/tsl/profiler/utils/math_utils.h"
 #include "xprof/convert/tpu_counter_util.h"
 #include "xprof/utils/tpu_counter_ids_v7.h"
 #include "xprof/utils/tpu_counter_ids_v7x.h"
@@ -22,6 +25,8 @@ using Tpuv7xCounterName = TpuCounterIdsTpu7x;
 // String constants for units.
 constexpr absl::string_view kInstructions = "instructions";
 constexpr absl::string_view kCycles = "cycles";
+constexpr absl::string_view kBytes = "bytes";
+constexpr absl::string_view kPercent = "percent";
 
 void AddUtilization(const TpuCounterUtil& counters, uint64_t node_id,
                     absl::string_view metric, double achieved, double peak,
@@ -495,5 +500,441 @@ void ComputeTpuv7xScUnitUtilization(const TpuCounterUtil& counters, int die,
 #undef TPUV7X_SCS_COUNTER
 #undef TPUV7X_SCT_COUNTER
 #undef DECLARE_16_TILES
+
+// Helper macros for HBM counters (TPU v7x)
+#define HBM_PREFIX(DIE, id) TpuCounterIdsTpu7x::VF_CHIP_DIE##DIE##_##id
+#define RD_RESP_PS0(DIE, id) \
+  HBM_PREFIX(DIE, id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS0)
+#define RD_RESP_PS1(DIE, id) \
+  HBM_PREFIX(DIE, id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS1)
+#define WR_REQ_PS0(DIE, id)                                                 \
+  HBM_PREFIX(DIE, id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS0), \
+      HBM_PREFIX(                                                           \
+          DIE,                                                              \
+          id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_PARTIAL_WRITE_REQ_PS0)
+#define WR_REQ_PS1(DIE, id)                                                 \
+  HBM_PREFIX(DIE, id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS1), \
+      HBM_PREFIX(                                                           \
+          DIE,                                                              \
+          id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_PARTIAL_WRITE_REQ_PS1)
+
+std::vector<uint64_t> GetTpuv7xHbmReadCounters(int die) {
+  if (die == 0) {
+    return {
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_0),  RD_RESP_PS1(0, HBM_0_SS_HBMC_0),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_1),  RD_RESP_PS1(0, HBM_0_SS_HBMC_1),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_2),  RD_RESP_PS1(0, HBM_0_SS_HBMC_2),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_3),  RD_RESP_PS1(0, HBM_0_SS_HBMC_3),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_4),  RD_RESP_PS1(0, HBM_0_SS_HBMC_4),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_5),  RD_RESP_PS1(0, HBM_0_SS_HBMC_5),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_6),  RD_RESP_PS1(0, HBM_0_SS_HBMC_6),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_7),  RD_RESP_PS1(0, HBM_0_SS_HBMC_7),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_8),  RD_RESP_PS1(0, HBM_0_SS_HBMC_8),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_9),  RD_RESP_PS1(0, HBM_0_SS_HBMC_9),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_10), RD_RESP_PS1(0, HBM_0_SS_HBMC_10),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_11), RD_RESP_PS1(0, HBM_0_SS_HBMC_11),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_12), RD_RESP_PS1(0, HBM_0_SS_HBMC_12),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_13), RD_RESP_PS1(0, HBM_0_SS_HBMC_13),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_14), RD_RESP_PS1(0, HBM_0_SS_HBMC_14),
+        RD_RESP_PS0(0, HBM_0_SS_HBMC_15), RD_RESP_PS1(0, HBM_0_SS_HBMC_15),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_0),  RD_RESP_PS1(0, HBM_1_SS_HBMC_0),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_1),  RD_RESP_PS1(0, HBM_1_SS_HBMC_1),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_2),  RD_RESP_PS1(0, HBM_1_SS_HBMC_2),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_3),  RD_RESP_PS1(0, HBM_1_SS_HBMC_3),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_4),  RD_RESP_PS1(0, HBM_1_SS_HBMC_4),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_5),  RD_RESP_PS1(0, HBM_1_SS_HBMC_5),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_6),  RD_RESP_PS1(0, HBM_1_SS_HBMC_6),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_7),  RD_RESP_PS1(0, HBM_1_SS_HBMC_7),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_8),  RD_RESP_PS1(0, HBM_1_SS_HBMC_8),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_9),  RD_RESP_PS1(0, HBM_1_SS_HBMC_9),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_10), RD_RESP_PS1(0, HBM_1_SS_HBMC_10),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_11), RD_RESP_PS1(0, HBM_1_SS_HBMC_11),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_12), RD_RESP_PS1(0, HBM_1_SS_HBMC_12),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_13), RD_RESP_PS1(0, HBM_1_SS_HBMC_13),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_14), RD_RESP_PS1(0, HBM_1_SS_HBMC_14),
+        RD_RESP_PS0(0, HBM_1_SS_HBMC_15), RD_RESP_PS1(0, HBM_1_SS_HBMC_15),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_0),  RD_RESP_PS1(0, HBM_2_SS_HBMC_0),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_1),  RD_RESP_PS1(0, HBM_2_SS_HBMC_1),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_2),  RD_RESP_PS1(0, HBM_2_SS_HBMC_2),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_3),  RD_RESP_PS1(0, HBM_2_SS_HBMC_3),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_4),  RD_RESP_PS1(0, HBM_2_SS_HBMC_4),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_5),  RD_RESP_PS1(0, HBM_2_SS_HBMC_5),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_6),  RD_RESP_PS1(0, HBM_2_SS_HBMC_6),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_7),  RD_RESP_PS1(0, HBM_2_SS_HBMC_7),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_8),  RD_RESP_PS1(0, HBM_2_SS_HBMC_8),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_9),  RD_RESP_PS1(0, HBM_2_SS_HBMC_9),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_10), RD_RESP_PS1(0, HBM_2_SS_HBMC_10),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_11), RD_RESP_PS1(0, HBM_2_SS_HBMC_11),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_12), RD_RESP_PS1(0, HBM_2_SS_HBMC_12),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_13), RD_RESP_PS1(0, HBM_2_SS_HBMC_13),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_14), RD_RESP_PS1(0, HBM_2_SS_HBMC_14),
+        RD_RESP_PS0(0, HBM_2_SS_HBMC_15), RD_RESP_PS1(0, HBM_2_SS_HBMC_15),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_0),  RD_RESP_PS1(0, HBM_3_SS_HBMC_0),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_1),  RD_RESP_PS1(0, HBM_3_SS_HBMC_1),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_2),  RD_RESP_PS1(0, HBM_3_SS_HBMC_2),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_3),  RD_RESP_PS1(0, HBM_3_SS_HBMC_3),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_4),  RD_RESP_PS1(0, HBM_3_SS_HBMC_4),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_5),  RD_RESP_PS1(0, HBM_3_SS_HBMC_5),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_6),  RD_RESP_PS1(0, HBM_3_SS_HBMC_6),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_7),  RD_RESP_PS1(0, HBM_3_SS_HBMC_7),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_8),  RD_RESP_PS1(0, HBM_3_SS_HBMC_8),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_9),  RD_RESP_PS1(0, HBM_3_SS_HBMC_9),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_10), RD_RESP_PS1(0, HBM_3_SS_HBMC_10),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_11), RD_RESP_PS1(0, HBM_3_SS_HBMC_11),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_12), RD_RESP_PS1(0, HBM_3_SS_HBMC_12),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_13), RD_RESP_PS1(0, HBM_3_SS_HBMC_13),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_14), RD_RESP_PS1(0, HBM_3_SS_HBMC_14),
+        RD_RESP_PS0(0, HBM_3_SS_HBMC_15), RD_RESP_PS1(0, HBM_3_SS_HBMC_15),
+    };
+  } else {
+    return {
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_0),  RD_RESP_PS1(1, HBM_0_SS_HBMC_0),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_1),  RD_RESP_PS1(1, HBM_0_SS_HBMC_1),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_2),  RD_RESP_PS1(1, HBM_0_SS_HBMC_2),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_3),  RD_RESP_PS1(1, HBM_0_SS_HBMC_3),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_4),  RD_RESP_PS1(1, HBM_0_SS_HBMC_4),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_5),  RD_RESP_PS1(1, HBM_0_SS_HBMC_5),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_6),  RD_RESP_PS1(1, HBM_0_SS_HBMC_6),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_7),  RD_RESP_PS1(1, HBM_0_SS_HBMC_7),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_8),  RD_RESP_PS1(1, HBM_0_SS_HBMC_8),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_9),  RD_RESP_PS1(1, HBM_0_SS_HBMC_9),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_10), RD_RESP_PS1(1, HBM_0_SS_HBMC_10),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_11), RD_RESP_PS1(1, HBM_0_SS_HBMC_11),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_12), RD_RESP_PS1(1, HBM_0_SS_HBMC_12),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_13), RD_RESP_PS1(1, HBM_0_SS_HBMC_13),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_14), RD_RESP_PS1(1, HBM_0_SS_HBMC_14),
+        RD_RESP_PS0(1, HBM_0_SS_HBMC_15), RD_RESP_PS1(1, HBM_0_SS_HBMC_15),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_0),  RD_RESP_PS1(1, HBM_1_SS_HBMC_0),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_1),  RD_RESP_PS1(1, HBM_1_SS_HBMC_1),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_2),  RD_RESP_PS1(1, HBM_1_SS_HBMC_2),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_3),  RD_RESP_PS1(1, HBM_1_SS_HBMC_3),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_4),  RD_RESP_PS1(1, HBM_1_SS_HBMC_4),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_5),  RD_RESP_PS1(1, HBM_1_SS_HBMC_5),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_6),  RD_RESP_PS1(1, HBM_1_SS_HBMC_6),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_7),  RD_RESP_PS1(1, HBM_1_SS_HBMC_7),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_8),  RD_RESP_PS1(1, HBM_1_SS_HBMC_8),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_9),  RD_RESP_PS1(1, HBM_1_SS_HBMC_9),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_10), RD_RESP_PS1(1, HBM_1_SS_HBMC_10),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_11), RD_RESP_PS1(1, HBM_1_SS_HBMC_11),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_12), RD_RESP_PS1(1, HBM_1_SS_HBMC_12),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_13), RD_RESP_PS1(1, HBM_1_SS_HBMC_13),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_14), RD_RESP_PS1(1, HBM_1_SS_HBMC_14),
+        RD_RESP_PS0(1, HBM_1_SS_HBMC_15), RD_RESP_PS1(1, HBM_1_SS_HBMC_15),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_0),  RD_RESP_PS1(1, HBM_2_SS_HBMC_0),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_1),  RD_RESP_PS1(1, HBM_2_SS_HBMC_1),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_2),  RD_RESP_PS1(1, HBM_2_SS_HBMC_2),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_3),  RD_RESP_PS1(1, HBM_2_SS_HBMC_3),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_4),  RD_RESP_PS1(1, HBM_2_SS_HBMC_4),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_5),  RD_RESP_PS1(1, HBM_2_SS_HBMC_5),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_6),  RD_RESP_PS1(1, HBM_2_SS_HBMC_6),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_7),  RD_RESP_PS1(1, HBM_2_SS_HBMC_7),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_8),  RD_RESP_PS1(1, HBM_2_SS_HBMC_8),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_9),  RD_RESP_PS1(1, HBM_2_SS_HBMC_9),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_10), RD_RESP_PS1(1, HBM_2_SS_HBMC_10),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_11), RD_RESP_PS1(1, HBM_2_SS_HBMC_11),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_12), RD_RESP_PS1(1, HBM_2_SS_HBMC_12),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_13), RD_RESP_PS1(1, HBM_2_SS_HBMC_13),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_14), RD_RESP_PS1(1, HBM_2_SS_HBMC_14),
+        RD_RESP_PS0(1, HBM_2_SS_HBMC_15), RD_RESP_PS1(1, HBM_2_SS_HBMC_15),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_0),  RD_RESP_PS1(1, HBM_3_SS_HBMC_0),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_1),  RD_RESP_PS1(1, HBM_3_SS_HBMC_1),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_2),  RD_RESP_PS1(1, HBM_3_SS_HBMC_2),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_3),  RD_RESP_PS1(1, HBM_3_SS_HBMC_3),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_4),  RD_RESP_PS1(1, HBM_3_SS_HBMC_4),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_5),  RD_RESP_PS1(1, HBM_3_SS_HBMC_5),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_6),  RD_RESP_PS1(1, HBM_3_SS_HBMC_6),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_7),  RD_RESP_PS1(1, HBM_3_SS_HBMC_7),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_8),  RD_RESP_PS1(1, HBM_3_SS_HBMC_8),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_9),  RD_RESP_PS1(1, HBM_3_SS_HBMC_9),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_10), RD_RESP_PS1(1, HBM_3_SS_HBMC_10),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_11), RD_RESP_PS1(1, HBM_3_SS_HBMC_11),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_12), RD_RESP_PS1(1, HBM_3_SS_HBMC_12),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_13), RD_RESP_PS1(1, HBM_3_SS_HBMC_13),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_14), RD_RESP_PS1(1, HBM_3_SS_HBMC_14),
+        RD_RESP_PS0(1, HBM_3_SS_HBMC_15), RD_RESP_PS1(1, HBM_3_SS_HBMC_15),
+    };
+  }
+}
+
+std::vector<uint64_t> GetTpuv7xHbmWriteCounters(int die) {
+  if (die == 0) {
+    return {
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_0),  WR_REQ_PS1(0, HBM_0_SS_HBMC_0),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_1),  WR_REQ_PS1(0, HBM_0_SS_HBMC_1),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_2),  WR_REQ_PS1(0, HBM_0_SS_HBMC_2),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_3),  WR_REQ_PS1(0, HBM_0_SS_HBMC_3),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_4),  WR_REQ_PS1(0, HBM_0_SS_HBMC_4),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_5),  WR_REQ_PS1(0, HBM_0_SS_HBMC_5),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_6),  WR_REQ_PS1(0, HBM_0_SS_HBMC_6),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_7),  WR_REQ_PS1(0, HBM_0_SS_HBMC_7),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_8),  WR_REQ_PS1(0, HBM_0_SS_HBMC_8),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_9),  WR_REQ_PS1(0, HBM_0_SS_HBMC_9),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_10), WR_REQ_PS1(0, HBM_0_SS_HBMC_10),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_11), WR_REQ_PS1(0, HBM_0_SS_HBMC_11),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_12), WR_REQ_PS1(0, HBM_0_SS_HBMC_12),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_13), WR_REQ_PS1(0, HBM_0_SS_HBMC_13),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_14), WR_REQ_PS1(0, HBM_0_SS_HBMC_14),
+        WR_REQ_PS0(0, HBM_0_SS_HBMC_15), WR_REQ_PS1(0, HBM_0_SS_HBMC_15),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_0),  WR_REQ_PS1(0, HBM_1_SS_HBMC_0),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_1),  WR_REQ_PS1(0, HBM_1_SS_HBMC_1),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_2),  WR_REQ_PS1(0, HBM_1_SS_HBMC_2),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_3),  WR_REQ_PS1(0, HBM_1_SS_HBMC_3),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_4),  WR_REQ_PS1(0, HBM_1_SS_HBMC_4),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_5),  WR_REQ_PS1(0, HBM_1_SS_HBMC_5),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_6),  WR_REQ_PS1(0, HBM_1_SS_HBMC_6),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_7),  WR_REQ_PS1(0, HBM_1_SS_HBMC_7),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_8),  WR_REQ_PS1(0, HBM_1_SS_HBMC_8),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_9),  WR_REQ_PS1(0, HBM_1_SS_HBMC_9),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_10), WR_REQ_PS1(0, HBM_1_SS_HBMC_10),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_11), WR_REQ_PS1(0, HBM_1_SS_HBMC_11),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_12), WR_REQ_PS1(0, HBM_1_SS_HBMC_12),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_13), WR_REQ_PS1(0, HBM_1_SS_HBMC_13),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_14), WR_REQ_PS1(0, HBM_1_SS_HBMC_14),
+        WR_REQ_PS0(0, HBM_1_SS_HBMC_15), WR_REQ_PS1(0, HBM_1_SS_HBMC_15),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_0),  WR_REQ_PS1(0, HBM_2_SS_HBMC_0),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_1),  WR_REQ_PS1(0, HBM_2_SS_HBMC_1),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_2),  WR_REQ_PS1(0, HBM_2_SS_HBMC_2),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_3),  WR_REQ_PS1(0, HBM_2_SS_HBMC_3),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_4),  WR_REQ_PS1(0, HBM_2_SS_HBMC_4),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_5),  WR_REQ_PS1(0, HBM_2_SS_HBMC_5),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_6),  WR_REQ_PS1(0, HBM_2_SS_HBMC_6),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_7),  WR_REQ_PS1(0, HBM_2_SS_HBMC_7),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_8),  WR_REQ_PS1(0, HBM_2_SS_HBMC_8),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_9),  WR_REQ_PS1(0, HBM_2_SS_HBMC_9),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_10), WR_REQ_PS1(0, HBM_2_SS_HBMC_10),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_11), WR_REQ_PS1(0, HBM_2_SS_HBMC_11),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_12), WR_REQ_PS1(0, HBM_2_SS_HBMC_12),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_13), WR_REQ_PS1(0, HBM_2_SS_HBMC_13),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_14), WR_REQ_PS1(0, HBM_2_SS_HBMC_14),
+        WR_REQ_PS0(0, HBM_2_SS_HBMC_15), WR_REQ_PS1(0, HBM_2_SS_HBMC_15),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_0),  WR_REQ_PS1(0, HBM_3_SS_HBMC_0),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_1),  WR_REQ_PS1(0, HBM_3_SS_HBMC_1),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_2),  WR_REQ_PS1(0, HBM_3_SS_HBMC_2),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_3),  WR_REQ_PS1(0, HBM_3_SS_HBMC_3),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_4),  WR_REQ_PS1(0, HBM_3_SS_HBMC_4),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_5),  WR_REQ_PS1(0, HBM_3_SS_HBMC_5),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_6),  WR_REQ_PS1(0, HBM_3_SS_HBMC_6),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_7),  WR_REQ_PS1(0, HBM_3_SS_HBMC_7),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_8),  WR_REQ_PS1(0, HBM_3_SS_HBMC_8),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_9),  WR_REQ_PS1(0, HBM_3_SS_HBMC_9),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_10), WR_REQ_PS1(0, HBM_3_SS_HBMC_10),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_11), WR_REQ_PS1(0, HBM_3_SS_HBMC_11),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_12), WR_REQ_PS1(0, HBM_3_SS_HBMC_12),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_13), WR_REQ_PS1(0, HBM_3_SS_HBMC_13),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_14), WR_REQ_PS1(0, HBM_3_SS_HBMC_14),
+        WR_REQ_PS0(0, HBM_3_SS_HBMC_15), WR_REQ_PS1(0, HBM_3_SS_HBMC_15),
+    };
+  } else {
+    return {
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_0),  WR_REQ_PS1(1, HBM_0_SS_HBMC_0),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_1),  WR_REQ_PS1(1, HBM_0_SS_HBMC_1),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_2),  WR_REQ_PS1(1, HBM_0_SS_HBMC_2),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_3),  WR_REQ_PS1(1, HBM_0_SS_HBMC_3),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_4),  WR_REQ_PS1(1, HBM_0_SS_HBMC_4),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_5),  WR_REQ_PS1(1, HBM_0_SS_HBMC_5),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_6),  WR_REQ_PS1(1, HBM_0_SS_HBMC_6),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_7),  WR_REQ_PS1(1, HBM_0_SS_HBMC_7),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_8),  WR_REQ_PS1(1, HBM_0_SS_HBMC_8),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_9),  WR_REQ_PS1(1, HBM_0_SS_HBMC_9),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_10), WR_REQ_PS1(1, HBM_0_SS_HBMC_10),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_11), WR_REQ_PS1(1, HBM_0_SS_HBMC_11),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_12), WR_REQ_PS1(1, HBM_0_SS_HBMC_12),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_13), WR_REQ_PS1(1, HBM_0_SS_HBMC_13),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_14), WR_REQ_PS1(1, HBM_0_SS_HBMC_14),
+        WR_REQ_PS0(1, HBM_0_SS_HBMC_15), WR_REQ_PS1(1, HBM_0_SS_HBMC_15),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_0),  WR_REQ_PS1(1, HBM_1_SS_HBMC_0),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_1),  WR_REQ_PS1(1, HBM_1_SS_HBMC_1),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_2),  WR_REQ_PS1(1, HBM_1_SS_HBMC_2),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_3),  WR_REQ_PS1(1, HBM_1_SS_HBMC_3),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_4),  WR_REQ_PS1(1, HBM_1_SS_HBMC_4),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_5),  WR_REQ_PS1(1, HBM_1_SS_HBMC_5),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_6),  WR_REQ_PS1(1, HBM_1_SS_HBMC_6),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_7),  WR_REQ_PS1(1, HBM_1_SS_HBMC_7),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_8),  WR_REQ_PS1(1, HBM_1_SS_HBMC_8),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_9),  WR_REQ_PS1(1, HBM_1_SS_HBMC_9),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_10), WR_REQ_PS1(1, HBM_1_SS_HBMC_10),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_11), WR_REQ_PS1(1, HBM_1_SS_HBMC_11),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_12), WR_REQ_PS1(1, HBM_1_SS_HBMC_12),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_13), WR_REQ_PS1(1, HBM_1_SS_HBMC_13),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_14), WR_REQ_PS1(1, HBM_1_SS_HBMC_14),
+        WR_REQ_PS0(1, HBM_1_SS_HBMC_15), WR_REQ_PS1(1, HBM_1_SS_HBMC_15),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_0),  WR_REQ_PS1(1, HBM_2_SS_HBMC_0),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_1),  WR_REQ_PS1(1, HBM_2_SS_HBMC_1),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_2),  WR_REQ_PS1(1, HBM_2_SS_HBMC_2),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_3),  WR_REQ_PS1(1, HBM_2_SS_HBMC_3),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_4),  WR_REQ_PS1(1, HBM_2_SS_HBMC_4),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_5),  WR_REQ_PS1(1, HBM_2_SS_HBMC_5),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_6),  WR_REQ_PS1(1, HBM_2_SS_HBMC_6),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_7),  WR_REQ_PS1(1, HBM_2_SS_HBMC_7),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_8),  WR_REQ_PS1(1, HBM_2_SS_HBMC_8),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_9),  WR_REQ_PS1(1, HBM_2_SS_HBMC_9),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_10), WR_REQ_PS1(1, HBM_2_SS_HBMC_10),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_11), WR_REQ_PS1(1, HBM_2_SS_HBMC_11),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_12), WR_REQ_PS1(1, HBM_2_SS_HBMC_12),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_13), WR_REQ_PS1(1, HBM_2_SS_HBMC_13),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_14), WR_REQ_PS1(1, HBM_2_SS_HBMC_14),
+        WR_REQ_PS0(1, HBM_2_SS_HBMC_15), WR_REQ_PS1(1, HBM_2_SS_HBMC_15),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_0),  WR_REQ_PS1(1, HBM_3_SS_HBMC_0),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_1),  WR_REQ_PS1(1, HBM_3_SS_HBMC_1),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_2),  WR_REQ_PS1(1, HBM_3_SS_HBMC_2),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_3),  WR_REQ_PS1(1, HBM_3_SS_HBMC_3),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_4),  WR_REQ_PS1(1, HBM_3_SS_HBMC_4),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_5),  WR_REQ_PS1(1, HBM_3_SS_HBMC_5),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_6),  WR_REQ_PS1(1, HBM_3_SS_HBMC_6),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_7),  WR_REQ_PS1(1, HBM_3_SS_HBMC_7),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_8),  WR_REQ_PS1(1, HBM_3_SS_HBMC_8),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_9),  WR_REQ_PS1(1, HBM_3_SS_HBMC_9),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_10), WR_REQ_PS1(1, HBM_3_SS_HBMC_10),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_11), WR_REQ_PS1(1, HBM_3_SS_HBMC_11),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_12), WR_REQ_PS1(1, HBM_3_SS_HBMC_12),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_13), WR_REQ_PS1(1, HBM_3_SS_HBMC_13),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_14), WR_REQ_PS1(1, HBM_3_SS_HBMC_14),
+        WR_REQ_PS0(1, HBM_3_SS_HBMC_15), WR_REQ_PS1(1, HBM_3_SS_HBMC_15),
+    };
+  }
+}
+
+#undef HBM_PREFIX
+#undef RD_RESP_PS0
+#undef RD_RESP_PS1
+#undef WR_REQ_PS0
+#undef WR_REQ_PS1
+
+void ComputeTpuv7GenericBandwidthUtilization(
+    const TpuCounterUtil& counters,
+    const Tpuv7GenericUtilizationOptions& options, int core,
+    UtilizationCounters* utilization) {
+  uint64_t hbm_rd_beats = 0;
+  uint64_t hbm_wr_beats = 0;
+
+  if (options.is_tpu7) {
+    // TODO: Implement for TPU v7 when counter IDs are available.
+  } else {
+    for (uint64_t counter_id : GetTpuv7xHbmReadCounters(core)) {
+      hbm_rd_beats += counters.GetValue(counter_id);
+    }
+    for (uint64_t counter_id : GetTpuv7xHbmWriteCounters(core)) {
+      hbm_wr_beats += counters.GetValue(counter_id);
+    }
+  }
+
+  const int kHbmBytesPerBeat = 32;
+  uint64_t hbm_rd_bytes = hbm_rd_beats * kHbmBytesPerBeat;
+  uint64_t hbm_wr_bytes = hbm_wr_beats * kHbmBytesPerBeat;
+
+  uint64_t cycle_addr = 0;
+  // NOLINTBEGIN
+  if (options.is_tpu7) {
+    cycle_addr = TpuCounterIdsTpu7::
+        VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
+  } else {
+    if (core == 0) {
+      cycle_addr = TpuCounterIdsTpu7x::
+          VF_CHIP_DIE0_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
+    } else {
+      cycle_addr = TpuCounterIdsTpu7x::
+          VF_CHIP_DIE1_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
+    }
+  }
+  // NOLINTEND
+  const uint64_t cycles = counters.GetValue(cycle_addr);
+  if (cycles == 0) return;
+
+  const double time_s =
+      tsl::profiler::CyclesToSeconds(cycles, options.frequency_hz);
+
+  // TODO: Fetch from device properties
+  const double peak_hbm_bw_Bps = options.peak_hbm_bw_bps;
+  const double peak_bytes = peak_hbm_bw_Bps * time_s;
+
+  AddUtilization(counters, /*node_id=*/0,
+                 absl::StrCat("HBM Rd+Wr - core ", core),
+                 hbm_rd_bytes + hbm_wr_bytes, peak_bytes, kBytes, utilization);
+
+  const double total_hbm_bytes = hbm_rd_bytes + hbm_wr_bytes;
+  if (total_hbm_bytes > 0) {
+    AddUtilization(counters, core, "HBM Read Ratio", hbm_rd_bytes,
+                   total_hbm_bytes, kPercent, utilization);
+    AddUtilization(counters, core, "HBM Write Ratio", hbm_wr_bytes,
+                   total_hbm_bytes, kPercent, utilization);
+  }
+}
+
+void ComputeTpuv7GenericIciBandwidthUtilization(
+    const TpuCounterUtil& counters,
+    const Tpuv7GenericUtilizationOptions& options,
+    UtilizationCounters* utilization) {
+  constexpr size_t KIciBytesPerFlit = 128;
+  uint64_t ici_rd_bytes = 0;
+  uint64_t ici_wr_bytes = 0;
+
+  std::vector<uint64_t> ici_rd_flits_perf_counters;
+  std::vector<uint64_t> ici_wr_flits_perf_counters;
+
+  if (options.is_tpu7) {
+    // TODO: Implement for TPU v7
+  } else {
+    // NOLINTBEGIN
+    ici_rd_flits_perf_counters = {
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_0_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_1_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_2_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_3_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
+    };
+    ici_wr_flits_perf_counters = {
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_0_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_1_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_2_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7x::
+            VF_CHIP_DIE1_OCI_ICR_3_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
+    };
+    // NOLINTEND
+  }
+
+  uint64_t ici_rd_flits = 0;
+  for (uint64_t counter_id : ici_rd_flits_perf_counters) {
+    ici_rd_flits += counters.GetValue(counter_id);
+  }
+  ici_rd_bytes = ici_rd_flits * KIciBytesPerFlit;
+
+  uint64_t ici_wr_flits = 0;
+  for (uint64_t counter_id : ici_wr_flits_perf_counters) {
+    ici_wr_flits += counters.GetValue(counter_id);
+  }
+  ici_wr_bytes = ici_wr_flits * KIciBytesPerFlit;
+
+  uint64_t cycle_counter_address = 0;
+  // NOLINTBEGIN
+  if (options.is_tpu7) {
+    cycle_counter_address = TpuCounterIdsTpu7::
+        VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
+  } else {
+    cycle_counter_address = TpuCounterIdsTpu7x::
+        VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CYCLE_COUNT;
+  }
+  // NOLINTEND
+
+  const uint64_t cycles = counters.GetValue(cycle_counter_address);
+  if (cycles == 0) return;
+
+  const double time_s =
+      tsl::profiler::CyclesToSeconds(cycles, 1000000000);  // Approximation
+
+  const double kPeakIciRdBwBytesPerSecond = 294947368421.0526;
+  const double peak_ici_rd_bytes = kPeakIciRdBwBytesPerSecond * time_s;
+  const double peak_ici_wr_bytes = peak_ici_rd_bytes;
+
+  AddUtilization(counters, 0, "ICI (Read)", ici_rd_bytes, peak_ici_rd_bytes,
+                 kBytes, utilization);
+  AddUtilization(counters, 0, "ICI (Write)", ici_wr_bytes, peak_ici_wr_bytes,
+                 kBytes, utilization);
+}
 
 }  // namespace xprof

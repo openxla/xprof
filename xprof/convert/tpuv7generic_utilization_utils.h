@@ -9,11 +9,23 @@ struct Tpuv7GenericUtilizationOptions {
   int num_mxu_per_tensor_core;
   int cycles_per_xlu_instruction;
   bool is_tpu7;
+  double frequency_hz;
+  double peak_hbm_bw_bps;
 };
 
 void ComputeTpuv7GenericTcUnitUtilization(
     const TpuCounterUtil& counters,
     const Tpuv7GenericUtilizationOptions& options, int core,
+    UtilizationCounters* utilization);
+
+void ComputeTpuv7GenericBandwidthUtilization(
+    const TpuCounterUtil& counters,
+    const Tpuv7GenericUtilizationOptions& options, int core,
+    UtilizationCounters* utilization);
+
+void ComputeTpuv7GenericIciBandwidthUtilization(
+    const TpuCounterUtil& counters,
+    const Tpuv7GenericUtilizationOptions& options,
     UtilizationCounters* utilization);
 
 void ComputeTpuv7xScUnitUtilization(const TpuCounterUtil& counters, int die,

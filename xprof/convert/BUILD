@@ -24,10 +24,12 @@ cc_library(
     deps = [
         ":tpu_counter_util",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
+        "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
 
@@ -2314,5 +2316,38 @@ cc_test(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "xplane_to_utilization_viewer",
+    srcs = ["xplane_to_utilization_viewer.cc"],
+    hdrs = ["xplane_to_utilization_viewer.h"],
+    deps = [
+        ":data_table_utils",
+        ":tpu_counter_util",
+        ":tpuv7generic_utilization_utils",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_utilization_viewer_test",
+    srcs = ["xplane_to_utilization_viewer_test.cc"],
+    deps = [
+        ":xplane_to_utilization_viewer",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )

@@ -327,6 +327,9 @@ class Timeline {
 
   void DrawGroup(int group_index, double px_per_time_unit_val);
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
+  void DrawFlameGroupPreview(int start_level, int end_level,
+                             double px_per_time_unit_val, const ImVec2& pos,
+                             Pixel group_height, ImDrawList* draw_list);
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,

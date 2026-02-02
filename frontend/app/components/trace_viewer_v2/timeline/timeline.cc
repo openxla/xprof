@@ -1134,16 +1134,28 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   // We use a fixed height for the preview, same as a single event height.
   const Pixel group_height = kEventHeight;
 
-  // Calculate level Y positions for the preview. We only need the first level.
+  // Calculate level Y positions for the preview.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
   const int start_level = group.start_level;
-  if (start_level < level_y_positions_.size()) {
-    level_y_positions_[start_level] = pos.y + kEventHeight * 0.5f;
+  int end_level = timeline_data_.events_by_level.size();
+  // Find the next group that is NOT a child of the current group.
+  for (size_t i = group_index + 1; i < timeline_data_.groups.size(); ++i) {
+    if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
+      end_level = timeline_data_.groups[i].start_level;
+      break;
+    }
+  }
+  end_level = std::max(start_level, end_level);
+
+  for (int level = start_level; level < end_level; ++level) {
+    if (level < level_y_positions_.size()) {
+      level_y_positions_[level] = pos.y + kEventHeight * 0.5f;
+    }
   }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
                         0, kLaneFlags)) {
-    const ImVec2 max = ImGui::GetContentRegionMax();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.type == Group::Type::kCounter) {
       const auto it =
@@ -1153,31 +1165,8 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
                          group_height);
       }
     } else if (group.type == Group::Type::kFlame) {
-      // For flame charts, draw all events in group and subgroups in one line.
-      int current_nesting_level = group.nesting_level;
-      int child_group_index = group_index + 1;
-      while (child_group_index < timeline_data_.groups.size() &&
-             timeline_data_.groups[child_group_index].nesting_level >
-                 current_nesting_level) {
-        child_group_index++;
-      }
-
-      int end_level = (child_group_index < timeline_data_.groups.size())
-                          ? timeline_data_.groups[child_group_index].start_level
-                          : timeline_data_.events_by_level.size();
-
-      const int num_levels = end_level - start_level;
-      const Pixel event_height = kEventHeight / std::max(1, num_levels);
-      const Pixel padding_bottom = 0.0f;
-
-      for (int level = start_level; level < end_level; ++level) {
-        if (level < timeline_data_.events_by_level.size()) {
-          DrawEventsForLevel(group_index, timeline_data_.events_by_level[level],
-                             px_per_time_unit_val,
-                             /*level_in_group=*/level - start_level, pos, max,
-                             event_height, padding_bottom);
-        }
-      }
+      DrawFlameGroupPreview(start_level, end_level, px_per_time_unit_val, pos,
+                            group_height, draw_list);
     }
   }
   ImGui::EndChild();
@@ -1189,6 +1178,68 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
     draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
                        ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
                        kLightGrayColor);
+  }
+}
+
+void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
+                                     double px_per_time_unit_val,
+                                     const ImVec2& pos, Pixel group_height,
+                                     ImDrawList* draw_list) {
+  // Aggregated view: Flatten all levels into one track with reduced
+  // opacity.
+  const Microseconds visible_start = visible_range().start();
+  const Microseconds visible_end = visible_range().end();
+
+  absl::string_view last_name;
+  ImU32 last_color = 0;
+
+  for (int level = start_level; level < end_level; ++level) {
+    if (level >= timeline_data_.events_by_level.size()) continue;
+    const auto& indices = timeline_data_.events_by_level[level];
+
+    // Find the first event that ends after the visible start.
+    // Since events in the same level are non-overlapping and sorted by
+    // start time, they are effectively sorted by end time as well.
+    auto it = std::lower_bound(
+        indices.begin(), indices.end(), visible_start,
+        [&](int event_idx, Microseconds t) {
+          const Microseconds end = timeline_data_.entry_start_times[event_idx] +
+                                   timeline_data_.entry_total_times[event_idx];
+          return end <= t;
+        });
+
+    for (; it != indices.end(); ++it) {
+      int event_index = *it;
+      const Microseconds start = timeline_data_.entry_start_times[event_index];
+      if (start >= visible_end) break;
+
+      const Microseconds end =
+          start + timeline_data_.entry_total_times[event_index];
+
+      Pixel x_start = TimeToScreenX(start, pos.x, px_per_time_unit_val);
+      Pixel x_end = TimeToScreenX(end, pos.x, px_per_time_unit_val);
+
+      // Draw Logic
+      const std::string& name = timeline_data_.entry_names[event_index];
+      ImU32 color;
+      if (name == last_name) {
+        color = last_color;
+      } else {
+        last_name = name;
+        color = GetColorForId(name);
+        // Render with reduced opacity to show density.
+        color = (color & ~IM_COL32_A_MASK) |
+                (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
+                 << IM_COL32_A_SHIFT);
+        last_color = color;
+      }
+
+      if (x_end < x_start) std::swap(x_start, x_end);
+      x_end = std::max(x_end, x_start + kEventMinimumDrawWidth);
+
+      draw_list->AddRectFilled(ImVec2(x_start, pos.y),
+                               ImVec2(x_end, pos.y + group_height), color);
+    }
   }
 }
 

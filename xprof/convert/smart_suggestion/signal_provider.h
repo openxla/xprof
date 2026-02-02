@@ -267,7 +267,8 @@ class SignalProvider {
   // The source of the algorithm is at:
   // https://docs.oracle.com/en/cloud/saas/planning-budgeting-cloud/pfusu/insights_metrics_MODIFIED_Z_SCORE.html
   absl::StatusOr<std::vector<HostStraggler>> GetHostStragglers(
-      const std::string& event_name, double threshold = 3.5) const {
+      const std::string& event_name, double straggler_threshold = 3.5,
+      double mad_threshold = 0.1) const {
     TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
                         GetEventTimeFractionAnalyzerResult(event_name));
 
@@ -311,10 +312,11 @@ class SignalProvider {
           score = std::numeric_limits<double>::infinity();
         }
       } else {
-        score = k * (avg_percent - median) / mad;
+        double effective_mad = fmax(mad, mad_threshold);
+        score = k * (avg_percent - median) / effective_mad;
       }
 
-      if (std::abs(score) > threshold) {
+      if (std::abs(score) > straggler_threshold) {
         stragglers.push_back({hostname, avg_percent, score});
       }
     }

@@ -137,7 +137,9 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
           id_stat = event.Metadata().GetStat(StatType::kPerformanceCounterId);
         }
 
-        counter_id = static_cast<uint64_t>(id_stat->IntOrUintValue());
+        if (id_stat) {
+          counter_id = static_cast<uint64_t>(id_stat->IntOrUintValue());
+        }
 
         // Fallback to EventId if still 0
         if (counter_id == 0) counter_id = event.Id();

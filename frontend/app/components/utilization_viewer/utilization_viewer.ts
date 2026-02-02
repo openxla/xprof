@@ -90,7 +90,6 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId = (params || {})['sessionId'] || '';
-      this.update();
     });
     combineLatest([route.params, route.queryParams])
         .pipe(takeUntil(this.destroyed))

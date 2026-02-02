@@ -130,6 +130,18 @@ void ComputeTpuv7GenericTcUnitUtilization(
                  kCycles, utilization);
 
   // CPI info can be found at
+  constexpr uint64_t kCpiMxuLmrI4 = 2;
+  constexpr uint64_t kCpiMxuLmrI8 = 2;
+  constexpr uint64_t kCpiMxuLmrBf16 = 4;
+  constexpr uint64_t kCpiMxuVregI4 = 8;
+  constexpr uint64_t kCpiMxuVregI8 = 8;
+  constexpr uint64_t kCpiMxuVregF8 = 8;
+  constexpr uint64_t kCpiMxuVregBf16 = 8;
+  constexpr uint64_t kCpiMxuVregF32 = 4;
+  const int kNumMxuPerTC = options.num_mxu_per_tensor_core;
+  DCHECK_EQ(kNumMxuPerTC, 2);
+
+  if (is_tpu7) {
 #define GET_TPU7_COUNTER(NAME) counters.GetValue(TPU7_COUNTER(NAME))
 #define COMPUTE_TPU7_MXU_BF16_CYCLES(unit_id)                             \
   kCpiMxuLmrBf16* GET_TPU7_COUNTER(MATMUL_LMR_BF16_MXU_##unit_id) +       \

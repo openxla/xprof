@@ -68,6 +68,7 @@ limitations under the License.
 #include "xprof/convert/xplane_to_tf_data_stats.h"
 #include "xprof/convert/xplane_to_tool_names.h"
 #include "xprof/convert/xplane_to_trace_container.h"
+#include "xprof/convert/xplane_to_utilization_viewer.h"
 #include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/inference_stats.pb.h"
@@ -476,6 +477,17 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     return ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
     return ConvertMultiXSpacesToSmartSuggestion(session_snapshot);
+  } else if (tool_name == "utilization_viewer") {
+    if (session_snapshot.XSpaceSize() != 1) {
+      return tsl::errors::InvalidArgument(
+          "Utilization viewer tool expects only 1 XSpace path but gets ",
+          session_snapshot.XSpaceSize());
+    }
+    google::protobuf::Arena arena;
+    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
+    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                               /*derived_timeline=*/true);
+    return xprof::ConvertXSpaceToUtilizationViewer(*xspace);
   } else {
     return tsl::errors::InvalidArgument(
         "Can not find tool: ", tool_name,

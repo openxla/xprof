@@ -140,6 +140,7 @@ XPLANE_TOOLS = [
     'graph_viewer',
     'megascale_stats',
     'perf_counters',
+    'utilization_viewer',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)

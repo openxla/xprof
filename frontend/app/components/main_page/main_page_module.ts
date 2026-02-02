@@ -40,6 +40,8 @@ import {StackTracePage} from 'org_xprof/frontend/app/components/stack_trace_page
 import {StackTracePageModule} from 'org_xprof/frontend/app/components/stack_trace_page/stack_trace_page_module';
 import {TraceViewer} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer';
 import {TraceViewerModule} from 'org_xprof/frontend/app/components/trace_viewer/trace_viewer_module';
+import {UtilizationViewer} from 'org_xprof/frontend/app/components/utilization_viewer/utilization_viewer';
+import {UtilizationViewerModule} from 'org_xprof/frontend/app/components/utilization_viewer/utilization_viewer_module';
 
 import {MainPage} from './main_page';
 
@@ -56,6 +58,7 @@ export const routes: Routes = [
   {path: 'framework_op_stats', component: FrameworkOpStatsAdapter},
   {path: 'trace_viewer', component: TraceViewer},
   {path: 'trace_viewer@', component: TraceViewer},
+  {path: 'utilization_viewer', component: UtilizationViewer},
   {path: 'graph_viewer', component: GraphViewer},
   {path: 'megascale_perfetto/:sessionId', component: MegascalePerfetto},
   {path: 'megascale_stats', component: MegascaleStats},
@@ -95,6 +98,7 @@ export const routes: Routes = [
     RooflineModelModule,
     InferenceProfileModule,
     DiagnosticsViewModule,
+    UtilizationViewerModule,
     RouterModule.forRoot(routes),
     StackTracePageModule,
   ],

@@ -1418,6 +1418,7 @@ cc_library(
         ":xplane_to_tf_data_stats",
         ":xplane_to_tool_names",
         ":xplane_to_trace_container",
+        ":xplane_to_utilization_viewer",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

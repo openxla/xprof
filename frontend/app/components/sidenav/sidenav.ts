@@ -220,6 +220,7 @@ export class SideNav implements OnInit, OnDestroy {
       ['trace_viewer', 'Trace Viewer'],
       ['megascale_stats', 'Megascale Stats'],
       ['perf_counters', 'Perf Counters'],
+      ['utilization_viewer', 'Utilization Viewer'],
     ]);
     return toolsDisplayMap.get(tagName) || tagName;
   }

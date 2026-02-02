@@ -125,6 +125,7 @@ absl::StatusOr<std::string> GetAvailableToolNames(
 
     if (has_perf_counters) {
       tools.push_back("perf_counters");
+      tools.push_back("utilization_viewer");
     }
   }
 

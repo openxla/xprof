@@ -218,6 +218,10 @@ def xspace_to_tool_data(
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data
+  elif tool == 'utilization_viewer':
+    json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
+    if success:
+      data = json_data
   else:
     logger.warning('%s is not a known xplane tool', tool)
   return data, content_type

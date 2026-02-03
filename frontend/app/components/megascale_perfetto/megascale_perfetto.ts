@@ -55,56 +55,7 @@ export class MegascalePerfetto implements OnDestroy {
   }
 
   buildMegascalePerfettoUrl() {
-    const query = `
-      SELECT
-        s.name,
-        ROUND(PERCENTILE(s.dur, 50), 2) AS p50_duration,
-        ROUND(PERCENTILE(s.dur, 90), 2) AS p90_duration,
-        ROUND(PERCENTILE(s.dur, 99), 2) AS p99_duration,
-        ROUND(AVG(s.dur), 2) AS average,
-        COUNT(*) AS count
-      FROM slice AS s
-      WHERE
-        s.name LIKE 'recv-done.%' AND NOT s.name LIKE '% END'
-      GROUP BY s.name
-      ORDER BY s.name;
-    `;
-
-    const debugTrackQuery = `
-      WITH
-        RankedSlices AS (
-          SELECT
-            s.*,
-            -- Rank slices strictly by name (Global Top 5 per operation name)
-            ROW_NUMBER()
-              OVER (
-                PARTITION BY s.name
-                ORDER BY s.dur DESC
-              ) AS rank
-          FROM slice AS s
-          WHERE
-            s.name GLOB 'recv-done.*'
-            AND NOT s.name GLOB '* END'
-        )
-      SELECT
-        *
-      FROM RankedSlices
-      WHERE rank <= 5
-      ORDER BY name, rank
-    `;
-
-    const commands = [
-      {
-        'id': 'dev.perfetto.AddDebugSliceTrackWithPivot',
-        'args': [debugTrackQuery, 'name', 'outliers'],
-      },
-    ];
-
-    const fragmentParams = new URLSearchParams();
-    fragmentParams.set('query', query);
-    fragmentParams.set('startupCommands', JSON.stringify(commands));
-
-    return `${this.perfettoOrigin}?hideSidebar=true#!/?${fragmentParams.toString()}`;
+    return `${this.perfettoOrigin}?hideSidebar=true`;
   }
 
   getPerfettoWindow() {

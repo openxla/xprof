@@ -16,6 +16,7 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -1119,6 +1120,7 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {},
          {},
+         {},
          {{.name = "group", .start_level = 0, .nesting_level = 0}},
          {},
          {}});
@@ -2075,6 +2077,15 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   EXPECT_FALSE(callback_called);
 }
 
+TEST_F(RealTimelineImGuiFixture, NavigateOnEmptySearchResults) {
+  timeline_.SetSearchQuery("foo");  // no data, so no results
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+  timeline_.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
 TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
   FlameChartTimelineData data;
   data.groups.push_back(
@@ -2092,6 +2103,7 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
   data.entry_total_times.push_back(5.0);
   data.entry_total_times.push_back(5.0);
   data.entry_pids = {1, 2};
+  data.entry_tids = {1, 2};
   data.entry_args = {{}, {}};
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -2113,6 +2125,252 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
   EXPECT_EQ(timeline_.selected_event_index(), 0);
 
   ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("event1_foo");
+  data.entry_names.push_back("event2_bar");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  bool search_callback_called = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSearchEvents) {
+          search_callback_called = true;
+        }
+      });
+
+  timeline_.SetSearchQuery("foo");
+  EXPECT_TRUE(search_callback_called);
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1_foo");
+  data.entry_event_ids.push_back(1);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  bool search_callback_called = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kSearchEvents) {
+          search_callback_called = true;
+        }
+      });
+
+  timeline_.SetSearchQuery("bar");
+  EXPECT_TRUE(search_callback_called);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("event1_foo");
+  data.entry_names.push_back("event2_foo");
+  data.entry_event_ids.push_back(10);
+  data.entry_event_ids.push_back(20);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1, 2};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  timeline_.SetSearchQuery("foo");
+  // With shallow search, event with pid 1 is selected.
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  ParsedTraceEvents search_results;
+  search_results.flame_events.push_back(
+      {.ph = Phase::kMetadata,
+       .pid = 2,
+       .name = "process_sort_index",
+       .args = {{"sort_index", "0"}}});
+  search_results.flame_events.push_back(
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .name = "process_sort_index",
+       .args = {{"sort_index", "1"}}});
+  search_results.flame_events.push_back({.ph = Phase::kComplete,
+                                         .event_id = 10,
+                                         .pid = 1,
+                                         .tid = 1,
+                                         .name = "event1_foo",
+                                         .ts = 10.0,
+                                         .dur = 5.0});
+  search_results.flame_events.push_back({.ph = Phase::kComplete,
+                                         .event_id = 20,
+                                         .pid = 2,
+                                         .tid = 1,
+                                         .name = "event2_foo",
+                                         .ts = 30.0,
+                                         .dur = 5.0});
+
+  timeline_.SetSearchResults(search_results);
+  timeline_.NavigateToNextSearchResult();
+  // After deep search results, pid=2 should come first due to sort order 0.
+  // Then pid=1 with sort order 1.
+  // Search result index should be 0, pointing to event with pid=2
+  EXPECT_EQ(timeline_.selected_event_index(), 1);  // event2_foo has pid 2
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);  // event1_foo has pid 1
+}
+
+TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("event1_foo");
+  data.entry_names.push_back("event2_foo");
+  data.entry_event_ids.push_back(10);
+  data.entry_event_ids.push_back(20);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1, 2};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  timeline_.SetSearchQuery("foo");
+
+  ParsedTraceEvents search_results;
+  search_results.flame_events.push_back(
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .name = "process_sort_index",
+       .args = {{"sort_index", "invalid"}}});
+  search_results.flame_events.push_back({.ph = Phase::kComplete,
+                                         .event_id = 10,
+                                         .pid = 1,
+                                         .tid = 1,
+                                         .name = "event1_foo",
+                                         .ts = 10.0,
+                                         .dur = 5.0});
+  search_results.flame_events.push_back({.ph = Phase::kComplete,
+                                         .event_id = 20,
+                                         .pid = 2,
+                                         .tid = 1,
+                                         .name = "event2_foo",
+                                         .ts = 30.0,
+                                         .dur = 5.0});
+
+  timeline_.SetSearchResults(search_results);
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  timeline_.NavigateToNextSearchResult();
+  // process_sort_index for pid 1 is invalid, so it will use pid for sorting.
+  // pid 1 will come before pid 2.
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("event1_foo");
+  data.entry_names.push_back("event2_foo");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  timeline_.SetSearchQuery("foo");
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(RealTimelineImGuiFixture, NavigateToPrevSearchResultWrapping) {
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("event1_foo");
+  data.entry_names.push_back("event2_foo");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  timeline_.SetSearchQuery("foo");
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  timeline_.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
@@ -3074,6 +3332,53 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
   timeline_.Draw();
   EXPECT_TRUE(draw_list->VtxBuffer.empty());
   EXPECT_EQ(draw_list->_ClipRectStack.Size, initial_clip_rect_stack_size);
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawFlowsWithInvalidLevels) {
+  FlameChartTimelineData data = GetTestFlowData();
+  FlowLine flow_invalid_source = {.source_ts = 12.0,
+                                  .target_ts = 52.0,
+                                  .source_level = 999,  // invalid
+                                  .target_level = 0,
+                                  .color = 0xFF0000FF,  // Blue
+                                  .category =
+                                      tsl::profiler::ContextType::kGeneric};
+  FlowLine flow_invalid_target = {.source_ts = 13.0,
+                                  .target_ts = 53.0,
+                                  .source_level = 0,
+                                  .target_level = 999,  // invalid
+                                  .color = 0xFF0000FF,  // Blue
+                                  .category =
+                                      tsl::profiler::ContextType::kGeneric};
+  data.flow_lines.push_back(flow_invalid_source);
+  data.flow_lines.push_back(flow_invalid_target);
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.SetVisibleFlowCategories(
+      {static_cast<int>(tsl::profiler::ContextType::kGeneric),
+       static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  ASSERT_FALSE(draw_list->VtxBuffer.empty());
+
+  // We should only see flow1(Red) and flow2(Green) from GetTestFlowData.
+  // The invalid flows (Blue) should be skipped.
+  bool found_flow1_color = false;
+  bool found_flow2_color = false;
+  bool found_invalid_flow_color = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == 0xFFFF0000) found_flow1_color = true;
+    if (vtx.col == 0xFF00FF00) found_flow2_color = true;
+    if (vtx.col == 0xFF0000FF) found_invalid_flow_color = true;
+  }
+  EXPECT_TRUE(found_flow1_color);
+  EXPECT_TRUE(found_flow2_color);
+  EXPECT_FALSE(found_invalid_flow_color);
+
   ImGui::EndFrame();
 }
 

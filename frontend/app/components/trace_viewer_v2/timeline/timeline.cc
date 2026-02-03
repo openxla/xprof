@@ -4,9 +4,11 @@
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <numeric>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -15,6 +17,8 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/ascii.h"
+#include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -46,6 +50,30 @@ float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
 
   return 1.0f + multiplier;
 }
+
+// The argument name for sort index in process_sort_index and
+// thread_sort_index metadata events.
+constexpr absl::string_view kSortIndex = "sort_index";
+constexpr absl::string_view kProcessSortIndex = "process_sort_index";
+
+// Extracts process sort indices from metadata events in search results.
+absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
+    const ParsedTraceEvents& search_results) {
+  absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
+  for (const auto& event : search_results.flame_events) {
+    if (event.ph == Phase::kMetadata && event.name == kProcessSortIndex) {
+      if (auto it = event.args.find(std::string(kSortIndex));
+          it != event.args.end()) {
+        double sort_index_double;
+        if (absl::SimpleAtod(it->second, &sort_index_double)) {
+          process_sort_indices[event.pid] =
+              static_cast<uint32_t>(sort_index_double);
+        }
+      }
+    }
+  }
+  return process_sort_indices;
+}
 }  // namespace
 
 void Timeline::SetSearchQuery(const std::string& query) {
@@ -59,6 +87,87 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
     visible_range_ = range;
   } else {
     visible_range_.snap_to(range);
+  }
+}
+
+void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
+  // If a search result is currently selected, save its event id for reference,
+  // so we can find and focus on the same event, and keep the selection view
+  // persistent while search results being updated on the background.
+  EventId selected_event_id = -1;
+  if (current_search_result_index_ >= 0 &&
+      current_search_result_index_ < sorted_search_results_.size()) {
+    selected_event_id =
+        sorted_search_results_[current_search_result_index_].event_id;
+  }
+
+  // Clear previous search results and reset the index.
+  sorted_search_results_.clear();
+  current_search_result_index_ = -1;
+
+  // If the search query is empty, there are no results to process.
+  if (search_query_lower_.empty()) return;
+
+  // Build a map of event IDs to their levels in the timeline for quick lookup.
+  // This helps in assigning levels to search results for sorting.
+  // Level information is only available for events in timeline_data_,
+  // search results not in timeline_data_ will be assigned level -1.
+  absl::flat_hash_map<EventId, int> event_id_to_level;
+  for (int i = 0; i < timeline_data_.entry_event_ids.size(); ++i) {
+    event_id_to_level.try_emplace(timeline_data_.entry_event_ids[i],
+                                  timeline_data_.entry_levels[i]);
+  }
+
+  // Filter for complete events from the search results and populate the
+  // sorted_search_results_ vector with relevant event data.
+  for (const auto& event : search_results.flame_events) {
+    if (event.ph != Phase::kComplete) continue;
+    // TODO: jonahweaver - Get level information for search results
+    // for proper navigation.
+    int level = -1;
+    if (auto it = event_id_to_level.find(event.event_id);
+        it != event_id_to_level.end()) {
+      level = it->second;
+    }
+    sorted_search_results_.push_back({event.event_id, level, event.ts,
+                                    event.dur, event.pid, event.tid});
+  }
+
+  // If no complete events were found, there's nothing more to do.
+  if (sorted_search_results_.empty()) return;
+
+  // Extract process sort indices from metadata events. These indices are used
+  // to sort search results in an order consistent with the timeline display.
+  absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices =
+      GetProcessSortIndices(search_results);
+  // Sort the search results. The sorting order is primarily based on
+  // process sort index, then by process ID, thread ID, level, and finally
+  // event start time. This ensures a stable and intuitive navigation order.
+
+  // PID and TID are used as a fallback sorting criteria
+  // to best maintain order by level while levels are not available.
+  absl::c_sort(sorted_search_results_, [&](const auto& a, const auto& b) {
+    auto it_a = process_sort_indices.find(a.pid);
+    uint32_t sort_index_a =
+        (it_a != process_sort_indices.end()) ? it_a->second : a.pid;
+    auto it_b = process_sort_indices.find(b.pid);
+    uint32_t sort_index_b =
+        (it_b != process_sort_indices.end()) ? it_b->second : b.pid;
+    return std::tie(sort_index_a, a.pid, a.tid, a.level, a.start_time) <
+           std::tie(sort_index_b, b.pid, b.tid, b.level, b.start_time);
+  });
+
+  // If an event was selected before the update, try to find it in the new
+  // sorted list and restore the selection index.
+  if (selected_event_id != -1) {
+    auto it = absl::c_find_if(sorted_search_results_,
+                            [&](const auto& result) {
+                              return result.event_id == selected_event_id;
+                            });
+    if (it != sorted_search_results_.end()) {
+      current_search_result_index_ =
+          std::distance(sorted_search_results_.begin(), it);
+    }
   }
 }
 
@@ -1372,33 +1481,34 @@ void Timeline::MaybeRequestData() {
 // This function is called when the search query changes. It re-filters and
 // sorts the event indices based on the current search query.
 void Timeline::RecomputeSearchResults() {
-  search_result_event_ids_.clear();
   sorted_search_results_.clear();
   current_search_result_index_ = -1;
   if (search_query_lower_.empty()) {
     return;
   }
+
   for (int i = 0; i < timeline_data_.entry_names.size(); ++i) {
-    if (absl::AsciiStrToLower(timeline_data_.entry_names[i])
-            .find(search_query_lower_) != std::string::npos) {
+    if (absl::StrContains(absl::AsciiStrToLower(timeline_data_.entry_names[i]),
+                          search_query_lower_)) {
       EventId event_id = timeline_data_.entry_event_ids[i];
-      search_result_event_ids_.insert(event_id);
       sorted_search_results_.push_back(
-          {event_id, timeline_data_.entry_levels[i],
-           timeline_data_.entry_start_times[i],
-           timeline_data_.entry_total_times[i]});
+          {event_id,
+            timeline_data_.entry_levels[i],
+            timeline_data_.entry_start_times[i],
+            timeline_data_.entry_total_times[i],
+            timeline_data_.entry_pids[i],
+            timeline_data_.entry_tids[i]});
     }
   }
-  // Sort search results by level and then by start time, so that we can
-  // navigate through results in a top-down, left-to-right order.
+  // Sort shallow results by start time, to have some order.
   absl::c_sort(sorted_search_results_, [&](const auto& a, const auto& b) {
-    if (a.level != b.level) {
-      return a.level < b.level;
-    }
-    return a.start_time < b.start_time;
+    return std::tie(a.pid, a.tid, a.level, a.start_time) <
+           std::tie(b.pid, b.tid, b.level, b.start_time);
   });
-  // If search results are not empty, automatically navigate to the first hit
-  // event.
+
+  EventData event_data;
+  event_data.try_emplace(kSearchEventsQuery, search_query_lower_);
+  event_callback_(kSearchEvents, event_data);
   if (!sorted_search_results_.empty()) {
     NavigateToNextSearchResult();
   }

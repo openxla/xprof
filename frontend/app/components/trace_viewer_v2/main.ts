@@ -73,6 +73,12 @@ export const LOADING_STATUS_UPDATE_EVENT_NAME = 'loadingstatusupdate';
 export const FETCH_DATA_EVENT_NAME = 'fetch_data';
 
 /**
+ * The name of the search event, dispatched from WASM when a search is
+ * requested.
+ */
+export const SEARCH_EVENTS_EVENT_NAME = 'search_events';
+
+/**
  * The loading status of the trace viewer, used to update the loading status
  * indicator in the UI.
  */
@@ -106,6 +112,7 @@ export declare interface TraceViewerV2Module extends WasmModule {
       timeRangeFromUrl?: [number, number],
       ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
+  setSearchResultsInWasm(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
   StringVector: {
     size(): number;
@@ -128,13 +135,20 @@ export declare interface TraceViewerV2Module extends WasmModule {
   };
 }
 
-declare interface TraceData {
+/**
+ * Interface for the trace data loaded by the trace viewer.
+ */
+export declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
 }
 
-// Type guard to check if an object conforms to the TraceData interface
-function isTraceData(data: unknown): data is TraceData {
+/**
+ * Type guard to check if an object conforms to the TraceData interface.
+ * @param data The object to check.
+ * @return True if the object is a TraceData object.
+ */
+export function isTraceData(data: unknown): data is TraceData {
   return (
     typeof data === 'object' &&
     data !== null &&
@@ -298,6 +312,25 @@ async function loadJsonDataInternal(url: string): Promise<unknown> {
 declare interface FetchDataEventDetail {
   start_time_ms: number;
   end_time_ms: number;
+}
+
+/**
+ * The detail of an 'SearchEvents' custom event. The properties are quoted to
+ * prevent renaming during minification.
+ */
+export declare interface SearchEventsEventDetail {
+  events_query: string;
+}
+
+/**
+ * Type guard for the 'SearchEvents' custom event.
+ */
+export function isSearchEventsEvent(
+    event: Event,
+    ): event is CustomEvent<SearchEventsEventDetail> {
+  return (
+      event instanceof CustomEvent && event.detail &&
+      typeof event.detail.events_query === 'string');
 }
 
 function isFetchDataEvent(

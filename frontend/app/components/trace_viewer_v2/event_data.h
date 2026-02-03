@@ -37,6 +37,10 @@ inline constexpr absl::string_view kFetchData = "fetch_data";
 inline constexpr absl::string_view kFetchDataStart = "start_time_ms";
 inline constexpr absl::string_view kFetchDataEnd = "end_time_ms";
 
+// Constants for search events event.
+inline constexpr absl::string_view kSearchEvents = "search_events";
+inline constexpr absl::string_view kSearchEventsQuery = "events_query";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

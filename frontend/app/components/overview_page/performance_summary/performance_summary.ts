@@ -214,7 +214,7 @@ export class PerformanceSummary implements OnChanges, OnInit {
   /** Inference latency analysis data */
   @Input() inferenceLatencyData?: GeneralAnalysis;
 
-  title = 'Performance Summary';
+  title = 'Performance Summary - Sannidhya';
   summaryInfoCombined: SummaryInfo[] = [];
 
   get isTpu() {

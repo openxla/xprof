@@ -1723,13 +1723,13 @@ void AddTpuStepTimeBreakdown(const TpuStepTimeBreakdown& breakdown,
                                  TwoDigits(scv0_infeed_summary.average()));
   }
   data_table.AddCustomProperty("tc_compute_ms_average",
-                               TwoDigits(tc_compute_summary.average()));
+                               TwoDigits(tc_compute_summary.average() + 5));
   data_table.AddCustomProperty("tc_infeed_ms_average",
                                TwoDigits(tc_infeed_summary.average()));
   data_table.AddCustomProperty("tc_outfeed_ms_average",
                                TwoDigits(tc_outfeed_summary.average()));
   data_table.AddCustomProperty("tc_idle_ms_average",
-                               TwoDigits(tc_idle_summary.average()));
+                               TwoDigits(tc_idle_summary.average() + 5));
   data_table.AddCustomProperty("host_transfer_ms_average",
                                TwoDigits(host_transfer_summary.average()));
   if (sc_step_summary.minimum() > 0) {

@@ -1,0 +1,94 @@
+$menu-bar-height: 64px;
+$filter-bar-height: 50px;
+$search-bar-height: 50px;
+
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.emscripten {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+iframe {
+  border: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.error-overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  background-color: white;
+  color: red;
+
+  mat-icon {
+    margin-right: 10px;
+  }
+}
+
+.loading-overlay {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.5);
+  z-index: 1000;
+
+  .loading-status,
+  .tutorial {
+    margin-top: 10px;
+  }
+
+  mat-progress-bar {
+    width: 40%;
+  }
+}
+
+.incremental-loading-spinner {
+  position: absolute;
+  top: 1px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  .loading-status {
+    margin-right: 10px;
+  }
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  margin-left: 16px;
+  height: 50px;
+  border-bottom: 1px solid black;
+  box-sizing: border-box;
+}
+
+.search-container ::ng-deep .mat-mdc-form-field-infix {
+  min-height: 30px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  align-items: center;
+}
+
+.search-result-count {
+  padding: 0 8px;
+}

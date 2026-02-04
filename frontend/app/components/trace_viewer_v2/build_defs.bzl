@@ -2,9 +2,8 @@
 This module contains global variables and configurations used in the BUILD files.
 """
 
-load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_web_test")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_test")
 
 # Tags to apply to targets that are part of the WASM build and cannot be built with standard tools.
 # This includes libraries, binaries, and tests that will be run in a WASM environment.
@@ -36,11 +35,6 @@ def wasm_cc_test(name, srcs, deps = [], copts = [], linkopts = TEST_LINKOPTS, **
         tags = WASM_TAGS,
         deps = deps,
         **kwargs
-    )
-
-    wasm_web_test(
-        name = name,
-        cc_target = ":" + name + "_cc",
     )
 
 def wasm_cc_library(name, **kwargs):

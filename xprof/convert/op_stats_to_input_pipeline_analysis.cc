@@ -349,7 +349,8 @@ InputOpCategory CategorizeInputOp(absl::string_view name,
   if (absl::EndsWith(name, "::TFRecord") ||
       absl::EndsWith(name, "::TextLine") ||
       absl::EndsWith(name, "::FixedLengthRecord") ||
-      absl::EndsWith(name, "::SSTable") || absl::EndsWith(name, "::RecordIO")) {
+      absl::EndsWith(name, "::SSTable") || absl::EndsWith(name, "::RecordIO") ||
+      absl::EndsWith(name, "::ArrayRecord")) {
     // Ops that read files.
     if (absl::StrContains(name, "::MemoryReader") ||
         absl::StrContains(name, "::MemoryWriter") ||

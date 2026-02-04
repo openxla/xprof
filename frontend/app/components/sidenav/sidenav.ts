@@ -135,7 +135,9 @@ export class SideNav implements OnInit, OnDestroy {
     const run = params.get('run') ?? '';
     const tag = params.get('tool') ?? params.get('tag') ?? '';
     const host = params.get('host') ?? '';
-    const hostsParam = params.get('hosts');
+    const hostsParam = (params instanceof URLSearchParams) ?
+        params.getAll('hosts').join(',') :
+        params.get('hosts');
     const sessionPath = params.get('session_path') ?? '';
     const runPath = params.get('run_path') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';

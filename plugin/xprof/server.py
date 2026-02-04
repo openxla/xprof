@@ -17,6 +17,7 @@
 import argparse
 import collections
 import dataclasses
+import logging
 import socket
 import sys
 from typing import Optional
@@ -43,6 +44,19 @@ class ServerConfig:
 
   This dataclass holds all the settings required to initialize and run the XProf
   profiling server, including network ports, log locations, and feature flags.
+
+  Attributes:
+    logdir: The directory where profile files will be stored.
+    port: The port number for the server.
+    grpc_port: The port for the gRPC server.
+    worker_service_address: A comma-separated list of worker service addresses.
+    hide_capture_profile_button: Whether to hide the 'Capture Profile' button.
+    src_prefix: The path prefix for the source code being profiled.
+    num_cqs: The number of completion queues for the gRPC server.
+    min_pollers: The minimum number of pollers per completion queue for the gRPC
+      server.
+    max_pollers: The maximum number of pollers per completion queue for the gRPC
+      server.
   """
 
   logdir: Optional[str]
@@ -51,6 +65,9 @@ class ServerConfig:
   worker_service_address: str
   hide_capture_profile_button: bool
   src_prefix: Optional[str]
+  num_cqs: int
+  min_pollers: int
+  max_pollers: int
 
 
 def make_wsgi_app(plugin):
@@ -80,7 +97,7 @@ def run_server(plugin, host, port):
   server = wsgi.Server((host, port), app)
 
   try:
-    print(f"XProf at http://localhost:{port}/ (Press CTRL+C to quit)")
+    logging.info("XProf at http://localhost:%d/ (Press CTRL+C to quit)", port)
     server.start()
   except KeyboardInterrupt:
     server.stop()
@@ -142,7 +159,12 @@ def _launch_server(
     config: The ServerConfig object containing all server settings.
   """
   _pywrap_profiler_plugin.initialize_stubs(config.worker_service_address)
-  _pywrap_profiler_plugin.start_grpc_server(config.grpc_port)
+  _pywrap_profiler_plugin.start_grpc_server(
+      port=config.grpc_port,
+      num_cqs=config.num_cqs,
+      min_pollers=config.min_pollers,
+      max_pollers=config.max_pollers,
+  )
 
   context = TBContext(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)
@@ -264,6 +286,39 @@ def _create_argument_parser() -> argparse.ArgumentParser:
       default=None,
       help="The path prefix for the source code being profiled.",
   )
+
+  grpc_tuning_group = parser.add_argument_group(
+      "gRPC server tuning",
+      "A gRPC server tuning for synchronous server performance. These settings "
+      "control the number of threads handling incoming requests. gRPC uses "
+      "Completion Queues (CQs) to manage events. `num_cqs` defines the "
+      "number of CQs. `min_pollers` and `max_pollers` define the range of "
+      "threads polling each CQ for new requests. Increasing these values can "
+      "improve throughput for high-concurrency workloads but increases "
+      "resource usage. For more details, see: "
+      "https://grpc.github.io/grpc/cpp/classgrpc_1_1_server_builder.html#aff66bd93cba7d4240a64550fe1fca88d",
+  )
+  grpc_tuning_group.add_argument(
+      "-nc",
+      "--num_cqs",
+      type=int,
+      default=1,
+      help="The number of completion queues (default: %(default)s).",
+  )
+  grpc_tuning_group.add_argument(
+      "-minp",
+      "--min_pollers",
+      type=int,
+      default=1,
+      help="The minimum number of pollers (default: %(default)s).",
+  )
+  grpc_tuning_group.add_argument(
+      "-maxp",
+      "--max_pollers",
+      type=int,
+      default=1,
+      help="The maximum number of pollers (default: %(default)s).",
+  )
   return parser
 
 
@@ -300,13 +355,22 @@ def main() -> int:
       worker_service_address=worker_service_address,
       hide_capture_profile_button=args.hide_capture_profile_button,
       src_prefix=args.src_prefix,
+      num_cqs=args.num_cqs,
+      min_pollers=args.min_pollers,
+      max_pollers=args.max_pollers,
   )
 
-  print("Attempting to start XProf server:")
-  print(f"  Log Directory: {logdir}")
-  print(f"  Port: {config.port}")
-  print(f"  Worker Service Address: {config.worker_service_address}")
-  print(f"  Hide Capture Button: {config.hide_capture_profile_button}")
+  logging.info(
+      "Attempting to start XProf server:\n"
+      "  Log Directory: %s\n"
+      "  Port: %d\n"
+      "  Worker Service Address: %s\n"
+      "  Hide Capture Button: %s",
+      logdir,
+      config.port,
+      config.worker_service_address,
+      config.hide_capture_profile_button,
+  )
 
   if logdir and not epath.Path(logdir).exists():
     print(
@@ -320,6 +384,13 @@ def main() -> int:
     print(
         "Error: The main server port (--port) and the gRPC port (--grpc_port)"
         " must be different.",
+        file=sys.stderr,
+    )
+    return 1
+
+  if args.min_pollers > args.max_pollers:
+    print(
+        "Error: --min_pollers cannot be greater than --max_pollers.",
         file=sys.stderr,
     )
     return 1

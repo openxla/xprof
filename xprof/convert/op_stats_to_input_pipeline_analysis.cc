@@ -169,8 +169,12 @@ GenericStepTimeBreakdown ComputeGenericStepTimeBreakdownInMs(
     PerGenericStepDetails details;
     bool success = step_details.UnpackTo(&details);
     if (!success && !step_details.type_url().empty()) {
-      LOG(ERROR) << "Unable to unpack step_breakdown. Expected: generic"
-                 << std::endl;
+      LOG(ERROR) << "Unable to unpack step_details. Expected type: "
+                 << details.GetDescriptor()->full_name()
+                 << ". Actual type URL: " << step_details.type_url()
+                 << ". This indicates a mismatch in the expected step "
+                    "breakdown proto format within "
+                    "InputPipelineAnalysisResult.";
       return {};
     }
     unknown_time_ms.UpdateStat(details.unknown_time_ms());

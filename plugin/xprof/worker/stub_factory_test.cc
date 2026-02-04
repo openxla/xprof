@@ -1,18 +1,111 @@
 #include "plugin/xprof/worker/stub_factory.h"
 
+#include <memory>
+#include <string>
 #include <thread>  // NOLINT
 #include <vector>
 
 #include "<gtest/gtest.h>"
+#include "grpcpp/security/server_credentials.h"
+#include "grpcpp/server.h"
+#include "grpcpp/server_builder.h"
+#include "grpcpp/server_context.h"
+#include "grpcpp/support/status.h"
+#include "plugin/xprof/protobuf/worker_service.grpc.pb.h"
 
 namespace xprof {
 namespace profiler {
 namespace {
 
+class MockProfileWorkerServiceImpl final
+    : public ::xprof::pywrap::grpc::XprofAnalysisWorkerService::Service {
+ public:
+  ::grpc::Status GetProfileData(
+      ::grpc::ServerContext* context,
+      const ::xprof::pywrap::WorkerProfileDataRequest* request,
+      ::xprof::pywrap::WorkerProfileDataResponse* response) override {
+    if (++call_count_ <= 2) {
+      return ::grpc::Status(::grpc::StatusCode::UNAVAILABLE, "Unavailable");
+    }
+    response->set_output("success");
+    return ::grpc::Status::OK;
+  }
+  int call_count_ = 0;
+};
+
 class StubFactoryTest : public ::testing::Test {
  protected:
   void SetUp() override { internal::ResetStubsForTesting(); }
 };
+
+TEST_F(StubFactoryTest, RetryTest) {
+  MockProfileWorkerServiceImpl service;
+  ::grpc::ServerBuilder builder;
+  int port;
+  builder.AddListeningPort("localhost:0", ::grpc::InsecureServerCredentials(),
+                           &port);
+  builder.RegisterService(&service);
+  std::unique_ptr<::grpc::Server> server(builder.BuildAndStart());
+  ASSERT_NE(server, nullptr);
+
+  InitializeStubs("localhost:" + std::to_string(port));
+  auto stub = GetNextStub();
+  ASSERT_NE(stub, nullptr);
+
+  ::grpc::ClientContext context;
+  ::xprof::pywrap::WorkerProfileDataRequest request;
+  ::xprof::pywrap::WorkerProfileDataResponse response;
+  ::grpc::Status status = stub->GetProfileData(&context, request, &response);
+
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(response.output(), "success");
+  EXPECT_EQ(service.call_count_, 3);  // 2 failures + 1 success
+
+  server->Shutdown();
+  server->Wait();
+}
+
+class MockUnknownProfileWorkerServiceImpl final
+    : public ::xprof::pywrap::grpc::XprofAnalysisWorkerService::Service {
+ public:
+  ::grpc::Status GetProfileData(
+      ::grpc::ServerContext* context,
+      const ::xprof::pywrap::WorkerProfileDataRequest* request,
+      ::xprof::pywrap::WorkerProfileDataResponse* response) override {
+    if (++call_count_ <= 2) {
+      return ::grpc::Status(::grpc::StatusCode::UNKNOWN, "Unknown Error");
+    }
+    response->set_output("success");
+    return ::grpc::Status::OK;
+  }
+  int call_count_ = 0;
+};
+
+TEST_F(StubFactoryTest, RetryTestUnknown) {
+  MockUnknownProfileWorkerServiceImpl service;
+  ::grpc::ServerBuilder builder;
+  int port;
+  builder.AddListeningPort("localhost:0", ::grpc::InsecureServerCredentials(),
+                           &port);
+  builder.RegisterService(&service);
+  std::unique_ptr<::grpc::Server> server(builder.BuildAndStart());
+  ASSERT_NE(server, nullptr);
+
+  InitializeStubs("localhost:" + std::to_string(port));
+  auto stub = GetNextStub();
+  ASSERT_NE(stub, nullptr);
+
+  ::grpc::ClientContext context;
+  ::xprof::pywrap::WorkerProfileDataRequest request;
+  ::xprof::pywrap::WorkerProfileDataResponse response;
+  ::grpc::Status status = stub->GetProfileData(&context, request, &response);
+
+  EXPECT_TRUE(status.ok());
+  EXPECT_EQ(service.call_count_, 3);
+
+  server->Shutdown();
+  server->Wait();
+}
 
 TEST_F(StubFactoryTest, NoStubs) { EXPECT_EQ(GetNextStub(), nullptr); }
 

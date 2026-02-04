@@ -36,9 +36,24 @@ static std::unique_ptr<::grpc::Server> server;
 static std::unique_ptr<::xprof::profiler::ProfileWorkerServiceImpl>
     worker_service;
 
-void InitializeGrpcServer(int port) {
+void InitializeGrpcServer(int port, int num_cqs, int min_pollers,
+                          int max_pollers) {
   std::string server_address = absl::StrCat(kServerAddressPrefix, port);
   ::grpc::ServerBuilder builder;
+  // Set options for the synchronous server to tune performance.
+  // NUM_CQS: Number of completion queues to use for handling requests.
+  // MIN_POLLERS: Minimum number of threads per completion queue.
+  // MAX_POLLERS: Maximum number of threads per completion queue.
+  // gRPC's sync server uses a thread pool to service incoming requests, with
+  // threads polling one or more completion queues for work. These settings
+  // control the number of queues and the number of threads polling each queue.
+  // Increasing pollers or CQs can improve performance for highly concurrent
+  // workloads, but consumes more threads and memory.
+  // See:
+  // https://grpc.github.io/grpc/cpp/classgrpc_1_1_server_builder.html#aff66bd93cba7d4240a64550fe1fca88d
+  builder.SetSyncServerOption(::grpc::ServerBuilder::NUM_CQS, num_cqs);
+  builder.SetSyncServerOption(::grpc::ServerBuilder::MIN_POLLERS, min_pollers);
+  builder.SetSyncServerOption(::grpc::ServerBuilder::MAX_POLLERS, max_pollers);
   builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials());
   // The period in milliseconds after which a keepalive ping is sent on the
   // transport.

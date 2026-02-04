@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "plugin/xprof/worker/worker_service.h"
 
+#include <memory>
 #include <string>
 
 #include "absl/log/log.h"
@@ -22,10 +23,10 @@ limitations under the License.
 #include "absl/strings/str_join.h"
 #include "grpcpp/server_context.h"
 #include "grpcpp/support/status.h"
+#include "tsl/platform/host_info.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/worker/grpc_utils.h"
-#include "tsl/platform/host_info.h"
 
 namespace xprof {
 namespace profiler {

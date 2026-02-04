@@ -1,7 +1,9 @@
 """Tests for the XProf server."""
 
 import argparse
+import dataclasses
 import os
+import types
 from unittest import mock
 
 from absl.testing import parameterized
@@ -9,6 +11,32 @@ from etils import epath
 
 from absl.testing import absltest
 from xprof import server
+
+
+DEFAULT_MOCK_ARGS = types.MappingProxyType({
+    'logdir_opt': None,
+    'logdir_pos': None,
+    'port': 1234,
+    'grpc_port': 50051,
+    'worker_service_address': '0.0.0.0:50051',
+    'hide_capture_profile_button': False,
+    'src_prefix': '',
+    'num_cqs': 1,
+    'min_pollers': 1,
+    'max_pollers': 1,
+})
+
+DEFAULT_SERVER_CONFIG = server.ServerConfig(
+    logdir=None,
+    port=1234,
+    grpc_port=50051,
+    worker_service_address='0.0.0.0:50051',
+    hide_capture_profile_button=False,
+    src_prefix='',
+    num_cqs=1,
+    min_pollers=1,
+    max_pollers=1,
+)
 
 
 class ServerTest(absltest.TestCase, parameterized.TestCase):
@@ -53,84 +81,35 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
   @parameterized.named_parameters(
       (
           'no_logdir',
-          {
-              'logdir_opt': None,
-              'logdir_pos': None,
-              'port': 1234,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
-              'hide_capture_profile_button': False,
-              'src_prefix': '',
-          },
+          {'logdir_opt': None, 'logdir_pos': None},
           True,
           0,
-          server.ServerConfig(
-              logdir=None,
-              port=1234,
-              grpc_port=50051,
-              worker_service_address='0.0.0.0:50051',
-              hide_capture_profile_button=False,
-              src_prefix='',
-          ),
+          DEFAULT_SERVER_CONFIG,
           True,
       ),
       (
           'with_logdir_opt',
-          {
-              'logdir_opt': '/tmp/log',
-              'logdir_pos': None,
-              'port': 5678,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
-              'hide_capture_profile_button': False,
-              'src_prefix': '',
-          },
+          {'logdir_opt': '/tmp/log', 'logdir_pos': None, 'port': 5678},
           True,
           0,
-          server.ServerConfig(
-              logdir='/tmp/log',
-              port=5678,
-              grpc_port=50051,
-              worker_service_address='0.0.0.0:50051',
-              hide_capture_profile_button=False,
-              src_prefix='',
+          dataclasses.replace(
+              DEFAULT_SERVER_CONFIG, logdir='/tmp/log', port=5678
           ),
           True,
       ),
       (
           'with_logdir_pos',
-          {
-              'logdir_opt': None,
-              'logdir_pos': '/tmp/log',
-              'port': 9012,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
-              'hide_capture_profile_button': False,
-              'src_prefix': '',
-          },
+          {'logdir_opt': None, 'logdir_pos': '/tmp/log', 'port': 9012},
           True,
           0,
-          server.ServerConfig(
-              logdir='/tmp/log',
-              port=9012,
-              grpc_port=50051,
-              worker_service_address='0.0.0.0:50051',
-              hide_capture_profile_button=False,
-              src_prefix='',
+          dataclasses.replace(
+              DEFAULT_SERVER_CONFIG, logdir='/tmp/log', port=9012
           ),
           True,
       ),
       (
           'logdir_not_exists',
-          {
-              'logdir_opt': '/tmp/log',
-              'logdir_pos': None,
-              'port': 3456,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
-              'hide_capture_profile_button': False,
-              'src_prefix': '',
-          },
+          {'logdir_opt': '/tmp/log', 'logdir_pos': None, 'port': 3456},
           False,
           1,
           None,
@@ -138,24 +117,11 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
       ),
       (
           'hide_capture_button_enabled',
-          {
-              'logdir_opt': None,
-              'logdir_pos': None,
-              'port': 1234,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
-              'hide_capture_profile_button': True,
-              'src_prefix': '',
-          },
+          {'hide_capture_profile_button': True},
           True,
           0,
-          server.ServerConfig(
-              logdir=None,
-              port=1234,
-              grpc_port=50051,
-              worker_service_address='0.0.0.0:50051',
-              hide_capture_profile_button=True,
-              src_prefix='',
+          dataclasses.replace(
+              DEFAULT_SERVER_CONFIG, hide_capture_profile_button=True
           ),
           True,
       ),
@@ -163,22 +129,41 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
           'all_features_enabled',
           {
               'logdir_opt': '/tmp/log',
-              'logdir_pos': None,
-              'port': 1234,
-              'grpc_port': 50051,
-              'worker_service_address': '0.0.0.0:50051',
               'hide_capture_profile_button': True,
-              'src_prefix': '',
           },
           True,
           0,
-          server.ServerConfig(
+          dataclasses.replace(
+              DEFAULT_SERVER_CONFIG,
               logdir='/tmp/log',
-              port=1234,
-              grpc_port=50051,
-              worker_service_address='0.0.0.0:50051',
               hide_capture_profile_button=True,
-              src_prefix='',
+          ),
+          True,
+      ),
+      (
+          'grpc_tuning',
+          {
+              'logdir_opt': None,
+              'logdir_pos': None,
+              'port': 6006,
+              'grpc_port': 6007,
+              'worker_service_address': '0.0.0.0:6007',
+              'hide_capture_profile_button': False,
+              'src_prefix': '',
+              'num_cqs': 2,
+              'min_pollers': 2,
+              'max_pollers': 4,
+          },
+          True,
+          0,
+          dataclasses.replace(
+              DEFAULT_SERVER_CONFIG,
+              port=6006,
+              grpc_port=6007,
+              worker_service_address='0.0.0.0:6007',
+              num_cqs=2,
+              min_pollers=2,
+              max_pollers=4,
           ),
           True,
       ),
@@ -192,7 +177,8 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
       should_launch_server,
   ):
     # Arrange
-    mock_args = argparse.Namespace(**mock_args_dict)
+    args = {**DEFAULT_MOCK_ARGS, **mock_args_dict}
+    mock_args = argparse.Namespace(**args)
     self.mock_parse_args.return_value = mock_args
     self.mock_path_exists_return = path_exists
 

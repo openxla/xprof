@@ -10,8 +10,8 @@ import {firstValueFrom} from 'rxjs';
 @Component({
   standalone: false,
   selector: 'app',
-  templateUrl: './app.ng.html',
-  styleUrls: ['./app.css'],
+  templateUrl: 'app.ng.html',
+  styleUrls: ['app.css'],
 })
 export class App implements OnInit {
   loading = true;

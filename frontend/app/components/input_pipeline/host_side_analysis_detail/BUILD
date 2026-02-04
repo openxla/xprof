@@ -1,4 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
+load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
@@ -16,7 +16,7 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         ":host_side_analysis_detail_table_data_provider",
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
@@ -32,7 +32,7 @@ xprof_ng_module(
         "host_side_analysis_detail_table_data_provider.ts",
     ],
     deps = [
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/chart:default_data_provider",
     ],

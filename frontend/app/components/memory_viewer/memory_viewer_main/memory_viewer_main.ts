@@ -1,11 +1,23 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Injector, Input, OnChanges, OnDestroy} from '@angular/core';
+import {FormsModule} from '@angular/forms';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {Store} from '@ngrx/store';
+import {AngularSplitModule} from 'angular-split';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {MaxHeapChart} from 'org_xprof/frontend/app/components/memory_viewer/max_heap_chart/max_heap_chart';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
+import {ProgramOrderChart} from 'org_xprof/frontend/app/components/memory_viewer/program_order_chart/program_order_chart';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
@@ -18,10 +30,24 @@ interface BufferSpan {
 
 /** A memory viewer component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-viewer-main',
-  templateUrl: './memory_viewer_main.ng.html',
-  styleUrls: ['./memory_viewer_main.scss']
+  templateUrl: 'memory_viewer_main.ng.html',
+  styleUrls: ['memory_viewer_main.scss'],
+  imports: [
+    AngularSplitModule,
+    CommonModule,
+    DiagnosticsView,
+    FormsModule,
+    MatCheckboxModule,
+    MatDividerModule,
+    MatIconModule,
+    MatSlideToggleModule,
+    MatTooltipModule,
+    MaxHeapChart,
+    ProgramOrderChart,
+    SourceMapper,
+  ],
 })
 export class MemoryViewerMain implements OnDestroy, OnChanges {
   /** Preprocessed result for memory viewer */

@@ -1,4 +1,6 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnDestroy, OnInit} from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface, } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -9,10 +11,11 @@ import {takeUntil} from 'rxjs/operators';
  * architecture in the program code.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'view-architecture',
-  templateUrl: './view_architecture.ng.html',
-  styleUrls: ['./view_architecture.scss'],
+  templateUrl: 'view_architecture.ng.html',
+  styleUrls: ['view_architecture.scss'],
+  imports: [CommonModule, MatIconModule],
 })
 export class ViewArchitecture implements OnInit, OnDestroy {
   @Input() sessionId = '';

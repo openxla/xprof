@@ -1,5 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
+import {SourceMapper} from 'org_xprof/frontend/app/components/source_mapper/source_mapper';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -17,10 +19,14 @@ import {takeUntil} from 'rxjs/operators';
  * various IR text mapping.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'stack-trace-page',
-  templateUrl: './stack_trace_page.ng.html',
-  styleUrls: ['./stack_trace_page.css'],
+  templateUrl: 'stack_trace_page.ng.html',
+  styleUrls: ['stack_trace_page.css'],
+  imports: [
+    CommonModule,
+    SourceMapper,
+  ],
 })
 export class StackTracePage implements OnDestroy {
   private readonly injector = inject(Injector);

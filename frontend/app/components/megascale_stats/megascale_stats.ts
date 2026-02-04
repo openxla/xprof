@@ -1,30 +1,51 @@
 import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
-import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
-import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
-import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
-import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
-import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setCurrentToolStateAction, } from 'org_xprof/frontend/app/store/actions';
-import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
+import {DataServiceV2Interface, DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
+import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
+import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
+import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
+import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
+import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
+import {parseDiagnosticsDataTable} from 'org_xprof/frontend/app/common/utils/utils';
+import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 
-const MEGASCALE_STATS_INDEX = 0;
-const DIAGNOSTICS_INDEX = 1;
+const DIAGNOSTICS_INDEX = 0;
+const MEGASCALE_STATS_INDEX = 1;
 
 /** A Megascale Stats page component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'megascale-stats',
-  templateUrl: './megascale_stats.ng.html',
-  styleUrls: ['./megascale_stats.scss']
+  templateUrl: 'megascale_stats.ng.html',
+  styleUrls: ['megascale_stats.scss'],
+  imports: [
+    CommonModule,
+    Chart,
+    CategoryFilter,
+    DiagnosticsView,
+    ExportAsCsv,
+    FormsModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatOptionModule,
+  ],
 })
 export class MegascaleStats extends Dashboard implements OnDestroy {
   tool = 'megascale_stats';

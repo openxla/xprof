@@ -1,4 +1,8 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -22,17 +26,23 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'download-hlo',
-  templateUrl: './download_hlo.ng.html',
-  styleUrls: ['./download_hlo.css'],
+  templateUrl: 'download_hlo.ng.html',
+  styleUrls: ['download_hlo.css'],
   providers: [BlobDownloader],
+  imports: [
+    CommonModule,
+    MatIconModule,
+    MatMenuModule,
+    MatTooltipModule,
+  ],
 })
 export class DownloadHlo implements OnDestroy {
   /** The hlo module name. */
-  @Input() moduleName: string = '';
+  @Input() moduleName = '';
   /** Includes metadata in the proto. */
-  @Input() showMetadata: boolean = false;
+  @Input() showMetadata = false;
   /** The graph type to download. */
   @Input() graphType: string = GRAPH_TYPE_DEFAULT;
 

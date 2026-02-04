@@ -1,4 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -27,10 +32,17 @@ const TOGGLE_BUTTON_ITEMS: ToggleButtonItems[] = [
 
 /** An Hlo text view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'hlo-text-view',
-  templateUrl: './hlo_text_view.ng.html',
-  styleUrls: ['./hlo_text_view.scss'],
+  templateUrl: 'hlo_text_view.ng.html',
+  styleUrls: ['hlo_text_view.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatExpansionModule,
+    MatProgressBarModule,
+    MatTooltipModule,
+  ],
 })
 export class HloTextView implements OnDestroy {
   /** The graph type. */

@@ -7,12 +7,12 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 import {PerformanceSummary} from './performance_summary';
 
 @NgModule({
-  declarations: [PerformanceSummary],
   imports: [
     CommonModule,
     MatCardModule,
     MatIconModule,
     MatTooltipModule,
+    PerformanceSummary,
   ],
   exports: [PerformanceSummary]
 })

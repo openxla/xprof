@@ -7,8 +7,8 @@ import {Component, Input} from '@angular/core';
 @Component({
   standalone: true,
   selector: 'message',
-  templateUrl: './message.ng.html',
-  styleUrls: ['./message.scss'],
+  templateUrl: 'message.ng.html',
+  styleUrls: ['message.scss'],
   imports: [CommonModule],
 })
 export class Message {

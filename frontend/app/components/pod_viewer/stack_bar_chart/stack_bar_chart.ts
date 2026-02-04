@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, ViewChild} from '@angular/core';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {PrimitiveTypeNumberStringOrUndefined} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -7,17 +8,18 @@ const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'stack-bar-chart',
-  templateUrl: './stack_bar_chart.ng.html',
-  styleUrls: ['./stack_bar_chart.scss']
+  templateUrl: 'stack_bar_chart.ng.html',
+  styleUrls: ['stack_bar_chart.scss'],
+  imports: [CommonModule],
 })
 export class StackBarChart implements OnChanges, OnInit {
   /** The data to be display. */
   @Input() data?: PrimitiveTypeNumberStringOrUndefined[][];
 
   /** The event when the selection of the chart is changed. */
-  @Output() selected = new EventEmitter<number>();
+  @Output() readonly selected = new EventEmitter<number>();
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 

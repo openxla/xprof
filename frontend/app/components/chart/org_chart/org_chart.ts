@@ -4,8 +4,8 @@ import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChil
 @Component({
   standalone: false,
   selector: 'org-chart',
-  templateUrl: './org_chart.ng.html',
-  styleUrls: ['./org_chart.scss']
+  templateUrl: 'org_chart.ng.html',
+  styleUrls: ['org_chart.scss']
 })
 export class OrgChart implements OnChanges, OnInit {
   @Input() dataView?: google.visualization.DataView;

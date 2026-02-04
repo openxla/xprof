@@ -1,5 +1,32 @@
-load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
+load("@aspect_rules_js//npm:defs.bzl", "npm_link_package", "npm_package")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config")
+load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
+
+npm_link_all_packages(
+    name = "node_modules",
+)
+
+npm_package(
+    name = "workspace_pkg",
+    srcs = glob(
+        ["**/*"],
+        exclude = [
+            "bazel-*/**",
+            "node_modules/**",
+            "**/node_modules/**",
+        ],
+    ),
+    package = "org_xprof",
+    visibility = ["//visibility:public"],
+)
+
+npm_link_package(
+    name = "org_xprof",
+    src = ":workspace_pkg",
+    visibility = ["//visibility:public"],
+)
 
 # Description
 # XProf, ML Performance Toolbox (for TPU, GPU, CPU).
@@ -14,6 +41,12 @@ exports_files([
     "tsconfig.json",
     "rollup.config.js",
 ])
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = [":__subpackages__"],
+)
 
 py_library(
     name = "expect_tensorflow_installed",

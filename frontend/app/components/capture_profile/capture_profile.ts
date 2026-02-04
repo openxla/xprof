@@ -1,5 +1,8 @@
+import {CommonModule} from '@angular/common';
 import {Component, OnDestroy} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
 import {MatDialog} from '@angular/material/dialog';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {Store} from '@ngrx/store';
 import {CaptureProfileOptions, CaptureProfileResponse} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
@@ -15,10 +18,15 @@ const DELAY_TIME_MS = 1000;
 
 /** A capture profile view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'capture-profile',
-  templateUrl: './capture_profile.ng.html',
-  styleUrls: ['./capture_profile.scss']
+  templateUrl: 'capture_profile.ng.html',
+  styleUrls: ['capture_profile.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatProgressSpinnerModule,
+  ],
 })
 export class CaptureProfile implements OnDestroy {
   readonly captureButtonLabel = 'Capture Profile';

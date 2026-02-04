@@ -1,4 +1,6 @@
+import {CommonModule} from '@angular/common';
 import {Component, OnDestroy} from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
 import {Store} from '@ngrx/store';
 
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -14,10 +16,11 @@ interface DetailInfo {
 
 /** A pod viewer details view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'pod-viewer-details',
-  templateUrl: './pod_viewer_details.ng.html',
-  styleUrls: ['./pod_viewer_details.scss']
+  templateUrl: 'pod_viewer_details.ng.html',
+  styleUrls: ['pod_viewer_details.scss'],
+  imports: [CommonModule, MatCardModule],
 })
 export class PodViewerDetails implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

@@ -1,17 +1,29 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatSelectModule} from '@angular/material/select';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   HostOpTable,
   type MetaHostOpTable,
 } from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 /** A host-op view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'host-op',
-  templateUrl: './host_op.ng.html',
-  styleUrls: ['./host_op.scss'],
+  templateUrl: 'host_op.ng.html',
+  styleUrls: ['host_op.scss'],
+  imports: [
+    CommonModule,
+    MatDividerModule,
+    MatSelectModule,
+    MatOptionModule,
+    ChartModule,
+  ],
 })
 export class HostOp implements OnChanges {
   /** Whether there are host-op tables */
@@ -29,11 +41,11 @@ export class HostOp implements OnChanges {
 
   allCoreChoices: string[] = [];
 
-  hostOpSelected: string = '';
+  hostOpSelected = '';
 
-  hostnameSelected: string = '';
+  hostnameSelected = '';
 
-  coreSelected: string = '';
+  coreSelected = '';
 
   showChart = false;
 

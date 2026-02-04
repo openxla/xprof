@@ -4,10 +4,10 @@ import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
 /** A max heap chart view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'max-heap-chart',
-  templateUrl: './max_heap_chart.ng.html',
-  styleUrls: ['./max_heap_chart.scss']
+  templateUrl: 'max_heap_chart.ng.html',
+  styleUrls: ['max_heap_chart.scss']
 })
 export class MaxHeapChart implements OnChanges, OnInit {
   /** The heap object list. */

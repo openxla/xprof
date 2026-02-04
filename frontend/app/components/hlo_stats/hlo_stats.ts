@@ -1,5 +1,13 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, Renderer2, ViewChild} from '@angular/core';
-import {FormControl} from '@angular/forms';
+import {FormControl, FormsModule, ReactiveFormsModule} from '@angular/forms';
+import {MatDividerModule} from '@angular/material/divider';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -8,10 +16,15 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
-import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
+import {Chart, ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {PIE_CHART_OPTIONS, TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider, ReplicaGroupDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
+import {FlopRateChart} from 'org_xprof/frontend/app/components/framework_op_stats/flop_rate_chart/flop_rate_chart';
+import {StackTraceSnippet} from 'org_xprof/frontend/app/components/stack_trace_snippet/stack_trace_snippet';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
@@ -35,10 +48,28 @@ const TOTAL_TIME_ID = 'total_time';
 
 /** A Hlo Stats component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'hlo-stats',
-  templateUrl: './hlo_stats.ng.html',
-  styleUrls: ['./hlo_stats.css'],
+  templateUrl: 'hlo_stats.ng.html',
+  styleUrls: ['hlo_stats.css'],
+  imports: [
+    CategoryFilter,
+    ChartModule,
+    CommonModule,
+    ExportAsCsv,
+    FlopRateChart,
+    FormsModule,
+    MatDividerModule,
+    MatExpansionModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatSelectModule,
+    MatSlideToggleModule,
+    MatTooltipModule,
+    ReactiveFormsModule,
+    StackTraceSnippet,
+    StringFilter,
+  ],
 })
 export class HloStats extends Dashboard implements OnDestroy {
   tool = 'hlo_op_stats';

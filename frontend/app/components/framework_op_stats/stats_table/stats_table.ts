@@ -1,4 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -15,10 +20,17 @@ const TABLE_COLUMN_LABEL_OPERATION = 'Operation';
 
 /** A stats table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'stats-table',
-  templateUrl: './stats_table.ng.html',
-  styleUrls: ['./stats_table.scss']
+  templateUrl: 'stats_table.ng.html',
+  styleUrls: ['stats_table.scss'],
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatIconModule,
+    MatInputModule,
+    ChartModule,
+  ],
 })
 export class StatsTable implements OnChanges, OnInit {
   /**

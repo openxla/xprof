@@ -1,4 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCardModule} from '@angular/material/card';
 import {Store} from '@ngrx/store';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls.d';
@@ -10,10 +13,15 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A buffer details view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'buffer-details',
-  templateUrl: './buffer_details.ng.html',
-  styleUrls: ['./buffer_details.scss']
+  templateUrl: 'buffer_details.ng.html',
+  styleUrls: ['buffer_details.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatCardModule,
+  ],
 })
 export class BufferDetails implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

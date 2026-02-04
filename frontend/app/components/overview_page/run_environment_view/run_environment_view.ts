@@ -1,12 +1,15 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input} from '@angular/core';
+import {MatCardModule} from '@angular/material/card';
 import {type RunEnvironment} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A run environment view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'run-environment-view',
-  templateUrl: './run_environment_view.ng.html',
-  styleUrls: ['./run_environment_view.scss']
+  templateUrl: 'run_environment_view.ng.html',
+  styleUrls: ['run_environment_view.scss'],
+  imports: [CommonModule, MatCardModule],
 })
 export class RunEnvironmentView {
   /** The run environment data. */

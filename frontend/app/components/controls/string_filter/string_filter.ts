@@ -1,4 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
 
 /**
  * A string filter component.
@@ -6,9 +9,14 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '
  * If the value is empty, selects all the rows.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'string-filter',
-  templateUrl: './string_filter.ng.html',
+  templateUrl: 'string_filter.ng.html',
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
 })
 export class StringFilter implements OnChanges {
   @Input() dataTable?: google.visualization.DataTable;
@@ -20,7 +28,7 @@ export class StringFilter implements OnChanges {
   columnLabel = '';
 
   @Output()
-  changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+  readonly changed = new EventEmitter<google.visualization.DataTableCellFilter>();
 
   ngOnChanges(changes: SimpleChanges) {
     this.processData();

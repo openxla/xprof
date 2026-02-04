@@ -1,4 +1,7 @@
 import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatIconModule} from '@angular/material/icon';
+import {MatInputModule} from '@angular/material/input';
 import {type MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -6,22 +9,23 @@ const DATA_TABLE_OPERATION_INDEX = 0;
 
 /** A memory breakdown table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-breakdown-table',
-  templateUrl: './memory_breakdown_table.ng.html',
-  styleUrls: ['./memory_breakdown_table.scss']
+  templateUrl: 'memory_breakdown_table.ng.html',
+  styleUrls: ['memory_breakdown_table.scss'],
+  imports: [MatFormFieldModule, MatIconModule, MatInputModule],
 })
 export class MemoryBreakdownTable implements OnChanges, OnInit {
   /** The memory profile proto data. */
   @Input() memoryProfileData: MemoryProfileProto|null = null;
 
   /** The selected memory ID to show memory profile for. */
-  @Input() memoryId: string = '';
+  @Input() memoryId = '';
 
   @ViewChild('table', {static: false}) tableRef!: ElementRef;
 
   dataTable: google.visualization.DataTable|null = null;
-  filterOperation: string = '';
+  filterOperation = '';
   table: google.visualization.Table|null = null;
 
   ngOnInit() {

@@ -1,11 +1,21 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, HostListener, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 
 /** A table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'table',
-  templateUrl: './table.ng.html',
-  styleUrls: ['./table.scss']
+  templateUrl: 'table.ng.html',
+  styleUrls: ['table.scss'],
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatOptionModule,
+  ],
 })
 export class Table implements OnChanges, OnInit {
   @Input() dataView?: google.visualization.DataView;

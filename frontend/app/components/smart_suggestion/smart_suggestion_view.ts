@@ -1,10 +1,10 @@
 import {CommonModule} from '@angular/common';
-import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges, inject, OnDestroy} from '@angular/core';
+import {Component, HostBinding, inject, Input, OnChanges, OnDestroy, OnInit, SimpleChanges} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatIconModule} from '@angular/material/icon';
-import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
+import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls.d';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {Subscription} from 'rxjs';
 
@@ -30,8 +30,8 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 /** A component for displaying smart suggestions. */
 @Component({
   selector: 'smart-suggestion-view',
-  templateUrl: './smart_suggestion_view.ng.html',
-  styleUrls: ['./smart_suggestion_view.scss'],
+  templateUrl: 'smart_suggestion_view.ng.html',
+  styleUrls: ['smart_suggestion_view.scss'],
   standalone: true,
   imports: [
     CommonModule,

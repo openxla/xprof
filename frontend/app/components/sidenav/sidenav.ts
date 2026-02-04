@@ -1,10 +1,18 @@
+import {CommonModule} from '@angular/common';
 import {Component, OnDestroy, OnInit} from '@angular/core';
-import {MatCheckboxChange} from '@angular/material/checkbox';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxChange, MatCheckboxModule} from '@angular/material/checkbox';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 import {ActivatedRouteSnapshot, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DEFAULT_HOST, HLO_TOOLS} from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {CaptureProfile} from 'org_xprof/frontend/app/components/capture_profile/capture_profile';
+import {BufferDetails} from 'org_xprof/frontend/app/components/memory_viewer/buffer_details/buffer_details';
+import {PodViewerDetails} from 'org_xprof/frontend/app/components/pod_viewer/pod_viewer_details/pod_viewer_details';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {setCurrentRunAction, setProfilerConfigAction, updateRunToolsMapAction} from 'org_xprof/frontend/app/store/actions';
@@ -14,10 +22,21 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A side navigation component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'sidenav',
-  templateUrl: './sidenav.ng.html',
-  styleUrls: ['./sidenav.scss']
+  templateUrl: 'sidenav.ng.html',
+  styleUrls: ['sidenav.scss'],
+  imports: [
+    BufferDetails,
+    CaptureProfile,
+    CommonModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatOptionModule,
+    MatSelectModule,
+    PodViewerDetails,
+  ],
 })
 export class SideNav implements OnInit, OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

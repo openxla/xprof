@@ -1,9 +1,17 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, OnDestroy} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSelectModule} from '@angular/material/select';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {MemoryProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {MemoryProfileBase} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_base';
+import {MemoryBreakdownTable} from 'org_xprof/frontend/app/components/memory_profile/memory_breakdown_table/memory_breakdown_table';
+import {MemoryProfileSummary} from 'org_xprof/frontend/app/components/memory_profile/memory_profile_summary/memory_profile_summary';
+import {MemoryTimelineGraph} from 'org_xprof/frontend/app/components/memory_profile/memory_timeline_graph/memory_timeline_graph';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -11,10 +19,20 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A Memory Profile component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-profile',
-  templateUrl: './memory_profile.ng.html',
-  styleUrls: ['./memory_profile.css'],
+  templateUrl: 'memory_profile.ng.html',
+  styleUrls: ['memory_profile.css'],
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MemoryBreakdownTable,
+    MemoryProfileSummary,
+    MemoryTimelineGraph,
+  ],
 })
 export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
   tool = 'memory_profile';

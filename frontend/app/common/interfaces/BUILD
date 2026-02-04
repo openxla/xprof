@@ -1,4 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("//defs:defs.bzl", "ts_library")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -111,7 +111,7 @@ ts_library(
         ":smart_suggestion_proto_defs",
         ":source_info_proto_defs",
         ":xla_proto_defs",
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
     ],
 )
 
@@ -122,6 +122,6 @@ ts_library(
     ],
     deps = [
         ":interfaces",
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
     ],
 )

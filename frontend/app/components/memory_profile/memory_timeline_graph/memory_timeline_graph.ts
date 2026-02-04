@@ -1,4 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCardModule} from '@angular/material/card';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatInputModule} from '@angular/material/input';
 import {type HloModule, type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -6,10 +11,17 @@ const MAX_CHART_WIDTH = 1500;
 
 /** A Memory Timeline Graph view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-timeline-graph',
-  templateUrl: './memory_timeline_graph.ng.html',
-  styleUrls: ['./memory_timeline_graph.scss']
+  templateUrl: 'memory_timeline_graph.ng.html',
+  styleUrls: ['memory_timeline_graph.scss'],
+  imports: [
+    CommonModule,
+    MatButtonModule,
+    MatCardModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
 })
 export class MemoryTimelineGraph implements AfterViewInit, OnChanges {
   /** The memory profile data. */

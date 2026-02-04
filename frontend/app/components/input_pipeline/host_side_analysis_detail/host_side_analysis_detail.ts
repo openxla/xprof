@@ -1,6 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {MatExpansionModule} from '@angular/material/expansion';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineHostAnalysis, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {ArrayDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
@@ -8,10 +11,11 @@ import {HostSideAnalysisDetailTableDataProvider} from './host_side_analysis_deta
 
 /** A host-side analysis detail view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'host-side-analysis-detail',
-  templateUrl: './host_side_analysis_detail.ng.html',
-  styleUrls: ['./host_side_analysis_detail.scss']
+  templateUrl: 'host_side_analysis_detail.ng.html',
+  styleUrls: ['host_side_analysis_detail.scss'],
+  imports: [CommonModule, MatExpansionModule, ChartModule],
 })
 export class HostSideAnalysisDetail implements OnInit, OnChanges {
   /** The input pipeline host anaysis data. */

@@ -11,9 +11,9 @@ xprof_ng_module(
         "state.ts",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/store:types",
     ],

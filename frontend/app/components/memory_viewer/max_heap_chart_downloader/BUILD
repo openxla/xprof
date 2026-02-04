@@ -1,4 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
+load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = [
@@ -16,8 +16,8 @@ xprof_ng_module(
         "max_heap_chart_downloader.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/memory_viewer/memory_usage",

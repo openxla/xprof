@@ -1,12 +1,22 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, Input, Output} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 
 /** A side navigation component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'memory-viewer-control',
-  templateUrl: './memory_viewer_control.ng.html',
-  styleUrls: ['./memory_viewer_control.scss'],
+  templateUrl: 'memory_viewer_control.ng.html',
+  styleUrls: ['memory_viewer_control.scss'],
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatSelectModule,
+    MatOptionModule,
+  ],
 })
 export class MemoryViewerControl {
   private moduleListInternal: string[] = [];

@@ -4,7 +4,14 @@
     "moduleResolution": "node",
     "strict": false,
     "inlineSourceMap": true,
+    "target": "ES2015",
     "experimentalDecorators": true,
-    "baseUrl": "./"
+    "baseUrl": ".",
+    "declaration": true,
+    "paths": {
+      "org_xprof/*": [
+        "./*"
+      ]
+    }
   }
 }

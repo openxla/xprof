@@ -3,6 +3,6 @@ import {NgModule} from '@angular/core';
 import {AnalysisSummary} from './analysis_summary';
 
 @NgModule(
-    {declarations: [AnalysisSummary], imports: [], exports: [AnalysisSummary]})
+    { imports: [AnalysisSummary], exports: [AnalysisSummary] })
 export class AnalysisSummaryModule {
 }

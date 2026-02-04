@@ -1,5 +1,6 @@
-import {PlatformLocation} from '@angular/common';
+import {CommonModule, PlatformLocation} from '@angular/common';
 import {Component, inject, Injector, OnDestroy} from '@angular/core';
+import {SafePipe} from 'org_xprof/frontend/app/pipes/safe_pipe';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
@@ -12,10 +13,11 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A trace viewer component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'trace-viewer',
-  templateUrl: './trace_viewer.ng.html',
-  styleUrls: ['./trace_viewer.css']
+  templateUrl: 'trace_viewer.ng.html',
+  styleUrls: ['trace_viewer.css'],
+  imports: [CommonModule, SafePipe]
 })
 export class TraceViewer implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

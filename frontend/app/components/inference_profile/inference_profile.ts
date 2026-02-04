@@ -1,4 +1,11 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, OnDestroy} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSelectModule} from '@angular/material/select';
+import {MatSidenavModule} from '@angular/material/sidenav';
+import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -11,10 +18,19 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An inference profile component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'inference-profile',
-  templateUrl: './inference_profile.ng.html',
-  styleUrls: ['./inference_profile.css'],
+  templateUrl: 'inference_profile.ng.html',
+  styleUrls: ['inference_profile.css'],
+  imports: [
+    CommonModule,
+    MatFormFieldModule,
+    MatOptionModule,
+    MatProgressBarModule,
+    MatSelectModule,
+    MatSidenavModule,
+    Table,
+  ],
 })
 export class InferenceProfile implements OnDestroy {
   tool = 'inference_profile';

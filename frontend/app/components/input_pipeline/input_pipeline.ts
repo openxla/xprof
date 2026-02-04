@@ -1,10 +1,18 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, OnDestroy} from '@angular/core';
+import {MatDividerModule} from '@angular/material/divider';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {InputPipelineDataTable, SimpleDataTable, } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {AnalysisSummary} from 'org_xprof/frontend/app/components/input_pipeline/analysis_summary/analysis_summary';
+import {DeviceSideAnalysisDetail} from 'org_xprof/frontend/app/components/input_pipeline/device_side_analysis_detail/device_side_analysis_detail';
+import {HostOp} from 'org_xprof/frontend/app/components/input_pipeline/host_op/host_op';
+import {HostSideAnalysisDetail} from 'org_xprof/frontend/app/components/input_pipeline/host_side_analysis_detail/host_side_analysis_detail';
+import {MaxInfeedDetail} from 'org_xprof/frontend/app/components/input_pipeline/max_infeed_detail/max_infeed_detail';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -28,10 +36,20 @@ const STEPTIME_COLUMN_IDS_FOR_TPU_INTERNAL = [
 
 /** An input pipeline component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'input-pipeline',
-  templateUrl: './input_pipeline.ng.html',
-  styleUrls: ['./input_pipeline.css']
+  templateUrl: 'input_pipeline.ng.html',
+  styleUrls: ['input_pipeline.css'],
+  imports: [
+    CommonModule,
+    MatDividerModule,
+    AnalysisSummary,
+    DeviceSideAnalysisDetail,
+    DiagnosticsView,
+    HostSideAnalysisDetail,
+    HostOp,
+    MaxInfeedDetail,
+  ],
 })
 export class InputPipeline extends InputPipelineCommon implements OnDestroy {
   private readonly dataService: DataServiceV2Interface =

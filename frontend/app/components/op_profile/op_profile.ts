@@ -1,4 +1,7 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, OnDestroy} from '@angular/core';
+import {OpDetails} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details';
+import {OpProfileBase} from 'org_xprof/frontend/app/components/op_profile/op_profile_base';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -13,10 +16,15 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'op-profile',
-  templateUrl: './op_profile.ng.html',
-  styleUrls: ['./op_profile_common.scss']
+  templateUrl: 'op_profile.ng.html',
+  styleUrls: ['op_profile_common.scss'],
+  imports: [
+    CommonModule,
+    OpDetails,
+    OpProfileBase,
+  ],
 })
 export class OpProfile implements OnDestroy {
   private tool = 'hlo_op_profile';

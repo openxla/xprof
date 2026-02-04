@@ -1,6 +1,11 @@
 import {Component, inject, OnDestroy, ViewChild} from '@angular/core';
+import {CommonModule} from '@angular/common';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatSlideToggleModule} from '@angular/material/slide-toggle';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_NAMES, ROOFLINE_SERIES_NAMES, ROOFLINE_STYLES, SCATTER_CHART_AXIS, SCATTER_CHART_OPTIONS, } from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
@@ -10,6 +15,10 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {take, takeUntil} from 'rxjs/operators';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
+import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
 
 import {OperationLevelAnalysis} from './operation_level_analysis/operation_level_analysis';
 import {ProgramLevelAnalysis} from './program_level_analysis/program_level_analysis';
@@ -42,10 +51,23 @@ const NVIDIA_GPU_TYPE_PREFIX = 'Nvidia GPU';
 
 /** A roofline model component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'roofline-model',
-  templateUrl: './roofline_model.ng.html',
-  styleUrls: ['./roofline_model.scss'],
+  templateUrl: 'roofline_model.ng.html',
+  styleUrls: ['roofline_model.scss'],
+  imports: [
+    CommonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    MatSlideToggleModule,
+    MatTooltipModule,
+    CategoryFilter,
+    ExportAsCsv,
+    StringFilter,
+    Table,
+    OperationLevelAnalysis,
+    ProgramLevelAnalysis,
+  ],
 })
 export class RooflineModel implements OnDestroy {
   sessionId = '';

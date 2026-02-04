@@ -9,13 +9,29 @@ import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/fr
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {CommonModule} from '@angular/common';
+import {FormsModule} from '@angular/forms';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {Table} from 'org_xprof/frontend/app/components/chart/table/table';
+import {CategoryFilter} from 'org_xprof/frontend/app/components/controls/category_filter/category_filter';
+import {ExportAsCsv} from 'org_xprof/frontend/app/components/controls/export_as_csv/export_as_csv';
+import {StringFilter} from 'org_xprof/frontend/app/components/controls/string_filter/string_filter';
 
 /** A perf counters component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'perf-counters',
-  templateUrl: './perf_counters.ng.html',
-  styleUrls: ['./perf_counters.scss'],
+  templateUrl: 'perf_counters.ng.html',
+  styleUrls: ['perf_counters.scss'],
+  imports: [
+    CommonModule,
+    StringFilter,
+    CategoryFilter,
+    ExportAsCsv,
+    Table,
+    MatCheckboxModule,
+    FormsModule,
+  ],
 })
 export class PerfCounters extends Dashboard implements OnDestroy {
   tool = 'perf_counters';

@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
 import {Store} from '@ngrx/store';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -10,10 +11,11 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'op-table-entry',
-  templateUrl: './op_table_entry.ng.html',
-  styleUrls: ['./op_table_entry.scss']
+  templateUrl: 'op_table_entry.ng.html',
+  styleUrls: ['op_table_entry.scss'],
+  imports: [CommonModule, OpTableEntry],
 })
 export class OpTableEntry implements OnChanges {
   /** Handles on-destroy Subject, used to unsubscribe. */

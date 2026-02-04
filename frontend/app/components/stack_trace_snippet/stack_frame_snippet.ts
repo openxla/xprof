@@ -1,4 +1,10 @@
+import {CommonModule} from '@angular/common';
 import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
+import {MatExpansionModule} from '@angular/material/expansion';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {Message} from 'org_xprof/frontend/app/components/stack_trace_snippet/message';
 import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -11,10 +17,18 @@ import {takeUntil} from 'rxjs/operators';
  * stack frame address.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'stack-frame-snippet',
-  templateUrl: './stack_frame_snippet.ng.html',
-  styleUrls: ['./stack_frame_snippet.scss'],
+  templateUrl: 'stack_frame_snippet.ng.html',
+  styleUrls: ['stack_frame_snippet.scss'],
+  imports: [
+    CommonModule,
+    MatExpansionModule,
+    MatIconModule,
+    MatProgressBarModule,
+    MatTooltipModule,
+    Message,
+  ],
 })
 export class StackFrameSnippet implements OnChanges, OnDestroy {
   @Input() sourceCodeSnippetAddress: Address|undefined = undefined;

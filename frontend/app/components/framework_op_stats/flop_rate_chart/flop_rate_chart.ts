@@ -1,4 +1,5 @@
 import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {COLUMN_CHART_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
@@ -7,10 +8,11 @@ import {XyTableDataProcessor} from 'org_xprof/frontend/app/components/chart/xy_t
 
 /** A flop rate chart view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'flop-rate-chart',
-  templateUrl: './flop_rate_chart.ng.html',
-  styleUrls: ['./flop_rate_chart.scss']
+  templateUrl: 'flop_rate_chart.ng.html',
+  styleUrls: ['flop_rate_chart.scss'],
+  imports: [ChartModule],
 })
 export class FlopRateChart implements OnChanges {
   /** The input data. */

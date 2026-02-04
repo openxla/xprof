@@ -5,11 +5,11 @@ import {Store} from '@ngrx/store';
 import {type GeneralAnalysis, type InputPipelineAnalysis, type OverviewPageDataTuple, type RunEnvironment, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
-import {InferenceLatencyChartModule} from 'org_xprof/frontend/app/components/overview_page/inference_latency_chart/inference_latency_chart_module';
-import {PerformanceSummaryModule} from 'org_xprof/frontend/app/components/overview_page/performance_summary/performance_summary_module';
-import {RunEnvironmentViewModule} from 'org_xprof/frontend/app/components/overview_page/run_environment_view/run_environment_view_module';
-import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph_module';
+import {DiagnosticsView} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view';
+import {InferenceLatencyChart} from 'org_xprof/frontend/app/components/overview_page/inference_latency_chart/inference_latency_chart';
+import {PerformanceSummary} from 'org_xprof/frontend/app/components/overview_page/performance_summary/performance_summary';
+import {RunEnvironmentView} from 'org_xprof/frontend/app/components/overview_page/run_environment_view/run_environment_view';
+import {StepTimeGraph} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph';
 import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -23,10 +23,19 @@ const DIAGNOSTICS_INDEX = 6;
 
 /** An overview page component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'overview-page',
-  templateUrl: './overview_page.ng.html',
-  styleUrls: ['./overview_page.css']
+  templateUrl: 'overview_page.ng.html',
+  styleUrls: ['overview_page.css'],
+  imports: [
+    CommonModule,
+    DiagnosticsView,
+    PerformanceSummary,
+    RunEnvironmentView,
+    StepTimeGraph,
+    InferenceLatencyChart,
+    SmartSuggestionView,
+  ],
 })
 export class OverviewPage implements OnDestroy {
   @Input() darkTheme = false;
@@ -115,15 +124,9 @@ export class OverviewPage implements OnDestroy {
 
 /** An overview page module. */
 @NgModule({
-  declarations: [OverviewPage],
   imports: [
     CommonModule,
-    DiagnosticsViewModule,
-    PerformanceSummaryModule,
-    RunEnvironmentViewModule,
-    StepTimeGraphModule,
-    InferenceLatencyChartModule,
-    SmartSuggestionView,
+    OverviewPage,
   ],
   exports: [OverviewPage]
 })

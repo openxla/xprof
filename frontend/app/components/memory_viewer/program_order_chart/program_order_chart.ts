@@ -1,15 +1,18 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
 import {type BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 /** A program order chart view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'program-order-chart',
-  templateUrl: './program_order_chart.ng.html',
-  styleUrls: ['./program_order_chart.scss']
+  templateUrl: 'program_order_chart.ng.html',
+  styleUrls: ['program_order_chart.scss'],
+  imports: [CommonModule, Chart],
 })
 export class ProgramOrderChart implements OnChanges, OnInit {
   /** The heap size list. */

@@ -1,4 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
+load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
@@ -13,8 +13,8 @@ xprof_ng_module(
         "smart_suggestion_view.ng.html",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_card",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
@@ -40,10 +40,10 @@ xprof_ng_module(
     srcs = ["smart_suggestion_test.ts"],
     deps = [
         ":smart_suggestion",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
         "//third_party/javascript/typings/jasmine",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion_testing",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

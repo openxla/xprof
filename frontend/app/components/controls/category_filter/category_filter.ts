@@ -1,4 +1,8 @@
+import {CommonModule} from '@angular/common';
 import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {MatOptionModule} from '@angular/material/core';
+import {MatFormFieldModule} from '@angular/material/form-field';
+import {MatSelectModule} from '@angular/material/select';
 
 /**
  * A category filter component.
@@ -9,13 +13,19 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '
  * If all is set, it is used as a value that selects all rows.
  */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'category-filter',
-  templateUrl: './category_filter.ng.html',
-  styleUrls: ['./category_filter.scss']
+  templateUrl: 'category_filter.ng.html',
+  styleUrls: ['category_filter.scss'],
+  imports: [
+    CommonModule,
+    MatOptionModule,
+    MatFormFieldModule,
+    MatSelectModule,
+  ],
 })
 export class CategoryFilter implements OnChanges {
-  @Input() dataTable?: google.visualization.DataTable;
+  @Input() dataTable?: google.visualization.DataTable | null;
   @Input() column: number|string = -1;
   @Input() valueSeparator = '';
   @Input() all = '';
@@ -27,7 +37,7 @@ export class CategoryFilter implements OnChanges {
   value: number|string|boolean = '';
 
   @Output()
-  changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+  readonly changed = new EventEmitter<google.visualization.DataTableCellFilter>();
 
   ngOnChanges(changes: SimpleChanges) {
     this.processData();

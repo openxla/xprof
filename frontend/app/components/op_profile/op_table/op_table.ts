@@ -1,27 +1,31 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input, OnDestroy} from '@angular/core';
+import {MatTooltipModule} from '@angular/material/tooltip';
+import {OpTableEntry} from 'org_xprof/frontend/app/components/op_profile/op_table_entry/op_table_entry';
 import {Store} from '@ngrx/store';
 import {type Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {setActiveOpProfileNodeAction} from 'org_xprof/frontend/app/store/actions';
 
 /** An op table view component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'op-table',
-  templateUrl: './op_table.ng.html',
-  styleUrls: ['./op_table.scss']
+  templateUrl: 'op_table.ng.html',
+  styleUrls: ['op_table.scss'],
+  imports: [CommonModule, MatTooltipModule, OpTableEntry],
 })
 export class OpTable implements OnDestroy {
   /** The root node. */
   @Input() rootNode?: Node;
 
   /** The property to sort by wasted time. */
-  @Input() byWasted: boolean = false;
+  @Input() byWasted = false;
 
   /** The property to show top 90%. */
-  @Input() showP90: boolean = false;
+  @Input() showP90 = false;
 
   /** The number of children nodes to be shown. */
-  @Input() childrenCount: number = 10;
+  @Input() childrenCount = 10;
 
   selectedNode?: Node;
 

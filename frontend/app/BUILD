@@ -1,4 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
+load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
@@ -14,10 +14,10 @@ xprof_ng_module(
         "app.ng.html",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@angular/platform-browser",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

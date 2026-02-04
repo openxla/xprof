@@ -1,14 +1,17 @@
+import {CommonModule} from '@angular/common';
 import {Component, Input} from '@angular/core';
+import {MatButtonModule} from '@angular/material/button';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'max-heap-chart-downloader',
-  templateUrl: './max_heap_chart_downloader.ng.html',
-  styleUrls: ['./max_heap_chart_downloader.scss'],
+  templateUrl: 'max_heap_chart_downloader.ng.html',
+  styleUrls: ['max_heap_chart_downloader.scss'],
+  imports: [CommonModule, MatButtonModule],
   providers: [],
 })
 export class MaxHeapChartDownloader {

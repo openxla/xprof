@@ -122,41 +122,5 @@ ConvertXSpaceToEventTimeFractionAnalyzerResult(
   return result_proto;
 }
 
-absl::StatusOr<EventTimeFractionAnalyzerResult>
-ConvertMultiXSpacesToEventTimeFractionAnalyzerResult(
-    const SessionSnapshot& session_snapshot,
-    absl::string_view target_event_name) {
-  EventTimeFractionAnalyzerResult combined_result;
-  for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace* xspace, session_snapshot.GetXSpace(i, &arena));
-    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                            /*derived_timeline=*/true);
-    TF_ASSIGN_OR_RETURN(
-        EventTimeFractionAnalyzerResult result,
-        ConvertXSpaceToEventTimeFractionAnalyzerResult(*xspace,
-                                                          target_event_name));
-    for (const auto& [chip_id, fractions] :
-         result.chip_event_time_fractions()) {
-      if (combined_result.chip_event_time_fractions().contains(chip_id)) {
-        auto& existing_fractions =
-            (*combined_result.mutable_chip_event_time_fractions())[chip_id];
-        existing_fractions.mutable_event_time_fractions()->Add(
-            fractions.event_time_fractions().begin(),
-            fractions.event_time_fractions().end());
-      } else {
-        combined_result.mutable_chip_event_time_fractions()->insert(
-            {chip_id, fractions});
-      }
-    }
-    for (const auto& [hostname, fractions] :
-         result.host_event_time_fractions()) {
-      combined_result.mutable_host_event_time_fractions()->insert(
-          {hostname, fractions});
-    }
-  }
-  return combined_result;
-}
-
 }  // namespace profiler
 }  // namespace tensorflow

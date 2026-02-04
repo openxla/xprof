@@ -81,6 +81,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
         "@org_xprof//xprof/convert:multi_xplanes_to_op_stats",
+        "@org_xprof//xprof/convert:multi_xspace_to_event_time_fraction_analyzer",
         "@org_xprof//xprof/convert:op_stats_to_input_pipeline_analysis",
         "@org_xprof//xprof/convert:op_stats_to_op_profile",
         "@org_xprof//xprof/convert:op_stats_to_overview_page",

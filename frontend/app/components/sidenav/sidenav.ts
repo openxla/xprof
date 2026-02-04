@@ -295,6 +295,13 @@ export class SideNav implements OnInit, OnDestroy {
     const isChangingToMultiHost = !previousSelectedTag ||
         (this.isMultiHostsEnabled && previousSelectedTag !== this.selectedTag);
 
+    // Reset module and op selection when tool changes
+    if (previousSelectedTag !== tag) {
+      this.selectedModuleInternal = '';
+      delete this.navigationParams['opName'];
+      delete this.navigationParams['moduleName'];
+    }
+
     this.selectedHostsInternal = [];
     this.selectedHostsPending = [];
     this.selectedHostInternal = '';

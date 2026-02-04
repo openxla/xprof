@@ -58,7 +58,9 @@ struct Group {
   // For counter groups, we increment the group level by 1.
   int start_level = 0;
   int nesting_level = 0;
-  // TODO - b/444029726: Add other fields like expanded, hidden
+  bool expanded = true;
+  bool has_children = false;
+  // TODO - b/444029726: Add other fields like hidden
 };
 
 struct FlowLine {

@@ -222,7 +222,8 @@ void Timeline::Draw() {
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
-    const Group& group = timeline_data_.groups[group_index];
+    Group& group = timeline_data_.groups[group_index];
+    group.has_children = true;
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     // Indent the group name. We add 1 to the nesting level because
@@ -231,12 +232,28 @@ void Timeline::Draw() {
     // indentation of `kIndentSize`, ensuring consistent and controlled visual
     // separation from the left edge of the table column.
     ImGui::Indent((group.nesting_level + 1) * kIndentSize);
+    if (group.has_children) {
+      if (ImGui::ArrowButton(std::to_string(group_index).c_str(),
+                             group.expanded ? ImGuiDir_Down : ImGuiDir_Right)) {
+        group.expanded = !group.expanded;
+      }
+      ImGui::SameLine();
+    }
     ImGui::TextUnformatted(group.name.c_str());
     ImGui::Unindent((group.nesting_level + 1) * kIndentSize);
 
     ImGui::TableNextColumn();
 
     DrawGroup(group_index, px_per_time_unit_val);
+
+    if (group.has_children && !group.expanded && group.nesting_level == 0) {
+      int current_nesting_level = group.nesting_level;
+      while (group_index + 1 < timeline_data_.groups.size() &&
+             timeline_data_.groups[group_index + 1].nesting_level >
+                 current_nesting_level) {
+        group_index++;
+      }
+    }
   }
 
   ImGui::EndTable();
@@ -911,6 +928,9 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                       // If this is the last group, the end level is the total
                       // number of levels.
                       : timeline_data_.events_by_level.size();
+  if (group.type == Group::Type::kFlame && !group.expanded) {
+    end_level = start_level;
+  }
   // Ensure end_level is not less than start_level, to avoid negative height.
   end_level = std::max(start_level, end_level);
 

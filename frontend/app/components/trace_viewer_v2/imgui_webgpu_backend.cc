@@ -229,6 +229,11 @@ void ImGui_ImplWGPU_RenderDrawData(ImDrawData* draw_data,
       (char*)vtx_destination - (char*)frame->vertex_buffer_host.data();
   uint64_t ib_write_size =
       (char*)idx_destination - (char*)frame->index_buffer_host.data();
+
+  // WebGPU requires WriteBuffer size to be a multiple of 4.
+  vb_write_size = MEMALIGN(vb_write_size, 4);
+  ib_write_size = MEMALIGN(ib_write_size, 4);
+
   bd->default_queue.WriteBuffer(
       frame->vertex_buffer, 0, frame->vertex_buffer_host.data(), vb_write_size);
   bd->default_queue.WriteBuffer(frame->index_buffer, 0,

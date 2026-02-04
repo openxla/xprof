@@ -325,6 +325,7 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
                                             ? GetDefaultThreadName(tid)
                                             : it->second;
 
+  int group_index = data.groups.size();
   data.groups.push_back({.name = thread_group_name,
                          .start_level = current_level,
                          .nesting_level = kThreadNestingLevel});
@@ -336,6 +337,10 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
   // Get the maximum level index used by events in this thread.
   int max_level =
       AppendNodesAtLevel(event_tree.roots, current_level, data, bounds);
+
+  if (max_level > start_level) {
+    data.groups[group_index].has_children = true;
+  }
 
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
@@ -420,7 +425,8 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
                                              : it->second;
   data.groups.push_back({.name = process_group_name,
                          .start_level = current_level,
-                         .nesting_level = kProcessNestingLevel});
+                         .nesting_level = kProcessNestingLevel,
+                         .has_children = true});
 
   if (has_events) {
     for (const auto& [tid, events] : it_events->second) {

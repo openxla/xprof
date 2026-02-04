@@ -47,15 +47,6 @@ bool TraceViewerVisibility::VisibleAtResolution(const TraceEvent& event) {
   // event in the same device is large enough. The first counter event in a
   // row is always visible.
   if (!event.has_resource_id()) {
-#if 1
-    // TODO(b/218368708): Streaming mode does not seem to work for counters:
-    // even if more counter events are loaded, the chart does not refresh.
-    // For now, the workaround is to make counters always visible.
-    return true;
-#else
-    // TODO(b/218368708): Provided streaming mode works, we should use the
-    // difference in counter values as a criteria for visibility: if the height
-    // of the bar changes significantly, ignore the time between updates.
     CounterRowId counter_row_id(event.device_id(), event.name());
     auto iter = last_counter_timestamp_ps_.find(counter_row_id);
     bool found = (iter != last_counter_timestamp_ps_.end());
@@ -70,7 +61,6 @@ bool TraceViewerVisibility::VisibleAtResolution(const TraceEvent& event) {
       }
     }
     return visible;
-#endif
   }
 
   // An event is visible if its duration is large enough.

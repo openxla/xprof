@@ -41,6 +41,10 @@ toc:
     path: /xprof/hlo_op_stats
   - title: Megascale Stats
     path: /xprof/megascale_stats
+  - title: Utilization Viewer
+    path: /xprof/utilization_viewer
+  - title: Perf Counters
+    path: /xprof/perf_counters
 - title: Demo Notebook
   section:
   - title: XProf Demo

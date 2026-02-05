@@ -17,6 +17,7 @@
 import argparse
 import collections
 import dataclasses
+import logging
 import socket
 import sys
 from typing import Optional
@@ -28,6 +29,17 @@ from xprof import profile_plugin_loader
 from xprof.standalone import base_plugin
 from xprof.standalone import plugin_event_multiplexer
 from xprof.convert import _pywrap_profiler_plugin
+
+logger = logging.getLogger("tensorboard.plugins.profile")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+  log_handler = logging.StreamHandler(sys.stderr)
+  formatter = logging.Formatter(
+      "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s"
+  )
+  log_handler.setFormatter(formatter)
+  logger.addHandler(log_handler)
+  logger.propagate = False
 
 DataProvider = plugin_event_multiplexer.DataProvider
 TBContext = base_plugin.TBContext
@@ -80,7 +92,7 @@ def run_server(plugin, host, port):
   server = wsgi.Server((host, port), app)
 
   try:
-    print(f"XProf at http://localhost:{port}/ (Press CTRL+C to quit)")
+    logger.info("XProf at http://localhost:%d/ (Press CTRL+C to quit)", port)
     server.start()
   except KeyboardInterrupt:
     server.stop()
@@ -302,11 +314,17 @@ def main() -> int:
       src_prefix=args.src_prefix,
   )
 
-  print("Attempting to start XProf server:")
-  print(f"  Log Directory: {logdir}")
-  print(f"  Port: {config.port}")
-  print(f"  Worker Service Address: {config.worker_service_address}")
-  print(f"  Hide Capture Button: {config.hide_capture_profile_button}")
+  logger.info(
+      "Attempting to start XProf server:\n"
+      "  Log Directory: %s\n"
+      "  Port: %d\n"
+      "  Worker Service Address: %s\n"
+      "  Hide Capture Button: %s",
+      logdir,
+      config.port,
+      config.worker_service_address,
+      config.hide_capture_profile_button,
+  )
 
   if logdir and not epath.Path(logdir).exists():
     print(

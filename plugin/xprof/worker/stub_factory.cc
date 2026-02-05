@@ -45,32 +45,36 @@ constexpr char kAddressDelimiter = ',';
 
 // Service config for the gRPC channel. This config will be applied to all
 // methods of the service. It enables a robust retry policy for transient errors
-// (UNAVAILABLE, RESOURCE_EXHAUSTED, etc.), sets a 10-minute timeout, and
+// (UNAVAILABLE, RESOURCE_EXHAUSTED, etc.), sets a 30-minute timeout, and
 // configures client-side round-robin load balancing.
 constexpr char kServiceConfigJson[] = R"pb(
-    {
-      "methodConfig":
+  {
+    "methodConfig":
+    [ {
+      "name":
       [ {
-        "name":
-        [ {}],
-             "timeout": "600s",
-             "retryPolicy": {
-               "maxAttempts": 4,
-               "initialBackoff": "2s",
-               "maxBackoff": "120s",
-               "backoffMultiplier": 2.0,
-               "retryableStatusCodes": [
-                 "UNAVAILABLE",
-                 "RESOURCE_EXHAUSTED",
-                 "INTERNAL",
-                 "ABORTED",
-                 "NOT_FOUND"
-               ]
-             }
+        "service": "xprof.pywrap.XprofAnalysisWorkerService",
+        "method": "GetProfileData"
       }],
-      "loadBalancingConfig":
-      [ { "round_robin": {} }]
-    })pb";
+      "timeout": "1800s",
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "initialBackoff": "5s",
+        "maxBackoff": "100s",
+        "backoffMultiplier": 2.0,
+        "retryableStatusCodes": [
+          "UNAVAILABLE",
+          "RESOURCE_EXHAUSTED",
+          "INTERNAL",
+          "ABORTED",
+          "NOT_FOUND",
+          "UNKNOWN"
+        ]
+      }
+    }],
+    "loadBalancingConfig":
+    [ { "round_robin": {} }]
+  })pb";
 
 ABSL_CONST_INIT absl::Mutex gStubsMutex(absl::kConstInit);
 // gStubs holds the gRPC stubs for the worker services.
@@ -171,6 +175,12 @@ void InitializeStubs(const std::string& worker_service_addresses) {
   for (absl::string_view address : addresses) {
     std::shared_ptr<::grpc::Channel> channel =
         CreateWorkerChannelForAddress(address);
+    // Trigger connection establishment immediately (pre-warming).
+    // This forces the channel to leave IDLE state and start connecting,
+    // ensuring that the Round Robin LB policy has READY backends available when
+    // the first request arrives, preventing all requests from hitting a single
+    // worker.
+    channel->GetState(/*try_to_connect=*/true);
     gStubs->push_back(XprofAnalysisWorkerService::NewStub(channel));
   }
   gStubsInitialized.store(true, std::memory_order_release);

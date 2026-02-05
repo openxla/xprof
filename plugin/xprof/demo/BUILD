@@ -23,6 +23,7 @@ py_binary(
         "data/profile_demo.pod_viewer.json",
         "data/profile_demo.tensorflow_stats.pb",
     ],
+    # strict_deps = False,
     deps = [
         "//:expect_tensorflow_installed",
         "//net/proto2/python/public",

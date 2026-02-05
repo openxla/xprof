@@ -37,6 +37,7 @@ static std::unique_ptr<::xprof::profiler::ProfileWorkerServiceImpl>
     worker_service;
 
 void InitializeGrpcServer(int port) {
+  LOG(INFO) << "Attempting to start gRPC server on port: " << port;
   std::string server_address = absl::StrCat(kServerAddressPrefix, port);
   ::grpc::ServerBuilder builder;
   builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials());

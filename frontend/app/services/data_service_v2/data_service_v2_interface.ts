@@ -33,8 +33,8 @@ export interface DataServiceV2Interface {
       ): string;
 
   getSmartSuggestions(
-      sessionId: string,
-      parameters?: Map<string, string>): Observable<SmartSuggestionReport | null>;
+      sessionId: string, host?: string,
+      parameters?: Map<string, string>): Observable<SmartSuggestionReport|null>;
 
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;

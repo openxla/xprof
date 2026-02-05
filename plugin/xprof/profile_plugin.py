@@ -142,6 +142,7 @@ XPLANE_TOOLS = [
     'megascale_stats',
     'perf_counters',
     'utilization_viewer',
+    'smart_suggestion',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)

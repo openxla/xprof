@@ -118,17 +118,22 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   private getHTTPParamsForDataQuery(
       run: string, tag: string, host: string,
-      parameters: Map<string, string|boolean> = new Map()): HttpParams {
+      parameters: Map<string, string|boolean> = new Map(),
+      {updateSearchParams = true}: {updateSearchParams?: boolean} = {}):
+      HttpParams {
     // Update searchparams with the updated run, tag and host.
     // In a Single Page App, we need to update the searchparams with the updated
     // run, tag and host on tool change for consistency.
     const searchParams = this.getSearchParams();
+
     searchParams.set('run', run);
     searchParams.set('tag', tag);
     if (host) {
       searchParams.set('host', host);
     }
-    this.setSearchParams(searchParams);
+    if (updateSearchParams) {
+      this.setSearchParams(searchParams);
+    }
 
     let params = this.getHttpParams(run, tag, host);
     parameters.forEach((value, key) => {
@@ -145,11 +150,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   getData(
       sessionId: string, tool: string, host: string,
-      parameters: Map<string, string|boolean> = new Map()):
+      parameters: Map<string, string|boolean> = new Map(),
+      {ignoreError = false, updateSearchParams = true}:
+          {ignoreError?: boolean, updateSearchParams?: boolean} = {}):
       Observable<DataTable|DataTable[]|null> {
-    const params =
-        this.getHTTPParamsForDataQuery(sessionId, tool, host, parameters);
-    return this.get(this.pathPrefix + DATA_API, {'params': params}) as
+    const params = this.getHTTPParamsForDataQuery(
+        sessionId, tool, host, parameters, {updateSearchParams});
+    return this.get(
+               this.pathPrefix + DATA_API, {'params': params}, !ignoreError) as
         Observable<DataTable>;
   }
 
@@ -294,7 +302,9 @@ export class DataServiceV2 implements DataServiceV2Interface {
   getOpProfileData(
       sessionId: string, host: string,
       params: Map<string, string>): Observable<DataTable|null> {
-    return this.getData(sessionId, 'op_profile', host, params) as
+    return this.getData(
+               sessionId, 'op_profile', host, params,
+               {ignoreError: false, updateSearchParams: false}) as
         Observable<DataTable>;
   }
   getOpProfileSummary(data: OpProfileData): OpProfileSummary[] {
@@ -311,9 +321,24 @@ export class DataServiceV2 implements DataServiceV2Interface {
   getCustomCallTextLink(
       sessionId: string, moduleName: string, opName: string, programId = '') {
     if (moduleName && opName) {
-      return `${window.parent.location.origin}/${
-          DATA_API}?tag=graph_viewer&module_name=${moduleName}&node_name=${
-          opName}&run=${sessionId}&type=custom_call#profile`;
+      const linkParams = new URLSearchParams();
+      linkParams.set('tag', 'graph_viewer');
+      linkParams.set('module_name', moduleName);
+      linkParams.set('node_name', opName);
+      linkParams.set('run', sessionId);
+      linkParams.set('type', 'custom_call');
+
+      const searchParams = this.getSearchParams();
+      const sessionPath = searchParams.get('session_path');
+      const runPath = searchParams.get('run_path');
+      if (sessionPath) {
+        linkParams.set('session_path', sessionPath);
+      }
+      if (runPath) {
+        linkParams.set('run_path', runPath);
+      }
+      return `${window.parent.location.origin}/${DATA_API}?${
+          linkParams.toString()}#profile`;
     }
     return '';
   }
@@ -474,5 +499,26 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return this.get<string>(this.pathPrefix + VERSION_API, {
       'responseType': 'text',
     });
+  }
+
+  getRooflineModelLink(sessionId: string): string {
+    const params = new URLSearchParams();
+    const searchParams = this.getSearchParams();
+    const sessionPath = searchParams.get('session_path');
+    const runPath = searchParams.get('run_path');
+    const host = searchParams.get('host');
+    if (sessionPath) {
+      params.set('session_path', sessionPath);
+    }
+    if (runPath) {
+      params.set('run_path', runPath);
+    }
+    params.set('run', sessionId);
+    params.set('tag', 'roofline_model');
+    if (host) {
+      params.set('host', host);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return `/roofline_model/${sessionId}${query}`;
   }
 }

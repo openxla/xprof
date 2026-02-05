@@ -106,13 +106,15 @@ export function bytesToMiB(numBytes: number): number {
 /**
  * Format the number as human-readable text.
  * @param num Number to convert.
- * @param si True to use metric (SI) units, aka powers of 1000. False to use
- *           binary (IEC), aka powers of 1024.
- * @param dp Number of decimal places to display.
- * @param suffix Text to append to the string as common unit, e.g. FLOP/s.
+ * @param options The conversion options.
  */
 export function humanReadableText(
-    num: number, {si = false, dp = 2, suffix = 'B'} = {}): string {
+    num: number, options: {
+      si?: boolean,
+      dp?: number,
+      suffix?: string
+    } = {}): string {
+  const {si = false, dp = 2, suffix = 'B'} = options;
   const base = si ? 1000 : 1024;
   const units = si ? ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'] :
                      ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi', 'Yi'];
@@ -356,17 +358,30 @@ export function scrollBottomOfSidenav() {
 /**
  * Returns a string with an anchor tag in oss.
  */
-export function addAnchorTag(value = '', run = ''): string {
-  return `<a href="/?tool=${value}&run=${run}#profile" target="_blank">${
-      value}</a>`;
+export function addAnchorTag(
+    value = '', run = '', sessionPath = '', runPath = ''): string {
+  const params = new URLSearchParams();
+  params.set('tool', value);
+  params.set('run', run);
+
+  if (sessionPath) {
+    params.set('session_path', sessionPath);
+  }
+  if (runPath) {
+    params.set('run_path', runPath);
+  }
+
+  return `<a href="/?${params.toString()}#profile" target="_blank">${value}</a>`;
 }
 
 /**
  * Returns a string with the known tool name changed to an anchor tag.
  */
-export function convertKnownToolToAnchorTag(value = '', run = ''): string {
+export function convertKnownToolToAnchorTag(
+    value = '', run = '', sessionPath = '', runPath = ''): string {
   KNOWN_TOOLS.forEach(tool => {
-    value = value.replace(new RegExp(tool, 'g'), addAnchorTag(tool, run));
+    value = value.replace(
+        new RegExp(tool, 'g'), addAnchorTag(tool, run, sessionPath, runPath));
   });
   return value;
 }
@@ -395,7 +410,7 @@ export function parseDiagnosticsDataTable(diagnosticsTable: SimpleDataTable|
  * Sets the global loading state.
  */
 export function setLoadingState(
-    loading: boolean, store: Store<{}>, message: string = '') {
+    loading: boolean, store: Store<{}>, message = '') {
   if (loading) {
     message = message || 'Loading data';
     message = message + '. First-time session loads may take up to a few minutes.';

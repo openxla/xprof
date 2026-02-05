@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
 
 namespace traceviewer {
@@ -84,6 +85,40 @@ struct ParsedTraceEvents {
 
   bool mpmd_pipeline_view = false;
 };
+
+// Constants for metadata events.
+inline constexpr absl::string_view kThreadName = "thread_name";
+inline constexpr absl::string_view kProcessName = "process_name";
+// The name of the metadata event used to sort processes (e.g., device rows
+// in trace viewer).
+inline constexpr absl::string_view kProcessSortIndex = "process_sort_index";
+// The name of the metadata event used to sort threads within a process (e.g.,
+// resource rows in trace viewer).
+inline constexpr absl::string_view kThreadSortIndex = "thread_sort_index";
+// The argument name for sort index in process_sort_index and
+// thread_sort_index metadata events.
+inline constexpr absl::string_view kSortIndex = "sort_index";
+inline constexpr absl::string_view kName = "name";
+
+// LINT.IfChange
+// Constants for trace event argument keys.
+inline constexpr absl::string_view kHloOp = "hlo_op";
+inline constexpr absl::string_view kHloModule = "hlo_module";
+inline constexpr absl::string_view kHloModuleId = "hlo_module_id";
+inline constexpr absl::string_view kProgramId = "program_id";
+inline constexpr absl::string_view kKernelDetails = "kernel_details";
+
+// Constants for thread names.
+inline constexpr absl::string_view kXlaOps = "XLA Ops";
+inline constexpr absl::string_view kXlaModules = "XLA Modules";
+inline constexpr absl::string_view kComputeUtilization =
+    "Compute Utilization/Roofline Efficiency";
+inline constexpr absl::string_view kDataMotionLayersUtilization =
+    "Data motion layers utilization";
+
+// Other constants.
+inline constexpr absl::string_view kHloModuleDefault = "default";
+inline constexpr absl::string_view kModuleRegex = "module:.*_(\\d+)";
 
 }  // namespace traceviewer
 

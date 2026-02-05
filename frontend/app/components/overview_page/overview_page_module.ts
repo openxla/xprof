@@ -54,9 +54,18 @@ export class OverviewPage implements OnDestroy {
     combineLatest([this.route.params, this.route.queryParams])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
+          const oldSessionId = this.sessionId;
+          const oldTool = this.tool;
+          const oldHost = this.host;
+
           this.sessionId = params['sessionId'] || this.sessionId;
           this.processQueryParams(queryParams);
-          this.update();
+
+          // Trigger update only if the parameters actually changed.
+          if (this.sessionId !== oldSessionId || this.tool !== oldTool ||
+              this.host !== oldHost) {
+            this.update();
+          }
         });
   }
 

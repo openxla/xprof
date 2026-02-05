@@ -1,22 +1,10 @@
 load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
-load("@npm//@bazel/concatjs:index.bzl", "ts_declaration", "ts_library")
+load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
-load("//tools/build_defs/js/devserver:web_dev_server.bzl", "web_dev_server")
-load(":build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
+load(":build_defs.bzl", "wasm_cc_library")
 
 package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
-
-bzl_library(
-    name = "build_defs_bzl",
-    srcs = ["build_defs.bzl"],
-    parse_tests = False,
-    visibility = ["//visibility:private"],
-    deps = [
-        "//third_party/bazel_rules/rules_cc/cc:core_rules",
-        "//third_party/bazel_rules/rules_wasm/wasm:bzl_lib",
-    ],
-)
 
 cc_library(
     name = "animation",
@@ -109,19 +97,6 @@ wasm_cc_library(
     ],
 )
 
-wasm_cc_test(
-    name = "event_manager_test",
-    srcs = ["event_manager_test.cc"],
-    linkopts = [
-        "-sASYNCIFY=1",
-        "-sNO_EXIT_RUNTIME=1",
-    ],
-    deps = [
-        ":event_manager",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
 wasm_cc_library(
     name = "imgui_webgpu_backend",
     srcs = ["imgui_webgpu_backend.cc"],
@@ -181,13 +156,6 @@ cc_binary(
 wasm_cc_binary(
     name = "trace_viewer_v2_wasm",
     cc_target = ":trace_viewer_v2",
-    generate_ts_defs = "embind",
-)
-
-ts_declaration(
-    name = "wasm_declared_types",
-    srcs = [":trace_viewer_v2_wasm/trace_viewer_v2.d.ts"],
-    deps = ["@npm//@types/emscripten"],
 )
 
 ts_library(
@@ -195,17 +163,8 @@ ts_library(
     srcs = ["main.ts"],
     visibility = ["//frontend:__subpackages__"],
     deps = [
-        ":wasm_declared_types",
+        "@npm//@types/emscripten",
         "@npm//@webgpu/types",
-    ],
-)
-
-ts_development_sources(
-    name = "devsrcs",
-    deps = [
-        ":app_bundle_ts",
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
     ],
 )
 
@@ -232,17 +191,4 @@ filegroup(
         ":trace_viewer_v2_wasm/trace_viewer_v2.js",
         ":trace_viewer_v2_wasm/trace_viewer_v2.wasm",
     ],
-)
-
-web_dev_server(
-    name = "dev_server",
-    concatjs_routes = {":devsrcs": "/app_bundle.js"},
-    static_files = [
-        "index.html",
-        ":trace_viewer_v2_wasm",
-    ],
-    static_files_path_aliases = {
-        "/trace_viewer_v2.js": "third_party/xprof/frontend/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.js",
-        "/trace_viewer_v2.wasm": "third_party/xprof/frontend/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.wasm",
-    },
 )

@@ -210,7 +210,8 @@ class Timeline {
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
                                Pixel screen_x_offset, Pixel screen_y_offset,
                                double px_per_time_unit, int level_in_group,
-                               Pixel timeline_width) const;
+                               Pixel timeline_width, Pixel event_height,
+                               Pixel padding_bottom) const;
 
   // Calculates the top-left screen coordinates for the event name text.
   ImVec2 CalculateEventTextRect(absl::string_view event_name,
@@ -296,7 +297,8 @@ class Timeline {
 
   void DrawEventsForLevel(int group_index, absl::Span<const int> event_indices,
                           double px_per_time_unit, int level_in_group,
-                          const ImVec2& pos, const ImVec2& max);
+                          const ImVec2& pos, const ImVec2& max,
+                          Pixel event_height, Pixel padding_bottom);
 
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
@@ -307,6 +309,7 @@ class Timeline {
                         Pixel height);
 
   void DrawGroup(int group_index, double px_per_time_unit_val);
+  void DrawGroupPreview(int group_index, double px_per_time_unit_val);
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,

@@ -307,14 +307,17 @@ void Timeline::Draw() {
 
     ImGui::TableNextColumn();
 
-    DrawGroup(group_index, px_per_time_unit_val);
+
     if (!group.expanded) {
+      DrawGroupPreview(group_index, px_per_time_unit_val);
       int current_nesting_level = group.nesting_level;
       while (group_index + 1 < timeline_data_.groups.size() &&
              timeline_data_.groups[group_index + 1].nesting_level >
                  current_nesting_level) {
         group_index++;
       }
+    } else {
+      DrawGroup(group_index, px_per_time_unit_val);
     }
   }
 
@@ -371,12 +374,10 @@ void Timeline::Draw() {
   ImGui::End();          // Timeline viewer
 }
 
-EventRect Timeline::CalculateEventRect(Microseconds start, Microseconds end,
-                                       Pixel screen_x_offset,
-                                       Pixel screen_y_offset,
-                                       double px_per_time_unit,
-                                       int level_in_group,
-                                       Pixel timeline_width) const {
+EventRect Timeline::CalculateEventRect(
+    Microseconds start, Microseconds end, Pixel screen_x_offset,
+    Pixel screen_y_offset, double px_per_time_unit, int level_in_group,
+    Pixel timeline_width, Pixel event_height, Pixel padding_bottom) const {
   const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time_unit);
   Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time_unit);
 
@@ -390,8 +391,8 @@ EventRect Timeline::CalculateEventRect(Microseconds start, Microseconds end,
   right -= kEventPaddingRight;
 
   const Pixel top =
-      screen_y_offset + level_in_group * (kEventHeight + kEventPaddingBottom);
-  const Pixel bottom = top + kEventHeight;
+      screen_y_offset + level_in_group * (event_height + padding_bottom);
+  const Pixel bottom = top + event_height;
 
   const Pixel timeline_right_boundary = screen_x_offset + timeline_width;
 
@@ -831,7 +832,8 @@ void Timeline::DrawEvent(int group_index, int event_index,
 void Timeline::DrawEventsForLevel(int group_index,
                                   absl::Span<const int> event_indices,
                                   double px_per_time_unit, int level_in_group,
-                                  const ImVec2& pos, const ImVec2& max) {
+                                  const ImVec2& pos, const ImVec2& max,
+                                  Pixel event_height, Pixel padding_bottom) {
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
   if (!draw_list) {
     return;
@@ -848,8 +850,9 @@ void Timeline::DrawEventsForLevel(int group_index,
     const Microseconds end =
         start + timeline_data_.entry_total_times[event_index];
 
-    const EventRect rect = CalculateEventRect(
-        start, end, pos.x, pos.y, px_per_time_unit, level_in_group, max.x);
+    const EventRect rect =
+        CalculateEventRect(start, end, pos.x, pos.y, px_per_time_unit,
+                           level_in_group, max.x, event_height, padding_bottom);
 
     DrawEvent(group_index, event_index, rect, draw_list);
   }
@@ -1042,7 +1045,75 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
           // TODO: b/453676716 - Add boundary test cases for this function.
           DrawEventsForLevel(group_index, timeline_data_.events_by_level[level],
                              px_per_time_unit_val,
-                             /*level_in_group=*/level - start_level, pos, max);
+                             /*level_in_group=*/level - start_level, pos, max,
+                             kEventHeight, kEventPaddingBottom);
+        }
+      }
+    }
+  }
+  ImGui::EndChild();
+
+  if (group_index < timeline_data_.groups.size() - 1) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    float line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
+    draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
+                       ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
+                       kLightGrayColor);
+  }
+}
+
+void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
+  const Group& group = timeline_data_.groups[group_index];
+  const std::string timeline_child_id =
+      absl::StrCat("TimelineChildPreview_", group.name, "_", group_index);
+
+  // We use a fixed height for the preview, same as a single event height.
+  const Pixel group_height = kEventHeight;
+
+  // Calculate level Y positions for the preview. We only need the first level.
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  const int start_level = group.start_level;
+  if (start_level < level_y_positions_.size()) {
+    level_y_positions_[start_level] = pos.y + kEventHeight * 0.5f;
+  }
+
+  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
+                        ImGuiChildFlags_None, kLaneFlags)) {
+    const ImVec2 max = ImGui::GetContentRegionMax();
+
+    if (group.type == Group::Type::kCounter) {
+      const auto it =
+          timeline_data_.counter_data_by_group_index.find(group_index);
+      if (it != timeline_data_.counter_data_by_group_index.end()) {
+        DrawCounterTrack(group_index, it->second, px_per_time_unit_val, pos,
+                         group_height);
+      }
+    } else if (group.type == Group::Type::kFlame) {
+      // For flame charts, draw all events in group and subgroups in one line.
+      int current_nesting_level = group.nesting_level;
+      int child_group_index = group_index + 1;
+      while (child_group_index < timeline_data_.groups.size() &&
+             timeline_data_.groups[child_group_index].nesting_level >
+                 current_nesting_level) {
+        child_group_index++;
+      }
+
+      int end_level = (child_group_index < timeline_data_.groups.size())
+                          ? timeline_data_.groups[child_group_index].start_level
+                          : timeline_data_.events_by_level.size();
+
+      const int num_levels = end_level - start_level;
+      const float event_height = kEventHeight / std::max(1, num_levels);
+      const float padding_bottom = 0.0f;
+
+      for (int level = start_level; level < end_level; ++level) {
+        if (level < timeline_data_.events_by_level.size()) {
+          DrawEventsForLevel(group_index,
+                             timeline_data_.events_by_level[level],
+                             px_per_time_unit_val,
+                             /*level_in_group=*/level - start_level, pos, max,
+                             event_height, padding_bottom);
         }
       }
     }

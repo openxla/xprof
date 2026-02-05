@@ -142,7 +142,8 @@ TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
   // Screen range before adjustments: [10.0, 20.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 10.0f);
   EXPECT_FLOAT_EQ(rect.right, 20.0f - kEventPaddingRight);
@@ -158,7 +159,8 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedLeft) {
   // Screen range after left clipping: [0.0, 10.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/90.0, /*end=*/110.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 0.0f);
   EXPECT_FLOAT_EQ(rect.right, 10.0f - kEventPaddingRight);
@@ -172,7 +174,8 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedRight) {
   // Screen range after right clipping: [90.0, 100.0].
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/190.0, /*end=*/210.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 90.0f);
   EXPECT_FLOAT_EQ(rect.right, 100.0f);
@@ -188,7 +191,8 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   // won't effect here because the event is clipped to the left edge).
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/80.0, /*end=*/90.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 0.0f);
   EXPECT_FLOAT_EQ(rect.right, 0.0f);
@@ -204,7 +208,8 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideRight) {
   // right won't effect here because the event is clipped to the right edge).
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/210.0, /*end=*/220.0, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 100.0f);
   EXPECT_FLOAT_EQ(rect.right, 100.0f);
@@ -218,7 +223,8 @@ TEST(TimelineTest, CalculateEventRect_EventSmallerThanMinimumWidth) {
   // Screen width is expanded to kEventMinimumDrawWidth.
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/110.1, kScreenXOffset, kScreenYOffset,
-      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth);
+      kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   EXPECT_FLOAT_EQ(rect.left, 10.0f);
   EXPECT_FLOAT_EQ(rect.right,
@@ -233,7 +239,8 @@ TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
   // kEventMinimumDrawWidth.
   EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
-      /*px_per_time_unit=*/0.0, kLevelInGroup, kTimelineWidth);
+      /*px_per_time_unit=*/0.0, kLevelInGroup, kTimelineWidth, kEventHeight,
+      kEventPaddingBottom);
 
   // left becomes screen_x_offset (0), right becomes max(0, 0 +
   // kEventMinimumDrawWidth)
@@ -2862,7 +2869,8 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   data.groups.push_back({.type = Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
-                         .nesting_level = 0});
+                         .nesting_level = 0,
+                         .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -2901,7 +2909,8 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   data.groups.push_back({.type = Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
-                         .nesting_level = 0});
+                         .nesting_level = 0,
+                         .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -3011,7 +3020,8 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   data.groups.push_back({.type = Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
-                         .nesting_level = 0});
+                         .nesting_level = 0,
+                         .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -3080,7 +3090,8 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   data.groups.push_back({.type = Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 1,
-                         .nesting_level = 0});
+                         .nesting_level = 0,
+                         .expanded = true});
   CounterData counter_data;
   // We need at least 2 timestamps for the counter track to be drawn.
   counter_data.timestamps = {20.0, 30.0};

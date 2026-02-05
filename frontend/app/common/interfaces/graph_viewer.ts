@@ -10,6 +10,10 @@ export declare interface GraphViewerQueryParams {
   symbol_id?: string;
   symbol_type?: string;
   show_me_graph?: boolean;
+  session_path?: string;
+  run_path?: string;
+  tag?: string;
+  host?: string;
 }
 
 /** The interface for graph type object for selection */

@@ -49,7 +49,8 @@ class MockTimeline : public Timeline {
 TEST(TimelineTest, set_timeline_data) {
   Timeline timeline;
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1", .start_level = 0});
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
@@ -531,8 +532,10 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 TEST(TimelineTest, NavigateToEvent) {
   Timeline timeline;
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event0");
   data.entry_names.push_back("event1");
@@ -568,7 +571,10 @@ TEST(TimelineTest, NavigateToEventClampedMin) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -600,7 +606,10 @@ TEST(TimelineTest, NavigateToEventClampedMax) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -1121,7 +1130,10 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {},
          {},
-         {{.name = "group", .start_level = 0, .nesting_level = 0}},
+         {{.name = "group",
+           .start_level = 0,
+           .nesting_level = 0,
+           .expanded = true}},
          {},
          {}});
   }
@@ -1496,7 +1508,10 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1523,7 +1538,10 @@ TEST_F(MockTimelineImGuiFixture,
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1835,7 +1853,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1878,7 +1899,10 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1909,7 +1933,10 @@ TEST_F(RealTimelineImGuiFixture,
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1950,7 +1977,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -1964,9 +1994,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   // First, select an event.
   ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f,
                                    kFirstEventY);  // A position over the event.
-  ImGui::GetIO().MouseDown[0] = true;
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
   SimulateFrame();
-  ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
+  ImGui::GetIO().AddMouseButtonEvent(0, false);  // Release the mouse.
   SimulateFrame();
 
   bool deselection_callback_called = false;
@@ -1996,7 +2026,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -2010,9 +2043,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   // First, select an event.
   ImGui::GetIO().MousePos = ImVec2(kTimelineStartX + 50.0f,
                                    kFirstEventY);  // A position over the event.
-  ImGui::GetIO().MouseDown[0] = true;
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
   SimulateFrame();
-  ImGui::GetIO().MouseDown[0] = false;  // Release the mouse.
+  ImGui::GetIO().AddMouseButtonEvent(0, false);  // Release the mouse.
   SimulateFrame();
 
   int deselection_callback_count = 0;
@@ -2050,7 +2083,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   FlameChartTimelineData data;
 
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -2089,7 +2125,10 @@ TEST_F(RealTimelineImGuiFixture, NavigateOnEmptySearchResults) {
 TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.events_by_level.push_back({1});
   data.entry_names.push_back("event1");
@@ -2130,7 +2169,10 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event1_foo");
   data.entry_names.push_back("event2_bar");
@@ -2165,7 +2207,10 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1_foo");
   data.entry_event_ids.push_back(1);
@@ -2195,7 +2240,10 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
 TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event1_foo");
   data.entry_names.push_back("event2_foo");
@@ -2257,7 +2305,10 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
 TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event1_foo");
   data.entry_names.push_back("event2_foo");
@@ -2312,7 +2363,10 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
 TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event1_foo");
   data.entry_names.push_back("event2_foo");
@@ -2344,7 +2398,10 @@ TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
 TEST_F(RealTimelineImGuiFixture, NavigateToPrevSearchResultWrapping) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("event1_foo");
   data.entry_names.push_back("event2_foo");
@@ -2389,7 +2446,10 @@ TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
 TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -2431,7 +2491,10 @@ TEST_F(RealTimelineImGuiFixture,
        ShiftClickMultipleEventsSelectsMultipleRanges) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});  // event 0 and 1 on level 0
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
@@ -2918,7 +2981,10 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -2998,7 +3064,10 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   FlameChartTimelineData data;
   // Group 0: Flame Events
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -3076,7 +3145,10 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -3109,7 +3181,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
 FlameChartTimelineData GetTestFlowData() {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .nesting_level = 0});
+      {.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names = {"event0", "event1"};
   data.entry_event_ids = {1000, 2000};
@@ -3386,12 +3461,18 @@ using TimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
 
 TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 0", .start_level = 0, .nesting_level = 0});
-  data.groups.push_back(
-      {.name = "Group 1", .start_level = 2, .nesting_level = 0});
-  data.groups.push_back(
-      {.name = "Group 2", .start_level = 3, .nesting_level = 0});
+  data.groups.push_back({.name = "Group 0",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 2,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.name = "Group 2",
+                         .start_level = 3,
+                         .nesting_level = 0,
+                         .expanded = true});
   // Level 0, 1 in Group 0
   // Level 2 in Group 1
   // Level 3, 4, 5 in Group 2
@@ -3476,7 +3557,8 @@ TEST(TimelineTest, BezierControlPointCalculation) {
 TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   // Ensure we have some data so tracks are drawn.
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1", .start_level = 0});
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
   timeline_.set_timeline_data(std::move(data));
 
   ImGui::NewFrame();

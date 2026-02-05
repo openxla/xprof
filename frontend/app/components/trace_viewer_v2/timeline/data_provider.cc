@@ -319,7 +319,8 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
                          const TraceInformation& trace_info, int& current_level,
                          FlameChartTimelineData& data, TimeBounds& bounds,
                          absl::btree_map<std::pair<ProcessId, ThreadId>,
-                                         ThreadLevelInfo>& thread_levels) {
+                                         ThreadLevelInfo>& thread_levels,
+                         bool expand_group) {
   const auto it = trace_info.thread_names.find({pid, tid});
   const std::string thread_group_name = it == trace_info.thread_names.end()
                                             ? GetDefaultThreadName(tid)
@@ -327,7 +328,8 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
 
   data.groups.push_back({.name = thread_group_name,
                          .start_level = current_level,
-                         .nesting_level = kThreadNestingLevel});
+                         .nesting_level = kThreadNestingLevel,
+                         .expanded = expand_group});
 
   int start_level = current_level;
 
@@ -345,12 +347,13 @@ void PopulateCounterTrack(ProcessId pid, const std::string& name,
                           absl::Span<const CounterEvent* const> events,
                           const TraceInformation& trace_info,
                           int& current_level, FlameChartTimelineData& data,
-                          TimeBounds& bounds) {
+                          TimeBounds& bounds, bool expand_group) {
   Group group;
   group.type = Group::Type::kCounter;
   group.name = name;
   group.nesting_level = kThreadNestingLevel;
   group.start_level = current_level;
+  group.expanded = expand_group;
 
   size_t total_entries = 0;
   // The number of counter events per counter track won't be too large, so
@@ -399,7 +402,8 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
                           int& current_level, FlameChartTimelineData& data,
                           TimeBounds& bounds,
                           absl::btree_map<std::pair<ProcessId, ThreadId>,
-                                          ThreadLevelInfo>& thread_levels) {
+                                          ThreadLevelInfo>& thread_levels,
+                          bool expand_group) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
   const bool has_events = it_events != trace_info.events_by_pid_tid.end() &&
                           !it_events->second.empty();
@@ -420,19 +424,20 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
                                              : it->second;
   data.groups.push_back({.name = process_group_name,
                          .start_level = current_level,
-                         .nesting_level = kProcessNestingLevel});
+                         .nesting_level = kProcessNestingLevel,
+                         .expanded = expand_group});
 
   if (has_events) {
     for (const auto& [tid, events] : it_events->second) {
       PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
-                          bounds, thread_levels);
+                          bounds, thread_levels, expand_group);
     }
   }
 
   if (has_counters) {
     for (const auto& [name, events] : it_counters->second) {
       PopulateCounterTrack(pid, name, events, trace_info, current_level, data,
-                           bounds);
+                           bounds, expand_group);
     }
   }
 }
@@ -469,9 +474,11 @@ FlameChartTimelineData CreateTimelineData(
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
       thread_levels;
 
+  bool first_process = true;
   for (const ProcessId pid : GetSortedProcessIds(trace_info)) {
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
-                         thread_levels);
+                         thread_levels, first_process);
+    first_process = false;
   }
 
   data.events_by_level.resize(current_level);

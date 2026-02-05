@@ -74,6 +74,51 @@ absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
   }
   return process_sort_indices;
 }
+
+// Draws an expand/collapse button for a group.
+void DrawExpandCollapseButton(Group& group, int group_index) {
+  // Always show the expand/collapse button.
+  ImGui::PushID(group_index);
+  // Draw a smaller arrow button.
+  const float kArrowSize = ImGui::GetFontSize() * 0.7f;
+  const float kButtonSize = ImGui::GetFrameHeight();
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  // Center the arrow in the button area.
+  float center_y = p.y + kButtonSize * 0.5f;
+  float center_x = p.x + kArrowSize * 0.5f;
+
+  // Invisible button for interaction
+  if (ImGui::InvisibleButton("##expand_collapse",
+                             ImVec2(kArrowSize, kButtonSize))) {
+    group.expanded = !group.expanded;
+  }
+
+  // Draw the arrow
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 arrow_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    arrow_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+  }
+
+  float h = kArrowSize * 0.4f;
+  float w = kArrowSize * 0.2f;
+
+  if (group.expanded) {
+    // Down arrow, like v
+    draw_list->AddLine(ImVec2(center_x - h, center_y - w),
+                       ImVec2(center_x, center_y + w), arrow_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x, center_y + w),
+                       ImVec2(center_x + h, center_y - w), arrow_col, 1.2f);
+  } else {
+    // Right arrow, like >
+    draw_list->AddLine(ImVec2(center_x - w, center_y - h),
+                       ImVec2(center_x + w, center_y), arrow_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x + w, center_y),
+                       ImVec2(center_x - w, center_y + h), arrow_col, 1.2f);
+  }
+  ImGui::PopID();
+}
 }  // namespace
 
 void Timeline::SetSearchQuery(const std::string& query) {
@@ -222,7 +267,8 @@ void Timeline::Draw() {
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
-    const Group& group = timeline_data_.groups[group_index];
+    Group& group = timeline_data_.groups[group_index];
+
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     // Indent the group name. We add 1 to the nesting level because
@@ -231,12 +277,45 @@ void Timeline::Draw() {
     // indentation of `kIndentSize`, ensuring consistent and controlled visual
     // separation from the left edge of the table column.
     ImGui::Indent((group.nesting_level + 1) * kIndentSize);
+
+    const bool has_children =
+        group_index + 1 < timeline_data_.groups.size() &&
+        timeline_data_.groups[group_index + 1].nesting_level >
+            group.nesting_level;
+    const int next_group_start_level =
+        group_index + 1 < timeline_data_.groups.size()
+            ? timeline_data_.groups[group_index + 1].start_level
+            : timeline_data_.events_by_level.size();
+    const bool has_multiple_levels =
+        next_group_start_level - group.start_level > 1;
+
+    const bool expandable = group.type == Group::Type::kFlame &&
+                            (has_children || has_multiple_levels);
+
+    if (expandable) {
+      DrawExpandCollapseButton(group, group_index);
+    } else {
+      const float kArrowSize = ImGui::GetFontSize() * 0.7f;
+      ImGui::Dummy(ImVec2(kArrowSize, ImGui::GetFrameHeight()));
+    }
+
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+    ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(group.name.c_str());
     ImGui::Unindent((group.nesting_level + 1) * kIndentSize);
 
     ImGui::TableNextColumn();
 
     DrawGroup(group_index, px_per_time_unit_val);
+    if (!group.expanded) {
+      int current_nesting_level = group.nesting_level;
+      while (group_index + 1 < timeline_data_.groups.size() &&
+             timeline_data_.groups[group_index + 1].nesting_level >
+                 current_nesting_level) {
+        group_index++;
+      }
+    }
   }
 
   ImGui::EndTable();
@@ -911,6 +990,9 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                       // If this is the last group, the end level is the total
                       // number of levels.
                       : timeline_data_.events_by_level.size();
+  if (group.type == Group::Type::kFlame && !group.expanded) {
+    end_level = start_level;
+  }
   // Ensure end_level is not less than start_level, to avoid negative height.
   end_level = std::max(start_level, end_level);
 
@@ -1491,13 +1573,12 @@ void Timeline::RecomputeSearchResults() {
     if (absl::StrContains(absl::AsciiStrToLower(timeline_data_.entry_names[i]),
                           search_query_lower_)) {
       EventId event_id = timeline_data_.entry_event_ids[i];
-      sorted_search_results_.push_back(
-          {event_id,
-            timeline_data_.entry_levels[i],
-            timeline_data_.entry_start_times[i],
-            timeline_data_.entry_total_times[i],
-            timeline_data_.entry_pids[i],
-            timeline_data_.entry_tids[i]});
+      sorted_search_results_.push_back({event_id,
+                                        timeline_data_.entry_levels[i],
+                                        timeline_data_.entry_start_times[i],
+                                        timeline_data_.entry_total_times[i],
+                                        timeline_data_.entry_pids[i],
+                                        timeline_data_.entry_tids[i]});
     }
   }
   // Sort shallow results by start time, to have some order.
@@ -1531,10 +1612,9 @@ void Timeline::NavigateToNextSearchResult() {
     const Microseconds start = result.start_time;
     const Microseconds event_duration = result.duration;
     const Microseconds end = start + event_duration;
-    const Microseconds duration =
-        std::clamp(event_duration * kEventNavigationZoomFactor,
-                   kEventNavigationMinDurationMicros,
-                   kEventNavigationMaxDurationMicros);
+    const Microseconds duration = std::clamp(
+        event_duration * kEventNavigationZoomFactor,
+        kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
     const Microseconds center = std::midpoint(start, end);
     TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
     ConstrainTimeRange(new_range);
@@ -1562,10 +1642,9 @@ void Timeline::NavigateToPrevSearchResult() {
     const Microseconds start = result.start_time;
     const Microseconds event_duration = result.duration;
     const Microseconds end = start + event_duration;
-    const Microseconds duration =
-        std::clamp(event_duration * kEventNavigationZoomFactor,
-                   kEventNavigationMinDurationMicros,
-                   kEventNavigationMaxDurationMicros);
+    const Microseconds duration = std::clamp(
+        event_duration * kEventNavigationZoomFactor,
+        kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
     const Microseconds center = std::midpoint(start, end);
     TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
     ConstrainTimeRange(new_range);

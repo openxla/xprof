@@ -1,13 +1,8 @@
-load("//javascript/tools/jscompiler/builddefs:flags.bzl", "RECOMMENDED_FLAGS")
-load("//javascript/typescript:build_defs.bzl", "ts_declaration", "ts_development_sources", "ts_library")
-
-# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-# load("//third_party/bazel_rules/rules_wasm/wasm:defs.bzl", "wasm_cc_binary")
-load("//tools/build_defs/js:rules.bzl", "js_binary")
+load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
+load("@npm//@bazel/concatjs:index.bzl", "ts_declaration", "ts_library")
+load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("//tools/build_defs/js/devserver:web_dev_server.bzl", "web_dev_server")
-load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
 package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
@@ -192,29 +187,41 @@ wasm_cc_binary(
 ts_declaration(
     name = "wasm_declared_types",
     srcs = [":trace_viewer_v2_wasm/trace_viewer_v2.d.ts"],
-    deps = ["//third_party/javascript/typings/emscripten"],
+    deps = ["@npm//@types/emscripten"],
 )
 
 ts_library(
     name = "app_bundle_ts",
     srcs = ["main.ts"],
+    visibility = ["//frontend:__subpackages__"],
     deps = [
         ":wasm_declared_types",
-        "//third_party/javascript/webgpu_types",
+        "@npm//@webgpu/types",
     ],
 )
 
 ts_development_sources(
     name = "devsrcs",
-    deps = [":app_bundle_ts"],
+    deps = [
+        ":app_bundle_ts",
+        "@npm//@rollup/plugin-commonjs",
+        "@npm//@rollup/plugin-node-resolve",
+    ],
 )
 
 JS_COMPILER_FLAGS = []
 
-js_binary(
+rollup_bundle(
     name = "app_bundle",
-    defs = JS_COMPILER_FLAGS + RECOMMENDED_FLAGS,
-    deps = [":app_bundle_ts"],
+    config_file = "//:rollup.config.js",
+    entry_point = "main.ts",
+    format = "iife",
+    link_workspace_root = True,
+    deps = [
+        ":app_bundle_ts",
+        "@npm//@rollup/plugin-commonjs",
+        "@npm//@rollup/plugin-node-resolve",
+    ],
 )
 
 filegroup(

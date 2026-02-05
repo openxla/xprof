@@ -307,3 +307,18 @@ http_archive(
     strip_prefix = "perfetto-53.0/bazel/standalone",
     urls = ["https://github.com/google/perfetto/archive/refs/tags/v53.0.tar.gz"],
 )
+
+http_archive(
+    name = "emsdk",
+    sha256 = "2d3292d508b4f5477f490b080b38a34aaefed43e85258a1de72cb8dde3f8f3af",
+    strip_prefix = "emsdk-4.0.6/bazel",
+    url = "https://github.com/emscripten-core/emsdk/archive/4.0.6.tar.gz",
+)
+
+load("@emsdk//:deps.bzl", emsdk_deps = "deps")
+
+emsdk_deps()
+
+load("@emsdk//:emscripten_deps.bzl", emsdk_emscripten_deps = "emscripten_deps")
+
+emsdk_emscripten_deps()

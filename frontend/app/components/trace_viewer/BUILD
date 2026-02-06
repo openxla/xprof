@@ -7,14 +7,11 @@ xprof_ng_module(
     name = "trace_viewer",
     srcs = [
         "trace_viewer.ts",
-        "trace_viewer_container.ts",
         "trace_viewer_module.ts",
     ],
     assets = [
         ":trace_viewer_css",
-        ":trace_viewer_container_css",
         "trace_viewer.ng.html",
-        "trace_viewer_container.ng.html",
     ],
     deps = [
         "@npm//@angular/common",
@@ -38,13 +35,6 @@ xprof_ng_module(
 sass_binary(
     name = "trace_viewer_css",
     src = "trace_viewer.scss",
-    # stack = False,
-    sourcemap = False,
-)
-
-sass_binary(
-    name = "trace_viewer_container_css",
-    src = "trace_viewer_container.scss",
     # stack = False,
     sourcemap = False,
 )

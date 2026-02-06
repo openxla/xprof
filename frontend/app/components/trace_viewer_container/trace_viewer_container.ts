@@ -1,5 +1,9 @@
+import {CommonModule} from '@angular/common';
 import {Component, ElementRef, Input, OnDestroy, OnInit, ViewChild} from '@angular/core';
+import {MatIconModule} from '@angular/material/icon';
+import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {LOADING_STATUS_UPDATE_EVENT_NAME, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
 
@@ -41,10 +45,16 @@ function isLoadingStatusUpdateEvent(
 
 /** A trace viewer container component. */
 @Component({
-  standalone: false,
+  standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],
+  imports: [
+    CommonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    PipesModule,
+  ],
 })
 export class TraceViewerContainer implements OnInit, OnDestroy {
   @Input() traceViewerModule: TraceViewerV2Module|null = null;

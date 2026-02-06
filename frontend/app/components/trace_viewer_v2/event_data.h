@@ -9,7 +9,7 @@
 
 namespace traceviewer {
 
-// A generic dictionary type for event data, using absl::any to hold
+// A generic dictionary type for event data, using std::any to hold
 // heterogeneous value types. This is used to construct event payloads that are
 // later converted to JavaScript objects.
 using EventData = absl::flat_hash_map<std::string, std::any>;
@@ -40,6 +40,12 @@ inline constexpr absl::string_view kFetchDataEnd = "end_time_ms";
 // Constants for search events event.
 inline constexpr absl::string_view kSearchEvents = "search_events";
 inline constexpr absl::string_view kSearchEventsQuery = "events_query";
+
+// Constants for viewport changed event.
+inline constexpr absl::string_view kViewportChanged = "viewport-changed";
+inline constexpr absl::string_view kViewportChangedRange = "range";
+inline constexpr absl::string_view kViewportChangedMin = "min_ms";
+inline constexpr absl::string_view kViewportChangedMax = "max_ms";
 
 }  // namespace traceviewer
 

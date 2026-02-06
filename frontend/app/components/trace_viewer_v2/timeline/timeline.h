@@ -284,6 +284,8 @@ class Timeline {
 
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
+  // Emits viewport changed event to JS side.
+  void EmitViewportChanged(const TimeRange& range);
 
   // Draws the timeline ruler. `viewport_bottom` is the y-coordinate of the
   // bottom of the viewport, used to draw vertical grid lines across the tracks.

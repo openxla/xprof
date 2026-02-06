@@ -1,5 +1,6 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
+#include <any>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -531,6 +532,15 @@ void Timeline::EmitEventSelected(int event_index) {
   event_callback_(kEventSelected, event_data);
 }
 
+void Timeline::EmitViewportChanged(const TimeRange& range) {
+  EventData range_obj;
+  range_obj[std::string(kViewportChangedMin)] = range.start();
+  range_obj[std::string(kViewportChangedMax)] = range.end();
+  EventData detail_obj;
+  detail_obj[std::string(kViewportChangedRange)] = range_obj;
+  event_callback_(kViewportChanged, detail_obj);
+}
+
 void Timeline::NavigateToEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
@@ -586,6 +596,7 @@ void Timeline::Pan(Pixel pixel_amount) {
   // Update the target of the animated visible range. The timeline will animate
   // towards this new time.
   SetVisibleRange(new_range, /*animate=*/true);
+  EmitViewportChanged(new_range);
 }
 
 void Timeline::Scroll(Pixel pixel_amount) {
@@ -628,6 +639,7 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // Update the target of the animated visible range. The timeline will animate
   // towards this new zoom level.
   SetVisibleRange(new_range, /*animate=*/true);
+  EmitViewportChanged(new_range);
 }
 
 double Timeline::px_per_time_unit() const {

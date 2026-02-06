@@ -1,5 +1,11 @@
 /** CSS for category filter component. */
 
+@import 'frontend/app/styles/common';
+
+:host {
+  display: block;
+}
+
 .control {
   width: 120px;
   margin-right: 8px;

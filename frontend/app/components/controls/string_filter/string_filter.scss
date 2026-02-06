@@ -2,6 +2,10 @@
 
 @import 'frontend/app/styles/common';
 
+:host {
+  display: block;
+}
+
 mat-icon {
   color: $button-focus-color;
   vertical-align: bottom;

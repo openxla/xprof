@@ -9,6 +9,7 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '
   standalone: false,
   selector: 'string-filter',
   templateUrl: './string_filter.ng.html',
+  styleUrls: ['./string_filter.scss'],
 })
 export class StringFilter implements OnChanges {
   @Input() dataTable?: google.visualization.DataTable;

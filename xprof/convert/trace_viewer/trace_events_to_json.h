@@ -17,11 +17,9 @@ limitations under the License.
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,22 +27,20 @@ limitations under the License.
 #include <vector>
 
 #include "absl/base/macros.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
 #include "re2/re2.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/platform/protobuf.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
@@ -157,7 +153,7 @@ class JsonEventWriter {
  public:
   JsonEventWriter(const TraceEventsColorerInterface* colorer,
                   const Trace& trace,
-                  const std::map<uint64_t, uint64_t>& references,
+                  const absl::btree_map<uint64_t, uint64_t>& references,
                   IOBuffer* output)
       : colorer_(colorer),
         trace_(trace),
@@ -463,7 +459,7 @@ class JsonEventWriter {
 
   const TraceEventsColorerInterface* colorer_;
   const Trace& trace_;
-  const std::map<uint64_t, uint64_t>& references_;
+  const absl::btree_map<uint64_t, uint64_t>& references_;
   IOBuffer* output_;
   mutable JsonEventCounter counter_;
   std::pair<uint32_t, std::string> last_counter_event_key_ = {0, ""};
@@ -475,7 +471,7 @@ void WriteTasks(const Trace& trace, IOBuffer* output) {
   if (tasks.empty()) return;
   output->Append(R"("tasks":[)");
   JsonSeparator<IOBuffer> task_separator(output);
-  std::map<uint32_t, Task> ordered_tasks(tasks.begin(), tasks.end());
+  absl::btree_map<uint32_t, Task> ordered_tasks(tasks.begin(), tasks.end());
   for (const auto& entry : ordered_tasks) {
     const uint32_t host_id = entry.first;
     const auto& task = entry.second;
@@ -534,7 +530,7 @@ void WriteTasks(const Trace& trace, IOBuffer* output) {
 
 template <typename IOBuffer>
 void WriteStackFrames(const Trace& trace,
-                      const std::map<uint64_t, uint64_t>& references,
+                      const absl::btree_map<uint64_t, uint64_t>& references,
                       IOBuffer* output) {
   const auto& name_table = trace.name_table();
   output->Append(R"("stackFrames":{)");
@@ -563,7 +559,8 @@ void WriteDetails(const JsonTraceOptions::Details& details, IOBuffer* output) {
   output->Append("],");
 }
 
-std::map<uint64_t, uint64_t> BuildStackFrameReferences(const Trace& trace);
+absl::btree_map<uint64_t, uint64_t> BuildStackFrameReferences(
+    const Trace& trace);
 
 template <typename IOBuffer>
 void WriteReturnedEventsSize(const int events_size, IOBuffer* output) {
@@ -642,8 +639,8 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   output->Append(R"("traceEvents":[)");
   JsonSeparator<IOBuffer> separator(output);
   // Write metadata events.
-  std::map<uint32_t, Device> ordered_devices(trace.devices().begin(),
-                                             trace.devices().end());
+  absl::btree_map<uint32_t, Device> ordered_devices(trace.devices().begin(),
+                                                    trace.devices().end());
   for (const auto& [device_id, device] : ordered_devices) {
     if (device.has_name()) {
       separator.Add();
@@ -661,8 +658,8 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     output->Append(R"({"args":{"sort_index":)", sort_index,
                    R"(},"name":"process_sort_index","ph":"M","pid":)",
                    device_id, "}");
-    std::map<uint64_t, Resource> ordered_resources(device.resources().begin(),
-                                                   device.resources().end());
+    absl::btree_map<uint64_t, Resource> ordered_resources(
+        device.resources().begin(), device.resources().end());
     for (const auto& [resource_id, resource] : ordered_resources) {
       if (resource.has_name()) {
         separator.Add();

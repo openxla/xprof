@@ -66,6 +66,7 @@ cc_library(
         ":trace_events_util",
         ":trace_viewer_color",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -79,9 +80,24 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@tsl//tsl/platform:protobuf",
         "@tsl//tsl/profiler/lib:context_types",
-        "@tsl//tsl/profiler/lib:context_types_hdrs",
         "@xla//xla/tsl/profiler/utils:timespan",
-        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_test(
+    name = "trace_events_to_json_test",
+    srcs = ["trace_events_to_json_test.cc"],
+    deps = [
+        ":trace_events_to_json",
+        ":trace_viewer_color",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
     ],
 )
 

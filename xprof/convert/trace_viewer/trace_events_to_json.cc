@@ -16,11 +16,11 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
 
+#include "absl/container/btree_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -108,9 +108,10 @@ std::string ProtoString(const tsl::protobuf::Message& pb) {
   return JsonEscape(pb.DebugString());
 }
 
-std::map<uint64_t, uint64_t> BuildStackFrameReferences(const Trace& trace) {
+absl::btree_map<uint64_t, uint64_t> BuildStackFrameReferences(
+    const Trace& trace) {
   const auto& name_table = trace.name_table();
-  std::map<uint64_t, uint64_t> output;
+  absl::btree_map<uint64_t, uint64_t> output;
   for (const auto& [fp, name] : name_table) {
     if (!absl::StartsWith(name, "@@")) continue;
     output[fp] = 0;

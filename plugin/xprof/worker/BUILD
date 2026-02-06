@@ -13,6 +13,7 @@ cc_library(
     deps = [
         ":grpc_utils",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -20,6 +21,7 @@ cc_library(
         "@org_xprof//xprof/convert:profile_processor_factory",
         "@org_xprof//xprof/convert:tool_options",
         "@tsl//tsl/platform:platform_port",
+        "@xla//xla/pjrt:semaphore",
     ],
 )
 

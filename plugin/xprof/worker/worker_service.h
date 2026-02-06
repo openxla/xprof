@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "grpcpp/server_context.h"
 #include "grpcpp/support/status.h"
+#include "xla/pjrt/semaphore.h"
 #include "plugin/xprof/protobuf/worker_service.grpc.pb.h"
 
 namespace xprof {
@@ -26,10 +27,16 @@ namespace profiler {
 class ProfileWorkerServiceImpl final
     : public ::xprof::pywrap::grpc::XprofAnalysisWorkerService::Service {
  public:
+  explicit ProfileWorkerServiceImpl(int max_concurrent_requests)
+      : semaphore_(max_concurrent_requests) {}
+
   ::grpc::Status GetProfileData(
       ::grpc::ServerContext* context,
       const ::xprof::pywrap::WorkerProfileDataRequest* request,
       ::xprof::pywrap::WorkerProfileDataResponse* response) override;
+
+ private:
+  xla::Semaphore semaphore_;
 };
 }  // namespace profiler
 }  // namespace xprof

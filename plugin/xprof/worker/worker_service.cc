@@ -18,6 +18,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 
+#include "absl/cleanup/cleanup.h"
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_join.h"
@@ -41,6 +42,19 @@ namespace profiler {
             << absl::StrJoin(origin_request.parameters(), ",",
                              absl::PairFormatter("="))
             << "}";
+
+  if (!semaphore_.TryAcquire(1)) {
+    LOG(INFO) << "GetProfileData tool:" << origin_request.tool_name()
+              << " session:" << origin_request.session_id()
+              << " is waiting in queue as max concurrent "
+              << "requests limit reached.";
+    semaphore_.Acquire(1);
+  }
+  LOG(INFO) << "GetProfileData tool:" << origin_request.tool_name()
+            << " session:" << origin_request.session_id()
+            << " acquired the semaphore and is starting processing.";
+  auto cleanup = absl::MakeCleanup([this]() { semaphore_.Release(1); });
+
   tensorflow::profiler::ToolOptions tool_options;
   for (const auto& [key, value] : origin_request.parameters()) {
     tool_options[key] = value;

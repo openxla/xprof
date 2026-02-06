@@ -63,6 +63,7 @@ class ServerConfig:
   worker_service_address: str
   hide_capture_profile_button: bool
   src_prefix: Optional[str]
+  max_concurrent_worker_requests: int
 
 
 def make_wsgi_app(plugin):
@@ -154,7 +155,9 @@ def _launch_server(
     config: The ServerConfig object containing all server settings.
   """
   _pywrap_profiler_plugin.initialize_stubs(config.worker_service_address)
-  _pywrap_profiler_plugin.start_grpc_server(config.grpc_port)
+  _pywrap_profiler_plugin.start_grpc_server(
+      config.grpc_port, config.max_concurrent_worker_requests
+  )
 
   context = TBContext(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)
@@ -276,6 +279,13 @@ def _create_argument_parser() -> argparse.ArgumentParser:
       default=None,
       help="The path prefix for the source code being profiled.",
   )
+
+  parser.add_argument(
+      "--max_concurrent_worker_requests",
+      type=int,
+      default=1,
+      help="The maximum number of concurrent requests the worker can process.",
+  )
   return parser
 
 
@@ -312,6 +322,7 @@ def main() -> int:
       worker_service_address=worker_service_address,
       hide_capture_profile_button=args.hide_capture_profile_button,
       src_prefix=args.src_prefix,
+      max_concurrent_worker_requests=args.max_concurrent_worker_requests,
   )
 
   logger.info(

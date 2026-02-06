@@ -29,7 +29,7 @@ namespace xprof {
 namespace pywrap {
 
 // Starts the gRPC server.
-void StartGrpcServer(int port);
+void StartGrpcServer(int port, int max_concurrent_requests);
 
 absl::Status Monitor(const char* service_addr, int duration_ms,
                      int monitoring_level, bool display_timestamp,

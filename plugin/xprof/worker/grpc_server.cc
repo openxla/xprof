@@ -36,7 +36,7 @@ static std::unique_ptr<::grpc::Server> server;
 static std::unique_ptr<::xprof::profiler::ProfileWorkerServiceImpl>
     worker_service;
 
-void InitializeGrpcServer(int port) {
+void InitializeGrpcServer(int port, int max_concurrent_requests) {
   std::string server_address = absl::StrCat(kServerAddressPrefix, port);
   ::grpc::ServerBuilder builder;
   builder.AddListeningPort(server_address, ::grpc::InsecureServerCredentials());
@@ -87,10 +87,12 @@ void InitializeGrpcServer(int port) {
   // Set the maximum message length that the channel can send to unlimited.
   builder.AddChannelArgument(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, -1);
   worker_service =
-      std::make_unique<::xprof::profiler::ProfileWorkerServiceImpl>();
+      std::make_unique<::xprof::profiler::ProfileWorkerServiceImpl>(
+          max_concurrent_requests);
   builder.RegisterService(worker_service.get());
   server = builder.BuildAndStart();
-  LOG(INFO) << "Server listening on " << server_address;
+  LOG(INFO) << "Server listening on " << server_address
+            << " with max_concurrent_requests " << max_concurrent_requests;
 }
 
 }  // namespace profiler

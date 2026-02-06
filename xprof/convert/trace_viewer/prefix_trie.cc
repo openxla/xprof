@@ -52,7 +52,6 @@ void IterateTrieAndSaveToLevelDbTable(PrefixTrieNode* node,
 
 absl::Status PrefixTrie::SaveAsLevelDbTable(
     tsl::WritableFile* file) {
-  absl::Time start_time = absl::Now();
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
   options.compression = tsl::table::kSnappyCompression;
@@ -61,9 +60,9 @@ absl::Status PrefixTrie::SaveAsLevelDbTable(
   TF_RETURN_IF_ERROR(builder.Finish());
   absl::string_view filename;
   TF_RETURN_IF_ERROR(file->Name(&filename));
-  LOG(INFO) << "Prefix trie saved to file: " << filename << " took "
-            << absl::Now() - start_time;
-  return file->Close();
+  TF_RETURN_WITH_CONTEXT_IF_ERROR(
+      file->Close(), "Failed to save prefix trie to file: ", filename);
+  return absl::OkStatus();
 }
 
 absl::StatusOr<std::vector<PrefixSearchResult>> LoadTrieAsLevelDbTableAndSearch(

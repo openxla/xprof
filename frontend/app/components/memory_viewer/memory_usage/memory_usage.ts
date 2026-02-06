@@ -48,7 +48,7 @@ export class MemoryUsage {
   constructor(
       preprocess: MemoryViewerPreprocessResult|null, memorySpaceColor: number,
       currentRun: string|null, currentHost: string|null,
-      currentModule: string|null) {
+      currentModule: string|null, sessionPath?: string, runPath?: string) {
     this.nColor = 0;
 
     this.totalBufferAllocationBytes = 0;
@@ -87,7 +87,8 @@ export class MemoryUsage {
     if (preprocess) {
       // Initialize memory viewer from preprocessed data.
       this.initMemoryUsageFromPrecomputed(
-          preprocess, currentRun, currentHost, currentModule);
+          preprocess, currentRun, currentHost, currentModule, sessionPath,
+          runPath);
     }
   }
 
@@ -96,15 +97,29 @@ export class MemoryUsage {
    */
   private initMemoryUsageFromPrecomputed(
       preprocess: MemoryViewerPreprocessResult, currentRun: string|null,
-      currentHost: string|null, currentModule: string|null) {
+      currentHost: string|null, currentModule: string|null,
+      sessionPath?: string, runPath?: string) {
     // Copy the fields from preprocessed result.
     this.timelineUrl = preprocess.allocationTimeline || '';
     if (!this.timelineUrl.startsWith('/memory_viewer.json')) {
       // redirecting memory allocation timeline to this url on TensorBoard
+
+      const params = new URLSearchParams();
+      params.set('run', currentRun || '');
+      params.set('tag', 'memory_viewer');
+      params.set('module_name', currentModule || '');
+      params.set('view_memory_allocation_timeline', 'true');
+
+      if (sessionPath) {
+        params.set('session_path', sessionPath);
+      }
+      if (runPath) {
+        params.set('run_path', runPath);
+      }
+
       this.timelineUrl =
-          `${window.parent.location.origin}/data/plugin/profile/data?run=${
-              currentRun}&tag=memory_viewer&module_name=${
-              currentModule}&view_memory_allocation_timeline=true`;
+          `${window.parent.location.origin}/data/plugin/profile/data?${
+              params.toString()}`;
     }
     this.totalBufferAllocationBytes =
         (preprocess.totalBufferAllocationMib || 0) * 1024 * 1024;

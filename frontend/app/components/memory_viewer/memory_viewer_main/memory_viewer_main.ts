@@ -6,6 +6,7 @@ import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics'
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
+import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
@@ -37,6 +38,8 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   @Input() currentModule = '';
 
   private readonly store: Store<{}> = inject(Store);
+  private readonly dataService: DataServiceV2Interface =
+      inject(DATA_SERVICE_INTERFACE_TOKEN);
   private readonly injector = inject(Injector);
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -190,9 +193,13 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   }
 
   update() {
+    const searchParams = this.dataService.getSearchParams();
+    const sessionPath = searchParams.get('session_path') || undefined;
+    const runPath = searchParams.get('run_path') || undefined;
     this.usage = new MemoryUsage(
         this.memoryViewerPreprocessResult, Number(this.memorySpaceColor),
-        this.currentRun, this.currentHost, this.currentModule);
+        this.currentRun, this.currentHost, this.currentModule, sessionPath,
+        runPath);
     if (this.usage.diagnostics.errors.length > 0) {
       return;
     }

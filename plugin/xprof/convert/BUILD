@@ -12,6 +12,7 @@ package(
 
 py_library(
     name = "all_libs",
+    # strict_deps = False,
     deps = [
         ":raw_to_tool_data",
         ":trace_events_json",
@@ -21,6 +22,7 @@ py_library(
 py_library(
     name = "trace_events_json",
     srcs = ["trace_events_json.py"],
+    # strict_deps = False,
     deps = [
         "@pypi//six",
     ],
@@ -44,6 +46,7 @@ py_test(
 py_library(
     name = "raw_to_tool_data",
     srcs = ["raw_to_tool_data.py"],
+    # strict_deps = False,
     visibility = visibility,
     deps = [
         ":csv_writer",
@@ -65,6 +68,7 @@ py_test(
 py_library(
     name = "csv_writer",
     srcs = ["csv_writer.py"],
+    # strict_deps = False,
 )
 
 py_test(

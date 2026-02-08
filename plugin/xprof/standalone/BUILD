@@ -15,6 +15,7 @@ py_library(
     name = "tensorboard_shim",
     srcs = ["tensorboard_shim.py"],
     srcs_version = "PY2AND3",
+    # strict_deps = False,
     deps = [
         ":all_libs",
     ],
@@ -22,6 +23,7 @@ py_library(
 
 py_library(
     name = "all_libs",
+    # strict_deps = False,
     deps = [
         ":base_plugin",
         ":context",
@@ -35,6 +37,7 @@ py_library(
     name = "base_plugin",
     srcs = ["base_plugin.py"],
     srcs_version = "PY2AND3",
+    # strict_deps = False,
     deps = [":plugin_event_multiplexer"],
 )
 
@@ -42,6 +45,7 @@ py_library(
     name = "plugin_event_multiplexer",
     srcs = ["plugin_event_multiplexer.py"],
     srcs_version = "PY2AND3",
+    # strict_deps = False,
     deps = [
         ":plugin_asset_util",
         "@pypi//etils",
@@ -52,6 +56,7 @@ py_library(
     name = "data_provider",
     srcs = ["data_provider.py"],
     srcs_version = "PY2AND3",
+    # strict_deps = False,
 )
 
 py_library(
@@ -64,6 +69,7 @@ py_library(
     name = "context",
     srcs = ["context.py"],
     srcs_version = "PY2AND3",
+    # strict_deps = False,
     deps = [],
 )
 

@@ -76,6 +76,7 @@ py_library(
 py_test(
     name = "plugin_asset_util_test",
     srcs = ["plugin_asset_util_test.py"],
+    # strict_deps = False,
     deps = [
         ":plugin_asset_util",
         "@pytest//pytest",

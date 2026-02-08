@@ -33,6 +33,7 @@ py_test(
     size = "small",
     srcs = ["trace_events_json_test.py"],
     main = "trace_events_json_test.py",
+    # strict_deps = False,
     deps = [
         ":trace_events_json",
         "//:expect_tensorflow_installed",
@@ -59,6 +60,7 @@ py_library(
 py_test(
     name = "raw_to_tool_data_test",
     srcs = ["raw_to_tool_data_test.py"],
+    # strict_deps = False,
     deps = [
         ":raw_to_tool_data",
         "//:expect_tensorflow_installed",
@@ -74,5 +76,6 @@ py_library(
 py_test(
     name = "csv_writer_test",
     srcs = ["csv_writer_test.py"],
+    # strict_deps = False,
     deps = [":csv_writer"],
 )

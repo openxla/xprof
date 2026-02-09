@@ -31,6 +31,9 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
@@ -302,8 +305,8 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   return duty_cycle_tracker;
 }
 
-OpStats ConvertXSpaceToOpStats(const XSpace& space,
-                               const OpStatsOptions& options) {
+absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
+                                               const OpStatsOptions& options) {
   OpStats op_stats;
   StepEvents step_events;
   PropagateXSpaceDiagnosticsToOpStats(space, &op_stats);
@@ -348,6 +351,8 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
   {
+    LOG(INFO) << "ConvertXSpaceToOpStats: creating op_stats_threads "
+                 "XprofThreadPoolExecutor";
     auto executor =
         std::make_unique<XprofThreadPoolExecutor>("op_stats_threads");
 
@@ -356,12 +361,15 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
 
     // Ensure op_metrics threads are joined and results combined when the
     // function exits.
-    auto op_metrics_cleanup =
-        absl::MakeCleanup([&all_op_metrics_dbs, &op_metrics_db_combiner]() {
-          for (auto& op_metrics_db : all_op_metrics_dbs) {
-            op_metrics_db_combiner.Combine(op_metrics_db);
-          }
-        });
+    auto op_metrics_cleanup = absl::MakeCleanup([&all_op_metrics_dbs,
+                                                 &op_metrics_db_combiner]() {
+      LOG(INFO) << "ConvertXSpaceToOpStats: Combining "
+                << all_op_metrics_dbs.size() << " op_metrics_dbs.";
+      for (auto& op_metrics_db : all_op_metrics_dbs) {
+        op_metrics_db_combiner.Combine(op_metrics_db);
+      }
+      LOG(INFO) << "ConvertXSpaceToOpStats: Finished combining op_metrics_dbs.";
+    });
 
     if (options.generate_op_metrics_db) {
       all_op_metrics_dbs.resize(device_planes.size());  // Resize here
@@ -399,6 +407,8 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
         });
       }
     }
+    LOG(INFO) << "ConvertXSpaceToOpStats: Scheduled " << device_planes.size()
+              << " OpMetricsDb generation tasks.";
 
     // StepDb Generation.
     std::vector<StepEvents> all_step_events;
@@ -621,6 +631,15 @@ OpStats ConvertXSpaceToOpStats(const XSpace& space,
   HloProtoMap hlo_proto_map;
   hlo_proto_map.AddHloProtosFromXSpace(space);
   SetProgramIdToNameMap(hlo_proto_map, op_stats);
+
+  size_t final_size = op_stats.ByteSizeLong();
+  LOG(INFO) << "ConvertXSpaceToOpStats: Final OpStats size: " << final_size
+            << " bytes (" << (final_size / 1024.0 / 1024.0) << " MiB).";
+  if (final_size > 2147483647) {
+    return absl::DataLossError(absl::StrCat(
+        "ConvertXSpaceToOpStats: OpStats size ", final_size,
+        " bytes exceeds 2GB protobuf limit and cannot be serialized."));
+  }
 
   return op_stats;
 }

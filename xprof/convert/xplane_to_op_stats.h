@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <vector>
 
+#include "absl/status/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
@@ -34,8 +35,8 @@ struct OpStatsOptions {
 };
 
 // NOTE: call GroupTfEvents before if OpStats.step_db needs to be generated.
-OpStats ConvertXSpaceToOpStats(const XSpace& space,
-                               const OpStatsOptions& options);
+absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
+                                               const OpStatsOptions& options);
 
 // Populates the program_id_to_name map in OpStats.
 void SetProgramIdToNameMap(const HloProtoMap& hlo_proto_map,

@@ -20,6 +20,8 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "xla/tsl/platform/errors.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/compute_inference_latency.h"
@@ -43,39 +45,69 @@ using tensorflow::profiler::SessionSnapshot;
 absl::Status OverviewPageProcessor::ProcessCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
+  absl::Time start_time = absl::Now();
+  LOG(INFO) << "OverviewPageProcessor::ProcessCombinedOpStats: Starting "
+               "ConvertOpStatsToOverviewPage";
   OverviewPage overview_page = ConvertOpStatsToOverviewPage(combined_op_stats);
 
   if (!combined_op_stats.run_environment().is_training()) {
+    LOG(INFO)
+        << "OverviewPageProcessor::ProcessCombinedOpStats: Starting to convert "
+           "InferenceStats";
     InferenceStats inference_stats;
     TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(
         session_snapshot, "", "", &inference_stats));
+    LOG(INFO)
+        << "OverviewPageProcessor::ProcessCombinedOpStats: Starting to compute "
+           "InferenceLatency";
     *overview_page.mutable_inference_latency() =
         tensorflow::profiler::ComputeInferenceLatencyResult(inference_stats);
   }
 
+  LOG(INFO)
+      << "OverviewPageProcessor::ProcessCombinedOpStats: Starting to convert "
+         "OverviewPageToJson";
   std::string overview_page_json = OverviewPageToJson(overview_page);
+  LOG(INFO) << "OverviewPageProcessor::ProcessCombinedOpStats: Starting to set "
+               "output";
   SetOutput(overview_page_json, "application/json");
+  LOG(INFO)
+      << "OverviewPageProcessor::ProcessCombinedOpStats: Overall Finished in "
+      << absl::Now() - start_time;
   return absl::OkStatus();
 }
 
 absl::Status OverviewPageProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) {
-  LOG(INFO) << "OverviewPageProcessor::ProcessSession";
+  absl::Time start_time = absl::Now();
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Started";
   OpStats combined_op_stats;
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Starting "
+               "ConvertMultiXSpaceToCombinedOpStatsWithCache";
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Starting "
+               "ConvertOpStatsToOverviewPage";
   OverviewPage overview_page = ConvertOpStatsToOverviewPage(combined_op_stats);
   if (!combined_op_stats.run_environment().is_training()) {
+    LOG(INFO) << "OverviewPageProcessor::ProcessSession: Not a training run, "
+                 "Starting to convert inference stats.";
     InferenceStats inference_stats;
     TF_RETURN_IF_ERROR(ConvertMultiXSpaceToInferenceStats(
         session_snapshot, "", "", &inference_stats));
+    LOG(INFO) << "OverviewPageProcessor::ProcessSession: Starting to compute "
+                 "InferenceLatency";
     *overview_page.mutable_inference_latency() =
         tensorflow::profiler::ComputeInferenceLatencyResult(inference_stats);
   }
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Starting to serialize "
+               "OverviewPage toJson";
   std::string overview_page_json = OverviewPageToJson(overview_page);
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Starting to set Output";
   SetOutput(overview_page_json, "application/json");
+  LOG(INFO) << "OverviewPageProcessor::ProcessSession: Overall Finished in "
+            << absl::Now() - start_time;
   return absl::OkStatus();
 }
-
 }  // namespace xprof

@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <vector>
 
+#include "testing/base/public/benchmark.h"
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
@@ -59,15 +60,16 @@ PerCoreStepInfo CreateOneTestStep(uint32_t host_id, uint32_t num_steps,
   return result;
 }
 
-PerHostStepDb CreateTestSteps(uint32_t num_hosts, uint64_t shift_ps) {
+PerHostStepDb CreateTestSteps(uint32_t num_hosts, uint32_t num_steps_per_host,
+                              uint64_t shift_ps) {
   PerHostStepDb result;
   uint64_t first_step_begin_ps = 0;
   for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
     StepDatabaseResult step_db;
     uint64_t step_begin_ps = first_step_begin_ps;
-    for (uint32_t step_idx = 0; step_idx < kNumStepsPerHost; step_idx++) {
-      *step_db.add_step_sequence() =
-          CreateOneTestStep(host_id, kNumStepsPerHost, step_idx, step_begin_ps);
+    for (uint32_t step_idx = 0; step_idx < num_steps_per_host; step_idx++) {
+      *step_db.add_step_sequence() = CreateOneTestStep(
+          host_id, num_steps_per_host, step_idx, step_begin_ps);
       step_begin_ps += (kStepDurationPs + kStepGapPs);
     }
     result[host_id] = step_db;
@@ -146,7 +148,8 @@ TEST(StepIntersectionTest, EachHostShiftedBy1StepDuration) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = kStepDurationPs;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -165,7 +168,8 @@ TEST(StepIntersectionTest, ExactlyNoShift) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = 0;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -186,7 +190,8 @@ TEST(StepIntersectionTest, EachHostShiftedByJustABit) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = 100;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -207,7 +212,8 @@ TEST(StepIntersectionTest, SingleHost) {
   uint32_t num_hosts = 1;
   uint64_t shift_ps = 0;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -229,7 +235,8 @@ TEST(StepIntersectionTest, WithMaxSteps) {
   uint64_t shift_ps = 0;
   uint32_t max_steps = 3;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(max_steps, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), kNumStepsPerHost - max_steps);
@@ -255,6 +262,20 @@ TEST(StepIntersectionTest, EmptyIntersection) {
   EXPECT_EQ(intersection.NumSteps(), 0);
   EXPECT_TRUE(intersection.EmptyIntersect());
 }
+
+void BM_StepIntersection(benchmark::State& state) {
+  constexpr uint32_t kNumHosts = 16;
+  constexpr uint64_t kShiftPs = 100;
+  constexpr uint32_t kNumStepsForBenchmark = 100;
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(kNumHosts, kNumStepsForBenchmark, kShiftPs);
+  absl::flat_hash_map<uint32_t, const StepDatabaseResult*>
+      perhost_stepdb_ptr = Convert(perhost_stepdb);
+  for (auto s : state) {
+    StepIntersection intersection(kNumStepsForBenchmark, perhost_stepdb_ptr);
+  }
+}
+BENCHMARK(BM_StepIntersection);
 
 }  // namespace
 }  // namespace profiler

@@ -215,9 +215,18 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
           ev.args[key] = args_val[key].as<std::string>();
         } else if (args_val[key].isNumber()) {
           ev.args[key] = std::to_string(args_val[key].as<double>());
+        } else if (!args_val[key].isNull() && !args_val[key].isUndefined() &&
+                   !(args_val[key].isTrue() || args_val[key].isFalse())) {
+          // Stringify specific object/array arguments. "kernel_details" can
+          // contain useful information in a nested JSON structure.
+          if (key == "kernel_details") {
+            ev.args[key] = emscripten::val::global("JSON").call<std::string>(
+                "stringify", args_val[key]);
+          }
         }
-        // Other types such as boolean, nested objects, or arrays are currently
-        // ignored as they are not required for the flame chart in trace viewer.
+        // Other types such as boolean are currently ignored.
+        // Generic nested objects or arrays are ignored to prevent performance
+        // issues from stringifying potentially large structures.
       }
     }
     // We use Fingerprint64 for a stable event ID because absl::HashOf

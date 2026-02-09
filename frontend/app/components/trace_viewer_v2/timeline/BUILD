@@ -100,6 +100,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@com_googlesource_code_re2//:re2",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",

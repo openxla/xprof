@@ -529,6 +529,9 @@ void Timeline::EmitEventSelected(int event_index) {
   if (auto it = args.find("uid"); it != args.end()) {
     event_data.try_emplace(kEventSelectedUid, it->second);
   }
+  if (auto it = args.find(std::string(kHloModule)); it != args.end()) {
+    event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+  }
   event_callback_(kEventSelected, event_data);
 }
 

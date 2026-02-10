@@ -37,7 +37,6 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/xplane_to_tools_data_with_profile_processor.h"
-#include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
@@ -84,10 +83,11 @@ class ToolDataProviderImpl : public ToolDataProvider {
       override {
     absl::MutexLock lock(mutex_);
     if (!event_time_fraction_analyzer_cache_.contains(target_event_name)) {
-      TF_ASSIGN_OR_RETURN(
-          EventTimeFractionAnalyzerResult combined_result,
-          ConvertMultiXSpacesToEventTimeFractionAnalyzerResult(
-              session_snapshot_, target_event_name));
+      EventTimeFractionAnalyzerResult combined_result;
+      ToolOptions options;
+      options["event_name"] = target_event_name;
+      TF_RETURN_IF_ERROR(GetToolDataHelper("event_time_fraction_analyzer",
+                                           &combined_result, options));
       event_time_fraction_analyzer_cache_[target_event_name] =
           std::make_unique<EventTimeFractionAnalyzerResult>(
               std::move(combined_result));
@@ -119,8 +119,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
     absl::MutexLock lock(mutex_);
     if (!memory_profile_cache_) {
       memory_profile_cache_ = std::make_unique<MemoryProfile>();
-      TF_RETURN_IF_ERROR(
-          GetToolDataHelper("memory_profile", memory_profile_cache_.get()));
+      TF_RETURN_IF_ERROR(GetToolDataHelper("memory_profile",
+                                           memory_profile_cache_.get(), {}));
     }
     return memory_profile_cache_.get();
   }
@@ -139,10 +139,18 @@ class ToolDataProviderImpl : public ToolDataProvider {
 
   // Internal helper to fetch data for the given tool.
   absl::Status GetToolDataHelper(absl::string_view tool_name,
-                                 google::protobuf::Message* proto) {
+                                 google::protobuf::Message* proto,
+                                 const ToolOptions& tool_options) {
     TF_ASSIGN_OR_RETURN(std::string proto_json_string,
                         ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                            session_snapshot_, tool_name, ToolOptions()));
+                            session_snapshot_, tool_name, tool_options));
+    if (tool_name == "event_time_fraction_analyzer") {
+      if (!proto->ParseFromString(proto_json_string)) {
+        return tsl::errors::Internal(
+            "Failed to parse event_time_fraction_analyzer result.");
+      }
+      return absl::OkStatus();
+    }
     google::protobuf::util::JsonParseOptions options;
     options.ignore_unknown_fields = true;
     TF_RETURN_IF_ERROR(

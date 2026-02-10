@@ -1,20 +1,57 @@
 <ng-container *ngIf="useTraceViewerV2; else traceViewV1">
-  <div class="error-overlay" *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
-    <mat-icon>error</mat-icon>
-    <div class="error-message">{{'Error, please use the old frontend. ' + (traceViewerV2ErrorMessage ?? '')}}</div>
-  </div>
-  <div class="loading-overlay" *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
-    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-    <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
-    <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
+  <!-- TODO(b/467799543): Use *ngIf for 3p migration, because 3P angular is still in v15 (@if is not supported yet.). -->
+  <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
+    <div class="error-overlay">
+      <mat-icon>error</mat-icon>
+      <div class="error-message">{{'Error, please use the old frontend. ' + (traceViewerV2ErrorMessage ?? '')}}</div>
+    </div>
+  </ng-container>
+  <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
+    <div *ngIf="isInitialLoading" class="loading-overlay">
+      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
+      <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
+    </div>
+  </ng-container>
+  <div class="search-container">
+    <mat-form-field appearance="outline">
+      <input matInput #searchBox placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" />
+    </mat-form-field>
+    <div *ngIf="currentSearchQuery" class="search-result-count">{{searchResultCountText}}</div>
+    <button mat-icon-button aria-label="Previous search result" (click)="prevSearchResult()" [disabled]="!currentSearchQuery">
+      <mat-icon>chevron_left</mat-icon>
+    </button>
+    <button mat-icon-button aria-label="Next search result" (click)="nextSearchResult()" [disabled]="!currentSearchQuery">
+      <mat-icon>chevron_right</mat-icon>
+    </button>
+    <div class="spacer"></div>
+    <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
+      <div class="loading-status">Loading more data...</div>
+      <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>
+    </div>
   </div>
  -->
   <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
  -->
   <div *ngIf="selectedEvent" #drawer class="drawer">
-    <div>Name: {{selectedEvent.name}}</div>
-    <div>Start Time: {{selectedEvent.startUsFormatted}}</div>
-    <div>Duration: {{selectedEvent.durationUsFormatted}}</div>
+    <div class="event-detail-table-container">
+      <table mat-table class="event-detail-table" [dataSource]="selectedEventProperties">
+        <!-- Key Column -->
+        <ng-container matColumnDef="property">
+          <td mat-cell *matCellDef="let element"> {{element.property}} </td>
+        </ng-container>
+
+        <!-- Value Column -->
+        <ng-container matColumnDef="value">
+          <td mat-cell *matCellDef="let element" style="word-break: break-word;"> {{element.value}} </td>
+        </ng-container>
+
+        <tr mat-row *matRowDef="let row; columns: eventDetailColumns;"></tr>
+      </table>
+      <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
+      <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
+      <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
+    </div>
   </div>
 </ng-container>
 <ng-template #traceViewV1>

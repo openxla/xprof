@@ -311,6 +311,14 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
         event->args.count(std::string(kHloOp)) > 0 &&
         event->args.count(std::string(kHloModule)) > 0;
     if (is_xla_ops_thread || is_data_motion_layer || has_hlo_in_args) {
+      if (is_data_motion_layer) {
+        auto it_name = event->args.find("Name");
+        if (it_name != event->args.end()) {
+          cur_args[std::string(kHloOp)] = it_name->second;
+        }
+      } else if (!event->args.count(std::string(kHloOp))) {
+        cur_args[std::string(kHloOp)] = event->name;
+      }
       std::string hlo_module_str = std::string(kHloModuleDefault);
       auto it_hlo_module = event->args.find(std::string(kHloModule));
       if (it_hlo_module != event->args.end()) {

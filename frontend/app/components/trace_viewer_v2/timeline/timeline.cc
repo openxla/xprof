@@ -375,10 +375,14 @@ void Timeline::Draw() {
   ImGui::End();          // Timeline viewer
 }
 
-EventRect Timeline::CalculateEventRect(
-    Microseconds start, Microseconds end, Pixel screen_x_offset,
-    Pixel screen_y_offset, double px_per_time_unit, int level_in_group,
-    Pixel timeline_width, Pixel event_height, Pixel padding_bottom) const {
+EventRect Timeline::CalculateEventRect(Microseconds start, Microseconds end,
+                                       Pixel screen_x_offset,
+                                       Pixel screen_y_offset,
+                                       double px_per_time_unit,
+                                       int level_in_group,
+                                       Pixel timeline_width,
+                                       Pixel event_height,
+                                       Pixel padding_bottom) const {
   const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time_unit);
   Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time_unit);
 
@@ -531,6 +535,9 @@ void Timeline::EmitEventSelected(int event_index) {
   }
   if (auto it = args.find(std::string(kHloModule)); it != args.end()) {
     event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+  }
+  if (auto it = args.find(std::string(kHloOp)); it != args.end()) {
+    event_data.try_emplace(kEventSelectedHloOpName, it->second);
   }
   event_callback_(kEventSelected, event_data);
 }

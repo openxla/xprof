@@ -47,10 +47,10 @@ class TpuCounterUtil {
 };
 
 struct UtilizationMetrics {
-  uint64_t node_id;
+  uint64_t node_id = 0;
   std::string metric;
-  double achieved;
-  double peak;
+  double achieved = 0.0;
+  double peak = 0.0;
   std::string unit;
 
   std::string DebugString() const;
@@ -70,9 +70,9 @@ struct UtilizationCounters {
   // The number of DMA operations (from HBM to VMEM) issued.
   uint64_t num_hbm2vmem_bytes = 0;
 
-  uint64_t host_id;
-  uint64_t device_id;
-  uint64_t correlation_id;
+  uint64_t host_id = 0;
+  uint64_t device_id = 0;
+  uint64_t correlation_id = 0;
   std::vector<UtilizationMetrics> metrics;
 
   std::string DebugString() const;

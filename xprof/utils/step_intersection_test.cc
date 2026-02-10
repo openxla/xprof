@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <vector>
 
+#include "testing/base/public/benchmark.h"
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
@@ -59,15 +60,16 @@ PerCoreStepInfo CreateOneTestStep(uint32_t host_id, uint32_t num_steps,
   return result;
 }
 
-PerHostStepDb CreateTestSteps(uint32_t num_hosts, uint64_t shift_ps) {
+PerHostStepDb CreateTestSteps(uint32_t num_hosts, uint32_t num_steps_per_host,
+                              uint64_t shift_ps) {
   PerHostStepDb result;
   uint64_t first_step_begin_ps = 0;
   for (uint32_t host_id = 0; host_id < num_hosts; host_id++) {
     StepDatabaseResult step_db;
     uint64_t step_begin_ps = first_step_begin_ps;
-    for (uint32_t step_idx = 0; step_idx < kNumStepsPerHost; step_idx++) {
-      *step_db.add_step_sequence() =
-          CreateOneTestStep(host_id, kNumStepsPerHost, step_idx, step_begin_ps);
+    for (uint32_t step_idx = 0; step_idx < num_steps_per_host; step_idx++) {
+      *step_db.add_step_sequence() = CreateOneTestStep(
+          host_id, num_steps_per_host, step_idx, step_begin_ps);
       step_begin_ps += (kStepDurationPs + kStepGapPs);
     }
     result[host_id] = step_db;
@@ -146,7 +148,8 @@ TEST(StepIntersectionTest, EachHostShiftedBy1StepDuration) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = kStepDurationPs;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -165,7 +168,8 @@ TEST(StepIntersectionTest, ExactlyNoShift) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = 0;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -186,7 +190,8 @@ TEST(StepIntersectionTest, EachHostShiftedByJustABit) {
   uint32_t num_hosts = 4;
   uint64_t shift_ps = 100;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -207,7 +212,8 @@ TEST(StepIntersectionTest, SingleHost) {
   uint32_t num_hosts = 1;
   uint64_t shift_ps = 0;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(kNumStepsPerHost, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), 0);
@@ -229,7 +235,8 @@ TEST(StepIntersectionTest, WithMaxSteps) {
   uint64_t shift_ps = 0;
   uint32_t max_steps = 3;
 
-  PerHostStepDb perhost_stepdb = CreateTestSteps(num_hosts, shift_ps);
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(num_hosts, kNumStepsPerHost, shift_ps);
   StepIntersection intersection =
       StepIntersection(max_steps, Convert(perhost_stepdb));
   EXPECT_EQ(intersection.StepsDropped(), kNumStepsPerHost - max_steps);
@@ -255,6 +262,137 @@ TEST(StepIntersectionTest, EmptyIntersection) {
   EXPECT_EQ(intersection.NumSteps(), 0);
   EXPECT_TRUE(intersection.EmptyIntersect());
 }
+
+TEST(StepIntersectionTest, UnequalStepCounts) {
+  PerHostStepDb perhost_stepdb;
+  // Host 0 has 5 steps.
+  uint64_t step_begin_ps = 0;
+  StepDatabaseResult step_db_0;
+  for (uint32_t i = 0; i < 5; ++i) {
+    *step_db_0.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/0, /*num_steps=*/5, i, step_begin_ps);
+    step_begin_ps += kStepDurationPs;
+  }
+  perhost_stepdb[0] = step_db_0;
+
+  // Host 1 has 10 steps, starting at the same time.
+  step_begin_ps = 0;
+  StepDatabaseResult step_db_1;
+  for (uint32_t i = 0; i < 10; ++i) {
+    *step_db_1.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/1, /*num_steps=*/10, i, step_begin_ps);
+    step_begin_ps += kStepDurationPs;
+  }
+  perhost_stepdb[1] = step_db_1;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.StepsDropped(), 0);
+  // Should intersect on the common 5 steps.
+  EXPECT_EQ(intersection.NumSteps(), 5);
+}
+
+TEST(StepIntersectionTest, OneHostEmpty) {
+  PerHostStepDb perhost_stepdb;
+  // Host 0 has 5 steps.
+  uint64_t step_begin_ps = 0;
+  StepDatabaseResult step_db_0;
+  for (uint32_t i = 0; i < 5; ++i) {
+    *step_db_0.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/0, /*num_steps=*/5, i, step_begin_ps);
+    step_begin_ps += kStepDurationPs;
+  }
+  perhost_stepdb[0] = step_db_0;
+
+  // Host 1 has 0 steps.
+  StepDatabaseResult step_db_1;
+  perhost_stepdb[1] = step_db_1;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  // If one host is empty, the resulting intersection has 0 steps.
+  // Consistent with NoStep test, EmptyIntersect() remains false as it's not a
+  // disjoint set but rather a zero-length valid intersection.
+  EXPECT_EQ(intersection.NumSteps(), 0);
+  EXPECT_FALSE(intersection.EmptyIntersect());
+}
+
+TEST(StepIntersectionTest, VaryingStepDurations) {
+  PerHostStepDb perhost_stepdb;
+
+  // Host 0: Steps of duration 2 * kStepDurationPs
+  uint64_t step_begin_ps = 0;
+  StepDatabaseResult step_db_0;
+  for (uint32_t i = 0; i < 5; ++i) {
+    PerCoreStepInfo step =
+        CreateOneTestStep(/*host_id=*/0, /*num_steps=*/5, i, step_begin_ps);
+    // Manually adjust duration for all cores
+    for (auto& core_step : *step.mutable_step_info_per_core()) {
+      core_step.second.set_duration_ps(2 * kStepDurationPs);
+    }
+    *step_db_0.add_step_sequence() = step;
+    step_begin_ps += 2 * kStepDurationPs;
+  }
+  perhost_stepdb[0] = step_db_0;
+
+  // Host 1: Standard duration steps, twice as many to cover the same time range
+  step_begin_ps = 0;
+  StepDatabaseResult step_db_1;
+  for (uint32_t i = 0; i < 10; ++i) {
+    *step_db_1.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/1, /*num_steps=*/10, i, step_begin_ps);
+    step_begin_ps += kStepDurationPs;
+  }
+  perhost_stepdb[1] = step_db_1;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  // Intersection logic might align based on overlap.
+  // With precise alignment, 5 long steps vs 10 short steps covering same span.
+  // The greedy alignment might pick up some overlap.
+  // We expect non-zero intersection if alignment works.
+  EXPECT_GT(intersection.NumSteps(), 0);
+}
+
+TEST(StepIntersectionTest, GapsBetweenSteps) {
+  PerHostStepDb perhost_stepdb;
+
+  // Host 0: 5 steps with gaps
+  uint64_t step_begin_ps = 0;
+  StepDatabaseResult step_db_0;
+  for (uint32_t i = 0; i < 5; ++i) {
+    *step_db_0.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/0, /*num_steps=*/5, i, step_begin_ps);
+    // Add a gap equal to step duration
+    step_begin_ps += 2 * kStepDurationPs;
+  }
+  perhost_stepdb[0] = step_db_0;
+
+  // Host 1: 5 steps with SAME gaps
+  step_begin_ps = 0;
+  StepDatabaseResult step_db_1;
+  for (uint32_t i = 0; i < 5; ++i) {
+    *step_db_1.add_step_sequence() =
+        CreateOneTestStep(/*host_id=*/1, /*num_steps=*/5, i, step_begin_ps);
+    step_begin_ps += 2 * kStepDurationPs;
+  }
+  perhost_stepdb[1] = step_db_1;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.StepsDropped(), 0);
+  EXPECT_EQ(intersection.NumSteps(), 5);
+}
+
+void BM_StepIntersection(benchmark::State& state) {
+  constexpr uint32_t kNumHosts = 16;
+  constexpr uint64_t kShiftPs = 100;
+  constexpr uint32_t kNumStepsForBenchmark = 100;
+  PerHostStepDb perhost_stepdb =
+      CreateTestSteps(kNumHosts, kNumStepsForBenchmark, kShiftPs);
+  absl::flat_hash_map<uint32_t, const StepDatabaseResult*> perhost_stepdb_ptr =
+      Convert(perhost_stepdb);
+  for (auto s : state) {
+    StepIntersection intersection(kNumStepsForBenchmark, perhost_stepdb_ptr);
+  }
+}
+BENCHMARK(BM_StepIntersection);
 
 }  // namespace
 }  // namespace profiler

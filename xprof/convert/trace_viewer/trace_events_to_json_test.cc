@@ -18,11 +18,14 @@ limitations under the License.
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "google/protobuf/map.h"
 #include "xprof/convert/trace_viewer/trace_viewer_color.h"
@@ -638,11 +641,168 @@ TYPED_TEST_SUITE(JsonEventCounterDeathTest, IOBufferTypes);
 
 // Only checking that it runs without crashing, verifying log output is harder
 // in unit tests without capturing stderr.
+
 TYPED_TEST(JsonEventCounterDeathTest, DestructorLogs) {
   {
     JsonEventCounter counter;
     counter.Inc(JsonEventCounter::kCompleteEvent);
   }
+}
+
+TEST(BuildMpmdDependencyGraphTest, NoDependencies) {
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {{"program1", 0}};
+  device_program_min_layer[2] = {{"program2", 0}};
+
+  const internal::MpmdDependencyGraph graph =
+      internal::BuildMpmdDependencyGraph(device_program_min_layer);
+
+  EXPECT_TRUE(graph.adj.empty());
+  EXPECT_EQ(graph.in_degree.size(), 2);
+  EXPECT_EQ(graph.in_degree.at(1), 0);
+  EXPECT_EQ(graph.in_degree.at(2), 0);
+}
+
+TEST(BuildMpmdDependencyGraphTest, SimpleLinearDependencies) {
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {{"program1", 0}};
+  device_program_min_layer[2] = {{"program1", 1}};
+  device_program_min_layer[3] = {{"program1", 2}};
+
+  const internal::MpmdDependencyGraph graph =
+      internal::BuildMpmdDependencyGraph(device_program_min_layer);
+
+  EXPECT_EQ(graph.adj.size(), 2);
+  EXPECT_THAT(graph.adj.at(1), testing::ElementsAre(2));
+  EXPECT_THAT(graph.adj.at(2), testing::ElementsAre(3));
+  EXPECT_EQ(graph.in_degree.size(), 3);
+  EXPECT_EQ(graph.in_degree.at(1), 0);
+  EXPECT_EQ(graph.in_degree.at(2), 1);
+  EXPECT_EQ(graph.in_degree.at(3), 1);
+}
+
+TEST(BuildMpmdDependencyGraphTest, MultipleDependencies) {
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {{"program1", 0}};
+  device_program_min_layer[2] = {{"program1", 1}};
+  device_program_min_layer[3] = {{"program1", 1}};
+  device_program_min_layer[4] = {{"program1", 2}};
+
+  const internal::MpmdDependencyGraph graph =
+      internal::BuildMpmdDependencyGraph(device_program_min_layer);
+
+  EXPECT_EQ(graph.adj.size(), 3);
+  EXPECT_THAT(graph.adj.at(1), testing::ElementsAre(2, 3));
+  EXPECT_THAT(graph.adj.at(2), testing::ElementsAre(4));
+  EXPECT_THAT(graph.adj.at(3), testing::ElementsAre(4));
+  EXPECT_EQ(graph.in_degree.size(), 4);
+  EXPECT_EQ(graph.in_degree.at(1), 0);
+  EXPECT_EQ(graph.in_degree.at(2), 1);
+  EXPECT_EQ(graph.in_degree.at(3), 1);
+  EXPECT_EQ(graph.in_degree.at(4), 2);
+}
+
+TEST(PerformMpmdTopologicalSortTest, NoDependencies) {
+  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
+  absl::btree_map<uint32_t, int> in_degree;
+  in_degree[1] = 0;
+  in_degree[2] = 0;
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {};
+  device_program_min_layer[2] = {};
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+
+  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
+                                       device_program_min_layer,
+                                       device_to_sort_index);
+
+  EXPECT_EQ(device_to_sort_index.size(), 2);
+  EXPECT_EQ(device_to_sort_index[1], 0);
+  EXPECT_EQ(device_to_sort_index[2], 1);
+}
+
+TEST(PerformMpmdTopologicalSortTest, SimpleLinearDependencies) {
+  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
+  adj[1] = {2};
+  adj[2] = {3};
+  absl::btree_map<uint32_t, int> in_degree;
+  in_degree[1] = 0;
+  in_degree[2] = 1;
+  in_degree[3] = 1;
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {};
+  device_program_min_layer[2] = {};
+  device_program_min_layer[3] = {};
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+
+  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
+                                       device_program_min_layer,
+                                       device_to_sort_index);
+
+  EXPECT_EQ(device_to_sort_index.size(), 3);
+  EXPECT_EQ(device_to_sort_index[1], 0);
+  EXPECT_EQ(device_to_sort_index[2], 1);
+  EXPECT_EQ(device_to_sort_index[3], 2);
+}
+
+TEST(PerformMpmdTopologicalSortTest, MultipleDependencies) {
+  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
+  adj[1] = {2, 3};
+  adj[2] = {4};
+  adj[3] = {4};
+  absl::btree_map<uint32_t, int> in_degree;
+  in_degree[1] = 0;
+  in_degree[2] = 1;
+  in_degree[3] = 1;
+  in_degree[4] = 2;
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {};
+  device_program_min_layer[2] = {};
+  device_program_min_layer[3] = {};
+  device_program_min_layer[4] = {};
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+
+  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
+                                       device_program_min_layer,
+                                       device_to_sort_index);
+
+  EXPECT_EQ(device_to_sort_index.size(), 4);
+  EXPECT_EQ(device_to_sort_index[1], 0);
+  EXPECT_EQ(device_to_sort_index[2], 1);
+  EXPECT_EQ(device_to_sort_index[3], 2);
+  EXPECT_EQ(device_to_sort_index[4], 3);
+}
+
+TEST(PerformMpmdTopologicalSortTest, CyclicDependencies) {
+  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
+  adj[1] = {2};
+  adj[2] = {3};
+  adj[3] = {1};
+  absl::btree_map<uint32_t, int> in_degree;
+  in_degree[1] = 1;
+  in_degree[2] = 1;
+  in_degree[3] = 1;
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  device_program_min_layer[1] = {};
+  device_program_min_layer[2] = {};
+  device_program_min_layer[3] = {};
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
+
+  internal::PerformMpmdTopologicalSort(adj, std::move(in_degree),
+                                       device_program_min_layer,
+                                       device_to_sort_index);
+
+  EXPECT_EQ(device_to_sort_index.size(), 3);
+  EXPECT_EQ(device_to_sort_index[1], 0);
+  EXPECT_EQ(device_to_sort_index[2], 1);
+  EXPECT_EQ(device_to_sort_index[3], 2);
 }
 
 }  // namespace

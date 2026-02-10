@@ -26,11 +26,14 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/macros.h"
 #include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -51,6 +54,156 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+
+namespace internal {
+
+// Extracts the minimum layer ID for each program on each device.
+// Returns: device_id -> {program_name -> min_layer}
+template <typename TraceEventsContainer>
+absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+ExtractDeviceProgramLayers(const TraceEventsContainer& events) {
+  const Trace& trace = events.trace();
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer;
+  // Regex to extract layer ID and program name from event names.
+  // Example: p2_layer_0_1.inc_prefill_step_2k(18163508075296385240)
+  // -> layer_id: 0, program_name: inc_prefill_step_2k
+  static constexpr LazyRE2 kLayerRegex = {
+      "_layer_(\\d+)(?:_\\d+)?\\.([^\\(]+)"};
+
+  events.ForAllEvents([&](const TraceEvent& event) {
+    const std::string& event_name =
+        event.has_name_ref() ? trace.name_table().at(event.name_ref())
+                             : event.name();
+    std::string program_name;
+    int layer_id;
+    if (RE2::PartialMatch(event_name, *kLayerRegex, &layer_id, &program_name)) {
+      auto& program_map = device_program_min_layer[event.device_id()];
+      auto [it, inserted] = program_map.try_emplace(program_name, layer_id);
+      if (!inserted) {
+        it->second = std::min(it->second, layer_id);
+      }
+    }
+  });
+  return device_program_min_layer;
+}
+
+// Represents the dependencies between devices.
+struct MpmdDependencyGraph {
+  // Adjacency list: device_id -> set of dependent device_ids
+  absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>> adj;
+  // In-degree: device_id -> number of incoming edges.
+  // btree_map for deterministic iteration.
+  absl::btree_map<uint32_t, int> in_degree;
+};
+
+// Builds the dependency graph based on program layer execution order.
+// An edge u -> v means device u (running an earlier layer) must be sorted
+// before device v (running a later layer). Marked inline to prevent ODR
+// violations when included in multiple files.
+inline MpmdDependencyGraph BuildMpmdDependencyGraph(
+    const absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>&
+        device_program_min_layer) {
+  MpmdDependencyGraph graph;
+
+  // Group devices by program and layer ID.
+  // program_name -> {layer_id -> list of device_ids}
+  absl::flat_hash_map<std::string, absl::btree_map<int, std::vector<uint32_t>>>
+      program_layer_devices;
+  for (const auto& [device_id, program_map] : device_program_min_layer) {
+    for (const auto& [program_name, layer_id] : program_map) {
+      program_layer_devices[program_name][layer_id].push_back(device_id);
+    }
+  }
+
+  // Initialize in-degrees for all devices.
+  for (const auto& [device_id, _] : device_program_min_layer) {
+    graph.in_degree[device_id] = 0;
+  }
+
+  // Build adjacency list and in-degrees.
+  for (const auto& [program_name, layers_map] : program_layer_devices) {
+    // layers_map is sorted by layer_id (key of btree_map).
+    const std::vector<uint32_t>* prev_devices = nullptr;
+    for (const auto& [layer_id, devices] : layers_map) {
+      if (prev_devices != nullptr) {
+        for (uint32_t u : *prev_devices) {
+          for (uint32_t v : devices) {
+            if (u == v) continue;
+            // Add edge u -> v, if not already present.
+            if (graph.adj[u].insert(v).second) {
+              graph.in_degree[v]++;
+            }
+          }
+        }
+      }
+      prev_devices = &devices;
+    }
+  }
+  return graph;
+}
+
+// Performs a topological sort to determine device order.
+// Devices with cyclic dependencies are appended at the end.
+// Marked inline to prevent ODR violations when included in multiple files.
+inline void PerformMpmdTopologicalSort(
+    const absl::flat_hash_map<uint32_t, absl::btree_set<uint32_t>>& adj,
+    absl::btree_map<uint32_t, int> in_degree,
+    const absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>&
+        device_program_min_layer,
+    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index) {
+  // Initial queue for nodes with no incoming edges.
+  std::vector<uint32_t> queue;
+  for (const auto& [device_id, degree] : in_degree) {
+    if (degree == 0) {
+      queue.push_back(device_id);
+    }
+  }
+  // Sort for deterministic starting order.
+  absl::c_sort(queue);
+
+  uint32_t index = 0;
+  for (size_t head = 0; head < queue.size(); ++head) {
+    uint32_t u = queue[head];
+    device_to_sort_index[u] = index++;
+
+    auto adj_it = adj.find(u);
+    if (adj_it == adj.end()) continue;
+
+    // Collect nodes that will have their in-degree decremented to 0.
+    absl::btree_set<uint32_t> next_nodes_sorted;
+    for (uint32_t v : adj_it->second) {
+      auto it = in_degree.find(v);
+      // BuildMpmdDependencyGraph ensures that any device in adj is also in
+      // in_degree.
+      DCHECK(it != in_degree.end());
+      it->second--;
+      if (it->second == 0) {
+        next_nodes_sorted.insert(v);
+      }
+    }
+    // Add newly unblocked nodes to the queue in sorted order.
+    queue.insert(queue.end(), next_nodes_sorted.begin(),
+                 next_nodes_sorted.end());
+  }
+
+  // Handle cycles: Assign indices to any remaining devices.
+  if (device_to_sort_index.size() < device_program_min_layer.size()) {
+    std::vector<uint32_t> remaining_devices;
+    for (const auto& [device_id, _] : device_program_min_layer) {
+      if (!device_to_sort_index.contains(device_id)) {
+        remaining_devices.push_back(device_id);
+      }
+    }
+    // Sort for deterministic order of remaining devices.
+    absl::c_sort(remaining_devices);
+    for (uint32_t device_id : remaining_devices) {
+      device_to_sort_index[device_id] = index++;
+    }
+  }
+}
+
+}  // namespace internal
 
 // The JSON parser's 700MB limit is tested empirically to hold up to 16M
 // counter events. (go/xprof-event-counter-fix). Conservatively setting
@@ -583,23 +736,24 @@ void WriteTraceFullTimespan(const Trace* trace, IOBuffer* output) {
                  R"(],)");
 }
 
+// Template functions are implicitly inline when defined in a header.
+// TODO(b/483237058): Cache the results of SortMpmdDevices.
 template <typename TraceEventsContainer>
-void DeviceToLayerId(
+void SortMpmdDevices(
     const TraceEventsContainer& events,
-    absl::flat_hash_map<uint32_t, uint32_t>& device_to_layer_id) {
-  const Trace& trace = events.trace();
-  // The assumption is that all events on a device line belong to the same
-  // layer.
-  events.ForAllDeviceFirstEvents([&](const TraceEvent& event) {
-    if (device_to_layer_id.contains(event.device_id())) return;
-    const std::string& event_name =
-        event.has_name_ref() ? trace.name_table().at(event.name_ref())
-                             : event.name();
-    int layer_id;
-    if (RE2::PartialMatch(event_name, "p[0-9]+_layer_([0-9]+)", &layer_id)) {
-      device_to_layer_id[event.device_id()] = layer_id;
-    }
-  });
+    absl::flat_hash_map<uint32_t, uint32_t>& device_to_sort_index) {
+  absl::flat_hash_map<uint32_t, absl::flat_hash_map<std::string, int>>
+      device_program_min_layer = internal::ExtractDeviceProgramLayers(events);
+  if (device_program_min_layer.empty()) {
+    return;
+  }
+
+  internal::MpmdDependencyGraph graph =
+      internal::BuildMpmdDependencyGraph(device_program_min_layer);
+
+  internal::PerformMpmdTopologicalSort(graph.adj, std::move(graph.in_degree),
+                                       device_program_min_layer,
+                                       device_to_sort_index);
 }
 
 template <typename IOBuffer, typename TraceEventsContainer,
@@ -615,12 +769,12 @@ void TraceEventsToJson(const JsonTraceOptions& options,
 
   output->Append(absl::StrFormat(R"("useNewBackend": %s,)",
                                  options.use_new_backend ? "true" : "false"));
-  absl::flat_hash_map<uint32_t, uint32_t> device_to_layer_id;
+  absl::flat_hash_map<uint32_t, uint32_t> device_to_sort_index;
   if (options.mpmd_pipeline_view) {
     output->Append(
         absl::StrFormat(R"("mpmdPipelineView": %s,)",
                         options.mpmd_pipeline_view ? "true" : "false"));
-    DeviceToLayerId(events, device_to_layer_id);
+    SortMpmdDevices(events, device_to_sort_index);
   }
 
   WriteDetails(options.details, output);
@@ -652,8 +806,8 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     uint32_t sort_index = device_id;
     if (options.mpmd_pipeline_view) {
       // Sort the devices by layer id if mpmd view is enabled.
-      auto it = device_to_layer_id.find(device_id);
-      if (it != device_to_layer_id.end()) sort_index = it->second;
+      auto it = device_to_sort_index.find(device_id);
+      if (it != device_to_sort_index.end()) sort_index = it->second;
     }
     output->Append(R"({"args":{"sort_index":)", sort_index,
                    R"(},"name":"process_sort_index","ph":"M","pid":)",

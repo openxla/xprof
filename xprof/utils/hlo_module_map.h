@@ -25,6 +25,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/node_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
@@ -174,7 +175,7 @@ class HloModuleInterface {
 
  protected:
   // Map of HloInstructionWrappers by name.
-  using HloInstructionMap = absl::flat_hash_map<absl::string_view, T>;
+  using HloInstructionMap = absl::node_hash_map<absl::string_view, T>;
   HloInstructionMap instructions_by_name_;
 };
 

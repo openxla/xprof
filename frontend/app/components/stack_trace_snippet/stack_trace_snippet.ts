@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 
 /**
@@ -6,7 +6,7 @@ import {Address} from 'org_xprof/frontend/app/services/source_code_service/sourc
  * stack trace.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'stack-trace-snippet',
   templateUrl: './stack_trace_snippet.ng.html',
   styleUrls: ['./stack_trace_snippet.scss'],

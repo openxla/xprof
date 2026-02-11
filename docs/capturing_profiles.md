@@ -36,6 +36,19 @@ step 8-10 will be session2. The different sessions will be denoted with
 different date stamps under each run. You can capture profiles in different
 sessions either programmatically or on-demand or a mix of both.
 
+## Continuous profiling snapshots
+
+Continuous profiling snapshots are used to capture a profile ending at any
+specific time instant, unlike on-demand profiling where you capture profiles
+for a duration later in time. This is useful for long-running jobs where you
+want to capture a profile at the instant when the problem is diagnosed.
+
+To enable continuous profiling snapshots, you need to start the `xprof` server
+within your code. In JAX, for example, enabling
+[`jax.profiler.start_server`](https://docs.jax.dev/en/latest/_autosummary/jax.profiler.start_server.html)
+will start an `xprof` server on your ML workload which is listening for the
+snapshot profiling trigger to start capturing profiles.
+
 ## XProf and Tensorboard on Google Cloud
 
 On Google Cloud, we recommend using

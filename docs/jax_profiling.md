@@ -132,6 +132,50 @@ navigate the trace, and click or drag to select events to see more details at
 the bottom. See [the Trace Viewer Tool documentation](https://openxla.org/xprof/trace_viewer)
 for more details on using the trace viewer.
 
+## Capture continuous profiling snapshots
+
+The following are the instructions to capture a continuous profiling snapshot at
+any time instant.
+
+1. In the Python program or process you'd like to profile, add the following
+somewhere near the beginning:
+
+```python
+import jax.profiler
+jax.profiler.start_server(9999)
+```
+
+2. Start Continuous Profiling independently of your program:
+```python
+from xprof.api import continuous_profiling_snapshot
+continuous_profiling_snapshot.start_continuous_profiling('localhost:9999', {})
+```
+
+3. Get a snapshot:
+
+```python
+from xprof.api import continuous_profiling_snapshot
+continuous_profiling_snapshot.get_snapshot('localhost:9999', '/tmp/profile-data/')
+```
+
+4. Stop Continuous Profiling:
+
+```python
+from xprof.api import continuous_profiling_snapshot
+continuous_profiling_snapshot.stop_continuous_profiling('localhost:9999')
+```
+
+5. Start XProf:
+
+```shell
+xprof --port=8791 /tmp/profile-data
+```
+
+You should now see a timeline of the execution. You can use the WASD keys to
+navigate the trace, and click or drag to select events to see more details at
+the bottom. See [the Trace Viewer Tool documentation](https://openxla.org/xprof/trace_viewer)
+for more details on using the trace viewer.
+
 ## XProf and Tensorboard
 
 XProf is the underlying tool that powers the profiling and trace capturing

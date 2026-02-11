@@ -81,12 +81,12 @@ void DrawExpandCollapseButton(Group& group, int group_index) {
   // Always show the expand/collapse button.
   ImGui::PushID(group_index);
   // Draw a smaller arrow button.
-  const float kArrowSize = ImGui::GetFontSize() * 0.7f;
-  const float kButtonSize = ImGui::GetFrameHeight();
+  const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+  const Pixel kButtonSize = ImGui::GetFrameHeight();
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
-  float center_y = p.y + kButtonSize * 0.5f;
-  float center_x = p.x + kArrowSize * 0.5f;
+  Pixel center_y = p.y + kButtonSize * 0.5f;
+  Pixel center_x = p.x + kArrowSize * 0.5f;
 
   // Invisible button for interaction
   if (ImGui::InvisibleButton("##expand_collapse",
@@ -102,8 +102,8 @@ void DrawExpandCollapseButton(Group& group, int group_index) {
     arrow_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
   }
 
-  float h = kArrowSize * 0.4f;
-  float w = kArrowSize * 0.2f;
+  Pixel h = kArrowSize * 0.4f;
+  Pixel w = kArrowSize * 0.2f;
 
   if (group.expanded) {
     // Down arrow, like v
@@ -269,15 +269,22 @@ void Timeline::Draw() {
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
     Group& group = timeline_data_.groups[group_index];
+    ImGui::PushID(group_index);
+
+    const bool is_process = group.nesting_level == 0;
+    if (group_index > 0) {
+      ImGui::SetCursorPosY(ImGui::GetCursorPosY() + kTrackVerticalGap);
+      ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    }
 
     ImGui::TableNextRow();
+    if (is_process) {
+      ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                             group.expanded ? kProcessTrackExpandedColor
+                                            : kProcessTrackCollapsedColor);
+    }
+
     ImGui::TableNextColumn();
-    // Indent the group name. We add 1 to the nesting level because
-    // ImGui::Indent(0) results in a default, potentially large indentation.
-    // By adding 1, even top-level groups (nesting_level 0) receive a base
-    // indentation of `kIndentSize`, ensuring consistent and controlled visual
-    // separation from the left edge of the table column.
-    ImGui::Indent((group.nesting_level + 1) * kIndentSize);
 
     const bool has_children =
         group_index + 1 < timeline_data_.groups.size() &&
@@ -293,23 +300,50 @@ void Timeline::Draw() {
     const bool expandable = group.type == Group::Type::kFlame &&
                             (has_children || has_multiple_levels);
 
+    const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+    // We add 1 to the nesting level because ImGui::Indent(0) results in a
+    // default, potentially large indentation. By adding 1, even top-level
+    // groups (nesting_level 0) receive a base indentation of `kIndentSize`,
+    // ensuring consistent and controlled visual separation from the left edge.
+    Pixel indent_amount = (group.nesting_level + 1) * kIndentSize;
+    if (!expandable && group.nesting_level > 0) {
+      // If a group is not expandable (e.g., a thread with no sub-threads or
+      // only one level), align its label indentation with top-level groups
+      // (nesting_level 0) for better visual consistency.
+      indent_amount = kIndentSize;
+    }
+
+    ImGui::Indent(indent_amount);
+
     if (expandable) {
       DrawExpandCollapseButton(group, group_index);
     } else {
-      const float kArrowSize = ImGui::GetFontSize() * 0.7f;
       ImGui::Dummy(ImVec2(kArrowSize, ImGui::GetFrameHeight()));
     }
 
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(group.name.c_str());
-    ImGui::Unindent((group.nesting_level + 1) * kIndentSize);
+
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, 0);
+    ImGui::PushStyleColor(ImGuiCol_Border, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    Pixel text_height = ImGui::GetTextLineHeight();
+    Pixel text_width = ImGui::GetContentRegionAvail().x;
+    ImGui::InputTextMultiline("##name", const_cast<char*>(group.name.data()),
+                              group.name.size() + 1,
+                              ImVec2(text_width, text_height),
+                              ImGuiInputTextFlags_ReadOnly |
+                                  ImGuiInputTextFlags_NoHorizontalScroll);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+
+    ImGui::Unindent(indent_amount);
 
     ImGui::TableNextColumn();
 
-
-    if (!group.expanded) {
+    const bool is_collapsed = expandable && !group.expanded;
+    if (is_collapsed) {
       DrawGroupPreview(group_index, px_per_time_unit_val);
       int current_nesting_level = group.nesting_level;
       while (group_index + 1 < timeline_data_.groups.size() &&
@@ -320,6 +354,7 @@ void Timeline::Draw() {
     } else {
       DrawGroup(group_index, px_per_time_unit_val);
     }
+    ImGui::PopID();
   }
 
   ImGui::EndTable();
@@ -758,7 +793,7 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
 void Timeline::DrawEventName(absl::string_view event_name,
                              const EventRect& event_rect,
                              ImDrawList* absl_nonnull draw_list) const {
-  const float available_width = event_rect.right - event_rect.left;
+  const Pixel available_width = event_rect.right - event_rect.left;
 
   if (available_width >= kMinTextWidth) {
     const std::string text_display =
@@ -789,7 +824,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
     const bool is_hovered = ImGui::IsMouseHoveringRect(
         ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
 
-    const float corner_rounding =
+    const Pixel corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
 
     const ImU32 event_color = GetColorForId(event_name);
@@ -1078,7 +1113,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   if (group_index < timeline_data_.groups.size() - 1) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    float line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
+    Pixel line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
     draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
                        ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
                        kLightGrayColor);
@@ -1126,8 +1161,8 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
                           : timeline_data_.events_by_level.size();
 
       const int num_levels = end_level - start_level;
-      const float event_height = kEventHeight / std::max(1, num_levels);
-      const float padding_bottom = 0.0f;
+      const Pixel event_height = kEventHeight / std::max(1, num_levels);
+      const Pixel padding_bottom = 0.0f;
 
       for (int level = start_level; level < end_level; ++level) {
         if (level < timeline_data_.events_by_level.size()) {
@@ -1145,7 +1180,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   if (group_index < timeline_data_.groups.size() - 1) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    float line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
+    Pixel line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
     draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
                        ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
                        kLightGrayColor);
@@ -1159,16 +1194,16 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
     return;
   }
 
-  const float start_y = level_y_positions_[flow.source_level];
-  const float end_y = level_y_positions_[flow.target_level];
+  const Pixel start_y = level_y_positions_[flow.source_level];
+  const Pixel end_y = level_y_positions_[flow.target_level];
 
   if (start_y == -FLT_MAX || end_y == -FLT_MAX) {
     return;
   }
 
-  const float start_x =
+  const Pixel start_x =
       TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
-  const float end_x =
+  const Pixel end_x =
       TimeToScreenX(flow.target_ts, timeline_x_start, px_per_time);
 
   const ImVec2 p0(start_x, start_y);
@@ -1269,9 +1304,9 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     // Use the window draw list to render over all other timeline content.
     ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
-    const float rect_y_min = viewport->Pos.y;
-    const float rect_y_max = viewport->Pos.y + viewport->Size.y;
-    const float rect_y_mid = (rect_y_min + rect_y_max) * 0.5f;
+    const Pixel rect_y_min = viewport->Pos.y;
+    const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
+    const Pixel rect_y_mid = (rect_y_min + rect_y_max) * 0.5f;
 
     // Draw the top half with a lighter color to keep the timeline content
     // visible.
@@ -1303,11 +1338,11 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
     // Only draw the text if the text fits within the selected time range.
     if (clipped_x_end - clipped_x_start > text_size.x) {
-      const float text_x =
+      const Pixel text_x =
           clipped_x_start + (clipped_x_end - clipped_x_start - text_size.x) / 2;
       // Move the text up a little bit to avoid being too close to the bottom
       // edge.
-      const float text_y =
+      const Pixel text_y =
           rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
 
       DrawDeleteButton(draw_list, ImVec2(text_x, text_y), text_size, range);
@@ -1319,8 +1354,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
 void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& text_pos,
                                 const ImVec2& text_size,
                                 const TimeRange& range) {
-  const float button_size = kCloseButtonSize;
-  const float padding = kCloseButtonPadding;
+  const Pixel button_size = kCloseButtonSize;
+  const Pixel padding = kCloseButtonPadding;
 
   const ImVec2 button_pos(text_pos.x + text_size.x + padding,
                           text_pos.y + (text_size.y - button_size) / 2.0f);
@@ -1369,7 +1404,7 @@ void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& text_pos,
                         button_min.y + button_size / 2.0f);
     draw_list->AddCircleFilled(center, button_size / 2.0f, button_color);
 
-    const float x_radius = button_size * 0.25f;
+    const Pixel x_radius = button_size * 0.25f;
     draw_list->AddLine(ImVec2(center.x - x_radius, center.y - x_radius),
                        ImVec2(center.x + x_radius, center.y + x_radius),
                        kWhiteColor);

@@ -15,7 +15,7 @@ ImFont* caption = nullptr;
 ImFont* label_small = nullptr;
 
 // The font sizes correspond to the GM3 Typography Type scale tokens.
-constexpr float kBodyFontSize = 14.0f;
+constexpr float kBodyFontSize = 16.0f;
 constexpr float kLabelSmallFontSize = 11.0f;
 
 void LoadFonts(float pixel_ratio) {

@@ -54,16 +54,17 @@ inline constexpr ImDrawFlags kImDrawFlags = ImDrawFlags_RoundCornersDefault_;
 inline constexpr ImU32 kDefaultTextColor = kBlackColor;
 inline constexpr Pixel kCornerRounding = 0.0f;
 inline constexpr Pixel kDefaultLabelWidth = 250.0f;
-inline constexpr Pixel kEventHeight = 16.0f;
+inline constexpr Pixel kEventHeight = 24.0f;
 inline constexpr Pixel kEventMinimumDrawWidth = 2.0f;
-inline constexpr Pixel kEventPaddingBottom = 1.0f;
-inline constexpr Pixel kEventPaddingRight = 0.5f;
+inline constexpr Pixel kEventPaddingBottom = 0.0f;
+inline constexpr Pixel kEventPaddingRight = 1.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;
 inline constexpr Pixel kMinTextWidth = 5.0f;
 // Padding on the right to prevent content from touching the window edge.
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
+inline constexpr Pixel kTrackVerticalGap = 5.0f;
 // go/keep-sorted end
 
 // Highlighting Constants
@@ -75,6 +76,12 @@ inline constexpr ImU32 kSelectedBorderColor = kBlueColor;
 inline constexpr Pixel kHoverCornerRounding = 8.0f;
 inline constexpr Pixel kPointRadius = 3.0f;
 inline constexpr Pixel kSelectedBorderThickness = 2.0f;
+// go/keep-sorted end
+
+// Process Track Constants
+// go/keep-sorted start
+inline constexpr ImU32 kProcessTrackCollapsedColor = kInverseOnSurfaceColor;
+inline constexpr ImU32 kProcessTrackExpandedColor = kBlue80;
 // go/keep-sorted end
 
 // Time Range Selection Constants

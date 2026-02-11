@@ -5,7 +5,7 @@ import {
   OnChanges,
   OnInit,
   Output,
-  SimpleChanges,
+  SimpleChanges, ChangeDetectionStrategy,
 } from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -17,7 +17,7 @@ type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
 /** An program level analysis table view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'program-level-analysis',
   templateUrl: './program_level_analysis.ng.html',
   styleUrls: ['./program_level_analysis.scss'],

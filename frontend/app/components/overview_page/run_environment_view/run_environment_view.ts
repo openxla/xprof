@@ -1,9 +1,9 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {type RunEnvironment} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A run environment view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'run-environment-view',
   templateUrl: './run_environment_view.ng.html',
   styleUrls: ['./run_environment_view.scss']

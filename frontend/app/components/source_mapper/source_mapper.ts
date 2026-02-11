@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -24,7 +24,7 @@ enum CompilerPass {
  * TPU operations can be HLO or LLO.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'source-mapper',
   templateUrl: './source_mapper.ng.html',
   styleUrls: ['./source_mapper.css'],

@@ -1,4 +1,4 @@
-import {Component, OnInit} from '@angular/core';
+import {Component, OnInit, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {DataDispatcher} from 'org_xprof/frontend/app/services/data_dispatcher/data_dispatcher';
@@ -8,7 +8,7 @@ import {firstValueFrom} from 'rxjs';
 
 /** The root component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'app',
   templateUrl: './app.ng.html',
   styleUrls: ['./app.css'],

@@ -1,4 +1,4 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 
 /**
  * A category filter component.
@@ -9,7 +9,7 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '
  * If all is set, it is used as a value that selects all rows.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'category-filter',
   templateUrl: './category_filter.ng.html',
   styleUrls: ['./category_filter.scss']

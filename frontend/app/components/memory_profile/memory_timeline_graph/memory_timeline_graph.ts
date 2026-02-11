@@ -1,4 +1,4 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type HloModule, type MemoryProfileProto, MemoryProfileSnapshot} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {bytesToGiBs, picoToMilli} from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -6,7 +6,7 @@ const MAX_CHART_WIDTH = 1500;
 
 /** A Memory Timeline Graph view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'memory-timeline-graph',
   templateUrl: './memory_timeline_graph.ng.html',
   styleUrls: ['./memory_timeline_graph.scss']

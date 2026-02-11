@@ -5,13 +5,13 @@ import {
   Input,
   OnChanges,
   SimpleChanges,
-  ViewChild,
+  ViewChild, ChangeDetectionStrategy,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A max-infeed-detail view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'max-infeed-detail',
   templateUrl: './max_infeed_detail.ng.html',
   styleUrls: ['./max_infeed_detail.scss'],

@@ -1,4 +1,4 @@
-import {Component, EventEmitter, inject, Injector, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, inject, Injector, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -18,7 +18,7 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** Base class of Op Profile component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'op-profile-base',
   templateUrl: './op_profile_base.ng.html',
   styleUrls: ['./op_profile_common.scss']

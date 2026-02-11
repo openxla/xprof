@@ -1,4 +1,4 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -14,7 +14,7 @@ interface DetailInfo {
 
 /** A pod viewer details view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'pod-viewer-details',
   templateUrl: './pod_viewer_details.ng.html',
   styleUrls: ['./pod_viewer_details.scss']

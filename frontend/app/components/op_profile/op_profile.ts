@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -13,7 +13,7 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'op-profile',
   templateUrl: './op_profile.ng.html',
   styleUrls: ['./op_profile_common.scss']

@@ -1,4 +1,4 @@
-import {Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, ViewChild} from '@angular/core';
+import {Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {PrimitiveTypeNumberStringOrUndefined} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -7,7 +7,7 @@ const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'stack-bar-chart',
   templateUrl: './stack_bar_chart.ng.html',
   styleUrls: ['./stack_bar_chart.scss']

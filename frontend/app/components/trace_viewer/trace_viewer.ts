@@ -1,5 +1,5 @@
 import {PlatformLocation} from '@angular/common';
-import {Component, inject, Injector, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {API_PREFIX, DATA_API, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
@@ -12,7 +12,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A trace viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css']

@@ -1,9 +1,9 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineDeviceAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A summary of input pipeline analysis component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'analysis-summary',
   templateUrl: './analysis_summary.ng.html',
   styleUrls: ['./analysis_summary.scss']

@@ -1,4 +1,4 @@
-import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, Renderer2, ViewChild} from '@angular/core';
+import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, Renderer2, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {FormControl} from '@angular/forms';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -35,7 +35,7 @@ const TOTAL_TIME_ID = 'total_time';
 
 /** A Hlo Stats component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'hlo-stats',
   templateUrl: './hlo_stats.ng.html',
   styleUrls: ['./hlo_stats.css'],

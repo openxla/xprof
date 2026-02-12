@@ -302,9 +302,6 @@ export class PerformanceSummary implements OnChanges, OnInit {
     const propertyValues = config.getChildValues ?
         config.getChildValues(customInput || props) :
         [];
-    if (config.description) {
-      descriptions.push(config.description);
-    }
 
     // Add dynamic Roofline link with preserved parameters
     if (config.valueKey === 'flop_rate_utilization_relative_to_roofline') {

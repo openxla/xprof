@@ -90,7 +90,7 @@ inline std::string WrapDotInHtml(absl::string_view dot,
         savehtml.setAttribute('download', 'graph.html');
         savehtml.innerHTML = " [Save HTML+SVG] ";
         document.body.append(savehtml);
-        var svgblob = new Blob([svg.outerHTML], {type: 'image/svg'});
+        var svgblob = new Blob([svg], {type: 'image/svg'});
         var savesvg = document.createElement('a');
         savesvg.setAttribute('href', URL.createObjectURL(svgblob));
         savesvg.setAttribute('download', 'graph.svg');

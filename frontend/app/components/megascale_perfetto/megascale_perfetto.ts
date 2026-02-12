@@ -1,4 +1,4 @@
-import {Component, OnDestroy} from '@angular/core';
+import {Component, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -13,7 +13,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A megascale perfetto viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'megascale-perfetto',
   templateUrl: './megascale_perfetto.ng.html',
   styleUrls: ['./megascale_perfetto.scss'],

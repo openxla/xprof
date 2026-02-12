@@ -1,18 +1,152 @@
-:host {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
+/** CSS for a trace viewer component. */
 
-.emscripten {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
+$menu-bar-height: 64px;
+$filter-bar-height: 50px;
+$search-bar-height: 50px;
+$drawer-height: 300px;
 
 iframe {
-  border: 0;
-  display: block;
-  height: 100%;
+  position: absolute;
   width: 100%;
+  height: calc(100% - $menu-bar-height - $filter-bar-height);
+  box-sizing: border-box;
+  border-style: unset;
+  transition: height 0.05s ease-in-out;
+}
+
+canvas {
+  position: absolute;
+  width: 100%;
+  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  box-sizing: border-box;
+  border-style: unset;
+  // Add a smooth transition when the height changes (e.g., when the drawer
+  // opens/closes).
+  // This is to make the canvas rendering more smooth.
+  transition: height 0.05s ease-in-out;
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  margin-left: 16px;
+  height: $search-bar-height;
+  border-bottom: 1px solid black;
+
+  box-sizing: border-box;
+}
+
+.search-container ::ng-deep .mat-mdc-form-field-infix {
+  min-height: 30px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  align-items: center;
+}
+
+.search-result-count {
+  margin: 0 8px;
+}
+
+.drawer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: $drawer-height;
+  background-color: white;
+  border-top: 1px solid black;
+  padding: 10px;
+  box-sizing: border-box;
+  z-index: 100;
+  overflow: auto;
+
+  .event-detail-table-container {
+    width: 800px;
+  }
+
+  table.mat-mdc-table {
+    width: 100%;
+    table-layout: fixed;
+
+    th.mat-mdc-header-cell,
+    td.mat-mdc-cell {
+      border-bottom: none;
+      font-size: 12px;
+      padding-top: 0;
+      padding-bottom: 0;
+    }
+
+    td.mat-column-property {
+      width: 30%;
+    }
+
+    tr.mat-mdc-header-row {
+      height: 30px;
+    }
+
+    tr.mat-mdc-row {
+      height: 24px;
+    }
+  }
+}
+
+.error-overlay {
+  position: absolute;
+  width: 100%;
+  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  background-color: white;
+  color: red;
+
+  mat-icon {
+    margin-right: 10px;
+  }
+}
+
+.loading-overlay {
+  position: absolute;
+  width: 100%;
+  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.5);
+  z-index: 1000;
+
+  .loading-status,
+  .tutorial {
+    margin-top: 10px;
+  }
+
+  mat-progress-bar {
+    width: 40%;
+  }
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.incremental-loading {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+
+  .loading-status {
+    margin-right: 8px;
+  }
+
+  mat-progress-spinner {
+    margin: 0 8px;
+  }
+}
+
+:host(.drawer-open) {
+  canvas {
+    height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height - $drawer-height);
+  }
 }

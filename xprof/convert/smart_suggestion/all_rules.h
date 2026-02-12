@@ -45,6 +45,19 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted end
 }
 
+inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory* f) {
+  // go/keep-sorted start
+  f->Register<BarrierCoresRule>();
+  f->Register<CollectiveBoundRule>();
+  f->Register<ComputeBoundRule>();
+  f->Register<DataShuffleBoundRule>();
+  f->Register<DataTransferBoundRule>();
+  f->Register<HostProcessingBoundRule>();
+  f->Register<MemoryBoundRule>();
+  f->Register<TensorCoreIdleBoundRule>();
+  // go/keep-sorted end
+}
+
 }  // namespace profiler
 }  // namespace tensorflow
 

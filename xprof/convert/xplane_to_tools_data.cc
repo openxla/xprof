@@ -405,7 +405,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
     const SessionSnapshot& session_snapshot) {
   SmartSuggestionEngine engine;
   SmartSuggestionRuleFactory rule_factory;
-  RegisterAllRules(&rule_factory);
+  RegisterAllRulesFor3P(&rule_factory);
 
   auto tool_data_provider =
       std::make_unique<ToolDataProviderImpl>(session_snapshot);

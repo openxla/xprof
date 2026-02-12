@@ -251,7 +251,8 @@ TEST(ConvertXPlaneToOpStats, PropagateAndDedupErrors) {
   *space.add_errors() = kError;
   *space.add_errors() = kError;
 
-  OpStats op_stats = ConvertXSpaceToOpStats(space, OpStatsOptions());
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
 
   EXPECT_EQ(1, op_stats.diagnostics().errors_size());
   EXPECT_EQ(kError, op_stats.diagnostics().errors(/*index=*/0));
@@ -262,7 +263,8 @@ TEST(ConvertXPlaneToOpStats, Hostnames) {
   static constexpr char kHost[] = "host1";
   *space.add_hostnames() = kHost;
 
-  OpStats op_stats = ConvertXSpaceToOpStats(space, OpStatsOptions());
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
   EXPECT_EQ(
       kHost,
       op_stats.core_id_to_details().at(kDefaultGpuLocalCoreId).hostname());
@@ -358,7 +360,8 @@ TEST(ConvertXPlaneToOpStats, RunEnvironmentExtractedFromTpuPlane) {
     GetOrCreateTpuXPlane(&xspace, i, "TPU V4", 0, 0);
   }
 
-  OpStats op_stats = ConvertXSpaceToOpStats(xspace, OpStatsOptions());
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(xspace, OpStatsOptions()));
 
   EXPECT_EQ(op_stats.run_environment().device_type(), "TPU V4");
   EXPECT_EQ(op_stats.run_environment().device_core_count(), 4);
@@ -582,7 +585,8 @@ TEST(ConvertXPlaneToOpStats, TpuMultiDeviceStepDbTest) {
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
-  OpStats op_stats = ConvertXSpaceToOpStats(*space, options);
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(*space, options));
   const StepDatabaseResult& step_db = op_stats.step_db();
   // For TPU step events, we intersect the step events by step num across
   // different TPU devices.
@@ -630,7 +634,8 @@ TEST(ConvertXPlaneToOpStats, TpuTCAndSCStepDbTest) {
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
-  OpStats op_stats = ConvertXSpaceToOpStats(*space, options);
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(*space, options));
   const StepDatabaseResult& step_db = op_stats.step_db();
   EXPECT_EQ(step_db.step_sequence_size(), 1);
   EXPECT_EQ(step_db.step_sequence(0).step_info_per_core_size(), 2);
@@ -759,7 +764,8 @@ TEST(ConvertXPlaneToOpStats, MultiCoreChipBusyAndIdleTimeTest) {
   CreateXEvent(&sc_plane_builder, &sc_module_line, "module.1", /*offset_ps=*/5,
                /*duration_ps=*/50);
 
-  OpStats op_stats = ConvertXSpaceToOpStats(space, OpStatsOptions());
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
   EXPECT_EQ(op_stats.device_op_metrics_db().idle_time_ps(), 10);
   EXPECT_EQ(op_stats.device_op_metrics_db().busy_time_ps(), 40);
 }
@@ -868,9 +874,10 @@ TEST(ConvertXPlaneToOpStats, HandleSparseCoreBusyOpMetrics) {
                /*duration_ps=*/5, {{StatType::kGroupId, int64_t{3}}});
   CreateXEvent(&sc_plane_builder, &sc_op_line, "scs op.4", /*offset_ps=*/45,
                /*duration_ps=*/5, {{StatType::kGroupId, int64_t{4}}});
-  OpStats op_stats = ConvertXSpaceToOpStats(
-      space,
-      OpStatsOptions{.generate_op_metrics_db = true, .generate_step_db = true});
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(
+                           space, OpStatsOptions{.generate_op_metrics_db = true,
+                                                 .generate_step_db = true}));
   EXPECT_EQ(op_stats.device_op_metrics_db().total_time_ps(), 40);
   EXPECT_EQ(op_stats.device_op_metrics_db().total_op_time_ps(), 20);
   EXPECT_EQ(op_stats.step_db().step_sequence_size(), 4);
@@ -922,9 +929,11 @@ TEST(ConvertXPlaneToOpStats, HandleInputPipelineSlownessCausingDeviceIdleness) {
                 {StatType::kInputPipelineStageId, 1},
                 {StatType::kInputPipelineStageName, "TFRecord"}});
 
-  OpStats op_stats = ConvertXSpaceToOpStats(
-      *space,
-      OpStatsOptions{.generate_op_metrics_db = true, .generate_step_db = true});
+  ASSERT_OK_AND_ASSIGN(
+      OpStats op_stats,
+      ConvertXSpaceToOpStats(*space,
+                             OpStatsOptions{.generate_op_metrics_db = true,
+                                            .generate_step_db = true}));
   EXPECT_EQ(op_stats.step_db().step_sequence_size(), 1);
   EXPECT_EQ(op_stats.step_db().step_sequence(0).step_info_per_core_size(), 1);
   auto step_info_per_core =

@@ -28,7 +28,6 @@ limitations under the License.
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
-#include "xla/tsl/platform/types.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_combiner.h"
@@ -130,7 +129,10 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
   options.generate_kernel_stats_db = true;
-  OpStats op_stats = ConvertXSpaceToOpStats(temp_xspace, options);
+  // TF_ASSIGN_OR_RETURN propagates the error if ConvertXSpaceToOpStats fails.
+  // This ensures that we fail fast and don't cache an empty/invalid OpStats.
+  TF_ASSIGN_OR_RETURN(OpStats op_stats,
+                      ConvertXSpaceToOpStats(temp_xspace, options));
   TF_RETURN_IF_ERROR(WriteBinaryProto(
       session_snapshot, StoredDataType::OP_STATS, hostname, op_stats));
   return cache_file_path;
@@ -145,6 +147,7 @@ absl::Status OpStatsProcessor::Reduce(
 
   std::vector<OpStats> all_op_stats;
   all_op_stats.reserve(map_output_files.size());
+
   for (const auto& map_output_file : map_output_files) {
     OpStats op_stats;
     TF_RETURN_IF_ERROR(

@@ -19,6 +19,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -132,7 +133,8 @@ occ_pct:100)MULTI";
   OpStatsOptions options;
   options.generate_kernel_stats_db = true;
   options.generate_op_metrics_db = true;
-  const OpStats op_stats = ConvertXSpaceToOpStats(space, options);
+  ASSERT_OK_AND_ASSIGN(const OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, options));
   const TfStatsDatabase tf_stats = ConvertOpStatsToTfStats(op_stats);
 
   EXPECT_EQ(tf_stats.device_type(), op_stats.run_environment().device_type());

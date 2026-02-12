@@ -16,14 +16,13 @@ limitations under the License.
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
-#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
-#include "xla/tsl/platform/types.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_combiner.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
@@ -40,16 +39,18 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStatsOptions& options,
     OpStats* combined_op_stats) {
   // Read multiple XSpaces and convert to multiple OpStats.
-  // TODO(profiler): Change the combiner to convert and combine one OpStats at a
-  // time, to reduce peak memory usage.
+  // TODO(profiler): Change the combiner to convert and combine one OpStats at
+  // a time, to reduce peak memory usage.
   std::vector<OpStats> all_op_stats;
   all_op_stats.reserve(session_snapshot.XSpaceSize());
   for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
     google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace* xspace, session_snapshot.GetXSpace(i, &arena));
+    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
     PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
                                /*derived_timeline=*/true);
-    all_op_stats.push_back(ConvertXSpaceToOpStats(*xspace, options));
+    TF_ASSIGN_OR_RETURN(OpStats op_stats,
+                        ConvertXSpaceToOpStats(*xspace, options));
+    all_op_stats.push_back(op_stats);
   }
 
   // Combine OpStats.
@@ -64,6 +65,7 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
   // Do not limit the maximum number of steps during the merge of OpStats.
   StepIntersection step_intersection = ComputeStepIntersectionToMergeOpStats(
       all_op_stats_info, std::numeric_limits<uint32_t>::max());
+
   CombineAllOpStats(all_op_stats_info, step_intersection, combined_op_stats);
 
   return absl::OkStatus();
@@ -81,7 +83,6 @@ absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
     TF_RETURN_IF_ERROR(ReadBinaryProto(session_snapshot,
                                        StoredDataType::OP_STATS,
                                        kAllHostsIdentifier, combined_op_stats));
-
   } else {
     TF_RETURN_IF_ERROR(ConvertMultiXSpacesToCombinedOpStats(
         session_snapshot, options, combined_op_stats));
@@ -89,7 +90,7 @@ absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
                           kAllHostsIdentifier, *combined_op_stats)
              .ok()) {
       LOG(WARNING) << "Failed to write op stats cache file.";
-    };
+    }
   }
   return absl::OkStatus();
 }

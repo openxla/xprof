@@ -948,6 +948,7 @@ cc_test(
     deps = [
         ":op_stats_to_tf_stats",
         ":xplane_to_op_stats",
+        "//util/task:status",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
@@ -1022,6 +1023,8 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:diagnostics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",

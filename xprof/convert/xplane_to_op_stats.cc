@@ -283,7 +283,8 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   visitor.ForEachLine([&](const XLineVisitor& line) {
     if (line.Name() == tsl::profiler::kXlaOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
-        auto hlo_category_stat = event.GetStat(StatType::kHloCategory);
+        auto hlo_category_stat =
+            event.Metadata().GetStat(StatType::kHloCategory);
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&

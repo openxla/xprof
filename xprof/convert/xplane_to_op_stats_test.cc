@@ -658,17 +658,22 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromXlaOps) {
   XPlaneBuilder device_plane_builder(device_plane);
   XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
   op_line.SetName(kXlaOpLineName);
+  CreateXEventMetadata(&device_plane_builder, "op.1",
+                       {{StatType::kHloCategory, tsl::profiler::kHloInfeed}});
   CreateXEvent(&device_plane_builder, &op_line, "op.1", /*offset_ps=*/10,
-               /*duration_ps=*/10,
-               {{StatType::kHloCategory, tsl::profiler::kHloInfeed}});
+               /*duration_ps=*/10);
+  CreateXEventMetadata(&device_plane_builder, "op.2",
+                       {{StatType::kHloCategory, tsl::profiler::kHloCall}});
   CreateXEvent(&device_plane_builder, &op_line, "op.2", /*offset_ps=*/20,
-               /*duration_ps=*/10,
-               {{StatType::kHloCategory, tsl::profiler::kHloCall}});
+               /*duration_ps=*/10);
+  CreateXEventMetadata(&device_plane_builder, "op.3",
+                       {{StatType::kHloCategory, tsl::profiler::kHloCall}});
   CreateXEvent(&device_plane_builder, &op_line, "op.3", /*offset_ps=*/30,
                /*duration_ps=*/10);
+  CreateXEventMetadata(&device_plane_builder, "op.4",
+                       {{StatType::kHloCategory, tsl::profiler::kHloOutfeed}});
   CreateXEvent(&device_plane_builder, &op_line, "op.4", /*offset_ps=*/40,
-               /*duration_ps=*/10,
-               {{StatType::kHloCategory, tsl::profiler::kHloOutfeed}});
+               /*duration_ps=*/10);
   XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
   xla_module_line.SetName(kXlaModuleLineName);
   CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",

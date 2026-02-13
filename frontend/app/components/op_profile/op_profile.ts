@@ -40,9 +40,18 @@ export class OpProfile implements OnDestroy {
     combineLatest([route.params, route.queryParams])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
+          const oldSessionId = this.sessionId;
+          const oldTool = this.tool;
+          const oldHost = this.host;
+
           this.sessionId = params['sessionId'] || this.sessionId;
           this.processQueryParams(queryParams);
-          this.update();
+          // Trigger update only if the parameters actually changed.
+          const hasChanged = this.sessionId !== oldSessionId ||
+              this.tool !== oldTool || this.host !== oldHost;
+          if (hasChanged) {
+            this.update();
+          }
         });
   }
 

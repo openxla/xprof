@@ -38,9 +38,20 @@ export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
     combineLatest([route.params, route.queryParams])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
+          const oldSessionId = this.sessionId;
+          const oldTool = this.tool;
+          const oldHost = this.host;
+          const oldHostId = this.selectedHostId;
+
           this.sessionId = params['sessionId'] || this.sessionId;
           this.processQueryParams(queryParams);
-          this.update();
+          // Trigger update only if the parameters actually changed.
+          const hasChanged = this.sessionId !== oldSessionId ||
+              this.tool !== oldTool || this.host !== oldHost ||
+              this.selectedHostId !== oldHostId;
+          if (hasChanged) {
+            this.update();
+          }
         });
     this.store.dispatch(
         setCurrentToolStateAction({currentTool: 'memory_profile'}),

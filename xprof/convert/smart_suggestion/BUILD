@@ -260,6 +260,7 @@ cc_library(
         ":compute_bound_rule",
         ":data_shuffle_bound_rule",
         ":data_transfer_bound_rule",
+        ":debug_print_rule",
         ":host_processing_bound_rule",
         ":memory_bound_rule",
         ":smart_suggestion_rule_factory",
@@ -308,6 +309,21 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
         "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "debug_print_rule",
+    hdrs = ["debug_print_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
     ],
 )
 

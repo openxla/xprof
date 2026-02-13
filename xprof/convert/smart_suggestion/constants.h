@@ -68,6 +68,10 @@ inline constexpr double kTensorCoreIdleTimeThresholdInPercent = 10.0;
 // this threshold, it is considered a bottleneck.
 inline constexpr double kSpecialOpBoundThresholdInPercent = 10;
 
+// If the percentage of step time that is due to the debug print op is higher
+// than this threshold, it is considered a bottleneck.
+inline constexpr double kDebugPrintBoundThresholdInPercent = 5;
+
 // If the percentage of async-done time is higher than this threshold, it is
 // considered a bottleneck.
 inline constexpr double kAsyncDoneThresholdInPercent = 10;

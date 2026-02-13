@@ -254,6 +254,26 @@ class SignalProvider {
     });
   }
 
+  // Returns per-host average event time percent for a given event name.
+  absl::StatusOr<std::vector<std::pair<std::string, double>>>
+  GetPerHostAvgEventTimePercent(const std::string& event_name) const {
+    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
+                        GetEventTimeFractionAnalyzerResult(event_name));
+
+    std::vector<std::pair<std::string, double>> host_stats;
+    for (const auto& [hostname, host_data] :
+         analyzer_result->host_event_time_fractions()) {
+      if (host_data.event_time_fractions().empty()) continue;
+      tsl::Stat<float> stat;
+      for (float f : host_data.event_time_fractions()) {
+        stat.UpdateStat(f);
+      }
+      double avg_percent = stat.avg() * 100.0;
+      host_stats.push_back({hostname, avg_percent});
+    }
+    return host_stats;
+  }
+
   // Returns the average percentage of step time for data shuffle operations.
   absl::StatusOr<double> GetAvgDataShuffleTimePercent() const {
     TF_ASSIGN_OR_RETURN(auto data_shuffle_fractions,
@@ -269,20 +289,11 @@ class SignalProvider {
   absl::StatusOr<std::vector<HostStraggler>> GetHostStragglers(
       const std::string& event_name, double straggler_threshold = 3.5,
       double mad_threshold = 0.1) const {
-    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
-                        GetEventTimeFractionAnalyzerResult(event_name));
+    TF_ASSIGN_OR_RETURN(auto host_stats,
+                        GetPerHostAvgEventTimePercent(event_name));
 
-    std::vector<std::pair<std::string, double>> host_stats;
     tsl::StatWithPercentiles<double> fractions_stats;
-    for (const auto& [hostname, host_data] :
-         analyzer_result->host_event_time_fractions()) {
-      if (host_data.event_time_fractions().empty()) continue;
-      tsl::Stat<float> stat;
-      for (float f : host_data.event_time_fractions()) {
-        stat.UpdateStat(f);
-      }
-      double avg_percent = stat.avg() * 100.0;
-      host_stats.push_back({hostname, avg_percent});
+    for (const auto& [hostname, avg_percent] : host_stats) {
       fractions_stats.UpdateStat(avg_percent);
     }
 

@@ -21,6 +21,7 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/compute_bound_rule.h"
 #include "xprof/convert/smart_suggestion/data_shuffle_bound_rule.h"
 #include "xprof/convert/smart_suggestion/data_transfer_bound_rule.h"
+#include "xprof/convert/smart_suggestion/debug_print_rule.h"
 #include "xprof/convert/smart_suggestion/host_processing_bound_rule.h"
 #include "xprof/convert/smart_suggestion/memory_bound_rule.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule_factory.h"
@@ -38,6 +39,7 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   f->Register<ComputeBoundRule>();
   f->Register<DataShuffleBoundRule>();
   f->Register<DataTransferBoundRule>();
+  f->Register<DebugPrintRule>();
   f->Register<HostProcessingBoundRule>();
   f->Register<MemoryBoundRule>();
   f->Register<SparseCoreOffloadRule>();

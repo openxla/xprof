@@ -142,6 +142,7 @@ XPLANE_TOOLS = [
     'megascale_stats',
     'perf_counters',
     'utilization_viewer',
+    'smart_suggestion',
 ]
 
 XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
@@ -158,7 +159,9 @@ XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
 ])
 
 # XPlane generated tools that only support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(['overview_page', 'pod_viewer'])
+XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
+    ['overview_page', 'pod_viewer', 'smart_suggestion']
+)
 
 # Rate limiter constants, the GCS quota defined below
 # https://cloud.google.com/storage/quotas#rate-quotas.

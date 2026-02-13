@@ -8,20 +8,6 @@
         <div class="suggestion-item-container">
           <div class="suggestion-text" [innerHTML]="suggestion.htmlContent">
           </div>
-          <div class="feedback-buttons">
-            <button mat-icon-button
-                    (click)="toggleFeedback(suggestion.id, suggestion.ruleName, 'up')"
-                    [class.selected]="getFeedbackState(suggestion.id) === 'up'"
-                    aria-label="Thumbs up">
-              <mat-icon [class.selected]="getFeedbackState(suggestion.id) === 'up'">thumb_up</mat-icon>
-            </button>
-            <button mat-icon-button
-                    (click)="toggleFeedback(suggestion.id, suggestion.ruleName, 'down')"
-                    [class.selected]="getFeedbackState(suggestion.id) === 'down'"
-                    aria-label="Thumbs down">
-              <mat-icon [class.selected]="getFeedbackState(suggestion.id) === 'down'">thumb_down</mat-icon>
-            </button>
-          </div>
         </div>
       </li>
     </ul>

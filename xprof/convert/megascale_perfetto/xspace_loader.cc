@@ -7,6 +7,7 @@
 #include <list>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -126,6 +127,42 @@ void ExtractEventArgs(const XEventVisitor& event, StringTable& string_table,
   event.ForEachStat(for_each_stat);
 }
 
+struct GraphKeyInfo {
+  std::string short_name;
+  int64_t device_id = 0;
+  int64_t iteration = 0;
+
+  bool operator<(const GraphKeyInfo& other) const {
+    if (short_name != other.short_name) {
+      return short_name < other.short_name;
+    }
+    if (device_id != other.device_id) {
+      return device_id < other.device_id;
+    }
+    return iteration < other.iteration;
+  }
+};
+
+GraphKeyInfo ParseGraphKey(absl::string_view graph_key) {
+  GraphKeyInfo info;
+  static constexpr LazyRE2 kGraphKeyRe = {
+      R"(device_(\d+)_gid_([^\$]+)\$.*\^i(\d+).*)"};
+  RE2::FullMatch(graph_key, *kGraphKeyRe, &info.device_id, &info.short_name,
+                 &info.iteration);
+  return info;
+}
+
+absl::string_view GetGraphKey(const Event& event, const XprofTrace& trace) {
+  for (const auto& arg : event.args) {
+    if (trace.string_table.Get(arg.key) == "graph_key") {
+      if (std::holds_alternative<StringId>(arg.value)) {
+        return trace.string_table.Get(std::get<StringId>(arg.value));
+      }
+    }
+  }
+  return "";
+}
+
 }  // namespace
 
 XprofTrace XSpaceLoader::Load(const tsl::profiler::XSpace& space) {
@@ -217,13 +254,12 @@ XprofTrace XSpaceLoader::Load(const tsl::profiler::XSpace& space) {
           return;
         }
 
-        std::string track_name(ExtractShortGraphKey(graph_key));
-
         // Find or create track in the BUFFER
-        Track*& track = track_ptr_map[track_name];
+        Track*& track = track_ptr_map[graph_key];
         if (track == nullptr) {
+          std::string track_name(ExtractShortGraphKey(graph_key));
           std::list<Track>& fragments = raw_megascale_fragments[raw_device_id];
-          fragments.push_back(Track{track_name, {}});
+          fragments.push_back(Track{std::move(track_name), {}});
           track = &fragments.back();
         }
 
@@ -277,6 +313,19 @@ XprofTrace XSpaceLoader::Load(const tsl::profiler::XSpace& space) {
   size_t limit = std::min(tpu_ids.size(), raw_device_ids.size());
   for (size_t i = 0; i < limit; ++i) {
     device_id_to_tpu_id[raw_device_ids[i]] = tpu_ids[i];
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3.5. Sort Tracks based on Graph Key (short_name, device_id, iteration)
+  // ---------------------------------------------------------------------------
+  for (auto& [raw_id, tracks] : raw_megascale_fragments) {
+    tracks.sort([&](const Track& a, const Track& b) {
+      if (a.events.empty()) return true;
+      if (b.events.empty()) return false;
+      GraphKeyInfo info_a = ParseGraphKey(GetGraphKey(a.events[0], trace));
+      GraphKeyInfo info_b = ParseGraphKey(GetGraphKey(b.events[0], trace));
+      return info_a < info_b;
+    });
   }
 
   // ---------------------------------------------------------------------------

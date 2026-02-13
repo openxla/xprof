@@ -29,9 +29,9 @@ class TraceProcessor {
   // don't assign run IDs to program runs that were not fully captured in the
   // profile.
   void AssignRunIds();
-  // Marks the last H2D events for each execution event. This is needed for
-  // adding H2D -> recv-done flows.
-  void MarkLastH2DEvents();
+  // Marks the last D2H and H2D events for each action graph execution. This is
+  // needed for adding flows.
+  void MarkLastDmaEvents();
   // Resolves flows between TPU events and Megascale events.
   void ResolveFlows();
   // Adds a counter track for network metrics.

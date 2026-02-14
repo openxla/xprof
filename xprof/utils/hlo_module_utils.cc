@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/ir/hlo_module_metadata.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 
@@ -159,7 +160,9 @@ OpSourceInfo GetSourceInfo(const xla::HloInstructionProto& instr,
 OpSourceInfo GetSourceInfo(const xla::HloInstruction& instr) {
   const auto stack_frame_id = instr.metadata().stack_frame_id();
   const std::string stack_frame =
-      stack_frame_id != 0 ? GetOpLocationStack(stack_frame_id, instr) : "";
+      stack_frame_id != 0
+          ? GetOpLocationStack(xla::StackFrameId{stack_frame_id}, instr)
+          : "";
   return GetSourceInfo(instr.metadata().source_file(),
                        instr.metadata().source_line(), stack_frame);
 }

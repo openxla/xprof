@@ -27,6 +27,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
+#include "xla/hlo/ir/hlo_module_metadata.h"
 #include "xla/hlo/ir/hlo_print_options.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 
@@ -85,11 +86,11 @@ inline std::string UncachedExpression(const xla::HloInstruction& instr,
   return expression;
 }
 
-inline std::string GetOpLocationStack(int32_t frame_id,
+inline std::string GetOpLocationStack(xla::StackFrameId frame_id,
                                       const xla::HloInstruction& instr) {
   std::string stack_lines;
   xla::HloModule* hlo_module = instr.GetModule();
-  while (frame_id != 0) {
+  while (frame_id.valid()) {
     xla::HloModule::StackFrame frame = hlo_module->get_stack_frame(frame_id);
     if (frame.empty()) {
       break;

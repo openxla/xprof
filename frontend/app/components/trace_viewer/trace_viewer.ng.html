@@ -1,1 +1,9 @@
-<iframe [src]="url | safe"></iframe>
+<trace-viewer-container [url]="url"
+                        [traceViewerModule]="traceViewerModule"
+                        [useTraceViewerV2]="useTraceViewerV2"
+                        [selectedEvent]="selectedEvent"
+                        [selectedEventProperties]="selectedEventProperties"
+                        [eventDetailColumns]="eventDetailColumns"
+                        (eventSelected)="onEventSelected($event)"
+                        (searchEvents)="onSearchEvents($event)">
+</trace-viewer-container>

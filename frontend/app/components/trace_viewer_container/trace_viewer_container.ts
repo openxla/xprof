@@ -8,7 +8,7 @@ import {MatInputModule} from '@angular/material/input';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTableModule} from '@angular/material/table';
-import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, type SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
@@ -133,8 +133,8 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   @Input() selectedEventProperties: SelectedEventProperty[] = [];
   @Input() eventDetailColumns: string[] = [];
   @Output()
-  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail>();
-  @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
+  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail|null>();
+  @Output() readonly searchEvents = new EventEmitter<string>();
 
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
 
@@ -262,14 +262,18 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
     if (!isEntrySelectedEvent(e)) {
       return;
     }
-    this.eventSelected.emit(e.detail);
+    if (e.detail.eventIndex === -1) {
+      this.eventSelected.emit(null);
+    } else {
+      this.eventSelected.emit(e.detail);
+    }
   };
 
   private readonly searchEventsEventListener = (e: Event) => {
     if (!isSearchEventsEvent(e)) {
       return;
     }
-    this.searchEvents.emit(e.detail);
+    this.searchEvents.emit(e.detail.events_query);
   };
 
   /**
@@ -332,6 +336,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
 
   onSearchEvent(query: string) {
     this.search$.next(query);
+    this.searchEvents.emit(query);
   }
 
   nextSearchResult() {

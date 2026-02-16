@@ -67,11 +67,6 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
 
   // TODO: b/452217676 - Optimize this to process hosts in parallel.
   for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
-    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                               /*derived_timeline=*/true);
-
     std::string host_name = session_snapshot.GetHostname(i);
     auto trace_events_sstable_path = session_snapshot.MakeHostDataFilePath(
         tensorflow::profiler::StoredDataType::TRACE_LEVELDB, host_name);
@@ -84,13 +79,21 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
             tensorflow::profiler::StoredDataType::
                 TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
             host_name);
+
     if (!trace_events_sstable_path || !trace_events_metadata_sstable_path ||
         !trace_events_prefix_trie_sstable_path) {
       return tsl::errors::Unimplemented(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
+
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
+      google::protobuf::Arena arena;
+      TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                          session_snapshot.GetXSpace(i, &arena));
+      PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                                 /*derived_timeline=*/true);
       ProcessMegascaleDcn(xspace);
+
       TraceEventsContainer trace_container;
       ConvertXSpaceToTraceEventsContainer(host_name, *xspace,
                                           &trace_container);
@@ -175,6 +178,14 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
       SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
   // get xspace from session snapshot
   std::string hostname = session_snapshot.GetHostname(0);
+
+  auto trace_events_sstable_path = session_snapshot.MakeHostDataFilePath(
+      tensorflow::profiler::StoredDataType::TRACE_LEVELDB, hostname);
+  if (trace_events_sstable_path &&
+      tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
+    return *trace_events_sstable_path;
+  }
+
   google::protobuf::Arena arena;
   TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
 
@@ -184,12 +195,6 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
 absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
     const SessionSnapshot& session_snapshot, const std::string& hostname,
     const XSpace& xspace) {
-  XSpace temp_xspace = xspace;
-  tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
-                                                   /*step_grouping=*/true,
-                                                   /*derived_timeline=*/true);
-  tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
-
   auto trace_events_sstable_path = session_snapshot.MakeHostDataFilePath(
       tensorflow::profiler::StoredDataType::TRACE_LEVELDB, hostname);
   auto trace_events_metadata_sstable_path =
@@ -210,6 +215,12 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
   }
 
   if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
+    XSpace temp_xspace = xspace;
+    tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
+                                                     /*step_grouping=*/true,
+                                                     /*derived_timeline=*/true);
+    tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
+
     TraceEventsContainer trace_container;
     tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(
         hostname, temp_xspace, &trace_container);

@@ -294,6 +294,7 @@ def respond(
     content_type: str,
     code: int = 200,
     content_encoding: tuple[str, str] | None = None,
+    extra_headers: Mapping[str, str] | None = None,
 ) -> wrappers.Response:
   """Create a Werkzeug response, handling JSON serialization and CSP.
 
@@ -306,6 +307,7 @@ def respond(
     content_encoding: Response Content-Encoding header ('str'); e.g. 'gzip'. If
       the content type is not set, The data would be compressed and the content
       encoding would be set to gzip.
+    extra_headers: Optional additional headers to add to the response.
 
   Returns:
     A `werkzeug.wrappers.Response` object.
@@ -370,6 +372,10 @@ def respond(
   else:
     headers.append(('Content-Encoding', 'gzip'))
     body = gzip.compress(body)
+
+  if extra_headers is not None:
+    headers.extend(extra_headers.items())
+
   return wrappers.Response(
       body, content_type=content_type, status=code, headers=headers
   )
@@ -444,6 +450,22 @@ def _get_bool_arg(
   if arg_str is None:
     return default
   return arg_str.lower() == 'true'
+
+
+def _generate_csv_filename(request: wrappers.Request) -> str:
+  """Generates a sanitized filename for the CSV export."""
+  tool = request.args.get('tag', 'data')
+  run = request.args.get('run', '')
+  host = request.args.get('host', '')
+
+  safe_tool = re.sub(r'[^a-zA-Z0-9_\-]', '_', tool)
+  safe_run = re.sub(r'[^a-zA-Z0-9_\-]', '_', run)
+
+  host_suffix = host.split('-')[-1] if host else ''
+  safe_host_suffix = re.sub(r'[^a-zA-Z0-9_\-]', '_', host_suffix)
+
+  filename_parts = (p for p in [safe_tool, safe_run, safe_host_suffix] if p)
+  return '_'.join(filename_parts) + '.csv'
 
 
 class ToolsCache:
@@ -1461,13 +1483,19 @@ class ProfilePlugin(base_plugin.TBPlugin):
       if data is None:
         return respond('No Data Found', 'text/plain', code=404)
 
-      if content_type == 'application/json':
-        csv_data = convert.json_to_csv_string(data)
-        return respond(csv_data, 'text/csv', content_encoding=None)
+      if content_type != 'application/json':
+        return respond(
+            'CSV format not supported for this tool type',
+            'text/plain',
+            code=400,
+        )
 
-      return respond(
-          'CSV format not supported for this tool type', 'text/plain', code=400
-      )
+      csv_data = convert.json_to_csv_string(data)
+      filename = _generate_csv_filename(request)
+
+      return respond(csv_data, 'text/csv', content_encoding=None,
+                     extra_headers={'Content-Disposition':
+                                    f'attachment; filename="{filename}"'})
 
     except (
         TimeoutError,

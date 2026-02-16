@@ -35,6 +35,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from werkzeug import test as werkzeug_test
 from werkzeug import wrappers
 
 from xprof import profile_plugin
@@ -819,6 +820,49 @@ class GenerateCacheImplTest(parameterized.TestCase):
     self.assertEqual(response.status_code, 500)
     self.assertIn(
         b'Failed to schedule task', _get_response_data(response)
+    )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='complex_host_and_run',
+          run_param='my/run/123',
+          tag_param='roofline_model',
+          host_param='worker-pool-1-x2y3',
+          expected_filename='roofline_model_my_run_123_x2y3.csv',
+      ),
+      dict(
+          testcase_name='simple_host_and_run',
+          run_param='clean_run',
+          tag_param='trace_viewer',
+          host_param='localhost',
+          expected_filename='trace_viewer_clean_run_localhost.csv',
+      ),
+  )
+  @mock.patch.object(
+      convert, 'json_to_csv_string', return_value='col1\nval1', autospec=True
+  )
+  def testDataCsvRoute_ContentDisposition(
+      self,
+      _,
+      run_param,
+      tag_param,
+      host_param,
+      expected_filename,
+  ):
+    """Tests that the CSV download route sets the correct filename."""
+    self.plugin.data_impl = mock.create_autospec(
+        self.plugin.data_impl, return_value=({}, 'application/json', None)
+    )
+
+    server = werkzeug_test.Client(self.plugin.data_csv_route, wrappers.Response)
+    response = server.get(f'?run={run_param}&tag={tag_param}&host={host_param}')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertEqual(response.headers.get('Content-Type'), 'text/csv')
+
+    self.assertIn(
+        f'filename="{expected_filename}"',
+        response.headers.get('Content-Disposition', ''),
     )
 
   def test_generate_cache_fails_on_os_error(self):

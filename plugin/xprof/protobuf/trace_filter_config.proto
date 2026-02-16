@@ -38,13 +38,25 @@ message TraceEventFilter {
 }
 
 message TraceFilterConfig {
-  // List of regexes for device/resource we should match this filter on.
-  // A device/resource is included if it matches any one of the regex.
-  // If empty, assume it means include all.
+  // List of regexes for device/resource we should match for this filter to
+  // be applicable.
+  // If device_regexes or resource_regexes is non-empty, a device/resource must
+  // match at least one of given regexes.
+  // If mandatory_device_regexes or mandatory_resource_regexes is non-empty, a
+  // device/resource must match all of given regexes.
+  // If all fields are empty, it means include all devices/resources.
   // Device & Resource here matches its definition in the TraceEvent proto
   // http://google3/third_party/tensorflow/core/profiler/protobuf/trace_events.proto;l=127-137;rcl=590742687
   repeated string device_regexes = 1;
   repeated string resource_regexes = 2;
+  // If non-empty, device name must match all regexes in this list.
+  // These fields have very specific use cases in server-side filtering for
+  // dedicated views like MPMD, and are not exposed to the client.
+  repeated string mandatory_device_regexes = 6;
+  // If non-empty, resource name must match all regexes in this list.
+  // These fields have very specific use cases in server-side filtering for
+  // dedicated views like MPMD, and are not exposed to the client.
+  repeated string mandatory_resource_regexes = 7;
 
   // Match an event based on the filters below.
   // Between all the Event Filters (trace_event_filters &

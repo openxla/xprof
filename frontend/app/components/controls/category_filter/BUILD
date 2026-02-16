@@ -28,4 +28,7 @@ sass_binary(
     src = "category_filter.scss",
     # stack = False,
     sourcemap = False,
+    deps = [
+        "@org_xprof//frontend/app/styles:common",
+    ],
 )

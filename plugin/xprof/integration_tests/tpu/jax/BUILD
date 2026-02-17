@@ -21,3 +21,24 @@ profiler_test(
         "@org_xprof//plugin/xprof/convert:raw_to_tool_data",
     ],
 )
+
+profiler_test(
+    name = "jax_profiler_test",
+    srcs = ["jax_profiler_test.py"],
+    main = "jax_profiler_test.py",
+    platforms = [
+        "v4",
+        "v6e",
+    ],
+    tags = [
+        "cloudtpu-1vm-profiler",
+        "requires-net:external",
+    ],
+    deps = [
+        "//third_party/py/jax",
+        "//third_party/py/numpy",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/logging",
+        "@absl_py//absl/testing:absltest",
+    ],
+)

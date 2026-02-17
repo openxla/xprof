@@ -23,6 +23,7 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/data_transfer_bound_rule.h"
 #include "xprof/convert/smart_suggestion/debug_print_rule.h"
 #include "xprof/convert/smart_suggestion/host_processing_bound_rule.h"
+#include "xprof/convert/smart_suggestion/infeed_rule.h"
 #include "xprof/convert/smart_suggestion/memory_bound_rule.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule_factory.h"
 #include "xprof/convert/smart_suggestion/sparse_core_offload_rule.h"
@@ -41,6 +42,7 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   f->Register<DataTransferBoundRule>();
   f->Register<DebugPrintRule>();
   f->Register<HostProcessingBoundRule>();
+  f->Register<InfeedRule>();
   f->Register<MemoryBoundRule>();
   f->Register<SparseCoreOffloadRule>();
   f->Register<TensorCoreIdleBoundRule>();
@@ -51,6 +53,7 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
 inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted start
   f->Register<BarrierCoresRule>();
+  f->Register<InfeedRule>();
   // TODO Enable SparseCoreOffloadRule for 3P.
   // go/keep-sorted end
 }

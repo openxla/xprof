@@ -479,14 +479,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const params =
         new HttpParams()
             .set('service_addr', options.serviceAddr)
-            .set('is_tpu_name', options.isTpuName.toString())
             .set('duration', options.duration.toString())
             .set('num_retry', options.numRetry.toString())
             .set('worker_list', options.workerList)
             .set('host_tracer_level', options.hostTracerLevel.toString())
             .set('device_tracer_level', options.deviceTracerLevel.toString())
             .set('python_tracer_level', options.pythonTracerLevel.toString())
-            .set('delay', options.delay.toString());
+            .set('delay', options.delay.toString())
+            .set('device_type', options.deviceType || '');
     return this.httpClient.get<CaptureProfileResponse>(
         this.pathPrefix + CAPTURE_PROFILE_API, {params});
   }

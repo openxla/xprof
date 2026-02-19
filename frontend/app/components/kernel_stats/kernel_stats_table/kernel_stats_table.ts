@@ -1,4 +1,4 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 declare interface KernelStatsColumn {
@@ -31,7 +31,7 @@ const OP_NAME_COLUMN_ID = 'op_name';
 
 /** A kernel stats table view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'kernel-stats-table',
   templateUrl: './kernel_stats_table.ng.html',
   styleUrls: ['./kernel_stats_table.scss']

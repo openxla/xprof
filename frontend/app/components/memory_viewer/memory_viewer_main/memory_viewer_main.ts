@@ -1,4 +1,4 @@
-import {Component, inject, Injector, Input, OnChanges, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, Input, OnChanges, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -19,7 +19,7 @@ interface BufferSpan {
 
 /** A memory viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'memory-viewer-main',
   templateUrl: './memory_viewer_main.ng.html',
   styleUrls: ['./memory_viewer_main.scss']

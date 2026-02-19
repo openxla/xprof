@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {type GeneralAnalysis, type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {GeneralProps, SummaryInfo, SummaryInfoConfig} from 'org_xprof/frontend/app/common/interfaces/summary_info';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
@@ -196,7 +196,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
 
 /** A performance summary view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'performance-summary',
   templateUrl: './performance_summary.ng.html',
   styleUrls: ['./performance_summary.scss']

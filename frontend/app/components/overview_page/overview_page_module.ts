@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {Component, EventEmitter, inject, Input, NgModule, OnDestroy, Output} from '@angular/core';
+import {Component, EventEmitter, inject, Input, NgModule, OnDestroy, Output, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type GeneralAnalysis, type InputPipelineAnalysis, type OverviewPageDataTuple, type RunEnvironment, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -23,7 +23,7 @@ const DIAGNOSTICS_INDEX = 6;
 
 /** An overview page component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'overview-page',
   templateUrl: './overview_page.ng.html',
   styleUrls: ['./overview_page.css']

@@ -58,14 +58,14 @@ setuptools.setup(
     ),
     package_data={
         'xprof': ['static/**'],
-        '': ['_pywrap_profiler_plugin.so', '_pywrap_profiler_plugin.pyd'],
+        'xprof.convert': [
+            '_pywrap_profiler_plugin.so',
+            '_pywrap_profiler_plugin.pyd',
+        ],
     },
     entry_points={
         'tensorboard_plugins': [
-            (
-                'profile ='
-                ' xprof.profile_plugin_loader:ProfilePluginLoader'
-            ),
+            'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
         ],
         'console_scripts': [
             'xprof = xprof.server:main',

@@ -110,6 +110,21 @@ cc_library(
 )
 
 cc_library(
+    name = "infeed_rule",
+    hdrs = ["infeed_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_library(
     name = "data_transfer_bound_rule",
     hdrs = ["data_transfer_bound_rule.h"],
     deps = [
@@ -262,6 +277,7 @@ cc_library(
         ":data_transfer_bound_rule",
         ":debug_print_rule",
         ":host_processing_bound_rule",
+        ":infeed_rule",
         ":memory_bound_rule",
         ":smart_suggestion_rule_factory",
         ":sparse_core_offload_rule",

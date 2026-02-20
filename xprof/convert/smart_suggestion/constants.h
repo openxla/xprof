@@ -72,6 +72,10 @@ inline constexpr double kSpecialOpBoundThresholdInPercent = 10;
 // than this threshold, it is considered a bottleneck.
 inline constexpr double kDebugPrintBoundThresholdInPercent = 5;
 
+// If the percentage of step time that is due to the infeed op is higher than
+// this threshold, it is considered a bottleneck.
+inline constexpr double kInfeedBoundThresholdInPercent = 10;
+
 // If the percentage of async-done time is higher than this threshold, it is
 // considered a bottleneck.
 inline constexpr double kAsyncDoneThresholdInPercent = 10;

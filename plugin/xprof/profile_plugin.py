@@ -1530,6 +1530,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
             request.args.get('python_tracer_level', '0')
         ),
         'delay_ms': int(request.args.get('delay', '0')),
+        'enable_hlo_proto': True,
     }
 
     if is_tpu_name:

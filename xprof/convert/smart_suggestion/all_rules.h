@@ -47,14 +47,6 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted end
 }
 
-// Registers all smart suggestion rules for 3P.
-inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory* f) {
-  // go/keep-sorted start
-  f->Register<BarrierCoresRule>();
-  // TODO Enable SparseCoreOffloadRule for 3P.
-  // go/keep-sorted end
-}
-
 }  // namespace profiler
 }  // namespace tensorflow
 

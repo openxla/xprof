@@ -117,7 +117,6 @@ cc_library(
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
-        "@xla//xla/tsl/platform:types",
     ],
 )
 

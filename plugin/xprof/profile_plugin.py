@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import concurrent.futures
+import functools
 import gzip
 import json
 import logging
@@ -42,6 +43,7 @@ from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.convert import _pywrap_profiler_plugin
 
+
 logger = logging.getLogger('tensorboard.plugins.profile')
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -62,6 +64,14 @@ except ImportError:
       'Disabling some remote capture features as tensorflow is not available'
   )
   tf = None
+
+try:
+  from google.cloud import storage  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+except ImportError:
+  logger.info(
+      'google.cloud.storage is not available. Using default gcs client.'
+  )
+  storage = None
 
 
 # The prefix of routes provided by this plugin.
@@ -172,6 +182,48 @@ XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
 MAX_GCS_REQUESTS = 1000
 LIMIT_WINDOW_SECONDS = 60
 AVERAGE_SUBDIR_NUMBER = 10
+
+
+@functools.lru_cache(maxsize=None)
+def _get_storage_client():
+  """Returns a memoized storage client instance."""
+  if not storage:
+    raise RuntimeError(
+        'google.cloud.storage is not available but required for GCS paths.'
+    )
+  return storage.Client()
+
+
+def _is_gcs_path(path: str) -> bool:
+  """Checks if path is a GCS path and gcs client is available."""
+  return storage is not None and path.startswith('gs://')
+
+
+def _list_gcs_dir(gcs_path: str) -> tuple[Sequence[Any], set[str], str]:
+  """Lists blobs and sub-directories in a GCS path."""
+  if not _is_gcs_path(gcs_path):
+    raise RuntimeError('_list_gcs_dir called for non-gcs path')
+
+  storage_client = _get_storage_client()
+  gcs_path_no_prefix = gcs_path.removeprefix('gs://')
+  parts = gcs_path_no_prefix.split('/', 1)
+  bucket_name = parts[0]
+  prefix = parts[1] if len(parts) > 1 else ''
+  if prefix and not prefix.endswith('/'):
+    prefix += '/'
+  iterator = storage_client.list_blobs(
+      bucket_name, prefix=prefix, delimiter='/'
+  )
+  blobs = list(iterator) if iterator else list()
+  return blobs, iterator.prefixes if iterator else set(), bucket_name
+
+
+def _gcs_dir_has_xplane_files(gcs_path: str) -> bool:
+  """Checks if gcs_path is a directory containing any .xplane.pb files."""
+  if not _is_gcs_path(gcs_path):
+    raise RuntimeError('_gcs_dir_has_xplane_files called for non-gcs path')
+  blobs, _, _ = _list_gcs_dir(gcs_path)
+  return any(blob.name.endswith('.xplane.pb') for blob in blobs)
 
 
 def use_xplane(tool: str) -> bool:
@@ -1020,17 +1072,33 @@ class ProfilePlugin(base_plugin.TBPlugin):
     )
     run_map = None
     if session_path_arg:
-      session_path = self._epath.Path(session_path_arg)
-      run_name = session_path.name
-      run_map = {}
-      if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
-        run_map[run_name] = str(session_path)
+      if _is_gcs_path(session_path_arg):
+        run_map = {}
+        if _gcs_dir_has_xplane_files(session_path_arg):
+          run_name = session_path_arg.rstrip('/').split('/')[-1]
+          run_map[run_name] = session_path_arg
+      else:
+        session_path = self._epath.Path(session_path_arg)
+        run_name = session_path.name
+        run_map = {}
+        if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
+          run_map[run_name] = str(session_path)
     elif run_path_arg:
-      run_path = self._epath.Path(run_path_arg)
-      run_map = {}
-      for session in run_path.iterdir():
-        if session.is_dir() and any(session.glob('*.xplane.pb')):
-          run_map[session.name] = str(session)
+      if _is_gcs_path(run_path_arg):
+        run_map = {}
+        _, prefixes, bucket_name = _list_gcs_dir(run_path_arg)
+        if bucket_name:
+          for subdir_prefix in prefixes:
+            session_path_str = f'gs://{bucket_name}/{subdir_prefix}'
+            if _gcs_dir_has_xplane_files(session_path_str):
+              session_name = subdir_prefix.rstrip('/').split('/')[-1]
+              run_map[session_name] = session_path_str
+      else:
+        run_path = self._epath.Path(run_path_arg)
+        run_map = {}
+        for session in run_path.iterdir():
+          if session.is_dir() and any(session.glob('*.xplane.pb')):
+            run_map[session.name] = str(session)
     return run_map
 
   def _run_dir(
@@ -1125,19 +1193,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return []
-    tool_pattern = '*.xplane.pb'
-    xplane_filenames = []
-    try:
-      path = self._epath.Path(run_dir)
-      xplane_filenames = path.glob(tool_pattern)
-    except OSError as e:
-      logger.warning(
-          'Cannot read asset directory: %s, OpError %s',
-          run_dir,
-          e,
-          exc_info=True,
-      )
-    filenames = [os.fspath(os.path.basename(f)) for f in xplane_filenames]
+    filenames = []
+    if _is_gcs_path(run_dir):
+      blobs, _, _ = _list_gcs_dir(run_dir)
+      for blob in blobs:
+        if blob.name.endswith('.xplane.pb'):
+          filenames.append(blob.name.split('/')[-1])
+    else:
+      tool_pattern = '*.xplane.pb'
+      xplane_filenames = []
+      try:
+        path = self._epath.Path(run_dir)
+        xplane_filenames = path.glob(tool_pattern)
+      except OSError as e:
+        logger.warning(
+            'Cannot read asset directory: %s, OpError %s',
+            run_dir,
+            e,
+            exc_info=True,
+        )
+      filenames = [os.fspath(os.path.basename(f)) for f in xplane_filenames]
 
     return [
         {'hostname': host}
@@ -1723,16 +1798,22 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     # Cache is invalid or doesn't exist, regenerate
     tools = []
-    try:
-      all_filenames = [f.name for f in profile_run_dir.iterdir()]
-    except OSError as e:
-      logger.warning(
-          'Cannot read asset directory: %s, Error %r',
-          profile_run_dir,
-          e,
-          exc_info=True,
-      )
-      return tools
+    all_filenames = []
+    if _is_gcs_path(run_dir):
+      blobs, _, _ = _list_gcs_dir(run_dir)
+      for blob in blobs:
+        all_filenames.append(blob.name.split('/')[-1])
+    else:
+      try:
+        all_filenames = [f.name for f in profile_run_dir.iterdir()]
+      except OSError as e:
+        logger.warning(
+            'Cannot read asset directory: %s, Error %r',
+            profile_run_dir,
+            e,
+            exc_info=True,
+        )
+        return
 
     if all_filenames:
       tools = self._get_active_tools(all_filenames, str(profile_run_dir))

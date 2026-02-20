@@ -86,6 +86,12 @@ EXPECTED_TRACE_DATA = dict(
 EVENT_FILE_SUFFIX = '.profile-empty'
 
 
+class MockBlob:
+
+  def __init__(self, name):
+    self.name = name
+
+
 # TODO(muditgokhale): Add support for xplane test generation.
 def generate_testdata(logdir):
   plugin_logdir = plugin_asset_util.PluginDirectory(
@@ -571,6 +577,109 @@ class ProfilePluginTest(absltest.TestCase):
     )
     runs = self.plugin.runs_imp(request)
     self.assertListEqual(['run1'], runs)
+
+  @mock.patch(
+      'google3.third_party.xprof.plugin.xprof.'
+      'profile_plugin.storage'
+  )
+  def test_run_map_from_request_gcs_session_path(self, mock_storage):
+    profile_plugin._get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [MockBlob('run1/host0.xplane.pb')]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+
+    request = utils.make_data_request(
+        utils.DataRequestOptions(session_path='gs://bucket/run1')
+    )
+    run_map = self.plugin._run_map_from_request(request)
+    self.assertEqual({'run1': 'gs://bucket/run1'}, run_map)
+
+  @mock.patch(
+      'google3.third_party.xprof.plugin.xprof.'
+      'profile_plugin.storage'
+  )
+  def test_run_map_from_request_gcs_run_path(self, mock_storage):
+    profile_plugin._get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+
+    def list_blobs_side_effect(_, prefix, delimiter):
+      iterator = mock.MagicMock()
+      if not prefix:
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = set([f'run1{delimiter}', f'run2{delimiter}'])
+        return iterator
+      elif prefix == f'run1{delimiter}':
+        iterator.__iter__.return_value = iter(
+            [MockBlob(f'run1{delimiter}host0.xplane.pb')]
+        )
+        iterator.prefixes = set()
+        return iterator
+      elif prefix == f'run2{delimiter}':
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = set()
+        return iterator
+      else:
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = set()
+        return iterator
+
+    mock_client.list_blobs.side_effect = list_blobs_side_effect
+
+    request = utils.make_data_request(
+        utils.DataRequestOptions(run_path='gs://bucket/')
+    )
+    run_map = self.plugin._run_map_from_request(request)
+    self.assertEqual({'run1': 'gs://bucket/run1/'}, run_map)
+
+  @mock.patch(
+      'google3.third_party.xprof.plugin.xprof.'
+      'profile_plugin.storage'
+  )
+  def test_hosts_gcs(self, mock_storage):
+    profile_plugin._get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [
+        MockBlob('run1/host0.xplane.pb'),
+        MockBlob('run1/host1.xplane.pb'),
+    ]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+    self.plugin._run_to_profile_run_dir['gcs_run'] = 'gs://bucket/run1'
+
+    hosts = self.plugin.host_impl('gcs_run', 'trace_viewer@')
+    self.assertEqual(
+        [{'hostname': 'host0'}, {'hostname': 'host1'}],
+        hosts,
+    )
+
+  @mock.patch(
+      'google3.third_party.xprof.plugin.xprof.'
+      'profile_plugin.ToolsCache'
+  )
+  @mock.patch(
+      'google3.third_party.xprof.plugin.xprof.'
+      'profile_plugin.storage'
+  )
+  def test_run_tools_imp_gcs(self, mock_storage, mock_tools_cache):
+    mock_tools_cache.return_value.load.return_value = None
+    profile_plugin._get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [MockBlob('run1/host0.xplane.pb')]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+    self.plugin._run_to_profile_run_dir['gcs_run'] = 'gs://bucket/run1'
+    with mock.patch.object(
+        convert, 'xspace_to_tool_names', return_value={'overview_page'}
+    ):
+      tools = self.plugin.run_tools_imp('gcs_run')
+      self.assertIn('overview_page', tools)
 
 
 class GenerateCacheTaskTest(absltest.TestCase):

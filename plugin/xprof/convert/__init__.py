@@ -13,3 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 """Converter from protobuf to gviz/json format."""
+
+try:
+  from . import _pywrap_profiler_plugin  # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass

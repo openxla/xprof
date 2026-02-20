@@ -76,6 +76,8 @@ STYLES_CSS_ROUTE = '/styles.css'
 MATERIALICONS_WOFF2_ROUTE = '/materialicons.woff2'
 TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
 TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
+TRACE_VIEWER_V2_JS_ROUTE = '/trace_viewer_v2.js'
+TRACE_VIEWER_V2_WASM_ROUTE = '/trace_viewer_v2.wasm'
 ZONE_JS_ROUTE = '/zone.js'
 DATA_ROUTE = '/data'
 DATA_CSV_ROUTE = '/data_csv'
@@ -920,6 +922,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
             MATERIALICONS_WOFF2_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_HTML_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_JS_ROUTE: self.static_file_route,
+            TRACE_VIEWER_V2_JS_ROUTE: self.static_file_route,
+            TRACE_VIEWER_V2_WASM_ROUTE: self.static_file_route,
             ZONE_JS_ROUTE: self.static_file_route,
             RUNS_ROUTE: self.runs_route,
             RUN_TOOLS_ROUTE: self.run_tools_route,
@@ -988,6 +992,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
       mimetype = 'text/css'
     elif extention == '.js':
       mimetype = 'application/javascript'
+    elif extention == '.wasm':
+      mimetype = 'application/wasm'
     else:
       mimetype = 'application/octet-stream'
     try:

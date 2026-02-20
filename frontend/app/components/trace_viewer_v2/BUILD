@@ -126,6 +126,7 @@ wasm_cc_library(
 BINARY_LINKOPTS = [
     "-sASYNCIFY",
     "-sMODULARIZE",
+    "-sMINIMAL_RUNTIME=0",
     "-sENVIRONMENT=web",
     "-sALLOW_MEMORY_GROWTH",
     "-sEXPORT_NAME=loadWasmTraceViewerModule",
@@ -188,7 +189,6 @@ filegroup(
     srcs = [
         "index.html",
         ":app_bundle.js",
-        ":trace_viewer_v2_wasm/trace_viewer_v2.js",
-        ":trace_viewer_v2_wasm/trace_viewer_v2.wasm",
+        ":trace_viewer_v2_wasm",
     ],
 )

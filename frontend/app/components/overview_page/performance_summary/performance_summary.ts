@@ -236,6 +236,10 @@ export class PerformanceSummary implements OnChanges, OnInit {
     return (this.inferenceLatencyData || {}).p as GeneralProps || {};
   }
 
+  get disaggregatedServingLatencyProps() {
+    return (this.disaggregatedServingLatencyData || {}).p as GeneralProps || {};
+  }
+
   get remarkText() {
     return this.generalProps['remark_text'] || '';
   }

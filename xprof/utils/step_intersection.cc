@@ -26,7 +26,6 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/lib/gtl/map_util.h"
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 
 namespace tensorflow {
@@ -38,26 +37,10 @@ namespace {
 tsl::profiler::Timespan StepTimespan(const PerCoreStepInfo& percore_stepinfo) {
   uint64_t min_ps = std::numeric_limits<uint64_t>::max();
   uint64_t max_ps = 0;
-  for (const auto& core_stepinfo : percore_stepinfo.step_info_per_core()) {
-    const auto& stepinfo = core_stepinfo.second;
+  for (const auto& [unused_core_id, stepinfo] :
+       percore_stepinfo.step_info_per_core()) {
     uint64_t begin_ps = stepinfo.begin_ps();
     uint64_t end_ps = begin_ps + stepinfo.duration_ps();
-    min_ps = std::min(min_ps, begin_ps);
-    max_ps = std::max(max_ps, end_ps);
-  }
-  return (min_ps < max_ps)
-             ? tsl::profiler::Timespan::FromEndPoints(min_ps, max_ps)
-             : tsl::profiler::Timespan();
-}
-
-// Returns the timespan across all steps in the given step_db.
-tsl::profiler::Timespan AllStepsTimespan(const StepDatabaseResult& step_db) {
-  uint64_t min_ps = std::numeric_limits<uint64_t>::max();
-  uint64_t max_ps = 0;
-  for (const auto& step : step_db.step_sequence()) {
-    tsl::profiler::Timespan timespan = StepTimespan(step);
-    uint64_t begin_ps = timespan.begin_ps();
-    uint64_t end_ps = timespan.end_ps();
     min_ps = std::min(min_ps, begin_ps);
     max_ps = std::max(max_ps, end_ps);
   }
@@ -73,10 +56,8 @@ struct AlignmentInfo {
 
 // Computes the similarity between the given two steps. The closer their
 // timespans are, the larger is the similarity.
-double StepSimilarity(const PerCoreStepInfo& subordinate_step,
-                      const PerCoreStepInfo& chief_step) {
-  tsl::profiler::Timespan subordinate_timespan = StepTimespan(subordinate_step);
-  tsl::profiler::Timespan chief_timespan = StepTimespan(chief_step);
+double StepSimilarity(const tsl::profiler::Timespan& subordinate_timespan,
+                      const tsl::profiler::Timespan& chief_timespan) {
   return chief_timespan.OverlappedDurationPs(subordinate_timespan);
 }
 
@@ -84,10 +65,12 @@ double StepSimilarity(const PerCoreStepInfo& subordinate_step,
 // points (i.e. at the subordinate_anchor step on the subordinate sequence, at
 // the chief_anchor step on the chief sequence), returns the corresponding
 // AlignmentInfo.
-AlignmentInfo ComputeAlignmentInfo(const StepDatabaseResult& subordinate,
-                                   uint32_t subordinate_anchor,
-                                   const StepDatabaseResult& chief,
-                                   uint32_t chief_anchor) {
+AlignmentInfo ComputeAlignmentInfo(
+    const StepDatabaseResult& subordinate,
+    const std::vector<tsl::profiler::Timespan>& subordinate_step_timespans,
+    uint32_t subordinate_anchor, const StepDatabaseResult& chief,
+    const std::vector<tsl::profiler::Timespan>& chief_step_timespans,
+    uint32_t chief_anchor) {
   // Assumes that the step at subordinate_anchor on the subordinate sequence is
   // aligned with the step at the chief_anchor on the chief sequence. Then the
   // number of steps before the anchor is the minimum of the number of steps
@@ -111,24 +94,30 @@ AlignmentInfo ComputeAlignmentInfo(const StepDatabaseResult& subordinate,
   for (uint32_t i = 0; i < alignment_steps; i++) {
     // Accumulates the similarity at each step.
     similarity +=
-        StepSimilarity(subordinate.step_sequence(begin_subordinate_idx + i),
-                       chief.step_sequence(begin_chief_idx + i));
+        StepSimilarity(subordinate_step_timespans[begin_subordinate_idx + i],
+                       chief_step_timespans[begin_chief_idx + i]);
   }
-  StepsAlignment alignment = {begin_subordinate_idx, begin_chief_idx,
-                              alignment_steps};
+  StepsAlignment alignment = {.begin_subordinate_idx = begin_subordinate_idx,
+                              .begin_chief_idx = begin_chief_idx,
+                              .num_steps = alignment_steps};
   return {alignment, similarity};
 }
 
 // Returns the best alignment for aligning subordinate against chief.
-StepsAlignment FindStepsAlignment(const StepDatabaseResult& subordinate,
-                                  const StepDatabaseResult& chief) {
+StepsAlignment FindStepsAlignment(
+    const StepDatabaseResult& subordinate,
+    const std::vector<tsl::profiler::Timespan>& subordinate_step_timespans,
+    const StepDatabaseResult& chief,
+    const std::vector<tsl::profiler::Timespan>& chief_step_timespans) {
   double max_similarity = -1;
-  StepsAlignment alignment = {0, 0, 0};
+  StepsAlignment alignment = {
+      .begin_subordinate_idx = 0, .begin_chief_idx = 0, .num_steps = 0};
   if (subordinate.step_sequence_size() == 0 || chief.step_sequence_size() == 0)
     return alignment;
   for (auto c = 0; c < chief.step_sequence_size(); c++) {
-    AlignmentInfo info =
-        ComputeAlignmentInfo(subordinate, /*subordinate_anchor=*/0, chief, c);
+    AlignmentInfo info = ComputeAlignmentInfo(
+        subordinate, subordinate_step_timespans, /*subordinate_anchor=*/0,
+        chief, chief_step_timespans, c);
     if (info.similarity <= max_similarity) continue;
     max_similarity = info.similarity;
     alignment = info.alignment;
@@ -137,7 +126,8 @@ StepsAlignment FindStepsAlignment(const StepDatabaseResult& subordinate,
     // s starts at 1 instead of 0, because the loop above already considers
     // (s=0, c=0).
     AlignmentInfo info =
-        ComputeAlignmentInfo(subordinate, s, chief, /*chief_anchor=*/0);
+        ComputeAlignmentInfo(subordinate, subordinate_step_timespans, s, chief,
+                             chief_step_timespans, /*chief_anchor=*/0);
     if (info.similarity <= max_similarity) continue;
     max_similarity = info.similarity;
     alignment = info.alignment;
@@ -188,10 +178,24 @@ StepIntersection::StepIntersection(
   chief_host_id_ = std::numeric_limits<uint32_t>::max();
   uint64_t min_duration_ps = std::numeric_limits<uint64_t>::max();
   const StepDatabaseResult* chief_step_db = nullptr;
-  for (const auto& hostid_stepdb : perhost_stepdb) {
-    auto host_id = hostid_stepdb.first;
-    const auto& step_db = hostid_stepdb.second;
-    tsl::profiler::Timespan timespan = AllStepsTimespan(*step_db);
+  absl::flat_hash_map<uint32_t, std::vector<tsl::profiler::Timespan>>
+      all_step_timespans;
+  for (const auto& [host_id, step_db] : perhost_stepdb) {
+    std::vector<tsl::profiler::Timespan>& step_timespans =
+        all_step_timespans[host_id];
+    step_timespans.reserve(step_db->step_sequence_size());
+    uint64_t min_ps = std::numeric_limits<uint64_t>::max();
+    uint64_t max_ps = 0;
+    for (const auto& step : step_db->step_sequence()) {
+      tsl::profiler::Timespan timespan = StepTimespan(step);
+      step_timespans.push_back(timespan);
+      min_ps = std::min(min_ps, timespan.begin_ps());
+      max_ps = std::max(max_ps, timespan.end_ps());
+    }
+    tsl::profiler::Timespan timespan =
+        (min_ps < max_ps)
+            ? tsl::profiler::Timespan::FromEndPoints(min_ps, max_ps)
+            : tsl::profiler::Timespan();
     if (timespan.duration_ps() < min_duration_ps) {
       chief_host_id_ = host_id;
       chief_step_db = step_db;
@@ -209,23 +213,25 @@ StepIntersection::StepIntersection(
   uint32_t max_begin_chief_idx = 0;
   uint32_t min_end_chief_idx = std::numeric_limits<uint32_t>::max();
   // Aligns the steps in all hosts with those in the chief.
-  for (const auto& hostid_stepdb : perhost_stepdb) {
-    auto host_id = hostid_stepdb.first;
-    const auto& step_db = hostid_stepdb.second;
+  for (const auto& [host_id, step_db] : perhost_stepdb) {
+    StepsAlignment& alignment = perhost_alignment_[host_id];
     if (host_id == chief_host_id_) {
       // Simply aligns with itself.
-      perhost_alignment_[host_id] = {
-          /*begin_subordinate_idx=*/0, /*begin_chief_idx=*/0,
-          static_cast<uint32_t>(step_db->step_sequence_size())};
+      alignment = {
+          .begin_subordinate_idx = 0,
+          .begin_chief_idx = 0,
+          .num_steps = static_cast<uint32_t>(step_db->step_sequence_size())};
     } else {
-      perhost_alignment_[host_id] =
-          FindStepsAlignment(*step_db, *chief_step_db);
+      const std::vector<tsl::profiler::Timespan>& step_timespans =
+          all_step_timespans[host_id];
+      alignment = FindStepsAlignment(*step_db, step_timespans, *chief_step_db,
+                                     all_step_timespans[chief_host_id_]);
     }
     // Intersects this host's alignment with other hosts' alignments.
-    uint32_t host_begin_chief_idx = perhost_alignment_[host_id].begin_chief_idx;
+    uint32_t host_begin_chief_idx = alignment.begin_chief_idx;
     max_begin_chief_idx = std::max(max_begin_chief_idx, host_begin_chief_idx);
-    uint32_t host_end_chief_idx = perhost_alignment_[host_id].begin_chief_idx +
-                                perhost_alignment_[host_id].num_steps;
+    uint32_t host_end_chief_idx =
+        alignment.begin_chief_idx + alignment.num_steps;
     min_end_chief_idx = std::min(min_end_chief_idx, host_end_chief_idx);
   }
   if (max_begin_chief_idx > min_end_chief_idx) {
@@ -282,8 +288,7 @@ std::string StepIntersection::DebugString() const {
 
   std::vector<uint32_t> host_ids;
   host_ids.reserve(perhost_alignment_.size());
-  for (const auto& hostid_alignment : perhost_alignment_) {
-    auto host_id = hostid_alignment.first;
+  for (const auto& [host_id, unused_alignment] : perhost_alignment_) {
     host_ids.push_back(host_id);
   }
   absl::c_sort(host_ids);

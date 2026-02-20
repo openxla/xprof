@@ -313,7 +313,6 @@ cc_test(
         ":step_intersection",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_googletest//:gtest_main",
-        "@xla//xla/tsl/platform:types",
     ],
 )
 

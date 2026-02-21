@@ -342,6 +342,55 @@ TEST(TimelineTest, CalculateEventTextRect_NarrowEvent) {
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
 }
 
+TEST(TimelineTest, GetDeleteButtonLayout_TextFits) {
+  Timeline timeline;
+  const ImVec2 text_size(50.0f, 20.0f);
+  const ImVec2 text_pos(100.0f, 200.0f);
+  const ImRect visible_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+  const ImRect full_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+
+  auto layout = timeline.GetDeleteButtonLayout(
+      text_size, text_pos, visible_range_rect, full_range_rect);
+
+  EXPECT_TRUE(layout.text_fits);
+
+  // Button should be to the right of the text.
+  EXPECT_FLOAT_EQ(layout.button_pos.x,
+                  text_pos.x + text_size.x + kCloseButtonPadding);
+  EXPECT_FLOAT_EQ(layout.button_pos.y,
+                  text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+  // Hover rect should include text and button with margin.
+  EXPECT_LE(layout.hover_rect.Min.x, text_pos.x - kHoverPadding);
+  EXPECT_LE(layout.hover_rect.Min.y, text_pos.y - kHoverPadding);
+  EXPECT_GE(layout.hover_rect.Max.x,
+            layout.button_pos.x + kCloseButtonSize + kHoverPadding);
+}
+
+TEST(TimelineTest, GetDeleteButtonLayout_TextDoesNotFit) {
+  Timeline timeline;
+  const ImVec2 text_size(50.0f, 20.0f);
+  const ImVec2 text_pos(100.0f, 200.0f);
+  // Visible range is smaller than text width.
+  const ImRect visible_range_rect(100.0f, 0.0f, 140.0f, 300.0f);
+  const ImRect full_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+
+  auto layout = timeline.GetDeleteButtonLayout(
+      text_size, text_pos, visible_range_rect, full_range_rect);
+
+  EXPECT_FALSE(layout.text_fits);
+
+  // Button should be centered in the visible range.
+  EXPECT_FLOAT_EQ(layout.button_pos.x,
+                  visible_range_rect.GetCenter().x - kCloseButtonSize / 2.0f);
+  EXPECT_FLOAT_EQ(layout.button_pos.y,
+                  text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+  // Hover rect should be the visible range.
+  EXPECT_EQ(layout.hover_rect.Min.x, visible_range_rect.Min.x);
+  EXPECT_EQ(layout.hover_rect.Max.x, visible_range_rect.Max.x);
+}
+
 TEST(TimelineTest, GetTextForDisplayWhenTextFits) {
   MockTimeline timeline;
   const std::string text = "Test";
@@ -577,8 +626,7 @@ TEST(TimelineTest, NavigateToEvent) {
 TEST(TimelineTest, NavigateToEventClampedMin) {
   Timeline timeline;
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -612,8 +660,7 @@ TEST(TimelineTest, NavigateToEventClampedMin) {
 TEST(TimelineTest, NavigateToEventClampedMax) {
   Timeline timeline;
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1128,21 +1175,20 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.set_timeline_data(
-        {{},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {{.name = "group",
-           .start_level = 0,
-           .nesting_level = 0,
-           .expanded = true}},
-         {},
-         {}});
+    timeline_.set_timeline_data({{},
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 {},
+                                 {{.name = "group",
+                                   .start_level = 0,
+                                   .nesting_level = 0,
+                                   .expanded = true}},
+                                 {},
+                                 {}});
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -1514,8 +1560,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
 TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1544,8 +1589,7 @@ TEST_F(MockTimelineImGuiFixture,
        DrawEventNameTextHiddenWhenSlightlyNarrowerThanMinTextWidth) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1859,8 +1903,7 @@ TEST_F(RealTimelineImGuiFixture, DrawSetsWindowPaddingToZero) {
 TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1905,8 +1948,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
 TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1939,8 +1981,7 @@ TEST_F(RealTimelineImGuiFixture,
        ClickingSelectedEventAgainDoesNotFireCallback) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -1983,8 +2024,7 @@ TEST_F(RealTimelineImGuiFixture,
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2032,8 +2072,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2089,8 +2128,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   FlameChartTimelineData data;
 
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2131,8 +2169,7 @@ TEST_F(RealTimelineImGuiFixture, NavigateOnEmptySearchResults) {
 
 TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2175,8 +2212,7 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
 
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2213,8 +2249,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
 
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2246,8 +2281,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
 
 TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2274,16 +2308,14 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
   EXPECT_EQ(timeline_.selected_event_index(), 0);
 
   ParsedTraceEvents search_results;
-  search_results.flame_events.push_back(
-      {.ph = Phase::kMetadata,
-       .pid = 2,
-       .name = "process_sort_index",
-       .args = {{"sort_index", "0"}}});
-  search_results.flame_events.push_back(
-      {.ph = Phase::kMetadata,
-       .pid = 1,
-       .name = "process_sort_index",
-       .args = {{"sort_index", "1"}}});
+  search_results.flame_events.push_back({.ph = Phase::kMetadata,
+                                         .pid = 2,
+                                         .name = "process_sort_index",
+                                         .args = {{"sort_index", "0"}}});
+  search_results.flame_events.push_back({.ph = Phase::kMetadata,
+                                         .pid = 1,
+                                         .name = "process_sort_index",
+                                         .args = {{"sort_index", "1"}}});
   search_results.flame_events.push_back({.ph = Phase::kComplete,
                                          .event_id = 10,
                                          .pid = 1,
@@ -2311,8 +2343,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
 
 TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2337,11 +2368,10 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
   timeline_.SetSearchQuery("foo");
 
   ParsedTraceEvents search_results;
-  search_results.flame_events.push_back(
-      {.ph = Phase::kMetadata,
-       .pid = 1,
-       .name = "process_sort_index",
-       .args = {{"sort_index", "invalid"}}});
+  search_results.flame_events.push_back({.ph = Phase::kMetadata,
+                                         .pid = 1,
+                                         .name = "process_sort_index",
+                                         .args = {{"sort_index", "invalid"}}});
   search_results.flame_events.push_back({.ph = Phase::kComplete,
                                          .event_id = 10,
                                          .pid = 1,
@@ -2369,8 +2399,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
 
 TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2404,8 +2433,7 @@ TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
 
 TEST_F(RealTimelineImGuiFixture, NavigateToPrevSearchResultWrapping) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2452,8 +2480,7 @@ TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
 
 TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2497,8 +2524,7 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
 TEST_F(RealTimelineImGuiFixture,
        ShiftClickMultipleEventsSelectsMultipleRanges) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -2989,8 +3015,7 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -3073,8 +3098,7 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
 TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   FlameChartTimelineData data;
   // Group 0: Flame Events
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -3155,8 +3179,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -3191,8 +3214,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
 
 FlameChartTimelineData GetTestFlowData() {
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1",
+  data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
@@ -3423,20 +3445,20 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
 
 TEST_F(RealTimelineImGuiFixture, DrawFlowsWithInvalidLevels) {
   FlameChartTimelineData data = GetTestFlowData();
-  FlowLine flow_invalid_source = {.source_ts = 12.0,
-                                  .target_ts = 52.0,
-                                  .source_level = 999,  // invalid
-                                  .target_level = 0,
-                                  .color = 0xFF0000FF,  // Blue
-                                  .category =
-                                      tsl::profiler::ContextType::kGeneric};
-  FlowLine flow_invalid_target = {.source_ts = 13.0,
-                                  .target_ts = 53.0,
-                                  .source_level = 0,
-                                  .target_level = 999,  // invalid
-                                  .color = 0xFF0000FF,  // Blue
-                                  .category =
-                                      tsl::profiler::ContextType::kGeneric};
+  FlowLine flow_invalid_source = {
+      .source_ts = 12.0,
+      .target_ts = 52.0,
+      .source_level = 999,  // invalid
+      .target_level = 0,
+      .color = 0xFF0000FF,  // Blue
+      .category = tsl::profiler::ContextType::kGeneric};
+  FlowLine flow_invalid_target = {
+      .source_ts = 13.0,
+      .target_ts = 53.0,
+      .source_level = 0,
+      .target_level = 999,  // invalid
+      .color = 0xFF0000FF,  // Blue
+      .category = tsl::profiler::ContextType::kGeneric};
   data.flow_lines.push_back(flow_invalid_source);
   data.flow_lines.push_back(flow_invalid_target);
   timeline_.set_timeline_data(std::move(data));

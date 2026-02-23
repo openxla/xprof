@@ -326,18 +326,22 @@ TEST(StepIntersectionTest, GapsBetweenSteps) {
 }
 
 void BM_StepIntersection(benchmark::State& state) {
-  constexpr uint32_t kNumHosts = 16;
+  uint32_t num_hosts = state.range(0);
+  uint32_t num_steps = state.range(1);
   constexpr uint64_t kShiftPs = 100;
-  constexpr uint32_t kNumStepsForBenchmark = 100;
   PerHostStepDb perhost_stepdb =
-      CreateTestSteps(kNumHosts, kNumStepsForBenchmark, kShiftPs);
+      CreateTestSteps(num_hosts, num_steps, kShiftPs);
   absl::flat_hash_map<uint32_t, const StepDatabaseResult*> perhost_stepdb_ptr =
       Convert(perhost_stepdb);
   for (auto s : state) {
-    StepIntersection intersection(kNumStepsForBenchmark, perhost_stepdb_ptr);
+    StepIntersection intersection(num_steps, perhost_stepdb_ptr);
+    benchmark::DoNotOptimize(intersection);
   }
 }
-BENCHMARK(BM_StepIntersection);
+BENCHMARK(BM_StepIntersection)
+    ->Args({16, 100})
+    ->Args({64, 2000})
+    ->Args({128, 5000});
 
 TEST(StepIntersectionTest, EmptyPerHostStepDb) {
   uint32_t max_steps = 10;

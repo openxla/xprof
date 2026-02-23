@@ -1518,7 +1518,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     """Runs the client trace for capturing profiling information."""
     service_addr = request.args.get('service_addr')
     duration = int(request.args.get('duration', '1000'))
-    is_tpu_name = request.args.get('is_tpu_name') == 'true'
+    device_type = request.args.get('device_type')
     worker_list = request.args.get('worker_list')
     num_tracing_attempts = int(request.args.get('num_retry', '0')) + 1
     options = {
@@ -1530,9 +1530,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
             request.args.get('python_tracer_level', '0')
         ),
         'delay_ms': int(request.args.get('delay', '0')),
+        'advanced_configuration': {
+            'tpu_trace_mode': request.args.get('trace_mode', 'TRACE_COMPUTE'),
+        },
     }
 
-    if is_tpu_name:
+    if device_type == 'tpu':
       if not self._tf_profiler:
         return respond(
             {

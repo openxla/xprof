@@ -17,7 +17,6 @@
       aria-label="address type"
       i18n-aria-label="Radio buttons to select address type"
       [(ngModel)]="addressType"
-      (ngModelChange)="addressTypeChanged($event)"
     >
       Address Type:
       <mat-radio-button value="ip">IP Address</mat-radio-button>
@@ -56,35 +55,12 @@
 
   <div>
     <mat-form-field appearance="outline">
-      <mat-label>Device Trace Level</mat-label>
-      <mat-select [(ngModel)]="deviceTracerLevel">
-        <mat-option value="0">disable</mat-option>
-        <mat-option value="1">enable</mat-option>
-      </mat-select>
-    </mat-form-field>
-  </div>
-
-  <div>
-    <mat-form-field appearance="outline">
       <mat-label>Python Trace Level</mat-label>
       <mat-select [(ngModel)]="pythonTracerLevel">
         <mat-option value="0">disable</mat-option>
         <mat-option value="1">enable</mat-option>
       </mat-select>
     </mat-form-field>
-  </div>
-
-  <div [hidden]="!isTpuName">
-    <div>
-      <mat-form-field>
-        <mat-label>Subset of worker TPUs to profile (optional)</mat-label>
-        <input
-          matInput
-          placeholder="List of IPs, e.g. 10.4.1.2:8466,10.4.1.3:8466"
-          [(ngModel)]="workerList"
-        />
-      </mat-form-field>
-    </div>
   </div>
 
   <div>
@@ -94,6 +70,58 @@
           Advanced options
         </mat-panel-title>
       </mat-expansion-panel-header>
+
+      <div>
+        <mat-radio-group
+          aria-label="device type"
+          i18n-aria-label="Radio buttons to select device type"
+          [(ngModel)]="deviceType"
+        >
+          Device Type:
+          <mat-radio-button value="tpu">TPU</mat-radio-button>
+          <mat-radio-button value="gpu">GPU</mat-radio-button>
+        </mat-radio-group>
+      </div>
+
+      <br />
+
+      <div [hidden]="deviceType !== 'tpu'">
+        <mat-form-field appearance="outline">
+          <mat-label>Trace Mode</mat-label>
+          <mat-select
+            [(ngModel)]="traceMode"
+          >
+            <!-- TODO(jonahweaver): Add links to public documentation for each trace mode. -->
+            <mat-option [value]="TraceMode.TRACE_ONLY_HOST" matTooltip="Trace only host activities.">{{ TraceMode.TRACE_ONLY_HOST }}</mat-option>
+            <mat-option [value]="TraceMode.TRACE_ONLY_XLA" matTooltip="Trace only XLA activities.">{{ TraceMode.TRACE_ONLY_XLA }}</mat-option>
+            <mat-option [value]="TraceMode.TRACE_COMPUTE" matTooltip="Trace compute-related activities on both host and device.">{{ TraceMode.TRACE_COMPUTE }}</mat-option>
+            <mat-option [value]="TraceMode.TRACE_COMPUTE_AND_SYNC" matTooltip="Trace compute and synchronization activities on both host and device.">{{ TraceMode.TRACE_COMPUTE_AND_SYNC }}</mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+
+      <div [hidden]="deviceType !== 'tpu'">
+        <mat-form-field appearance="outline">
+          <mat-label>Device Trace Level</mat-label>
+          <mat-select [(ngModel)]="deviceTracerLevel">
+            <mat-option value="0">disable</mat-option>
+            <mat-option value="1">enable</mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+
+      <div [hidden]="deviceType !== 'tpu'">
+        <div>
+          <mat-form-field>
+            <mat-label>Subset of worker TPUs to profile (optional)</mat-label>
+            <input
+              matInput
+              placeholder="List of IPs, e.g. 10.4.1.2:8466,10.4.1.3:8466"
+              [(ngModel)]="workerList"
+            />
+          </mat-form-field>
+        </div>
+      </div>
 
       <div>
         <mat-form-field>

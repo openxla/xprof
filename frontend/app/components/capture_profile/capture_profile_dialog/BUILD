@@ -27,6 +27,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_select",
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/interfaces",
+        "@tsl//tsl/profiler/protobuf:profiler_options_jspb_proto",
     ],
 )
 

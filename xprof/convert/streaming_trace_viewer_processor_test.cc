@@ -240,6 +240,39 @@ TEST_F(StreamingTraceViewerProcessorTest, MapIsIdempotent) {
   EXPECT_EQ(stat1.mtime_nsec, stat2.mtime_nsec);
 }
 
+TEST_F(StreamingTraceViewerProcessorTest, MapWithPath) {
+  XSpace space = CreateTestXSpace(2);
+  std::string host_name = "host1";
+  std::string xspace_path =
+      file::JoinPath(session_dir_, host_name + ".xplane.pb");
+  TF_ASSERT_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
+
+  ToolOptions empty_options;
+  StreamingTraceViewerProcessor processor(empty_options);
+
+  TF_ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot snapshot_for_paths,
+      SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
+  auto trace_events_sstable_path = snapshot_for_paths.MakeHostDataFilePath(
+      tensorflow::profiler::StoredDataType::TRACE_LEVELDB, host_name);
+  ASSERT_TRUE(trace_events_sstable_path.has_value());
+  EXPECT_TRUE(absl::IsNotFound(
+      tsl::Env::Default()->FileExists(*trace_events_sstable_path)));
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string map_output, processor.Map(xspace_path));
+
+  TF_EXPECT_OK(tsl::Env::Default()->FileExists(*trace_events_sstable_path));
+  EXPECT_EQ(map_output, *trace_events_sstable_path);
+
+  tsl::FileStatistics stat1;
+  TF_ASSERT_OK(tsl::Env::Default()->Stat(map_output, &stat1));
+  TF_ASSERT_OK_AND_ASSIGN(std::string map_output2, processor.Map(xspace_path));
+  tsl::FileStatistics stat2;
+  TF_ASSERT_OK(tsl::Env::Default()->Stat(map_output2, &stat2));
+  EXPECT_EQ(stat1.mtime_nsec, stat2.mtime_nsec);
+  EXPECT_EQ(map_output2, *trace_events_sstable_path);
+}
+
 TEST_F(StreamingTraceViewerProcessorTest, ReduceEmptyMapOutput) {
   absl::flat_hash_map<std::string, XSpace> host_xspaces = {
       {"host1", CreateTestXSpace(0)}};
@@ -477,6 +510,23 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceWithEventName) {
 
   EXPECT_EQ(complete_event_count, 1);
   EXPECT_TRUE(session_run_found);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, ProcessSessionWithSearchPrefix) {
+  XSpace space = CreateTestXSpace(2);
+  absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};
+  TF_ASSERT_OK_AND_ASSIGN(SessionSnapshot snapshot,
+                          CreateSnapshot(host_xspaces));
+
+  ToolOptions tool_options;
+  tool_options["search_prefix"] = "Sess";
+  StreamingTraceViewerProcessor processor(tool_options);
+
+  TF_EXPECT_OK(processor.ProcessSession(snapshot, tool_options));
+
+  const std::string& json_output = processor.GetData();
+  ASSERT_FALSE(json_output.empty());
+  EXPECT_TRUE(nlohmann::json::parse(json_output).contains("traceEvents"));
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, ShouldUseWorkerService) {

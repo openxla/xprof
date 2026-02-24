@@ -1051,6 +1051,7 @@ cc_library(
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_utils",
+        "@xla//xla/tsl/util:stats_calculator_portable",
         "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_registration",
     ],
 )

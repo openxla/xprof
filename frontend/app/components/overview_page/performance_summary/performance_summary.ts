@@ -217,6 +217,9 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   @Input() sessionId = '';
 
+  /** Disaggregated serving latency data */
+  @Input() disaggregatedServingLatencyData?: GeneralAnalysis;
+
   title = 'Performance Summary';
   summaryInfoCombined: SummaryInfo[] = [];
 
@@ -234,6 +237,10 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   get inferenceLatencyProps() {
     return (this.inferenceLatencyData || {}).p as GeneralProps || {};
+  }
+
+  get disaggregatedServingLatencyProps() {
+    return (this.disaggregatedServingLatencyData || {}).p as GeneralProps || {};
   }
 
   get remarkText() {

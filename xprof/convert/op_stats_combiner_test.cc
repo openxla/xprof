@@ -198,6 +198,42 @@ TEST(CombineAllOpStatsTest, CombineRunEnvironmentPowerMetricsMultipleHost) {
   EXPECT_EQ(55, dst_power_metrics.power_component_metrics(0).avg_power());
 }
 
+TEST(CombineAllOpStatsTest, CombineDisaggregatedServingStats) {
+  OpStats dst_op_stats, src_op_stats_1, src_op_stats_2;
+
+  // Source OpStats 1
+  auto* serving_stats_1 =
+      src_op_stats_1.mutable_disaggregated_serving_latency();
+  serving_stats_1->set_num_decode_steps(10);
+  serving_stats_1->mutable_decode_step_time_us()->set_avg(100.0);
+
+  // Source OpStats 2
+  auto* serving_stats_2 =
+      src_op_stats_2.mutable_disaggregated_serving_latency();
+  serving_stats_2->set_num_decode_steps(20);
+  serving_stats_2->mutable_decode_step_time_us()->set_avg(200.0);
+
+  OpStatsInfo op_stats_info_1(&src_op_stats_1, TPU, 0);
+  OpStatsInfo op_stats_info_2(&src_op_stats_2, TPU, 1);
+
+  std::vector<OpStatsInfo> all_op_stats_info = {op_stats_info_1,
+                                                op_stats_info_2};
+
+  // Construct dummy step_intersection.
+  StepDatabaseResult dummy_step_db_result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
+  result.insert({0, &dummy_step_db_result});
+  StepIntersection dummy_step_intersection = StepIntersection(1, result);
+
+  CombineAllOpStats(all_op_stats_info, dummy_step_intersection, &dst_op_stats);
+
+  const auto& dst_serving_stats = dst_op_stats.disaggregated_serving_latency();
+  EXPECT_EQ(30, dst_serving_stats.num_decode_steps());
+  // (10 * 100 + 20 * 200) / 30 = 5000 / 30 = 166.666...
+  EXPECT_NEAR(166.666666666, dst_serving_stats.decode_step_time_us().avg(),
+              1e-6);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

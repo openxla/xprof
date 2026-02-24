@@ -44,6 +44,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "xla/tsl/util/stats_calculator.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_combiner.h"
 #include "xprof/convert/duty_cycle_tracker.h"
@@ -77,6 +78,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::tensorflow::profiler::DisaggregatedServingLatency;
 using tsl::profiler::FindPlanesWithPrefix;
 using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
@@ -304,6 +306,51 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
     }
   });
   return duty_cycle_tracker;
+}
+
+DisaggregatedServingLatency ComputeDisaggregatedServingLatency(
+    const XPlane* host_plane, const std::vector<const XPlane*>& device_planes) {
+  // TODO(b/477631842): Refactor the logic to make it more stable.
+  DisaggregatedServingLatency disaggregated_serving_latency;
+  bool is_wiz_inference_request = false;
+  if (host_plane != nullptr) {
+    // Identify wiz_inference_request by checking if there is any event with
+    // name starting with "WizServable" in event_metadata.
+    XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(host_plane);
+    visitor.ForEachLine([&](const XLineVisitor& line) {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        if (!is_wiz_inference_request &&
+            absl::StartsWith(event.Name(), "WizServable")) {
+          is_wiz_inference_request = true;
+        }
+      });
+    });
+  }
+
+  if (!is_wiz_inference_request) {
+    return disaggregated_serving_latency;
+  }
+  tsl::Stat<double> jit_generate_stats;
+  for (const XPlane* plane : device_planes) {
+    // Calculate average decoding step time by averaging the duration of
+    // jit_generate events in the device planes' XlaModule lines.
+    XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(plane);
+    visitor.ForEachLine([&](const XLineVisitor& line) {
+      if (absl::StartsWith(line.Name(), tsl::profiler::kXlaModuleLineName)) {
+        line.ForEachEvent([&](const XEventVisitor& event) {
+          if (absl::StartsWith(event.Name(), "jit_generate")) {
+            jit_generate_stats.UpdateStat(event.GetTimespan().duration_ps());
+          }
+        });
+      }
+    });
+  }
+  double avg_duration_us = tsl::profiler::PicoToMicro(jit_generate_stats.avg());
+  disaggregated_serving_latency.mutable_decode_step_time_us()->set_avg(
+      avg_duration_us);
+  disaggregated_serving_latency.set_num_decode_steps(
+      jit_generate_stats.count());
+  return disaggregated_serving_latency;
 }
 
 absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
@@ -633,6 +680,10 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
         " bytes exceeds 2GB protobuf limit and cannot be serialized."));
   }
 
+  if (!op_stats.run_environment().is_training()) {
+    *op_stats.mutable_disaggregated_serving_latency() =
+        ComputeDisaggregatedServingLatency(host_plane, device_planes);
+  }
   return op_stats;
 }
 

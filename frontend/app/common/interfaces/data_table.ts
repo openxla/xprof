@@ -277,6 +277,7 @@ export type OverviewPageDataTuple = [
   NormalizedAcceleratorPerformance,
   SimpleDataTable,
   PodViewerTopology,
+  SimpleDataTable,
 ];
 
 /* tslint:disable enforce-name-casing */

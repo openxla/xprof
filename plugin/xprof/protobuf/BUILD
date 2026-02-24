@@ -112,6 +112,7 @@ xprof_proto_library(
     protodeps = [
         ":diagnostics_proto",
         ":input_pipeline_proto",
+        ":op_stats_proto",
         ":power_metrics_proto",
     ],
 )

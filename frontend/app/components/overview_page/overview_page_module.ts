@@ -20,6 +20,7 @@ const INPUT_PIPELINE_ANALYSIS_INDEX = 1;
 const RUN_ENVIRONMENT_INDEX = 2;
 const INFERENCE_LATENCY_CHART_INDEX = 4;
 const DIAGNOSTICS_INDEX = 6;
+const DISAGGREGATED_SERVING_LATENCY_INDEX = 8;
 
 /** An overview page component. */
 @Component({
@@ -38,6 +39,7 @@ export class OverviewPage implements OnDestroy {
   inputPipelineAnalysis: InputPipelineAnalysis|null = null;
   runEnvironment: RunEnvironment|null = null;
   inferenceLatencyData: SimpleDataTable|null = null;
+  disaggregatedServingLatencyData: SimpleDataTable|null = null;
 
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
@@ -111,6 +113,10 @@ export class OverviewPage implements OnDestroy {
     this.runEnvironment = data[RUN_ENVIRONMENT_INDEX];
     if (data.length > INFERENCE_LATENCY_CHART_INDEX + 1) {
       this.inferenceLatencyData = data[INFERENCE_LATENCY_CHART_INDEX];
+    }
+    if (data.length > DISAGGREGATED_SERVING_LATENCY_INDEX) {
+      this.disaggregatedServingLatencyData =
+          data[DISAGGREGATED_SERVING_LATENCY_INDEX];
     }
     this.diagnostics = parseDiagnosticsDataTable(data[DIAGNOSTICS_INDEX]);
   }

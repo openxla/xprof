@@ -66,10 +66,20 @@ absl::Status MemoryViewerProcessor::ProcessSession(
 
   tensorflow::profiler::MemoryViewerOption memory_viewer_option;
   memory_viewer_option.memory_color = memory_space_color;
+  auto get_bool_param = [&](absl::string_view key) {
+    if (auto value = tensorflow::profiler::GetParam<bool>(options, key)) {
+      return *value;
+    }
+    if (auto value = tensorflow::profiler::GetParam<int>(options, key)) {
+      return *value != 0;
+    }
+    return false;
+  };
+
   memory_viewer_option.timeline_option.render_timeline =
-      !!GetParamWithDefault(options, "view_memory_allocation_timeline", 0);
+      get_bool_param("view_memory_allocation_timeline");
   memory_viewer_option.timeline_option.timeline_noise =
-      !!GetParamWithDefault(options, "timeline_noise", 0);
+      get_bool_param("timeline_noise");
   memory_viewer_option.small_buffer_size =
       tensorflow::profiler::kSmallBufferSize;
 

@@ -22,6 +22,7 @@ sh_binary(
         "@org_xprof//frontend:bundle.js",
         "@org_xprof//frontend:css",
         "@org_xprof//frontend:zone.js",
+        "@org_xprof//plugin/xprof:profile_io",
         "@org_xprof//plugin/xprof:resources",
         "@org_xprof//plugin/xprof:server",
         "@org_xprof//plugin/xprof:version",

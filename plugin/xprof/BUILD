@@ -5,6 +5,14 @@ package(default_visibility = ["//plugin:internal"])
 licenses(["notice"])  # Apache 2.0
 
 py_library(
+    name = "profile_io",
+    srcs = ["profile_io.py"],
+    deps = [
+        "@pypi//etils",
+    ],
+)
+
+py_library(
     name = "profile_plugin",
     srcs = ["profile_plugin.py"],
     deps = [
@@ -97,4 +105,15 @@ filegroup(
         "static/materialicons.woff2",
     ],
     visibility = ["//plugin:__subpackages__"],
+)
+
+py_test(
+    name = "profile_io_test",
+    srcs = ["profile_io_test.py"],
+    imports = [".."],
+    main = "profile_io_test.py",
+    deps = [
+        ":profile_io",
+        "@pypi//absl-py",
+    ],
 )

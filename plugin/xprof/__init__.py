@@ -17,6 +17,7 @@
 Public submodules:
   profile_plugin: The TensorBoard plugin integration.
   profile_plugin_loader: TensorBoard's entrypoint for the plugin.
+  profile_io: File I/O utilities for the plugin.
   server: Standalone server entrypoint.
   version: The version of the plugin.
 """

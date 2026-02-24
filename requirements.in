@@ -7,3 +7,4 @@ etils[epath] >= 1.0.0
 werkzeug >= 0.11.15
 protobuf >= 3.19.6
 six >= 1.10.0
+google-cloud-storage >= 3.9.0

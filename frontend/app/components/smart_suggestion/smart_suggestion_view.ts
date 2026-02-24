@@ -43,7 +43,7 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 })
 export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   @HostBinding('class.dark-theme') @Input() darkTheme = false;
-  @Input() sessionId = 'default_session';
+  @Input() sessionId?: string;
 
   title = 'Recommendations';
   processedSuggestions: ProcessedSuggestion[] = [];

@@ -23,6 +23,7 @@ from __future__ import print_function
 
 import atexit
 import concurrent.futures
+import dataclasses
 import gzip
 import inspect
 import json
@@ -38,6 +39,7 @@ from etils import epath
 from werkzeug import test as werkzeug_test
 from werkzeug import wrappers
 
+from xprof import profile_io
 from xprof import profile_plugin
 from xprof import profile_plugin_test_utils as utils
 from xprof import version
@@ -84,6 +86,16 @@ EXPECTED_TRACE_DATA = dict(
 # profiler kProfileEmptySuffix constant defined in:
 #   tensorflow/core/profiler/rpc/client/capture_profile.cc.
 EVENT_FILE_SUFFIX = '.profile-empty'
+
+
+@dataclasses.dataclass
+class MockBlob:
+
+  def __init__(self, name):
+    self.name = name
+
+  def __repr__(self):
+    return f'MockBlob(name={self.name!r})'
 
 
 # TODO(muditgokhale): Add support for xplane test generation.
@@ -572,6 +584,98 @@ class ProfilePluginTest(absltest.TestCase):
     runs = self.plugin.runs_imp(request)
     self.assertListEqual(['run1'], runs)
 
+  @mock.patch.object(profile_io, 'storage', autospec=True)
+  def test_session_dir_by_run_name_from_request_gcs_session_path(
+      self, mock_storage
+  ):
+    profile_io.get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [MockBlob('run1/host0.xplane.pb')]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+
+    request = utils.make_data_request(
+        utils.DataRequestOptions(session_path='gs://bucket/run1')
+    )
+    run_map = self.plugin._session_dir_by_run_name_from_request(request)
+    self.assertEqual({'run1': 'gs://bucket/run1'}, run_map)
+
+  @mock.patch.object(profile_io, 'storage', autospec=True)
+  def test_session_dir_by_run_name_from_request_gcs_run_path(
+      self, mock_storage
+  ):
+    profile_io.get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+
+    def list_blobs_side_effect(_, prefix, delimiter):
+      iterator = mock.MagicMock()
+      if not prefix:
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = {f'run1{delimiter}', f'run2{delimiter}'}
+        return iterator
+      elif prefix == f'run1{delimiter}':
+        iterator.__iter__.return_value = iter(
+            [MockBlob(f'run1{delimiter}host0.xplane.pb')]
+        )
+        iterator.prefixes = set()
+        return iterator
+      elif prefix == f'run2{delimiter}':
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = set()
+        return iterator
+      else:
+        iterator.__iter__.return_value = iter([])
+        iterator.prefixes = set()
+        return iterator
+
+    mock_client.list_blobs.side_effect = list_blobs_side_effect
+
+    request = utils.make_data_request(
+        utils.DataRequestOptions(run_path='gs://bucket/')
+    )
+    run_map = self.plugin._session_dir_by_run_name_from_request(request)
+    self.assertEqual({'run1': 'gs://bucket/run1/'}, run_map)
+
+  @mock.patch.object(profile_io, 'storage', autospec=True)
+  def test_hosts_gcs(self, mock_storage):
+    profile_io.get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [
+        MockBlob('run1/host0.xplane.pb'),
+        MockBlob('run1/host1.xplane.pb'),
+    ]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+    self.plugin._run_to_profile_run_dir['gcs_run'] = 'gs://bucket/run1'
+
+    hosts = self.plugin.host_impl('gcs_run', 'trace_viewer@')
+    self.assertEqual(
+        [{'hostname': 'host0'}, {'hostname': 'host1'}],
+        hosts,
+    )
+
+  @mock.patch.object(profile_plugin, 'ToolsCache', autospec=True)
+  @mock.patch.object(profile_io, 'storage', autospec=True)
+  def test_run_tools_imp_gcs(self, mock_storage, mock_tools_cache):
+    mock_tools_cache.return_value.load.return_value = None
+    profile_io.get_storage_client.cache_clear()
+    mock_client = mock_storage.Client.return_value
+    blobs = [MockBlob('run1/host0.xplane.pb')]
+    iterator = mock.MagicMock()
+    iterator.__iter__.return_value = iter(blobs)
+    iterator.prefixes = set()
+    mock_client.list_blobs.return_value = iterator
+    self.plugin._run_to_profile_run_dir['gcs_run'] = 'gs://bucket/run1'
+    with mock.patch.object(
+        convert, 'xspace_to_tool_names', return_value={'overview_page'}
+    ):
+      tools = self.plugin.run_tools_imp('gcs_run')
+      self.assertIn('overview_page', tools)
+
 
 class GenerateCacheTaskTest(absltest.TestCase):
 
@@ -873,9 +977,11 @@ class GenerateCacheImplTest(parameterized.TestCase):
     )
 
     with mock.patch.object(
-        self.plugin, '_epath', autospec=True, spec_set=True
-    ) as mock_epath:
-      mock_epath.Path.return_value.glob.side_effect = OSError('Disk error')
+        self.plugin,
+        '_get_xplane_basenames',
+        side_effect=OSError('Disk error'),
+        autospec=True,
+    ):
       response = self.plugin._generate_cache_impl(request)
 
     self.assertEqual(response.status_code, 500)

@@ -32,15 +32,16 @@ from typing import Any, TextIO, TypedDict
 
 from etils import epath
 import etils.epath.backend
-from fsspec import core
 import six
 from werkzeug import wrappers
 
+from xprof import profile_io
 from xprof import version
 from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.convert import _pywrap_profiler_plugin
+
 
 logger = logging.getLogger('tensorboard.plugins.profile')
 logger.setLevel(logging.INFO)
@@ -62,7 +63,6 @@ except ImportError:
       'Disabling some remote capture features as tensorflow is not available'
   )
   tf = None
-
 
 # The prefix of routes provided by this plugin.
 TB_NAME = 'plugins'
@@ -479,127 +479,19 @@ class ToolsCache:
   CACHE_FILE_NAME = '.cached_tools.json'
   CACHE_VERSION = 1
 
-  def __init__(self, profile_run_dir: epath.Path):
+  def __init__(
+      self, profile_run_dir: epath.Path, fs: profile_io.ProfileFileSystem
+  ):
     """Initializes the ToolsCache.
 
     Args:
       profile_run_dir: The directory containing the profile run data.
+      fs: The file system object to use for file operations.
     """
     self._profile_run_dir = profile_run_dir
     self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+    self._fs = fs
     logger.info('ToolsCache initialized for %s', self._cache_file)
-
-  def _get_local_file_identifier(self, file_path_str: str) -> str | None:
-    """Gets a string identifier for a local file.
-
-    The identifier is a combination of the file's last modification time (mtime)
-    and size, in the format "{mtime}-{size}".
-
-    Args:
-      file_path_str: The absolute path to the local file.
-
-    Returns:
-      A string identifier, or None if the file is not found or an error occurs.
-    """
-    try:
-      stat_result = os.stat(file_path_str)
-      return f'{int(stat_result.st_mtime)}-{stat_result.st_size}'
-    except FileNotFoundError:
-      logger.warning('Local file not found: %s', file_path_str)
-      return None
-    except OSError as e:
-      logger.error(
-          'OSError getting stat for local file %s: %r',
-          file_path_str,
-          e,
-          exc_info=True,
-      )
-      return None
-
-  def _get_gcs_file_hash(self, file_path_str: str) -> str | None:
-    """Gets the MD5 hash for a GCS file.
-
-    Args:
-      file_path_str: The GCS path (e.g., "gs://bucket/object").
-
-    Returns:
-      The MD5 hash string, or None if the file is not found or an error occurs.
-    """
-    try:
-      fs = core.get_fs_token_paths(file_path_str)[0]
-      info = fs.info(file_path_str)
-      md5_hash = info.get('md5Hash')
-
-      if not isinstance(md5_hash, str):
-        logger.warning(
-            'Could not find a valid md5Hash string in info for %s: %s',
-            file_path_str,
-            info,
-        )
-        return None
-
-      return md5_hash
-
-    except FileNotFoundError:
-      logger.warning('GCS path not found: %s', file_path_str)
-      return None
-    except IndexError:
-      logger.error(
-          'Could not get filesystem for GCS path: %s',
-          file_path_str,
-          exc_info=True,
-      )
-      return None
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logger.exception(
-          'Unexpected error getting hash for GCS path %s: %r', file_path_str, e
-      )
-      return None
-
-  def get_file_identifier(self, file_path_str: str) -> str | None:
-    """Gets a string identifier for a file.
-
-    For GCS files, this is the MD5 hash.
-    For local files, this is a string combining mtime and size.
-
-    Args:
-      file_path_str: The full path to the file (local or GCS).
-
-    Returns:
-      A string identifier, or None if an error occurs.
-    """
-    if file_path_str.startswith('gs://'):
-      return self._get_gcs_file_hash(file_path_str)
-    else:
-      return self._get_local_file_identifier(file_path_str)
-
-  def _get_current_xplane_file_states(self) -> dict[str, str] | None:
-    """Gets the current state of XPlane files in the profile run directory.
-
-    Returns:
-      A dictionary mapping filename to a string identifier (hash or mtime-size),
-      or None if any file state cannot be determined.
-    """
-    try:
-      file_identifiers = {}
-      for xplane_file in self._profile_run_dir.glob(f"*.{TOOLS['xplane']}"):
-        file_id = self.get_file_identifier(str(xplane_file))
-        if file_id is None:
-          logger.warning(
-              'Could not get identifier for %s, cache will be invalidated.',
-              xplane_file,
-          )
-          return None
-        file_identifiers[xplane_file.name] = file_id
-      return file_identifiers
-    except OSError as e:
-      logger.warning(
-          'Could not glob files in %s: %r',
-          self._profile_run_dir,
-          e,
-          exc_info=True,
-      )
-      return None
 
   def load(self) -> list[str] | None:
     """Loads the cached list of tools if the cache is valid.
@@ -610,16 +502,8 @@ class ToolsCache:
     Returns:
       A list of tool names if the cache is valid, otherwise None.
     """
-    try:
-      with self._cache_file.open('r') as f:
-        cached_data = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-      logger.warning(
-          'Error reading or decoding cache file %s: %r, invalidating.',
-          self._cache_file,
-          e,
-      )
-      self.invalidate()
+    cached_data = self._fs.read_json(str(self._cache_file))
+    if cached_data is None:
       return None
 
     if cached_data.get('version') != self.CACHE_VERSION:
@@ -633,7 +517,7 @@ class ToolsCache:
       self.invalidate()
       return None
 
-    current_files = self._get_current_xplane_file_states()
+    current_files = self._fs.get_xplane_file_states(str(self._profile_run_dir))
     if current_files is None:
       logger.info(
           'ToolsCache invalid: could not determine current file states.'
@@ -660,7 +544,9 @@ class ToolsCache:
     Args:
       tools: The list of tool names to cache.
     """
-    current_files_for_cache = self._get_current_xplane_file_states()
+    current_files_for_cache = self._fs.get_xplane_file_states(
+        str(self._profile_run_dir)
+    )
     if current_files_for_cache is None:
       logger.warning(
           'ToolsCache not saved: could not get file states %s', self._cache_file
@@ -672,26 +558,11 @@ class ToolsCache:
         'files': current_files_for_cache,
         'tools': tools,
     }
-    try:
-      with self._cache_file.open('w') as f:
-        json.dump(new_cache_data, f, sort_keys=True, indent=2)
-      logger.info('ToolsCache saved: %s', self._cache_file)
-    except (OSError, TypeError) as e:
-      logger.error(
-          'Error writing cache file %s: %r', self._cache_file, e, exc_info=True
-      )
+    self._fs.write_json(str(self._cache_file), new_cache_data)
 
   def invalidate(self) -> None:
     """Deletes the cache file, forcing regeneration on the next load."""
-    try:
-      self._cache_file.unlink()
-      logger.info('ToolsCache invalidated: %s', self._cache_file)
-    except FileNotFoundError:
-      pass
-    except OSError as e:
-      logger.error(
-          'Error removing cache file %s: %r', self._cache_file, e, exc_info=True
-      )
+    self._fs.delete_file(str(self._cache_file))
 
 
 class _TfProfiler:
@@ -892,6 +763,21 @@ class ProfilePlugin(base_plugin.TBPlugin):
         )
     )
 
+  def _get_xplane_basenames(self, path_str: str) -> Sequence[str]:
+    """Returns a list of .xplane.pb base filenames in the given path."""
+    fs = profile_io.get_file_system(path_str, self._epath)
+    return fs.get_xplane_basenames(path_str)
+
+  def _dir_has_xplane_files(self, path_str: str) -> bool:
+    """Checks if the directory contains any .xplane.pb files."""
+    fs = profile_io.get_file_system(path_str, self._epath)
+    return fs.dir_has_xplane_files(path_str)
+
+  def _get_all_basenames(self, path_str: str) -> Sequence[str]:
+    """Returns a list of all base filenames in the given path."""
+    fs = profile_io.get_file_system(path_str, self._epath)
+    return fs.get_all_basenames(path_str)
+
   def is_active(self) -> bool:
     """Whether this plugin is active and has any profile data to show.
 
@@ -979,6 +865,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
   def static_file_route(self, request: wrappers.Request) -> wrappers.Response:
+    """Handles static files."""
     # pytype: enable=wrong-arg-types
     filename = os.path.basename(request.path)
     extention = os.path.splitext(filename)[1]
@@ -1003,9 +890,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
     runs = self.runs_imp(request)
     return respond(runs, 'application/json')
 
-  def _run_map_from_request(
+  def _session_dir_by_run_name_from_request(
       self, request: wrappers.Request | None = None
-  ) -> dict[str, str] | None:
+  ) -> Mapping[str, str] | None:
     """Returns a map of run names to session directories from the request.
 
     Args:
@@ -1018,20 +905,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
         if request and not session_path_arg
         else None
     )
-    run_map = None
+    session_dir_by_run_name = None
     if session_path_arg:
-      session_path = self._epath.Path(session_path_arg)
-      run_name = session_path.name
-      run_map = {}
-      if session_path.is_dir() and any(session_path.glob('*.xplane.pb')):
-        run_map[run_name] = str(session_path)
+      session_dir_by_run_name = {}
+      if self._dir_has_xplane_files(session_path_arg):
+        run_name = self._epath.Path(session_path_arg).name
+        session_dir_by_run_name[run_name] = session_path_arg
     elif run_path_arg:
-      run_path = self._epath.Path(run_path_arg)
-      run_map = {}
-      for session in run_path.iterdir():
-        if session.is_dir() and any(session.glob('*.xplane.pb')):
-          run_map[session.name] = str(session)
-    return run_map
+      fs = profile_io.get_file_system(run_path_arg, self._epath)
+      session_dir_by_run_name = fs.get_session_paths(run_path_arg)
+    return session_dir_by_run_name
 
   def _run_dir(
       self, run: str, request: wrappers.Request | None = None
@@ -1058,12 +941,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
       ValueError: If the run is not found in the run map.
       RuntimeError: If the run directory is not found.
     """
-    run_map = self._run_map_from_request(request)
-    if run_map is not None:
-      if run in run_map:
-        return run_map[run]
+    session_dir_by_run_name = self._session_dir_by_run_name_from_request(
+        request
+    )
+    if session_dir_by_run_name is not None:
+      if run in session_dir_by_run_name:
+        return session_dir_by_run_name[run]
       else:
-        raise ValueError(f'Run {run} not found in run map: {run_map}')
+        raise ValueError(
+            f'Run {run} not found in run map: {session_dir_by_run_name}'
+        )
 
     with self._run_dir_cache_lock:
       if run in self._run_to_profile_run_dir:
@@ -1091,9 +978,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
       request: Optional; werkzeug request used for grabbing ctx and experiment
         id for other host implementations
     """
-    run_map = self._run_map_from_request(request)
-    if run_map is not None:
-      runs = run_map.keys()
+    session_dir_by_run_name = self._session_dir_by_run_name_from_request(
+        request
+    )
+    if session_dir_by_run_name is not None:
+      runs = session_dir_by_run_name.keys()
     else:
       runs = self.generate_runs()
     return sorted(runs, reverse=True)
@@ -1125,23 +1014,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return []
-    tool_pattern = '*.xplane.pb'
-    xplane_filenames = []
-    try:
-      path = self._epath.Path(run_dir)
-      xplane_filenames = path.glob(tool_pattern)
-    except OSError as e:
-      logger.warning(
-          'Cannot read asset directory: %s, OpError %s',
-          run_dir,
-          e,
-          exc_info=True,
-      )
-    filenames = [os.fspath(os.path.basename(f)) for f in xplane_filenames]
-
     return [
         {'hostname': host}
-        for host in hosts_from_xplane_filenames(filenames, tool)
+        for host in hosts_from_xplane_filenames(
+            self._get_xplane_basenames(run_dir), tool
+        )
     ]
 
   def host_impl(
@@ -1228,13 +1105,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
     all_xplane_files = {}  # Map host to path
 
     # Find all available xplane files for the run and map them by host.
-    file_pattern = make_filename('*', 'xplane')
     try:
-      path = self._epath.Path(run_dir)
-      for xplane_path in path.glob(file_pattern):
-        host_name, _ = _parse_filename(xplane_path.name)
+      xplane_basenames = self._get_xplane_basenames(run_dir)
+      for basename in xplane_basenames:
+        host_name, _ = _parse_filename(basename)
         if host_name:
-          all_xplane_files[host_name] = xplane_path
+          all_xplane_files[host_name] = self._epath.Path(
+              os.path.join(run_dir, basename)
+          )
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
       raise IOError(
@@ -1296,10 +1174,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
           'w'
       ) as f:
         f.write(self._version.__version__)
-    except OSError as e:
-      logger.warning(
-          'Cannot write cache version file to %s: %r', run_dir, e, exc_info=True
-      )
+    except OSError:
+      logger.warning('Cannot write cache version file to %s', run_dir,
+                     exc_info=True)
 
   def data_impl(
       self, request: wrappers.Request
@@ -1344,8 +1221,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     except FileNotFoundError:
       logger.info('Cache version file not found, invalidating cache.')
       use_saved_result = False
-    except OSError as e:
-      logger.warning('Cannot read cache version file: %r', e, exc_info=True)
+    except OSError:
+      logger.warning('Cannot read cache version file', exc_info=True)
       use_saved_result = False
 
     graph_viewer_options = self._get_graph_viewer_options(request)
@@ -1430,28 +1307,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
     """Returns a string of HLO module names concatenated by comma for the given run."""
     run = request.args.get('run')
     run_dir = self._run_dir(run, request)
-    module_list = []
     if not run_dir:
       logger.warning('Cannot find asset directory for: %s', run)
       return ''
-    tool_pattern = '*.hlo_proto.pb'
-    filenames = []
     try:
-      path = self._epath.Path(run_dir)
-      filenames = path.glob(tool_pattern)
+      all_basenames = self._get_all_basenames(run_dir)
+      module_list = [
+          name
+          for f in all_basenames
+          if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
+      ]
+      module_names_str = ','.join(module_list)
+      return module_names_str
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
-    filenames = [os.fspath(os.path.basename(f)) for f in filenames]
-    for filename in filenames:
-      module_name, _ = _parse_filename(filename)
-      if module_name:
-        module_list.append(module_name)
-    module_names_str = ','.join(module_list)
-    return module_names_str
+      return ''
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
   def data_route(self, request: wrappers.Request) -> wrappers.Response:
+    """Handlers for data."""
     # pytype: enable=wrong-arg-types
     # params
     #   request: XMLHTTPRequest.
@@ -1533,7 +1408,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     }
 
     if is_tpu_name:
-      if not self._tf_profiler:
+      if self._tf_profiler is None:
         return respond(
             {
                 'error': (
@@ -1712,7 +1587,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
       logger.warning('Cannot find asset directory for: %s', run)
       return
     profile_run_dir = self._epath.Path(run_dir)
-    cache = ToolsCache(profile_run_dir)
+    fs = profile_io.get_file_system(run_dir, self._epath)
+    cache = ToolsCache(profile_run_dir, fs)
 
     cached_tools = cache.load()
 
@@ -1723,16 +1599,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     # Cache is invalid or doesn't exist, regenerate
     tools = []
-    try:
-      all_filenames = [f.name for f in profile_run_dir.iterdir()]
-    except OSError as e:
-      logger.warning(
-          'Cannot read asset directory: %s, Error %r',
-          profile_run_dir,
-          e,
-          exc_info=True,
-      )
-      return tools
+    all_filenames = self._get_all_basenames(run_dir)
 
     if all_filenames:
       tools = self._get_active_tools(all_filenames, str(profile_run_dir))
@@ -1823,7 +1690,10 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     try:
       path = self._epath.Path(session_path)
-      asset_paths = sorted([str(p) for p in path.glob('*.xplane.pb')])
+      xplane_basenames = self._get_xplane_basenames(session_path)
+      asset_paths = sorted(
+          str(path / basename) for basename in xplane_basenames
+      )
       if not asset_paths:
         return respond(
             'No XPlane files found in session_path', 'text/plain', code=404

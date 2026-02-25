@@ -34,6 +34,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
@@ -126,19 +127,6 @@ class SessionSnapshot {
     return tsl::WriteBinaryProto(tsl::Env::Default(), filepath, proto);
   }
 
-  template <typename T>
-  absl::Status ReadBinaryProto(const StoredDataType data_type,
-                               const std::string host, T* proto) const {
-    // Gets file path for host data.
-    TF_ASSIGN_OR_RETURN(std::optional<std::string> filepath,
-                        GetHostDataFilePath(data_type, host));
-    if (filepath) {
-      return tsl::ReadBinaryProto(tsl::Env::Default(), filepath.value(), proto);
-    }
-
-    return absl::NotFoundError(
-        absl::StrCat("No binary proto found for ", host, " and ", data_type));
-  }
 
  private:
   SessionSnapshot(std::vector<std::string> xspace_paths,
@@ -185,7 +173,14 @@ template <typename T>
 absl::Status ReadBinaryProto(const SessionSnapshot& session_snapshot,
                              const StoredDataType data_type,
                              const std::string& host, T* proto) {
-  return session_snapshot.ReadBinaryProto(data_type, host, proto);
+  // Gets file path for host data.
+  TF_ASSIGN_OR_RETURN(std::optional<std::string> filepath,
+                      session_snapshot.GetHostDataFilePath(data_type, host));
+  if (!filepath.has_value()) {
+    return absl::NotFoundError(
+        absl::StrCat("No binary proto found for ", host, " and ", data_type));
+  }
+  return xprof::ReadBinaryProto(filepath.value(), proto);
 }
 
 // TODO(b/408280338) Remove this function as 0 reference is found.

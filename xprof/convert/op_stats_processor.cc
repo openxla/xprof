@@ -32,6 +32,7 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/convert/op_stats_combiner.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
@@ -161,8 +162,7 @@ absl::Status OpStatsProcessor::Reduce(
               << map_output_files.size() << "]: " << map_output_file;
 
     OpStats op_stats;
-    TF_RETURN_IF_ERROR(
-        tsl::ReadBinaryProto(tsl::Env::Default(), map_output_file, &op_stats));
+    TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(map_output_file, &op_stats));
     all_op_stats.push_back(op_stats);
     LOG(INFO) << "OpStatsProcessor::Reduce: Finished reading file [" << i << "/"
               << map_output_files.size() << "].";

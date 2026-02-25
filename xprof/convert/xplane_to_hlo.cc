@@ -31,6 +31,7 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/utils/hlo_proto_map.h"
@@ -96,8 +97,7 @@ absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
       ProfilerJoinPath(session_snapshot.GetSessionRunDir(),
                        absl::StrCat(module_name, kHloProtoSuffix));
   xla::HloProto hlo_proto;
-  TF_RETURN_IF_ERROR(
-      tsl::ReadBinaryProto(tsl::Env::Default(), file_name, &hlo_proto));
+  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(file_name, &hlo_proto));
   return hlo_proto;
 }
 

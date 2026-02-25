@@ -35,6 +35,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -106,8 +107,8 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
 
   // Return the XSpace proto from file.
   XSpace* xspace_from_file = google::protobuf::Arena::Create<XSpace>(arena);
-  TF_RETURN_IF_ERROR(tsl::ReadBinaryProto(
-      tsl::Env::Default(), xspace_paths_.at(index), xspace_from_file));
+  const std::string& path = xspace_paths_.at(index);
+  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(path, xspace_from_file));
   return xspace_from_file;
 }
 
@@ -138,7 +139,8 @@ std::optional<std::string> SessionSnapshot::GetFilePath(
 std::optional<std::string> SessionSnapshot::MakeHostDataFilePath(
     const StoredDataType data_type, absl::string_view host) const {
   if (!has_accessible_run_dir_) return std::nullopt;
-  auto filename = GetHostDataFileName(data_type, std::string(host));
+  auto filename =
+      GetHostDataFileName(data_type, std::string(host));
   if (!filename.ok()) return std::nullopt;
   return tsl::io::JoinPath(session_run_dir_, *filename);
 }

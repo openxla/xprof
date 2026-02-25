@@ -29,6 +29,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_googlesource_code_re2//:re2",
+        "@org_xprof//xprof/convert:file_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",

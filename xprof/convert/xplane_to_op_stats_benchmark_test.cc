@@ -26,8 +26,8 @@
 #include "xprof/convert/xplane_to_op_stats.h"
 
 #include "absl/log/check.h"
-#include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 
 namespace tensorflow {
 namespace profiler {

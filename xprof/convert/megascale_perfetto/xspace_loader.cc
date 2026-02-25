@@ -21,7 +21,7 @@
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
 namespace xprof::megascale {
@@ -350,8 +350,7 @@ XprofTrace XSpaceLoader::Load(const tsl::profiler::XSpace& space) {
 absl::StatusOr<XprofTrace> XSpaceLoader::LoadFromFile(
     const std::string& file_path) {
   tsl::profiler::XSpace xspace;
-  TF_RETURN_IF_ERROR(
-      tsl::ReadBinaryProto(tsl::Env::Default(), file_path, &xspace));
+  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, &xspace));
   return Load(xspace);
 }
 

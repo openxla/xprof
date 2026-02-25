@@ -59,8 +59,8 @@ cc_test(
         # TODO(muditgokhale): Check if we can use benchmark_main instead of gunit_main.
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/log:check",
-        "@xla//xla/tsl/platform:env",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        ":file_utils",
     ],
 )
 
@@ -72,11 +72,11 @@ cc_test(
         "@org_xprof//xprof/convert/test_xplanes:tpu_inference_2.xplane.pb",
     ],
     deps = [
+        ":file_utils",
         ":xplane_to_op_stats",
         "@com_google_absl//absl/log:check",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@xla//xla/tsl/platform:env",
     ],
 )
 
@@ -99,6 +99,7 @@ cc_library(
     srcs = ["op_stats_processor.cc"],
     hdrs = ["op_stats_processor.h"],
     deps = [
+        ":file_utils",
         ":op_stats_combiner",
         ":preprocess_single_host_xplane",
         ":profile_processor",
@@ -1632,6 +1633,7 @@ cc_library(
     srcs = ["xplane_to_hlo.cc"],
     hdrs = ["xplane_to_hlo.h"],
     deps = [
+        ":file_utils",
         ":repository",
         ":tool_options",
         "@com_google_absl//absl/status:statusor",
@@ -1738,10 +1740,44 @@ cc_library(
 )
 
 cc_library(
+    name = "file_utils",
+    srcs = ["file_utils.cc"],
+    hdrs = ["file_utils.h"],
+    deps = [
+        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud:google_cloud_cpp_common",
+        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@tsl//tsl/platform:protobuf",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+    ],
+)
+
+cc_test(
+    name = "file_utils_test",
+    srcs = ["file_utils_test.cc"],
+    deps = [
+        ":file_utils",
+        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud:google_cloud_cpp_common",
+        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage",
+        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage_testing",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/lib/core:status_test_util",
+    ],
+)
+
+cc_library(
     name = "repository",
     srcs = ["repository.cc"],
     hdrs = ["repository.h"],
     deps = [
+        ":file_utils",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

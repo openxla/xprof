@@ -82,10 +82,11 @@ find xprof/protobuf -name \*.py -exec sed -i.bak -e '
 
 find . -name "*.bak" -exec rm {} \;
 
-cp ${build_workspace}/bazel-bin/xprof/pywrap/_pywrap_profiler_plugin.so xprof/convert/
+cp ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so xprof/convert/
+cp ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py xprof/convert/
 
 if [[ "$(uname)" == *MSYS_NT* ]]; then
-  mv xprof/convert/_pywrap_profiler_plugin.so xprof/convert/_pywrap_profiler_plugin.pyd
+  mv xprof/convert/profiler_plugin_c_api.so xprof/convert/profiler_plugin_c_api.pyd
 fi
 
 # Copy static files.

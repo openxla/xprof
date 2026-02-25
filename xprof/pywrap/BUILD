@@ -1,3 +1,7 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:py_extension.bzl", "py_extension")
 load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_test")
 
@@ -8,42 +12,54 @@ config_setting(
     values = {"compilation_mode": "dbg"},
 )
 
-pytype_extension(
-    name = "_pywrap_profiler_plugin",
-    srcs = ["pywrap_profiler_plugin.cc"],
+cc_binary(
+    name = "profiler_plugin_c_api.so",
+    srcs = [
+        "profiler_plugin_c_api.cc",
+        "profiler_plugin_c_api.h",
+    ],
     copts = [
         "-fno-strict-aliasing",
-        "-fexceptions",
+        "-fvisibility=hidden",
     ] + select({
         ":dbg_build": ["-g"],
         "//conditions:default": [],
     }),
-    features = ["-use_header_modules"],
-    pytype_srcs = [
-        "_pywrap_profiler_plugin.pyi",
+    features = ["windows_export_all_symbols"],
+    linkopts = [
+        "-Wl,--version-script,$(location :profiler_plugin.lds)",
+        "-Wl,--gc-sections",
     ],
+    linkshared = True,
     deps = [
+        ":profiler_plugin.lds",
         ":profiler_plugin_impl",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/worker:stub_factory",
         "@org_xprof//xprof/convert:tool_options",
-        "@pybind11",
-        "@xla//xla/pjrt:status_casters",
-        "@xla//xla/tsl/platform/cloud:gcs_file_system",
+        "@rules_python//python/cc:current_py_cc_headers",
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ],
+)
+
+py_library(
+    name = "_pywrap_profiler_plugin",
+    srcs = ["_pywrap_profiler_plugin.py"],
+    data = [":profiler_plugin_c_api.so"],
 )
 
 py_strict_test(
     name = "profiler_wrapper_test",
     srcs = ["profiler_wrapper_test.py"],
-    tags = [
-        "no_pip",
-    ],
+    python_version = "PY3",
+    srcs_version = "PY3",
+    tags = ["no_oss"],
     deps = [
         ":_pywrap_profiler_plugin",
+        "//third_party/tensorflow",
         "@absl_py//absl/testing:absltest",
+        "@pytest//pytest",
     ],
 )
 
@@ -73,4 +89,5 @@ cc_library(
         "@xla//xla/tsl/profiler/rpc/client:profiler_client_impl",
         "@xla//xla/tsl/profiler/utils:session_manager",
     ],
+    alwayslink = 1,
 )

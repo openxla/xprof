@@ -80,6 +80,9 @@ inline constexpr double kAsyncDoneThresholdInPercent = 10;
 // high.
 inline constexpr double kMemoryUtilizationHighThreshold = 50;
 
+// A small number to compare floating point numbers with zero.
+inline constexpr double kZeroEpsilon = 1e-6;
+
 }  // namespace profiler
 }  // namespace tensorflow
 

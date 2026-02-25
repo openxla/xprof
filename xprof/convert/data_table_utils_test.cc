@@ -21,7 +21,7 @@ limitations under the License.
 
 #include "<gtest/gtest.h>"
 #include "absl/time/time.h"
-#include "nlohmann/json_fwd.hpp"
+#include "nlohmann/json_fwd.hpp"  // from @com_github_nlohmann_json
 #include "nlohmann/json.hpp"
 
 namespace tensorflow::profiler {

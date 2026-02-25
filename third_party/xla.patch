@@ -1,8 +1,17 @@
-diff --git a/workspace1.bzl b/workspace1.bzl
-index 05121708fc..82e2b0e14d 100644
---- a/workspace1.bzl
-+++ b/workspace1.bzl
-@@ -3,7 +3,7 @@
+diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/tools/toolchains/python/python_repo.bzl /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/tools/toolchains/python/python_repo.bzl
+--- a/tools/toolchains/python/python_repo.bzl	2026-02-25 03:10:41.304010192 +0000
++++ b/tools/toolchains/python/python_repo.bzl	2026-02-25 03:11:01.034561310 +0000
+@@ -40,3 +40,5 @@
+     implementation = _python_repository_impl,
+     environ = ["TF_PYTHON_VERSION", "WHEEL_NAME", "WHEEL_COLLAB"],
+ )
++
++USE_PYWRAP_RULES = "False"
+diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/workspace1.bzl /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/workspace1.bzl
+--- a/workspace1.bzl	2026-02-25 03:10:41.349200002 +0000
++++ b/workspace1.bzl	2026-02-25 03:11:01.034561310 +0000
+@@ -1,7 +1,7 @@
+ """TensorFlow workspace initialization. Consult the WORKSPACE on how to use it."""
 
  load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 -load("@io_bazel_rules_closure//closure:defs.bzl", "closure_repositories")
@@ -10,7 +19,7 @@ index 05121708fc..82e2b0e14d 100644
  load("@rules_pkg//:deps.bzl", "rules_pkg_dependencies")
  load("//third_party:repo.bzl", "tf_http_archive", "tf_mirror_urls")
  load("//third_party/llvm:setup.bzl", "llvm_setup")
-@@ -14,7 +14,7 @@
+@@ -13,7 +13,7 @@
      native.register_toolchains("@local_config_python//:py_toolchain")
      rules_pkg_dependencies()
 
@@ -19,13 +28,17 @@ index 05121708fc..82e2b0e14d 100644
 
      tf_http_archive(
          name = "bazel_toolchains",
-diff --git a/tools/toolchains/python/python_repo.bzl b/tools/toolchains/python/python_repo.bzl
-index 47fe64d7b7b..a01a1f19c8b 100644
---- a/tools/toolchains/python/python_repo.bzl
-+++ b/tools/toolchains/python/python_repo.bzl
-@@ -21,4 +21,5 @@ TF_PYTHON_VERSION = "{}"
- HERMETIC_PYTHON_VERSION = "{}"
- WHEEL_NAME = "{}"
- WHEEL_COLLAB = "{}"
-+USE_PYWRAP_RULES = "False"
- """
+diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/platform/cloud/BUILD /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/platform/cloud/BUILD
+--- a/xla/tsl/platform/cloud/BUILD	2026-02-25 03:10:50.179850953 +0000
++++ b/xla/tsl/platform/cloud/BUILD	2026-02-25 03:11:01.034779770 +0000
+@@ -221,6 +221,10 @@
+     srcs = ["curl_http_request.cc"],
+     hdrs = ["curl_http_request.h"],
+     copts = tsl_copts(),
++    defines = select({
++        "//xla/tsl:windows": ["CURL_STATICLIB"],
++        "//conditions:default": [],
++    }),
+     deps = [
+         ":http_request",
+         "//xla/tsl/platform:env",

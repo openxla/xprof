@@ -1,0 +1,2887 @@
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/accessapproval/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/accessapproval/BUILD.bazel
+--- a/google/cloud/accessapproval/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/accessapproval/BUILD.bazel	2026-02-25 03:45:59.627076878 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/accesscontextmanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/accesscontextmanager/BUILD.bazel
+--- a/google/cloud/accesscontextmanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/accesscontextmanager/BUILD.bazel	2026-02-25 03:45:59.618837838 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/advisorynotifications/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/advisorynotifications/BUILD.bazel
+--- a/google/cloud/advisorynotifications/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/advisorynotifications/BUILD.bazel	2026-02-25 03:45:59.610662098 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/aiplatform/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/aiplatform/BUILD.bazel
+--- a/google/cloud/aiplatform/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/aiplatform/BUILD.bazel	2026-02-25 03:45:59.600686189 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/aiplatform/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/aiplatform/samples/BUILD.bazel
+--- a/google/cloud/aiplatform/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/aiplatform/samples/BUILD.bazel	2026-02-25 03:45:59.606979519 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/alloydb/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/alloydb/BUILD.bazel
+--- a/google/cloud/alloydb/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/alloydb/BUILD.bazel	2026-02-25 03:45:59.592585989 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/apigateway/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/apigateway/BUILD.bazel
+--- a/google/cloud/apigateway/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/apigateway/BUILD.bazel	2026-02-25 03:45:59.584415640 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/apigeeconnect/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/apigeeconnect/BUILD.bazel
+--- a/google/cloud/apigeeconnect/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/apigeeconnect/BUILD.bazel	2026-02-25 03:45:59.576293260 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/apikeys/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/apikeys/BUILD.bazel
+--- a/google/cloud/apikeys/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/apikeys/BUILD.bazel	2026-02-25 03:45:59.568118900 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/apiregistry/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/apiregistry/BUILD.bazel
+--- a/google/cloud/apiregistry/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/apiregistry/BUILD.bazel	2026-02-25 03:45:59.559951010 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/appengine/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/appengine/BUILD.bazel
+--- a/google/cloud/appengine/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/appengine/BUILD.bazel	2026-02-25 03:45:59.551644231 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/apphub/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/apphub/BUILD.bazel
+--- a/google/cloud/apphub/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/apphub/BUILD.bazel	2026-02-25 03:45:59.543492241 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/artifactregistry/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/artifactregistry/BUILD.bazel
+--- a/google/cloud/artifactregistry/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/artifactregistry/BUILD.bazel	2026-02-25 03:45:59.535339451 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/asset/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/asset/BUILD.bazel
+--- a/google/cloud/asset/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/asset/BUILD.bazel	2026-02-25 03:45:59.527209031 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/assuredworkloads/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/assuredworkloads/BUILD.bazel
+--- a/google/cloud/assuredworkloads/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/assuredworkloads/BUILD.bazel	2026-02-25 03:45:59.518948651 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/auditmanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/auditmanager/BUILD.bazel
+--- a/google/cloud/auditmanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/auditmanager/BUILD.bazel	2026-02-25 03:45:59.510314702 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/automl/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/automl/BUILD.bazel
+--- a/google/cloud/automl/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/automl/BUILD.bazel	2026-02-25 03:45:59.502128652 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/backupdr/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/backupdr/BUILD.bazel
+--- a/google/cloud/backupdr/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/backupdr/BUILD.bazel	2026-02-25 03:45:59.493866052 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/baremetalsolution/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/baremetalsolution/BUILD.bazel
+--- a/google/cloud/baremetalsolution/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/baremetalsolution/BUILD.bazel	2026-02-25 03:45:59.485678723 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/batch/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/batch/BUILD.bazel
+--- a/google/cloud/batch/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/batch/BUILD.bazel	2026-02-25 03:45:59.477482873 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/beyondcorp/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/beyondcorp/BUILD.bazel
+--- a/google/cloud/beyondcorp/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/beyondcorp/BUILD.bazel	2026-02-25 03:45:59.457049884 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigquery/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigquery/BUILD.bazel
+--- a/google/cloud/bigquery/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigquery/BUILD.bazel	2026-02-25 03:45:59.396246926 +0000
+@@ -18,7 +18,7 @@
+ load(":google_cloud_cpp_bigquery_rest.bzl", "google_cloud_cpp_bigquery_rest_hdrs", "google_cloud_cpp_bigquery_rest_srcs")
+ load(":google_cloud_cpp_bigquery_rest_mocks.bzl", "google_cloud_cpp_bigquery_rest_mocks_hdrs", "google_cloud_cpp_bigquery_rest_mocks_srcs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -69,7 +69,7 @@
+     name = "google_cloud_cpp_bigquery_rest",
+     srcs = google_cloud_cpp_bigquery_rest_srcs,
+     hdrs = google_cloud_cpp_bigquery_rest_hdrs,
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//google/cloud:google_cloud_cpp_rest_internal",
+@@ -81,7 +81,7 @@
+     testonly = True,
+     srcs = google_cloud_cpp_bigquery_rest_mocks_srcs,
+     hdrs = google_cloud_cpp_bigquery_rest_mocks_hdrs,
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_bigquery_rest",
+         "@googletest//:gtest",
+@@ -93,7 +93,7 @@
+     testonly = True,
+     srcs = bigquery_rest_testing_srcs,
+     hdrs = bigquery_rest_testing_hdrs,
+-    visibility = [":__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_bigquery_rest",
+         ":google_cloud_cpp_bigquery_rest_mocks",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigquery/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigquery/quickstart/BUILD.bazel
+--- a/google/cloud/bigquery/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigquery/quickstart/BUILD.bazel	2026-02-25 03:45:59.416786785 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigquery/v2/minimal/benchmarks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigquery/v2/minimal/benchmarks/BUILD.bazel
+--- a/google/cloud/bigquery/v2/minimal/benchmarks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigquery/v2/minimal/benchmarks/BUILD.bazel	2026-02-25 03:45:59.403254905 +0000
+@@ -16,7 +16,7 @@
+ load(":experimental_bigquery_rest_client_benchmark_unit_tests.bzl", "experimental_bigquery_rest_client_benchmark_unit_tests")
+ load(":experimental_bigquery_rest_client_benchmarks.bzl", "experimental_bigquery_rest_client_benchmarks_hdrs", "experimental_bigquery_rest_client_benchmarks_srcs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigquerycontrol/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigquerycontrol/BUILD.bazel
+--- a/google/cloud/bigquerycontrol/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigquerycontrol/BUILD.bazel	2026-02-25 03:45:59.386703286 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigquerycontrol/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigquerycontrol/integration_tests/BUILD.bazel
+--- a/google/cloud/bigquerycontrol/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigquerycontrol/integration_tests/BUILD.bazel	2026-02-25 03:45:59.393810786 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/admin/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/admin/samples/BUILD.bazel
+--- a/google/cloud/bigtable/admin/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/admin/samples/BUILD.bazel	2026-02-25 03:45:59.383200196 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/benchmarks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/benchmarks/BUILD.bazel
+--- a/google/cloud/bigtable/benchmarks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/benchmarks/BUILD.bazel	2026-02-25 03:45:59.380735786 +0000
+@@ -16,7 +16,7 @@
+ load(":bigtable_benchmark_programs.bzl", "bigtable_benchmark_programs")
+ load(":bigtable_benchmarks_unit_tests.bzl", "bigtable_benchmarks_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/BUILD.bazel
+--- a/google/cloud/bigtable/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/BUILD.bazel	2026-02-25 03:45:59.367212037 +0000
+@@ -18,7 +18,7 @@
+ load(":google_cloud_cpp_bigtable.bzl", "google_cloud_cpp_bigtable_hdrs", "google_cloud_cpp_bigtable_srcs")
+ load(":google_cloud_cpp_bigtable_mocks.bzl", "google_cloud_cpp_bigtable_mocks_hdrs", "google_cloud_cpp_bigtable_mocks_srcs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -35,7 +35,7 @@
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_bigtable_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -46,10 +46,7 @@
+         ":metrics_enabled": ["GOOGLE_CLOUD_CPP_BIGTABLE_WITH_OTEL_METRICS"],
+         "//conditions:default": [],
+     }),
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     # Do not sort: grpc++ must come last
+     deps = [
+         "//:common",
+@@ -75,7 +72,7 @@
+ filegroup(
+     name = "mocks",
+     srcs = [h for h in google_cloud_cpp_bigtable_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -83,10 +80,7 @@
+     testonly = True,
+     srcs = google_cloud_cpp_bigtable_mocks_srcs,
+     hdrs = google_cloud_cpp_bigtable_mocks_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_bigtable",
+         "//:common",
+@@ -100,10 +94,7 @@
+     testonly = True,
+     srcs = bigtable_client_testing_srcs,
+     hdrs = bigtable_client_testing_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_bigtable",
+         ":google_cloud_cpp_bigtable_mocks",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/examples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/examples/BUILD.bazel
+--- a/google/cloud/bigtable/examples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/examples/BUILD.bazel	2026-02-25 03:45:59.377001646 +0000
+@@ -16,7 +16,7 @@
+ load(":bigtable_examples_common.bzl", "bigtable_examples_common_hdrs", "bigtable_examples_common_srcs")
+ load(":bigtable_examples_unit_tests.bzl", "bigtable_examples_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/quickstart/BUILD.bazel
+--- a/google/cloud/bigtable/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/quickstart/BUILD.bazel	2026-02-25 03:45:59.373417536 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/test_proxy/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/test_proxy/BUILD.bazel
+--- a/google/cloud/bigtable/test_proxy/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/test_proxy/BUILD.bazel	2026-02-25 03:45:59.372145156 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/bigtable/tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/bigtable/tests/BUILD.bazel
+--- a/google/cloud/bigtable/tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/bigtable/tests/BUILD.bazel	2026-02-25 03:45:59.369688236 +0000
+@@ -17,7 +17,7 @@
+     "bigtable_client_integration_tests",
+ )
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/billing/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/billing/BUILD.bazel
+--- a/google/cloud/billing/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/billing/BUILD.bazel	2026-02-25 03:45:59.353235237 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/binaryauthorization/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/binaryauthorization/BUILD.bazel
+--- a/google/cloud/binaryauthorization/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/binaryauthorization/BUILD.bazel	2026-02-25 03:45:59.345016237 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/BUILD.bazel
+--- a/google/cloud/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/BUILD.bazel	2026-02-25 03:45:57.479123637 +0000
+@@ -31,7 +31,7 @@
+ load(":google_cloud_cpp_universe_domain.bzl", "google_cloud_cpp_universe_domain_hdrs", "google_cloud_cpp_universe_domain_srcs")
+ load(":google_cloud_cpp_universe_domain_unit_tests.bzl", "google_cloud_cpp_universe_domain_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -39,15 +39,12 @@
+     name = "generate_build_info",
+     output_file = "internal/build_info.cc",
+     template = "internal/build_info.cc.in",
+-    toolchains = [
+-        "@bazel_tools//tools/cpp:current_cc_toolchain",
+-    ],
+ )
+
+ filegroup(
+     name = "common_hdrs",
+     srcs = [h for h in google_cloud_cpp_common_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -67,10 +64,7 @@
+         ],
+         "//conditions:default": [],
+     }),
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         "@abseil-cpp//absl/base",
+         "@abseil-cpp//absl/functional:function_ref",
+@@ -92,10 +86,7 @@
+ cc_library(
+     name = "google_cloud_cpp_common",
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":google_cloud_cpp_common_private"],
+ )
+
+@@ -128,7 +119,7 @@
+ filegroup(
+     name = "grpc_utils_hdrs",
+     srcs = [h for h in google_cloud_cpp_grpc_utils_hdrs if ("/internal/" not in h and "grpc_utils/" not in h)],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -140,10 +131,7 @@
+         for header in google_cloud_cpp_grpc_utils_hdrs
+         if not "grpc_utils/" in header
+     ],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_common",
+         "@abseil-cpp//absl/functional:function_ref",
+@@ -161,10 +149,7 @@
+ cc_library(
+     name = "google_cloud_cpp_grpc_utils",
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":google_cloud_cpp_grpc_utils_private"],
+ )
+
+@@ -216,7 +201,7 @@
+ filegroup(
+     name = "mocks",
+     srcs = [h for h in google_cloud_cpp_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -224,10 +209,7 @@
+     testonly = True,
+     srcs = [],
+     hdrs = google_cloud_cpp_mocks_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_common",
+     ],
+@@ -253,7 +235,7 @@
+             "GOOGLE_CLOUD_CPP_HAVE_OPENSSL",
+         ],
+     }),
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_common",
+         "@abseil-cpp//absl/functional:function_ref",
+@@ -321,7 +303,7 @@
+     name = "google_cloud_cpp_rest_protobuf_internal",
+     srcs = google_cloud_cpp_rest_protobuf_internal_srcs,
+     hdrs = google_cloud_cpp_rest_protobuf_internal_hdrs,
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_common",
+         ":google_cloud_cpp_grpc_utils",
+@@ -347,7 +329,7 @@
+     name = "google_cloud_cpp_universe_domain",
+     srcs = google_cloud_cpp_universe_domain_srcs,
+     hdrs = google_cloud_cpp_universe_domain_hdrs,
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_common",
+         ":google_cloud_cpp_rest_internal",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/certificatemanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/certificatemanager/BUILD.bazel
+--- a/google/cloud/certificatemanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/certificatemanager/BUILD.bazel	2026-02-25 03:45:59.336860907 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/channel/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/channel/BUILD.bazel
+--- a/google/cloud/channel/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/channel/BUILD.bazel	2026-02-25 03:45:59.328760208 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/chronicle/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/chronicle/BUILD.bazel
+--- a/google/cloud/chronicle/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/chronicle/BUILD.bazel	2026-02-25 03:45:59.320404388 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/cloudbuild/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/cloudbuild/BUILD.bazel
+--- a/google/cloud/cloudbuild/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/cloudbuild/BUILD.bazel	2026-02-25 03:45:59.307819818 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/cloudcontrolspartner/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/cloudcontrolspartner/BUILD.bazel
+--- a/google/cloud/cloudcontrolspartner/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/cloudcontrolspartner/BUILD.bazel	2026-02-25 03:45:59.299560759 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/cloudquotas/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/cloudquotas/BUILD.bazel
+--- a/google/cloud/cloudquotas/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/cloudquotas/BUILD.bazel	2026-02-25 03:45:59.291414419 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/cloudsecuritycompliance/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/cloudsecuritycompliance/BUILD.bazel
+--- a/google/cloud/cloudsecuritycompliance/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/cloudsecuritycompliance/BUILD.bazel	2026-02-25 03:45:59.283142559 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/commerce/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/commerce/BUILD.bazel
+--- a/google/cloud/commerce/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/commerce/BUILD.bazel	2026-02-25 03:45:59.272727630 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/composer/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/composer/BUILD.bazel
+--- a/google/cloud/composer/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/composer/BUILD.bazel	2026-02-25 03:45:59.264472950 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/compute/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/compute/BUILD.bazel
+--- a/google/cloud/compute/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/compute/BUILD.bazel	2026-02-25 03:45:58.669928629 +0000
+@@ -15,7 +15,7 @@
+ load(":compute_library.bzl", "compute_library")
+ load(":service_dirs.bzl", "operation_service_dirs", "service_dirs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/compute/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/compute/integration_tests/BUILD.bazel
+--- a/google/cloud/compute/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/compute/integration_tests/BUILD.bazel	2026-02-25 03:45:59.100177405 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/compute/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/compute/samples/BUILD.bazel
+--- a/google/cloud/compute/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/compute/samples/BUILD.bazel	2026-02-25 03:45:58.795364065 +0000
+@@ -16,7 +16,7 @@
+
+ load(":compute_client_samples.bzl", "compute_client_samples")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/confidentialcomputing/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/confidentialcomputing/BUILD.bazel
+--- a/google/cloud/confidentialcomputing/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/confidentialcomputing/BUILD.bazel	2026-02-25 03:45:58.661651579 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/config/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/config/BUILD.bazel
+--- a/google/cloud/config/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/config/BUILD.bazel	2026-02-25 03:45:58.653442100 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/configdelivery/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/configdelivery/BUILD.bazel
+--- a/google/cloud/configdelivery/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/configdelivery/BUILD.bazel	2026-02-25 03:45:58.645314620 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/connectors/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/connectors/BUILD.bazel
+--- a/google/cloud/connectors/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/connectors/BUILD.bazel	2026-02-25 03:45:58.637103150 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/contactcenterinsights/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/contactcenterinsights/BUILD.bazel
+--- a/google/cloud/contactcenterinsights/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/contactcenterinsights/BUILD.bazel	2026-02-25 03:45:58.628979580 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/container/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/container/BUILD.bazel
+--- a/google/cloud/container/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/container/BUILD.bazel	2026-02-25 03:45:58.620810231 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/containeranalysis/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/containeranalysis/BUILD.bazel
+--- a/google/cloud/containeranalysis/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/containeranalysis/BUILD.bazel	2026-02-25 03:45:58.612607991 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/contentwarehouse/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/contentwarehouse/BUILD.bazel
+--- a/google/cloud/contentwarehouse/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/contentwarehouse/BUILD.bazel	2026-02-25 03:45:58.604283421 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/datacatalog/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/datacatalog/BUILD.bazel
+--- a/google/cloud/datacatalog/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/datacatalog/BUILD.bazel	2026-02-25 03:45:58.590011141 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dataform/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dataform/BUILD.bazel
+--- a/google/cloud/dataform/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dataform/BUILD.bazel	2026-02-25 03:45:58.581901932 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/datafusion/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/datafusion/BUILD.bazel
+--- a/google/cloud/datafusion/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/datafusion/BUILD.bazel	2026-02-25 03:45:58.573753692 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/datamigration/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/datamigration/BUILD.bazel
+--- a/google/cloud/datamigration/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/datamigration/BUILD.bazel	2026-02-25 03:45:58.565550553 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dataplex/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dataplex/BUILD.bazel
+--- a/google/cloud/dataplex/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dataplex/BUILD.bazel	2026-02-25 03:45:58.557287243 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dataproc/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dataproc/BUILD.bazel
+--- a/google/cloud/dataproc/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dataproc/BUILD.bazel	2026-02-25 03:45:58.548979523 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/datastore/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/datastore/BUILD.bazel
+--- a/google/cloud/datastore/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/datastore/BUILD.bazel	2026-02-25 03:45:58.535237824 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/datastream/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/datastream/BUILD.bazel
+--- a/google/cloud/datastream/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/datastream/BUILD.bazel	2026-02-25 03:45:58.527136874 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/deploy/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/deploy/BUILD.bazel
+--- a/google/cloud/deploy/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/deploy/BUILD.bazel	2026-02-25 03:45:58.519033504 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/developerconnect/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/developerconnect/BUILD.bazel
+--- a/google/cloud/developerconnect/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/developerconnect/BUILD.bazel	2026-02-25 03:45:58.510929334 +0000
+@@ -14,7 +14,7 @@
+
+ load("@google_cloud_cpp//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/devicestreaming/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/devicestreaming/BUILD.bazel
+--- a/google/cloud/devicestreaming/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/devicestreaming/BUILD.bazel	2026-02-25 03:45:58.502814354 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dialogflow_cx/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dialogflow_cx/BUILD.bazel
+--- a/google/cloud/dialogflow_cx/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dialogflow_cx/BUILD.bazel	2026-02-25 03:45:58.495496415 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dialogflow_es/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dialogflow_es/BUILD.bazel
+--- a/google/cloud/dialogflow_es/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dialogflow_es/BUILD.bazel	2026-02-25 03:45:58.487966865 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/discoveryengine/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/discoveryengine/BUILD.bazel
+--- a/google/cloud/discoveryengine/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/discoveryengine/BUILD.bazel	2026-02-25 03:45:58.479404995 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/dlp/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/dlp/BUILD.bazel
+--- a/google/cloud/dlp/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/dlp/BUILD.bazel	2026-02-25 03:45:58.471213525 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/documentai/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/documentai/BUILD.bazel
+--- a/google/cloud/documentai/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/documentai/BUILD.bazel	2026-02-25 03:45:58.460814756 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/domains/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/domains/BUILD.bazel
+--- a/google/cloud/domains/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/domains/BUILD.bazel	2026-02-25 03:45:58.452666786 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/edgecontainer/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/edgecontainer/BUILD.bazel
+--- a/google/cloud/edgecontainer/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/edgecontainer/BUILD.bazel	2026-02-25 03:45:58.444516537 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/edgenetwork/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/edgenetwork/BUILD.bazel
+--- a/google/cloud/edgenetwork/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/edgenetwork/BUILD.bazel	2026-02-25 03:45:58.436402987 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/essentialcontacts/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/essentialcontacts/BUILD.bazel
+--- a/google/cloud/essentialcontacts/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/essentialcontacts/BUILD.bazel	2026-02-25 03:45:58.428287097 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/eventarc/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/eventarc/BUILD.bazel
+--- a/google/cloud/eventarc/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/eventarc/BUILD.bazel	2026-02-25 03:45:58.414555367 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/filestore/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/filestore/BUILD.bazel
+--- a/google/cloud/filestore/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/filestore/BUILD.bazel	2026-02-25 03:45:58.406432758 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/financialservices/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/financialservices/BUILD.bazel
+--- a/google/cloud/financialservices/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/financialservices/BUILD.bazel	2026-02-25 03:45:58.398254038 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/functions/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/functions/BUILD.bazel
+--- a/google/cloud/functions/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/functions/BUILD.bazel	2026-02-25 03:45:58.385651238 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/gkebackup/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/gkebackup/BUILD.bazel
+--- a/google/cloud/gkebackup/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/gkebackup/BUILD.bazel	2026-02-25 03:45:58.377544499 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/gkeconnect/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/gkeconnect/BUILD.bazel
+--- a/google/cloud/gkeconnect/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/gkeconnect/BUILD.bazel	2026-02-25 03:45:58.368308199 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/gkehub/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/gkehub/BUILD.bazel
+--- a/google/cloud/gkehub/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/gkehub/BUILD.bazel	2026-02-25 03:45:58.360030739 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/gkemulticloud/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/gkemulticloud/BUILD.bazel
+--- a/google/cloud/gkemulticloud/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/gkemulticloud/BUILD.bazel	2026-02-25 03:45:58.351854480 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/gkerecommender/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/gkerecommender/BUILD.bazel
+--- a/google/cloud/gkerecommender/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/gkerecommender/BUILD.bazel	2026-02-25 03:45:58.343617860 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/iam/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/iam/BUILD.bazel
+--- a/google/cloud/iam/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/iam/BUILD.bazel	2026-02-25 03:45:58.312776410 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/iam/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/iam/quickstart/BUILD.bazel
+--- a/google/cloud/iam/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/iam/quickstart/BUILD.bazel	2026-02-25 03:45:58.328621500 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/iap/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/iap/BUILD.bazel
+--- a/google/cloud/iap/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/iap/BUILD.bazel	2026-02-25 03:45:58.304593241 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/ids/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/ids/BUILD.bazel
+--- a/google/cloud/ids/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/ids/BUILD.bazel	2026-02-25 03:45:58.296397761 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/kms/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/kms/BUILD.bazel
+--- a/google/cloud/kms/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/kms/BUILD.bazel	2026-02-25 03:45:58.277637832 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/language/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/language/BUILD.bazel
+--- a/google/cloud/language/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/language/BUILD.bazel	2026-02-25 03:45:58.264973052 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/licensemanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/licensemanager/BUILD.bazel
+--- a/google/cloud/licensemanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/licensemanager/BUILD.bazel	2026-02-25 03:45:58.256761303 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/logging/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/logging/BUILD.bazel
+--- a/google/cloud/logging/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/logging/BUILD.bazel	2026-02-25 03:45:58.247265233 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/logging/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/logging/integration_tests/BUILD.bazel
+--- a/google/cloud/logging/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/logging/integration_tests/BUILD.bazel	2026-02-25 03:45:58.254363333 +0000
+@@ -14,7 +14,7 @@
+
+ load(":logging_client_integration_tests.bzl", "logging_client_integration_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/lustre/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/lustre/BUILD.bazel
+--- a/google/cloud/lustre/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/lustre/BUILD.bazel	2026-02-25 03:45:58.238995333 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/maintenance/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/maintenance/BUILD.bazel
+--- a/google/cloud/maintenance/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/maintenance/BUILD.bazel	2026-02-25 03:45:58.229620443 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/managedidentities/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/managedidentities/BUILD.bazel
+--- a/google/cloud/managedidentities/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/managedidentities/BUILD.bazel	2026-02-25 03:45:58.221392804 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/managedkafka/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/managedkafka/BUILD.bazel
+--- a/google/cloud/managedkafka/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/managedkafka/BUILD.bazel	2026-02-25 03:45:58.207604504 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/memcache/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/memcache/BUILD.bazel
+--- a/google/cloud/memcache/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/memcache/BUILD.bazel	2026-02-25 03:45:58.199337724 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/memorystore/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/memorystore/BUILD.bazel
+--- a/google/cloud/memorystore/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/memorystore/BUILD.bazel	2026-02-25 03:45:58.191205045 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/metastore/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/metastore/BUILD.bazel
+--- a/google/cloud/metastore/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/metastore/BUILD.bazel	2026-02-25 03:45:58.183048785 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/migrationcenter/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/migrationcenter/BUILD.bazel
+--- a/google/cloud/migrationcenter/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/migrationcenter/BUILD.bazel	2026-02-25 03:45:58.174831975 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/monitoring/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/monitoring/BUILD.bazel
+--- a/google/cloud/monitoring/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/monitoring/BUILD.bazel	2026-02-25 03:45:58.154241586 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/netapp/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/netapp/BUILD.bazel
+--- a/google/cloud/netapp/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/netapp/BUILD.bazel	2026-02-25 03:45:58.146131656 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/networkconnectivity/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/networkconnectivity/BUILD.bazel
+--- a/google/cloud/networkconnectivity/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/networkconnectivity/BUILD.bazel	2026-02-25 03:45:58.137913276 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/networkmanagement/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/networkmanagement/BUILD.bazel
+--- a/google/cloud/networkmanagement/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/networkmanagement/BUILD.bazel	2026-02-25 03:45:58.129698687 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/networksecurity/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/networksecurity/BUILD.bazel
+--- a/google/cloud/networksecurity/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/networksecurity/BUILD.bazel	2026-02-25 03:45:58.121563597 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/networkservices/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/networkservices/BUILD.bazel
+--- a/google/cloud/networkservices/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/networkservices/BUILD.bazel	2026-02-25 03:45:58.113321897 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/notebooks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/notebooks/BUILD.bazel
+--- a/google/cloud/notebooks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/notebooks/BUILD.bazel	2026-02-25 03:45:58.100264088 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/oauth2/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/oauth2/BUILD.bazel
+--- a/google/cloud/oauth2/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/oauth2/BUILD.bazel	2026-02-25 03:45:58.096565298 +0000
+@@ -15,21 +15,21 @@
+ load(":google_cloud_cpp_oauth2.bzl", "google_cloud_cpp_oauth2_hdrs", "google_cloud_cpp_oauth2_srcs")
+ load(":google_cloud_cpp_oauth2_unit_tests.bzl", "google_cloud_cpp_oauth2_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_oauth2_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_oauth2",
+     srcs = google_cloud_cpp_oauth2_srcs,
+     hdrs = google_cloud_cpp_oauth2_hdrs,
+-    visibility = ["//:__subpackages__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//google/cloud:google_cloud_cpp_rest_internal",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/opentelemetry/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/opentelemetry/BUILD.bazel
+--- a/google/cloud/opentelemetry/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/opentelemetry/BUILD.bazel	2026-02-25 03:45:58.087935328 +0000
+@@ -15,21 +15,21 @@
+ load(":google_cloud_cpp_opentelemetry.bzl", "google_cloud_cpp_opentelemetry_hdrs", "google_cloud_cpp_opentelemetry_srcs")
+ load(":opentelemetry_unit_tests.bzl", "opentelemetry_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_opentelemetry_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_opentelemetry",
+     srcs = google_cloud_cpp_opentelemetry_srcs,
+     hdrs = google_cloud_cpp_opentelemetry_hdrs,
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:monitoring",
+         "//:trace",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/opentelemetry/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/opentelemetry/integration_tests/BUILD.bazel
+--- a/google/cloud/opentelemetry/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/opentelemetry/integration_tests/BUILD.bazel	2026-02-25 03:45:58.094127288 +0000
+@@ -14,7 +14,7 @@
+
+ load(":tests.bzl", "opentelemetry_integration_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/opentelemetry/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/opentelemetry/quickstart/BUILD.bazel
+--- a/google/cloud/opentelemetry/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/opentelemetry/quickstart/BUILD.bazel	2026-02-25 03:45:58.090535658 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/opentelemetry/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/opentelemetry/samples/BUILD.bazel
+--- a/google/cloud/opentelemetry/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/opentelemetry/samples/BUILD.bazel	2026-02-25 03:45:58.089244858 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/optimization/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/optimization/BUILD.bazel
+--- a/google/cloud/optimization/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/optimization/BUILD.bazel	2026-02-25 03:45:58.079532448 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/oracledatabase/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/oracledatabase/BUILD.bazel
+--- a/google/cloud/oracledatabase/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/oracledatabase/BUILD.bazel	2026-02-25 03:45:58.070792369 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/orgpolicy/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/orgpolicy/BUILD.bazel
+--- a/google/cloud/orgpolicy/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/orgpolicy/BUILD.bazel	2026-02-25 03:45:58.061975569 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/osconfig/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/osconfig/BUILD.bazel
+--- a/google/cloud/osconfig/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/osconfig/BUILD.bazel	2026-02-25 03:45:58.048243539 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/oslogin/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/oslogin/BUILD.bazel
+--- a/google/cloud/oslogin/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/oslogin/BUILD.bazel	2026-02-25 03:45:58.040053159 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/parallelstore/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/parallelstore/BUILD.bazel
+--- a/google/cloud/parallelstore/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/parallelstore/BUILD.bazel	2026-02-25 03:45:58.031886260 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/parametermanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/parametermanager/BUILD.bazel
+--- a/google/cloud/parametermanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/parametermanager/BUILD.bazel	2026-02-25 03:45:58.023633310 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/policysimulator/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/policysimulator/BUILD.bazel
+--- a/google/cloud/policysimulator/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/policysimulator/BUILD.bazel	2026-02-25 03:45:58.012838870 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/policytroubleshooter/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/policytroubleshooter/BUILD.bazel
+--- a/google/cloud/policytroubleshooter/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/policytroubleshooter/BUILD.bazel	2026-02-25 03:45:57.995891941 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/privateca/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/privateca/BUILD.bazel
+--- a/google/cloud/privateca/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/privateca/BUILD.bazel	2026-02-25 03:45:57.987465981 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/privilegedaccessmanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/privilegedaccessmanager/BUILD.bazel
+--- a/google/cloud/privilegedaccessmanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/privilegedaccessmanager/BUILD.bazel	2026-02-25 03:45:57.979175862 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/profiler/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/profiler/BUILD.bazel
+--- a/google/cloud/profiler/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/profiler/BUILD.bazel	2026-02-25 03:45:57.970919152 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/publicca/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/publicca/BUILD.bazel
+--- a/google/cloud/publicca/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/publicca/BUILD.bazel	2026-02-25 03:45:57.962779842 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/admin/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/admin/samples/BUILD.bazel
+--- a/google/cloud/pubsub/admin/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/admin/samples/BUILD.bazel	2026-02-25 03:45:57.959193393 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/benchmarks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/benchmarks/BUILD.bazel
+--- a/google/cloud/pubsub/benchmarks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/benchmarks/BUILD.bazel	2026-02-25 03:45:57.956702913 +0000
+@@ -14,7 +14,7 @@
+
+ load(":pubsub_client_benchmark_programs.bzl", "pubsub_client_benchmark_programs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/BUILD.bazel
+--- a/google/cloud/pubsub/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/BUILD.bazel	2026-02-25 03:45:57.943557642 +0000
+@@ -17,24 +17,21 @@
+ load(":pubsub_client_testing.bzl", "pubsub_client_testing_hdrs", "pubsub_client_testing_srcs")
+ load(":pubsub_client_unit_tests.bzl", "pubsub_client_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_pubsub_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_pubsub",
+     srcs = google_cloud_cpp_pubsub_srcs,
+     hdrs = google_cloud_cpp_pubsub_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//:grpc_utils",
+@@ -49,9 +46,7 @@
+     testonly = True,
+     srcs = pubsub_client_testing_srcs,
+     hdrs = pubsub_client_testing_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_pubsub",
+         "//:common",
+@@ -64,17 +59,14 @@
+     name = "pubsub_client_testing",
+     testonly = True,
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":pubsub_client_testing_private"],
+ )
+
+ filegroup(
+     name = "mocks",
+     srcs = [h for h in google_cloud_cpp_pubsub_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -82,10 +74,7 @@
+     testonly = True,
+     srcs = [],
+     hdrs = google_cloud_cpp_pubsub_mocks_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_pubsub",
+         "@googletest//:gtest",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/integration_tests/BUILD.bazel
+--- a/google/cloud/pubsub/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/integration_tests/BUILD.bazel	2026-02-25 03:45:57.952091822 +0000
+@@ -14,7 +14,7 @@
+
+ load(":pubsub_client_integration_tests.bzl", "pubsub_client_integration_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/quickstart/BUILD.bazel
+--- a/google/cloud/pubsub/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/quickstart/BUILD.bazel	2026-02-25 03:45:57.948476402 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsub/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsub/samples/BUILD.bazel
+--- a/google/cloud/pubsub/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsub/samples/BUILD.bazel	2026-02-25 03:45:57.946035972 +0000
+@@ -21,7 +21,7 @@
+ load(":pubsub_samples_common.bzl", "pubsub_samples_common_hdrs", "pubsub_samples_common_srcs")
+ load(":pubsub_samples_unit_tests.bzl", "pubsub_samples_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -56,12 +56,12 @@
+     srcs = [
+         "testdata/schema.proto",
+     ],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_proto_library(
+     name = "samples_cc_proto",
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+     deps = [":samples_proto"],
+ )
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsublite/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsublite/BUILD.bazel
+--- a/google/cloud/pubsublite/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsublite/BUILD.bazel	2026-02-25 03:45:57.933808953 +0000
+@@ -17,21 +17,21 @@
+ load(":pubsublite_testing.bzl", "pubsublite_testing_hdrs", "pubsublite_testing_srcs")
+ load(":pubsublite_unit_tests.bzl", "pubsublite_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_pubsublite_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_pubsublite",
+     srcs = google_cloud_cpp_pubsublite_srcs,
+     hdrs = google_cloud_cpp_pubsublite_hdrs,
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//:grpc_utils",
+@@ -43,7 +43,7 @@
+ filegroup(
+     name = "mocks",
+     srcs = [h for h in google_cloud_cpp_pubsublite_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -51,7 +51,7 @@
+     testonly = True,
+     srcs = [],
+     hdrs = google_cloud_cpp_pubsublite_mocks_hdrs,
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_pubsublite",
+         "@googletest//:gtest",
+@@ -63,9 +63,7 @@
+     testonly = True,
+     srcs = pubsublite_testing_srcs,
+     hdrs = pubsublite_testing_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_pubsublite",
+         "//:common",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsublite/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsublite/integration_tests/BUILD.bazel
+--- a/google/cloud/pubsublite/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsublite/integration_tests/BUILD.bazel	2026-02-25 03:45:57.941093902 +0000
+@@ -14,7 +14,7 @@
+
+ load(":pubsublite_client_integration_tests.bzl", "pubsublite_client_integration_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/pubsublite/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/pubsublite/samples/BUILD.bazel
+--- a/google/cloud/pubsublite/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/pubsublite/samples/BUILD.bazel	2026-02-25 03:45:57.936260783 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/rapidmigrationassessment/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/rapidmigrationassessment/BUILD.bazel
+--- a/google/cloud/rapidmigrationassessment/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/rapidmigrationassessment/BUILD.bazel	2026-02-25 03:45:57.925529563 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/recaptchaenterprise/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/recaptchaenterprise/BUILD.bazel
+--- a/google/cloud/recaptchaenterprise/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/recaptchaenterprise/BUILD.bazel	2026-02-25 03:45:57.917211634 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/recommender/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/recommender/BUILD.bazel
+--- a/google/cloud/recommender/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/recommender/BUILD.bazel	2026-02-25 03:45:57.908952944 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/redis/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/redis/BUILD.bazel
+--- a/google/cloud/redis/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/redis/BUILD.bazel	2026-02-25 03:45:57.894427684 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/resourcemanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/resourcemanager/BUILD.bazel
+--- a/google/cloud/resourcemanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/resourcemanager/BUILD.bazel	2026-02-25 03:45:57.886196205 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/retail/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/retail/BUILD.bazel
+--- a/google/cloud/retail/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/retail/BUILD.bazel	2026-02-25 03:45:57.877828715 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/run/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/run/BUILD.bazel
+--- a/google/cloud/run/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/run/BUILD.bazel	2026-02-25 03:45:57.869547975 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/scheduler/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/scheduler/BUILD.bazel
+--- a/google/cloud/scheduler/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/scheduler/BUILD.bazel	2026-02-25 03:45:57.860321355 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/secretmanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/secretmanager/BUILD.bazel
+--- a/google/cloud/secretmanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/secretmanager/BUILD.bazel	2026-02-25 03:45:57.852105476 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/securesourcemanager/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/securesourcemanager/BUILD.bazel
+--- a/google/cloud/securesourcemanager/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/securesourcemanager/BUILD.bazel	2026-02-25 03:45:57.843870726 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/securitycenter/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/securitycenter/BUILD.bazel
+--- a/google/cloud/securitycenter/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/securitycenter/BUILD.bazel	2026-02-25 03:45:57.831249536 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/securitycentermanagement/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/securitycentermanagement/BUILD.bazel
+--- a/google/cloud/securitycentermanagement/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/securitycentermanagement/BUILD.bazel	2026-02-25 03:45:57.822123406 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/servicecontrol/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/servicecontrol/BUILD.bazel
+--- a/google/cloud/servicecontrol/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/servicecontrol/BUILD.bazel	2026-02-25 03:45:57.809298557 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/servicedirectory/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/servicedirectory/BUILD.bazel
+--- a/google/cloud/servicedirectory/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/servicedirectory/BUILD.bazel	2026-02-25 03:45:57.800885787 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/servicehealth/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/servicehealth/BUILD.bazel
+--- a/google/cloud/servicehealth/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/servicehealth/BUILD.bazel	2026-02-25 03:45:57.792577548 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/servicemanagement/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/servicemanagement/BUILD.bazel
+--- a/google/cloud/servicemanagement/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/servicemanagement/BUILD.bazel	2026-02-25 03:45:57.784348498 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/serviceusage/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/serviceusage/BUILD.bazel
+--- a/google/cloud/serviceusage/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/serviceusage/BUILD.bazel	2026-02-25 03:45:57.776042168 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/shell/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/shell/BUILD.bazel
+--- a/google/cloud/shell/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/shell/BUILD.bazel	2026-02-25 03:45:57.767732049 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/admin/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/admin/integration_tests/BUILD.bazel
+--- a/google/cloud/spanner/admin/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/admin/integration_tests/BUILD.bazel	2026-02-25 03:45:57.766391888 +0000
+@@ -15,7 +15,7 @@
+ load(":spanner_admin_integration_tests.bzl", "spanner_admin_integration_tests")
+ load(":spanner_admin_integration_tests_rest.bzl", "spanner_admin_integration_tests_rest")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/admin/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/admin/samples/BUILD.bazel
+--- a/google/cloud/spanner/admin/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/admin/samples/BUILD.bazel	2026-02-25 03:45:57.762760398 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/benchmarks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/benchmarks/BUILD.bazel
+--- a/google/cloud/spanner/benchmarks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/benchmarks/BUILD.bazel	2026-02-25 03:45:57.760252578 +0000
+@@ -15,7 +15,7 @@
+ load(":spanner_client_benchmark_programs.bzl", "spanner_client_benchmark_programs")
+ load(":spanner_client_benchmarks.bzl", "spanner_client_benchmarks_hdrs", "spanner_client_benchmarks_srcs")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/BUILD.bazel
+--- a/google/cloud/spanner/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/BUILD.bazel	2026-02-25 03:45:57.748111469 +0000
+@@ -19,24 +19,21 @@
+ load(":spanner_client_testing.bzl", "spanner_client_testing_hdrs", "spanner_client_testing_srcs")
+ load(":spanner_client_unit_tests.bzl", "spanner_client_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_spanner_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_spanner",
+     srcs = google_cloud_cpp_spanner_srcs,
+     hdrs = google_cloud_cpp_spanner_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//:grpc_utils",
+@@ -57,10 +54,7 @@
+     name = "google_cloud_cpp_spanner_rest",
+     srcs = google_cloud_cpp_spanner_rest_srcs,
+     hdrs = google_cloud_cpp_spanner_rest_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_spanner",
+         "//google/cloud:google_cloud_cpp_rest_internal",
+@@ -71,7 +65,7 @@
+ filegroup(
+     name = "mocks",
+     srcs = [h for h in google_cloud_cpp_spanner_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -79,10 +73,7 @@
+     testonly = True,
+     srcs = [],
+     hdrs = google_cloud_cpp_spanner_mocks_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_spanner",
+         "//:common",
+@@ -96,9 +87,7 @@
+     testonly = True,
+     srcs = spanner_client_testing_srcs,
+     hdrs = spanner_client_testing_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_spanner",
+         ":google_cloud_cpp_spanner_mocks",
+@@ -114,10 +103,7 @@
+     name = "spanner_client_testing",
+     testonly = True,
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":spanner_client_testing_private"],
+ )
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/integration_tests/BUILD.bazel
+--- a/google/cloud/spanner/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/integration_tests/BUILD.bazel	2026-02-25 03:45:57.755427008 +0000
+@@ -15,7 +15,7 @@
+ load(":spanner_client_integration_tests.bzl", "spanner_client_integration_tests")
+ load(":spanner_client_session_mode_sensitive_integration_tests.bzl", "spanner_client_session_mode_sensitive_integration_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/spanner/samples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/spanner/samples/BUILD.bazel
+--- a/google/cloud/spanner/samples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/spanner/samples/BUILD.bazel	2026-02-25 03:45:57.750596849 +0000
+@@ -17,7 +17,7 @@
+ load(":spanner_client_integration_samples.bzl", "spanner_client_integration_samples")
+ load(":spanner_client_unit_samples.bzl", "spanner_client_unit_samples")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/speech/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/speech/BUILD.bazel
+--- a/google/cloud/speech/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/speech/BUILD.bazel	2026-02-25 03:45:57.735230209 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/sql/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/sql/BUILD.bazel
+--- a/google/cloud/sql/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/sql/BUILD.bazel	2026-02-25 03:45:57.725401600 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/sql/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/sql/integration_tests/BUILD.bazel
+--- a/google/cloud/sql/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/sql/integration_tests/BUILD.bazel	2026-02-25 03:45:57.732830700 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storage/benchmarks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storage/benchmarks/BUILD.bazel
+--- a/google/cloud/storage/benchmarks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storage/benchmarks/BUILD.bazel	2026-02-25 03:45:57.722795970 +0000
+@@ -16,7 +16,7 @@
+ load(":storage_benchmarks.bzl", "storage_benchmarks_hdrs", "storage_benchmarks_srcs")
+ load(":storage_benchmarks_unit_tests.bzl", "storage_benchmarks_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storage/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storage/BUILD.bazel
+--- a/google/cloud/storage/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storage/BUILD.bazel	2026-02-25 03:45:57.704687481 +0000
+@@ -21,7 +21,7 @@
+ load(":storage_client_testing.bzl", "storage_client_testing_hdrs", "storage_client_testing_srcs")
+ load(":storage_client_unit_tests.bzl", "storage_client_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -33,7 +33,7 @@
+ config_setting(
+     name = "ctype_cord_workaround_enabled",
+     flag_values = {"//:enable-ctype-cord-workaround": "true"},
+-    visibility = [":__subpackages__"],
++    visibility = ["//visibility:public"],
+ )
+
+ bool_flag(
+@@ -49,7 +49,7 @@
+ filegroup(
+     name = "public_grpc_hdrs",
+     srcs = [h for h in google_cloud_cpp_storage_grpc_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -67,10 +67,7 @@
+         ":grpc_metrics_enabled": ["GOOGLE_CLOUD_CPP_STORAGE_WITH_OTEL_METRICS"],
+         "//conditions:default": [],
+     }),
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_storage",
+         "//:grpc_utils",
+@@ -95,17 +92,14 @@
+ filegroup(
+     name = "grpc_mocks_hdrs",
+     srcs = [h for h in google_cloud_cpp_storage_grpc_mocks_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+     name = "google_cloud_cpp_storage_grpc_mocks",
+     testonly = True,
+     hdrs = google_cloud_cpp_storage_grpc_mocks_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_storage",
+         ":google_cloud_cpp_storage_grpc",
+@@ -116,7 +110,7 @@
+ filegroup(
+     name = "public_hdrs",
+     srcs = [h for h in google_cloud_cpp_storage_hdrs if not h.startswith("internal/")],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ cc_library(
+@@ -133,10 +127,7 @@
+         "@platforms//os:windows": GOOGLE_CLOUD_STORAGE_WIN_DEFINES,
+         "//conditions:default": [],
+     }),
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//:common",
+         "//google/cloud:google_cloud_cpp_rest_internal",
+@@ -160,7 +151,7 @@
+ filegroup(
+     name = "mocks",
+     srcs = [],
+-    visibility = ["//:__pkg__"],
++    visibility = ["//visibility:public"],
+ )
+
+ # This empty library is used to simplify the top-level BUILD.bazel file.
+@@ -169,10 +160,7 @@
+     testonly = True,
+     srcs = [],
+     hdrs = [],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_storage",
+         "//:common",
+@@ -185,10 +173,7 @@
+     testonly = True,
+     srcs = storage_client_testing_srcs,
+     hdrs = storage_client_testing_hdrs,
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [
+         ":google_cloud_cpp_storage",
+         ":google_cloud_cpp_storage_grpc",
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storage/examples/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storage/examples/BUILD.bazel
+--- a/google/cloud/storage/examples/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storage/examples/BUILD.bazel	2026-02-25 03:45:57.719148080 +0000
+@@ -17,7 +17,7 @@
+ load(":storage_examples_unit_tests.bzl", "storage_examples_unit_tests")
+ load(":storage_grpc_examples.bzl", "storage_grpc_examples", "storage_grpc_unit_tests")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storage/quickstart/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storage/quickstart/BUILD.bazel
+--- a/google/cloud/storage/quickstart/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storage/quickstart/BUILD.bazel	2026-02-25 03:45:57.708625180 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storage/tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storage/tests/BUILD.bazel
+--- a/google/cloud/storage/tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storage/tests/BUILD.bazel	2026-02-25 03:45:57.706092661 +0000
+@@ -17,7 +17,7 @@
+     "storage_client_integration_tests",
+ )
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storagebatchoperations/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storagebatchoperations/BUILD.bazel
+--- a/google/cloud/storagebatchoperations/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storagebatchoperations/BUILD.bazel	2026-02-25 03:45:57.696138331 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storagecontrol/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storagecontrol/BUILD.bazel
+--- a/google/cloud/storagecontrol/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storagecontrol/BUILD.bazel	2026-02-25 03:45:57.687834811 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storageinsights/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storageinsights/BUILD.bazel
+--- a/google/cloud/storageinsights/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storageinsights/BUILD.bazel	2026-02-25 03:45:57.679643562 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/storagetransfer/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/storagetransfer/BUILD.bazel
+--- a/google/cloud/storagetransfer/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/storagetransfer/BUILD.bazel	2026-02-25 03:45:57.671278781 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/support/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/support/BUILD.bazel
+--- a/google/cloud/support/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/support/BUILD.bazel	2026-02-25 03:45:57.662954862 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/talent/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/talent/BUILD.bazel
+--- a/google/cloud/talent/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/talent/BUILD.bazel	2026-02-25 03:45:57.654618652 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/tasks/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/tasks/BUILD.bazel
+--- a/google/cloud/tasks/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/tasks/BUILD.bazel	2026-02-25 03:45:57.646473362 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/telcoautomation/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/telcoautomation/BUILD.bazel
+--- a/google/cloud/telcoautomation/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/telcoautomation/BUILD.bazel	2026-02-25 03:45:57.638264223 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/testing_util/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/testing_util/BUILD.bazel
+--- a/google/cloud/testing_util/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/testing_util/BUILD.bazel	2026-02-25 03:45:57.636954412 +0000
+@@ -20,7 +20,7 @@
+
+ # The targets in this package are intended for testing our own libraries, and
+ # are not intended for public usage.
+-package(default_visibility = ["//:__subpackages__"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+@@ -53,10 +53,7 @@
+     name = "google_cloud_cpp_testing",
+     testonly = True,
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":google_cloud_cpp_testing_private"],
+ )
+
+@@ -91,10 +88,7 @@
+     name = "google_cloud_cpp_testing_grpc",
+     testonly = True,
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":google_cloud_cpp_testing_grpc_private"],
+ )
+
+@@ -124,9 +118,6 @@
+     name = "google_cloud_cpp_testing_rest",
+     testonly = True,
+     tags = ["manual"],
+-    visibility = [
+-        ":__subpackages__",
+-        "//:__pkg__",
+-    ],
++    visibility = ["//visibility:public"],
+     deps = [":google_cloud_cpp_testing_rest_private"],
+ )
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/texttospeech/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/texttospeech/BUILD.bazel
+--- a/google/cloud/texttospeech/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/texttospeech/BUILD.bazel	2026-02-25 03:45:57.628641103 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/timeseriesinsights/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/timeseriesinsights/BUILD.bazel
+--- a/google/cloud/timeseriesinsights/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/timeseriesinsights/BUILD.bazel	2026-02-25 03:45:57.620430533 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/tpu/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/tpu/BUILD.bazel
+--- a/google/cloud/tpu/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/tpu/BUILD.bazel	2026-02-25 03:45:57.607486414 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/trace/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/trace/BUILD.bazel
+--- a/google/cloud/trace/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/trace/BUILD.bazel	2026-02-25 03:45:57.594640094 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/translate/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/translate/BUILD.bazel
+--- a/google/cloud/translate/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/translate/BUILD.bazel	2026-02-25 03:45:57.586415214 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/universe_domain/integration_tests/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/universe_domain/integration_tests/BUILD.bazel
+--- a/google/cloud/universe_domain/integration_tests/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/universe_domain/integration_tests/BUILD.bazel	2026-02-25 03:45:57.583855015 +0000
+@@ -12,7 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/video/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/video/BUILD.bazel
+--- a/google/cloud/video/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/video/BUILD.bazel	2026-02-25 03:45:57.562114905 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/videointelligence/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/videointelligence/BUILD.bazel
+--- a/google/cloud/videointelligence/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/videointelligence/BUILD.bazel	2026-02-25 03:45:57.553903305 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/vision/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/vision/BUILD.bazel
+--- a/google/cloud/vision/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/vision/BUILD.bazel	2026-02-25 03:45:57.545618955 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/vmmigration/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/vmmigration/BUILD.bazel
+--- a/google/cloud/vmmigration/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/vmmigration/BUILD.bazel	2026-02-25 03:45:57.537240106 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/vmwareengine/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/vmwareengine/BUILD.bazel
+--- a/google/cloud/vmwareengine/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/vmwareengine/BUILD.bazel	2026-02-25 03:45:57.528469916 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/vpcaccess/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/vpcaccess/BUILD.bazel
+--- a/google/cloud/vpcaccess/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/vpcaccess/BUILD.bazel	2026-02-25 03:45:57.520279147 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/webrisk/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/webrisk/BUILD.bazel
+--- a/google/cloud/webrisk/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/webrisk/BUILD.bazel	2026-02-25 03:45:57.512111177 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/websecurityscanner/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/websecurityscanner/BUILD.bazel
+--- a/google/cloud/websecurityscanner/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/websecurityscanner/BUILD.bazel	2026-02-25 03:45:57.503777567 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/workflows/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/workflows/BUILD.bazel
+--- a/google/cloud/workflows/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/workflows/BUILD.bazel	2026-02-25 03:45:57.489535858 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+
+diff -ruN google-cloud-cpp-3.1.0/google/cloud/workstations/BUILD.bazel /tmp/gcp_mod/google-cloud-cpp-3.1.0/google/cloud/workstations/BUILD.bazel
+--- a/google/cloud/workstations/BUILD.bazel	2026-02-17 20:11:03.000000000 +0000
++++ b/google/cloud/workstations/BUILD.bazel	2026-02-25 03:45:57.481317208 +0000
+@@ -14,7 +14,7 @@
+
+ load("//bazel:gapic.bzl", "cc_gapic_library")
+
+-package(default_visibility = ["//visibility:private"])
++package(default_visibility = ["//visibility:public"])
+
+ licenses(["notice"])  # Apache 2.0
+

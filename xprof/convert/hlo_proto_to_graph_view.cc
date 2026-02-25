@@ -38,7 +38,7 @@ limitations under the License.
 #ifdef PLATFORM_GOOGLE
 #include "tensorflow/compiler/mlir/lite/experimental/google/tooling/hlo_adapter/direct_hlo_to_json_graph_convert.h"
 #endif  // PLATFORM_GOOGLE
-#include "nlohmann/json_fwd.hpp"
+#include "nlohmann/json_fwd.hpp"  // from @com_github_nlohmann_json
 #include "nlohmann/json.hpp"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"

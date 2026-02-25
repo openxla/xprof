@@ -1,4 +1,6 @@
-load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_library")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -8,42 +10,56 @@ config_setting(
     values = {"compilation_mode": "dbg"},
 )
 
-pytype_extension(
-    name = "_pywrap_profiler_plugin",
-    srcs = ["pywrap_profiler_plugin.cc"],
+cc_binary(
+    name = "profiler_plugin_c_api.so",
+    srcs = [
+        "profiler_plugin_c_api.cc",
+        "profiler_plugin_c_api.h",
+    ],
     copts = [
         "-fno-strict-aliasing",
-        "-fexceptions",
+        "-fvisibility=hidden",  # Prevent exposing all symbols
     ] + select({
         ":dbg_build": ["-g"],
         "//conditions:default": [],
     }),
-    features = ["-use_header_modules"],
-    pytype_srcs = [
-        "_pywrap_profiler_plugin.pyi",
-    ],
+    linkopts = select({
+        "@xla//xla/tsl:windows": [
+            "/OPT:REF",  # Remove unused functions and data
+            "/OPT:ICF",  # Merge identical functions
+        ],
+        "//conditions:default": [
+            "-Wl,--exclude-libs,ALL",  # Prevent exposing symbols from dependencies
+            "-Wl,--gc-sections",  # Garbage collect any unused sections
+            "-Wl,--icf=all",  # Merge identical functions
+        ],
+    }),
+    linkshared = True,
     deps = [
         ":profiler_plugin_impl",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/worker:stub_factory",
         "@org_xprof//xprof/convert:tool_options",
-        "@pybind11",
-        "@xla//xla/pjrt:status_casters",
-        "@xla//xla/tsl/platform/cloud:gcs_file_system",
+        "@rules_python//python/cc:current_py_cc_headers",
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ],
+)
+
+py_library(
+    name = "_pywrap_profiler_plugin",
+    srcs = ["_pywrap_profiler_plugin.py"],
+    data = [":profiler_plugin_c_api.so"],
 )
 
 py_strict_test(
     name = "profiler_wrapper_test",
     srcs = ["profiler_wrapper_test.py"],
-    tags = [
-        "no_pip",
-    ],
+    tags = ["no_oss"],
     deps = [
         ":_pywrap_profiler_plugin",
         "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )
 

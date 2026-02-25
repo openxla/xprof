@@ -15,14 +15,50 @@
 """Tests for profiler_wrapper.cc pybind methods."""
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from xprof.convert import _pywrap_profiler_plugin as profiler_wrapper_plugin
 
 
-class ProfilerSessionTest(absltest.TestCase):
+def _call_xspace_to_tools_data_invalid():
+  return profiler_wrapper_plugin._lib.XSpaceToToolsData(
+      None,
+      0,
+      b"trace_viewer",
+      None,
+      None,
+      None,
+      None,
+      None,
+      1,
+      None,
+      None,
+      None,
+  )
 
-  def test_xspace_to_tools_data_default_options(self):
-    # filenames only used for `hlo_proto` tool.
-    profiler_wrapper_plugin.xspace_to_tools_data([], 'trace_viewer')
 
-if __name__ == '__main__':
+class ProfilerSessionTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ("default_options", "trace_viewer", None),
+      ("with_list_options", "trace_viewer@", {"hosts": ["host1", "host2"]}),
+  )
+  def test_xspace_to_tools_data(self, tool_name, options):
+    res, success = profiler_wrapper_plugin.xspace_to_tools_data(
+        xspace_paths=[], tool_name=tool_name, options=options
+    )
+    self.assertEmpty(res)
+    self.assertFalse(success)
+
+  def test_xspace_to_tools_data_invalid_options_c_api(self):
+    err = _call_xspace_to_tools_data_invalid()
+    self.assertIsNotNone(err)
+    self.addCleanup(profiler_wrapper_plugin._lib.FreeString, err)
+
+  def test_check_error_raises_runtime_error(self):
+    err = _call_xspace_to_tools_data_invalid()
+    with self.assertRaisesRegex(RuntimeError, r"^INVALID_ARGUMENT.*"):
+      profiler_wrapper_plugin._check_error(err)
+
+
+if __name__ == "__main__":
   absltest.main()

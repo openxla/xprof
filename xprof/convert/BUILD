@@ -284,6 +284,7 @@ cc_test(
     name = "streaming_trace_viewer_processor_test",
     srcs = ["streaming_trace_viewer_processor_test.cc"],
     deps = [
+        ":file_utils",
         ":repository",
         ":streaming_trace_viewer_processor",
         ":tool_options",
@@ -542,6 +543,7 @@ cc_test(
     name = "profile_processor_test",
     srcs = ["profile_processor_test.cc"],
     deps = [
+        ":file_utils",
         ":framework_op_stats_processor",
         ":hlo_stats_processor",
         ":input_pipeline_processor",

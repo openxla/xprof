@@ -29,7 +29,6 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "google/protobuf/arena.h"
-#include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/platform/path.h"
@@ -124,7 +123,7 @@ class SessionSnapshot {
     std::string filepath =
         tsl::profiler::ProfilerJoinPath(GetSessionRunDir(), filename);
 
-    return tsl::WriteBinaryProto(tsl::Env::Default(), filepath, proto);
+    return xprof::WriteBinaryProto(filepath, proto);
   }
 
 

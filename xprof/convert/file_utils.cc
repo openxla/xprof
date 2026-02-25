@@ -193,6 +193,34 @@ absl::Status ReadBinaryProtoWithClient(gcs::Client& client,
   return absl::OkStatus();
 }
 
+absl::Status WriteBinaryProtoWithClient(
+    gcs::Client& client, const std::string& fname,
+    const tsl::protobuf::MessageLite& proto) {
+  std::string bucket, object;
+  TF_RETURN_IF_ERROR(ParseGcsPath(fname, &bucket, &object));
+
+  std::string contents;
+  absl::Time start_serialize = absl::Now();
+  if (!proto.SerializeToString(&contents)) {
+    return absl::InternalError(
+        absl::StrCat("Failed to serialize proto to string for ", fname));
+  }
+  absl::Time end_serialize = absl::Now();
+  LOG(INFO) << "Proto serialization took: " << end_serialize - start_serialize;
+
+  absl::Time start_upload = absl::Now();
+  auto stream = client.WriteObject(bucket, object);
+  stream << contents;
+  stream.Close();
+  absl::Time end_upload = absl::Now();
+  if (!stream) {
+    return absl::InternalError(absl::StrCat(
+        "Failed to write to GCS: ", stream.metadata().status().message()));
+  }
+  LOG(INFO) << "Upload to GCS took: " << end_upload - start_upload;
+  return absl::OkStatus();
+}
+
 }  // namespace internal
 
 absl::Status ReadBinaryProto(const std::string& fname,
@@ -203,6 +231,21 @@ absl::Status ReadBinaryProto(const std::string& fname,
   }
 
   return tsl::ReadBinaryProto(tsl::Env::Default(), fname, proto);
+}
+
+absl::Status WriteBinaryProto(const std::string& fname,
+                              const tsl::protobuf::MessageLite& proto) {
+  if (absl::StartsWith(fname, "gs://") ||
+      absl::StartsWith(fname, "/bigstore/")) {
+    std::string gcs_path = fname;
+    if (absl::StartsWith(fname, "/bigstore/")) {
+      gcs_path = absl::StrCat("gs://", absl::StripPrefix(fname, "/bigstore/"));
+    }
+    return internal::WriteBinaryProtoWithClient(GetGcsClient(), gcs_path,
+                                                proto);
+  }
+
+  return tsl::WriteBinaryProto(tsl::Env::Default(), fname, proto);
 }
 
 }  // namespace xprof

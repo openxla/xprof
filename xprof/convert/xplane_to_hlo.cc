@@ -66,7 +66,7 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
                          absl::StrCat(kNoModuleIdentifier, kHloProtoSuffix));
     xla::HloProto empty_hlo;
     TF_RETURN_IF_ERROR(
-        tsl::WriteBinaryProto(tsl::Env::Default(), file_name, empty_hlo));
+        xprof::WriteBinaryProto(file_name, empty_hlo));
     // The profile does not have HLO proto.
     return false;
   }
@@ -80,8 +80,8 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
     std::string file_name =
         ProfilerJoinPath(session_snapshot.GetSessionRunDir(),
                          absl::StrCat(module_name, kHloProtoSuffix));
-    TF_RETURN_IF_ERROR(tsl::WriteBinaryProto(tsl::Env::Default(), file_name,
-                                             *hlo_proto_or.value()));
+    TF_RETURN_IF_ERROR(xprof::WriteBinaryProto(
+        file_name, *hlo_proto_or.value()));
   }
 
   // The profile has HLO proto.

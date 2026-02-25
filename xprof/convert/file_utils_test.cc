@@ -28,6 +28,7 @@ limitations under the License.
 #include "google/cloud/storage/client.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
 #include "google/cloud/storage/internal/http_response.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
 #include "google/cloud/storage/internal/object_read_source.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
+#include "google/cloud/storage/internal/object_requests.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
 #include "google/cloud/storage/object_metadata.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
 #include "google/cloud/storage/testing/mock_client.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
 #include "xla/tsl/lib/core/status_test_util.h"
@@ -41,6 +42,7 @@ using ::testing::Eq;
 using ::testing::Return;
 using ::xprof::internal::ParseGcsPath;
 using ::xprof::internal::ReadBinaryProtoWithClient;
+using ::xprof::internal::WriteBinaryProtoWithClient;
 namespace gcs = ::google::cloud::storage;
 namespace gcs_testing = ::google::cloud::storage::testing;
 
@@ -104,6 +106,46 @@ TEST(FileUtilsTest, ReadBinaryProtoWithClient_Success) {
   // confirms that the download was successful and the code proceeded to the
   // parsing stage.
   EXPECT_THAT(status.code(), Eq(absl::StatusCode::kDataLoss));
+}
+
+TEST(FileUtilsTest, WriteBinaryProtoWithClient_Success) {
+  auto mock = std::make_shared<gcs_testing::MockClient>();
+  gcs::Client client = gcs_testing::UndecoratedClientFromMock(mock);
+
+  std::string bucket = "bucket";
+  std::string object = "object";
+  tensorflow::profiler::XSpace xspace;
+  xspace.add_hostnames("test-host");
+
+  std::string expected_contents;
+  xspace.SerializeToString(&expected_contents);
+
+  EXPECT_CALL(*mock, CreateResumableUpload(_))
+      .WillOnce([bucket,
+                 object](gcs::internal::ResumableUploadRequest const& request) {
+        EXPECT_EQ(request.bucket_name(), bucket);
+        EXPECT_EQ(request.object_name(), object);
+        return google::cloud::StatusOr<
+            gcs::internal::CreateResumableUploadResponse>(
+            gcs::internal::CreateResumableUploadResponse{"session-id"});
+      });
+
+  EXPECT_CALL(*mock, UploadChunk(_))
+      .WillOnce([expected_contents](
+                    gcs::internal::UploadChunkRequest const& request) {
+        std::string actual_payload;
+        for (auto const& b : request.payload()) {
+          actual_payload.append(static_cast<char const*>(b.data()), b.size());
+        }
+        EXPECT_EQ(actual_payload, expected_contents);
+        return google::cloud::StatusOr<
+            gcs::internal::QueryResumableUploadResponse>(
+            gcs::internal::QueryResumableUploadResponse{
+                expected_contents.size(), gcs::ObjectMetadata{}});
+      });
+
+  TF_EXPECT_OK(
+      WriteBinaryProtoWithClient(client, "gs://bucket/object", xspace));
 }
 
 }  // namespace

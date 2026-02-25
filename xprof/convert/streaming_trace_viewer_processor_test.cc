@@ -26,6 +26,7 @@
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 
@@ -145,7 +146,7 @@ class StreamingTraceViewerProcessorTest : public ::testing::Test {
       std::string xspace_path =
           file::JoinPath(session_dir_, host_name + ".xspace");
       TF_RETURN_IF_ERROR(
-          tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, xspace));
+          xprof::WriteBinaryProto(xspace_path, xspace));
       xspace_paths.push_back(xspace_path);
     }
     std::sort(xspace_paths.begin(), xspace_paths.end());

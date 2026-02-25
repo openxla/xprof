@@ -30,6 +30,12 @@ namespace xprof {
 absl::Status ReadBinaryProto(const std::string& fname,
                              tsl::protobuf::MessageLite* proto);
 
+// Writes a binary proto to a GCS path (gs://bucket/object) using the
+// google-cloud-cpp storage API.
+// Falls back to tsl::WriteBinaryProto for non-GCS paths.
+absl::Status WriteBinaryProto(const std::string& fname,
+                              const tsl::protobuf::MessageLite& proto);
+
 namespace internal {
 
 // Parses a GCS path. Supports gs:// and /bigstore/ prefixes.
@@ -40,6 +46,11 @@ absl::Status ParseGcsPath(absl::string_view fname, std::string* bucket,
 absl::Status ReadBinaryProtoWithClient(google::cloud::storage::Client& client,
                                        const std::string& fname,
                                        tsl::protobuf::MessageLite* proto);
+
+// Internal implementation that takes a GCS client, used for testing.
+absl::Status WriteBinaryProtoWithClient(
+    google::cloud::storage::Client& client, const std::string& fname,
+    const tsl::protobuf::MessageLite& proto);
 
 }  // namespace internal
 

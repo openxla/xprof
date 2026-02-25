@@ -31,6 +31,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
@@ -72,8 +73,7 @@ TEST_P(ProfileProcessorTest, MapTest) {
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
   std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
   XSpace dummy_space;
-  ASSERT_OK(
-      tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, dummy_space));
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
   auto status_or_session_snapshot =
       SessionSnapshot::Create({xspace_path}, std::nullopt);
@@ -159,7 +159,7 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
   XSpace space;
   space.add_planes()->set_name("test_plane");
-  ASSERT_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
+  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
 
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
@@ -209,7 +209,7 @@ void BM_ProcessorE2ETest(benchmark::State& state) {
   std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
   XSpace space;
   space.add_planes()->set_name("test_plane");
-  CHECK_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
+  CHECK_OK(xprof::WriteBinaryProto(xspace_path, space));
   auto session_snapshot =
       SessionSnapshot::Create({xspace_path}, std::nullopt).value();
   ToolOptions options;

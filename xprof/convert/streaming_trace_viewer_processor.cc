@@ -13,6 +13,8 @@
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
@@ -58,6 +60,11 @@ constexpr int64_t kDisableStreamingThreshold = 500000;
 
 absl::Status StreamingTraceViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  absl::string_view session_id = session_snapshot.GetSessionRunDir();
+  LOG(INFO)
+      << "StreamingTraceViewerProcessor::ProcessSession started session_id: "
+      << session_id;
+  absl::Time start_time = absl::Now();
   TraceEventsContainer merged_trace_container;
 
   TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
@@ -87,6 +94,9 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
     }
 
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
+      absl::Time preprocess_start_time = absl::Now();
+      LOG(INFO) << "Preprocessing XSpace for host " << i
+                << " session_id: " << session_id;
       google::protobuf::Arena arena;
       TF_ASSIGN_OR_RETURN(XSpace * xspace,
                           session_snapshot.GetXSpace(i, &arena));
@@ -112,6 +122,9 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
           std::move(trace_events_metadata_file),
           std::move(trace_events_prefix_trie_file)
       ));
+      LOG(INFO) << "Preprocessing done for host " << i
+                << ". Duration: " << absl::Now() - preprocess_start_time
+                << " session_id: " << session_id;
     }
 
     TraceEventsLevelDbFilePaths file_paths;
@@ -122,6 +135,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
         *trace_events_prefix_trie_sstable_path;
 
     TraceEventsContainer trace_container;
+    absl::Time load_start_time = absl::Now();
     if (!trace_option.event_name.empty()) {
       TF_RETURN_IF_ERROR(trace_container.ReadFullEventFromLevelDbTable(
           *trace_events_metadata_sstable_path, *trace_events_sstable_path,
@@ -149,7 +163,14 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
           file_paths, std::move(trace_events_filter),
           std::move(visibility_filter), kDisableStreamingThreshold));
     }
+    LOG(INFO) << "Loaded trace container for host " << i
+              << ". Duration: " << absl::Now() - load_start_time
+              << " session_id: " << session_id;
+    absl::Time merge_start_time = absl::Now();
     merged_trace_container.Merge(std::move(trace_container), i + 1);
+    LOG(INFO) << "Merged trace container for host " << i
+              << ". Duration: " << absl::Now() - merge_start_time
+              << " session_id: " << session_id;
   }
 
   std::string trace_viewer_json;
@@ -163,10 +184,21 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
   json_trace_options.details =
       TraceOptionsToDetails(device_type, profiler_trace_options);
   IOBufferAdapter adapter(&trace_viewer_json);
+  absl::Time json_start_time = absl::Now();
   TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
       json_trace_options, merged_trace_container, &adapter);
+  LOG(INFO) << "TraceEventsToJson done. Duration: "
+            << absl::Now() - json_start_time << " session_id: " << session_id;
 
+  absl::Time set_output_start_time = absl::Now();
   SetOutput(trace_viewer_json, "application/json");
+  LOG(INFO) << "SetOutput done. Duration: "
+            << absl::Now() - set_output_start_time
+            << " session_id: " << session_id;
+
+  LOG(INFO)
+      << "StreamingTraceViewerProcessor::ProcessSession done. Total Duration: "
+      << absl::Now() - start_time << " session_id: " << session_id;
   return absl::OkStatus();
 }
 
@@ -312,6 +344,10 @@ absl::StatusOr<TraceEventsContainer> LoadTraceContainerForHost(
 absl::Status StreamingTraceViewerProcessor::Reduce(
     const SessionSnapshot& session_snapshot,
     const std::vector<std::string>& map_output_files) {
+  absl::string_view session_id = session_snapshot.GetSessionRunDir();
+  LOG(INFO) << "StreamingTraceViewerProcessor::Reduce started session_id: "
+            << session_id;
+  absl::Time start_time = absl::Now();
   if (map_output_files.empty()) {
     return absl::InvalidArgumentError("map_output_files cannot be empty");
   }
@@ -369,10 +405,20 @@ absl::Status StreamingTraceViewerProcessor::Reduce(
   json_trace_options.details =
       TraceOptionsToDetails(device_type, profiler_trace_options);
   IOBufferAdapter adapter(&trace_viewer_json);
+  absl::Time json_start_time = absl::Now();
   TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
       json_trace_options, merged_trace_container, &adapter);
+  LOG(INFO) << "TraceEventsToJson done. Duration: "
+            << absl::Now() - json_start_time << " session_id: " << session_id;
 
+  absl::Time set_output_start_time = absl::Now();
   SetOutput(trace_viewer_json, "application/json");
+  LOG(INFO) << "SetOutput done. Duration: "
+            << absl::Now() - set_output_start_time
+            << " session_id: " << session_id;
+
+  LOG(INFO) << "StreamingTraceViewerProcessor::Reduce done. Total Duration: "
+            << absl::Now() - start_time << " session_id: " << session_id;
   return absl::OkStatus();
 }
 

@@ -20,6 +20,8 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -39,6 +41,10 @@ using ::tsl::profiler::ConvertXSpaceToTraceEventsString;
 
 absl::Status TraceViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  absl::string_view session_id = session_snapshot.GetSessionRunDir();
+  LOG(INFO) << "TraceViewerProcessor::ProcessSession started session_id: "
+            << session_id;
+  absl::Time start_time = absl::Now();
   if (session_snapshot.XSpaceSize() != 1) {
     return tsl::errors::InvalidArgument(
         "Trace events tool expects only 1 XSpace path but gets ",
@@ -49,11 +55,24 @@ absl::Status TraceViewerProcessor::ProcessSession(
   TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
   PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
                              /*derived_timeline=*/true);
+  LOG(INFO) << "PreprocessSingleHostXSpace done. Duration: "
+            << absl::Now() - start_time << " session_id: " << session_id;
 
   std::string trace_viewer_json;
+  absl::Time convert_start_time = absl::Now();
   ConvertXSpaceToTraceEventsString(*xspace, &trace_viewer_json);
+  LOG(INFO) << "ConvertXSpaceToTraceEventsString done. Duration: "
+            << absl::Now() - convert_start_time
+            << " session_id: " << session_id;
 
+  absl::Time set_output_start_time = absl::Now();
   SetOutput(trace_viewer_json, "application/json");
+  LOG(INFO) << "SetOutput done. Duration: "
+            << absl::Now() - set_output_start_time
+            << " session_id: " << session_id;
+
+  LOG(INFO) << "TraceViewerProcessor::ProcessSession done. Total Duration: "
+            << absl::Now() - start_time << " session_id: " << session_id;
   return absl::OkStatus();
 }
 

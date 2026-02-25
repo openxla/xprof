@@ -22,19 +22,26 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/utils/timespan.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 
 namespace tensorflow {
 namespace profiler {
 
-// Description of how two step sequences are aligned.
+// Describes how two step sequences are aligned.
 struct StepsAlignment {
-  uint32_t begin_subordinate_idx;  // where the alignment begins on the
-                                   // subordinate steps.
-  uint32_t begin_chief_idx;  // where the alignment begins on the chief steps.
-  uint32_t num_steps;        // aligned for how many steps.
+  // The index in the subordinate step sequence where the alignment begins.
+  uint32_t begin_subordinate_idx = 0;
+  // The index in the chief step sequence where the alignment begins.
+  uint32_t begin_chief_idx = 0;
+  // The number of steps included in the alignment.
+  uint32_t num_steps = 0;
 };
 
+// Intersects step sequences from multiple hosts by aligning them against a
+// single "chief" host, which is chosen as the host with the shortest total
+// step duration. The intersection includes the steps that overlap across all
+// hosts.
 class StepIntersection {
  public:
   StepIntersection(
@@ -64,13 +71,39 @@ class StepIntersection {
   std::string DebugString() const;
 
  private:
+  // Precompute all step timespans and find the chief host.
+  struct HostInfo {
+    uint32_t host_id = 0;
+    const StepDatabaseResult* step_db = nullptr;
+    uint32_t timespans_offset = 0;
+    uint32_t timespans_count = 0;
+    uint64_t total_duration_ps = 0;
+  };
+
+  void PrecomputeTimespansAndFindChief(
+      const absl::flat_hash_map<uint32_t, const StepDatabaseResult*>&
+          perhost_stepdb,
+      std::vector<HostInfo>& hosts,
+      std::vector<tsl::profiler::Timespan>& all_step_timespans,
+      const HostInfo*& chief_host_info);
+
+  void AlignStepsWithChief(
+      const std::vector<HostInfo>& hosts,
+      const std::vector<tsl::profiler::Timespan>& all_step_timespans,
+      const HostInfo* chief_host_info, uint32_t& max_begin_chief_idx,
+      uint32_t& min_end_chief_idx);
+
+  void ComputeFinalBounds(uint32_t max_steps, uint32_t max_begin_chief_idx,
+                          uint32_t min_end_chief_idx);
+
   absl::flat_hash_map</*host_id=*/uint32_t, StepsAlignment> perhost_alignment_;
-  uint32_t
-      chief_host_id_;  // the host whose step sequence is selected as the chief.
-  uint32_t steps_dropped_;  // number of steps dropped.
+  // The host whose step sequence is selected as the chief.
+  uint32_t chief_host_id_;
+  // Number of steps dropped.
+  uint32_t steps_dropped_;
   // If NumSteps() is 0, empty_intersect indicates one of two possible reasons:
-  //   (i) At least one host has some steps, but the intersection over all hosts
-  //   is empty. In this case, empty_intersect is true,
+  //   (i) At least one host has some steps, but the intersection over all
+  //   hosts is empty. In this case, empty_intersect is true.
   //   (ii) None of the hosts has any steps. In this case, empty_intersect is
   //   false.
   // If NumSteps() > 0, empty_intersect is don't care.

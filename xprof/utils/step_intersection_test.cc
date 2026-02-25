@@ -381,6 +381,85 @@ TEST(StepIntersectionTest, DebugString) {
             HasSubstr("src-to-dst-index-map:")));
 }
 
+// Test case for steps with zero duration.
+TEST(StepIntersectionTest, ZeroDurationSteps) {
+  PerHostStepDb perhost_stepdb;
+  StepDatabaseResult step_db_0;
+  // Host 0: 3 steps, one with 0 duration.
+  *step_db_0.add_step_sequence() =
+      CreateOneTestStep(0, 3, 0, 0);  // host_id, num_steps, step_idx, begin_ps
+  PerCoreStepInfo* zero_duration_step = step_db_0.add_step_sequence();
+  *zero_duration_step = CreateOneTestStep(0, 3, 1, kStepDurationPs);
+  for (auto& core_step : *zero_duration_step->mutable_step_info_per_core()) {
+    core_step.second.set_duration_ps(0);
+  }
+  *step_db_0.add_step_sequence() =
+      CreateOneTestStep(0, 3, 2, kStepDurationPs);
+  perhost_stepdb[0] = step_db_0;
+
+  StepDatabaseResult step_db_1;
+  // Host 1: 3 steps, one with 0 duration.
+  *step_db_1.add_step_sequence() = CreateOneTestStep(1, 3, 0, 0);
+  PerCoreStepInfo* zero_duration_step_1 = step_db_1.add_step_sequence();
+  *zero_duration_step_1 = CreateOneTestStep(1, 3, 1, kStepDurationPs);
+  for (auto& core_step : *zero_duration_step_1->mutable_step_info_per_core()) {
+    core_step.second.set_duration_ps(0);
+  }
+  *step_db_1.add_step_sequence() =
+      CreateOneTestStep(1, 3, 2, kStepDurationPs);
+  perhost_stepdb[1] = step_db_1;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.NumSteps(), 3);
+}
+
+// Test case where one host has no steps, forcing
+// subordinate_step_sequence_size to be 0 in FindStepsAlignment.
+TEST(StepIntersectionTest, OneHostWithNoSteps) {
+  PerHostStepDb perhost_stepdb;
+  perhost_stepdb[0] =
+      CreateStepDatabaseResultForHost(0, 5, 0);  // 5 steps
+  perhost_stepdb[1] = StepDatabaseResult();      // 0 steps
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.NumSteps(), 0);
+  EXPECT_FALSE(intersection.EmptyIntersect());
+}
+
+// Test case with steps having only one core.
+TEST(StepIntersectionTest, SingleCoreSteps) {
+  PerHostStepDb perhost_stepdb;
+  StepDatabaseResult step_db;
+  PerCoreStepInfo* step = step_db.add_step_sequence();
+  step->set_step_num(0);
+  StepInfoResult info;
+  info.set_step_num(0);
+  info.set_duration_ps(kStepDurationPs);
+  info.set_begin_ps(0);
+  (*step->mutable_step_info_per_core())[0] = info;  // Only core 0
+  perhost_stepdb[0] = step_db;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.NumSteps(), 1);
+}
+
+// Test case where no host has steps with positive duration, resulting in
+// chief_host_info being nullptr in StepIntersection constructor.
+TEST(StepIntersectionTest, NoPositiveDurationSteps) {
+  PerHostStepDb perhost_stepdb;
+  StepDatabaseResult step_db;
+  PerCoreStepInfo* step = step_db.add_step_sequence();
+  step->set_step_num(0);
+  StepInfoResult info;
+  info.set_step_num(0);
+  info.set_duration_ps(0);  // 0 duration
+  info.set_begin_ps(0);
+  (*step->mutable_step_info_per_core())[0] = info;
+  perhost_stepdb[0] = step_db;
+
+  StepIntersection intersection(kNumStepsPerHost, Convert(perhost_stepdb));
+  EXPECT_EQ(intersection.NumSteps(), 1);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

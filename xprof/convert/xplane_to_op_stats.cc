@@ -399,6 +399,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
   {
+    LOG(INFO) << "ConvertXSpaceToOpStats: creating op_stats_threads "
+                 "XprofThreadPoolExecutor";
     auto executor =
         std::make_unique<XprofThreadPoolExecutor>("op_stats_threads");
 
@@ -407,12 +409,15 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
 
     // Ensure op_metrics threads are joined and results combined when the
     // function exits.
-    auto op_metrics_cleanup =
-        absl::MakeCleanup([&all_op_metrics_dbs, &op_metrics_db_combiner]() {
-          for (auto& op_metrics_db : all_op_metrics_dbs) {
-            op_metrics_db_combiner.Combine(op_metrics_db);
-          }
-        });
+    auto op_metrics_cleanup = absl::MakeCleanup([&all_op_metrics_dbs,
+                                                 &op_metrics_db_combiner]() {
+      LOG(INFO) << "ConvertXSpaceToOpStats: Combining "
+                << all_op_metrics_dbs.size() << " op_metrics_dbs.";
+      for (auto& op_metrics_db : all_op_metrics_dbs) {
+        op_metrics_db_combiner.Combine(op_metrics_db);
+      }
+      LOG(INFO) << "ConvertXSpaceToOpStats: Finished combining op_metrics_dbs.";
+    });
 
     if (options.generate_op_metrics_db) {
       all_op_metrics_dbs.resize(device_planes.size());  // Resize here
@@ -450,6 +455,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
         });
       }
     }
+    LOG(INFO) << "ConvertXSpaceToOpStats: Scheduled " << device_planes.size()
+              << " OpMetricsDb generation tasks.";
 
     // StepDb Generation.
     std::vector<StepEvents> all_step_events;
@@ -674,6 +681,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
   SetProgramIdToNameMap(hlo_proto_map, op_stats);
 
   size_t final_size = op_stats.ByteSizeLong();
+  LOG(INFO) << "ConvertXSpaceToOpStats: Final OpStats size: " << final_size
+            << " bytes (" << (final_size / 1024.0 / 1024.0) << " MiB).";
   if (final_size > 2147483647) {
     return absl::DataLossError(absl::StrCat(
         "ConvertXSpaceToOpStats: OpStats size ", final_size,

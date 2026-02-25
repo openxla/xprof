@@ -27,6 +27,8 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
@@ -434,34 +436,40 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
 absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
     const ToolOptions& options) {
+  absl::string_view session_id = session_snapshot.GetSessionRunDir();
   LOG(INFO) << "serving tool: " << tool_name
-            << " with options: " << DebugString(options);
+            << " with options: " << DebugString(options)
+            << " session_id: " << session_id;
+  absl::Time start_time = absl::Now();
+
+  absl::StatusOr<std::string> tool_data;
   if (tool_name == "trace_viewer" || tool_name == "trace_viewer@") {
-    return ConvertXSpaceToTraceEvents(session_snapshot, tool_name, options);
+    tool_data =
+        ConvertXSpaceToTraceEvents(session_snapshot, tool_name, options);
   } else if (tool_name == "overview_page") {
-    return ConvertMultiXSpacesToOverviewPage(session_snapshot);
+    tool_data = ConvertMultiXSpacesToOverviewPage(session_snapshot);
   } else if (tool_name == "input_pipeline_analyzer") {
-    return ConvertMultiXSpacesToInputPipeline(session_snapshot);
+    tool_data = ConvertMultiXSpacesToInputPipeline(session_snapshot);
   } else if (tool_name == "framework_op_stats") {
-    return ConvertMultiXSpacesToTfStats(session_snapshot);
+    tool_data = ConvertMultiXSpacesToTfStats(session_snapshot);
   } else if (tool_name == "kernel_stats") {
-    return ConvertMultiXSpacesToKernelStats(session_snapshot);
+    tool_data = ConvertMultiXSpacesToKernelStats(session_snapshot);
   } else if (tool_name == "memory_profile") {
-    return ConvertXSpaceToMemoryProfile(session_snapshot);
+    tool_data = ConvertXSpaceToMemoryProfile(session_snapshot);
   } else if (tool_name == "pod_viewer") {
-    return ConvertMultiXSpacesToPodViewer(session_snapshot);
+    tool_data = ConvertMultiXSpacesToPodViewer(session_snapshot);
   } else if (tool_name == "op_profile") {
-    return ConvertMultiXSpacesToOpProfileViewer(session_snapshot, options);
+    tool_data = ConvertMultiXSpacesToOpProfileViewer(session_snapshot, options);
   } else if (tool_name == "hlo_stats") {
-    return ConvertMultiXSpacesToHloStats(session_snapshot);
+    tool_data = ConvertMultiXSpacesToHloStats(session_snapshot);
   } else if (tool_name == "roofline_model") {
-    return ConvertMultiXSpacesToRooflineModel(session_snapshot);
+    tool_data = ConvertMultiXSpacesToRooflineModel(session_snapshot);
   } else if (tool_name == "memory_viewer" || tool_name == "graph_viewer") {
-    return ConvertHloProtoToToolData(session_snapshot, tool_name, options);
+    tool_data = ConvertHloProtoToToolData(session_snapshot, tool_name, options);
   } else if (tool_name == "megascale_stats") {
-    return ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
+    tool_data = ConvertDcnCollectiveStatsToToolData(session_snapshot, options);
   } else if (tool_name == "perf_counters") {
-    return ConvertMultiXSpacesToPerfCounters(session_snapshot);
+    tool_data = ConvertMultiXSpacesToPerfCounters(session_snapshot);
   } else if (tool_name == "tool_names") {
     // Generate the proto cache for hlo_proto tool.
     // This is needed for getting the module list.
@@ -470,29 +478,38 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
                         ConvertMultiXSpaceToHloProto(session_snapshot));
     LOG_IF(WARNING, !hlo_proto_status)
         << "No HLO proto found in XSpace.";
-    return GetAvailableToolNames(session_snapshot);
+    tool_data = GetAvailableToolNames(session_snapshot);
   } else if (tool_name == "_xplane.pb") {  // internal test only.
-    return PreprocessXSpace(session_snapshot);
+    tool_data = PreprocessXSpace(session_snapshot);
   } else if (tool_name == "inference_profile") {
-    return ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
+    tool_data = ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
-    return ConvertMultiXSpacesToSmartSuggestion(session_snapshot);
+    tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot);
   } else if (tool_name == "utilization_viewer") {
     if (session_snapshot.XSpaceSize() != 1) {
-      return tsl::errors::InvalidArgument(
+      tool_data = tsl::errors::InvalidArgument(
           "Utilization viewer tool expects only 1 XSpace path but gets ",
           session_snapshot.XSpaceSize());
+    } else {
+      google::protobuf::Arena arena;
+      auto xspace = session_snapshot.GetXSpace(0, &arena);
+      if (xspace.ok()) {
+        PreprocessSingleHostXSpace(*xspace, /*step_grouping=*/true,
+                                   /*derived_timeline=*/true);
+        tool_data = xprof::ConvertXSpaceToUtilizationViewer(**xspace);
+      } else {
+        tool_data = xspace.status();
+      }
     }
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
-    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                               /*derived_timeline=*/true);
-    return xprof::ConvertXSpaceToUtilizationViewer(*xspace);
   } else {
-    return tsl::errors::InvalidArgument(
+    tool_data = tsl::errors::InvalidArgument(
         "Can not find tool: ", tool_name,
         ". Please update to the latest version of Tensorflow.");
   }
+
+  LOG(INFO) << "serving tool: " << tool_name << " session_id: " << session_id
+            << " duration: " << absl::Now() - start_time;
+  return tool_data;
 }
 
 }  // namespace profiler

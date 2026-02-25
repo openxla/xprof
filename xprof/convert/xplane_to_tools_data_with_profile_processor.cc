@@ -138,9 +138,11 @@ absl::Status ProcessSession(xprof::ProfileProcessor* processor,
 absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
     const ToolOptions& options) {
+  absl::string_view session_id = session_snapshot.GetSessionRunDir();
   LOG(INFO) << "serving tool: " << tool_name
             << " with options: " << DebugString(options)
-            << " using ProfileProcessor";
+            << " using ProfileProcessor"
+            << " session_id: " << session_id;
 
   absl::Time start_time = absl::Now();
 
@@ -166,7 +168,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
   }
 
   LOG(INFO) << "Total time for tool " << tool_name << ": "
-            << absl::Now() - start_time;
+            << absl::Now() - start_time << " session_id: " << session_id;
   return processor->GetData();
 }
 

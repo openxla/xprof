@@ -24,6 +24,8 @@ limitations under the License.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
@@ -141,6 +143,11 @@ absl::StatusOr<std::string> OpStatsProcessor::Map(
 absl::Status OpStatsProcessor::Reduce(
     const SessionSnapshot& session_snapshot,
     const std::vector<std::string>& map_output_files) {
+  absl::Time start_time = absl::Now();
+  LOG(INFO) << "OpStatsProcessor::Reduce: Starting. Number of map output "
+               "files: "
+            << map_output_files.size();
+
   if (map_output_files.empty()) {
     return absl::InvalidArgumentError("map_output_files cannot be empty");
   }
@@ -148,12 +155,22 @@ absl::Status OpStatsProcessor::Reduce(
   std::vector<OpStats> all_op_stats;
   all_op_stats.reserve(map_output_files.size());
 
-  for (const auto& map_output_file : map_output_files) {
+  for (int i = 0; i < map_output_files.size(); ++i) {
+    const auto& map_output_file = map_output_files[i];
+    LOG(INFO) << "OpStatsProcessor::Reduce: Starting to read file [" << i << "/"
+              << map_output_files.size() << "]: " << map_output_file;
+
     OpStats op_stats;
     TF_RETURN_IF_ERROR(
         tsl::ReadBinaryProto(tsl::Env::Default(), map_output_file, &op_stats));
     all_op_stats.push_back(op_stats);
+    LOG(INFO) << "OpStatsProcessor::Reduce: Finished reading file [" << i << "/"
+              << map_output_files.size() << "].";
   }
+
+  LOG(INFO) << "OpStatsProcessor::Reduce: Finished reading all "
+            << all_op_stats.size()
+            << " files. Time taken: " << absl::Now() - start_time;
 
   std::vector<OpStatsInfo> all_op_stats_info;
   all_op_stats_info.reserve(all_op_stats.size());
@@ -165,16 +182,42 @@ absl::Status OpStatsProcessor::Reduce(
         ParseHardwareType(op_stats_copy[i].run_environment().device_type()), i);
   }
 
+  LOG(INFO) << "OpStatsProcessor::Reduce: Starting "
+               "ComputeStepIntersectionToMergeOpStats.";
+
+  absl::Time step_intersection_start = absl::Now();
+
   StepIntersection step_intersection = ComputeStepIntersectionToMergeOpStats(
       all_op_stats_info, std::numeric_limits<uint32_t>::max());
+  LOG(INFO) << "OpStatsProcessor::Reduce: Finished "
+               "ComputeStepIntersectionToMergeOpStats in "
+            << absl::Now() - step_intersection_start;
+  LOG(INFO) << "OpStatsProcessor::Reduce: Starting CombineAllOpStats.";
+  absl::Time combination_start = absl::Now();
   OpStats combined_op_stats;
   CombineAllOpStats(all_op_stats_info, step_intersection, &combined_op_stats);
+
+  LOG(INFO) << "OpStatsProcessor::Reduce: Finished CombineAllOpStats in "
+            << absl::Now() - combination_start;
+  LOG(INFO) << "OpStatsProcessor::Reduce: Starting to write combined OpStats "
+               "to binary proto.";
 
   TF_RETURN_IF_ERROR(WriteBinaryProto(
       session_snapshot, StoredDataType::OP_STATS,
       tensorflow::profiler::kAllHostsIdentifier, combined_op_stats));
+  LOG(INFO) << "OpStatsProcessor::Reduce: Finished writing combined OpStats.";
 
-  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options_);
+  LOG(INFO) << "OpStatsProcessor::Reduce: Starting ProcessCombinedOpStats.";
+  absl::Time process_start = absl::Now();
+  absl::Status status =
+      ProcessCombinedOpStats(session_snapshot, combined_op_stats, options_);
+
+  LOG(INFO) << "OpStatsProcessor::Reduce: Finished ProcessCombinedOpStats in "
+            << absl::Now() - process_start << " with status: " << status;
+  LOG(INFO) << "OpStatsProcessor::Reduce: Total time: "
+            << absl::Now() - start_time;
+
+  return status;
 }
 
 bool OpStatsProcessor::ShouldUseWorkerService(

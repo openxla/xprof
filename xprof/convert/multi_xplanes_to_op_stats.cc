@@ -19,7 +19,10 @@ limitations under the License.
 #include <limits>
 #include <vector>
 
+#include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -38,12 +41,21 @@ namespace profiler {
 absl::Status ConvertMultiXSpacesToCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStatsOptions& options,
     OpStats* combined_op_stats) {
+  absl::Time start_time = absl::Now();
+  LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Started. Number of "
+               "XSpaces: "
+            << session_snapshot.XSpaceSize();
+
   // Read multiple XSpaces and convert to multiple OpStats.
   // TODO(profiler): Change the combiner to convert and combine one OpStats at
   // a time, to reduce peak memory usage.
   std::vector<OpStats> all_op_stats;
   all_op_stats.reserve(session_snapshot.XSpaceSize());
   for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
+    LOG(INFO)
+        << "ConvertMultiXSpacesToCombinedOpStats: Starting to process XSpace "
+        << i << "/" << session_snapshot.XSpaceSize();
+
     google::protobuf::Arena arena;
     TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
     PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
@@ -51,7 +63,15 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
     TF_ASSIGN_OR_RETURN(OpStats op_stats,
                         ConvertXSpaceToOpStats(*xspace, options));
     all_op_stats.push_back(op_stats);
+
+    LOG(INFO)
+        << "ConvertMultiXSpacesToCombinedOpStats: Finished processing XSpace "
+        << i << ".";
   }
+
+  LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Finished extracting all "
+            << all_op_stats.size()
+            << " OpStats. Time: " << absl::Now() - start_time;
 
   // Combine OpStats.
   std::vector<OpStatsInfo> all_op_stats_info;
@@ -62,17 +82,40 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
         ParseHardwareType(all_op_stats[i].run_environment().device_type()), i);
   }
 
+  LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Starting "
+               "ComputeStepIntersectionToMergeOpStats.";
+
+  absl::Time step_intersection_start = absl::Now();
+
   // Do not limit the maximum number of steps during the merge of OpStats.
   StepIntersection step_intersection = ComputeStepIntersectionToMergeOpStats(
       all_op_stats_info, std::numeric_limits<uint32_t>::max());
 
+  LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Finished "
+               "ComputeStepIntersectionToMergeOpStats "
+               "in "
+            << absl::Now() - step_intersection_start;
+
+  LOG(INFO)
+      << "ConvertMultiXSpacesToCombinedOpStats: Starting CombineAllOpStats.";
+
+  absl::Time combination_start = absl::Now();
+
   CombineAllOpStats(all_op_stats_info, step_intersection, combined_op_stats);
+
+  LOG(INFO)
+      << "ConvertMultiXSpacesToCombinedOpStats: Finished CombineAllOpStats in "
+      << absl::Now() - combination_start;
+  LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Overall Finished in "
+            << absl::Now() - start_time;
 
   return absl::OkStatus();
 }
 
 absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
     const SessionSnapshot& session_snapshot, OpStats* combined_op_stats) {
+  absl::Time start_time = absl::Now();
+  LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Started";
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
@@ -80,18 +123,32 @@ absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
   TF_ASSIGN_OR_RETURN(auto has_cache,
                       session_snapshot.HasCacheFile(StoredDataType::OP_STATS));
   if (has_cache.first) {
+    LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Cache hit, "
+                 "reading binary proto";
     TF_RETURN_IF_ERROR(ReadBinaryProto(session_snapshot,
                                        StoredDataType::OP_STATS,
                                        kAllHostsIdentifier, combined_op_stats));
+    LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Finished "
+                 "reading cache file.";
   } else {
+    LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Cache miss, "
+                 "calling ConvertMultiXSpacesToCombinedOpStats";
     TF_RETURN_IF_ERROR(ConvertMultiXSpacesToCombinedOpStats(
         session_snapshot, options, combined_op_stats));
+    LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Starting to "
+                 "write cache file.";
     if (!WriteBinaryProto(session_snapshot, StoredDataType::OP_STATS,
                           kAllHostsIdentifier, *combined_op_stats)
              .ok()) {
       LOG(WARNING) << "Failed to write op stats cache file.";
+    } else {
+      LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Finished "
+                   "writing cache file.";
     }
   }
+  LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Overall Finished "
+               "in "
+            << absl::Now() - start_time;
   return absl::OkStatus();
 }
 

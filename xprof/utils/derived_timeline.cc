@@ -690,6 +690,8 @@ void GenerateDerivedTimeLines(
   std::vector<XPlane*> device_planes =
       tsl::profiler::FindMutablePlanesWithPrefix(
           space, tsl::profiler::kGpuPlanePrefix);
+  LOG(INFO) << "GenerateDerivedTimeLines: creating "
+               "derived_timeline_trace_events XprofThreadPoolExecutor";
   auto executor = std::make_unique<XprofThreadPoolExecutor>(
       "derived_timeline_trace_events", device_planes.size());
   for (XPlane* plane : device_planes) {
@@ -700,8 +702,12 @@ void GenerateDerivedTimeLines(
       DeriveStepEventsFromGroups(group_metadata_map, plane);
     });
   }
+  LOG(INFO) << "GenerateDerivedTimeLines: waiting for "
+               "derived_timeline_trace_events threads to join";
   // Use JoinAll instead of deleting the raw pointer
   executor->JoinAll();
+  LOG(INFO) << "GenerateDerivedTimeLines: derived_timeline_trace_events "
+               "threads joined successfully";
   HloModuleMap hlo_module_map;
   {
     HloProtoMap hlo_proto_map;
@@ -749,6 +755,8 @@ void GenerateDerivedTimeLines(
 
   int thread_pool_size = std::min(tsl::port::MaxParallelism(),
                                   static_cast<int>(device_planes.size()));
+  LOG(INFO) << "GenerateDerivedTimeLines: creating ProcessTensorCorePlanes "
+               "XprofThreadPoolExecutor";
   auto plane_processing_executor = std::make_unique<XprofThreadPoolExecutor>(
       "ProcessTensorCorePlanes", thread_pool_size);
   // TODO(b/449633660) Analyze multi-threading inside DeriveLinesFromStats.
@@ -758,7 +766,11 @@ void GenerateDerivedTimeLines(
       tsl::profiler::SortXPlane(plane);
     });
   }
+  LOG(INFO) << "GenerateDerivedTimeLines: waiting for ProcessTensorCorePlanes "
+               "threads to join";
   plane_processing_executor->JoinAll();
+  LOG(INFO) << "GenerateDerivedTimeLines: ProcessTensorCorePlanes threads "
+               "joined successfully";
 }
 
 void DeriveLinesFromStats(XPlane* device_trace) {

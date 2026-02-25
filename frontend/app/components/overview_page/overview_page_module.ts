@@ -46,6 +46,7 @@ export class OverviewPage implements OnDestroy {
   sessionId = '';
   tool = 'overview_page';
   host = '';
+  isLoaded = false;
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -87,6 +88,10 @@ export class OverviewPage implements OnDestroy {
     return !this.isInference;
   }
 
+  get isOverviewPageLoaded(): boolean {
+    return this.isLoaded;
+  }
+
   processQueryParams(params: Params) {
     this.host = params['host'] || this.host || '';
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
@@ -95,6 +100,7 @@ export class OverviewPage implements OnDestroy {
 
   update() {
     setLoadingState(true, this.store, 'Loading overview data');
+    this.isLoaded = false;
 
     this.dataService.getData(this.sessionId, this.tool, this.host)
         .pipe(takeUntil(this.destroyed))
@@ -104,6 +110,7 @@ export class OverviewPage implements OnDestroy {
           data = (data || []) as OverviewPageDataTuple;
           /** Transfer data to Overview Page DataTable type */
           this.parseOverviewPageData(data as OverviewPageDataTuple);
+          this.isLoaded = true;
         });
   }
 

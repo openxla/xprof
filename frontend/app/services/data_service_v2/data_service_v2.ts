@@ -173,11 +173,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       sessionId: string,
       parameters: Map<string, string> = new Map(),
       ): Observable<SmartSuggestionReport|null> {
-    const tool = 'smart_suggestion';
-    const params =
-        this.getHTTPParamsForDataQuery(sessionId, tool, '', parameters);
-    return this.get<SmartSuggestionReport>(
-        this.pathPrefix + DATA_API, {'params': params});
+    return of(null);
   }
 
   getModuleList(sessionId: string, graphType = GRAPH_TYPE_DEFAULT):

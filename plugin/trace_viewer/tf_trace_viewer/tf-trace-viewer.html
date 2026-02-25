@@ -565,6 +565,8 @@ dashboard would integrate trace viewer app using iframe.
       _sourceCodeServiceIsAvailable: {type: Boolean, value: false},
       _percaleUrlPrefix: {type: String, value: ''},
       _mpmdPipelineView: {type: Boolean, value: false},
+      _sessionPath: {type: String, value: ''},
+      _runPath: {type: String, value: ''},
     },
 
     ready: function() {
@@ -642,6 +644,8 @@ dashboard would integrate trace viewer app using iframe.
               } else {
                 this._selectedHosts = [];
               }
+              this._sessionPath = traceViewerLink.searchParams.get('session_path') || '';
+              this._runPath = traceViewerLink.searchParams.get('run_path') || '';
               if (traceViewerLink.searchParams.has('new_backend')) {
                 this._useNewBackend = traceViewerLink.searchParams.get('new_backend') === 'true';
                 this._useNewBackendSetInUrl = true;
@@ -797,6 +801,12 @@ dashboard would integrate trace viewer app using iframe.
         const {hloOp, hloModule} = params;
         toolLink.searchParams.set('node_name', hloOp);
         toolLink.searchParams.set('module_name', hloModule !== 'default' ? hloModule : undefined);
+      }
+      if (this._sessionPath) {
+        toolLink.searchParams.set('session_path', this._sessionPath);
+      }
+      if (this._runPath) {
+        toolLink.searchParams.set('run_path', this._runPath);
       }
       toolLinkElement.innerHTML = `${toolLabel}: <a href="${toolLink.href}" target="_blank">${text}</a>`;
       this._eventDetails.appendChild(toolLinkElement);

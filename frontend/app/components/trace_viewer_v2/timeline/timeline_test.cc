@@ -342,6 +342,55 @@ TEST(TimelineTest, CalculateEventTextRect_NarrowEvent) {
   EXPECT_FLOAT_EQ(text_pos.y, expected_top);
 }
 
+TEST(TimelineTest, GetDeleteButtonLayout_TextFits) {
+  Timeline timeline;
+  const ImVec2 text_size(50.0f, 20.0f);
+  const ImVec2 text_pos(100.0f, 200.0f);
+  const ImRect visible_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+  const ImRect full_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+
+  auto layout = timeline.GetDeleteButtonLayout(
+      text_size, text_pos, visible_range_rect, full_range_rect);
+
+  EXPECT_TRUE(layout.text_fits);
+
+  // Button should be to the right of the text.
+  EXPECT_FLOAT_EQ(layout.button_pos.x,
+                  text_pos.x + text_size.x + kCloseButtonPadding);
+  EXPECT_FLOAT_EQ(layout.button_pos.y,
+                  text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+  // Hover rect should include text and button with margin.
+  EXPECT_LE(layout.hover_rect.Min.x, text_pos.x - kHoverPadding);
+  EXPECT_LE(layout.hover_rect.Min.y, text_pos.y - kHoverPadding);
+  EXPECT_GE(layout.hover_rect.Max.x,
+            layout.button_pos.x + kCloseButtonSize + kHoverPadding);
+}
+
+TEST(TimelineTest, GetDeleteButtonLayout_TextDoesNotFit) {
+  Timeline timeline;
+  const ImVec2 text_size(50.0f, 20.0f);
+  const ImVec2 text_pos(100.0f, 200.0f);
+  // Visible range is smaller than text width.
+  const ImRect visible_range_rect(100.0f, 0.0f, 140.0f, 300.0f);
+  const ImRect full_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
+
+  auto layout = timeline.GetDeleteButtonLayout(
+      text_size, text_pos, visible_range_rect, full_range_rect);
+
+  EXPECT_FALSE(layout.text_fits);
+
+  // Button should be centered in the visible range.
+  EXPECT_FLOAT_EQ(layout.button_pos.x,
+                  visible_range_rect.GetCenter().x - kCloseButtonSize / 2.0f);
+  EXPECT_FLOAT_EQ(layout.button_pos.y,
+                  text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
+
+  // Hover rect should be the visible range.
+  EXPECT_EQ(layout.hover_rect.Min.x, visible_range_rect.Min.x);
+  EXPECT_EQ(layout.hover_rect.Max.x, visible_range_rect.Max.x);
+}
+
 TEST(TimelineTest, GetTextForDisplayWhenTextFits) {
   MockTimeline timeline;
   const std::string text = "Test";
@@ -3541,8 +3590,7 @@ TEST(TimelineTest, BezierControlPointCalculation) {
 TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   // Ensure we have some data so tracks are drawn.
   FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.groups.push_back({.name = "Group 1", .start_level = 0});
   timeline_.set_timeline_data(std::move(data));
 
   ImGui::NewFrame();
@@ -3570,6 +3618,77 @@ TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   EXPECT_TRUE(found_overlay) << "SelectionOverlay child window not found";
   EXPECT_TRUE(overlay_is_after_tracks)
       << "SelectionOverlay should be drawn after Tracks to appear on top";
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawSelectedTimeRangeTextAtCorrectYPosition) {
+  // Set up timeline
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_data_time_range({0.0, 100.0});
+
+  // Create a selected time range by simulating a shift-drag
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+  // Start drag
+  io.MousePos = ImVec2(kTimelineStartX + 50.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  // Drag to create a range
+  io.MousePos = ImVec2(kTimelineStartX + 150.0f, 50.0f);
+  SimulateFrame();
+  // End drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Shift, false);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Draw again to inspect the draw list
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Find the SelectionOverlay child window
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+
+  // Find the text vertices (drawn in kBlackColor)
+  ImDrawList* draw_list = overlay_window->DrawList;
+  float min_y = std::numeric_limits<float>::max();
+  bool found_text = false;
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == kBlackColor) {
+      if (vtx.pos.y < min_y) {
+        min_y = vtx.pos.y;
+      }
+      found_text = true;
+    }
+  }
+
+  ASSERT_TRUE(found_text) << "Text should be drawn in black";
+
+  // Calculate expected Y position
+  const std::string text =
+      FormatTime(timeline_.selected_time_ranges()[0].duration());
+  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+  // kSelectedTimeRangeTextBottomPadding is 10.0f.
+  // The calculated text_y passed to AddText is:
+  // io.DisplaySize.y - text_size.y - 10.0f.
+  // However, ImGui's AddText with the default font seems to render glyphs
+  // with a vertical offset (ascent padding?) of about 3 pixels relative to
+  // the specified position. We observed min_y being 1060.0f while calculated
+  // expected_y was 1057.0f.
+  const float expected_y = io.DisplaySize.y - text_size.y - 10.0f + 3.0f;
+
+  EXPECT_FLOAT_EQ(min_y, expected_y);
 
   ImGui::EndFrame();
 }

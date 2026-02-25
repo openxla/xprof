@@ -31,6 +31,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/power_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_stats.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/topology.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
@@ -218,6 +219,12 @@ void CombineOpStats(
   // Combine kernel stats.
   dst->mutable_kernel_stats_db()->mutable_reports()->MergeFrom(
       src.kernel_stats_db().reports());
+
+  // Combine the mapping from program ID to name.
+  dst->mutable_program_id_to_name_map()->insert(
+      src.program_id_to_name_map().begin(), src.program_id_to_name_map().end());
+
+  dst->mutable_source_stats()->MergeFrom(src.source_stats());
 
   // Combine tf-function stats.
   CombineTfFunctionDb(src.tf_function_db(), dst->mutable_tf_function_db());

@@ -1317,8 +1317,27 @@ class ProfilePlugin(base_plugin.TBPlugin):
           for f in all_basenames
           if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
       ]
-      module_names_str = ','.join(module_list)
-      return module_names_str
+
+      if not module_list:
+        xplane_basenames = self._get_xplane_basenames(run_dir)
+        xplane_filenames = [os.path.join(run_dir, f) for f in xplane_basenames]
+        if xplane_filenames:
+          try:
+            # This triggers ConvertMultiXSpaceToHloProto in the C++ backend.
+            convert.xspace_to_tool_names(xplane_filenames)
+          except AttributeError:
+            logger.warning(
+                'XPlane converters are available after Tensorflow 2.4'
+            )
+
+          all_basenames = self._get_all_basenames(run_dir)
+          module_list = [
+              name
+              for f in all_basenames
+              if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
+          ]
+
+      return ','.join(module_list)
     except OSError as e:
       logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
       return ''

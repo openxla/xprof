@@ -1308,6 +1308,7 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:power_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:topology_proto_cc",
         "@org_xprof//xprof/utils:hardware_type_utils",

@@ -246,12 +246,6 @@ void Timeline::Draw() {
 
   ImGui::Begin("Timeline viewer", nullptr, kImGuiWindowFlags);
 
-  const Pixel timeline_width =
-      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
-  const double px_per_time_unit_val = px_per_time_unit(timeline_width);
-
-  DrawRuler(timeline_width, viewport->Pos.y + viewport->Size.y);
-
   // The tracks are in a child window to allow scrolling independently of the
   // ruler.
   // Keep the NoScrollWithMouse flag to disable the default scroll behavior
@@ -264,6 +258,13 @@ void Timeline::Draw() {
   ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
                           label_width_);
   ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);
+
+  const Pixel timeline_width =
+      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
+  const double px_per_time_unit_val = px_per_time_unit(timeline_width);
+
+  // Draw Ruler
+  DrawRuler(timeline_width, viewport->Pos.y + viewport->Size.y);
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
@@ -699,88 +700,80 @@ double Timeline::px_per_time_unit(Pixel timeline_width) const {
 // vertical tick marks indicating time intervals, and their corresponding time
 // labels.
 void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
-  if (ImGui::BeginTable("Ruler", 2, kImGuiTableFlags)) {
-    ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
-                            label_width_);
-    ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableNextRow();
-    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
-                           ImGui::GetColorU32(ImGuiCol_WindowBg));
+  ImGui::TableNextRow();
+  ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                         ImGui::GetColorU32(ImGuiCol_WindowBg));
+  ImGui::TableNextColumn();
+  ImGui::Dummy(ImVec2(label_width_, kRulerHeight));
+  ImGui::TableNextColumn();
 
-    ImGui::TableNextColumn();
-    ImGui::TableNextColumn();
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
-    ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+  const double px_per_time_unit_val = px_per_time_unit(timeline_width);
+  if (px_per_time_unit_val > 0) {
+    // Draw horizontal line
+    const Pixel line_y = pos.y + kRulerHeight;
+    draw_list->AddLine(ImVec2(pos.x, line_y),
+                       ImVec2(pos.x + timeline_width, line_y), kRulerLineColor);
 
-    const double px_per_time_unit_val = px_per_time_unit(timeline_width);
-    if (px_per_time_unit_val > 0) {
-      // Draw horizontal line
-      const Pixel line_y = pos.y + kRulerHeight;
-      draw_list->AddLine(ImVec2(pos.x, line_y),
-                         ImVec2(pos.x + timeline_width, line_y),
-                         kRulerLineColor);
+    const Microseconds min_time_interval =
+        kMinTickDistancePx / px_per_time_unit_val;
+    const Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
+    const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
 
-      const Microseconds min_time_interval =
-          kMinTickDistancePx / px_per_time_unit_val;
-      const Microseconds tick_interval =
-          CalculateNiceInterval(min_time_interval);
-      const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
+    const Microseconds view_start = visible_range().start();
+    const Microseconds trace_start = data_time_range_.start();
 
-      const Microseconds view_start = visible_range().start();
-      const Microseconds trace_start = data_time_range_.start();
+    const Microseconds view_start_relative = view_start - trace_start;
+    const Microseconds first_tick_time_relative =
+        std::floor(view_start_relative / tick_interval) * tick_interval;
 
-      const Microseconds view_start_relative = view_start - trace_start;
-      const Microseconds first_tick_time_relative =
-          std::floor(view_start_relative / tick_interval) * tick_interval;
+    const Pixel minor_tick_dist_px =
+        major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
 
-      const Pixel minor_tick_dist_px =
-          major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
+    Microseconds t_relative = first_tick_time_relative;
+    Pixel x =
+        TimeToScreenX(t_relative + trace_start, pos.x, px_per_time_unit_val);
 
-      Microseconds t_relative = first_tick_time_relative;
-      Pixel x =
-          TimeToScreenX(t_relative + trace_start, pos.x, px_per_time_unit_val);
+    for (;; t_relative += tick_interval, x += major_tick_dist_px) {
+      if (x > pos.x + timeline_width + kRulerScreenBuffer) {
+        break;
+      }
 
-      for (;; t_relative += tick_interval, x += major_tick_dist_px) {
-        if (x > pos.x + timeline_width + kRulerScreenBuffer) {
+      // Draw major tick.
+      if (x >= pos.x - kRulerScreenBuffer) {
+        // Draw major tick.
+        draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
+                           kRulerLineColor);
+
+        // Draw vertical line across the tracks.
+        draw_list->AddLine(ImVec2(x, line_y), ImVec2(x, viewport_bottom),
+                           kTraceVerticalLineColor);
+
+        const std::string time_label_text = FormatTime(t_relative);
+        ImGui::PushFont(fonts::label_small);
+        draw_list->AddText(ImVec2(x + kRulerTextPadding, pos.y),
+                           kRulerTextColor, time_label_text.c_str());
+        ImGui::PopFont();
+      }
+
+      // Draw minor ticks for the current interval.
+      for (int i = 1; i < kMinorTickDivisions; ++i) {
+        const Pixel minor_x = x + i * minor_tick_dist_px;
+        if (minor_x > pos.x + timeline_width + kRulerScreenBuffer) {
           break;
         }
-
-        // Draw major tick.
-        if (x >= pos.x - kRulerScreenBuffer) {
-          // Draw major tick.
-          draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
-                             kRulerLineColor);
-
-          // Draw vertical line across the tracks.
-          draw_list->AddLine(ImVec2(x, line_y), ImVec2(x, viewport_bottom),
-                             kTraceVerticalLineColor);
-
-          const std::string time_label_text = FormatTime(t_relative);
-          ImGui::PushFont(fonts::label_small);
-          draw_list->AddText(ImVec2(x + kRulerTextPadding, pos.y),
-                             kRulerTextColor, time_label_text.c_str());
-          ImGui::PopFont();
-        }
-
-        // Draw minor ticks for the current interval.
-        for (int i = 1; i < kMinorTickDivisions; ++i) {
-          const Pixel minor_x = x + i * minor_tick_dist_px;
-          if (minor_x > pos.x + timeline_width + kRulerScreenBuffer) {
-            break;
-          }
-          if (minor_x >= pos.x - kRulerScreenBuffer) {
-            draw_list->AddLine(ImVec2(minor_x, line_y - kRulerMinorTickHeight),
-                               ImVec2(minor_x, line_y), kRulerLineColor);
-          }
+        if (minor_x >= pos.x - kRulerScreenBuffer) {
+          draw_list->AddLine(ImVec2(minor_x, line_y - kRulerMinorTickHeight),
+                             ImVec2(minor_x, line_y), kRulerLineColor);
         }
       }
     }
-
-    // Reserve space for the ruler
-    ImGui::Dummy(ImVec2(0.0f, kRulerHeight + ImGui::GetStyle().CellPadding.y));
-    ImGui::EndTable();
   }
+
+  // Reserve space for the ruler
+  ImGui::Dummy(ImVec2(0.0f, kRulerHeight + ImGui::GetStyle().CellPadding.y));
 }
 
 void Timeline::DrawEventName(absl::string_view event_name,

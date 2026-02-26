@@ -113,8 +113,11 @@ message TfStatsRecord {
   // Operational intensity based on the bottleneck resource in FLOP/Byte.
   double bottleneck_operational_intensity = 31;
 
+  // Deprecated. Use flops_v2 instead.
+  uint64 flops = 32 [deprecated = true];
+
   // Flops for the record
-  uint64 flops = 32;
+  double flops_v2 = 34;
 
   // Bytes accessed for the record
   uint64 bytes_accessed = 33;

@@ -160,8 +160,12 @@ RooflineModelRecord GenerateRooflineModelProgramRecord(
       continue;
     }
     program_metrics.set_flops(program_metrics.flops() + metrics.flops());
+    program_metrics.set_flops_v2(program_metrics.flops_v2() +
+                                 metrics.flops_v2());
     program_metrics.set_model_flops(program_metrics.model_flops() +
                                     metrics.model_flops());
+    program_metrics.set_model_flops_v2(program_metrics.model_flops_v2() +
+                                       metrics.model_flops_v2());
     program_metrics.set_bytes_accessed(program_metrics.bytes_accessed() +
                                        metrics.bytes_accessed());
     CombineMemoryAccessedBreakdown(

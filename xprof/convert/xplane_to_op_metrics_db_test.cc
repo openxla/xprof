@@ -331,7 +331,9 @@ TEST(ConvertXPlaneToOpMetricsDb, TensorCoreDeviceOpMetricsDb) {
                                  hlo_module_id: 1
                                  self_time_ps: 10000
                                  flops: 68
+                                 flops_v2: 68
                                  model_flops: 68
+                                 model_flops_v2: 68
                                  num_cores: 1
                                  occurrences: 2
                                  name: "MatMul"
@@ -387,7 +389,9 @@ TEST(ConvertXPlaneToOpMetricsDb,
           hlo_module_id: 1
           self_time_ps: 10000
           flops: 68
+          flops_v2: 68
           model_flops: 68
+          model_flops_v2: 68
           occurrences: 2
           name: "fusion"
           time_ps: 10000
@@ -476,7 +480,9 @@ TEST(ConvertXPlaneToOpMetricsDb, SparseCoreDeviceOpMetricsDb) {
   EXPECT_THAT(op_metrics, EqualsProto(R"pb(metrics_db {
                                              self_time_ps: 10000
                                              flops: 40
+                                             flops_v2: 40
                                              model_flops: 40
+                                             model_flops_v2: 40
                                              num_cores: 1
                                              occurrences: 2
                                              name: "Fusion"
@@ -648,6 +654,7 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithNullPerformanceInfo) {
   EXPECT_EQ(op.occurrences(), 1);
   EXPECT_EQ(op.time_ps(), 10);
   EXPECT_EQ(op.flops(), 0);
+  EXPECT_EQ(op.flops_v2(), 0);
   OpMetrics idle = op_metrics.metrics_db().at(1);
   EXPECT_EQ(idle.name(), "IDLE");
   EXPECT_EQ(idle.category(), "IDLE");

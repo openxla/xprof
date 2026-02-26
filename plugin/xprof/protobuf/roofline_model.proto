@@ -73,7 +73,7 @@ message RooflineModelDatabase {
 }
 
 // There is one RooflineModelRecord for each HLO operation profiled.
-// Next ID: 45
+// Next ID: 46
 message RooflineModelRecord {
   // The record type.
   optional RecordType record_type = 18;
@@ -197,8 +197,11 @@ message RooflineModelRecord {
   // applying the time scale multiplier.
   optional bool apply_time_scale_multiplier = 44;
 
+  // Deprecated. Use flops_v2 instead.
+  optional uint64 flops = 36 [deprecated = true];
+
   // Flops for the record
-  optional uint64 flops = 36;
+  optional double flops_v2 = 45;
 
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 37;

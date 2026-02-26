@@ -21,7 +21,6 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -67,6 +66,8 @@ void EnterOpMetadata(OpMetrics* op_metrics,
     op_metrics->set_num_cores(1);
     op_metrics->set_occurrences(op_metrics->occurrences() + 1);
     op_metrics->set_flops(op_metrics->flops() + instr_wrapper->flops());
+    op_metrics->set_flops_v2(op_metrics->flops_v2() +
+                             static_cast<double>(instr_wrapper->flops()));
     op_metrics->set_bytes_accessed(op_metrics->bytes_accessed() +
                                    instr_wrapper->bytes_accessed());
     op_metrics->set_long_name(instr_wrapper->Expression());
@@ -189,12 +190,18 @@ void DeviceOpMetricsDbBuilder::EnterOp(
   op_metrics->set_time_ps(op_metrics->time_ps() + time_ps);
   op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_time_ps);
   op_metrics->set_flops(op_metrics->flops() + flops * occurrences);
+  op_metrics->set_flops_v2(op_metrics->flops_v2() +
+                           static_cast<double>(flops) * occurrences);
   if (model_flops == 0) {
     // If ModelsFlops is 0, use the same value as device flops.
     op_metrics->set_model_flops(op_metrics->flops());
+    op_metrics->set_model_flops_v2(op_metrics->flops_v2());
   } else {
     op_metrics->set_model_flops(op_metrics->model_flops() +
                                 model_flops * occurrences);
+    op_metrics->set_model_flops_v2(op_metrics->model_flops_v2() +
+                                   static_cast<double>(model_flops) *
+                                       static_cast<double>(occurrences));
   }
   op_metrics->set_bytes_accessed(op_metrics->bytes_accessed() +
                                  bytes_accessed * occurrences);

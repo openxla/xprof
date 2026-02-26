@@ -18,14 +18,11 @@ limitations under the License.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <optional>
 #include <stack>
 #include <string>
 #include <utility>
-#include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -37,7 +34,6 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -125,8 +121,12 @@ class DeviceTfOpMetricsDbBuilder : public OpMetricsDbBuilder {
                                     device_op_metrics.self_time_ps());
     tf_op_metrics->set_flops(tf_op_metrics->flops() +
                              device_op_metrics.flops());
+    tf_op_metrics->set_flops_v2(tf_op_metrics->flops_v2() +
+                                device_op_metrics.flops_v2());
     tf_op_metrics->set_model_flops(tf_op_metrics->model_flops() +
                                    device_op_metrics.model_flops());
+    tf_op_metrics->set_model_flops_v2(tf_op_metrics->model_flops_v2() +
+                                      device_op_metrics.model_flops_v2());
     tf_op_metrics->set_bytes_accessed(tf_op_metrics->bytes_accessed() +
                                       device_op_metrics.bytes_accessed());
     tf_op_metrics->set_core_type(device_op_metrics.core_type());
@@ -155,9 +155,12 @@ void SetOpMetadataFromHloEventMetadata(
           break;
         case StatType::kFlops:
           op_metrics->set_flops(stat.IntOrUintValue());
+          op_metrics->set_flops_v2(static_cast<double>(stat.IntOrUintValue()));
           break;
         case StatType::kModelFlops:
           op_metrics->set_model_flops(stat.IntOrUintValue());
+          op_metrics->set_model_flops_v2(
+              static_cast<double>(stat.IntOrUintValue()));
           break;
         case StatType::kBytesAccessed:
           op_metrics->set_bytes_accessed(stat.IntOrUintValue());
@@ -259,9 +262,14 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
         case StatType::kModelFlops:
           op_metrics->set_model_flops(op_metrics->model_flops() +
                                       stat.IntOrUintValue());
+          op_metrics->set_model_flops_v2(
+              op_metrics->model_flops_v2() +
+              static_cast<double>(stat.IntOrUintValue()));
           break;
         case StatType::kFlops:
           op_metrics->set_flops(op_metrics->flops() + stat.IntOrUintValue());
+          op_metrics->set_flops_v2(op_metrics->flops_v2() +
+                                   static_cast<double>(stat.IntOrUintValue()));
           break;
         default:
           break;
@@ -286,6 +294,8 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
     if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
       dst.set_flops(dst.flops() + src.flops());
       dst.set_model_flops(dst.model_flops() + src.model_flops());
+      dst.set_flops_v2(dst.flops_v2() + src.flops_v2());
+      dst.set_model_flops_v2(dst.model_flops_v2() + src.model_flops_v2());
       dst.set_bytes_accessed(dst.bytes_accessed() + src.bytes_accessed());
     }
   }
@@ -295,11 +305,15 @@ void AdjustFlopsAndBytesAccessed(OpMetrics& op_metrics) {
   if (op_metrics.category() !=
       xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
     op_metrics.set_flops(op_metrics.flops() * op_metrics.occurrences());
+    op_metrics.set_flops_v2(op_metrics.flops_v2() * op_metrics.occurrences());
     if (op_metrics.model_flops() > 0) {
       op_metrics.set_model_flops(op_metrics.model_flops() *
                                  op_metrics.occurrences());
+      op_metrics.set_model_flops_v2(op_metrics.model_flops_v2() *
+                                    op_metrics.occurrences());
     } else {
       op_metrics.set_model_flops(op_metrics.flops());
+      op_metrics.set_model_flops_v2(op_metrics.flops_v2());
     }
     op_metrics.set_bytes_accessed(op_metrics.bytes_accessed() *
                                   op_metrics.occurrences());

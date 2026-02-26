@@ -111,7 +111,9 @@ TEST(OpMetricsDbTest, FromXEventHandlesMissingOccurrences) {
                 dma_stall_ps: 0
                 hlo_module_id: 1
                 flops: 3
+                flops_v2: 3
                 model_flops: 4
+                model_flops_v2: 4
                 bytes_accessed: 5
                 name: "display_name"
                 long_name: "metadata"
@@ -274,6 +276,7 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
       self_time_ps: 2
       time_ps: 4
       flops: 8
+      flops_v2: 8
       source_info { stack_frame: "file.py:1" }
       children {
         metrics_db {
@@ -283,6 +286,7 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
           self_time_ps: 4
           time_ps: 8
           flops: 2
+          flops_v2: 2
           source_info { stack_frame: "file.py:1" }
           children {
             metrics_db {
@@ -292,6 +296,7 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
               self_time_ps: 4
               time_ps: 8
               flops: 1
+              flops_v2: 1
               source_info { stack_frame: "file.py:1" }
             }
           }

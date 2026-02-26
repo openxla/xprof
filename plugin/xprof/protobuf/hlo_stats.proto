@@ -13,7 +13,7 @@ message HloStatsDatabase {
 }
 
 // There is one HloStatsRecord for each HLO operation profiled.
-// Next ID: 40
+// Next ID: 41
 message HloStatsRecord {
   // The rank by self time
   optional uint64 rank = 1;
@@ -116,8 +116,11 @@ message HloStatsRecord {
   // Whether this op is autotuned.
   optional bool autotuned = 31;
 
+  // Deprecated. Use flops_v2 instead.
+  optional uint64 flops = 32 [deprecated = true];
+
   // Flops for the record
-  optional uint64 flops = 32;
+  optional double flops_v2 = 40;
 
   // Bytes accessed for the record
   optional uint64 bytes_accessed = 33;

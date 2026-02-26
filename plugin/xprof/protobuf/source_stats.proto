@@ -16,7 +16,9 @@ message SourceStats {
     uint64 time_ps = 3;
     // The total number of FLOPS for all the HLO operations generated from the
     // associated source line, including the FLOPS in any descendant operations.
-    uint64 flops = 4;
+    uint64 flops = 4 [deprecated = true];
+    double flops_v2 = 6;
+
     // The average FLOPS utilization for all HLO operations generated from the
     // associated source line, including the FLOPS of any descendant operations.
     double flops_utilization = 5;

@@ -38,7 +38,7 @@ inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.flops(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      metrics.flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Normalized flop rate if running on default pstate.
@@ -60,7 +60,7 @@ inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.model_flops(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      metrics.model_flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Return ByteAccessed for memory_space and operation_type.
@@ -184,9 +184,10 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
       metrics, tensorflow::profiler::MemorySpace::MEMORY_SPACE_ALL,
       OpMetrics::MemoryAccessed::UNKNOWN));
   record->set_flops(metrics.flops());
+  record->set_flops_v2(metrics.flops_v2());
   record->set_bytes_accessed(metrics.bytes_accessed());
   record->set_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), metrics.bytes_accessed()));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), metrics.bytes_accessed()));
   // Set performance metrics per memory access type.
   uint64_t hbm_bytes = 0;
   uint64_t cmem_read_bytes = 0;
@@ -233,15 +234,15 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
   record->set_vmem_write_bw(tsl::profiler::GibibytesPerSecond(
       vmem_write_bytes, tsl::profiler::PicoToNano(device_time_ps)));
   record->set_hbm_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), hbm_bytes));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), hbm_bytes));
   record->set_cmem_read_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), cmem_read_bytes));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), cmem_read_bytes));
   record->set_cmem_write_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), cmem_write_bytes));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), cmem_write_bytes));
   record->set_vmem_read_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), vmem_read_bytes));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), vmem_read_bytes));
   record->set_vmem_write_operational_intensity(
-      tsl::profiler::SafeDivide(metrics.flops(), vmem_write_bytes));
+      tsl::profiler::SafeDivide(metrics.flops_v2(), vmem_write_bytes));
   // Resources considered for roofline analysis.
   constexpr absl::string_view kUnknown = "Unknown";
   constexpr absl::string_view kCompute = "Compute";

@@ -196,8 +196,9 @@ void PopulateOpMetricsNode(
   // and memory_bandwidth = raw_bytes_accessed / raw_time. See:
   // https://github.com/tensorflow/profiler/blob/master/frontend/app/common/utils/utils.ts
   metrics->set_raw_time(op_metrics.time_ps());
-  metrics->set_raw_flops(op_metrics.model_flops());
-  metrics->set_bf16_flops(op_metrics.flops());
+  // TODO(b/483381236): Remove in favor of total_flops.
+  metrics->set_raw_flops(op_metrics.model_flops_v2());
+  metrics->set_bf16_flops(op_metrics.flops_v2());
   metrics->set_occurrences(op_metrics.occurrences());
   metrics->set_avg_time_ps(tsl::profiler::SafeDivide(op_metrics.time_ps(),
                                                      op_metrics.occurrences()));
@@ -266,6 +267,8 @@ void InsertFusedInstructions(const OpMetrics& op_metrics, Node* node,
   for (const auto& child : op_metrics.children().metrics_db()) {
     Node* new_node = node->add_children();
     PopulateSymbolNode(child, new_node);
+    new_node->mutable_metrics()->set_raw_flops(child.model_flops_v2());
+    new_node->mutable_metrics()->set_bf16_flops(child.flops_v2());
     builder->AddChildMetrics(child, new_node);
     if (child.has_children()) {
       InsertFusedInstructions(child, new_node, builder);
@@ -283,6 +286,9 @@ void UpdateNodeMetrics(const OpMetrics& child, OpMetrics* parent) {
   if (ChildrenTimePs(child) == 0) {
     parent->set_flops(child.flops() + parent->flops());
     parent->set_model_flops(child.model_flops() + parent->model_flops());
+    parent->set_flops_v2(child.flops_v2() + parent->flops_v2());
+    parent->set_model_flops_v2(child.model_flops_v2() +
+                               parent->model_flops_v2());
     parent->set_bytes_accessed(child.bytes_accessed() +
                                parent->bytes_accessed());
     parent->set_dma_stall_ps(child.dma_stall_ps() + parent->dma_stall_ps());

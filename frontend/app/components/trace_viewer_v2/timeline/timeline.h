@@ -205,6 +205,8 @@ class Timeline {
     return current_search_result_index_;
   }
 
+  Pixel GetLabelWidth() const { return label_width_; }
+
   void SetVisibleFlowCategory(int category_id) {
     flow_category_filter_ = category_id;
   }
@@ -381,13 +383,20 @@ class Timeline {
       ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
       ImGuiWindowFlags_NoMove;
   static constexpr ImGuiTableFlags kImGuiTableFlags =
-      ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV;
+      ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV |
+      ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings;
   static constexpr ImGuiWindowFlags kLaneFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
   FlameChartTimelineData timeline_data_;
+
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;
+  // The width of the timeline track area in pixels. Calculated in Draw() and
+  // cached for use in interaction handlers (Zoom, Pan).
+  Pixel current_timeline_width_ = 0.0f;
+  // Whether the user is currently resizing the label column.
+  bool is_resizing_label_column_ = false;
 
   // Stores the screen Y coordinate of each level in the current frame.
   std::vector<float> level_y_positions_;

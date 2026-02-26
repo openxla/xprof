@@ -254,17 +254,22 @@ void Timeline::Draw() {
   ImGui::BeginChild("Tracks", ImVec2(0, 0), ImGuiChildFlags_None,
                     ImGuiWindowFlags_NoScrollWithMouse);
 
+  // Calculate the available width for the timeline before entering the table.
+  // This ensures we get the correct width even if the table layout hasn't
+  // finished or if GetContentRegionAvail behaves differently inside the table.
+  const float content_region_avail_width = ImGui::GetContentRegionAvail().x;
+
   ImGui::BeginTable("Timeline", 2, kImGuiTableFlags, ImVec2(0.0f, -FLT_MIN));
   ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
                           label_width_);
   ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);
 
-  const Pixel timeline_width =
-      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
-  const double px_per_time_unit_val = px_per_time_unit(timeline_width);
+  current_timeline_width_ =
+      content_region_avail_width - label_width_ - kTimelinePaddingRight;
+  const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
 
   // Draw Ruler
-  DrawRuler(timeline_width, viewport->Pos.y + viewport->Size.y);
+  DrawRuler(current_timeline_width_, viewport->Pos.y + viewport->Size.y);
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
@@ -356,6 +361,16 @@ void Timeline::Draw() {
     ImGui::PopID();
   }
 
+  // Update `label_width_` after the table has been fully laid out.
+  // This ensures we capture the updated `ResizedColumn` and `WidthGiven` state
+  // which is only set internally by ImGui after the first `TableNextRow()`.
+  ImGuiTable* table = ImGui::GetCurrentTable();
+  is_resizing_label_column_ = false;
+  if (table != nullptr) {
+    label_width_ = table->Columns[0].WidthGiven;
+    is_resizing_label_column_ = (table->ResizedColumn == 0);
+  }
+
   ImGui::EndTable();
 
   HandleEventDeselection();
@@ -365,10 +380,12 @@ void Timeline::Draw() {
   // interaction.
   // The performance impact is fine because HandleKeyboard/HandleWheel() only
   // performs lightweight checks and calculations.
-  bool is_interacting = false;
-  is_interacting |= HandleKeyboard();
-  is_interacting |= HandleWheel();
-  is_interacting |= HandleMouse();
+  bool is_interacting = is_resizing_label_column_;
+  if (!is_resizing_label_column_) {
+    is_interacting |= HandleKeyboard();
+    is_interacting |= HandleWheel();
+    is_interacting |= HandleMouse();
+  }
 
   // We call MaybeRequestData() to check if we need to fetch more data.
   // We do this here instead of in SetVisibleRange because we want to debounce
@@ -397,8 +414,8 @@ void Timeline::Draw() {
   // flow lines and selected time ranges are rendered on top of everything
   // else within the current ImGui window, without affecting global foreground
   // elements like tooltips.
-  DrawFlows(timeline_width);
-  DrawSelectedTimeRanges(timeline_width, px_per_time_unit_val);
+  DrawFlows(current_timeline_width_);
+  DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
   ImGui::EndChild();
 
   ImGui::PopStyleVar();  // ItemSpacing
@@ -682,9 +699,7 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
 }
 
 double Timeline::px_per_time_unit() const {
-  const Pixel timeline_width =
-      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
-  return px_per_time_unit(timeline_width);
+  return px_per_time_unit(current_timeline_width_);
 }
 
 double Timeline::px_per_time_unit(Pixel timeline_width) const {
@@ -1644,10 +1659,7 @@ ImRect Timeline::GetTimelineArea() const {
   const Pixel start_x = window_pos.x + content_min.x + label_width_;
   const Pixel start_y = window_pos.y + content_min.y;
 
-  const Pixel timeline_width =
-      ImGui::GetContentRegionAvail().x - label_width_ - kTimelinePaddingRight;
-
-  const Pixel end_x = start_x + timeline_width;
+  const Pixel end_x = start_x + current_timeline_width_;
   const Pixel end_y = window_pos.y + ImGui::GetWindowHeight();
 
   return {start_x, start_y, end_x, end_y};

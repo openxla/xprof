@@ -21,8 +21,11 @@ limitations under the License.
 #include <optional>
 
 #include "xprof/convert/event_time_fraction_analyzer_processor.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -84,21 +87,36 @@ void AccumulateEventTimeFractionAnalyzerResult(
 
 }  // namespace
 
-absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(
+absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::MapInternal(
     const SessionSnapshot& session_snapshot, const std::string& hostname,
-    const XSpace& xspace) {
+    const XSpace& xspace, bool already_preprocessed) {
   // We need to copy XSpace because PreprocessSingleHostXSpace modifies it.
   XSpace xspace_copy = xspace;
   if (xspace_copy.hostnames().empty()) {
     xspace_copy.add_hostnames(hostname);
   }
-  PreprocessSingleHostXSpace(&xspace_copy, /*step_grouping=*/true,
-                             /*derived_timeline=*/true);
+  if (!already_preprocessed) {
+    absl::Time start = absl::Now();
+    PreprocessSingleHostXSpace(&xspace_copy, /*step_grouping=*/true,
+                               /*derived_timeline=*/true);
+    LOG(INFO) << "PreprocessSingleHostXSpace took " << absl::Now() - start;
+  }
+
   std::string target_event_name = GetTargetEventName(options_);
+  absl::Time start = absl::Now();
   TF_ASSIGN_OR_RETURN(EventTimeFractionAnalyzerResult result,
                       ConvertXSpaceToEventTimeFractionAnalyzerResult(
                           xspace_copy, target_event_name));
+  LOG(INFO) << "ConvertXSpaceToEventTimeFractionAnalyzerResult took "
+            << absl::Now() - start;
   return result.SerializeAsString();
+}
+
+absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(
+    const SessionSnapshot& session_snapshot, const std::string& hostname,
+    const XSpace& xspace) {
+  return MapInternal(session_snapshot, hostname, xspace,
+                     /*already_preprocessed=*/false);
 }
 
 absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(
@@ -111,10 +129,13 @@ absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(
   EventTimeFractionAnalyzerResult combined_result;
   for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
     google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
+    TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                        session_snapshot.GetPreprocessedXSpace(i, &arena));
     std::string hostname = session_snapshot.GetHostname(i);
-    TF_ASSIGN_OR_RETURN(std::string serialized_result,
-                        Map(session_snapshot, hostname, *xspace));
+    TF_ASSIGN_OR_RETURN(
+        std::string serialized_result,
+        (MapInternal(session_snapshot, hostname, *xspace,
+                     /*already_preprocessed=*/true)));
     EventTimeFractionAnalyzerResult result;
     if (!result.ParseFromString(serialized_result)) {
       return absl::InternalError(
@@ -153,10 +174,13 @@ absl::Status EventTimeFractionAnalyzerProcessor::ProcessSession(
   EventTimeFractionAnalyzerResult combined_result;
   for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
     google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
+    TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                        session_snapshot.GetPreprocessedXSpace(i, &arena));
     std::string hostname = session_snapshot.GetHostname(i);
-    TF_ASSIGN_OR_RETURN(std::string serialized_result,
-                        Map(session_snapshot, hostname, *xspace));
+    TF_ASSIGN_OR_RETURN(
+        std::string serialized_result,
+        (MapInternal(session_snapshot, hostname, *xspace,
+                     /*already_preprocessed=*/true)));
     EventTimeFractionAnalyzerResult result;
     if (!result.ParseFromString(serialized_result)) {
       return absl::InternalError(

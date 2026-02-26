@@ -1742,14 +1742,32 @@ cc_library(
 )
 
 cc_library(
-    name = "file_utils",
-    srcs = ["file_utils.cc"],
-    hdrs = ["file_utils.h"],
+    name = "storage_client_interface",
+    hdrs = ["storage_client_interface.h"],
     deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_library(
+    name = "file_utils",
+    srcs = [
+        "file_utils.cc",
+        "file_utils_gcs.cc",
+    ],
+    hdrs = [
+        "file_utils.h",
+        "file_utils_internal.h",
+    ],
+    deps = [
+        ":storage_client_interface",
         "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud:google_cloud_cpp_common",
         "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage",
+        "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -1764,10 +1782,10 @@ cc_test(
     srcs = ["file_utils_test.cc"],
     deps = [
         ":file_utils",
-        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud:google_cloud_cpp_common",
-        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage",
-        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage_testing",
+        ":storage_client_interface",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/lib/core:status_test_util",
@@ -1883,20 +1901,6 @@ cc_library(
     deps = [
         "@com_google_absl//absl/strings",
         "@xla//xla/tsl/profiler/utils:math_utils",
-        "@xla//xla/tsl/profiler/utils:xplane_schema",
-        "@xla//xla/tsl/profiler/utils:xplane_visitor",
-    ],
-)
-
-cc_test(
-    name = "dcn_utils_test",
-    srcs = ["dcn_utils_test.cc"],
-    deps = [
-        ":dcn_utils",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_googletest//:gtest_main",
-        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
-        "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],

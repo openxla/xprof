@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -11,7 +11,7 @@ import {takeUntil} from 'rxjs/operators';
  * stack frame address.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'stack-frame-snippet',
   templateUrl: './stack_frame_snippet.ng.html',
   styleUrls: ['./stack_frame_snippet.scss'],

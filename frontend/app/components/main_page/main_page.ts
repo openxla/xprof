@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
@@ -11,7 +11,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A main page component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'main-page',
   templateUrl: './main_page.ng.html',
   styleUrls: ['./main_page.scss']

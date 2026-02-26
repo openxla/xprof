@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.jsonpb_decls.d';
@@ -10,7 +10,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A buffer details view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'buffer-details',
   templateUrl: './buffer_details.ng.html',
   styleUrls: ['./buffer_details.scss']

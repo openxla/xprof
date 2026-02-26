@@ -1,4 +1,4 @@
-import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild} from '@angular/core';
+import {Component, ElementRef, Input, OnChanges, OnInit, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {type BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -6,7 +6,7 @@ import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/defau
 
 /** A program order chart view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'program-order-chart',
   templateUrl: './program_order_chart.ng.html',
   styleUrls: ['./program_order_chart.scss']

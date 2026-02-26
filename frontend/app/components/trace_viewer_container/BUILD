@@ -24,6 +24,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_spinner",
         "@org_xprof//frontend/app/common/angular:angular_material_table",
+        "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/pipes",
     ],

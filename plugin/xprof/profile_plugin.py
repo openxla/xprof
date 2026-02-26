@@ -76,6 +76,8 @@ STYLES_CSS_ROUTE = '/styles.css'
 MATERIALICONS_WOFF2_ROUTE = '/materialicons.woff2'
 TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
 TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
+TRACE_VIEWER_V2_JS_ROUTE = '/trace_viewer_v2.js'
+TRACE_VIEWER_V2_WASM_ROUTE = '/trace_viewer_v2.wasm'
 ZONE_JS_ROUTE = '/zone.js'
 DATA_ROUTE = '/data'
 DATA_CSV_ROUTE = '/data_csv'
@@ -806,6 +808,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
             MATERIALICONS_WOFF2_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_HTML_ROUTE: self.static_file_route,
             TRACE_VIEWER_INDEX_JS_ROUTE: self.static_file_route,
+            TRACE_VIEWER_V2_JS_ROUTE: self.static_file_route,
+            TRACE_VIEWER_V2_WASM_ROUTE: self.static_file_route,
             ZONE_JS_ROUTE: self.static_file_route,
             RUNS_ROUTE: self.runs_route,
             RUN_TOOLS_ROUTE: self.run_tools_route,
@@ -868,13 +872,15 @@ class ProfilePlugin(base_plugin.TBPlugin):
     """Handles static files."""
     # pytype: enable=wrong-arg-types
     filename = os.path.basename(request.path)
-    extention = os.path.splitext(filename)[1]
-    if extention == '.html':
+    extension = os.path.splitext(filename)[1]
+    if extension == '.html':
       mimetype = 'text/html'
-    elif extention == '.css':
+    elif extension == '.css':
       mimetype = 'text/css'
-    elif extention == '.js':
+    elif extension == '.js':
       mimetype = 'application/javascript'
+    elif extension == '.wasm':
+      mimetype = 'application/wasm'
     else:
       mimetype = 'application/octet-stream'
     try:
@@ -1175,8 +1181,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
       ) as f:
         f.write(self._version.__version__)
     except OSError:
-      logger.warning('Cannot write cache version file to %s', run_dir,
-                     exc_info=True)
+      logger.warning(
+          'Cannot write cache version file to %s', run_dir, exc_info=True
+      )
 
   def data_impl(
       self, request: wrappers.Request
@@ -1387,9 +1394,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
       csv_data = convert.json_to_csv_string(data)
       filename = _generate_csv_filename(request)
 
-      return respond(csv_data, 'text/csv', content_encoding=None,
-                     extra_headers={'Content-Disposition':
-                                    f'attachment; filename="{filename}"'})
+      return respond(
+          csv_data,
+          'text/csv',
+          content_encoding=None,
+          extra_headers={
+              'Content-Disposition': f'attachment; filename="{filename}"'
+          },
+      )
 
     except (
         TimeoutError,

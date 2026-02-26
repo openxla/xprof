@@ -209,7 +209,38 @@ async function loadAndStartWasm(
   return traceviewerModule;
 }
 
+async function ensureWasmModuleIsLoaded(): Promise<void> {
+  // tslint:disable-next-line:no-any
+  if (typeof (window as any).loadWasmTraceViewerModule !== 'undefined') {
+    return;
+  }
+  return new Promise((resolve, reject) => {
+    const existingScript = document.querySelector(
+        'script[src*="trace_viewer_v2.js"]',
+    );
+    if (existingScript) {
+      existingScript.addEventListener('load', () => {
+        resolve();
+      });
+      existingScript.addEventListener('error', () => {
+        reject(new Error('Failed to load WASM module.'));
+      });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'trace_viewer_v2.js';
+    script.onload = () => {
+      resolve();
+    };
+    script.onerror = () => {
+      reject(new Error('Failed to load WASM module.'));
+    };
+    document.body.appendChild(script);
+  });
+}
+
 async function initGpuAndStartWasmApp(): Promise<TraceViewerV2Module> {
+  await ensureWasmModuleIsLoaded();
   const canvas = document.querySelector('#canvas') as HTMLCanvasElement;
   if (!canvas) {
     throw new Error('Could not find canvas element with id="canvas"');
@@ -447,12 +478,17 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
 
   const resizeObserver = new ResizeObserver(() => {
     if (traceviewerModule?.canvas) {
-      // We use clientWidth/clientHeight to get the logical (CSS) pixel size of
-      // the canvas element.
-      const width = traceviewerModule.canvas.clientWidth;
-      const height = traceviewerModule.canvas.clientHeight;
-      const dpr = window.devicePixelRatio;
-      traceviewerModule.Application.Instance().Resize(dpr, width, height);
+      requestAnimationFrame(() => {
+        // We use clientWidth/clientHeight to get the logical (CSS) pixel size
+        // of the canvas element.
+        const width = traceviewerModule.canvas.clientWidth;
+        const height = traceviewerModule.canvas.clientHeight;
+        if (width === 0 || height === 0) {
+          return;
+        }
+        const dpr = window.devicePixelRatio;
+        traceviewerModule.Application.Instance().Resize(dpr, width, height);
+      });
     }
   });
   resizeObserver.observe(traceviewerModule.canvas);

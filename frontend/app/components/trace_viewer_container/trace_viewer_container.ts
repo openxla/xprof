@@ -1,3 +1,5 @@
+import 'org_xprof/frontend/app/common/interfaces/window';
+
 import {CommonModule} from '@angular/common';
 import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnDestroy, OnInit, Output, ViewChild} from '@angular/core';
 import {FormsModule} from '@angular/forms';
@@ -8,10 +10,11 @@ import {MatInputModule} from '@angular/material/input';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTableModule} from '@angular/material/table';
-import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, type SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
+
 
 
 /**
@@ -104,6 +107,10 @@ declare interface TrackView extends Element {
   onEndZoom_(event: Event): Function;
 }
 
+declare interface TfTraceViewer {
+  _traceViewer?: {trackView?: TrackView|null;};
+}
+
 /** A trace viewer container component. */
 @Component({
   standalone: true,
@@ -133,8 +140,9 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   @Input() selectedEventProperties: SelectedEventProperty[] = [];
   @Input() eventDetailColumns: string[] = [];
   @Output()
-  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail>();
+  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail|null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
+  @Output() readonly initializeWasm = new EventEmitter<void>();
 
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
 
@@ -224,7 +232,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
       case '2':
       case '3':
       case '4':
-        this.tvIframe?.nativeElement?.focus();
+        this.tvIframe?.nativeElement?.contentWindow?.focus();
         break;
       default:
         break;
@@ -232,10 +240,13 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   };
 
   private readonly mouseUpEventListener = (event: Event) => {
-    const trackView: TrackView|null|undefined =
+    const tfViewer =
         this.tvIframe?.nativeElement?.contentDocument?.querySelector(
-            'tr-ui-timeline-track-view',
-        );
+            'tf-trace-viewer',
+            ) as TfTraceViewer |
+        null;
+    const trackView: TrackView|null|undefined =
+        tfViewer?._traceViewer?.trackView;
     try {
       trackView?.onEndPanScan_(event);
       trackView?.onEndSelection_(event);
@@ -262,7 +273,11 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
     if (!isEntrySelectedEvent(e)) {
       return;
     }
-    this.eventSelected.emit(e.detail);
+    if (e.detail.eventIndex === -1) {
+      this.eventSelected.emit(null);
+    } else {
+      this.eventSelected.emit(e.detail);
+    }
   };
 
   private readonly searchEventsEventListener = (e: Event) => {
@@ -332,6 +347,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
 
   onSearchEvent(query: string) {
     this.search$.next(query);
+    this.searchEvents.emit({events_query: query});
   }
 
   nextSearchResult() {

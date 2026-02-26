@@ -1,1 +1,15 @@
-<iframe [src]="url | safe"></iframe>
+<div style="display: flex; justify-content: flex-end; width: 100%;">
+  <button mat-button (click)="switchVersion()">
+    Switch to {{useTraceViewerV2 ? 'V1' : 'V2'}}
+  </button>
+</div>
+<trace-viewer-container [url]="url"
+                        [traceViewerModule]="traceViewerModule"
+                        [useTraceViewerV2]="useTraceViewerV2"
+                        [selectedEvent]="selectedEvent"
+                        [selectedEventProperties]="selectedEventProperties"
+                        [eventDetailColumns]="eventDetailColumns"
+                        (eventSelected)="onEventSelected($event)"
+                        (searchEvents)="onSearchEvents($event)"
+                        (initializeWasm)="onInitializeWasm()">
+</trace-viewer-container>

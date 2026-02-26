@@ -1,4 +1,4 @@
-<ng-container *ngIf="useTraceViewerV2; else traceViewV1">
+<div [hidden]="!useTraceViewerV2">
   <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
     <div class="error-overlay">
       <mat-icon>error</mat-icon>
@@ -52,7 +52,7 @@
       <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
     </div>
   </div>
-</ng-container>
-<ng-template #traceViewV1>
+</div>
+<div [hidden]="useTraceViewerV2">
   <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
-</ng-template>
+</div>

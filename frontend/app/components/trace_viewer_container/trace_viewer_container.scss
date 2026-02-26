@@ -3,7 +3,14 @@
 $menu-bar-height: 64px;
 $filter-bar-height: 50px;
 $search-bar-height: 50px;
-$drawer-height: 300px;
+
+.main-content-area {
+  position: absolute;
+  width: 100%;
+  height: calc(
+    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+  );
+}
 
 iframe {
   position: absolute;
@@ -15,15 +22,10 @@ iframe {
 }
 
 canvas {
-  position: absolute;
   width: 100%;
-  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  height: 100%;
   box-sizing: border-box;
   border-style: unset;
-  // Add a smooth transition when the height changes (e.g., when the drawer
-  // opens/closes).
-  // This is to make the canvas rendering more smooth.
-  transition: height 0.05s ease-in-out;
 }
 
 .search-container {
@@ -48,16 +50,10 @@ canvas {
 }
 
 .drawer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: $drawer-height;
+  height: 100%;
   background-color: white;
-  border-top: 1px solid black;
   padding: 10px;
   box-sizing: border-box;
-  z-index: 100;
   overflow: auto;
 
   .event-detail-table-container {
@@ -93,7 +89,9 @@ canvas {
 .error-overlay {
   position: absolute;
   width: 100%;
-  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  height: calc(
+    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+  );
   display: flex;
   justify-content: center;
   align-items: center;
@@ -109,7 +107,9 @@ canvas {
 .loading-overlay {
   position: absolute;
   width: 100%;
-  height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height);
+  height: calc(
+    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+  );
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -142,11 +142,5 @@ canvas {
 
   mat-progress-spinner {
     margin: 0 8px;
-  }
-}
-
-:host(.drawer-open) {
-  canvas {
-    height: calc(100% - $menu-bar-height - $filter-bar-height - $search-bar-height - $drawer-height);
   }
 }

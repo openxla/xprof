@@ -48,6 +48,7 @@ enum StoredDataType {
   TRACE_LEVELDB,
   TRACE_EVENTS_METADATA_LEVELDB,
   TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
+  PREPROCESSED_XSPACE,
 };
 
 // File system directory snapshot of a profile session.
@@ -67,6 +68,11 @@ class SessionSnapshot {
   // Gets XSpace proto.
   // The caller of this function will take ownership of the XSpace.
   absl::StatusOr<XSpace*> GetXSpace(size_t index, google::protobuf::Arena* arena) const;
+
+  // Gets XSpace proto.
+  // The caller of this function will take ownership of the XSpace.
+  absl::StatusOr<XSpace*> GetPreprocessedXSpace(size_t index,
+                                                google::protobuf::Arena* arena) const;
 
   // Gets XSpace proto.
   // The caller of this function will take ownership of the XSpace.

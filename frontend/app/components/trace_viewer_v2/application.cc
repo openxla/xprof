@@ -131,8 +131,11 @@ void Application::UpdateMouseCursor() {
         var cursor_css = 'default';
         // TODO: b/470449677 - Support other cursor styles.
         // https://developer.mozilla.org/en-US/docs/Web/CSS/cursor
+        // ImGuiMouseCursor_ResizeEW = 4
         // ImGuiMouseCursor_Hand = 7
-        if (cursor == 7) {
+        if (cursor == 4) {
+          cursor_css = 'col-resize';
+        } else if (cursor == 7) {
           cursor_css = 'pointer';
         }
 

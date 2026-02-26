@@ -8,6 +8,7 @@ import {MatInputModule} from '@angular/material/input';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTableModule} from '@angular/material/table';
+import {AngularSplitModule} from 'angular-split';
 import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, type SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
@@ -111,6 +112,7 @@ declare interface TrackView extends Element {
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],
   imports: [
+    AngularSplitModule,
     CommonModule,
     MatIconModule,
     MatProgressBarModule,
@@ -149,6 +151,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   readonly tutorials = TUTORIALS;
   currentTutorialIndex = 0;
   tutorialSubscription?: Subscription;
+  drawerSizePercent = 30;
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -332,6 +335,24 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
 
   onSearchEvent(query: string) {
     this.search$.next(query);
+  }
+
+  /**
+   * Handles the drag end event from the split pane.
+   *
+   * @param event The event data containing the new sizes of the split areas.
+   *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
+   */
+  onDragEnd(event: {sizes: Array<number|'*'>}) {
+    if (this.selectedEvent && event.sizes.length > 1) {
+      // This assumes the drawer is the second area (index 1). This is safe as
+      // long as the template structure remains consistent (Canvas then Drawer).
+      const size = event.sizes[1];
+
+      if (typeof size === 'number') {
+        this.drawerSizePercent = size;
+      }
+    }
   }
 
   nextSearchResult() {

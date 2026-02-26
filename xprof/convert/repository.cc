@@ -36,6 +36,7 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/preprocess_single_host_xplane.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -53,7 +54,8 @@ static auto* kHostDataSuffixes =
          {StoredDataType::OP_STATS, ".op_stats_v2.pb"},
          {StoredDataType::TRACE_LEVELDB, ".SSTABLE"},
          {StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, ".metadata.SSTABLE"},
-         {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"}});
+         {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"},
+         {StoredDataType::PREPROCESSED_XSPACE, ".preprocessed_xplane.pb"}});
 
 }  // namespace
 
@@ -110,6 +112,47 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
   const std::string& path = xspace_paths_.at(index);
   TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(path, xspace_from_file));
   return xspace_from_file;
+}
+
+absl::StatusOr<XSpace*> SessionSnapshot::GetPreprocessedXSpace(
+    size_t index, google::protobuf::Arena* arena) const {
+  if (index >= xspace_paths_.size()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Can not get the ", index, "th XSpace. The total number of XSpace is ",
+        xspace_paths_.size()));
+  }
+  XSpace* xspace = google::protobuf::Arena::Create<XSpace>(arena);
+
+  // Read from cache if available.
+  if (has_accessible_run_dir_) {
+    std::string hostname = GetHostname(index);
+    if (ReadBinaryProto(*this, StoredDataType::PREPROCESSED_XSPACE, hostname,
+                        xspace)
+            .ok()) {
+      return xspace;
+    }
+  }
+
+  TF_ASSIGN_OR_RETURN(XSpace * raw_xspace, GetXSpace(index, arena));
+  if (raw_xspace != xspace) {
+    // If GetXSpace returned a different pointer (e.g. from preloaded cache),
+    // copy it.
+    *xspace = *raw_xspace;
+  }
+
+  PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
+                             /*derived_timeline=*/true);
+
+  // Write to cache if possible.
+  if (has_accessible_run_dir_) {
+    std::string hostname = GetHostname(index);
+    // Ignore write errors as cache is optional.
+    WriteBinaryProto(StoredDataType::PREPROCESSED_XSPACE, hostname,
+                     *xspace)
+        .IgnoreError();
+  }
+
+  return xspace;
 }
 
 absl::StatusOr<XSpace*> SessionSnapshot::GetXSpaceByName(

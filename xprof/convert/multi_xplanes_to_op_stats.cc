@@ -57,9 +57,8 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
         << i << "/" << session_snapshot.XSpaceSize();
 
     google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
-    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                               /*derived_timeline=*/true);
+    TF_ASSIGN_OR_RETURN(XSpace * xspace,
+                        session_snapshot.GetPreprocessedXSpace(i, &arena));
     TF_ASSIGN_OR_RETURN(OpStats op_stats,
                         ConvertXSpaceToOpStats(*xspace, options));
     all_op_stats.push_back(op_stats);

@@ -1,13 +1,13 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
-import {Component, inject} from '@angular/core';
+import {Component, inject, ChangeDetectionStrategy} from '@angular/core';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {firstValueFrom, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 /** An empty page component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'empty-page',
   templateUrl: './empty_page.ng.html',
   styleUrls: ['./empty_page.css']

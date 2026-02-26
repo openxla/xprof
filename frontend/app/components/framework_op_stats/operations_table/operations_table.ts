@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {OpExecutor} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {type FrameworkOpStatsData} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -7,7 +7,7 @@ import {OperationsTableDataProvider} from './operations_table_data_provider';
 
 /** An operations table view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'operations-table',
   templateUrl: './operations_table.ng.html',
   styleUrls: ['./operations_table.scss']

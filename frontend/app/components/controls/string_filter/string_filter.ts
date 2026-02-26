@@ -1,4 +1,4 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 
 /**
  * A string filter component.
@@ -6,7 +6,7 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '
  * If the value is empty, selects all the rows.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'string-filter',
   templateUrl: './string_filter.ng.html',
   styleUrls: ['./string_filter.scss'],

@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -27,7 +27,7 @@ const TOGGLE_BUTTON_ITEMS: ToggleButtonItems[] = [
 
 /** An Hlo text view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'hlo-text-view',
   templateUrl: './hlo_text_view.ng.html',
   styleUrls: ['./hlo_text_view.scss'],

@@ -1,5 +1,7 @@
 # Package for generating Megascale Perfetto traces.
 
+# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+
 package(
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
@@ -69,5 +71,40 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_googlesource_code_re2//:re2",
         "@xla//xla/tsl/lib/gtl:map_util",
+    ],
+)
+
+cc_test(
+    name = "xspace_loader_test",
+    srcs = ["xspace_loader_test.cc"],
+    deps = [
+        ":xprof_trace",
+        ":xspace_loader",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+    ],
+)
+
+cc_test(
+    name = "trace_processor_test",
+    srcs = ["trace_processor_test.cc"],
+    deps = [
+        ":trace_processor",
+        ":xprof_trace",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "perfetto_writer_test",
+    srcs = ["perfetto_writer_test.cc"],
+    deps = [
+        ":perfetto_writer",
+        ":xprof_trace",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_googletest//:gtest_main",
+        "@perfetto//:trace_cc_proto",
     ],
 )

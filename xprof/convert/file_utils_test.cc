@@ -16,23 +16,18 @@ limitations under the License.
 #include "xprof/convert/file_utils.h"
 
 #include <algorithm>
-#include <cstddef>
-#include <memory>
+#include <cstdint>
 #include <string>
-#include <utility>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
-#include "google/cloud/status_or.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/client.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/internal/http_response.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/internal/object_read_source.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/internal/object_requests.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/object_metadata.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
-#include "google/cloud/storage/testing/mock_client.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/file_utils_internal.h"
+#include "xprof/convert/storage_client_interface.h"
 
 namespace xprof {
 namespace {
@@ -43,11 +38,25 @@ using ::testing::Return;
 using ::xprof::internal::ParseGcsPath;
 using ::xprof::internal::ReadBinaryProtoWithClient;
 using ::xprof::internal::WriteBinaryProtoWithClient;
-namespace gcs = ::google::cloud::storage;
-namespace gcs_testing = ::google::cloud::storage::testing;
+
+class MockStorageClient : public internal::StorageClientInterface {
+ public:
+  MOCK_METHOD(absl::StatusOr<std::uint64_t>, GetObjectSize,
+              (const std::string& bucket, const std::string& object),
+              (override));
+  MOCK_METHOD(absl::Status, ReadObject,
+              (const std::string& bucket, const std::string& object,
+               std::uint64_t start, std::uint64_t end, char* buffer),
+              (override));
+  MOCK_METHOD(absl::Status, WriteObject,
+              (const std::string& bucket, const std::string& object,
+               const std::string& contents),
+              (override));
+};
 
 TEST(FileUtilsTest, ParseGcsPath_GsPrefix) {
-  std::string bucket, object;
+  std::string bucket;
+  std::string object;
   TF_EXPECT_OK(
       ParseGcsPath("gs://my-bucket/path/to/object.hlo", &bucket, &object));
   EXPECT_THAT(bucket, Eq("my-bucket"));
@@ -55,7 +64,8 @@ TEST(FileUtilsTest, ParseGcsPath_GsPrefix) {
 }
 
 TEST(FileUtilsTest, ParseGcsPath_BigstorePrefix) {
-  std::string bucket, object;
+  std::string bucket;
+  std::string object;
   TF_EXPECT_OK(
       ParseGcsPath("/bigstore/my-bucket/path/to/object.hlo", &bucket, &object));
   EXPECT_THAT(bucket, Eq("my-bucket"));
@@ -63,86 +73,44 @@ TEST(FileUtilsTest, ParseGcsPath_BigstorePrefix) {
 }
 
 TEST(FileUtilsTest, ParseGcsPath_Invalid) {
-  std::string bucket, object;
+  std::string bucket;
+  std::string object;
   EXPECT_FALSE(ParseGcsPath("s3://my-bucket/object", &bucket, &object).ok());
   EXPECT_FALSE(ParseGcsPath("gs://my-bucket", &bucket, &object).ok());
   EXPECT_FALSE(ParseGcsPath("gs:///object", &bucket, &object).ok());
 }
 
 TEST(FileUtilsTest, ReadBinaryProtoWithClient_Success) {
-  auto mock = std::make_shared<gcs_testing::MockClient>();
-  gcs::Client client = gcs_testing::UndecoratedClientFromMock(mock);
+  MockStorageClient client;
+  constexpr absl::string_view kContent = "XSpace content";
 
-  std::string bucket = "bucket";
-  std::string object = "object";
-  std::string content = "XSpace content";
+  EXPECT_CALL(client, GetObjectSize("bucket", "object"))
+      .WillOnce(Return(kContent.size()));
 
-  gcs::ObjectMetadata metadata;
-  metadata.set_size(content.size());
-
-  EXPECT_CALL(*mock, GetObjectMetadata(_))
-      .WillOnce(Return(google::cloud::StatusOr<gcs::ObjectMetadata>(metadata)));
-
-  auto mock_source = std::make_unique<gcs_testing::MockObjectReadSource>();
-  EXPECT_CALL(*mock_source, IsOpen()).WillRepeatedly(Return(true));
-  EXPECT_CALL(*mock_source, Read(_, _))
-      .WillOnce([content](char* buf, std::size_t n) {
-        std::copy(content.begin(), content.end(), buf);
-        return gcs::internal::ReadSourceResult{
-            content.size(), gcs::internal::HttpResponse{200, "", {}}};
+  EXPECT_CALL(client, ReadObject("bucket", "object", 0, kContent.size(), _))
+      .WillOnce([kContent](const std::string&, const std::string&,
+                           std::uint64_t, std::uint64_t, char* buf) {
+        std::copy(kContent.begin(), kContent.end(), buf);
+        return absl::OkStatus();
       });
 
-  EXPECT_CALL(*mock, ReadObject(_))
-      .WillOnce(Return(google::cloud::StatusOr<
-                       std::unique_ptr<gcs::internal::ObjectReadSource>>(
-          std::move(mock_source))));
-
   tensorflow::profiler::XSpace xspace;
-  absl::Status status =
+  const absl::Status status =
       ReadBinaryProtoWithClient(client, "gs://bucket/object", &xspace);
-  // The ReadBinaryProtoWithClient function first reads the data and then tries
-  // to parse it as a binary proto. Since "XSpace content" is not a valid
-  // serialized proto, the parsing will fail with kDataLoss. This expectation
-  // confirms that the download was successful and the code proceeded to the
-  // parsing stage.
+  // Expect kDataLoss because "XSpace content" is not a valid serialized proto.
   EXPECT_THAT(status.code(), Eq(absl::StatusCode::kDataLoss));
 }
 
 TEST(FileUtilsTest, WriteBinaryProtoWithClient_Success) {
-  auto mock = std::make_shared<gcs_testing::MockClient>();
-  gcs::Client client = gcs_testing::UndecoratedClientFromMock(mock);
-
-  std::string bucket = "bucket";
-  std::string object = "object";
+  MockStorageClient client;
   tensorflow::profiler::XSpace xspace;
   xspace.add_hostnames("test-host");
 
   std::string expected_contents;
   xspace.SerializeToString(&expected_contents);
 
-  EXPECT_CALL(*mock, CreateResumableUpload(_))
-      .WillOnce([bucket,
-                 object](gcs::internal::ResumableUploadRequest const& request) {
-        EXPECT_EQ(request.bucket_name(), bucket);
-        EXPECT_EQ(request.object_name(), object);
-        return google::cloud::StatusOr<
-            gcs::internal::CreateResumableUploadResponse>(
-            gcs::internal::CreateResumableUploadResponse{"session-id"});
-      });
-
-  EXPECT_CALL(*mock, UploadChunk(_))
-      .WillOnce([expected_contents](
-                    gcs::internal::UploadChunkRequest const& request) {
-        std::string actual_payload;
-        for (auto const& b : request.payload()) {
-          actual_payload.append(static_cast<char const*>(b.data()), b.size());
-        }
-        EXPECT_EQ(actual_payload, expected_contents);
-        return google::cloud::StatusOr<
-            gcs::internal::QueryResumableUploadResponse>(
-            gcs::internal::QueryResumableUploadResponse{
-                expected_contents.size(), gcs::ObjectMetadata{}});
-      });
+  EXPECT_CALL(client, WriteObject("bucket", "object", expected_contents))
+      .WillOnce(Return(absl::OkStatus()));
 
   TF_EXPECT_OK(
       WriteBinaryProtoWithClient(client, "gs://bucket/object", xspace));

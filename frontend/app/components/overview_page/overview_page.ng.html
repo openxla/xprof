@@ -44,7 +44,7 @@
         [class]="darkTheme ? 'dark-theme' : ''">
       </inference-latency-chart>
       <smart-suggestion-view
-        *ngIf="isOverviewPageLoaded"
+        *ngIf="enableSmartSuggestion && isOverviewPageLoaded"
         [sessionId]="sessionId"
         [darkTheme]="darkTheme">
       </smart-suggestion-view>

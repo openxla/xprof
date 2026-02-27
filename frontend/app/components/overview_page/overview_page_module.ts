@@ -47,6 +47,7 @@ export class OverviewPage implements OnDestroy {
   tool = 'overview_page';
   host = '';
   isLoaded = false;
+  enableSmartSuggestion = false;
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -96,6 +97,8 @@ export class OverviewPage implements OnDestroy {
     this.host = params['host'] || this.host || '';
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || 'overview_page';
+    this.enableSmartSuggestion = this.dataService.getSearchParams().get(
+                                     'enable_smart_suggestion') === 'true';
   }
 
   update() {

@@ -14,4 +14,5 @@
 # ==============================================================================
 """Version information for tensorboard-plugin-profile."""
 
-__version__ = "2.21.6"
+# Version format: major.minor.patch
+__version__ = "2.22.0"

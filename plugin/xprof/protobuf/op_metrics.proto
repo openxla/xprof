@@ -127,9 +127,9 @@ message OpMetrics {
   uint64 min_time_ps = 17;
   // Total self time in picoseconds.
   uint64 self_time_ps = 1;
-  // Deprecated. Use total_flops instead.
+  // Deprecated. Use flops_v2 instead.
   uint64 flops = 2 [deprecated = true];
-  // Deprecated. Use total_model_flops instead.
+  // Deprecated. Use model_flops_v2 instead.
   uint64 model_flops = 24 [deprecated = true];
   // Total FLOPs. Normalized to the devices peak bandwidth.
   double flops_v2 = 29;

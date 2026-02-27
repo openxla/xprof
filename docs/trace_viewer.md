@@ -83,6 +83,15 @@ Here are the main UI components in Trace Viewer:
 
     ![Trace Viewer Details pane](images/trace_viewer_details.png)
 
+### Trace Viewer v2
+
+For very large profiles (hundreds of MBs or GBs), you can use Trace Viewer v2
+for a smoother experience navigating through millions of events. It uses
+WebGPU/Canvas for high-performance rendering.
+
+To switch to Trace Viewer v2, click the "Switch to V2" button in the Trace
+Viewer UI. This is currently the only way to switch to the v2 frontend.
+
 ### Typical Sections and Tracks
 
 Trace Viewer provides the following sections and tracks.

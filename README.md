@@ -44,6 +44,19 @@ To get the most recent release version of XProf, install it via pip:
 $ pip install xprof
 ```
 
+or with TensorBoard:
+
+```
+$ pip install xprof tensorboard
+```
+
+*Note: For Python 3.12+ users, if you encounter `ModuleNotFoundError: No module
+named 'pkg_resources'`, install an older version of setuptools:*
+
+```
+pip install "setuptools<70"
+```
+
 ## Running XProf
 
 XProf can be launched as a standalone server or used as a plugin within
@@ -248,6 +261,47 @@ To install the nightly version of profiler:
 ```
 $ pip uninstall xprof tensorboard-plugin-profile
 $ pip install xprof-nightly
+```
+
+## Building from source
+
+If the pip packages don't work for you, you can build XProf from source using
+Bazel.
+
+**1. Set up Bazel**
+
+Bazel is the build system used for XProf. Bazelisk is a wrapper for Bazel that
+simplifies Bazel version management. Download the appropriate `.deb` package for
+your system from the
+[Bazelisk releases page](https://github.com/bazelbuild/bazelisk/releases) and
+install the downloaded package:
+
+```
+sudo apt install ~/Downloads/bazelisk-amd64.deb
+```
+
+**2. Obtain the Repository**
+
+Clone the XProf GitHub repository to your local machine:
+
+```
+git clone https://github.com/openxla/xprof.git
+cd xprof
+```
+
+**3. Build the Project**
+
+Build the pip Package: Use Bazel to build the XProf pip package:
+
+```
+bazel run --config=public_cache plugin:build_pip_package
+```
+
+Navigate to the Bazel Output Directory and install:
+
+```
+cd /tmp/profile-pip
+pip install .
 ```
 
 ## Next Steps

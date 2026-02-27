@@ -11,6 +11,7 @@ package_group(
     includes = [
         "//third_party/tensorflow/core/profiler:friends",
     ],
+    packages = ["//perftools/accelerators/xsymbol/pipelines/enricher/..."],
 )
 
 cc_library(

@@ -10,6 +10,7 @@ import {MatInputModule} from '@angular/material/input';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTableModule} from '@angular/material/table';
+import {AngularSplitModule} from 'angular-split';
 import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
@@ -118,6 +119,7 @@ declare interface TfTraceViewer {
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],
   imports: [
+    AngularSplitModule,
     CommonModule,
     MatIconModule,
     MatProgressBarModule,

@@ -198,14 +198,24 @@ void TraceProcessor::AssignRunIds() {
       tpu_run_map;
 
   // 1. Build map from "XLA Modules"
-  for (const auto& [tpu_id, tracks] : trace_.tpu_fragments) {
-    for (const auto& track : tracks) {
-      if (absl::StrContains(track.name, "XLA Modules")) {
-        auto& runs = tpu_run_map[tpu_id];
-        int64_t run_id = 1;
-        for (const auto& event : track.events) {
-          runs.push_back({event.timestamp_ps, run_id++});
+  for (auto& [tpu_id, tracks] : trace_.tpu_fragments) {
+    for (auto& track : tracks) {
+      if (!absl::StrContains(track.name, "XLA Modules")) {
+        continue;
+      }
+      auto& runs = tpu_run_map[tpu_id];
+      int64_t run_id_counter = 1;  // For modules that don't have run_id.
+      for (Event& event : track.events) {
+        uint64_t run_id_temp;
+        int64_t run_id;
+        if (FindArgUint(event, trace_, "run_id", &run_id_temp)) {
+          run_id = static_cast<int64_t>(run_id_temp);
+        } else {
+          run_id = run_id_counter++;
+          event.args.push_back({trace_.string_table.Intern("run_id"), run_id});
         }
+        event.run_id = run_id;
+        runs.push_back({event.timestamp_ps, run_id});
       }
     }
   }
@@ -220,6 +230,9 @@ void TraceProcessor::AssignRunIds() {
       const auto& runs = it->second;
 
       for (auto& track : tracks) {
+        if (absl::StrContains(track.name, "XLA Modules")) {
+          continue;
+        }
         for (auto& event : track.events) {
           auto run_it =
               std::upper_bound(runs.begin(), runs.end(),

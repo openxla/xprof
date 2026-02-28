@@ -34,16 +34,23 @@ TEST(TraceProcessorTest, SortsEvents) {
 
 TEST(TraceProcessorTest, AssignsRunIds) {
   XprofTrace trace;
-  auto& tpu0_tracks = trace.tpu_fragments[0];
-  Track& modules0 = tpu0_tracks.emplace_back();
-  modules0.name = "XLA Modules";
-  modules0.events.push_back({"module 1", /*ts=*/100, /*duration=*/1000});
-  modules0.events.push_back({"module 2", /*ts=*/2000, /*duration=*/1000});
+  auto& tpu_tracks = trace.tpu_fragments[0];
+  tpu_tracks.reserve(2);  // Prevent reallocation from invalidating references
 
-  Track& ops0 = tpu0_tracks.emplace_back();
-  ops0.name = "XLA Ops";
-  ops0.events.push_back({"op 1.1", /*ts=*/150, /*duration=*/10});
-  ops0.events.push_back({"op 2.1", /*ts=*/2100, /*duration=*/10});
+  Track& modules = tpu_tracks.emplace_back();
+  modules.name = "XLA Modules";
+
+  // Add two runs. The first one already has a run_id. The second one
+  // doesn't, so it should be assigned the next available run_id.
+  Event m1{"module 1", /*ts=*/100, /*duration=*/1000};
+  m1.args.push_back({trace.string_table.Intern("run_id"), uint64_t{123}});
+  modules.events.push_back(std::move(m1));
+  modules.events.push_back({"module 2", /*ts=*/2000, /*duration=*/1000});
+
+  Track& ops = tpu_tracks.emplace_back();
+  ops.name = "XLA Ops";
+  ops.events.push_back({"op 1.1", /*ts=*/150, /*duration=*/10});
+  ops.events.push_back({"op 2.1", /*ts=*/2100, /*duration=*/10});
 
   Track& ms0 = trace.megascale_fragments[0].emplace_back();
   ms0.name = "rendezvous";
@@ -52,9 +59,11 @@ TEST(TraceProcessorTest, AssignsRunIds) {
   TraceProcessor processor(&trace);
   processor.Process();
 
-  EXPECT_EQ(ops0.events[0].run_id, 1);
-  EXPECT_EQ(ops0.events[1].run_id, 2);
-  EXPECT_EQ(ms0.events[0].run_id, 1);
+  EXPECT_EQ(modules.events[0].run_id, 123);
+  EXPECT_EQ(modules.events[1].run_id, 1);
+  EXPECT_EQ(ops.events[0].run_id, 123);
+  EXPECT_EQ(ops.events[1].run_id, 1);
+  EXPECT_EQ(ms0.events[0].run_id, 123);
 }
 
 TEST(TraceProcessorTest, MarksLastDmaEvents) {

@@ -431,8 +431,12 @@ export class GraphViewer implements OnDestroy {
   }
 
   onRecenterOpNode(opName: string) {
-    // Don't re-navigate if click on the same center node
-    if (this.opName === opName) return;
+    // If the newly selected opName is the same as the current opName,
+    // do not refresh the graph and return a message.
+    if (this.opName === opName) {
+      this.openSnackBar('The same op node is selected.');
+      return;
+    }
     this.zone.run(() => {
       this.opName = opName;
       this.onSearchGraph();

@@ -1,6 +1,6 @@
 #include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
-#include <webgpu/webgpu.h>
+#include <emscripten.h>
 #include <webgpu/webgpu_cpp.h>
 
 #include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"

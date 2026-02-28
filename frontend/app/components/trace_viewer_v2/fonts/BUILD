@@ -1,5 +1,5 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
-load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":font_rules.bzl", "imgui_font_headers")
 
 package(default_visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"])
@@ -7,29 +7,10 @@ package(default_visibility = ["@org_xprof//frontend/app/components/trace_viewer_
 bzl_library(
     name = "font_rules_bzl",
     srcs = ["font_rules.bzl"],
-    parse_tests = False,
     visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "//third_party/bazel_rules/rules_cc/cc/common",
     ],
-)
-
-genrule(
-    name = "googlesanscode_ttf",
-    srcs = ["//third_party/googlefonts/api/ofl:data_files"],
-    outs = ["GoogleSansCode[wght].ttf"],
-    cmd = "cp third_party/googlefonts/api/ofl/googlesanscode/GoogleSansCode\\[wght\\].ttf $@",
-)
-
-imgui_font_headers(
-    name = "font_headers_fileset",
-    srcs = [":googlesanscode_ttf"],
-    args = ["-base85"],
-)
-
-wasm_cc_library(
-    name = "font_headers",
-    hdrs = [":font_headers_fileset"],
 )
 
 wasm_cc_library(
@@ -41,9 +22,8 @@ wasm_cc_library(
         "IMGUI_ENABLE_FREETYPE",
     ],
     deps = [
-        ":font_headers",
-        "//third_party/dear_imgui",
-        "//third_party/dear_imgui:imgui_freetype",
         "@com_google_absl//absl/log",
+        "@imgui",
+        "@imgui//:imgui_freetype",
     ],
 )

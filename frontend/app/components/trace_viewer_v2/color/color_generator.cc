@@ -4,9 +4,9 @@
 
 #include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "absl/base/no_destructor.h"
+#include "absl/hash/hash.h"
 #include "absl/strings/string_view.h"
 #include "third_party/dear_imgui/imgui.h"
-#include "util/hash/highway_fingerprint.h"
 
 namespace traceviewer {
 
@@ -31,7 +31,7 @@ class ColorGenerator {
 
   // Returns a color for the given ID.
   ImU32 ColorForId(absl::string_view id) {
-    return event_colors[util_hash::HighwayFingerprint64(id) %
+    return event_colors[absl::Hash<absl::string_view>{}(id) %
                         std::size(event_colors)];
   }
 

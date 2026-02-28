@@ -59,7 +59,10 @@ http_archive(
     },
     sha256 = "e868bdb537121d2169fbc1ef69b81f4b4f96e97891c4567a6533d4adf62bffde",
     strip_prefix = "google-cloud-cpp-3.1.0",
-    urls = ["https://github.com/googleapis/google-cloud-cpp/archive/v3.1.0.tar.gz"],
+    urls = [
+        "http://mirror.tensorflow.org/github.com/googleapis/google-cloud-cpp/archive/v3.1.0.tar.gz",
+        "https://github.com/googleapis/google-cloud-cpp/archive/v3.1.0.tar.gz",
+    ],
 )
 
 # XLA uses an old (2019) version of rules_closure, while Tensorboard requires a newer (2024) version.
@@ -375,3 +378,64 @@ emsdk_deps()
 load("@emsdk//:emscripten_deps.bzl", emsdk_emscripten_deps = "emscripten_deps")
 
 emsdk_emscripten_deps()
+
+http_archive(
+    name = "imgui",
+    build_file_content = """
+licenses(["notice"])
+cc_library(
+    name = "imgui",
+    srcs = glob(["*.cpp"], exclude=["backends/**", "misc/**"]),
+    hdrs = glob(["*.h"]),
+    copts = ["-I."],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+cc_library(
+    name = "imgui_freetype",
+    srcs = ["misc/freetype/imgui_freetype.cpp"],
+    hdrs = ["misc/freetype/imgui_freetype.h"],
+    copts = [
+        "-I.",
+        "-DFREETYPE_GLYPH_RANGES=1",
+        "-sUSE_FREETYPE=1",
+    ],
+    includes = ["."],
+    linkopts = ["-sUSE_FREETYPE=1"],
+    visibility = ["//visibility:public"],
+    deps = [":imgui"],
+)
+""",
+    sha256 = "81087a74599e5890a07b636887cee73a7dc1a9eb9e1f19a4a0d82a76090bf4c2",
+    strip_prefix = "imgui-1.88",
+    urls = ["https://github.com/ocornut/imgui/archive/v1.88.zip"],
+)
+
+http_archive(
+    name = "emdawnwebgpu",
+    build_file_content = """
+licenses(["notice"])
+
+cc_library(
+    name = "webgpu",
+    srcs = glob(["**/*.cpp"]),
+    hdrs = glob(["**/*.h"]),
+    copts = [
+        "-Iexternal/emdawnwebgpu/include",
+        "-Iexternal/emdawnwebgpu/src",
+        "-Iexternal/emdawnwebgpu/third_party/khronos/webgpu-cts/src/common/runtime/third_party/SPIRV-Headers/include",
+    ],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "f49683605487f62e1c9e32ed0d71a3ed3029993f818f5a97f13f8266c39b0004",
+    strip_prefix = "dawn-20250713.025201",
+    urls = ["https://github.com/google/dawn/archive/v20250713.025201.tar.gz"],
+)
+
+load("@emsdk//:toolchains.bzl", "register_emscripten_toolchains")
+
+# TODO(jonahweaver): Remove this once Emscripten toolchains are properly supported by Bazel.
+
+register_emscripten_toolchains()

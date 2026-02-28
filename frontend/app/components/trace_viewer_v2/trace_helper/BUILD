@@ -28,7 +28,6 @@ wasm_cc_library(
     hdrs = ["trace_event_parser.h"],
     deps = [
         ":trace_event",
-        "//third_party/emscripten:embind",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",

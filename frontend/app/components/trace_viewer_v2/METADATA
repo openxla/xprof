@@ -1,0 +1,24 @@
+# proto-file: devtools/metadata/metadata.proto
+# proto-message: MetaData
+
+ide_config: {
+  build: {
+    language: CPP
+    glob: "**.cc"
+    glob: "**.h"
+    preset: {
+      name: "Emscripten"
+      flag: "--config=wasm"
+    }
+  }
+}
+
+tricorder: {
+  options: {
+    builder: {
+      # Wasm modules require --config=wasm for emscripten headers.
+      target_tag: "requires_wasm_config"
+      config: "wasm"
+    }
+  }
+}

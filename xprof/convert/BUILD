@@ -714,6 +714,7 @@ cc_library(
     srcs = ["op_stats_to_roofline_model.cc"],
     hdrs = ["op_stats_to_roofline_model.h"],
     deps = [
+        ":data_table_utils",
         ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":source_info_utils",
@@ -725,7 +726,6 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
-        "@org_xprof//xprof/convert:data_table_utils",
         "@org_xprof//xprof/utils:diagnostics",
         "@org_xprof//xprof/utils:roofline_model_utils",
         "@tsl//tsl/platform:protobuf",
@@ -1178,11 +1178,11 @@ cc_library(
     srcs = ["xplane_to_kernel_stats_db.cc"],
     hdrs = ["xplane_to_kernel_stats_db.h"],
     deps = [
+        ":data_table_utils",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:kernel_stats_proto_cc",
-        "@org_xprof//xprof/convert:data_table_utils",
         "@org_xprof//xprof/utils:gpu_event_stats",
         "@org_xprof//xprof/utils:kernel_stats_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

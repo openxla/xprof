@@ -8,7 +8,7 @@
 #define EM_ASM(...)
 #endif
 
-#include "util/math/mathutil.h"
+#include <cmath>
 
 namespace traceviewer {
 
@@ -41,7 +41,7 @@ void CanvasState::SetState(float dpr, int32_t width, int32_t height) {
 
 bool CanvasState::operator==(const CanvasState& other) const {
   return width_ == other.width_ && height_ == other.height_ &&
-         MathUtil::AlmostEquals(device_pixel_ratio_, other.device_pixel_ratio_);
+         std::fabs(device_pixel_ratio_ - other.device_pixel_ratio_) < 1e-9;
 }
 
 }  // namespace traceviewer

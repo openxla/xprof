@@ -5,23 +5,19 @@
 
 #include "absl/strings/string_view.h"
 #include "third_party/dear_imgui/imgui.h"
-#include "util/gtl/flat_map.h"
 
 namespace traceviewer {
 
 namespace {
 
 ImGuiKey TranslateKey(absl::string_view code) {
-  static constexpr auto kKeyMap =
-      gtl::fixed_flat_map_of<absl::string_view, ImGuiKey>(
-          {{"KeyA", ImGuiKey_A},
-           {"KeyD", ImGuiKey_D},
-           {"KeyS", ImGuiKey_S},
-           {"KeyW", ImGuiKey_W},
-           {"ArrowDown", ImGuiKey_DownArrow},
-           {"ArrowUp", ImGuiKey_UpArrow},
-           {"Escape", ImGuiKey_Escape}});
-  if (auto it = kKeyMap.find(code); it != kKeyMap.end()) return it->second;
+  if (code == "KeyA") return ImGuiKey_A;
+  if (code == "KeyD") return ImGuiKey_D;
+  if (code == "KeyS") return ImGuiKey_S;
+  if (code == "KeyW") return ImGuiKey_W;
+  if (code == "ArrowDown") return ImGuiKey_DownArrow;
+  if (code == "ArrowUp") return ImGuiKey_UpArrow;
+  if (code == "Escape") return ImGuiKey_Escape;
   return ImGuiKey_None;
 }
 

@@ -13,10 +13,10 @@ cc_library(
         "colors.h",
     ],
     deps = [
-        "//third_party/dear_imgui",
-        "//util/hash:highway_fingerprint",
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
+        "@imgui",
     ],
 )
 
@@ -25,8 +25,8 @@ cc_test(
     srcs = ["color_generator_test.cc"],
     deps = [
         ":colors",
-        "//third_party/dear_imgui",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@imgui",
     ],
 )

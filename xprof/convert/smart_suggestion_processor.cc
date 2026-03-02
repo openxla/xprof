@@ -41,7 +41,6 @@ limitations under the License.
 namespace xprof {
 namespace {
 
-using ::tensorflow::profiler::RegisterAllRules;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::SignalProvider;
 using ::tensorflow::profiler::SmartSuggestionEngine;
@@ -79,7 +78,7 @@ absl::Status SmartSuggestionProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   SmartSuggestionEngine engine;
   SmartSuggestionRuleFactory rule_factory;
-  RegisterAllRules(&rule_factory);
+  RegisterAllRulesFor3P(&rule_factory);
 
   auto tool_data_provider =
       std::make_unique<ToolDataProviderImpl>(session_snapshot);

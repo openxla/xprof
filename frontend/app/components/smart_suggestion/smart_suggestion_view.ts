@@ -51,6 +51,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   private storageKey = '';
   private subscription: Subscription | null = null;
 
+  private lastFetchedSessionId: string|null = null;
   private readonly dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
 
   ngOnInit() {
@@ -68,6 +69,11 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   }
 
   private fetchSuggestions() {
+    if (this.sessionId === this.lastFetchedSessionId) {
+      return;
+    }
+    this.lastFetchedSessionId = this.sessionId || null;
+
     if (this.subscription) {
       this.subscription.unsubscribe();
     }

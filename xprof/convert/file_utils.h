@@ -16,43 +16,19 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_FILE_UTILS_H_
 #define THIRD_PARTY_XPROF_CONVERT_FILE_UTILS_H_
 
-#include <string>
-
-#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
-#include "google/cloud/storage/client.h"  // from @com_github_googlecloudplatform_google_cloud_cpp
+#include "absl/status/status.h"
 #include "tsl/platform/protobuf.h"
 
 namespace xprof {
 
-// Reads a binary proto from a GCS path (gs://bucket/object) using the
-// google-cloud-cpp storage API.
-absl::Status ReadBinaryProto(const std::string& fname,
+// Reads a binary proto from a file path. Supports local and GCS paths.
+absl::Status ReadBinaryProto(absl::string_view fname,
                              tsl::protobuf::MessageLite* proto);
 
-// Writes a binary proto to a GCS path (gs://bucket/object) using the
-// google-cloud-cpp storage API.
-// Falls back to tsl::WriteBinaryProto for non-GCS paths.
-absl::Status WriteBinaryProto(const std::string& fname,
+// Writes a binary proto to a file path. Supports local and GCS paths.
+absl::Status WriteBinaryProto(absl::string_view fname,
                               const tsl::protobuf::MessageLite& proto);
-
-namespace internal {
-
-// Parses a GCS path. Supports gs:// and /bigstore/ prefixes.
-absl::Status ParseGcsPath(absl::string_view fname, std::string* bucket,
-                          std::string* object);
-
-// Internal implementation that takes a GCS client, used for testing.
-absl::Status ReadBinaryProtoWithClient(google::cloud::storage::Client& client,
-                                       const std::string& fname,
-                                       tsl::protobuf::MessageLite* proto);
-
-// Internal implementation that takes a GCS client, used for testing.
-absl::Status WriteBinaryProtoWithClient(
-    google::cloud::storage::Client& client, const std::string& fname,
-    const tsl::protobuf::MessageLite& proto);
-
-}  // namespace internal
 
 }  // namespace xprof
 

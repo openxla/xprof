@@ -1567,5 +1567,75 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsFlowCategories) {
                   static_cast<int>(tsl::profiler::ContextType::kGeneric)));
 }
 
+TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task B",
+       .ts = 200.0,
+       .dur = 50.0}};
+
+  // Initial load
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  // By default, first process is expanded, others collapsed.
+  // Group 0: Process 1, Group 1: Thread 101, Group 2: Process 2, Group 3:
+  // Thread 201
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);   // Process 1
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);   // Thread 101
+  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);  // Process 2
+  EXPECT_FALSE(timeline_.timeline_data().groups[3].expanded);  // Thread 201
+
+  // Manually expand Process 2 and its thread, and collapse Process 1
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[0].expanded = false;
+    data.groups[1].expanded = false;
+    data.groups[2].expanded = true;
+    data.groups[3].expanded = true;
+    timeline_.set_timeline_data(std::move(data));
+  }
+
+  // Simulate incremental loading (new events)
+  const std::vector<TraceEvent> new_events = {{.ph = Phase::kComplete,
+                                               .pid = 1,
+                                               .tid = 101,
+                                               .name = "Task C",
+                                               .ts = 300.0,
+                                               .dur = 50.0},
+                                              {.ph = Phase::kComplete,
+                                               .pid = 2,
+                                               .tid = 201,
+                                               .name = "Task D",
+                                               .ts = 400.0,
+                                               .dur = 50.0}};
+
+  std::vector<TraceEvent> all_events = events;
+  all_events.insert(all_events.end(), new_events.begin(), new_events.end());
+
+  data_provider_.ProcessTraceEvents({all_events, {}}, timeline_);
+
+  // Verify that expansion states are preserved
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
+  EXPECT_FALSE(
+      timeline_.timeline_data().groups[0].expanded);  // Process 1 (PRESERVED)
+  EXPECT_FALSE(
+      timeline_.timeline_data().groups[1].expanded);  // Thread 101 (PRESERVED)
+  EXPECT_TRUE(
+      timeline_.timeline_data().groups[2].expanded);  // Process 2 (PRESERVED)
+  EXPECT_TRUE(
+      timeline_.timeline_data().groups[3].expanded);  // Thread 201 (PRESERVED)
+}
+
 }  // namespace
 }  // namespace traceviewer

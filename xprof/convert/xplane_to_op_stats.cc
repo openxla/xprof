@@ -345,11 +345,14 @@ DisaggregatedServingLatency ComputeDisaggregatedServingLatency(
       }
     });
   }
-  double avg_duration_us = tsl::profiler::PicoToMicro(jit_generate_stats.avg());
-  disaggregated_serving_latency.mutable_decode_step_time_us()->set_avg(
-      avg_duration_us);
-  disaggregated_serving_latency.set_num_decode_steps(
-      jit_generate_stats.count());
+  if (!jit_generate_stats.empty()) {
+    double avg_duration_us =
+        tsl::profiler::PicoToMicro(jit_generate_stats.avg());
+    disaggregated_serving_latency.mutable_decode_step_time_us()->set_avg(
+        avg_duration_us);
+    disaggregated_serving_latency.set_num_decode_steps(
+        jit_generate_stats.count());
+  }
   return disaggregated_serving_latency;
 }
 
@@ -690,8 +693,13 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
   }
 
   if (!op_stats.run_environment().is_training()) {
-    *op_stats.mutable_disaggregated_serving_latency() =
+    DisaggregatedServingLatency disaggregated_serving_latency =
         ComputeDisaggregatedServingLatency(host_plane, device_planes);
+    if (disaggregated_serving_latency.num_decode_steps() > 0 ||
+        disaggregated_serving_latency.num_prefill_steps() > 0) {
+      *op_stats.mutable_disaggregated_serving_latency() =
+          std::move(disaggregated_serving_latency);
+    }
   }
   return op_stats;
 }

@@ -1114,6 +1114,7 @@ cc_test(
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",

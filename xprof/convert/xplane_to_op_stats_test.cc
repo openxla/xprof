@@ -28,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
+#include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -953,6 +954,49 @@ TEST(ConvertXPlaneToOpStats, HandleInputPipelineSlownessCausingDeviceIdleness) {
   EXPECT_EQ(step_breakdown.category_ps().at("infeed"), 2000);
   ASSERT_TRUE(category_ps.contains("arithmetic"));
   EXPECT_EQ(step_breakdown.category_ps().at("arithmetic"), 8000);
+}
+
+TEST(ConvertXPlaneToOpStats,
+     MissingExpectedEventsDoesNotPopulateDisaggregatedServingLatency) {
+  XSpace space;
+  XPlaneBuilder host_plane_builder(GetOrCreateHostXPlane(&space));
+  // Not a wiz inference request, so disaggregated_serving_latency should be
+  // empty.
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+  ASSERT_FALSE(op_stats.has_disaggregated_serving_latency());
+
+  // Make it a wiz inference request but without jit_generate events.
+  XLineBuilder line = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &line, "WizServable", 0, 100);
+  ASSERT_OK_AND_ASSIGN(op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+  ASSERT_FALSE(op_stats.has_disaggregated_serving_latency());
+}
+
+TEST(ConvertXPlaneToOpStats, PopulateDisaggregatedServingLatency) {
+  XSpace space;
+  XPlaneBuilder host_plane_builder(GetOrCreateHostXPlane(&space));
+  XLineBuilder host_line = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &host_line, "WizServable", 0, 100);
+
+  XPlaneBuilder device_plane_builder(
+      GetOrCreateTpuXPlane(&space, 0, "TPU V4", 0, 0));
+  XLineBuilder device_line = device_plane_builder.GetOrCreateLine(0);
+  device_line.SetName(kXlaModuleLineName);
+  int duration_ps = 2000000;
+  CreateXEvent(&device_plane_builder, &device_line, "jit_generate", 100,
+               duration_ps);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToOpStats(space, OpStatsOptions()));
+  ASSERT_TRUE(op_stats.has_disaggregated_serving_latency());
+  ASSERT_EQ(op_stats.disaggregated_serving_latency().num_decode_steps(), 1);
+  double expected_avg_duration_us =
+      tsl::profiler::PicoToMicro(duration_ps);
+  ASSERT_EQ(
+      op_stats.disaggregated_serving_latency().decode_step_time_us().avg(),
+      expected_avg_duration_us);
 }
 
 }  // namespace

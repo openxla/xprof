@@ -257,9 +257,17 @@ void Timeline::Draw() {
   // Calculate the available width for the timeline before entering the table.
   // This ensures we get the correct width even if the table layout hasn't
   // finished or if GetContentRegionAvail behaves differently inside the table.
-  const float content_region_avail_width = ImGui::GetContentRegionAvail().x;
+  // Reserve space for the vertical scrollbar so that the timeline layout
+  // doesn't shift horizontally when the scrollbar appears/disappears due to
+  // drawer resizing. We calculate the fixed table width based on the parent
+  // window's available width, minus the scrollbar size.
+  const float content_region_avail_width =
+      ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
 
-  ImGui::BeginTable("Timeline", 2, kImGuiTableFlags, ImVec2(0.0f, -FLT_MIN));
+  // Use the fixed table width so the table width is constant to reserve space
+  // for the vertical scrollbar.
+  ImGui::BeginTable("Timeline", 2, kImGuiTableFlags,
+                    ImVec2(content_region_avail_width, -FLT_MIN));
   ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
                           label_width_);
   ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);

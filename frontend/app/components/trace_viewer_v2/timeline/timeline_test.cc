@@ -1288,10 +1288,10 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey) {
 
 TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseInsideTimeline) {
   // Set a visible range that results in a round number for px_per_time_unit
-  // to make test calculations predictable. With a timeline width of 1669px
+  // to make test calculations predictable. With a timeline width of 1655px
   // (based on 1920px window width, 250px label width, and 1px padding),
-  // a duration of 166.9 gives 10px per microsecond.
-  timeline_.SetVisibleRange({0.0, 166.9});
+  // a duration of 165.5 gives 10px per microsecond.
+  timeline_.SetVisibleRange({0.0, 165.5});
 
   ImGuiIO& io = ImGui::GetIO();
   // Timeline starts at label_width (GetTimelineStartX()).
@@ -1310,16 +1310,16 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseInsideTimeline) {
 }
 
 TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_MouseOutsideTimeline) {
-  timeline_.SetVisibleRange({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 165.5});
 
   ImGuiIO& io = ImGui::GetIO();
   // Mouse outside timeline (x < GetTimelineStartX()).
   io.MousePos = ImVec2(GetTimelineStartX() - 150.0f, 50.0f);
   io.AddKeyEvent(ImGuiKey_W, true);
 
-  // Pivot should be center of visible range [0, 166.9] -> 83.45.
+  // Pivot should be center of visible range [0, 165.5] -> 82.75.
   EXPECT_CALL(timeline_,
-              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(83.45)));
+              Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime), DoubleEq(82.75)));
 
   SimulateFrame();
 }
@@ -1403,7 +1403,7 @@ TEST_F(MockTimelineImGuiFixture, ScrollUpWithMouseWheel) {
 
 TEST_F(MockTimelineImGuiFixture, ZoomOutWithMouseWheelAndCtrlKey) {
   // Set a visible range for predictable pivot calculation.
-  timeline_.SetVisibleRange({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 165.5});
 
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseWheelEvent(0.0f, 1.0f);
@@ -1421,7 +1421,7 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithMouseWheelAndCtrlKey) {
 
 TEST_F(MockTimelineImGuiFixture, ZoomInWithMouseWheelAndCtrlKey) {
   // Set a visible range for predictable pivot calculation.
-  timeline_.SetVisibleRange({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 165.5});
 
   ImGuiIO& io = ImGui::GetIO();
   io.AddMouseWheelEvent(0.0f, -1.0f);
@@ -1573,8 +1573,8 @@ TEST_F(MockTimelineImGuiFixture,
        ShiftClickAndReleaseShiftMidDragContinuesSelection) {
   // Setup similar to TimelineDragSelectionTest to ensure predictable
   // coordinates.
-  timeline_.SetVisibleRange({0.0, 166.9});
-  timeline_.set_data_time_range({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_data_time_range({0.0, 165.5});
   ImGuiIO& io = ImGui::GetIO();
 
   // Start with Shift held down.
@@ -1609,12 +1609,12 @@ TEST_F(MockTimelineImGuiFixture,
 
 TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
   // Setup similar to TimelineDragSelectionTest.
-  timeline_.SetVisibleRange({0.0, 166.9});
-  timeline_.set_fetched_data_time_range({0.0, 166.9});
-  timeline_.SetVisibleRange({0.0, 166.9});
-  timeline_.set_data_time_range({0.0, 166.9});
-  timeline_.SetVisibleRange({0.0, 166.9});
-  timeline_.set_data_time_range({0.0, 166.9});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_fetched_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_data_time_range({0.0, 165.5});
+  timeline_.SetVisibleRange({0.0, 165.5});
+  timeline_.set_data_time_range({0.0, 165.5});
   ImGuiIO& io = ImGui::GetIO();
 
   // Start without Shift.
@@ -2739,11 +2739,11 @@ class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
   void SetUp() override {
     RealTimelineImGuiFixture::SetUp();
     // Set a visible range that results in a round number for px_per_time_unit
-    // to make test calculations predictable. With a timeline width of 1669px
+    // to make test calculations predictable. With a timeline width of 1655px
     // (based on 1920px window width, 250px label width, and 1px padding),
-    // a duration of 166.9 gives 10px per microsecond.
-    timeline_.SetVisibleRange({0.0, 166.9});
-    timeline_.set_data_time_range({0.0, 166.9});
+    // a duration of 165.5 gives 10px per microsecond.
+    timeline_.SetVisibleRange({0.0, 165.5});
+    timeline_.set_data_time_range({0.0, 165.5});
 
     ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
   }

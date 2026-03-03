@@ -289,106 +289,119 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
                        int current_level, FlameChartTimelineData& data,
                        TimeBounds& bounds, const TraceInformation& trace_info,
                        absl::string_view thread_name) {
-  int max_level = current_level;
+  struct StackFrame {
+    absl::Span<const std::unique_ptr<TraceEventNode>> nodes;
+    int level;
+  };
 
-  for (const std::unique_ptr<TraceEventNode>& node : nodes) {
-    const TraceEvent* event = node->event;
+  int max_level_overall = current_level;
+  std::vector<StackFrame> stack;
+  if (!nodes.empty()) {
+    stack.push_back({nodes, current_level});
+  }
 
-    data.entry_start_times.push_back(event->ts);
-    data.entry_total_times.push_back(event->dur);
-    data.entry_levels.push_back(current_level);
-    data.entry_names.push_back(event->name);
-    data.entry_event_ids.push_back(event->event_id);
-    data.entry_pids.push_back(event->pid);
-    data.entry_tids.push_back(event->tid);
+  while (!stack.empty()) {
+    StackFrame frame = stack.back();
+    stack.pop_back();
 
-    auto cur_args = event->args;
-    bool is_xla_ops_thread = thread_name == kXlaOps;
-    bool is_data_motion_layer =
-        thread_name == kComputeUtilization ||
-        thread_name == kDataMotionLayersUtilization;
-    bool has_hlo_in_args =
-        event->args.count(std::string(kHloOp)) > 0 &&
-        event->args.count(std::string(kHloModule)) > 0;
-    if (is_xla_ops_thread || is_data_motion_layer || has_hlo_in_args) {
-      if (is_data_motion_layer) {
-        auto it_name = event->args.find("Name");
-        if (it_name != event->args.end()) {
-          cur_args[std::string(kHloOp)] = it_name->second;
+    int level = frame.level;
+    max_level_overall = std::max(max_level_overall, level);
+
+    for (const auto& node : frame.nodes) {
+      const TraceEvent* event = node->event;
+
+      data.entry_start_times.push_back(event->ts);
+      data.entry_total_times.push_back(event->dur);
+      data.entry_levels.push_back(level);
+      data.entry_names.push_back(event->name);
+      data.entry_event_ids.push_back(event->event_id);
+      data.entry_pids.push_back(event->pid);
+      data.entry_tids.push_back(event->tid);
+
+      auto cur_args = event->args;
+      bool is_xla_ops_thread = thread_name == kXlaOps;
+      bool is_data_motion_layer =
+          thread_name == kComputeUtilization ||
+          thread_name == kDataMotionLayersUtilization;
+      bool has_hlo_in_args =
+          event->args.count(std::string(kHloOp)) > 0 &&
+          event->args.count(std::string(kHloModule)) > 0;
+      if (is_xla_ops_thread || is_data_motion_layer || has_hlo_in_args) {
+        if (is_data_motion_layer) {
+          auto it_name = event->args.find("Name");
+          if (it_name != event->args.end()) {
+            cur_args[std::string(kHloOp)] = it_name->second;
+          }
+        } else if (!event->args.count(std::string(kHloOp))) {
+          cur_args[std::string(kHloOp)] = event->name;
         }
-      } else if (!event->args.count(std::string(kHloOp))) {
-        cur_args[std::string(kHloOp)] = event->name;
-      }
-      std::string hlo_module_str = std::string(kHloModuleDefault);
-      auto it_hlo_module = event->args.find(std::string(kHloModule));
-      if (it_hlo_module != event->args.end()) {
-        const std::string& hlo_module_name = it_hlo_module->second;
-        auto it_hlo_module_id = event->args.find(std::string(kHloModuleId));
-        auto it_program_id = event->args.find(std::string(kProgramId));
-        if (it_hlo_module_id != event->args.end()) {
-          hlo_module_str =
-              absl::StrCat(hlo_module_name, "(", it_hlo_module_id->second, ")");
-        } else if (it_program_id != event->args.end()) {
-          hlo_module_str =
-              absl::StrCat(hlo_module_name, "(", it_program_id->second, ")");
-        } else {
-          auto it_kernel_details =
-              event->args.find(std::string(kKernelDetails));
-          if (it_kernel_details != event->args.end()) {
-            std::string module_id;
-            if (RE2::PartialMatch(it_kernel_details->second, kModuleRegex,
-                                  &module_id)) {
-              hlo_module_str =
-                  absl::StrCat(hlo_module_name, "(", module_id, ")");
+        std::string hlo_module_str = std::string(kHloModuleDefault);
+        auto it_hlo_module = event->args.find(std::string(kHloModule));
+        if (it_hlo_module != event->args.end()) {
+          const std::string& hlo_module_name = it_hlo_module->second;
+          auto it_hlo_module_id = event->args.find(std::string(kHloModuleId));
+          auto it_program_id = event->args.find(std::string(kProgramId));
+          if (it_hlo_module_id != event->args.end()) {
+            hlo_module_str = absl::StrCat(hlo_module_name, "(",
+                                          it_hlo_module_id->second, ")");
+          } else if (it_program_id != event->args.end()) {
+            hlo_module_str =
+                absl::StrCat(hlo_module_name, "(", it_program_id->second, ")");
+          } else {
+            auto it_kernel_details =
+                event->args.find(std::string(kKernelDetails));
+            if (it_kernel_details != event->args.end()) {
+              std::string module_id;
+              if (RE2::PartialMatch(it_kernel_details->second, kModuleRegex,
+                                    &module_id)) {
+                hlo_module_str =
+                    absl::StrCat(hlo_module_name, "(", module_id, ")");
+              } else {
+                hlo_module_str = hlo_module_name;
+              }
             } else {
               hlo_module_str = hlo_module_name;
             }
-          } else {
-            hlo_module_str = hlo_module_name;
           }
-        }
-      } else {
-        // search in "XLA Modules"
-        bool hlo_module_found = false;
-        for (auto const& [pid_tid, name] : trace_info.thread_names) {
-          if (pid_tid.first == event->pid && name == kXlaModules) {
-            auto it_events = trace_info.events_by_pid_tid.find(event->pid);
-            if (it_events != trace_info.events_by_pid_tid.end()) {
-              auto it_thread_events = it_events->second.find(pid_tid.second);
-              if (it_thread_events != it_events->second.end()) {
-                for (const TraceEvent* module_event :
-                     it_thread_events->second) {
-                  if (module_event->ts <= event->ts &&
-                      module_event->ts + module_event->dur >= event->ts) {
-                    hlo_module_str = module_event->name;
-                    hlo_module_found = true;
-                    break;
+        } else {
+          // search in "XLA Modules"
+          bool hlo_module_found = false;
+          for (auto const& [pid_tid, name] : trace_info.thread_names) {
+            if (pid_tid.first == event->pid && name == kXlaModules) {
+              auto it_events = trace_info.events_by_pid_tid.find(event->pid);
+              if (it_events != trace_info.events_by_pid_tid.end()) {
+                auto it_thread_events = it_events->second.find(pid_tid.second);
+                if (it_thread_events != it_events->second.end()) {
+                  for (const TraceEvent* module_event :
+                       it_thread_events->second) {
+                    if (module_event->ts <= event->ts &&
+                        module_event->ts + module_event->dur >= event->ts) {
+                      hlo_module_str = module_event->name;
+                      hlo_module_found = true;
+                      break;
+                    }
                   }
                 }
               }
             }
+            if (hlo_module_found) break;
           }
-          if (hlo_module_found) break;
         }
+        cur_args[std::string(kHloModule)] = hlo_module_str;
+      } else {
+        cur_args[std::string(kHloModule)] = std::string(kHloModuleDefault);
       }
-      cur_args[std::string(kHloModule)] = hlo_module_str;
-    } else {
-      cur_args[std::string(kHloModule)] = std::string(kHloModuleDefault);
-    }
-    data.entry_args.push_back(cur_args);
+      data.entry_args.push_back(cur_args);
 
-    bounds.min = std::min(bounds.min, event->ts);
-    bounds.max = std::max(bounds.max, event->ts + event->dur);
+      bounds.min = std::min(bounds.min, event->ts);
+      bounds.max = std::max(bounds.max, event->ts + event->dur);
 
-    if (!node->children.empty()) {
-      int child_max_level =
-          AppendNodesAtLevel(node->children, current_level + 1, data, bounds,
-                             trace_info, thread_name);
-      max_level = std::max(max_level, child_max_level);
+      if (!node->children.empty()) {
+        stack.push_back({node->children, level + 1});
+      }
     }
   }
-
-  return max_level;
+  return max_level_overall;
 }
 
 void PopulateThreadTrack(ProcessId pid, ThreadId tid,

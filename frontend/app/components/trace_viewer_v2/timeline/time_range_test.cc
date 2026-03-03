@@ -1,9 +1,9 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 
 #include <cmath>
 
 #include "<gtest/gtest.h>"
-#include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/animation.h"
 
 namespace traceviewer {
 namespace {

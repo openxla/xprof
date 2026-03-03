@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
 #include <string>
@@ -9,12 +9,12 @@
 #include "<gtest/gtest.h>"
 #include "absl/algorithm/container.h"
 #include "absl/strings/str_cat.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 #include "tsl/profiler/lib/context_types.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 

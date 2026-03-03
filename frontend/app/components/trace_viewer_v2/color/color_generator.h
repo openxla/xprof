@@ -2,7 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_COLOR_COLOR_GENERATOR_H_
 
 #include "absl/strings/string_view.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 namespace traceviewer {
 

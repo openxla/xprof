@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/animation.h"
 
 #include <cmath>
 

@@ -1,21 +1,21 @@
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
+load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
 ])
 
-cc_library(
+wasm_cc_library(
     name = "constants",
     hdrs = ["constants.h"],
     deps = [
-        "//third_party/dear_imgui",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )
 
-cc_library(
+wasm_cc_library(
     name = "time_range",
     srcs = ["time_range.cc"],
     hdrs = ["time_range.h"],
@@ -35,7 +35,7 @@ cc_test(
     ],
 )
 
-cc_library(
+wasm_cc_library(
     name = "timeline",
     srcs = [
         "timeline.cc",
@@ -46,7 +46,6 @@ cc_library(
     deps = [
         ":constants",
         ":time_range",
-        "//third_party/dear_imgui",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -55,6 +54,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
@@ -72,9 +72,9 @@ cc_test(
         ":constants",
         ":time_range",
         ":timeline",
-        "//third_party/dear_imgui",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2:event_data",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
@@ -83,7 +83,7 @@ cc_test(
     ],
 )
 
-cc_library(
+wasm_cc_library(
     name = "data_provider",
     srcs = [
         "data_provider.cc",
@@ -92,8 +92,6 @@ cc_library(
     deps = [
         ":time_range",
         ":timeline",
-        "//third_party/dear_imgui",
-        "//util/gtl:comparator",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -101,6 +99,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_googlesource_code_re2//:re2",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
@@ -116,10 +115,10 @@ cc_test(
         ":data_provider",
         ":time_range",
         ":timeline",
-        "//third_party/dear_imgui",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",

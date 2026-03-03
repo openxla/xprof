@@ -1,36 +1,32 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/input_handler.h"
+#include "frontend/app/components/trace_viewer_v2/input_handler.h"
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
 #include "absl/strings/string_view.h"
-#include "third_party/dear_imgui/imgui.h"
-#include "util/gtl/flat_map.h"
+#include "imgui.h"
 
 namespace traceviewer {
 
 namespace {
 
 ImGuiKey TranslateKey(absl::string_view code) {
-  static constexpr auto kKeyMap =
-      gtl::fixed_flat_map_of<absl::string_view, ImGuiKey>(
-          {{"KeyA", ImGuiKey_A},
-           {"KeyD", ImGuiKey_D},
-           {"KeyS", ImGuiKey_S},
-           {"KeyW", ImGuiKey_W},
-           {"ArrowDown", ImGuiKey_DownArrow},
-           {"ArrowUp", ImGuiKey_UpArrow},
-           {"Escape", ImGuiKey_Escape}});
-  if (auto it = kKeyMap.find(code); it != kKeyMap.end()) return it->second;
+  if (code == "KeyA") return ImGuiKey_A;
+  if (code == "KeyD") return ImGuiKey_D;
+  if (code == "KeyS") return ImGuiKey_S;
+  if (code == "KeyW") return ImGuiKey_W;
+  if (code == "ArrowDown") return ImGuiKey_DownArrow;
+  if (code == "ArrowUp") return ImGuiKey_UpArrow;
+  if (code == "Escape") return ImGuiKey_Escape;
   return ImGuiKey_None;
 }
 
 void UpdateModifierKeys(const EmscriptenKeyboardEvent* event) {
   ImGuiIO& io = ImGui::GetIO();
-  io.AddKeyEvent(ImGuiMod_Ctrl, event->ctrlKey);
-  io.AddKeyEvent(ImGuiMod_Shift, event->shiftKey);
-  io.AddKeyEvent(ImGuiMod_Alt, event->altKey);
-  io.AddKeyEvent(ImGuiMod_Super, event->metaKey);
+  io.AddKeyEvent(ImGuiKey_ModCtrl, event->ctrlKey);
+  io.AddKeyEvent(ImGuiKey_ModShift, event->shiftKey);
+  io.AddKeyEvent(ImGuiKey_ModAlt, event->altKey);
+  io.AddKeyEvent(ImGuiKey_ModSuper, event->metaKey);
 }
 
 }  // namespace
@@ -97,9 +93,9 @@ EM_BOOL HandleMouseUp(int, const EmscriptenMouseEvent* event, void*) {
 EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
   ImGuiIO& io = ImGui::GetIO();
 
-  io.AddKeyEvent(ImGuiMod_Ctrl, event->mouse.ctrlKey);
-  io.AddKeyEvent(ImGuiMod_Shift, event->mouse.shiftKey);
-  io.AddKeyEvent(ImGuiMod_Super, event->mouse.metaKey);
+  io.AddKeyEvent(ImGuiKey_ModCtrl, event->mouse.ctrlKey);
+  io.AddKeyEvent(ImGuiKey_ModShift, event->mouse.shiftKey);
+  io.AddKeyEvent(ImGuiKey_ModSuper, event->mouse.metaKey);
 
   float wheel_x = static_cast<float>(event->deltaX);
   float wheel_y = static_cast<float>(event->deltaY);

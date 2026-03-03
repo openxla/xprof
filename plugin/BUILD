@@ -22,6 +22,7 @@ sh_binary(
         "@org_xprof//frontend:bundle.js",
         "@org_xprof//frontend:css",
         "@org_xprof//frontend:zone.js",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:trace_viewer_v2_wasm",
         "@org_xprof//plugin/xprof:profile_io",
         "@org_xprof//plugin/xprof:resources",
         "@org_xprof//plugin/xprof:server",
@@ -32,7 +33,7 @@ sh_binary(
         "@org_xprof//plugin/xprof/protobuf:protos_all",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.html",
         "@org_xprof//plugin/trace_viewer:trace_viewer_index.js",
-        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "@org_xprof//pywrap:_pywrap_profiler_plugin",
     ],
     tags = [
         "local",

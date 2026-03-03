@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 
@@ -107,6 +107,8 @@ class TimeRange {
   bool operator==(const TimeRange& other) const {
     return start_ == other.start_ && end_ == other.end_;
   }
+
+  bool operator!=(const TimeRange& other) const { return !(*this == other); }
 
  private:
   Microseconds start_ = 0.0, end_ = 0.0;

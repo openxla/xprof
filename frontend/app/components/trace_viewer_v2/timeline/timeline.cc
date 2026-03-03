@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
 #include <algorithm>
 #include <any>
@@ -23,15 +23,15 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "third_party/dear_imgui/imgui.h"
-#include "third_party/dear_imgui/imgui_internal.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/color/color_generator.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/fonts/fonts.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "imgui.h"
+#include "imgui_internal.h"
+#include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
+#include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
+#include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace {
@@ -236,7 +236,6 @@ void Timeline::Draw() {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
   ImGui::SetNextWindowSize(viewport->Size);
-  ImGui::SetNextWindowViewport(viewport->ID);
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -251,7 +250,7 @@ void Timeline::Draw() {
   // Keep the NoScrollWithMouse flag to disable the default scroll behavior
   // of ImGui, and use the custom scroll handler defined in `HandleWheel`
   // instead.
-  ImGui::BeginChild("Tracks", ImVec2(0, 0), ImGuiChildFlags_None,
+  ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
                     ImGuiWindowFlags_NoScrollWithMouse);
 
   // Calculate the available width for the timeline before entering the table.
@@ -411,7 +410,7 @@ void Timeline::Draw() {
   // declared after) but below tooltips (because it's a child window, not
   // in the foreground draw list).
   ImGui::SetCursorPos(ImVec2(0, 0));
-  ImGui::BeginChild("SelectionOverlay", ImVec2(0, 0), ImGuiChildFlags_None,
+  ImGui::BeginChild("SelectionOverlay", ImVec2(0, 0), 0,
                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoSavedSettings |
@@ -507,7 +506,7 @@ std::string Timeline::GetTextForDisplay(absl::string_view event_name,
     // width.
     int low = 0, high = event_name.length(), fit_len = 0;
     while (low <= high) {
-      const int mid = std::midpoint(low, high);
+      const int mid = low + (high - low) / 2;
       if (GetTextSize(absl::string_view(event_name.data(), mid)).x +
               ellipsis_width <=
           available_width) {
@@ -617,8 +616,6 @@ void Timeline::NavigateToEvent(int event_index) {
   selected_event_index_ = event_index;
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
-  const Microseconds end =
-      start + timeline_data_.entry_total_times[event_index];
   const Microseconds event_duration =
       timeline_data_.entry_total_times[event_index];
   // When navigating to an event, set the visible duration to 20 times the
@@ -628,7 +625,7 @@ void Timeline::NavigateToEvent(int event_index) {
   const Microseconds duration = std::clamp(
       event_duration * kEventNavigationZoomFactor,
       kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
-  const Microseconds center = std::midpoint(start, end);
+  const Microseconds center = start + event_duration / 2.0;
   TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
   ConstrainTimeRange(new_range);
 
@@ -1093,7 +1090,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
-                        ImGuiChildFlags_None, kLaneFlags)) {
+                        0, kLaneFlags)) {
     const ImVec2 max = ImGui::GetContentRegionMax();
 
     if (group.type == Group::Type::kCounter) {
@@ -1145,7 +1142,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
-                        ImGuiChildFlags_None, kLaneFlags)) {
+                        0, kLaneFlags)) {
     const ImVec2 max = ImGui::GetContentRegionMax();
 
     if (group.type == Group::Type::kCounter) {
@@ -1793,7 +1790,7 @@ void Timeline::NavigateToNextSearchResult() {
     const Microseconds duration = std::clamp(
         event_duration * kEventNavigationZoomFactor,
         kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
-    const Microseconds center = std::midpoint(start, end);
+    const Microseconds center = (start + end) / 2.0;
     TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
     ConstrainTimeRange(new_range);
     SetVisibleRange(new_range, /*animate=*/true);
@@ -1819,11 +1816,10 @@ void Timeline::NavigateToPrevSearchResult() {
     // If event is not in current data, zoom to its time range to trigger load.
     const Microseconds start = result.start_time;
     const Microseconds event_duration = result.duration;
-    const Microseconds end = start + event_duration;
     const Microseconds duration = std::clamp(
         event_duration * kEventNavigationZoomFactor,
         kEventNavigationMinDurationMicros, kEventNavigationMaxDurationMicros);
-    const Microseconds center = std::midpoint(start, end);
+    const Microseconds center = start + event_duration / 2.0;
     TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
     ConstrainTimeRange(new_range);
     SetVisibleRange(new_range, /*animate=*/true);

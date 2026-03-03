@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -19,16 +19,15 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 #include "re2/re2.h"
 #include "tsl/profiler/lib/context_types.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/color/colors.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
-#include "util/gtl/comparator.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 
 namespace traceviewer {
 
@@ -185,9 +184,12 @@ std::vector<int> GetTop5FlowCategories(
       sorted_flow_categories.push_back({cat, count});
     }
   }
-  absl::c_stable_sort(
-      sorted_flow_categories,
-      gtl::ChainComparators(gtl::OrderBySecondGreater(), gtl::OrderByFirst()));
+  absl::c_stable_sort(sorted_flow_categories, [](const auto& a, const auto& b) {
+    if (a.second != b.second) {
+      return a.second > b.second;
+    }
+    return a.first < b.first;
+  });
   std::vector<int> top_5_flow_categories;
   for (int i = 0; i < std::min<size_t>(sorted_flow_categories.size(), 5); ++i) {
     top_5_flow_categories.push_back(sorted_flow_categories[i].first);
@@ -652,27 +654,32 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   // (descending).
   for (auto& [pid, events_by_tid] : trace_info.events_by_pid_tid) {
     for (auto& [tid, events] : events_by_tid) {
-      absl::c_stable_sort(
-          events, gtl::ChainComparators(
-                      gtl::OrderBy([](const TraceEvent* e) { return e->ts; }),
-                      gtl::OrderBy([](const TraceEvent* e) { return e->dur; },
-                                   gtl::Greater())));
+      absl::c_stable_sort(events, [](const TraceEvent* a, const TraceEvent* b) {
+        if (a->ts != b->ts) {
+          return a->ts < b->ts;
+        }
+        return a->dur > b->dur;
+      });
     }
   }
 
   for (auto& [id, events] : trace_info.flow_events_by_id) {
-    absl::c_stable_sort(
-        events, gtl::OrderBy([](const TraceEvent* e) { return e->ts; }));
+    absl::c_stable_sort(events, [](const TraceEvent* a, const TraceEvent* b) {
+      return a->ts < b->ts;
+    });
   }
 
   for (auto& [pid, counters_by_name] : trace_info.counters_by_pid_name) {
     for (auto& [name, events] : counters_by_name) {
       absl::c_stable_sort(
-          events, gtl::OrderBy([](const CounterEvent* e) {
-            return e->timestamps.empty()
-                       ? std::numeric_limits<Microseconds>::max()
-                       : e->timestamps.front();
-          }));
+          events, [](const CounterEvent* a, const CounterEvent* b) {
+            const auto get_ts = [](const CounterEvent* e) {
+              return e->timestamps.empty()
+                         ? std::numeric_limits<Microseconds>::max()
+                         : e->timestamps.front();
+            };
+            return get_ts(a) < get_ts(b);
+          });
     }
   }
 

@@ -97,8 +97,7 @@ export class OverviewPage implements OnDestroy {
     this.host = params['host'] || this.host || '';
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || 'overview_page';
-    this.enableSmartSuggestion = this.dataService.getSearchParams().get(
-                                     'enable_smart_suggestion') === 'true';
+    this.enableSmartSuggestion = this.dataService.isSmartSuggestionEnabled();
   }
 
   update() {

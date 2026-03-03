@@ -136,6 +136,7 @@ export interface DataServiceV2Interface {
   isGraphvizAvailable(): boolean;
   getRooflineModelLink(sessionId: string): string;
   getPluginVersion(): Observable<string|null>;
+  isSmartSuggestionEnabled(): boolean;
 }
 
 /** Injection token for the data service interface. */

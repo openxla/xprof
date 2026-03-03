@@ -525,4 +525,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const query = params.toString() ? `?${params.toString()}` : '';
     return `/roofline_model/${sessionId}${query}`;
   }
+
+  isSmartSuggestionEnabled(): boolean {
+    return this.getSearchParams().get('enable_smart_suggestion') === 'true';
+  }
 }

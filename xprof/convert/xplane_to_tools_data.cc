@@ -29,6 +29,8 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/json/json.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
@@ -36,8 +38,6 @@ limitations under the License.
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/convert/xplane_to_trace_events.h"
 #include "xla/tsl/profiler/utils/timespan.h"
-#include "xla/tsl/profiler/utils/xplane_schema.h"
-#include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/framework_op_stats_processor.h"
 #include "xprof/convert/hlo_stats_processor.h"
@@ -67,7 +67,6 @@ limitations under the License.
 #include "xprof/convert/xplane_to_hlo.h"
 #include "xprof/convert/xplane_to_memory_profile.h"
 #include "xprof/convert/xplane_to_perf_counters.h"
-#include "xprof/convert/xplane_to_tf_data_stats.h"
 #include "xprof/convert/xplane_to_tool_names.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/convert/xplane_to_utilization_viewer.h"
@@ -288,34 +287,6 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToPodViewer(
   xprof::PodViewerProcessor processor({});
   TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, {}));
   return processor.GetData();
-}
-
-absl::StatusOr<std::string> ConvertMultiXSpacesToTfDataBottleneckAnalysis(
-    const SessionSnapshot& session_snapshot) {
-  CombinedTfDataStats combined_tf_data_stats;
-  CombinedTfDataStatsBuilder builder(&combined_tf_data_stats);
-
-  for (int idx = 0; idx < session_snapshot.XSpaceSize(); ++idx) {
-    google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace* xspace,
-                        session_snapshot.GetXSpace(idx, &arena));
-
-    PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
-                               /*derived_timeline=*/false);
-    XPlane* host_plane = tsl::profiler::FindMutablePlaneWithName(
-        xspace, tsl::profiler::kHostThreadsPlaneName);
-    std::string host_name_from_file = session_snapshot.GetHostname(idx);
-    if (host_plane == nullptr) {
-      return tsl::errors::InvalidArgument(
-          "Could not find host XPlane for tf data stats: ",
-          host_name_from_file);
-    }
-    absl::string_view host_name =
-        xspace->hostnames_size() ? xspace->hostnames(0) : host_name_from_file;
-    builder.Add(host_name, host_plane);
-  }
-  builder.Finalize();
-  return combined_tf_data_stats.SerializeAsString();
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToHloStats(

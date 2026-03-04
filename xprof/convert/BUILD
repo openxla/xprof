@@ -1462,6 +1462,8 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
+        "@com_google_protobuf//:json",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_cc",

@@ -55,6 +55,11 @@ class EventTimeFractionAnalyzerProcessor : public ProfileProcessor {
       const tensorflow::profiler::ToolOptions& options) const override;
 
  private:
+  absl::StatusOr<std::string> MapInternal(
+      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const std::string& hostname, const tensorflow::profiler::XSpace& xspace,
+      bool already_preprocessed);
+
   tensorflow::profiler::ToolOptions options_;
 };
 

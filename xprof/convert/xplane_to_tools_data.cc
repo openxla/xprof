@@ -53,11 +53,7 @@ limitations under the License.
 #include "xprof/convert/process_megascale_dcn.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/roofline_model_processor.h"
-#include "xprof/convert/smart_suggestion/all_rules.h"
-#include "xprof/convert/smart_suggestion/signal_provider.h"
-#include "xprof/convert/smart_suggestion/smart_suggestion_engine.h"
-#include "xprof/convert/smart_suggestion/smart_suggestion_rule_factory.h"
-#include "xprof/convert/smart_suggestion/tool_data_provider_impl.h"
+#include "xprof/convert/smart_suggestion_processor.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
@@ -405,30 +401,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
     const SessionSnapshot& session_snapshot) {
-  SmartSuggestionEngine engine;
-  SmartSuggestionRuleFactory rule_factory;
-  RegisterAllRulesFor3P(&rule_factory);
-
-  auto tool_data_provider =
-      std::make_unique<ToolDataProviderImpl>(session_snapshot);
-  SignalProvider signal_provider(std::move(tool_data_provider));
-
-  TF_ASSIGN_OR_RETURN(SmartSuggestionReport report,
-                      engine.Run(signal_provider, rule_factory));
-  std::string json_output;
-  tsl::protobuf::util::JsonPrintOptions opts;
-  opts.always_print_fields_with_no_presence = true;
-  // Perform the Proto to JSON conversion.
-  auto encode_status =
-      tsl::protobuf::util::MessageToJsonString(report, &json_output, opts);
-  if (!encode_status.ok()) {
-    const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
-        "Could not convert smart suggestion report to json. Error: ",
-        absl::string_view(error_message.data(), error_message.length()));
-  }
-  // Return the generated JSON string.
-  return json_output;
+  xprof::SmartSuggestionProcessor processor({});
+  TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, {}));
+  return processor.GetData();
 }
 
 }  // namespace

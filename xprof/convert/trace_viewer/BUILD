@@ -158,6 +158,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",

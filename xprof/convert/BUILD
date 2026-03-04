@@ -1909,7 +1909,6 @@ cc_library(
         "@org_xprof//xprof/convert/trace_viewer:trace_event_arguments_builder",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_util",
-        "@org_xprof//xprof/convert/trace_viewer:trace_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:timespan",

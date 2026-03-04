@@ -1,10 +1,10 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/canvas_state.h"
 
 #include <cstdint>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 namespace traceviewer {
 

@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
+#include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 
 #include <limits>
 #include <string>

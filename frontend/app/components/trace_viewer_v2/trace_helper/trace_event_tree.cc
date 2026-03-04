@@ -1,11 +1,11 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 
 #include <algorithm>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "absl/log/log.h"
 #include "absl/types/span.h"
 

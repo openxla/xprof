@@ -1,11 +1,11 @@
 """Starlark rules for generating C++ headers from font files for ImGui."""
 
 load(
-    "//third_party/bazel_rules/rules_cc/cc/common:cc_common.bzl",
+    "@rules_cc//cc/common:cc_common.bzl",
     "cc_common",
 )
 load(
-    "//third_party/bazel_rules/rules_cc/cc/common:cc_info.bzl",
+    "@rules_cc//cc/common:cc_info.bzl",
     "CcInfo",
 )
 

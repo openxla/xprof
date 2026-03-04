@@ -30,13 +30,13 @@
     </div>
   </div>
   <div class="main-content-area">
-    <as-split direction="vertical">
-      <as-split-area [size]="selectedEvent ? 70 : 100">
+    <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
+      <as-split-area [size]="timelineHeightPercent">
  -->
         <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
  -->
       </as-split-area>
-      <as-split-area [size]="selectedEvent ? 30 : 0" [visible]="!!selectedEvent">
+      <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">
         <div *ngIf="selectedEvent" #drawer class="drawer">
           <div class="event-detail-table-container">
             <table mat-table class="event-detail-table" [dataSource]="selectedEventProperties">

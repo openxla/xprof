@@ -1,7 +1,7 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnDestroy, OnInit, Output, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -132,7 +132,7 @@ declare interface TfTraceViewer {
     MatTableModule,
   ],
 })
-export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
+export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, OnChanges {
   @Input() traceViewerModule: TraceViewerV2Module|null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
@@ -159,6 +159,9 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   readonly tutorials = TUTORIALS;
   currentTutorialIndex = 0;
   tutorialSubscription?: Subscription;
+  drawerSizePercent = 30;
+  timelineHeightPercent = 100;
+  detailHeightPercent = 0;
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -219,6 +222,12 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
     this.destroyed.next();
     this.destroyed.complete();
     this.stopTutorialRotation();
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['selectedEvent']) {
+      this.updateSplitSizes();
+    }
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
@@ -290,6 +299,28 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   };
 
   /**
+   * Updates the split pane sizes.
+   *
+   * Sets the height percentages for the timeline and detail views based on
+   * whether an event is currently selected.
+   *
+   * @param drawerSizePercent The new size of the drawer in percent. If
+   *     provided, updates the `drawerSizePercent` property. This is undefined
+   *     when called from ngOnChanges (i.e. when selectedEvent changes).
+   */
+  private updateSplitSizes(drawerSizePercent?: number) {
+    if (drawerSizePercent !== undefined) {
+      this.drawerSizePercent = drawerSizePercent;
+    }
+
+    // If an event is selected, the timeline height is reduced to accommodate
+    // the detail view (drawer). Otherwise, the timeline takes the full height.
+    this.timelineHeightPercent =
+        this.selectedEvent ? (100 - this.drawerSizePercent) : 100;
+    this.detailHeightPercent = this.selectedEvent ? this.drawerSizePercent : 0;
+  }
+
+  /**
    * Updates the loading status and starts/stops the tutorial rotation
    * accordingly.
    *
@@ -350,6 +381,26 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit {
   onSearchEvent(query: string) {
     this.search$.next(query);
     this.searchEvents.emit({events_query: query});
+  }
+
+  /**
+   * Handles the drag end event from the split pane.
+   *
+   * @param event The event data containing the new sizes of the split areas.
+   *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
+   */
+  onDragEnd({sizes}: {sizes: Array<number|'*'>}) {
+    if (this.selectedEvent && sizes.length > 1) {
+      // This assumes the drawer is the second area (index 1). This is safe as
+      // long as the template structure remains consistent (Canvas then Drawer).
+      const size = sizes[1];
+
+      // '*' represents a wildcard size (null). We ignore it because we need a
+      // numeric percentage.
+      if (typeof size === 'number') {
+        this.updateSplitSizes(size);
+      }
+    }
   }
 
   nextSearchResult() {

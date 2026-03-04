@@ -15,98 +15,40 @@ limitations under the License.
 
 #include "xprof/convert/file_utils.h"
 
-#include <cstdint>
 #include <string>
 
-#include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
+#include "absl/strings/str_cat.h"
 #include "xla/tsl/lib/core/status_test_util.h"
+#include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/file_utils_gcs.h"
-#include "xprof/convert/storage_client_interface.h"
 
 namespace xprof {
 namespace {
 
-using ::testing::Eq;
-using ::testing::Return;
-using ::xprof::internal::ParseGcsPath;
-using ::xprof::internal::ReadBinaryProtoWithClient;
-using ::xprof::internal::WriteBinaryProtoWithClient;
-
-class MockStorageClient : public internal::StorageClientInterface {
- public:
-  MOCK_METHOD(absl::StatusOr<std::uint64_t>, GetObjectSize,
-              (absl::string_view bucket, absl::string_view object), (override));
-  MOCK_METHOD(absl::StatusOr<std::string>, ReadObject,
-              (absl::string_view bucket, absl::string_view object,
-               std::uint64_t start, std::uint64_t end),
-              (override));
-  MOCK_METHOD(absl::Status, WriteObject,
-              (absl::string_view bucket, absl::string_view object,
-               absl::string_view contents),
-              (override));
-};
-
-TEST(FileUtilsTest, ParseGcsPath_GsPrefix) {
-  std::string bucket;
-  std::string object;
-  TF_EXPECT_OK(
-      ParseGcsPath("gs://my-bucket/path/to/object.hlo", bucket, object));
-  EXPECT_THAT(bucket, Eq("my-bucket"));
-  EXPECT_THAT(object, Eq("path/to/object.hlo"));
-}
-
-TEST(FileUtilsTest, ParseGcsPath_BigstorePrefix) {
-  std::string bucket;
-  std::string object;
-  TF_EXPECT_OK(
-      ParseGcsPath("/bigstore/my-bucket/path/to/object.hlo", bucket, object));
-  EXPECT_THAT(bucket, Eq("my-bucket"));
-  EXPECT_THAT(object, Eq("path/to/object.hlo"));
-}
-
-TEST(FileUtilsTest, ParseGcsPath_Invalid) {
-  std::string bucket;
-  std::string object;
-  EXPECT_FALSE(ParseGcsPath("s3://my-bucket/object", bucket, object).ok());
-  EXPECT_FALSE(ParseGcsPath("gs://my-bucket", bucket, object).ok());
-  EXPECT_FALSE(ParseGcsPath("gs:///object", bucket, object).ok());
-}
-
-TEST(FileUtilsTest, ReadBinaryProtoWithClient_Success) {
-  MockStorageClient client;
-  constexpr absl::string_view kContent = "XSpace content";
-
-  EXPECT_CALL(client, GetObjectSize("bucket", "object"))
-      .WillOnce(Return(kContent.size()));
-
-  EXPECT_CALL(client, ReadObject("bucket", "object", 0, kContent.size()))
-      .WillOnce(Return(std::string(kContent)));
-
-  tensorflow::profiler::XSpace xspace;
-  const absl::Status status =
-      ReadBinaryProtoWithClient(client, "gs://bucket/object", &xspace);
-  // Expect kDataLoss because "XSpace content" is not a valid serialized proto.
-  EXPECT_THAT(status.code(), Eq(absl::StatusCode::kDataLoss));
-}
-
-TEST(FileUtilsTest, WriteBinaryProtoWithClient_Success) {
-  MockStorageClient client;
+TEST(FileUtilsTest, WriteAndReadBinaryProto_Success) {
+  std::string test_file = absl::StrCat(testing::TempDir(), "/test.xspace.pb");
   tensorflow::profiler::XSpace xspace;
   xspace.add_hostnames("test-host");
 
-  std::string expected_contents;
-  xspace.SerializeToString(&expected_contents);
+  TF_EXPECT_OK(WriteBinaryProto(test_file, xspace));
 
-  EXPECT_CALL(client, WriteObject("bucket", "object", expected_contents))
-      .WillOnce(Return(absl::OkStatus()));
+  tensorflow::profiler::XSpace xspace_read;
+  TF_EXPECT_OK(ReadBinaryProto(test_file, &xspace_read));
 
+  EXPECT_EQ(xspace_read.hostnames_size(), 1);
+  EXPECT_EQ(xspace_read.hostnames(0), "test-host");
+}
+
+TEST(FileUtilsTest, ReadBinaryProto_InvalidProto) {
+  std::string test_file = absl::StrCat(testing::TempDir(), "/invalid_proto");
   TF_EXPECT_OK(
-      WriteBinaryProtoWithClient(client, "gs://bucket/object", xspace));
+      tsl::WriteStringToFile(tsl::Env::Default(), test_file, "invalid"));
+
+  tensorflow::profiler::XSpace xspace;
+  absl::Status status = ReadBinaryProto(test_file, &xspace);
+  EXPECT_EQ(status.code(), absl::StatusCode::kDataLoss);
 }
 
 }  // namespace

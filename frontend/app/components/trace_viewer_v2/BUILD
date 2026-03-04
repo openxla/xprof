@@ -1,14 +1,26 @@
 load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_test")
 load(":build_defs.bzl", "wasm_cc_library")
 
-package(default_visibility = ["//third_party/xprof/frontend:__subpackages__"])
+package(default_visibility = [
+    "//plugin:__pkg__",
+    "//third_party/xprof/frontend:__subpackages__",
+    "//third_party/xprof/plugin:__subpackages__",
+])
 
-cc_library(
+config_setting(
+    name = "is_emscripten",
+    constraint_values = [
+        "@platforms//os:emscripten",
+    ],
+)
+
+wasm_cc_library(
     name = "animation",
     hdrs = ["animation.h"],
+    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -29,8 +41,7 @@ wasm_cc_library(
     srcs = ["canvas_state.cc"],
     hdrs = ["canvas_state.h"],
     deps = [
-        "//third_party/dear_imgui",
-        "//util/math:mathutil",
+        "@imgui",
     ],
 )
 
@@ -39,8 +50,8 @@ cc_test(
     srcs = ["canvas_state_test.cc"],
     deps = [
         ":canvas_state",
-        "//third_party/dear_imgui",
         "@com_google_googletest//:gtest_main",
+        "@imgui",
     ],
 )
 
@@ -48,15 +59,16 @@ wasm_cc_library(
     name = "application",
     srcs = ["application.cc"],
     hdrs = ["application.h"],
+    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         ":animation",
         ":canvas_state",
         ":event_manager",
         ":input_handler",
         ":webgpu_render_platform",
-        "//third_party/dear_imgui",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/time",
+        "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/fonts",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
@@ -68,16 +80,16 @@ wasm_cc_library(
     srcs = ["input_handler.cc"],
     hdrs = ["input_handler.h"],
     deps = [
-        "//third_party/dear_imgui",
-        "//util/gtl:flat_map",
         "@com_google_absl//absl/strings",
+        "@imgui",
     ],
     alwayslink = 1,
 )
 
-cc_library(
+wasm_cc_library(
     name = "event_data",
     hdrs = ["event_data.h"],
+    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
@@ -90,8 +102,8 @@ wasm_cc_library(
     hdrs = ["event_manager.h"],
     deps = [
         ":event_data",
-        "//third_party/emscripten:embind",
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:any",
     ],
@@ -102,11 +114,10 @@ wasm_cc_library(
     srcs = ["imgui_webgpu_backend.cc"],
     hdrs = ["imgui_webgpu_backend.h"],
     deps = [
-        "//third_party/dear_imgui",
-        "//third_party/emdawnwebgpu:webgpu",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings:str_format",
+        "@imgui",
     ],
 )
 
@@ -117,9 +128,8 @@ wasm_cc_library(
     deps = [
         ":canvas_state",
         ":imgui_webgpu_backend",
-        "//third_party/dear_imgui",
-        "//third_party/emdawnwebgpu:webgpu",
         "@com_google_absl//absl/log:check",
+        "@imgui",
     ],
 )
 
@@ -127,18 +137,23 @@ BINARY_LINKOPTS = [
     "-sASYNCIFY",
     "-sMODULARIZE",
     "-sMINIMAL_RUNTIME=0",
-    "-sENVIRONMENT=web",
+    "-sENVIRONMENT=web,worker",
     "-sALLOW_MEMORY_GROWTH",
     "-sEXPORT_NAME=loadWasmTraceViewerModule",
     "-sEXPORTED_RUNTIME_METHODS=callMain",
     "-sEXPORTED_FUNCTIONS=_main,_malloc,_free",
     "-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR",
     "-g",
+    "-msimd128",
+    "--bind",
+    "-sUSE_WEBGPU=1",
+    "-lhtml5",
 ]
 
 cc_binary(
     name = "trace_viewer_v2",
     srcs = ["main.cc"],
+    copts = ["-msimd128"],
     linkopts = BINARY_LINKOPTS,
     tags = [
         "manual",
@@ -149,7 +164,6 @@ cc_binary(
     deps = [
         ":application",
         ":input_handler",
-        "//third_party/emscripten:embind",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
     ],
 )
@@ -157,6 +171,8 @@ cc_binary(
 wasm_cc_binary(
     name = "trace_viewer_v2_wasm",
     cc_target = ":trace_viewer_v2",
+    simd = True,
+    threads = "emscripten",
 )
 
 ts_library(

@@ -1,12 +1,16 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
+#include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
-#include <webgpu/webgpu.h>
-#include <webgpu/webgpu_cpp.h>
+#include <emscripten.h>
+#ifdef __EMSCRIPTEN__
+#include "webgpu/webgpu.h"
+extern "C" WGPUDevice emscripten_webgpu_get_device();
+#endif
+#include "webgpu/webgpu_cpp.h"
 
-#include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/imgui_webgpu_backend.h"
+#include "frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/imgui_webgpu_backend.h"
 #include "absl/log/check.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 namespace traceviewer {
 
@@ -17,11 +21,11 @@ void WGPURenderPlatform::Init(const CanvasState& canvas_state) {
   CHECK(device_) << "Error creating device.";
   queue_ = device_.GetQueue();
 
-  wgpu::EmscriptenSurfaceSourceCanvasHTMLSelector canvas_desc;
+  wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvas_desc;
   canvas_desc.selector = "#canvas";
   wgpu::SurfaceDescriptor surface_desc;
-  surface_desc.nextInChain = &canvas_desc;
-
+  surface_desc.nextInChain =
+      static_cast<wgpu::ChainedStruct*>(&canvas_desc);
   surface_ = instance_.CreateSurface(&surface_desc);
   CHECK(surface_) << "Error when creating canvas surface.";
 

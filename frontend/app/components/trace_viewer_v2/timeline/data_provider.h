@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 

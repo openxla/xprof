@@ -5,7 +5,7 @@
 #include <optional>
 #include <type_traits>
 
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 namespace traceviewer {
 

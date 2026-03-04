@@ -1,9 +1,9 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_WEBGPU_RENDER_PLATFORM_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_WEBGPU_RENDER_PLATFORM_H_
 
-#include <webgpu/webgpu_cpp.h>
+#include "webgpu/webgpu_cpp.h"
 
-#include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/canvas_state.h"
 
 namespace traceviewer {
 

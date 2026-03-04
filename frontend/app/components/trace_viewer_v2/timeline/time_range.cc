@@ -1,9 +1,9 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 
 #include <algorithm>
 
 #include "absl/log/log.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 

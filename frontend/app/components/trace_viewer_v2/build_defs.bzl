@@ -14,7 +14,7 @@ WASM_TAGS = [
     "requires_wasm_config",
 ]
 
-TEST_LINKOPTS = ["-sASYNCIFY=1", "-sNO_EXIT_RUNTIME=1", "-sUSE_PTHREADS=1"]
+TEST_LINKOPTS = ["-sASYNCIFY=1", "-sNO_EXIT_RUNTIME=1"]
 
 def wasm_cc_test(name, srcs, deps = [], copts = [], linkopts = TEST_LINKOPTS, **kwargs):
     """Generates a cc_test and a wasm_web_test target.
@@ -37,15 +37,22 @@ def wasm_cc_test(name, srcs, deps = [], copts = [], linkopts = TEST_LINKOPTS, **
         **kwargs
     )
 
-def wasm_cc_library(name, **kwargs):
+def wasm_cc_library(name, copts = [], **kwargs):
     """Generates a cc_library target with WASM_TAGS.
 
     Args:
       name: The name of the library.
+      copts: The compilation options for the library.
       **kwargs: Additional arguments to pass to the cc_library.
     """
     cc_library(
         name = name,
         tags = WASM_TAGS,
+        copts = copts + select({
+            "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
+                "-msimd128",
+            ],
+            "//conditions:default": [],
+        }),
         **kwargs
     )

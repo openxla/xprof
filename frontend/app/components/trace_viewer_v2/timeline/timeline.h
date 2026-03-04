@@ -16,14 +16,14 @@
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "third_party/dear_imgui/imgui.h"
-#include "third_party/dear_imgui/imgui_internal.h"
+#include "imgui.h"
+#include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/constants.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/time_range.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 

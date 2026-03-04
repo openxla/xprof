@@ -3,7 +3,7 @@
 
 #include "absl/base/no_destructor.h"
 #include "absl/strings/string_view.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
 
 namespace traceviewer {
 

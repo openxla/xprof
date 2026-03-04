@@ -1,8 +1,8 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/color/color_generator.h"
+#include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 
 #include "<gtest/gtest.h>"
 #include "absl/strings/string_view.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 namespace traceviewer {
 namespace {

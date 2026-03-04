@@ -1,6 +1,5 @@
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
 
@@ -13,7 +12,7 @@ ts_library(
     srcs = ["event_args_keys.ts"],
 )
 
-cc_library(
+wasm_cc_library(
     name = "trace_event",
     hdrs = ["trace_event.h"],
     deps = [
@@ -28,7 +27,6 @@ wasm_cc_library(
     hdrs = ["trace_event_parser.h"],
     deps = [
         ":trace_event",
-        "//third_party/emscripten:embind",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
@@ -40,7 +38,7 @@ wasm_cc_library(
     alwayslink = True,
 )
 
-cc_library(
+wasm_cc_library(
     name = "trace_event_tree",
     srcs = ["trace_event_tree.cc"],
     hdrs = ["trace_event_tree.h"],

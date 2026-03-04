@@ -1,8 +1,8 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 
 #include <vector>
 
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "<gtest/gtest.h>"
 #include "absl/types/span.h"
 

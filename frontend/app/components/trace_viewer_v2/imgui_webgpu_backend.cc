@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/imgui_webgpu_backend.h"
+#include "frontend/app/components/trace_viewer_v2/imgui_webgpu_backend.h"
 
 #include <webgpu/webgpu.h>
 #include <webgpu/webgpu_cpp.h>
@@ -12,7 +12,7 @@
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_format.h"
-#include "third_party/dear_imgui/imgui.h"
+#include "imgui.h"
 
 #ifndef IMGUI_DISABLE
 extern ImGuiID ImHashData(const void* data_p, size_t data_size, ImU32 seed = 0);
@@ -111,7 +111,7 @@ fn main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 static wgpu::ShaderModule CreateShaderModule(const char* wgsl_source) {
   ImGui_ImplWGPU_Data* bd = ImGui_ImplWGPU_GetBackendData();
-  wgpu::ShaderSourceWGSL wgsl_descriptor;
+  wgpu::ShaderModuleWGSLDescriptor wgsl_descriptor;
   wgsl_descriptor.code = wgsl_source;
   wgpu::ShaderModuleDescriptor module_descriptor{};
   module_descriptor.nextInChain = &wgsl_descriptor;
@@ -323,9 +323,13 @@ static void CreateFontsTexture() {
   bd->render_resources.font_texture_view =
       bd->render_resources.font_texture.CreateView(&tex_view_desc);
 
-  wgpu::TexelCopyTextureInfo dst_view = {};
+  wgpu::ImageCopyTexture dst_view = {};
   dst_view.texture = bd->render_resources.font_texture;
-  wgpu::TexelCopyBufferLayout layout = {};
+  dst_view.mipLevel = 0;
+  dst_view.origin = {0, 0, 0};
+  dst_view.aspect = wgpu::TextureAspect::All;
+  wgpu::TextureDataLayout layout = {};
+  layout.offset = 0;
   layout.bytesPerRow = width * 4;
   layout.rowsPerImage = height;
   wgpu::Extent3D size = {width, height, 1};

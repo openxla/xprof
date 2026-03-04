@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser.h"
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -9,12 +9,13 @@
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tsl/platform/fingerprint.h"
 #include "tsl/profiler/lib/context_types.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/application.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/application.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 

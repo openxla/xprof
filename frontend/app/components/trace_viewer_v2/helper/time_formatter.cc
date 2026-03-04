@@ -1,11 +1,11 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
+#include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 
 #include <cmath>
 #include <string>
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace {

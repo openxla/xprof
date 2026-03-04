@@ -7,10 +7,10 @@
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "third_party/dear_imgui/imgui.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
+#include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
 namespace traceviewer {
 

@@ -1,4 +1,4 @@
-#include "xprof/frontend/app/components/trace_viewer_v2/application.h"
+#include "frontend/app/components/trace_viewer_v2/application.h"
 
 #include <dirent.h>
 #include <emscripten/bind.h>
@@ -13,15 +13,15 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "third_party/dear_imgui/imgui.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/animation.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/canvas_state.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/event_data.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/event_manager.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/fonts/fonts.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/input_handler.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/timeline/timeline.h"
-#include "xprof/frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
+#include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/event_data.h"
+#include "frontend/app/components/trace_viewer_v2/event_manager.h"
+#include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
+#include "frontend/app/components/trace_viewer_v2/input_handler.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
 namespace traceviewer {
 

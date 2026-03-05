@@ -5,10 +5,12 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stack>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,10 +36,48 @@ namespace traceviewer {
 
 namespace {
 
+struct GroupKey {
+  int nesting_level;
+  std::string name;
+  std::string parent_name;
+
+  bool operator<(const GroupKey& other) const {
+    return std::tie(nesting_level, name, parent_name) <
+           std::tie(other.nesting_level, other.name, other.parent_name);
+  }
+};
+
 // The nesting level of a process group in the flame chart.
 constexpr int kProcessNestingLevel = 0;
 // The nesting level of a thread group in the flame chart.
 constexpr int kThreadNestingLevel = 1;
+
+bool GetExpandedState(int nesting_level, absl::string_view name,
+                      absl::string_view parent_name, bool default_expanded,
+                      const std::map<GroupKey, bool>& expanded_states) {
+  if (auto it_state = expanded_states.find(
+          {nesting_level, std::string(name), std::string(parent_name)});
+      it_state != expanded_states.end()) {
+    return it_state->second;
+  }
+  return default_expanded;
+}
+
+std::map<GroupKey, bool> GetRestoredExpandedStates(
+    const std::vector<Group>& groups) {
+  std::map<GroupKey, bool> expanded_states;
+  std::string current_process_name;
+  for (const auto& group : groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      current_process_name = group.name;
+      expanded_states[{kProcessNestingLevel, group.name, ""}] = group.expanded;
+    } else {
+      expanded_states[{group.nesting_level, group.name, current_process_name}] =
+          group.expanded;
+    }
+  }
+  return expanded_states;
+}
 
 struct TraceInformation {
   // The TraceEvent objects pointed to must outlive this TraceInformation
@@ -323,12 +363,10 @@ int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
 
       auto cur_args = event->args;
       bool is_xla_ops_thread = thread_name == kXlaOps;
-      bool is_data_motion_layer =
-          thread_name == kComputeUtilization ||
-          thread_name == kDataMotionLayersUtilization;
-      bool has_hlo_in_args =
-          event->args.count(std::string(kHloOp)) > 0 &&
-          event->args.count(std::string(kHloModule)) > 0;
+      bool is_data_motion_layer = thread_name == kComputeUtilization ||
+                                  thread_name == kDataMotionLayersUtilization;
+      bool has_hlo_in_args = event->args.count(std::string(kHloOp)) > 0 &&
+                             event->args.count(std::string(kHloModule)) > 0;
       if (is_xla_ops_thread || is_data_motion_layer || has_hlo_in_args) {
         if (is_data_motion_layer) {
           auto it_name = event->args.find("Name");
@@ -413,16 +451,22 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
                          FlameChartTimelineData& data, TimeBounds& bounds,
                          absl::btree_map<std::pair<ProcessId, ThreadId>,
                                          ThreadLevelInfo>& thread_levels,
-                         bool expand_group) {
+                         const std::string& process_group_name,
+                         bool default_expanded,
+                         const std::map<GroupKey, bool>& expanded_states) {
   const auto it = trace_info.thread_names.find({pid, tid});
   const std::string thread_group_name = it == trace_info.thread_names.end()
                                             ? GetDefaultThreadName(tid)
                                             : it->second;
 
+  bool expanded =
+      GetExpandedState(kThreadNestingLevel, thread_group_name,
+                       process_group_name, default_expanded, expanded_states);
+
   data.groups.push_back({.name = thread_group_name,
                          .start_level = current_level,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = expand_group});
+                         .expanded = expanded});
 
   int start_level = current_level;
 
@@ -440,13 +484,19 @@ void PopulateCounterTrack(ProcessId pid, const std::string& name,
                           absl::Span<const CounterEvent* const> events,
                           const TraceInformation& trace_info,
                           int& current_level, FlameChartTimelineData& data,
-                          TimeBounds& bounds, bool expand_group) {
+                          TimeBounds& bounds,
+                          const std::string& process_group_name,
+                          bool default_expanded,
+                          const std::map<GroupKey, bool>& expanded_states) {
   Group group;
   group.type = Group::Type::kCounter;
   group.name = name;
   group.nesting_level = kThreadNestingLevel;
   group.start_level = current_level;
-  group.expanded = expand_group;
+
+  group.expanded =
+      GetExpandedState(kThreadNestingLevel, name, process_group_name,
+                       default_expanded, expanded_states);
 
   size_t total_entries = 0;
   // The number of counter events per counter track won't be too large, so
@@ -496,7 +546,8 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
                           TimeBounds& bounds,
                           absl::btree_map<std::pair<ProcessId, ThreadId>,
                                           ThreadLevelInfo>& thread_levels,
-                          bool expand_group) {
+                          bool default_expanded,
+                          const std::map<GroupKey, bool>& expanded_states) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
   const bool has_events = it_events != trace_info.events_by_pid_tid.end() &&
                           !it_events->second.empty();
@@ -515,22 +566,28 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
   const std::string process_group_name = it == trace_info.process_names.end()
                                              ? GetDefaultProcessName(pid)
                                              : it->second;
+
+  bool expanded = GetExpandedState(kProcessNestingLevel, process_group_name, "",
+                                   default_expanded, expanded_states);
+
   data.groups.push_back({.name = process_group_name,
                          .start_level = current_level,
                          .nesting_level = kProcessNestingLevel,
-                         .expanded = expand_group});
+                         .expanded = expanded});
 
   if (has_events) {
     for (const auto& [tid, events] : it_events->second) {
       PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
-                          bounds, thread_levels, expand_group);
+                          bounds, thread_levels, process_group_name,
+                          default_expanded, expanded_states);
     }
   }
 
   if (has_counters) {
     for (const auto& [name, events] : it_counters->second) {
       PopulateCounterTrack(pid, name, events, trace_info, current_level, data,
-                           bounds, expand_group);
+                           bounds, process_group_name, default_expanded,
+                           expanded_states);
     }
   }
 }
@@ -561,7 +618,8 @@ std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
 
 FlameChartTimelineData CreateTimelineData(
     const TraceInformation& trace_info,
-    const std::vector<int>& top_5_flow_categories, TimeBounds& bounds) {
+    const std::vector<int>& top_5_flow_categories, TimeBounds& bounds,
+    const std::map<GroupKey, bool>& expanded_states) {
   FlameChartTimelineData data;
   int current_level = 0;
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
@@ -570,7 +628,7 @@ FlameChartTimelineData CreateTimelineData(
   bool first_process = true;
   for (const ProcessId pid : GetSortedProcessIds(trace_info)) {
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
-                         thread_levels, first_process);
+                         thread_levels, first_process, expanded_states);
     first_process = false;
   }
 
@@ -686,8 +744,12 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
   TimeBounds time_bounds;
 
+  const std::map<GroupKey, bool> expanded_states =
+      GetRestoredExpandedStates(timeline.timeline_data().groups);
+
   timeline.set_timeline_data(CreateTimelineData(
-      trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds));
+      trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds,
+      expanded_states));
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

@@ -51,9 +51,10 @@ static auto* kHostDataSuffixes =
     new std::vector<std::pair<StoredDataType, const char*>>(
         {{StoredDataType::DCN_COLLECTIVE_STATS, ".dcn_collective_stats.pb"},
          {StoredDataType::OP_STATS, ".op_stats_v2.pb"},
-         {StoredDataType::TRACE_LEVELDB, ".SSTABLE"},
+         {StoredDataType::SMART_SUGGESTION, ".smart_suggestion.pb"},
          {StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, ".metadata.SSTABLE"},
-         {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"}});
+         {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"},
+         {StoredDataType::TRACE_LEVELDB, ".SSTABLE"}});
 
 }  // namespace
 

@@ -376,16 +376,26 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
     const SessionSnapshot& session_snapshot) {
-  SmartSuggestionEngine engine;
-  SmartSuggestionRuleFactory rule_factory;
-  RegisterAllRulesFor3P(&rule_factory);
+  SmartSuggestionReport report;
+  if (!ReadBinaryProto(session_snapshot, StoredDataType::SMART_SUGGESTION,
+                       kAllHostsIdentifier, &report)
+           .ok()) {
+    SmartSuggestionEngine engine;
+    SmartSuggestionRuleFactory rule_factory;
+    RegisterAllRulesFor3P(&rule_factory);
 
-  auto tool_data_provider =
-      std::make_unique<ToolDataProviderImpl>(session_snapshot);
-  SignalProvider signal_provider(std::move(tool_data_provider));
+    auto tool_data_provider =
+        std::make_unique<ToolDataProviderImpl>(session_snapshot);
+    SignalProvider signal_provider(std::move(tool_data_provider));
 
-  TF_ASSIGN_OR_RETURN(SmartSuggestionReport report,
-                      engine.Run(signal_provider, rule_factory));
+    TF_ASSIGN_OR_RETURN(report, engine.Run(signal_provider, rule_factory));
+    absl::Status status =
+        WriteBinaryProto(session_snapshot, StoredDataType::SMART_SUGGESTION,
+                         kAllHostsIdentifier, report);
+    if (!status.ok()) {
+      LOG(WARNING) << "Failed to write smart suggestion cache: " << status;
+    }
+  }
   std::string json_output;
   tsl::protobuf::util::JsonPrintOptions opts;
   opts.always_print_fields_with_no_presence = true;

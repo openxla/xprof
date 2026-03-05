@@ -174,8 +174,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
       parameters: Map<string, string> = new Map(),
       ): Observable<SmartSuggestionReport|null> {
     const tool = 'smart_suggestion';
-    const params =
-        this.getHTTPParamsForDataQuery(sessionId, tool, '', parameters);
+    const params = this.getHTTPParamsForDataQuery(
+        sessionId, tool, '', parameters, {updateSearchParams: false});
     return this.get<SmartSuggestionReport>(
         this.pathPrefix + DATA_API, {'params': params});
   }

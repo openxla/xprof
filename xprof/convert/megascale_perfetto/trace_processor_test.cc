@@ -101,7 +101,7 @@ TEST(TraceProcessorTest, MarksLastDmaEvents) {
   EXPECT_TRUE(find_is_last(track.events[3]));  // Last H2D
 }
 
-TEST(TraceProcessorTest, AddsNetworkCounters) {
+TEST(TraceProcessorTest, AddsCounters) {
   XprofTrace trace;
   Track& track = trace.megascale_fragments[0].emplace_back();
   track.name = "rendezvous";
@@ -141,6 +141,55 @@ TEST(TraceProcessorTest, AddsNetworkCounters) {
   EXPECT_EQ(trace.rx_bw_counter.values[0], 8);
   EXPECT_EQ(trace.rx_bw_counter.timestamps_ps[1], 3000000);
   EXPECT_EQ(trace.rx_bw_counter.values[1], 0);
+}
+
+TEST(TraceProcessorTest, AddsDmaCounters) {
+  XprofTrace trace;
+  Track& track = trace.megascale_fragments[0].emplace_back();
+  track.name = "rendezvous";
+
+  Event d2h_event;
+  d2h_event.name = "DeviceToHost END";
+  d2h_event.timestamp_ps = 2000000;
+  d2h_event.duration_ps = 1000000;
+  d2h_event.run_id = 1;
+  d2h_event.args.push_back(
+      {trace.string_table.Intern("action_duration_ns"), int64_t{500}});
+  d2h_event.args.push_back({trace.string_table.Intern("buffer_sizes"),
+                            trace.string_table.Intern("$c0=2000")});
+  track.events.push_back(std::move(d2h_event));
+
+  Event h2d_event;
+  h2d_event.name = "HostToDevice END";
+  h2d_event.timestamp_ps = 4000000;
+  h2d_event.duration_ps = 1000000;
+  h2d_event.run_id = 1;
+  h2d_event.args.push_back(
+      {trace.string_table.Intern("action_duration_ns"), int64_t{500}});
+  h2d_event.args.push_back({trace.string_table.Intern("buffer_sizes"),
+                            trace.string_table.Intern("$c0=3000")});
+  track.events.push_back(std::move(h2d_event));
+
+  TraceProcessor processor(&trace);
+  processor.Process();
+
+  EXPECT_FALSE(trace.d2h_counter.values.empty());
+  EXPECT_EQ(trace.d2h_counter.name, "D2H Outstanding Bytes");
+  // Start = end - (duration_ns * 1000) = 3000000 - 500000 = 2500000
+  ASSERT_EQ(trace.d2h_counter.timestamps_ps.size(), 2);
+  EXPECT_EQ(trace.d2h_counter.timestamps_ps[0], 2500000);
+  EXPECT_EQ(trace.d2h_counter.values[0], 2000);
+  EXPECT_EQ(trace.d2h_counter.timestamps_ps[1], 3000000);
+  EXPECT_EQ(trace.d2h_counter.values[1], 0);
+
+  EXPECT_FALSE(trace.h2d_counter.values.empty());
+  EXPECT_EQ(trace.h2d_counter.name, "H2D Outstanding Bytes");
+  // Start = 5000000 - 500000 = 4500000
+  ASSERT_EQ(trace.h2d_counter.timestamps_ps.size(), 2);
+  EXPECT_EQ(trace.h2d_counter.timestamps_ps[0], 4500000);
+  EXPECT_EQ(trace.h2d_counter.values[0], 3000);
+  EXPECT_EQ(trace.h2d_counter.timestamps_ps[1], 5000000);
+  EXPECT_EQ(trace.h2d_counter.values[1], 0);
 }
 
 TEST(TraceProcessorTest, ModifiesTrackNames) {

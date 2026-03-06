@@ -121,6 +121,8 @@ struct XprofTrace {
   CounterTrack<int64_t> tx_counter;
   CounterTrack<double> rx_bw_counter;
   CounterTrack<double> tx_bw_counter;
+  CounterTrack<int64_t> d2h_counter;
+  CounterTrack<int64_t> h2d_counter;
 };
 
 }  // namespace xprof::megascale

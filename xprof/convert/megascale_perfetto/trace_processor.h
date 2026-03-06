@@ -35,7 +35,7 @@ class TraceProcessor {
   // Resolves flows between TPU events and Megascale events.
   void ResolveFlows();
   // Adds a counter track for network metrics.
-  void AddNetworkCounters();
+  void AddCounters();
   // Modifies track names to make them more readable and to control ordering in
   // Perfetto UI.
   void ModifyTrackNames();

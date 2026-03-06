@@ -58,10 +58,8 @@ class WriterContext {
     if (device_ids_set.empty()) {
       return;
     }
-
-    uint64_t tpus_uuid =
-        WriteTrackDescriptor(next_track_uuid_++, "2. TPUs", /*parent_uuid=*/0);
-
+    uint64_t tpus_uuid = WriteTrackDescriptor(next_track_uuid_++, "3. TPUs",
+                                              /*parent_uuid=*/0);
     for (int64_t device_id : device_ids_set) {
       WriteDevice(device_id, tpus_uuid);
     }
@@ -91,22 +89,33 @@ class WriterContext {
         ir_.rx_bw_counter.values.empty() && ir_.tx_bw_counter.values.empty()) {
       return;
     }
-    uint64_t parent_uuid =
+    uint64_t network_uuid =
         WriteTrackDescriptor(next_track_uuid_++, "1. Network",
                              /*parent_uuid=*/0);
     if (!ir_.rx_counter.values.empty()) {
-      WriteCounterTrack(ir_.rx_counter, parent_uuid, "bytes",
+      WriteCounterTrack(ir_.rx_counter, network_uuid, "bytes",
                         "outstanding_bytes");
     }
     if (!ir_.tx_counter.values.empty()) {
-      WriteCounterTrack(ir_.tx_counter, parent_uuid, "bytes",
+      WriteCounterTrack(ir_.tx_counter, network_uuid, "bytes",
                         "outstanding_bytes");
     }
     if (!ir_.rx_bw_counter.values.empty()) {
-      WriteCounterTrack(ir_.rx_bw_counter, parent_uuid, "Gbps", "bandwidth");
+      WriteCounterTrack(ir_.rx_bw_counter, network_uuid, "Gbps", "bandwidth");
     }
     if (!ir_.tx_bw_counter.values.empty()) {
-      WriteCounterTrack(ir_.tx_bw_counter, parent_uuid, "Gbps", "bandwidth");
+      WriteCounterTrack(ir_.tx_bw_counter, network_uuid, "Gbps", "bandwidth");
+    }
+
+    if (!ir_.d2h_counter.values.empty() || !ir_.h2d_counter.values.empty()) {
+      uint64_t dma_uuid = WriteTrackDescriptor(next_track_uuid_++, "2. DMA",
+                                               /*parent_uuid=*/0);
+      if (!ir_.d2h_counter.values.empty()) {
+        WriteCounterTrack(ir_.d2h_counter, dma_uuid, "bytes");
+      }
+      if (!ir_.h2d_counter.values.empty()) {
+        WriteCounterTrack(ir_.h2d_counter, dma_uuid, "bytes");
+      }
     }
   }
 

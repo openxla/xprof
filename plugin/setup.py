@@ -42,6 +42,12 @@ def get_readme():
     return f.read()
 
 
+class BinaryDistribution(setuptools.Distribution):
+
+  def has_ext_modules(self):
+    return True
+
+
 setuptools.setup(
     name=PROJECT_NAME,
     version=VERSION,
@@ -56,16 +62,19 @@ setuptools.setup(
         include=['xprof.*'],
         exclude=['xprof.static'],
     ),
+    distclass=BinaryDistribution,
     package_data={
-        'xprof': ['static/**'],
-        '': ['_pywrap_profiler_plugin.so', '_pywrap_profiler_plugin.pyd'],
+        'xprof': [
+            'static/**',
+            'convert/profiler_plugin_c_api.so',
+            'convert/profiler_plugin_c_api.pyd',
+            'convert/profiler_plugin_c_api.dylib',
+            'convert/profiler_plugin_c_api.dll',
+        ],
     },
     entry_points={
         'tensorboard_plugins': [
-            (
-                'profile ='
-                ' xprof.profile_plugin_loader:ProfilePluginLoader'
-            ),
+            'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
         ],
         'console_scripts': [
             'xprof = xprof.server:main',

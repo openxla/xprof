@@ -70,7 +70,8 @@ ParseHloProtosFromXSpace(const XSpace& space) {
               absl::string_view byte_value = hlo_proto_stat->BytesValue();
               if (hlo_proto->ParseFromString(byte_value)) {
                 if (!hlo_protos
-                         .try_emplace(event_metadata.Id(), std::move(hlo_proto))
+                         .try_emplace(hlo_proto->hlo_module().id(),
+                                      std::move(hlo_proto))
                          .second) {
                   LOG(WARNING) << "Insert failed for hlo_proto with program_id"
                                << event_metadata.Id();

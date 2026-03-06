@@ -175,7 +175,7 @@ void TraceProcessor::Process() {
   AssignRunIds();
   MarkLastDmaEvents();
   ResolveFlows();
-  AddNetworkCounters();
+  AddCounters();
   ModifyTrackNames();
 }
 
@@ -530,7 +530,7 @@ void TraceProcessor::ResolveFlows() {
   });
 }
 
-void TraceProcessor::AddNetworkCounters() {
+void TraceProcessor::AddCounters() {
   // Filter out unreasonable spikes which likely come from bad duration data.
   // We don't expect to see a very large jump in bandwidth usage between two
   // consecutive data points.
@@ -540,6 +540,8 @@ void TraceProcessor::AddNetworkCounters() {
   std::vector<std::pair<int64_t, int64_t>> tx_deltas;
   std::vector<std::pair<int64_t, double>> rx_bw_deltas;
   std::vector<std::pair<int64_t, double>> tx_bw_deltas;
+  std::vector<std::pair<int64_t, int64_t>> d2h_deltas;
+  std::vector<std::pair<int64_t, int64_t>> h2d_deltas;
 
   for (auto& [tpu_id, tracks] : trace_.megascale_fragments) {
     for (const auto& track : tracks) {
@@ -642,6 +644,39 @@ void TraceProcessor::AddNetworkCounters() {
               }
             }
           }
+        } else if (event.name == "DeviceToHost END" ||
+                   event.name == "HostToDevice END") {
+          int64_t duration_ns = 0;
+          if (!FindArgInt(event, trace_, "action_duration_ns", &duration_ns)) {
+            LOG_EVERY_N(WARNING, 1000)
+                << event.name << " missing action_duration_ns";
+            continue;
+          }
+
+          absl::string_view buffer_sizes;
+          if (!FindArgString(event, trace_, "buffer_sizes", &buffer_sizes)) {
+            LOG_EVERY_N(WARNING, 1000) << event.name << " missing buffer_sizes";
+            continue;
+          }
+
+          static constexpr LazyRE2 kBufferSizeRe = {R"(\$c\d+=(\d+))"};
+          int64_t bytes;
+          if (RE2::PartialMatch(buffer_sizes, *kBufferSizeRe, &bytes)) {
+            int64_t end_time_ps = event.timestamp_ps + event.duration_ps;
+            int64_t start_time_ps = end_time_ps - (duration_ns * 1000);
+
+            if (event.name == "DeviceToHost END") {
+              d2h_deltas.push_back({start_time_ps, bytes});
+              d2h_deltas.push_back({end_time_ps, -bytes});
+            } else {
+              h2d_deltas.push_back({start_time_ps, bytes});
+              h2d_deltas.push_back({end_time_ps, -bytes});
+            }
+          } else {
+            LOG_EVERY_N(WARNING, 1000)
+                << event.name
+                << " failed to parse buffer_sizes: " << buffer_sizes;
+          }
         }
       }
     }
@@ -672,6 +707,8 @@ void TraceProcessor::AddNetworkCounters() {
   process_deltas(tx_deltas, trace_.tx_counter, "Outstanding Bytes TX");
   process_deltas(rx_bw_deltas, trace_.rx_bw_counter, "Bandwidth RX (Gbps)");
   process_deltas(tx_bw_deltas, trace_.tx_bw_counter, "Bandwidth TX (Gbps)");
+  process_deltas(d2h_deltas, trace_.d2h_counter, "D2H Outstanding Bytes");
+  process_deltas(h2d_deltas, trace_.h2d_counter, "H2D Outstanding Bytes");
 }
 
 void TraceProcessor::ModifyTrackNames() {

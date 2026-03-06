@@ -1,9 +1,9 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {DEFAULT_SIMPLE_DATA_TABLE, type NormalizedAcceleratorPerformance} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** A normalized accelerator performance view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'normalized-accelerator-performance-view',
   templateUrl: './normalized_accelerator_performance_view.ng.html',
   styleUrls: ['./normalized_accelerator_performance_view.scss']

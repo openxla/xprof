@@ -14,6 +14,12 @@
   margin-bottom: 20px;
 }
 
+.perfetto-container {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 20px;
+}
+
 .megascale-stats {
   margin-right: 20px;
 }
@@ -28,7 +34,7 @@
 
 .controls-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
 }
 
@@ -48,6 +54,12 @@
 
   &:hover {
     background-color: #357ae8;
+  }
+
+  &:disabled {
+    background-color: #e0e0e0;
+    color: #9e9e9e;
+    cursor: not-allowed;
   }
 }
 

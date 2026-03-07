@@ -56,7 +56,7 @@ export class MainPage implements OnDestroy {
           // content of the 3 tools are moved out from sidenav with consolidated
           // templates.
           const toolsWithSideNav =
-              ['op_profile', 'memory_viewer', 'pod_viewer'];
+              ['op_profile', 'memory_viewer', 'pod_viewer', 'megascale_stats'];
           this.isSideNavOpen =
               (navigationEvent.firstLoad ||
                toolsWithSideNav

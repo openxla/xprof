@@ -220,7 +220,7 @@ export class SideNav implements OnInit, OnDestroy {
       ['roofline_model', 'Roofline Model'],
       ['kernel_stats', 'Kernel Stats'],
       ['trace_viewer', 'Trace Viewer'],
-      ['megascale_stats', 'Megascale Stats'],
+      ['megascale_stats', 'Megascale Viewer'],
       ['perf_counters', 'Perf Counters'],
       ['utilization_viewer', 'Utilization Viewer'],
     ]);

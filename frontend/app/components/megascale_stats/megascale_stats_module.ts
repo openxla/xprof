@@ -2,6 +2,7 @@ import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatOptionModule} from '@angular/material/core';
+import {MatExpansionModule} from '@angular/material/expansion';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatSelectModule} from '@angular/material/select';
 import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
@@ -21,6 +22,7 @@ import {MegascaleStats} from './megascale_stats';
     DiagnosticsViewModule,
     ExportAsCsvModule,
     FormsModule,
+    MatExpansionModule,
     MatFormFieldModule,
     MatSelectModule,
     MatOptionModule,

@@ -40,6 +40,8 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
 
   diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
 
+  isExpanded = false;
+
   dataInfo: ChartDataInfo = {
     data: null,
     dataProvider: new DefaultDataProvider(),
@@ -88,6 +90,10 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
   }
 
   update() {
+    if (!this.isExpanded) {
+      return;
+    }
+
     setLoadingState(true, this.store, 'Loading Megascale Stats data');
 
     this.throbber.start();
@@ -123,6 +129,15 @@ export class MegascaleStats extends Dashboard implements OnDestroy {
       ...this.dataInfo,
       filters: this.getFilters(),
     };
+  }
+
+  onPanelOpened() {
+    this.isExpanded = true;
+    this.update();
+  }
+
+  onPanelClosed() {
+    this.isExpanded = false;
   }
 
   openPerfetto() {

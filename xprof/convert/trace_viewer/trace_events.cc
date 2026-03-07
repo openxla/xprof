@@ -429,7 +429,7 @@ void TraceEventsContainerBase<EventFactory, RawData, Hash>::Merge(
   if (this == &other) return;
   if (other.NumEvents() == 0 && other.trace().devices().empty()) return;
 
-  const int kMaxDevicesPerHost = 1000;
+  const int kMaxDevicesPerHost = 1000000;
   absl::flat_hash_map<uint32_t, uint32_t> other_to_this_device_id_map;
   auto& this_device_map = *trace_.mutable_devices();
 

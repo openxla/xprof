@@ -33,11 +33,13 @@ PrefixTrieNodeProto PrefixTrieNode::ToProto() const {
 void PrefixTrie::Insert(absl::string_view key, absl::string_view id) {
   PrefixTrieNode* node = &root_;
   for (const char c : key) {
-    auto [it, inserted] = node->children.try_emplace(
-        c, std::make_unique<PrefixTrieNode>());
-    node = it->second.get();
+    auto& child = node->children[c];
+    if (child == nullptr) {
+      child = std::make_unique<PrefixTrieNode>();
+    }
+    node = child.get();
   }
-  node->terminal_key_ids.push_back(std::string(id));
+  node->terminal_key_ids.emplace_back(id);
 }
 
 void IterateTrieAndSaveToLevelDbTable(PrefixTrieNode* node,

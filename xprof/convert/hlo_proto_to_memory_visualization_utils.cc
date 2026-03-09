@@ -1081,6 +1081,12 @@ absl::StatusOr<std::string> ConvertHloProtoToPreprocessResultJson(
       tensorflow::profiler::ConvertHloProtoToPreprocessResult(proto, option));
 
   if (option.timeline_option.render_timeline) {
+    if (result.allocation_timeline().empty()) {
+      return "<html><body style=\"font-family: sans-serif; padding: 20px;\">"
+             "<h2>No memory allocation timeline available</h2>"
+             "<p>There is no memory activity data to display for this timeline."
+             "</body></html>";
+    }
     return RenderTimelineGraph(result.allocation_timeline());
   } else {
     result.set_allocation_timeline(option.timeline_option.entry_url);

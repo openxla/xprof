@@ -269,7 +269,9 @@ void SetProgramIdToNameMap(const HloProtoMap& hlo_proto_map,
                            tensorflow::profiler::OpStats& op_stats) {
   auto& program_id_to_name_map = *op_stats.mutable_program_id_to_name_map();
   for (const auto& [program_id, hlo_proto] : hlo_proto_map) {
-    program_id_to_name_map[program_id] = hlo_proto->hlo_module().name();
+    program_id_to_name_map[program_id] =
+        tsl::profiler::HloModuleNameWithProgramId(
+            hlo_proto->hlo_module().name(), program_id);
   }
 }
 

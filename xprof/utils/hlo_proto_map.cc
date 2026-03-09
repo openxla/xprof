@@ -38,7 +38,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-int NumHeapSimulatorTraceEvents(const xla::HloProto* hlo) {
+  int NumHeapSimulatorTraceEvents(const xla::HloProto* hlo) {
   int result = 0;
   for (const auto& trace : hlo->buffer_assignment().heap_simulator_traces()) {
     result += trace.events_size();
@@ -69,11 +69,16 @@ ParseHloProtosFromXSpace(const XSpace& space) {
               auto hlo_proto = std::make_unique<xla::HloProto>();
               absl::string_view byte_value = hlo_proto_stat->BytesValue();
               if (hlo_proto->ParseFromString(byte_value)) {
+                uint64_t program_id = hlo_proto->hlo_module().id();
+                if (program_id == 0) {
+                  // Fallback if HLO ID is not set (unlikely in JAX).
+                  program_id = event_metadata.Id();
+                }
                 if (!hlo_protos
-                         .try_emplace(event_metadata.Id(), std::move(hlo_proto))
+                         .try_emplace(program_id, std::move(hlo_proto))
                          .second) {
-                  LOG(WARNING) << "Insert failed for hlo_proto with program_id"
-                               << event_metadata.Id();
+                  LOG(WARNING) << "Insert failed for hlo_proto with program_id "
+                               << program_id;
                 }
               }
             });

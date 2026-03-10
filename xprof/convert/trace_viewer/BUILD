@@ -149,7 +149,9 @@ cc_library(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/container:inlined_vector",
         "@com_google_absl//absl/functional:bind_front",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/numeric:bits",
@@ -157,7 +159,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
@@ -253,5 +255,17 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "trace_events_test",
+    srcs = ["trace_events_test.cc"],
+    deps = [
+        ":trace_events",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
     ],
 )

@@ -22,7 +22,6 @@ limitations under the License.
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -31,13 +30,20 @@ limitations under the License.
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/container/inlined_vector.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/io/coded_stream.h"
+#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
+#include "google/protobuf/wire_format_lite.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -53,10 +59,15 @@ limitations under the License.
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
+namespace proto2_io = ::google::protobuf::io;
+namespace proto2_internal = ::google::protobuf::internal;
+
 namespace tensorflow {
 namespace profiler {
 
 namespace {
+
+using SkipFields = absl::InlinedVector<int, 2>;
 
 // Returns the total number of events.
 inline int32_t NumEvents(
@@ -94,7 +105,75 @@ inline void AppendEvents(TraceEventTrack&& src, TraceEventTrack* dst) {
   }
 }
 
+// Serializes 'event' to 'output' while skipping fields in 'skip_fields'. Uses
+// reflection for efficiency and type-agnostic field iteration.
+absl::Status SerializeTraceEventSkipping(const TraceEvent* event,
+                                         const SkipFields& skip_fields,
+                                         std::string& output) {
+  output.clear();
+  proto2_io::StringOutputStream string_stream(&output);
+  {
+    proto2_io::CodedOutputStream coded_stream(&string_stream);
+    const google::protobuf::Reflection* reflection = event->GetReflection();
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    reflection->ListFields(*event, &fields);
+
+    using proto2_internal::WireFormatLite;
+    for (const google::protobuf::FieldDescriptor* field : fields) {
+      int field_number = field->number();
+      if (absl::c_linear_search(skip_fields, field_number)) {
+        continue;
+      }
+
+      switch (field->type()) {
+        case google::protobuf::FieldDescriptor::TYPE_UINT32:
+          WireFormatLite::WriteUInt32(field_number,
+                                      reflection->GetUInt32(*event, field),
+                                      &coded_stream);
+          break;
+        case google::protobuf::FieldDescriptor::TYPE_UINT64:
+          WireFormatLite::WriteUInt64(field_number,
+                                      reflection->GetUInt64(*event, field),
+                                      &coded_stream);
+          break;
+        case google::protobuf::FieldDescriptor::TYPE_INT64:
+          WireFormatLite::WriteInt64(
+              field_number, reflection->GetInt64(*event, field), &coded_stream);
+          break;
+        case google::protobuf::FieldDescriptor::TYPE_FIXED64:
+          WireFormatLite::WriteFixed64(field_number,
+                                       reflection->GetUInt64(*event, field),
+                                       &coded_stream);
+          break;
+        case google::protobuf::FieldDescriptor::TYPE_ENUM:
+          WireFormatLite::WriteEnum(field_number,
+                                    reflection->GetEnumValue(*event, field),
+                                    &coded_stream);
+          break;
+        case google::protobuf::FieldDescriptor::TYPE_STRING:
+        case google::protobuf::FieldDescriptor::TYPE_BYTES:
+          WireFormatLite::WriteString(field_number,
+                                      reflection->GetString(*event, field),
+                                      &coded_stream);
+          break;
+        default:
+          return absl::UnimplementedError(
+              absl::StrCat("Unsupported field type: ", field->name()));
+      }
+    }
+  }
+  return absl::OkStatus();
+}
+
 }  // namespace
+
+absl::StatusOr<absl::string_view> SerializeToView(
+    const TraceEvent* event, std::string& buffer,
+    absl::FunctionRef<absl::Status(const TraceEvent*, std::string&)>
+        serialize_fn) {
+  TF_RETURN_IF_ERROR(serialize_fn(event, buffer));
+  return absl::string_view(buffer);
+}
 
 TraceEvent::EventType GetTraceEventType(const TraceEvent& event) {
   return event.has_resource_id() ? TraceEvent::EVENT_TYPE_COMPLETE
@@ -259,20 +338,30 @@ absl::Status DoStoreAsLevelDbTables(
     const Trace& trace, std::unique_ptr<tsl::WritableFile>& trace_events_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file) {
-  auto executor = std::make_unique<XprofThreadPoolExecutor>(
-      "StoreAsLevelDbTables", /*num_threads=*/3);
+  std::unique_ptr<XprofThreadPoolExecutor> executor =
+      std::make_unique<XprofThreadPoolExecutor>("StoreAsLevelDbTables",
+                                                /*num_threads=*/3);
   absl::Status trace_events_status, trace_events_metadata_status;
   executor->Execute(
       [&trace_events_file, &trace, &events_by_level, &trace_events_status]() {
+        std::string buffer;
         trace_events_status = DoStoreAsLevelDbTable(
             trace_events_file, trace, events_by_level,
-            GenerateTraceEventCopyForPersistingEventWithoutMetadata);
+            [&buffer](const TraceEvent* event) {
+              return SerializeToView(
+                  event, buffer,
+                  SerializeTraceEventForPersistingEventWithoutMetadata);
+            });
       });
   executor->Execute([&trace_events_metadata_file, &events_by_level, &trace,
                      &trace_events_metadata_status]() {
+    std::string buffer;
     trace_events_metadata_status = DoStoreAsLevelDbTable(
         trace_events_metadata_file, trace, events_by_level,
-        GenerateTraceEventCopyForPersistingOnlyMetadata);
+        [&buffer](const TraceEvent* event) {
+          return SerializeToView(event, buffer,
+                                 SerializeTraceEventForPersistingOnlyMetadata);
+        });
   });
   absl::Status trace_events_prefix_trie_status;
   executor->Execute([&trace_events_prefix_trie_file, &events_by_level,
@@ -286,43 +375,41 @@ absl::Status DoStoreAsLevelDbTables(
   return trace_events_status;
 }
 
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingFullEvent(
-    const TraceEvent* event) {
-  TraceEvent event_copy = *event;
-  // To reduce file size, clear the timestamp from the value. It is
-  // redundant info because the timestamp is part of the key.
-  event_copy.clear_timestamp_ps();
-  return event_copy;
+absl::Status SerializeTraceEventForPersistingFullEvent(const TraceEvent* event,
+                                                       std::string& output) {
+  return SerializeTraceEventSkipping(
+      event, {TraceEvent::kTimestampPsFieldNumber}, output);
 }
 
-std::optional<TraceEvent>
-GenerateTraceEventCopyForPersistingEventWithoutMetadata(
-    const TraceEvent* event) {
-  TraceEvent event_copy = *event;
-  // To reduce file size, clear the timestamp from the value. It is
-  // redundant info because the timestamp is part of the key.
-  event_copy.clear_timestamp_ps();
+absl::Status SerializeTraceEventForPersistingEventWithoutMetadata(
+    const TraceEvent* event, std::string& output) {
   // To reduce file size, clear the raw data from the value. It is
   // redundant info because the raw data is stored in the metadata file.
   // However, we still need to keep the raw data for counter events as they
   // are a special case and we need to return the args for the same during the
   // initial read.
+  SkipFields skip_fields = {TraceEvent::kTimestampPsFieldNumber};
   if (GetTraceEventType(*event) != TraceEvent::EVENT_TYPE_COUNTER) {
-    event_copy.clear_raw_data();
+    skip_fields.push_back(TraceEvent::kRawDataFieldNumber);
   }
-  return event_copy;
+  return SerializeTraceEventSkipping(event, skip_fields, output);
 }
 
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
-    const TraceEvent* event) {
+absl::Status SerializeTraceEventForPersistingOnlyMetadata(
+    const TraceEvent* event, std::string& output) {
   if (GetTraceEventType(*event) == TraceEvent::EVENT_TYPE_COUNTER) {
     // Counter events are stored in the trace events file itself and do not
     // require a metadata copy.
-    return std::nullopt;
+    return absl::NotFoundError("No metadata found for counter event");
   }
-  TraceEvent event_copy;
-  event_copy.set_raw_data(event->raw_data());
-  return event_copy;
+  // To avoid redundant deep copies of the whole TraceEvent, we only copy
+  // the raw_data field into a small individual TraceEvent.
+  TraceEvent metadata_event;
+  metadata_event.set_raw_data(event->raw_data());
+  if (metadata_event.SerializeToString(&output)) {
+    return absl::OkStatus();
+  }
+  return absl::InternalError("Failed to serialize trace metadata");
 }
 
 // Store the contents of this container in an sstable file. The format is as
@@ -340,8 +427,7 @@ std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    std::function<std::optional<TraceEvent>(const TraceEvent*)>
-        generate_event_copy_fn) {
+    SerializeEventFn serialize_event_fn) {
   absl::Time start_time = absl::Now();
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
@@ -361,9 +447,12 @@ absl::Status DoStoreAsLevelDbTable(
       uint64_t timestamp = event->timestamp_ps();
       std::string key = LevelDbTableKey(zoom_level, timestamp, event->serial());
       if (!key.empty()) {
-        auto event_copy = generate_event_copy_fn(event);
-        if (event_copy.has_value()) {
-          builder.Add(key, event_copy->SerializeAsString());
+        absl::StatusOr<absl::string_view> status_or_view =
+            serialize_event_fn(event);
+        if (status_or_view.ok()) {
+          builder.Add(key, status_or_view.value());
+        } else if (!absl::IsNotFound(status_or_view.status())) {
+          return status_or_view.status();
         }
       } else {
         ++num_of_events_dropped;

@@ -39,12 +39,24 @@ ParseHloProtosFromXSpace(const tensorflow::profiler::XSpace& space);
 
 class HloProtoMap {
  public:
+  HloProtoMap() = default;
+  virtual ~HloProtoMap() = default;
+
+  // HloProtoMap manages unique_ptrs, so it cannot be implicitly copied.
+  // Explicitly delete copy constructor and assignment, and provide default move
+  // counterparts.
+  HloProtoMap(const HloProtoMap&) = delete;
+  HloProtoMap& operator=(const HloProtoMap&) = delete;
+  HloProtoMap(HloProtoMap&&) = default;
+  HloProtoMap& operator=(HloProtoMap&&) = default;
+
   void AddHloProtosFromXSpace(const tensorflow::profiler::XSpace& space);
 
   void AddHloProto(uint64_t program_id,
                    std::unique_ptr<const xla::HloProto> hlo_proto);
 
   size_t size() const { return hlo_protos_by_program_id_.size(); }
+  bool empty() const { return hlo_protos_by_program_id_.empty(); }
 
   auto begin() const { return hlo_protos_by_program_id_.begin(); }
   auto end() const { return hlo_protos_by_program_id_.end(); }

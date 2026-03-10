@@ -59,6 +59,12 @@ ParseHloProtosFromXSpace(const XSpace& space) {
 
       const XStatMetadata* hlo_proto_stat_metadata =
           plane.GetStatMetadataByType(tsl::profiler::StatType::kHloProto);
+      if (hlo_proto_stat_metadata == nullptr) {
+        // Temporary legacy name for backward compatibility.
+        hlo_proto_stat_metadata = plane.GetStatMetadataByType(
+            tsl::profiler::StatType::kHloProtoLegacy);
+      }
+
       if (hlo_proto_stat_metadata != nullptr) {
         plane.ForEachEventMetadata(
             [&](const tsl::profiler::XEventMetadataVisitor& event_metadata) {

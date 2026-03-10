@@ -478,6 +478,13 @@ void PopulateThreadTrack(ProcessId pid, ThreadId tid,
 
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
+
+  // If the thread uses only one level, it cannot be expanded/collapsed.
+  // We force it to be expanded by default so that it is visible when the
+  // parent process is expanded.
+  if (max_level == start_level) {
+    data.groups.back().expanded = true;
+  }
 }
 
 void PopulateCounterTrack(ProcessId pid, const std::string& name,
@@ -494,9 +501,8 @@ void PopulateCounterTrack(ProcessId pid, const std::string& name,
   group.nesting_level = kThreadNestingLevel;
   group.start_level = current_level;
 
-  group.expanded =
-      GetExpandedState(kThreadNestingLevel, name, process_group_name,
-                       default_expanded, expanded_states);
+  // Counters always take one level, so force them to be expanded.
+  group.expanded = true;
 
   size_t total_entries = 0;
   // The number of counter events per counter track won't be too large, so

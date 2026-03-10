@@ -394,6 +394,7 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_TRUE(data.groups[1].expanded);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
@@ -1594,7 +1595,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);   // Process 1
   EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);   // Thread 101
   EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);  // Process 2
-  EXPECT_FALSE(timeline_.timeline_data().groups[3].expanded);  // Thread 201
+  EXPECT_TRUE(timeline_.timeline_data().groups[3].expanded);   // Thread 201
 
   // Manually expand Process 2 and its thread, and collapse Process 1
   {
@@ -1629,12 +1630,49 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
   EXPECT_FALSE(
       timeline_.timeline_data().groups[0].expanded);  // Process 1 (PRESERVED)
-  EXPECT_FALSE(
-      timeline_.timeline_data().groups[1].expanded);  // Thread 101 (PRESERVED)
+  EXPECT_TRUE(timeline_.timeline_data()
+                  .groups[1]
+                  .expanded);  // Thread 101 (FORCED EXPANDED)
   EXPECT_TRUE(
       timeline_.timeline_data().groups[2].expanded);  // Process 2 (PRESERVED)
   EXPECT_TRUE(
       timeline_.timeline_data().groups[3].expanded);  // Thread 201 (PRESERVED)
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
+  // Initial load
+  timeline_.set_timeline_data({});
+  const std::vector<TraceEvent> events = {
+      // Process 1: Thread 101 (one line)
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Event 1",
+       .ts = Microseconds(0),
+       .dur = Microseconds(10)},
+  };
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  DataProvider provider;
+  provider.ProcessTraceEvents(parsed_events, timeline_);
+
+  // Thread 101 should be expanded by default (one line)
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+
+  // Manually collapse Thread 101
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[1].expanded = false;
+    timeline_.set_timeline_data(std::move(data));
+  }
+
+  // Reload same data (simulate update)
+  provider.ProcessTraceEvents(parsed_events, timeline_);
+
+  // With the user's latest change, this forces expansion for one-line threads.
+  // One-line threads should always be expanded.
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
 }
 
 }  // namespace

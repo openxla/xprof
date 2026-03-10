@@ -1786,8 +1786,8 @@ cc_library(
     visibility = ["//visibility:private"],
     deps = [
         ":storage_client_interface",
-        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud:google_cloud_cpp_common",
-        "@com_github_googlecloudplatform_google_cloud_cpp//google/cloud/storage:google_cloud_cpp_storage",
+        "@com_github_googlecloudplatform_google_cloud_cpp//:common",
+        "@com_github_googlecloudplatform_google_cloud_cpp//:storage",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",

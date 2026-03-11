@@ -132,7 +132,8 @@ declare interface TfTraceViewer {
     MatTableModule,
   ],
 })
-export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, OnChanges {
+export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit,
+                                             OnChanges {
   @Input() traceViewerModule: TraceViewerV2Module|null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
@@ -171,7 +172,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
         .subscribe((query) => {
           this.currentSearchQuery = query;
           if (this.traceViewerModule) {
-            this.traceViewerModule.Application.Instance().setSearchQuery(query);
+            this.traceViewerModule.application.instance().setSearchQuery(query);
             this.updateSearchResultCountText();
           } else if (!query) {
             this.searchResultCountText = '';
@@ -405,7 +406,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   nextSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance()
+      this.traceViewerModule.application.instance()
           .navigateToNextSearchResult();
       this.updateSearchResultCountText();
     }
@@ -413,7 +414,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   prevSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance()
+      this.traceViewerModule.application.instance()
           .navigateToPrevSearchResult();
       this.updateSearchResultCountText();
     }
@@ -424,7 +425,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
       this.searchResultCountText = '';
       return;
     }
-    const instance = this.traceViewerModule.Application.Instance();
+    const instance = this.traceViewerModule.application.instance();
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     if (count === 0) {

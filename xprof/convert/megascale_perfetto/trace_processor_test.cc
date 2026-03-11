@@ -143,6 +143,41 @@ TEST(TraceProcessorTest, AddsNetworkCounters) {
   EXPECT_EQ(trace.rx_bw_counter.values[1], 0);
 }
 
+TEST(TraceProcessorTest, AddMegascaleCounters) {
+  XprofTrace trace;
+  Track& track = trace.megascale_fragments[0].emplace_back();
+  track.name = "rendezvous";
+
+  Event event;
+  event.name = "device_0_gid_rendezvous";
+  event.timestamp_ps = 2000000;  // 2us
+  event.duration_ps = 1000000;   // 1us
+  event.run_id = 1;
+  event.args.push_back(
+      {trace.string_table.Intern("input_size"), int64_t{1000}});
+  track.events.push_back(std::move(event));
+
+  TraceProcessor processor(&trace);
+  processor.Process();
+
+  EXPECT_FALSE(trace.inflight_collective_count.values.empty());
+  EXPECT_EQ(trace.inflight_collective_count.name, "Inflight Collectives");
+  ASSERT_EQ(trace.inflight_collective_count.timestamps_ps.size(), 2);
+  EXPECT_EQ(trace.inflight_collective_count.timestamps_ps[0], 2000000);
+  EXPECT_EQ(trace.inflight_collective_count.values[0], 1);
+  EXPECT_EQ(trace.inflight_collective_count.timestamps_ps[1], 3000000);
+  EXPECT_EQ(trace.inflight_collective_count.values[1], 0);
+
+  EXPECT_FALSE(trace.inflight_collective_bytes.values.empty());
+  EXPECT_EQ(trace.inflight_collective_bytes.name,
+            "Inflight Collective Payload");
+  ASSERT_EQ(trace.inflight_collective_bytes.timestamps_ps.size(), 2);
+  EXPECT_EQ(trace.inflight_collective_bytes.timestamps_ps[0], 2000000);
+  EXPECT_EQ(trace.inflight_collective_bytes.values[0], 1000);
+  EXPECT_EQ(trace.inflight_collective_bytes.timestamps_ps[1], 3000000);
+  EXPECT_EQ(trace.inflight_collective_bytes.values[1], 0);
+}
+
 TEST(TraceProcessorTest, ModifiesTrackNames) {
   XprofTrace trace;
   trace.tpu_fragments[0].emplace_back(Track{"Steps", {}});

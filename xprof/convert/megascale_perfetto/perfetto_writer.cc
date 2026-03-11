@@ -88,25 +88,54 @@ class WriterContext {
 
   void WriteCounters() {
     if (ir_.rx_counter.values.empty() && ir_.tx_counter.values.empty() &&
-        ir_.rx_bw_counter.values.empty() && ir_.tx_bw_counter.values.empty()) {
+        ir_.rx_bw_counter.values.empty() && ir_.tx_bw_counter.values.empty() &&
+        ir_.inflight_collective_count.values.empty() &&
+        ir_.inflight_collective_bytes.values.empty()) {
       return;
     }
-    uint64_t parent_uuid =
-        WriteTrackDescriptor(next_track_uuid_++, "1. Network",
+    uint64_t global_counters_uuid =
+        WriteTrackDescriptor(next_track_uuid_++, "1. Global Counters",
                              /*parent_uuid=*/0);
-    if (!ir_.rx_counter.values.empty()) {
-      WriteCounterTrack(ir_.rx_counter, parent_uuid, "bytes",
-                        "outstanding_bytes");
+
+    // Network counters
+    if (!ir_.rx_counter.values.empty() || !ir_.tx_counter.values.empty() ||
+        !ir_.rx_bw_counter.values.empty() ||
+        !ir_.tx_bw_counter.values.empty()) {
+      uint64_t network_parent_uuid =
+          WriteTrackDescriptor(next_track_uuid_++, "Network",
+                               /*parent_uuid=*/global_counters_uuid);
+      if (!ir_.rx_counter.values.empty()) {
+        WriteCounterTrack(ir_.rx_counter, network_parent_uuid, "bytes",
+                          "outstanding_bytes");
+      }
+      if (!ir_.tx_counter.values.empty()) {
+        WriteCounterTrack(ir_.tx_counter, network_parent_uuid, "bytes",
+                          "outstanding_bytes");
+      }
+      if (!ir_.rx_bw_counter.values.empty()) {
+        WriteCounterTrack(ir_.rx_bw_counter, network_parent_uuid, "Gbps",
+                          "bandwidth");
+      }
+      if (!ir_.tx_bw_counter.values.empty()) {
+        WriteCounterTrack(ir_.tx_bw_counter, network_parent_uuid, "Gbps",
+                          "bandwidth");
+      }
     }
-    if (!ir_.tx_counter.values.empty()) {
-      WriteCounterTrack(ir_.tx_counter, parent_uuid, "bytes",
-                        "outstanding_bytes");
-    }
-    if (!ir_.rx_bw_counter.values.empty()) {
-      WriteCounterTrack(ir_.rx_bw_counter, parent_uuid, "Gbps", "bandwidth");
-    }
-    if (!ir_.tx_bw_counter.values.empty()) {
-      WriteCounterTrack(ir_.tx_bw_counter, parent_uuid, "Gbps", "bandwidth");
+
+    // Megascale counters
+    if (!ir_.inflight_collective_count.values.empty() ||
+        !ir_.inflight_collective_bytes.values.empty()) {
+      uint64_t megascale_parent_uuid =
+          WriteTrackDescriptor(next_track_uuid_++, "Megascale",
+                               /*parent_uuid=*/global_counters_uuid);
+      if (!ir_.inflight_collective_count.values.empty()) {
+        WriteCounterTrack(ir_.inflight_collective_count, megascale_parent_uuid,
+                          "count", "inflight_collectives");
+      }
+      if (!ir_.inflight_collective_bytes.values.empty()) {
+        WriteCounterTrack(ir_.inflight_collective_bytes, megascale_parent_uuid,
+                          "bytes", "inflight_collective_payload");
+      }
     }
   }
 

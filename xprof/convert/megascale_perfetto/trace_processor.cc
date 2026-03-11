@@ -1,7 +1,6 @@
 #include "xprof/convert/megascale_perfetto/trace_processor.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -14,16 +13,17 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "re2/re2.h"
 #include "xla/tsl/lib/gtl/map_util.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
 namespace xprof::megascale {
 namespace {
+
+static constexpr LazyRE2 kGraphNameRe = {R"(device_(\d+)_gid_(.*))"};
+
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
@@ -102,11 +102,13 @@ absl::string_view ExtractRendezvousFromGraphKey(const Event& event,
   if (!FindArgString(event, trace, "graph_key", &graph_key)) {
     return "";
   }
-  static constexpr LazyRE2 kGraphKeyRendezvousRe = {
-      R"(device_\d+_gid_([^$]+)\$.*)"};
+  uint64_t device_id;
   absl::string_view rendezvous_name;
-  if (RE2::FullMatch(graph_key, *kGraphKeyRendezvousRe, &rendezvous_name)) {
-    return rendezvous_name;
+  if (RE2::FullMatch(graph_key, *kGraphNameRe, &device_id, &rendezvous_name)) {
+    auto pos = rendezvous_name.find('$');
+    if (pos > 0 && pos != absl::string_view::npos) {
+      return rendezvous_name.substr(0, pos);
+    }
   }
   return "";
 }
@@ -123,8 +125,7 @@ int64_t ExtractHloId(absl::string_view hlo_name) {
 void RenameTrack(Track& track) {
   uint64_t device_id;
   absl::string_view name_part;
-  if (RE2::FullMatch(track.name, "device_(\\d+)_gid_(.*)", &device_id,
-                     &name_part)) {
+  if (RE2::FullMatch(track.name, *kGraphNameRe, &device_id, &name_part)) {
     track.name = absl::StrCat(name_part, " (", device_id, ")");
   } else if (track.name == "Steps") {
     track.name = "1. Steps";
@@ -175,7 +176,7 @@ void TraceProcessor::Process() {
   AssignRunIds();
   MarkLastDmaEvents();
   ResolveFlows();
-  AddNetworkCounters();
+  AddGlobalCounters();
   ModifyTrackNames();
 }
 
@@ -257,12 +258,11 @@ void TraceProcessor::AssignRunIds() {
 }
 
 void TraceProcessor::MarkLastDmaEvents() {
-  static constexpr LazyRE2 kExecutionEventRe = {R"(device_\d+_gid_.*)"};
   for (auto& [tpu_id, tracks] : trace_.megascale_fragments) {
     for (auto& track : tracks) {
       std::vector<size_t> execution_event_indices;
       for (size_t i = 0; i < track.events.size(); ++i) {
-        if (RE2::FullMatch(track.events[i].name, *kExecutionEventRe)) {
+        if (RE2::FullMatch(track.events[i].name, *kGraphNameRe)) {
           execution_event_indices.push_back(i);
         }
       }
@@ -530,7 +530,7 @@ void TraceProcessor::ResolveFlows() {
   });
 }
 
-void TraceProcessor::AddNetworkCounters() {
+void TraceProcessor::AddGlobalCounters() {
   // Filter out unreasonable spikes which likely come from bad duration data.
   // We don't expect to see a very large jump in bandwidth usage between two
   // consecutive data points.
@@ -540,11 +540,25 @@ void TraceProcessor::AddNetworkCounters() {
   std::vector<std::pair<int64_t, int64_t>> tx_deltas;
   std::vector<std::pair<int64_t, double>> rx_bw_deltas;
   std::vector<std::pair<int64_t, double>> tx_bw_deltas;
+  std::vector<std::pair<int64_t, int64_t>> inflight_collective_count_deltas;
+  std::vector<std::pair<int64_t, int64_t>> inflight_collective_bytes_deltas;
 
   for (auto& [tpu_id, tracks] : trace_.megascale_fragments) {
     for (const auto& track : tracks) {
       for (const auto& event : track.events) {
-        if (event.name == "NetworkReceive END") {
+        if (RE2::FullMatch(event.name, *kGraphNameRe)) {
+          int64_t end_time_ps = event.timestamp_ps + event.duration_ps;
+          inflight_collective_count_deltas.push_back({event.timestamp_ps, 1});
+          inflight_collective_count_deltas.push_back({end_time_ps, -1});
+
+          int64_t input_size = 0;
+          if (FindArgInt(event, trace_, "input_size", &input_size)) {
+            inflight_collective_bytes_deltas.push_back(
+                {event.timestamp_ps, input_size});
+            inflight_collective_bytes_deltas.push_back(
+                {end_time_ps, -input_size});
+          }
+        } else if (event.name == "NetworkReceive END") {
           int64_t latency_us = 0;
           uint64_t latency_uint = 0;
           if (FindArgUint(event, trace_, "network_transport_latency_us",
@@ -672,6 +686,12 @@ void TraceProcessor::AddNetworkCounters() {
   process_deltas(tx_deltas, trace_.tx_counter, "Outstanding Bytes TX");
   process_deltas(rx_bw_deltas, trace_.rx_bw_counter, "Bandwidth RX (Gbps)");
   process_deltas(tx_bw_deltas, trace_.tx_bw_counter, "Bandwidth TX (Gbps)");
+
+  process_deltas(inflight_collective_count_deltas,
+                 trace_.inflight_collective_count, "Inflight Collectives");
+  process_deltas(inflight_collective_bytes_deltas,
+                 trace_.inflight_collective_bytes,
+                 "Inflight Collective Payload");
 }
 
 void TraceProcessor::ModifyTrackNames() {

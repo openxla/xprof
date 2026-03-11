@@ -63,6 +63,19 @@ class Animation {
   inline static absl::NoDestructor<std::vector<Animation*>> finished_;
 };
 
+// Returns true if the two values are almost equal within the given tolerances.
+// Default implementation uses abs() and works for scalar types. Complex types
+// like TimeRange can overload this for specialized behavior.
+//
+// This fuzzy comparison is crucial for preventing infinite animation loops
+// caused by precision loss during JS-WASM interop (e.g., URL state sync).
+template <typename T>
+bool AlmostEquals(const T& a, const T& b, double rel_tol = 0.0,
+                  double abs_tol = 1e-4) {
+  using std::abs;
+  return abs(a - b) <= std::max(abs(b) * rel_tol, abs_tol);
+}
+
 // Animated<T> represents a value of type T that can be animated over time
 // towards a target value.
 // Type T must support copy/move construction, assignment, operators `==`, `!=`,
@@ -79,7 +92,9 @@ class Animated : public Animation {
   explicit Animated(
       T value = T(), T target = T(), OnFinished on_finished = [](const T&) {})
       : current_(value), target_(target), on_finished_(on_finished) {
-    if (current_ != target_) Animation::Register(this);
+    if (!AlmostEquals(current_, target_, 0.0, kAbsoluteTolerance)) {
+      Animation::Register(this);
+    }
   }
 
   // Copy constructor: deliberately doesn't register copied instance for
@@ -95,7 +110,9 @@ class Animated : public Animation {
         target_(other.target_),
         on_finished_(std::move(other.on_finished_)) {
     Animation::Unregister(&other);
-    if (current_ != target_) Animation::Register(this);
+    if (!AlmostEquals(current_, target_, 0.0, kAbsoluteTolerance)) {
+      Animation::Register(this);
+    }
   }
   ~Animated() override { Animation::Unregister(this); }
 
@@ -106,10 +123,10 @@ class Animated : public Animation {
   // Sets a new target value and starts animating towards it.
   // The on_finished callback is reset to a no-op.
   Animated& operator=(const T& new_value) {
-    if (target_ == new_value) return *this;
+    if (AlmostEquals(target_, new_value, 0.0, kAbsoluteTolerance)) return *this;
     target_ = new_value;
     on_finished_ = [](const T&) {};
-    if (current_ != target_) {
+    if (!AlmostEquals(current_, target_, 0.0, kAbsoluteTolerance)) {
       Animation::Register(this);
     }
     return *this;
@@ -118,10 +135,10 @@ class Animated : public Animation {
   // Sets a new target value and an on_finished callback, and starts
   // animating towards it.
   Animated& operator()(const T& new_value, OnFinished on_finished) {
-    if (target_ == new_value) return *this;
+    if (AlmostEquals(target_, new_value, 0.0, kAbsoluteTolerance)) return *this;
     target_ = new_value;
     on_finished_ = on_finished ? std::move(on_finished) : [](const T&) {};
-    if (current_ != target_) {
+    if (!AlmostEquals(current_, target_, 0.0, kAbsoluteTolerance)) {
       Animation::Register(this);
     }
     return *this;
@@ -146,9 +163,12 @@ class Animated : public Animation {
   void on_finished() override { on_finished_(target_); }
 
   bool Converged() const {
-    using std::abs;
-    return abs(current_ - target_) <
-           std::max(abs(target_) * kRelativeTolerance, kAbsoluteTolerance);
+    // We use a combined relative and absolute tolerance check to determine if
+    // the value has arrived at its target. Overloading AlmostEquals for
+    // types like TimeRange allows using duration for scaling instead of
+    // absolute timestamps.
+    return AlmostEquals(current_, target_, kRelativeTolerance,
+                        kAbsoluteTolerance);
   }
 
   bool Update(float delta_time) override {

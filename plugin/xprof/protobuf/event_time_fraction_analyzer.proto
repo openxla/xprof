@@ -18,8 +18,13 @@ message EventTimeFractionPerChip {
   repeated float event_time_fractions = 2;
 }
 
-// Proto to store the event time fraction for all chips from a single host.
+// Proto to store the event time fraction for all chips from a single host for a
+// specific event.
 message EventTimeFractionAnalyzerResult {
   map<string, EventTimeFractionPerChip> chip_event_time_fractions = 1;
   map<string, EventTimeFractionPerHost> host_event_time_fractions = 2;
+}
+
+message EventTimeFractionAnalyzerResults {
+  map<string, EventTimeFractionAnalyzerResult> results = 1;
 }

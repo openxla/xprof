@@ -59,6 +59,8 @@ ParseHloProtosFromXSpace(const XSpace& space) {
 
       const XStatMetadata* hlo_proto_stat_metadata =
           plane.GetStatMetadataByType(tsl::profiler::StatType::kHloProto);
+      const XStatMetadata* program_id_stat_metadata =
+          plane.GetStatMetadataByType(tsl::profiler::StatType::kProgramId);
       if (hlo_proto_stat_metadata != nullptr) {
         plane.ForEachEventMetadata(
             [&](const tsl::profiler::XEventMetadataVisitor& event_metadata) {
@@ -69,8 +71,16 @@ ParseHloProtosFromXSpace(const XSpace& space) {
               auto hlo_proto = std::make_unique<xla::HloProto>();
               absl::string_view byte_value = hlo_proto_stat->BytesValue();
               if (hlo_proto->ParseFromString(byte_value)) {
-                if (!hlo_protos
-                         .try_emplace(event_metadata.Id(), std::move(hlo_proto))
+                int64_t program_id = event_metadata.Id();
+                if (program_id_stat_metadata != nullptr) {
+                  auto program_id_stat = event_metadata.GetStat(
+                      tsl::profiler::StatType::kProgramId,
+                      *program_id_stat_metadata);
+                  if (program_id_stat) {
+                    program_id = program_id_stat->IntOrUintValue();
+                  }
+                }
+                if (!hlo_protos.try_emplace(program_id, std::move(hlo_proto))
                          .second) {
                   LOG(WARNING) << "Insert failed for hlo_proto with program_id"
                                << event_metadata.Id();

@@ -16,8 +16,8 @@ limitations under the License.
 #include "xprof/convert/graph_viewer_processor.h"
 
 #include <memory>
-#include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -50,8 +50,6 @@ namespace xprof {
 using ::tensorflow::profiler::ConvertHloProtoToGraph;
 using ::tensorflow::profiler::ConvertHloProtoToStringView;
 using ::tensorflow::profiler::GetAdjacentNodes;
-using ::tensorflow::profiler::GetHloProtoByModuleName;
-using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::GraphViewerParams;
 using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
@@ -89,8 +87,21 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
 
 absl::Status GraphViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
-                      GetHloProtoByOptions(session_snapshot, options));
+  absl::StatusOr<xla::HloProto> hlo_proto_or =
+      GetHloProtoByOptions(session_snapshot, options);
+
+  if (!hlo_proto_or.ok()) {
+    // Fallback: If module not found/provided, try searching by node name.
+    absl::StatusOr<GraphViewerParams> params_or =
+        ParseGraphViewerParams(options);
+    if (params_or.ok() && !params_or->node_name.empty()) {
+      hlo_proto_or =
+          GetHloProtoByNodeName(session_snapshot, params_or->node_name);
+    }
+  }
+
+  // Ensure we have a valid hlo_proto before proceeding.
+  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto, std::move(hlo_proto_or));
 
   LOG(INFO) << "Processing graph viewer for  hlo module: "
             << hlo_proto.hlo_module().name();

@@ -33,6 +33,10 @@ absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
 absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
     const SessionSnapshot& session_snapshot, absl::string_view program_id);
 
+// Get HLO proto by searching for node name in all HLO modules.
+absl::StatusOr<xla::HloProto> GetHloProtoByNodeName(
+    const SessionSnapshot& session_snapshot, absl::string_view node_name);
+
 absl::StatusOr<xla::HloProto> GetHloProtoByOptions(
     const SessionSnapshot& session_snapshot, const ToolOptions& options);
 

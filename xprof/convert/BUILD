@@ -213,7 +213,6 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_proto_to_module",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/hlo/ir:hlo",
-        "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
     ],
     alwayslink = 1,
@@ -1641,6 +1640,7 @@ cc_library(
         ":file_utils",
         ":repository",
         ":tool_options",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
@@ -1651,6 +1651,26 @@ cc_library(
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:file_system_utils",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_hlo_test",
+    srcs = ["xplane_to_hlo_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":xplane_to_hlo",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:path",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:env",
     ],
 )
 

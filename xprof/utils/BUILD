@@ -462,10 +462,10 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@xla//xla:shape_util",
+        "@xla//xla/backends/gpu/cost_model:gpu_hlo_cost_analysis",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/service:hlo_cost_analysis",
         "@xla//xla/service/gpu:cublas_cudnn",
-        "@xla//xla/service/gpu/model:gpu_hlo_cost_analysis",
         "@xla//xla/tsl/platform:errors",
     ],
 )

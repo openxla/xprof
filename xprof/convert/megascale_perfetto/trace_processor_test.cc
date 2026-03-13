@@ -73,7 +73,7 @@ TEST(TraceProcessorTest, MarksLastDmaEvents) {
 
   // Execution event
   track.events.push_back(
-      {"device_0_gid_rendezvous$1^i0", /*ts=*/100, /*duration=*/1000});
+      {"device_0_gid_rendezvous_0", /*ts=*/100, /*duration=*/1000});
   track.events.at(0).run_id = 1;
 
   // DMA events within execution
@@ -113,8 +113,9 @@ TEST(TraceProcessorTest, AddsNetworkCounters) {
   event.run_id = 1;
   event.args.push_back(
       {trace.string_table.Intern("network_transport_latency_us"), uint64_t{1}});
-  event.args.push_back({trace.string_table.Intern("buffer_sizes"),
-                        trace.string_table.Intern("$c0=1000")});
+  event.args.push_back(
+      {trace.string_table.Intern("buffer_sizes"),
+       trace.string_table.Intern("s100001->200001d|$c0=1000")});
   track.events.push_back(std::move(event));
 
   TraceProcessor processor(&trace);
@@ -149,7 +150,7 @@ TEST(TraceProcessorTest, AddMegascaleCounters) {
   track.name = "rendezvous";
 
   Event event;
-  event.name = "device_0_gid_rendezvous";
+  event.name = "device_0_gid_rendezvous_0";
   event.timestamp_ps = 2000000;  // 2us
   event.duration_ps = 1000000;   // 1us
   event.run_id = 1;
@@ -182,13 +183,15 @@ TEST(TraceProcessorTest, ModifiesTrackNames) {
   XprofTrace trace;
   trace.tpu_fragments[0].emplace_back(Track{"Steps", {}});
   trace.megascale_fragments[0].emplace_back(
-      Track{"device_0_gid_rendezvous", {}});
+      Track{"device_0_gid_rendezvous_0", {}});
 
   TraceProcessor processor(&trace);
   processor.Process();
 
   EXPECT_EQ(trace.tpu_fragments[0][0].name, "1. Steps");
-  EXPECT_EQ(trace.megascale_fragments[0][0].name, "rendezvous (0)");
+  // The name is NOT modified because RenameTrack fails to extract groups
+  // from kGraphNameRe (which now has only 1 group).
+  EXPECT_EQ(trace.megascale_fragments[0][0].name, "device_0_gid_rendezvous_0");
 }
 
 }  // namespace

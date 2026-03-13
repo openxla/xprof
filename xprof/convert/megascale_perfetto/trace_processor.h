@@ -41,9 +41,6 @@ class TraceProcessor {
   void ModifyTrackNames();
 
   XprofTrace& trace_;
-
-  // Helper for generating unique flow IDs during processing
-  int64_t next_flow_id_ = 1;
 };
 
 }  // namespace xprof::megascale

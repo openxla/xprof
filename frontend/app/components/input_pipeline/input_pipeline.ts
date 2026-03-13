@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -28,7 +28,7 @@ const STEPTIME_COLUMN_IDS_FOR_TPU_INTERNAL = [
 
 /** An input pipeline component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'input-pipeline',
   templateUrl: './input_pipeline.ng.html',
   styleUrls: ['./input_pipeline.css']

@@ -1,11 +1,11 @@
 import {CommonModule} from '@angular/common';
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 
 /**
  * A component to display a message with a title and content.
  */
 @Component({
-  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: true,
   selector: 'message',
   templateUrl: './message.ng.html',
   styleUrls: ['./message.scss'],

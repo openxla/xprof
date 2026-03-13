@@ -1,4 +1,4 @@
-import {Component, EventEmitter, inject, Input, Output} from '@angular/core';
+import {Component, EventEmitter, inject, Input, Output, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -11,7 +11,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op details view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'op-details',
   templateUrl: './op_details.ng.html',
   styleUrls: ['./op_details.scss']

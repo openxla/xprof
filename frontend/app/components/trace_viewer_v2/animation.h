@@ -38,6 +38,12 @@ class Animation {
     finished_->clear();
   }
 
+  // Clears all registered and finished animations.
+  static void ClearAll() {
+    animations_->clear();
+    finished_->clear();
+  }
+
  protected:
   virtual void on_finished() = 0;
 

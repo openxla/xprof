@@ -408,9 +408,17 @@ export class DataServiceV2 implements DataServiceV2Interface {
   }
 
   getSearchParams(): URLSearchParams {
-    return new URLSearchParams(
+    const searchParams = new URLSearchParams(
         window.sessionStorage.getItem('searchParams') || '',
     );
+    if (window.location.search) {
+      const locationParams = new URLSearchParams(window.location.search);
+      if (locationParams.has(USE_SAVED_RESULT)) {
+        searchParams.set(
+            USE_SAVED_RESULT, locationParams.get(USE_SAVED_RESULT) || '');
+      }
+    }
+    return searchParams;
   }
   setSearchParams(searchParams: URLSearchParams) {
     window.sessionStorage.setItem(
@@ -451,10 +459,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       return;
     }
     searchParams.delete(USE_SAVED_RESULT);
-    window.sessionStorage.setItem(
-        'searchParams',
-        new URLSearchParams(searchParams).toString(),
-    );
+    this.setSearchParams(searchParams);
   }
 
   /** Methods below are for 3P only */

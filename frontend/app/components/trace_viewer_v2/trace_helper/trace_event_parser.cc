@@ -379,11 +379,11 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);
 
-  // Bind Application class and expose the singleton instance and data_provider
-  emscripten::class_<traceviewer::Application>("Application")
-      .class_function("Instance", &traceviewer::Application::Instance,
+  // Bind Application class and expose the singleton instance and dataProvider
+  emscripten::class_<traceviewer::Application>("application")
+      .class_function("instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
-      .function("data_provider", &traceviewer::Application::data_provider,
+      .function("dataProvider", &traceviewer::Application::data_provider,
                 emscripten::return_value_policy::reference())
       .function("getCurrentSearchResultIndex",
                 &traceviewer::Application::GetCurrentSearchResultIndex)
@@ -393,7 +393,7 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                 &traceviewer::Application::NavigateToNextSearchResult)
       .function("navigateToPrevSearchResult",
                 &traceviewer::Application::NavigateToPrevSearchResult)
-      .function("Resize", &traceviewer::Application::Resize)
+      .function("resize", &traceviewer::Application::Resize)
       .function("setSearchQuery", &traceviewer::Application::SetSearchQuery)
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)

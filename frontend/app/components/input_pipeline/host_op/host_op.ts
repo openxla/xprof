@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {
   HostOpTable,
@@ -8,7 +8,7 @@ import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/defau
 
 /** A host-op view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'host-op',
   templateUrl: './host_op.ng.html',
   styleUrls: ['./host_op.scss'],

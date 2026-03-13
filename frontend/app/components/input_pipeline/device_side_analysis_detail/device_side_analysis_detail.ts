@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, SimpleChanges} from '@angular/core';
+import {Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineDeviceAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -56,7 +56,7 @@ interface DeviceSideAnalysisMetrics {
 
 /** A device-side analysis detail view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'device-side-analysis-detail',
   templateUrl: './device_side_analysis_detail.ng.html',
   styleUrls: ['./device_side_analysis_detail.scss']

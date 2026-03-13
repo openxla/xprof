@@ -1,4 +1,4 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges} from '@angular/core';
+import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
@@ -10,7 +10,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
   styleUrls: ['./op_table_entry.scss']

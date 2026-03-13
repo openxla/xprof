@@ -6,7 +6,7 @@ import {
   Input,
   OnChanges,
   SimpleChanges,
-  ViewChild,
+  ViewChild, ChangeDetectionStrategy,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -14,7 +14,7 @@ const MAX_CHART_WIDTH = 800;
 
 /** An inference latency chart view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'inference-latency-chart',
   templateUrl: './inference_latency_chart.ng.html',
   styleUrls: ['./inference_latency_chart.scss'],

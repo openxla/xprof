@@ -1,4 +1,4 @@
-import {Component, Input, OnChanges, OnInit, SimpleChanges} from '@angular/core';
+import {Component, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {DEFAULT_SIMPLE_DATA_TABLE, type InputPipelineHostAnalysis, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
@@ -8,7 +8,7 @@ import {HostSideAnalysisDetailTableDataProvider} from './host_side_analysis_deta
 
 /** A host-side analysis detail view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'host-side-analysis-detail',
   templateUrl: './host_side_analysis_detail.ng.html',
   styleUrls: ['./host_side_analysis_detail.scss']

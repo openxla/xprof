@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -21,7 +21,7 @@ const DIAGNOSTICS_INDEX = 1;
 
 /** A Megascale Stats page component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'megascale-stats',
   templateUrl: './megascale_stats.ng.html',
   styleUrls: ['./megascale_stats.scss']

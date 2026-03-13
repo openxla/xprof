@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy, ViewChild} from '@angular/core';
+import {Component, inject, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -42,7 +42,7 @@ const NVIDIA_GPU_TYPE_PREFIX = 'Nvidia GPU';
 
 /** A roofline model component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'roofline-model',
   templateUrl: './roofline_model.ng.html',
   styleUrls: ['./roofline_model.scss'],

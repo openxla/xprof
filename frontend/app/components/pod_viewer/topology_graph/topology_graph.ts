@@ -1,4 +1,4 @@
-import {Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output} from '@angular/core';
+import {Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, Output, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {AllReduceOpInfo, ChannelInfo, PodStatsRecord, type PodViewerTopology, StepBreakdownEvent} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -46,7 +46,7 @@ const NODE_COLORS = [
 
 /** A topology graph view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'topology-graph',
   templateUrl: './topology_graph.ng.html',
   styleUrls: ['./topology_graph.scss']

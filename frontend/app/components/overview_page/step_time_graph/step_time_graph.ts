@@ -1,4 +1,4 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -17,7 +17,7 @@ const COLORS_FOR_GPU = [
 
 /** A step-time graph view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'step-time-graph',
   templateUrl: './step_time_graph.ng.html',
   styleUrls: ['./step_time_graph.scss']

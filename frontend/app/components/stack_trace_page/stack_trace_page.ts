@@ -1,4 +1,4 @@
-import {Component, inject, Injector, OnDestroy} from '@angular/core';
+import {Component, inject, Injector, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -17,7 +17,7 @@ import {takeUntil} from 'rxjs/operators';
  * various IR text mapping.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'stack-trace-page',
   templateUrl: './stack_trace_page.ng.html',
   styleUrls: ['./stack_trace_page.css'],

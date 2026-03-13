@@ -138,6 +138,7 @@ void ConvertXLineToTraceEventsContainer(uint32_t device_id,
     resource->set_resource_id(*resource_id);
     resource->set_name(std::string(line.DisplayName()));
     resource->set_num_events(line.NumEvents());
+    container->ReserveEvents(device_id, *resource_id, line.NumEvents());
   }
 
   RawData raw_data;  // hoisted for performance

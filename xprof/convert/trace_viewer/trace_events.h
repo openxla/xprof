@@ -41,6 +41,7 @@ limitations under the License.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "google/protobuf/arena.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -579,11 +580,8 @@ uint64_t LayerResolutionPs(unsigned level);
 std::pair<uint64_t, uint64_t> GetLevelBoundsForDuration(uint64_t duration_ps);
 
 struct EventFactory {
-  TraceEvent* Create() {
-    events.push_back(std::make_unique<TraceEvent>());
-    return events.back().get();
-  }
-  std::vector<std::unique_ptr<TraceEvent>> events;
+  TraceEvent* Create() { return google::protobuf::Arena::Create<TraceEvent>(&arena_); }
+  google::protobuf::Arena arena_;
 };
 
 struct DefaultStdHash {
@@ -609,6 +607,14 @@ class TraceEventsContainerBase {
   void Merge(TraceEventsContainerBase&& other, int host_id);
 
   // Creates a TraceEvent prefilled with the given values.
+  // Reserves capacity for events for a specific device and resource.
+  void ReserveEvents(uint32_t device_id, uint64_t resource_id, size_t count) {
+    if (count > 0) {
+      events_by_device_[device_id].events_by_resource[resource_id].reserve(
+          count);
+    }
+  }
+
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,
                         uint32_t device_id, tsl::profiler::Timespan timespan,
                         RawData* raw_data = nullptr,

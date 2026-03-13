@@ -1,8 +1,8 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 
 /** A model properties view component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'model-properties',
   templateUrl: './model_properties.ng.html',
   styleUrls: ['./model_properties.scss']

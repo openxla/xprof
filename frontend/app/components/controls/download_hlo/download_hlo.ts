@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnDestroy} from '@angular/core';
+import {Component, inject, Input, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {GRAPH_TYPE_DEFAULT} from 'org_xprof/frontend/app/common/constants/constants';
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -22,7 +22,7 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
 
 /** A component to download hlo module in proto, text or json formats. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'download-hlo',
   templateUrl: './download_hlo.ng.html',
   styleUrls: ['./download_hlo.css'],

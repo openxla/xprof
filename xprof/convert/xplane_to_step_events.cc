@@ -379,7 +379,7 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
                                       parent.children_duration_ps);
         }
         op_metrics_builder[parent.group_id].AddOpMetric(
-            op_metrics, GetOpKeyFromXEvent(parent.event));
+            std::move(op_metrics), GetOpKeyFromXEvent(parent.event));
       },
       // Checks if the child event is a child of the parent event.
       [](const ParentRef& parent, const ParentRef& child) {

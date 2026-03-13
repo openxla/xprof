@@ -35,10 +35,13 @@ class Application {
   ~Application() { ImGui::DestroyContext(); }
 
   void Initialize();
+  void Shutdown();
   void Main();
 
   Timeline& timeline() { return *timeline_; };
   DataProvider& data_provider() { return data_provider_; };
+
+  bool IsInitialized() const { return timeline_ != nullptr; }
 
   void SetVisibleFlowCategory(int category_id) {
     timeline_->SetVisibleFlowCategory(category_id);

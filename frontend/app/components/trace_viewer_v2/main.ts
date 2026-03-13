@@ -90,8 +90,8 @@ export enum TraceViewerV2LoadingStatus {
 }
 
 declare function loadWasmTraceViewerModule(
-  options?: object,
-): Promise<TraceViewerV2Module>;
+    options?: object,
+    ): Promise<TraceViewerV2Module>;
 
 /**
  * Interface for the WebAssembly module loaded by `loadWasmTraceViewerModule`.
@@ -105,7 +105,7 @@ declare function loadWasmTraceViewerModule(
   HEAPU8: Uint8Array;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
-  preinitializedWebGPUDevice: GPUDevice | null;
+  preinitializedWebGPUDevice: GPUDevice|null;
   processTraceEvents(
       data: TraceData,
       timeRangeFromUrl?: [number, number],
@@ -113,20 +113,18 @@ declare function loadWasmTraceViewerModule(
   getAllFlowCategories(): Array<{id: number; name: string}>;
   setSearchResultsInWasm(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
-  StringVector: {
-    size(): number;
-    get(index: number): string;
-    toArray(): string[];
-  };
+  StringVector:
+      {size(): number; get(index: number): string; toArray(): string[];};
   IntVector: {size(): number; get(index: number): number;};
-  Application: {
-    Instance(): {
-      data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
+  application: {
+    instance(): {
+      shutdown(): void;
+      dataProvider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
       getCurrentSearchResultIndex(): number;
       getSearchResultsCount(): number;
       navigateToNextSearchResult(): void;
       navigateToPrevSearchResult(): void;
-      Resize(dpr: number, width: number, height: number): void;
+      resize(dpr: number, width: number, height: number): void;
       setSearchQuery(query: string): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
@@ -149,11 +147,52 @@ export declare interface TraceData {
  */
 export function isTraceData(data: unknown): data is TraceData {
   return (
-    typeof data === 'object' &&
-    data !== null &&
-    data.hasOwnProperty('traceEvents') &&
-    Array.isArray((data as TraceData).traceEvents)
-  );
+      typeof data === 'object' && data !== null &&
+      data.hasOwnProperty('traceEvents') &&
+      Array.isArray((data as TraceData).traceEvents));
+}
+
+// Global state to track active WASM module and event listeners for cleanup.
+let activeWasmModule: TraceViewerV2Module|null = null;
+
+/**
+ * Interface for tracking event listeners registered on the window.
+ * Each instance stores the event `type` and the `listener` function,
+ * allowing them to be properly removed when the trace viewer is shut down.
+ */
+interface RegisteredListener {
+  type: string;
+  listener: EventListener;
+}
+
+const registeredEventListeners: RegisteredListener[] = [];
+
+/**
+ * Registers an event listener on the window and tracks it for later removal.
+ */
+function registerWindowListener(type: string, listener: EventListener) {
+  window.addEventListener(type, listener);
+  registeredEventListeners.push({type, listener});
+}
+
+/**
+ * Shuts down the active Trace Viewer v2 WASM application and cleans up
+ * resources, including event listeners and WASM memory.
+ */
+export function shutdownTraceViewerV2() {
+  if (activeWasmModule) {
+    try {
+      activeWasmModule.application.instance().shutdown();
+    } catch (e) {
+      console.error('Error during WASM shutdown:', e);
+    }
+    activeWasmModule = null;
+  }
+
+  for (const {type, listener} of registeredEventListeners) {
+    window.removeEventListener(type, listener);
+  }
+  registeredEventListeners.length = 0;
 }
 
 async function getWebGpuDevice(): Promise<GPUDevice> {
@@ -168,7 +207,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
   const device = await adapter.requestDevice();
   if (!device) {
     throw new Error(
-      'WebGPU cannot be initialized - failed to get WebGPU device.',
+        'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
   // tslint:disable-next-line:no-any
@@ -193,9 +232,9 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
 }
 
 async function loadAndStartWasm(
-  canvas: HTMLCanvasElement,
-  device: GPUDevice,
-): Promise<TraceViewerV2Module> {
+    canvas: HTMLCanvasElement,
+    device: GPUDevice,
+    ): Promise<TraceViewerV2Module> {
   const moduleConfig = {
     canvas,
     print: console.log,
@@ -463,14 +502,25 @@ async function handleFetchDataEvent(
  *     null if initialization fails.
  */
 export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
+  // Shut down any existing WASM application and clean up event listeners
+  // before starting a new one. This prevents leaking resources and having
+  // multiple active instances fighting for the canvas or processing duplicate
+  // events.
+  shutdownTraceViewerV2();
+
   let traceviewerModule: TraceViewerV2Module|null = null;
   let currentDataUrl: string|null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
+    activeWasmModule = traceviewerModule;
   } catch (e) {
     const error = e as Error;
     console.error('Application Initialization Failed:', error);
+    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+      detail:
+          {status: TraceViewerV2LoadingStatus.ERROR, message: error.message},
+    }));
     return null;
   }
 
@@ -487,15 +537,18 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
           return;
         }
         const dpr = window.devicePixelRatio;
-        traceviewerModule.Application.Instance().Resize(dpr, width, height);
+        traceviewerModule.application.instance().resize(dpr, width, height);
       });
     }
   });
   resizeObserver.observe(traceviewerModule.canvas);
+  // Track the resize observer to disconnect it on shutdown if needed. For now
+  // it's tied to the canvas element.
 
   // Add a method to the module to load data from a URL
   traceviewerModule.loadJsonData = async (url: string) => {
     currentDataUrl = url;
+    if (!traceviewerModule) return;
     try {
       window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
         detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
@@ -576,7 +629,7 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
     }
   };
 
-  window.addEventListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
+  registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
     handleFetchDataEvent(event, currentDataUrl, traceviewerModule);
   });
 

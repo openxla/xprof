@@ -41,6 +41,7 @@ xprof_ng_module(
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],
 )
 

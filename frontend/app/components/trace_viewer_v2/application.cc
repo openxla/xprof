@@ -103,6 +103,32 @@ void Application::Initialize() {
                                 /*use_capture=*/true, HandleWheel);
 }
 
+void Application::Shutdown() {
+  emscripten_cancel_main_loop();
+
+  // Unregister event handlers. Passing nullptr unregisters the callback.
+  emscripten_set_keydown_callback(kWindowTarget, /*user_data=*/nullptr,
+                                  /*use_capture=*/true, nullptr);
+  emscripten_set_keyup_callback(kWindowTarget, /*user_data=*/nullptr,
+                                /*use_capture=*/true, nullptr);
+  emscripten_set_mousemove_callback(kCanvasTarget, /*user_data=*/nullptr,
+                                    /*use_capture=*/true, nullptr);
+  emscripten_set_mousedown_callback(kCanvasTarget, /*user_data=*/nullptr,
+                                    /*use_capture=*/true, nullptr);
+  emscripten_set_mouseup_callback(kCanvasTarget, /*user_data=*/nullptr,
+                                  /*use_capture=*/true, nullptr);
+  emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/nullptr,
+                                /*use_capture=*/true, nullptr);
+
+  // Clean up and release memory.
+  timeline_.reset();
+  platform_.reset();
+
+  if (ImGui::GetCurrentContext()) {
+    ImGui::DestroyContext();
+  }
+}
+
 void Application::MainLoop() {
   ImGuiIO& io = ImGui::GetIO();
   io.DeltaTime = GetDeltaTime();

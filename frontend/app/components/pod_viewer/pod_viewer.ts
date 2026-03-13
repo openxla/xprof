@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {PodViewerDatabase} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -12,7 +12,7 @@ import {PodViewerCommon} from './pod_viewer_common';
 
 /** A pod viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'pod-viewer',
   templateUrl: './pod_viewer.ng.html',
   styleUrls: ['./pod_viewer.css']

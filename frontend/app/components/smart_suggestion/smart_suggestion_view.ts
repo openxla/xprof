@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges, inject, OnDestroy} from '@angular/core';
+import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
@@ -29,7 +29,7 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  selector: 'smart-suggestion-view',
+  changeDetection: ChangeDetectionStrategy.Eager,selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
   standalone: true,

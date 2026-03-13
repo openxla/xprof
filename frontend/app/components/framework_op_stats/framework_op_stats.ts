@@ -1,4 +1,4 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
@@ -17,7 +17,7 @@ const MEASURED_FLOP_RATE_ID = 'measured_flop_rate';
 
 /** A TensorFlow Stats component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'framework-op-stats',
   templateUrl: './framework_op_stats.ng.html',
   styleUrls: ['./framework_op_stats.css']

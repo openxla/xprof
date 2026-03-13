@@ -1,4 +1,4 @@
-import {Component, inject, NgModule, OnDestroy} from '@angular/core';
+import {Component, inject, NgModule, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -11,7 +11,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An overview adapter component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'framework-op-stats-adapter',
   template:
       '<framework-op-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></framework-op-stats>',

@@ -1,4 +1,4 @@
-import {Component, ElementRef, EventEmitter, inject, Input, NgZone, OnChanges, OnInit, Output, Renderer2, SimpleChanges, ViewChild} from '@angular/core';
+import {Component, ElementRef, EventEmitter, inject, Input, NgZone, OnChanges, OnInit, Output, Renderer2, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {PIE_CHART_PALETTE} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -14,7 +14,7 @@ type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
  * An operation level analysis table view component (step appregation: total).
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'operation-level-analysis',
   templateUrl: './operation_level_analysis.ng.html',
   styleUrls: ['./operation_level_analysis.scss'],

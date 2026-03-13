@@ -1,4 +1,4 @@
-import {Component, OnDestroy, OnInit} from '@angular/core';
+import {Component, OnDestroy, OnInit, ChangeDetectionStrategy} from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
 import {ActivatedRouteSnapshot, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -14,7 +14,7 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A side navigation component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'sidenav',
   templateUrl: './sidenav.ng.html',
   styleUrls: ['./sidenav.scss']

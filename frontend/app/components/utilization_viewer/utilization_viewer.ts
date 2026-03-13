@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -58,7 +58,7 @@ declare interface NodeFilterDataProcessorMap {
  * node in a TPU chip.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'utilization-viewer',
   templateUrl: './utilization_viewer.ng.html',
   styleUrls: ['./utilization_viewer.scss'],

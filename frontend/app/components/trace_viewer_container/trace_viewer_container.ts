@@ -1,7 +1,7 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -114,7 +114,7 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],

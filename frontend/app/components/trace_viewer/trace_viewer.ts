@@ -1,7 +1,7 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {PlatformLocation} from '@angular/common';
-import {AfterViewInit, Component, inject, Injector, OnDestroy, OnInit, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, inject, Injector, OnDestroy, OnInit, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {API_PREFIX, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
@@ -28,7 +28,7 @@ export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 /** A trace viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css']

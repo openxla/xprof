@@ -1,4 +1,4 @@
-import {Component, NgModule, OnDestroy} from '@angular/core';
+import {Component, NgModule, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
@@ -10,7 +10,7 @@ import {KernelStatsModule} from './kernel_stats_module';
 
 /** A kernel stats adapter component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'kernel-stats-adapter',
   template:
       '<kernel-stats [sessionId]="sessionId" [tool]="tool" [host]="host"></kernel-stats>',

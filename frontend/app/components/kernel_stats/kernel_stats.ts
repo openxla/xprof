@@ -1,11 +1,11 @@
-import {Component, Input} from '@angular/core';
+import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {getKernelStatsDataState} from 'org_xprof/frontend/app/store/common_data_store/selectors';
 
 /** A Kernel Stats component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'kernel-stats',
   templateUrl: './kernel_stats.ng.html',
   styleUrls: ['./kernel_stats.css']

@@ -499,7 +499,7 @@ void CombinedTfDataStatsBuilder::Add(absl::string_view host_name,
       (*combined_tf_data_stats_
             ->mutable_tf_data_stats())[std::string(host_name)];
   tsl::profiler::EventForest event_forest;
-  event_forest.AddPlanes(tsl::profiler::CreateTfXPlaneVisitor, {host_plane});
+  event_forest.AddPlanes(tsl::profiler::MakeTfXPlaneVisitor, {host_plane});
   event_forest.ConnectEvents();
   event_forest.ConnectTfDataEvents();
   absl::flat_hash_set<int64_t> device_input_pipeline_ids;

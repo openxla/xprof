@@ -1568,16 +1568,76 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsFlowCategories) {
                   static_cast<int>(tsl::profiler::ContextType::kGeneric)));
 }
 
+TEST_F(DataProviderTest, FlowLinesNestedEventLevelTest) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread 101"),
+      // Level 0 event
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 10.0,
+       .dur = 100.0},
+      // Level 1 nested event starting exactly at 20.0 (tests binary search
+      // boundary)
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A1",
+       .ts = 20.0,
+       .dur = 30.0}};
+
+  const std::vector<TraceEvent> flow_events = {
+      // Flow start at exactly 20.0 (inside A1)
+      {.ph = Phase::kFlowStart,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 20.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric},
+      // Flow end at 50.0 (inside A)
+      {.ph = Phase::kFlowEnd,
+       .pid = 1,
+       .tid = 101,
+       .name = "flow1",
+       .ts = 50.0,
+       .id = "1",
+       .category = tsl::profiler::ContextType::kGeneric}};
+
+  data_provider_.ProcessTraceEvents({events, {}, flow_events}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.flow_lines, SizeIs(1));
+
+  // The base thread level is 1 (group 0 is Process, group 1 is Thread)
+  // Level 0 events have source_level = 0, Level 1 events have source_level
+  // = 1. Flow start at 20.0 inside A1 -> 1 Flow end at 50.0 also inside A1
+  // (boundary) -> 1
+  EXPECT_EQ(data.flow_lines[0].source_level, 1);
+  EXPECT_EQ(data.flow_lines[0].target_level, 1);
+}
+
 TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      // Thread 101 has multiple levels (Task A1 is nested inside Task A).
+      // This makes Thread 101 collapsible.
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 101,
        .name = "Task A",
        .ts = 100.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A1",
+       .ts = 110.0,
        .dur = 50.0},
       CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      // Thread 201 has only a single level, making it non-collapsible.
       {.ph = Phase::kComplete,
        .pid = 2,
        .tid = 201,
@@ -1597,13 +1657,14 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);  // Process 2
   EXPECT_TRUE(timeline_.timeline_data().groups[3].expanded);   // Thread 201
 
-  // Manually expand Process 2 and its thread, and collapse Process 1
+  // Manually collapse Process 1 and Thread 101.
+  // Manually expand Process 2 and collapse Thread 201 (which shouldn't stick).
   {
     FlameChartTimelineData data = timeline_.timeline_data();
-    data.groups[0].expanded = false;
-    data.groups[1].expanded = false;
-    data.groups[2].expanded = true;
-    data.groups[3].expanded = true;
+    data.groups[0].expanded = false;  // Process 1 -> false
+    data.groups[1].expanded = false;  // Thread 101 (collapsible) -> false
+    data.groups[2].expanded = true;   // Process 2 -> true
+    data.groups[3].expanded = false;  // Thread 201 (non-collapsible) -> false
     timeline_.set_timeline_data(std::move(data));
   }
 
@@ -1626,17 +1687,21 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
 
   data_provider_.ProcessTraceEvents({all_events, {}}, timeline_);
 
-  // Verify that expansion states are preserved
+  // Verify that expansion states are preserved for collapsible tracks,
+  // but unconditionally forced to true for non-collapsible tracks.
   ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
-  EXPECT_FALSE(
-      timeline_.timeline_data().groups[0].expanded);  // Process 1 (PRESERVED)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[0]
+                   .expanded);  // Process 1 (PRESERVED false)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[1]
+                   .expanded);  // Thread 101 (PRESERVED false, multi-level)
   EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[1]
-                  .expanded);  // Thread 101 (FORCED EXPANDED)
-  EXPECT_TRUE(
-      timeline_.timeline_data().groups[2].expanded);  // Process 2 (PRESERVED)
-  EXPECT_TRUE(
-      timeline_.timeline_data().groups[3].expanded);  // Thread 201 (PRESERVED)
+                  .groups[2]
+                  .expanded);  // Process 2 (PRESERVED true)
+  EXPECT_TRUE(timeline_.timeline_data()
+                  .groups[3]
+                  .expanded);  // Thread 201 (FORCED TRUE, single-level)
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
@@ -1670,9 +1735,77 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   // Reload same data (simulate update)
   provider.ProcessTraceEvents(parsed_events, timeline_);
 
-  // With the user's latest change, this forces expansion for one-line threads.
-  // One-line threads should always be expanded.
+  // One-line threads should be expanded by default on initial load, but
+  // even if collapsed by user, the current implementation overrides it to true
+  // upon reload.
   EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsPreservesExpandedStateForCounterTrack) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  const std::vector<CounterEvent> counter_events = {
+      {.pid = 1,
+       .name = "Test Counter",
+       .timestamps = {100.0, 150.0},
+       .values = {10.0, 20.0}}};
+
+  // Initial load
+  data_provider_.ProcessTraceEvents({events, counter_events}, timeline_);
+
+  // Timeline groups will have:
+  // 0: Process 1
+  // 1: Thread 101
+  // 2: Test Counter
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);  // Process 1
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);  // Thread 101
+  // Counter groups are typically expanded by default depending on the
+  // name/process.
+  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);  // Counter
+
+  {
+    FlameChartTimelineData data = timeline_.timeline_data();
+    data.groups[0].expanded = false;  // Manually collapse Process 1
+    data.groups[1].expanded = false;  // Manually collapse single-line thread
+    data.groups[2].expanded = false;  // Manually collapse counter track
+    timeline_.set_timeline_data(std::move(data));
+  }
+
+  // Simulate incremental loading (new events)
+  const std::vector<TraceEvent> new_events = {{.ph = Phase::kComplete,
+                                               .pid = 1,
+                                               .tid = 101,
+                                               .name = "Task C",
+                                               .ts = 300.0,
+                                               .dur = 50.0}};
+
+  std::vector<TraceEvent> all_events = events;
+  all_events.insert(all_events.end(), new_events.begin(), new_events.end());
+
+  data_provider_.ProcessTraceEvents({all_events, counter_events}, timeline_);
+
+  // Verify that expansion states are preserved for processes, but
+  // single-line threads and counters are unconditionally forced to true,
+  // making them effectively uncollapsible.
+  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[0]
+                   .expanded);  // Process 1 (PRESERVED false)
+  EXPECT_TRUE(timeline_.timeline_data()
+                  .groups[1]
+                  .expanded);  // Thread 101 (FORCED TRUE)
+  EXPECT_TRUE(timeline_.timeline_data()
+                  .groups[2]
+                  .expanded);  // Test Counter (FORCED TRUE)
 }
 
 }  // namespace

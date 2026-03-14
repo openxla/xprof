@@ -100,6 +100,7 @@ export class MegascalePerfetto implements OnDestroy {
     );
     requestURL.searchParams.set('session_id', this.sessionId);
     requestURL.searchParams.set('perfetto', 'true');
+    requestURL.searchParams.set('tag', 'megascale_stats');
     if (this.host) {
       requestURL.searchParams.set('host', this.host);
     }

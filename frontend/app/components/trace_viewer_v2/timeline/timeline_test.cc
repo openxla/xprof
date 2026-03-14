@@ -3027,6 +3027,66 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Flame Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = false});  // Collapsed triggers preview
+
+  data.events_by_level.push_back({0});
+  // Add one more real event on a new level to make the group expandable.
+  data.events_by_level.push_back({1});
+  data.entry_names.push_back("event1");
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(1);
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(15.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+
+  timeline_.set_timeline_data(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* preview_window = nullptr;
+  const std::string child_id = "TimelineChildPreview_Flame Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      preview_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(preview_window, nullptr);
+
+  // Check if anything was drawn to this window's draw list.
+  EXPECT_FALSE(preview_window->DrawList->VtxBuffer.empty());
+
+  // Verify that the drawn rectangles have reduced opacity.
+  const ImU32 expected_alpha =
+      static_cast<ImU32>(kGroupPreviewOpacity * 255.0f);
+  bool found_preview_rect = false;
+  for (const auto& vtx : preview_window->DrawList->VtxBuffer) {
+    // Skip vertices with 0 alpha (might be for clipping or other internal use)
+    if ((vtx.col >> IM_COL32_A_SHIFT) == expected_alpha) {
+      found_preview_rect = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found_preview_rect);
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   FlameChartTimelineData data;
   data.groups.push_back({.type = Group::Type::kCounter,

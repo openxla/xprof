@@ -146,6 +146,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('run_path', runPath);
     }
 
+
+    if (event.hosts) {
+      const isString = typeof event.hosts === 'string';
+      const hostsString = isString
+          ? (event.hosts as unknown as string)
+          : event.hosts.join(',');
+
+      additionalParams.set('hosts', hostsString);
+    }
+
     const traceDataUrl = this.dataService.getDataUrl(
         run,
         tag,

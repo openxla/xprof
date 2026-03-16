@@ -1,8 +1,15 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
 #include <any>
+#include <cmath>
+#include <cstddef>
+#include <ios>
+#include <limits>
+#include <map>
+#include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
@@ -431,6 +438,21 @@ TEST(TimelineTest, GetTextForDisplayWhenTextTruncatedToEmpty) {
   });
 
   EXPECT_EQ(timeline.GetTextForDisplay(text, available_width), "");
+}
+
+TEST(TimelineTest, GetTextForDisplayWhenMultipleCharsFit) {
+  MockTimeline timeline;
+  const std::string text = "Long Event Name";
+  // If char width is kCharWidth, ellipsis "..." width is kEllipsisWidth.
+  // Available width allows "Lo..." (2 * kCharWidth + kEllipsisWidth).
+  const float available_width = 2 * kCharWidth + kEllipsisWidth + 5.0f;
+
+  EXPECT_CALL(timeline, GetTextSize(_)).WillRepeatedly([](absl::string_view s) {
+    if (s == "...") return ImVec2{kEllipsisWidth, kEventHeight};
+    return ImVec2{s.length() * kCharWidth, kEventHeight};
+  });
+
+  EXPECT_EQ(timeline.GetTextForDisplay(text, available_width), "Lo...");
 }
 
 TEST(TimelineTest, GetTextForDisplayWhenWidthTooSmallForEllipsis) {
@@ -3786,6 +3808,110 @@ TEST_F(RealTimelineImGuiFixture, DrawSelectedTimeRangeTextAtCorrectYPosition) {
   const float expected_y = io.DisplaySize.y - text_size.y - 10.0f + 3.0f;
 
   EXPECT_FLOAT_EQ(min_y, expected_y);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
+  // Set up timeline with simple data so it draws
+  timeline_.SetVisibleRange({0.0, 100.0});
+  timeline_.set_data_time_range({0.0, 100.0});
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1", .start_level = 0});
+  timeline_.set_timeline_data(std::move(data));
+
+  SimulateFrame();
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "Tracks")) {
+      tracks_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr) << "Failed to find 'Tracks' child window";
+
+  // The DrawRuler renders to the "Tracks" window's main draw list.
+  ImDrawList* draw_list = tracks_window->DrawList;
+
+  float max_y_for_trace_vertical_line = 0.0f;
+
+  // kTraceVerticalLineColor is used to draw the vertical line across tracks.
+  bool found_trace_vertical_line = false;
+
+  // kRulerLineColor is used for horizontal line, major ticks, and minor ticks.
+  // Note: It's tricky to distinguish minor ticks from major ticks purely by
+  // VtxBuffer without knowing exact Y coordinates. But we can assert the number
+  // of unique X positions that have kRulerLineColor.
+  std::set<float> ruler_line_x_positions;
+
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == kTraceVerticalLineColor) {
+      if (vtx.pos.y > max_y_for_trace_vertical_line) {
+        max_y_for_trace_vertical_line = vtx.pos.y;
+      }
+      found_trace_vertical_line = true;
+    } else if (vtx.col == kRulerLineColor) {
+      ruler_line_x_positions.insert(std::round(vtx.pos.x));
+    }
+  }
+
+  ASSERT_TRUE(found_trace_vertical_line)
+      << "Failed to find vertical trace lines. draw list vtx count="
+      << draw_list->VtxBuffer.Size << ", kTraceVerticalLineColor=" << std::hex
+      << kTraceVerticalLineColor;
+
+  // Check the vertical text line goes down to the exact viewport bottom
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  const float expected_viewport_bottom = viewport->Pos.y + viewport->Size.y;
+  EXPECT_NEAR(max_y_for_trace_vertical_line, expected_viewport_bottom, 1.0f);
+
+  std::vector<float> unique_xs;
+  for (float x : ruler_line_x_positions) {
+    if (unique_xs.empty() || x - unique_xs.back() > 2.0f) {
+      unique_xs.push_back(x);
+    }
+  }
+
+  EXPECT_GT(unique_xs.size(), 10);
+
+  if (unique_xs.size() > 1) {
+    std::map<int, int> dist_counts;
+    for (size_t i = 1; i < unique_xs.size(); ++i) {
+      int dist = std::round(unique_xs[i] - unique_xs[i - 1]);
+      dist_counts[dist]++;
+    }
+
+    int max_count = 0;
+    int max_dist = 0;
+    for (const auto& kv : dist_counts) {
+      if (kv.second > max_count) {
+        max_count = kv.second;
+        max_dist = kv.first;
+      }
+    }
+
+    int total_near_max = 0;
+    for (const auto& kv : dist_counts) {
+      if (std::abs(kv.first - max_dist) <= 1) {
+        total_near_max += kv.second;
+      }
+    }
+
+    // We expect the distance to be reasonably consistent (within 1 pixel),
+    // representing at least half the points. Anomalies from floating point /
+    // ImGui AddLine are fine.
+    EXPECT_GT(total_near_max, unique_xs.size() / 2 - 5)
+        << "Ticks are not consistently spaced.";
+    // Ensure we actually found a reasonable spacing.
+    EXPECT_GT(total_near_max, 5);
+  }
 
   ImGui::EndFrame();
 }

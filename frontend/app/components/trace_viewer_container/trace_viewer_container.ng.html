@@ -32,20 +32,16 @@
   <div class="main-content-area">
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
- -->
         <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
- -->
       </as-split-area>
       <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">
         <div *ngIf="selectedEvent" #drawer class="drawer">
           <div class="event-detail-table-container">
             <table mat-table class="event-detail-table" [dataSource]="selectedEventProperties">
-              <!-- Key Column -->
               <ng-container matColumnDef="property">
                 <td mat-cell *matCellDef="let element"> {{element.property}} </td>
               </ng-container>
 
-              <!-- Value Column -->
               <ng-container matColumnDef="value">
                 <td mat-cell *matCellDef="let element" style="word-break: break-word;"> {{element.value}} </td>
               </ng-container>

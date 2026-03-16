@@ -29,6 +29,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/chart/table",
+        "@org_xprof//frontend/app/components/diagnostics_view",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],

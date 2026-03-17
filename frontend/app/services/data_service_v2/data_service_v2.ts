@@ -6,6 +6,7 @@ import {API_PREFIX, CAPTURE_PROFILE_API, CONFIG_API, DATA_API, DATA_CSV_API, GRA
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {CaptureProfileOptions, CaptureProfileResponse, ProfilerConfig, } from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -56,7 +57,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
               console.log(error);
               let errorMessage = '';
               if (error.status === 0) {
-                errorMessage = 'Request failed : Unable to get the profile data';
+                errorMessage =
+                    'Request failed : Unable to get the profile data';
               } else {
                 const urlObj = new URL(error.url || '');
                 const errorString = typeof error.error === 'object' ?
@@ -210,7 +212,8 @@ export class DataServiceV2 implements DataServiceV2Interface {
       if (runPath) {
         linkParams.set('run_path', runPath);
       }
-      return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
+      return `${window.parent.location.origin}?${
+          linkParams.toString()}#profile`;
     }
     return '';
   }
@@ -405,6 +408,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
   getLloSourceInfo(sessionId: string, opName: string, host = ''):
       Observable<string> {
     return of('');
+  }
+
+  getTraceViewerDiagnostics(sessionId: string, host?: string):
+      Observable<Diagnostics> {
+    // Not implemented for 3P.
+    return of({info: [], warnings: [], errors: []});
   }
 
   getSearchParams(): URLSearchParams {

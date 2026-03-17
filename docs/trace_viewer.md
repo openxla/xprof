@@ -129,6 +129,9 @@ Trace Viewer provides the following sections and tracks.
         multiple host offload rows present if there are multiple offload ops
         executing in parallel, requiring the trace viewer to concurrently
         display multiple events.
+    *   **LLO Utilization**: Shows hardware resource utilization for
+        [XLA Custom Calls](custom_call_profiling.md), if the corresponding XLA
+        flags are enabled.
 *   One section for each Sparsecore node: Some TPU generations (e.g.,
     [TPU v5p](https://cloud.google.com/tpu/docs/v5p) and
     [Trillium](https://cloud.google.com/tpu/docs/v6e)) are equipped with one or

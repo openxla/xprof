@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <variant>
+#include <vector>
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
@@ -22,6 +24,7 @@
 #ifndef PLATFORM_WINDOWS
 #include "google/protobuf/io/gzip_stream.h"
 #endif
+#include "google/protobuf/arena.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
@@ -368,15 +371,16 @@ void Write(const XprofTrace& trace, Trace* out_proto) {
 absl::Status PerfettoWriter::WriteToCord(const XprofTrace& trace,
                                          absl::Cord* output,
                                          bool compressed_output) {
-  perfetto::protos::Trace trace_proto;
-  Write(trace, &trace_proto);
+  google::protobuf::Arena arena;
+  auto* trace_proto = google::protobuf::Arena::Create<perfetto::protos::Trace>(&arena);
+  Write(trace, trace_proto);
   if (compressed_output) {
 #ifdef PLATFORM_WINDOWS
     LOG(WARNING) << "Compression is not supported on Windows.";
 #else
     google::protobuf::io::CordOutputStream stream;
     google::protobuf::io::GzipOutputStream gzip_stream(&stream);
-    if (!trace_proto.SerializeToZeroCopyStream(&gzip_stream) ||
+    if (!trace_proto->SerializeToZeroCopyStream(&gzip_stream) ||
         !gzip_stream.Close()) {
       return absl::InternalError("Failed to serialize to gzip stream");
     }
@@ -384,7 +388,7 @@ absl::Status PerfettoWriter::WriteToCord(const XprofTrace& trace,
     return absl::OkStatus();
 #endif
   }
-  if (!trace_proto.AppendToString(output)) {
+  if (!trace_proto->AppendToString(output)) {
     return absl::InternalError("Failed to serialize to cord");
   }
   return absl::OkStatus();
@@ -392,8 +396,9 @@ absl::Status PerfettoWriter::WriteToCord(const XprofTrace& trace,
 
 absl::StatusOr<std::string> PerfettoWriter::WriteToString(
     const XprofTrace& trace, bool compressed_output) {
-  perfetto::protos::Trace trace_proto;
-  Write(trace, &trace_proto);
+  google::protobuf::Arena arena;
+  auto* trace_proto = google::protobuf::Arena::Create<perfetto::protos::Trace>(&arena);
+  Write(trace, trace_proto);
   if (compressed_output) {
 #ifdef PLATFORM_WINDOWS
     LOG(WARNING) << "Compression is not supported on Windows.";
@@ -401,14 +406,14 @@ absl::StatusOr<std::string> PerfettoWriter::WriteToString(
     std::string output;
     google::protobuf::io::StringOutputStream stream(&output);
     google::protobuf::io::GzipOutputStream gzip_stream(&stream);
-    if (!trace_proto.SerializeToZeroCopyStream(&gzip_stream) ||
+    if (!trace_proto->SerializeToZeroCopyStream(&gzip_stream) ||
         !gzip_stream.Close()) {
       return absl::InternalError("Failed to serialize to gzip stream");
     }
     return output;
 #endif
   }
-  return trace_proto.SerializeAsString();
+  return trace_proto->SerializeAsString();
 }
 
 }  // namespace xprof::megascale

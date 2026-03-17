@@ -16,8 +16,8 @@
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/arena.h"
 #include "re2/re2.h"
-#include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
@@ -349,9 +349,10 @@ XprofTrace XSpaceLoader::Load(const tsl::profiler::XSpace& space) {
 
 absl::StatusOr<XprofTrace> XSpaceLoader::LoadFromFile(
     const std::string& file_path) {
-  tsl::profiler::XSpace xspace;
-  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, &xspace));
-  return Load(xspace);
+  google::protobuf::Arena arena;
+  auto* xspace = google::protobuf::Arena::Create<tsl::profiler::XSpace>(&arena);
+  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, xspace));
+  return Load(*xspace);
 }
 
 }  // namespace xprof::megascale

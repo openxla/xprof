@@ -139,6 +139,10 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     tsl::profiler::ConvertXSpaceToTraceEventsString(*xspace, &content);
     return content;
   } else {  // streaming trace viewer.
+    TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
+                        GetTraceViewOption(options));
+    tensorflow::profiler::TraceOptions profiler_trace_options =
+        TraceOptionsFromToolOptions(options);
     std::string host_name = session_snapshot.GetHostname(0);
     auto trace_events_sstable_path = session_snapshot.MakeHostDataFilePath(
         StoredDataType::TRACE_LEVELDB, host_name);
@@ -154,7 +158,9 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
-      ProcessMegascaleDcn(xspace);
+      if (profiler_trace_options.enable_legacy_dcn) {
+        ProcessMegascaleDcn(xspace);
+      }
       TraceEventsContainer trace_container;
       // No-op method which will be deprecated in the future, thus added
       // /*host_id=*/1 as a placeholder for now.
@@ -181,10 +187,6 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
         *trace_events_metadata_sstable_path;
     file_paths.trace_events_prefix_trie_file_path =
         *trace_events_prefix_trie_sstable_path;
-    TF_ASSIGN_OR_RETURN(TraceViewOption trace_option,
-                        GetTraceViewOption(options));
-    tensorflow::profiler::TraceOptions profiler_trace_options =
-        TraceOptionsFromToolOptions(options);
     TraceEventsContainer trace_container;
     // Fetch Args Request.
     if (!trace_option.event_name.empty()) {

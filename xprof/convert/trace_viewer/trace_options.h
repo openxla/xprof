@@ -28,6 +28,7 @@ inline constexpr const char* kRawGpuStreams = "raw_gpu_streams";
 inline constexpr const char* kMaxHostThreads = "max_threads";
 inline constexpr const char* kShowHloCostModel = "show_hlo_cost_model";
 inline constexpr const char* kMpmdPipelineView = "mpmd_pipeline_view";
+inline constexpr const char* kEnableLegacyDcn = "enable_legacy_dcn";
 
 // Options used to select TraceEvents (e.g., for visualization or further
 // processing).
@@ -65,6 +66,10 @@ struct TraceOptions {
 
   // Whether to show MPMD view in trace viewer.
   bool mpmd_pipeline_view = false;
+
+  // Whether to enable legacy DCN view.
+  // Note: This is deprecated and will be removed in Q2 2026.
+  bool enable_legacy_dcn = false;
 };
 
 // Returns TraceOptions for use when the generated events will be visualized.

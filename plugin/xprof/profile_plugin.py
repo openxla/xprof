@@ -1214,6 +1214,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     perfetto = _get_bool_arg(request.args, 'perfetto', False)
     use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
     full_dma = _get_bool_arg(request.args, 'full_dma', False)
+    enable_legacy_dcn = _get_bool_arg(request.args, 'enable_legacy_dcn', False)
     run_dir = self._run_dir(run, request)
 
     # Check if the cache file exists and if the cache file version is less
@@ -1260,6 +1261,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       options = {}
       options['resolution'] = request.args.get('resolution', 8000)
       options['full_dma'] = full_dma
+      options['enable_legacy_dcn'] = enable_legacy_dcn
       if request.args.get('start_time_ms') is not None:
         options['start_time_ms'] = request.args.get('start_time_ms')
       if request.args.get('end_time_ms') is not None:

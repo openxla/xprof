@@ -102,7 +102,9 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
                           session_snapshot.GetXSpace(i, &arena));
       PreprocessSingleHostXSpace(xspace, /*step_grouping=*/true,
                                  /*derived_timeline=*/true);
-      ProcessMegascaleDcn(xspace);
+      if (profiler_trace_options.enable_legacy_dcn) {
+        ProcessMegascaleDcn(xspace);
+      }
 
       TraceEventsContainer trace_container;
       ConvertXSpaceToTraceEventsContainer(host_name, *xspace,
@@ -251,7 +253,11 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
     tensorflow::profiler::PreprocessSingleHostXSpace(&temp_xspace,
                                                      /*step_grouping=*/true,
                                                      /*derived_timeline=*/true);
-    tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
+    tensorflow::profiler::TraceOptions profiler_trace_options =
+        TraceOptionsFromToolOptions(options_);
+    if (profiler_trace_options.enable_legacy_dcn) {
+      tensorflow::profiler::ProcessMegascaleDcn(&temp_xspace);
+    }
 
     TraceEventsContainer trace_container;
     tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(

@@ -65,6 +65,8 @@ TraceOptions TraceOptionsFromToolOptions(const ToolOptions& tool_options) {
   TraceOptions options;
   options.full_dma =
       GetParamWithDefault<bool>(tool_options, kFullDma, options.full_dma);
+  options.enable_legacy_dcn = GetParamWithDefault<bool>(
+      tool_options, kEnableLegacyDcn, options.enable_legacy_dcn);
   return options;
 }
 

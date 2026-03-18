@@ -484,6 +484,7 @@ class ProfilePluginTest(absltest.TestCase):
         'trace_viewer_options': {
             'resolution': '10000',
             'full_dma': True,
+            'enable_legacy_dcn': False,
             'start_time_ms': '100',
             'end_time_ms': '200',
         },

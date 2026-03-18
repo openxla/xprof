@@ -40,14 +40,19 @@ TEST(TraceOptionsTest, TraceOptionsFromToolOptionsTest) {
   ToolOptions tool_options;
   TraceOptions options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
+  EXPECT_FALSE(options.enable_legacy_dcn);
 
   tool_options["full_dma"] = true;
+  tool_options["enable_legacy_dcn"] = true;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_TRUE(options.full_dma);
+  EXPECT_TRUE(options.enable_legacy_dcn);
 
   tool_options["full_dma"] = false;
+  tool_options["enable_legacy_dcn"] = false;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
+  EXPECT_FALSE(options.enable_legacy_dcn);
 }
 
 TEST(TraceOptionsTest, TraceOptionsToDetailsTest) {

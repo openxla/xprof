@@ -73,11 +73,9 @@ absl::Status MegascaleStatsProcessor::ProcessSession(
     XprofTrace xprof_trace = XSpaceLoader::Load(*xspace);
     TraceProcessor processor(&xprof_trace);
     processor.Process();
-    TF_ASSIGN_OR_RETURN(
-        std::string perfetto_trace,
-        PerfettoWriter::WriteToString(xprof_trace, /*compressed_output=*/true));
-    SetOutput(perfetto_trace, "application/octet-stream");
-    return absl::OkStatus();
+    content_type_ = "application/octet-stream";
+    return PerfettoWriter::WriteToString(xprof_trace, &data_,
+                                         /*compressed_output=*/true);
   }
 
   TF_ASSIGN_OR_RETURN(

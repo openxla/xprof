@@ -4,7 +4,6 @@
 #include <string>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
@@ -18,8 +17,9 @@ class PerfettoWriter {
                                   bool compressed_output = true);
   // Same as above but returns the serialized (and optionally compressed) proto
   // as a string.
-  static absl::StatusOr<std::string> WriteToString(
-      const XprofTrace& trace, bool compressed_output = true);
+  static absl::Status WriteToString(const XprofTrace& trace,
+                                    std::string* output,
+                                    bool compressed_output = true);
 };
 
 }  // namespace xprof::megascale

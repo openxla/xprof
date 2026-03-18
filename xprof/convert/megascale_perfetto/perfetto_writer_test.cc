@@ -52,5 +52,29 @@ TEST(PerfettoWriterTest, WriteToCordBasic) {
   EXPECT_TRUE(found_track_event);
 }
 
+TEST(PerfettoWriterTest, WriteToStringBasic) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "TestTrack";
+  track.events.push_back({"event1", 1000, 500});
+
+  std::string output;
+  ASSERT_OK(PerfettoWriter::WriteToString(trace, &output,
+                                          /*compressed_output=*/false));
+
+  perfetto::protos::Trace trace_proto;
+  ASSERT_TRUE(trace_proto.ParseFromString(output));
+
+  bool found = false;
+  for (const auto& packet : trace_proto.packet()) {
+    if (packet.has_track_descriptor() &&
+        packet.track_descriptor().name() == "TestTrack") {
+      found = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found);
+}
+
 }  // namespace
 }  // namespace xprof::megascale

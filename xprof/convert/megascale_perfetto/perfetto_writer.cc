@@ -394,8 +394,9 @@ absl::Status PerfettoWriter::WriteToCord(const XprofTrace& trace,
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::string> PerfettoWriter::WriteToString(
-    const XprofTrace& trace, bool compressed_output) {
+absl::Status PerfettoWriter::WriteToString(const XprofTrace& trace,
+                                           std::string* output,
+                                           bool compressed_output) {
   google::protobuf::Arena arena;
   auto* trace_proto = google::protobuf::Arena::Create<perfetto::protos::Trace>(&arena);
   Write(trace, trace_proto);
@@ -403,17 +404,19 @@ absl::StatusOr<std::string> PerfettoWriter::WriteToString(
 #ifdef PLATFORM_WINDOWS
     LOG(WARNING) << "Compression is not supported on Windows.";
 #else
-    std::string output;
-    google::protobuf::io::StringOutputStream stream(&output);
+    google::protobuf::io::StringOutputStream stream(output);
     google::protobuf::io::GzipOutputStream gzip_stream(&stream);
     if (!trace_proto->SerializeToZeroCopyStream(&gzip_stream) ||
         !gzip_stream.Close()) {
       return absl::InternalError("Failed to serialize to gzip stream");
     }
-    return output;
+    return absl::OkStatus();
 #endif
   }
-  return trace_proto->SerializeAsString();
+  if (!trace_proto->SerializeToString(output)) {
+    return absl::InternalError("Failed to serialize to string");
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace xprof::megascale

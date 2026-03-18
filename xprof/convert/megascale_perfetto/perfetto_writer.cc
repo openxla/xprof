@@ -379,7 +379,9 @@ absl::Status PerfettoWriter::WriteToCord(const XprofTrace& trace,
     LOG(WARNING) << "Compression is not supported on Windows.";
 #else
     google::protobuf::io::CordOutputStream stream;
-    google::protobuf::io::GzipOutputStream gzip_stream(&stream);
+    google::protobuf::io::GzipOutputStream::Options options;
+    options.compression_level = 1;
+    google::protobuf::io::GzipOutputStream gzip_stream(&stream, options);
     if (!trace_proto->SerializeToZeroCopyStream(&gzip_stream) ||
         !gzip_stream.Close()) {
       return absl::InternalError("Failed to serialize to gzip stream");
@@ -405,7 +407,9 @@ absl::Status PerfettoWriter::WriteToString(const XprofTrace& trace,
     LOG(WARNING) << "Compression is not supported on Windows.";
 #else
     google::protobuf::io::StringOutputStream stream(output);
-    google::protobuf::io::GzipOutputStream gzip_stream(&stream);
+    google::protobuf::io::GzipOutputStream::Options options;
+    options.compression_level = 1;
+    google::protobuf::io::GzipOutputStream gzip_stream(&stream, options);
     if (!trace_proto->SerializeToZeroCopyStream(&gzip_stream) ||
         !gzip_stream.Close()) {
       return absl::InternalError("Failed to serialize to gzip stream");

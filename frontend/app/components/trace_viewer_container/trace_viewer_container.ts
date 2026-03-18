@@ -1,7 +1,19 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnDestroy,
+  OnInit,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -11,12 +23,17 @@ import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatTableModule} from '@angular/material/table';
 import {AngularSplitModule} from 'angular-split';
-import {isSearchEventsEvent, LOADING_STATUS_UPDATE_EVENT_NAME, SEARCH_EVENTS_EVENT_NAME, SearchEventsEventDetail, TraceViewerV2LoadingStatus, type TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {
+  isSearchEventsEvent,
+  LOADING_STATUS_UPDATE_EVENT_NAME,
+  SEARCH_EVENTS_EVENT_NAME,
+  SearchEventsEventDetail,
+  TraceViewerV2LoadingStatus,
+  type TraceViewerV2Module,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
-
-
 
 /**
  * The name of the event selected custom event, dispatched from WASM in Trace
@@ -43,16 +60,18 @@ export declare interface EntrySelectedEventDetail {
 
 // Type guard for the 'EntrySelected' custom event.
 function isEntrySelectedEvent(
-    event: Event,
-    ): event is CustomEvent<EntrySelectedEventDetail> {
+  event: Event,
+): event is CustomEvent<EntrySelectedEventDetail> {
   return (
-      event instanceof CustomEvent && event.detail &&
-      typeof event.detail.eventIndex === 'number' &&
-      typeof event.detail.name === 'string' &&
-      typeof event.detail.startUs === 'number' &&
-      typeof event.detail.durationUs === 'number' &&
-      typeof event.detail.startUsFormatted === 'string' &&
-      typeof event.detail.durationUsFormatted === 'string');
+    event instanceof CustomEvent &&
+    event.detail &&
+    typeof event.detail.eventIndex === 'number' &&
+    typeof event.detail.name === 'string' &&
+    typeof event.detail.startUs === 'number' &&
+    typeof event.detail.durationUs === 'number' &&
+    typeof event.detail.startUsFormatted === 'string' &&
+    typeof event.detail.durationUsFormatted === 'string'
+  );
 }
 
 /**
@@ -72,7 +91,7 @@ export interface SelectedEvent {
  */
 export interface SelectedEventProperty {
   property: string;
-  value: string|undefined;
+  value: string | undefined;
 }
 
 // The tutorials to display while the trace viewer is loading.
@@ -95,11 +114,14 @@ declare interface LoadingStatusUpdateEventDetail {
 
 // Type guard for the 'LoadingStatusUpdate' custom event.
 function isLoadingStatusUpdateEvent(
-    event: Event,
-    ): event is CustomEvent<LoadingStatusUpdateEventDetail> {
+  event: Event,
+): event is CustomEvent<LoadingStatusUpdateEventDetail> {
   return (
-      event instanceof CustomEvent && event.detail && event.detail.status &&
-      Object.values(TraceViewerV2LoadingStatus).includes(event.detail.status));
+    event instanceof CustomEvent &&
+    event.detail &&
+    event.detail.status &&
+    Object.values(TraceViewerV2LoadingStatus).includes(event.detail.status)
+  );
 }
 
 declare interface TrackView extends Element {
@@ -109,7 +131,7 @@ declare interface TrackView extends Element {
 }
 
 declare interface TfTraceViewer {
-  _traceViewer?: {trackView?: TrackView|null;};
+  _traceViewer?: {trackView?: TrackView | null};
 }
 
 /** A trace viewer container component. */
@@ -132,17 +154,19 @@ declare interface TfTraceViewer {
     MatTableModule,
   ],
 })
-export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, OnChanges {
-  @Input() traceViewerModule: TraceViewerV2Module|null = null;
+export class TraceViewerContainer
+  implements OnInit, OnDestroy, AfterViewInit, OnChanges
+{
+  @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
-  @Input() selectedEvent?: SelectedEvent|null;
+  @Input() selectedEvent?: SelectedEvent | null;
   @Input() searching = false;
   isInitialLoading = true;
   @Input() selectedEventProperties: SelectedEventProperty[] = [];
   @Input() eventDetailColumns: string[] = [];
   @Output()
-  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail|null>();
+  readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
 
@@ -150,7 +174,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   readonly TraceViewerV2LoadingStatus = TraceViewerV2LoadingStatus;
   traceViewerV2LoadingStatus: TraceViewerV2LoadingStatus =
-      TraceViewerV2LoadingStatus.IDLE;
+    TraceViewerV2LoadingStatus.IDLE;
   traceViewerV2ErrorMessage?: string;
   searchQuery = '';
   search$ = new Subject<string>();
@@ -167,30 +191,31 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
   private readonly destroyed = new ReplaySubject<void>(1);
 
   constructor() {
-    this.search$.pipe(debounceTime(300), takeUntil(this.destroyed))
-        .subscribe((query) => {
-          this.currentSearchQuery = query;
-          if (this.traceViewerModule) {
-            this.traceViewerModule.Application.Instance().setSearchQuery(query);
-            this.updateSearchResultCountText();
-          } else if (!query) {
-            this.searchResultCountText = '';
-          }
-        });
+    this.search$
+      .pipe(debounceTime(300), takeUntil(this.destroyed))
+      .subscribe((query) => {
+        this.currentSearchQuery = query;
+        if (this.traceViewerModule) {
+          this.traceViewerModule.Application.Instance().setSearchQuery(query);
+          this.updateSearchResultCountText();
+        } else if (!query) {
+          this.searchResultCountText = '';
+        }
+      });
   }
 
   ngOnInit() {
     window.addEventListener(
-        LOADING_STATUS_UPDATE_EVENT_NAME,
-        this.loadingStatusUpdateEventListener,
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      this.loadingStatusUpdateEventListener,
     );
     window.addEventListener(
-        EVENT_SELECTED_EVENT_NAME,
-        this.eventSelectedEventListener,
+      EVENT_SELECTED_EVENT_NAME,
+      this.eventSelectedEventListener,
     );
     window.addEventListener(
-        SEARCH_EVENTS_EVENT_NAME,
-        this.searchEventsEventListener,
+      SEARCH_EVENTS_EVENT_NAME,
+      this.searchEventsEventListener,
     );
   }
 
@@ -203,16 +228,16 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   ngOnDestroy() {
     window.removeEventListener(
-        LOADING_STATUS_UPDATE_EVENT_NAME,
-        this.loadingStatusUpdateEventListener,
+      LOADING_STATUS_UPDATE_EVENT_NAME,
+      this.loadingStatusUpdateEventListener,
     );
     window.removeEventListener(
-        EVENT_SELECTED_EVENT_NAME,
-        this.eventSelectedEventListener,
+      EVENT_SELECTED_EVENT_NAME,
+      this.eventSelectedEventListener,
     );
     window.removeEventListener(
-        SEARCH_EVENTS_EVENT_NAME,
-        this.searchEventsEventListener,
+      SEARCH_EVENTS_EVENT_NAME,
+      this.searchEventsEventListener,
     );
     if (!this.useTraceViewerV2) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
@@ -252,18 +277,16 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   private readonly mouseUpEventListener = (event: Event) => {
     const tfViewer =
-        this.tvIframe?.nativeElement?.contentDocument?.querySelector(
-            'tf-trace-viewer',
-            ) as TfTraceViewer |
-        null;
-    const trackView: TrackView|null|undefined =
-        tfViewer?._traceViewer?.trackView;
+      this.tvIframe?.nativeElement?.contentDocument?.querySelector(
+        'tf-trace-viewer',
+      ) as TfTraceViewer | null;
+    const trackView: TrackView | null | undefined =
+      tfViewer?._traceViewer?.trackView;
     try {
       trackView?.onEndPanScan_(event);
       trackView?.onEndSelection_(event);
       trackView?.onEndZoom_(event);
-    } catch (e) {
-    }
+    } catch (e) {}
   };
 
   private readonly loadingStatusUpdateEventListener = (event: Event) => {
@@ -315,8 +338,9 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
     // If an event is selected, the timeline height is reduced to accommodate
     // the detail view (drawer). Otherwise, the timeline takes the full height.
-    this.timelineHeightPercent =
-        this.selectedEvent ? (100 - this.drawerSizePercent) : 100;
+    this.timelineHeightPercent = this.selectedEvent
+      ? 100 - this.drawerSizePercent
+      : 100;
     this.detailHeightPercent = this.selectedEvent ? this.drawerSizePercent : 0;
   }
 
@@ -334,8 +358,10 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
     }
     this.traceViewerV2LoadingStatus = status;
 
-    if (this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.IDLE ||
-        this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR) {
+    if (
+      this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.IDLE ||
+      this.traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR
+    ) {
       // Stop the tutorial rotation when loading is finished or failed.
       this.stopTutorialRotation();
       this.isInitialLoading = false;
@@ -356,13 +382,12 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
   private startTutorialRotation() {
     if (this.tutorialSubscription) return;
 
-    this.tutorialSubscription =
-        interval(TUTORIAL_ROTATION_INTERVAL_MS)
-            .pipe(takeUntil(this.destroyed))
-            .subscribe(() => {
-              this.currentTutorialIndex =
-                  (this.currentTutorialIndex + 1) % this.tutorials.length;
-            });
+    this.tutorialSubscription = interval(TUTORIAL_ROTATION_INTERVAL_MS)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(() => {
+        this.currentTutorialIndex =
+          (this.currentTutorialIndex + 1) % this.tutorials.length;
+      });
   }
 
   /**
@@ -389,7 +414,7 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
    * @param event The event data containing the new sizes of the split areas.
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
-  onDragEnd({sizes}: {sizes: Array<number|'*'>}) {
+  onDragEnd({sizes}: {sizes: Array<number | '*'>}) {
     if (this.selectedEvent && sizes.length > 1) {
       // This assumes the drawer is the second area (index 1). This is safe as
       // long as the template structure remains consistent (Canvas then Drawer).
@@ -405,16 +430,14 @@ export class TraceViewerContainer implements OnInit, OnDestroy, AfterViewInit, O
 
   nextSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance()
-          .navigateToNextSearchResult();
+      this.traceViewerModule.Application.Instance().navigateToNextSearchResult();
       this.updateSearchResultCountText();
     }
   }
 
   prevSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance()
-          .navigateToPrevSearchResult();
+      this.traceViewerModule.Application.Instance().navigateToPrevSearchResult();
       this.updateSearchResultCountText();
     }
   }

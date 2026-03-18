@@ -1,4 +1,4 @@
-import {SimpleDataTable,} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 /** The base interfact for roofline model property. */
 declare interface RooflineModelProperty {

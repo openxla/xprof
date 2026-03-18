@@ -2,14 +2,23 @@ import {Component, inject, OnDestroy} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {
+  ChartDataInfo,
+  ChartType,
+} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {BAR_CHART_OPTIONS, PIE_CHART_OPTIONS, } from 'org_xprof/frontend/app/components/chart/chart_options';
+import {
+  BAR_CHART_OPTIONS,
+  PIE_CHART_OPTIONS,
+} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 import {FilterDataProcessor} from 'org_xprof/frontend/app/components/chart/filter_data_processor';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -49,7 +58,7 @@ declare interface NodeChartDataInfoMap {
 }
 
 declare interface NodeFilterDataProcessorMap {
-  [index: number]: FilterDataProcessor|null;
+  [index: number]: FilterDataProcessor | null;
 }
 
 /**
@@ -84,20 +93,20 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   hbmCoreIndexes: number[] = [];
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     super();
     route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
       this.sessionId = (params || {})['sessionId'] || '';
     });
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          this.update();
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        this.update();
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
@@ -110,13 +119,14 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     setLoadingState(true, this.store, 'Loading utilization viewer data');
     this.throbber.start();
 
-    this.dataService.getData(this.sessionId, this.tool)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-          this.parseData(data as SimpleDataTable | null);
-        });
+    this.dataService
+      .getData(this.sessionId, this.tool)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        setLoadingState(false, this.store);
+        this.parseData(data as SimpleDataTable | null);
+      });
   }
 
   initDataProcessors() {
@@ -143,34 +153,34 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   }
 
   updateDataProcessors(
-      visibleColumns: Array<number|google.visualization.ColumnSpec>,
-      coreCol: number,
-      unitCol: number,
+    visibleColumns: Array<number | google.visualization.ColumnSpec>,
+    coreCol: number,
+    unitCol: number,
   ) {
     this.coreIndexes.forEach((index: number) => {
       if (this.dataInfoTensorNodesUnit[index] !== undefined) {
         this.dataInfoTensorNodesUnit[index]!.customChartDataProcessor =
-            this.dataProcessorTensorNodesUnit[index] = new FilterDataProcessor(
-                visibleColumns,
-                [
-                  {column: coreCol, value: index},
-                  // A range filter intended to include "cycles" and
-                  // "instructions", but exclude "bytes"
-                  {
-                    column: unitCol,
-                    minValue: 'cycles',
-                    maxValue: 'instructions',
-                  },
-                ],
-            );
+          this.dataProcessorTensorNodesUnit[index] = new FilterDataProcessor(
+            visibleColumns,
+            [
+              {column: coreCol, value: index},
+              // A range filter intended to include "cycles" and
+              // "instructions", but exclude "bytes"
+              {
+                column: unitCol,
+                minValue: 'cycles',
+                maxValue: 'instructions',
+              },
+            ],
+          );
       }
       if (this.dataInfoTensorNodesBandwidth.hasOwnProperty(index)) {
         this.dataInfoTensorNodesBandwidth[index]!.customChartDataProcessor =
-            this.dataProcessorTensorNodesBandwidth[index] =
-                new FilterDataProcessor(visibleColumns, [
-                  {column: coreCol, value: index},
-                  {column: unitCol, value: 'bytes'},
-                ]);
+          this.dataProcessorTensorNodesBandwidth[index] =
+            new FilterDataProcessor(visibleColumns, [
+              {column: coreCol, value: index},
+              {column: unitCol, value: 'bytes'},
+            ]);
       }
     });
   }
@@ -198,7 +208,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     });
   }
 
-  override parseData(data: SimpleDataTable|null) {
+  override parseData(data: SimpleDataTable | null) {
     if (!data) return;
     this.dataProvider.parseData(data);
     const dataTable = this.dataProvider.getDataTable();
@@ -223,7 +233,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
       }
       this.hbmCoreIndexes = Array.from(hbmCoreSet).sort((a, b) => a - b);
 
-      const visibleColumns: Array<number|google.visualization.ColumnSpec> = [
+      const visibleColumns: Array<number | google.visualization.ColumnSpec> = [
         nameCol,
         {
           calc: (data: google.visualization.DataTable, row: number) => {
@@ -240,8 +250,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             const achieved = data.getValue(row, achievedCol);
             const peak = data.getValue(row, peakCol);
             const unit = data.getValue(row, 7);
-            return `Achieved: ${achieved.toLocaleString()} ${unit}\n(Peak: ${
-                peak.toLocaleString()} ${unit})`;
+            return `Achieved: ${achieved.toLocaleString()} ${unit}\n(Peak: ${peak.toLocaleString()} ${unit})`;
           },
           type: 'string',
           role: 'tooltip',
@@ -273,7 +282,8 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
       }
     }
     for (const processor of Object.values(
-             this.dataProcessorTensorNodesBandwidth)) {
+      this.dataProcessorTensorNodesBandwidth,
+    )) {
       if (processor) {
         processor.setFilters(filters);
       }

@@ -19,5 +19,4 @@ import {UtilizationViewer} from './utilization_viewer';
   ],
   exports: [UtilizationViewer],
 })
-export class UtilizationViewerModule {
-}
+export class UtilizationViewerModule {}

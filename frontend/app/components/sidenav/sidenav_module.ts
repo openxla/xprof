@@ -27,7 +27,6 @@ import {SideNav} from './sidenav';
     OpDetailsModule,
     PodViewerDetailsModule,
   ],
-  exports: [SideNav]
+  exports: [SideNav],
 })
-export class SideNavModule {
-}
+export class SideNavModule {}

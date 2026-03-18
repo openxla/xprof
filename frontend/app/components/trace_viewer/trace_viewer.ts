@@ -1,14 +1,35 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {PlatformLocation} from '@angular/common';
-import {AfterViewInit, Component, inject, Injector, OnDestroy, OnInit, ViewChild} from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  inject,
+  Injector,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {API_PREFIX, PLUGIN_NAME} from 'org_xprof/frontend/app/common/constants/constants';
+import {
+  API_PREFIX,
+  PLUGIN_NAME,
+} from 'org_xprof/frontend/app/common/constants/constants';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
-import {EntrySelectedEventDetail, SelectedEvent, SelectedEventProperty, TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
-import {SearchEventsEventDetail, TraceData as MainTraceData, traceViewerV2Main, TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {
+  EntrySelectedEventDetail,
+  SelectedEvent,
+  SelectedEventProperty,
+  TraceViewerContainer,
+} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
+import {
+  TraceData as MainTraceData,
+  SearchEventsEventDetail,
+  traceViewerV2Main,
+  TraceViewerV2Module,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
@@ -31,7 +52,7 @@ export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
-  styleUrls: ['./trace_viewer.css']
+  styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
@@ -45,11 +66,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
   useTraceViewerV2 =
-      new URLSearchParams(window.location.search).get('use_trace_viewer_v2') ===
-          'true' ||
-      window.localStorage.getItem('use_trace_viewer_v2') === 'true';
-  traceViewerModule: TraceViewerV2Module|null = null;
-  selectedEvent: SelectedEvent|null = null;
+    new URLSearchParams(window.location.search).get('use_trace_viewer_v2') ===
+      'true' || window.localStorage.getItem('use_trace_viewer_v2') === 'true';
+  traceViewerModule: TraceViewerV2Module | null = null;
+  selectedEvent: SelectedEvent | null = null;
   selectedEventProperties: SelectedEventProperty[] = [];
   eventDetailColumns: string[] = ['property', 'value'];
   private readonly eventArgsCache = new Map<string, {[key: string]: string}>();
@@ -62,39 +82,47 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly router = inject(Router);
 
   constructor(
-      private readonly dataService: DataServiceV2,
-      platformLocation: PlatformLocation,
-      route: ActivatedRoute,
+    private readonly dataService: DataServiceV2,
+    platformLocation: PlatformLocation,
+    route: ActivatedRoute,
   ) {
     if (String(platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)) {
-      this.pathPrefix =
-          String(platformLocation.pathname).split(API_PREFIX + PLUGIN_NAME)[0];
+      this.pathPrefix = String(platformLocation.pathname).split(
+        API_PREFIX + PLUGIN_NAME,
+      )[0];
     }
-    combineLatest(
-        [route.params, route.queryParams, this.store.select(getHostsState)])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams, hostsMetadata]) => {
-          if (hostsMetadata && hostsMetadata.length > 0) {
-            this.hostList =
-                hostsMetadata.map((host: HostMetadata) => host.hostname);
-          }
-          this.useTraceViewerV2 =
-              queryParams['use_trace_viewer_v2'] === 'true' ||
-              window.localStorage.getItem('use_trace_viewer_v2') === 'true';
-          this.navigationEvent = {...params, ...queryParams};
-          this.update(this.navigationEvent);
-        });
+    combineLatest([
+      route.params,
+      route.queryParams,
+      this.store.select(getHostsState),
+    ])
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams, hostsMetadata]) => {
+        if (hostsMetadata && hostsMetadata.length > 0) {
+          this.hostList = hostsMetadata.map(
+            (host: HostMetadata) => host.hostname,
+          );
+        }
+        this.useTraceViewerV2 =
+          queryParams['use_trace_viewer_v2'] === 'true' ||
+          window.localStorage.getItem('use_trace_viewer_v2') === 'true';
+        this.navigationEvent = {...params, ...queryParams};
+        this.update(this.navigationEvent);
+      });
 
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
-    const sourceCodeService =
-        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-        });
+    const sourceCodeService = this.injector.get(
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
+    );
+    sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+      });
   }
 
   ngOnInit() {
@@ -116,7 +144,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent) {
-    const isStreaming = (event.tag === 'trace_viewer@');
+    const isStreaming = event.tag === 'trace_viewer@';
     const run = event.run || '';
     const tag = event.tag || '';
     const runPath = event.run_path || '';
@@ -135,8 +163,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     } else if (event.host) {
       this.queryString += `&host=${event.host}`;
     } else {
-      this.queryString +=
-          `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
+      this.queryString += `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
     }
 
     const additionalParams = new Map<string, string>();
@@ -146,21 +173,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('run_path', runPath);
     }
 
-
     if (event.hosts) {
       const isString = typeof event.hosts === 'string';
       const hostsString = isString
-          ? (event.hosts as unknown as string)
-          : event.hosts.join(',');
+        ? (event.hosts as unknown as string)
+        : event.hosts.join(',');
 
       additionalParams.set('hosts', hostsString);
     }
 
     const traceDataUrl = this.dataService.getDataUrl(
-        run,
-        tag,
-        event.host || this.hostList[0] || event.hosts?.[0] || '',
-        additionalParams,
+      run,
+      tag,
+      event.host || this.hostList[0] || event.hosts?.[0] || '',
+      additionalParams,
     );
 
     if (this.useTraceViewerV2) {
@@ -169,10 +195,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
     } else {
       this.url = `${this.pathPrefix}${API_PREFIX}${
-          PLUGIN_NAME}/trace_viewer_index.html?is_streaming=${
-          isStreaming}&is_oss=true&trace_data_url=${
-          encodeURIComponent(traceDataUrl)}&source_code_service=${
-          this.sourceCodeServiceIsAvailable}`;
+        PLUGIN_NAME
+      }/trace_viewer_index.html?is_streaming=${
+        isStreaming
+      }&is_oss=true&trace_data_url=${encodeURIComponent(
+        traceDataUrl,
+      )}&source_code_service=${this.sourceCodeServiceIsAvailable}`;
     }
   }
 
@@ -184,7 +212,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   // START Trace Viewer V2 WASM App Methods
 
-  onEventSelected(event: EntrySelectedEventDetail|null) {
+  onEventSelected(event: EntrySelectedEventDetail | null) {
     if (!event) {
       this.selectedEvent = null;
       this.selectedEventProperties = [];
@@ -211,7 +239,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (event.uid) {
       this.maybeFetchEventArgs(
-          event.name, event.startUs, event.durationUs, event.uid);
+        event.name,
+        event.startUs,
+        event.durationUs,
+        event.uid,
+      );
     }
   }
 
@@ -224,24 +256,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.searching = true;
     this.dataService
-        .getData(
-            this.navigationEvent.run || '',
-            this.navigationEvent.tag || '',
-            this.navigationEvent.host || this.hostList[0],
-            new Map([['search_prefix', query]]),
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.searching = false;
-          if (this.traceViewerModule && data) {
-            const traceData = data as TraceData;
-            this.traceViewerModule.setSearchResultsInWasm({
-              ...traceData,
-              traceEvents: traceData.traceEvents || [],
-            } as MainTraceData);
-            this.container?.updateSearchResultCountText();
-          }
-        });
+      .getData(
+        this.navigationEvent.run || '',
+        this.navigationEvent.tag || '',
+        this.navigationEvent.host || this.hostList[0],
+        new Map([['search_prefix', query]]),
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.searching = false;
+        if (this.traceViewerModule && data) {
+          const traceData = data as TraceData;
+          this.traceViewerModule.setSearchResultsInWasm({
+            ...traceData,
+            traceEvents: traceData.traceEvents || [],
+          } as MainTraceData);
+          this.container?.updateSearchResultCountText();
+        }
+      });
   }
 
   onInitializeWasm() {
@@ -251,7 +283,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private maybeFetchEventArgs(
-      name: string, startUs: number, durationUs: number, uid: string) {
+    name: string,
+    startUs: number,
+    durationUs: number,
+    uid: string,
+  ) {
     const key = `${name}-${startUs}-${durationUs}`;
     if (this.eventArgsCache.has(key)) {
       if (this.selectedEvent) {
@@ -267,28 +303,34 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     params.set('unique_id', Math.floor(Number(uid)).toString());
 
     this.dataService
-        .getData(
-            this.navigationEvent.run || '',
-            this.navigationEvent.tag || '',
-            this.navigationEvent.host || this.hostList[0],
-            params,
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          const traceData = data as TraceData;
-          if (!traceData || !traceData.traceEvents ||
-              traceData.traceEvents.length === 0) {
-            return;
-          }
-          const lastEvent =
-              traceData.traceEvents[traceData.traceEvents.length - 1];
-          if (lastEvent['ph'] === 'X' && this.selectedEvent &&
-              lastEvent['args']) {
-            const args = lastEvent['args'] as {[key: string]: string};
-            this.eventArgsCache.set(key, args);
-            this.addArgsToSelectedEvent(args);
-          }
-        });
+      .getData(
+        this.navigationEvent.run || '',
+        this.navigationEvent.tag || '',
+        this.navigationEvent.host || this.hostList[0],
+        params,
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        const traceData = data as TraceData;
+        if (
+          !traceData ||
+          !traceData.traceEvents ||
+          traceData.traceEvents.length === 0
+        ) {
+          return;
+        }
+        const lastEvent =
+          traceData.traceEvents[traceData.traceEvents.length - 1];
+        if (
+          lastEvent['ph'] === 'X' &&
+          this.selectedEvent &&
+          lastEvent['args']
+        ) {
+          const args = lastEvent['args'] as {[key: string]: string};
+          this.eventArgsCache.set(key, args);
+          this.addArgsToSelectedEvent(args);
+        }
+      });
   }
 
   private addArgsToSelectedEvent(args: {[key: string]: string}) {
@@ -304,12 +346,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   switchToOldFrontend(showSurvey = true) {
     this.useTraceViewerV2 = false;
-    window.gtag && window.gtag('event', 'switch-frontend', {
-      'event_category': 'user_interaction',
-      'event_label': 'switch_to_old',
-      'screen_name': 'trace viewer',
-      'tool_name': 'trace viewer',
-    });
+    window.gtag &&
+      window.gtag('event', 'switch-frontend', {
+        'event_category': 'user_interaction',
+        'event_label': 'switch_to_old',
+        'screen_name': 'trace viewer',
+        'tool_name': 'trace viewer',
+      });
     const queryParams = this.dataService.getSearchParams();
     queryParams.set('use_trace_viewer_v2', 'false');
     // Store preference to stay on v1
@@ -338,12 +381,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   switchToV2Frontend() {
     this.useTraceViewerV2 = true;
-    window.gtag && window.gtag('event', 'switch-frontend', {
-      'event_category': 'user_interaction',
-      'event_label': 'switch_to_v2',
-      'screen_name': 'trace viewer',
-      'tool_name': 'trace viewer',
-    });
+    window.gtag &&
+      window.gtag('event', 'switch-frontend', {
+        'event_category': 'user_interaction',
+        'event_label': 'switch_to_v2',
+        'screen_name': 'trace viewer',
+        'tool_name': 'trace viewer',
+      });
     const queryParams = this.dataService.getSearchParams();
     queryParams.set('use_trace_viewer_v2', 'true');
     window.localStorage.setItem('use_trace_viewer_v2', 'true');

@@ -1,4 +1,3 @@
-
 import {SourceInfo} from './source_info.jsonpb_decls.d';
 
 /** The base interface for a heap object. */

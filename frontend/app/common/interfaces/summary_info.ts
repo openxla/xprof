@@ -1,6 +1,6 @@
 /** The base interface for a information of performance summary view. */
 export interface SummaryInfo {
-  level?: number;  // Top level metric is level 1, use to control styles
+  level?: number; // Top level metric is level 1, use to control styles
   title: string;
   descriptions?: string[];
   tooltip?: string;
@@ -33,8 +33,9 @@ export interface SummaryInfoConfig {
   // valueKey and getValue are mutual exclusive
   getValue?: (arg: google.visualization.DataObjectCell[]) => string;
   // custom callback function to get a nested metrics list
-  getChildValues?: (arg: GeneralProps|
-                    google.visualization.DataObjectCell[]) => string[];
+  getChildValues?: (
+    arg: GeneralProps | google.visualization.DataObjectCell[],
+  ) => string[];
   unit?: string;
   valueColor?: string;
   trainingOnly?: boolean;

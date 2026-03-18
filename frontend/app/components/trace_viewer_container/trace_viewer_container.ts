@@ -12,7 +12,7 @@ import {
   OnInit,
   Output,
   SimpleChanges,
-  ViewChild,
+  ViewChild, ChangeDetectionStrategy,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -136,7 +136,7 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Default,standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],

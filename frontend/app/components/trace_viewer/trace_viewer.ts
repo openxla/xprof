@@ -8,7 +8,7 @@ import {
   Injector,
   OnDestroy,
   OnInit,
-  ViewChild,
+  ViewChild, ChangeDetectionStrategy,
 } from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -49,7 +49,7 @@ export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 /** A trace viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css'],

@@ -23,10 +23,10 @@ ImGuiKey TranslateKey(absl::string_view code) {
 
 void UpdateModifierKeys(const EmscriptenKeyboardEvent* event) {
   ImGuiIO& io = ImGui::GetIO();
-  io.AddKeyEvent(ImGuiKey_ModCtrl, event->ctrlKey);
-  io.AddKeyEvent(ImGuiKey_ModShift, event->shiftKey);
-  io.AddKeyEvent(ImGuiKey_ModAlt, event->altKey);
-  io.AddKeyEvent(ImGuiKey_ModSuper, event->metaKey);
+    io.AddKeyEvent(ImGuiKey_ModCtrl, event->ctrlKey);
+    io.AddKeyEvent(ImGuiKey_ModShift, event->shiftKey);
+    io.AddKeyEvent(ImGuiKey_ModAlt, event->altKey);
+    io.AddKeyEvent(ImGuiKey_ModSuper, event->metaKey);
 }
 
 }  // namespace
@@ -93,9 +93,9 @@ EM_BOOL HandleMouseUp(int, const EmscriptenMouseEvent* event, void*) {
 EM_BOOL HandleWheel(int, const EmscriptenWheelEvent* event, void*) {
   ImGuiIO& io = ImGui::GetIO();
 
-  io.AddKeyEvent(ImGuiKey_ModCtrl, event->mouse.ctrlKey);
-  io.AddKeyEvent(ImGuiKey_ModShift, event->mouse.shiftKey);
-  io.AddKeyEvent(ImGuiKey_ModSuper, event->mouse.metaKey);
+    io.AddKeyEvent(ImGuiKey_ModCtrl, event->mouse.ctrlKey);
+    io.AddKeyEvent(ImGuiKey_ModShift, event->mouse.shiftKey);
+    io.AddKeyEvent(ImGuiKey_ModSuper, event->mouse.metaKey);
 
   float wheel_x = static_cast<float>(event->deltaX);
   float wheel_y = static_cast<float>(event->deltaY);

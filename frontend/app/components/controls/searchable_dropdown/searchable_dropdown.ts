@@ -1,5 +1,5 @@
 import {CommonModule} from '@angular/common';
-import {AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, EventEmitter, Input, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatOptionModule} from '@angular/material/core';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -11,7 +11,7 @@ import {MatSelectModule} from '@angular/material/select';
  * A reusable standalone component for a searchable dropdown.
  */
 @Component({
-  standalone: true,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: true,
   selector: 'app-searchable-dropdown',
   templateUrl: './searchable_dropdown.ng.html',
   styleUrls: ['./searchable_dropdown.scss'],

@@ -1,6 +1,6 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
-import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild} from '@angular/core';
+import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -31,7 +31,7 @@ interface DefaultGraphOption {
 
 /** A graph viewer component. */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],

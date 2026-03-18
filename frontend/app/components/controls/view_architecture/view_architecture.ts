@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnDestroy, OnInit} from '@angular/core';
+import {Component, inject, Input, OnDestroy, OnInit, ChangeDetectionStrategy} from '@angular/core';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface, } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -9,7 +9,7 @@ import {takeUntil} from 'rxjs/operators';
  * architecture in the program code.
  */
 @Component({
-  standalone: false,
+  changeDetection: ChangeDetectionStrategy.Eager,standalone: false,
   selector: 'view-architecture',
   templateUrl: './view_architecture.ng.html',
   styleUrls: ['./view_architecture.scss'],

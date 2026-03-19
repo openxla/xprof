@@ -273,9 +273,15 @@ void Timeline::Draw() {
   current_timeline_width_ =
       content_region_avail_width - label_width_ - kTimelinePaddingRight;
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
+  const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
+
+  // Draw vertical lines across the background first so they are behind the
+  // table rows (specifically the process track headers).
+  DrawVerticalGridLines(tick_info, current_timeline_width_,
+                        viewport->Pos.y + viewport->Size.y);
 
   // Draw Ruler
-  DrawRuler(current_timeline_width_, viewport->Pos.y + viewport->Size.y);
+  DrawRulerUI(tick_info, current_timeline_width_);
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
@@ -716,10 +722,30 @@ double Timeline::px_per_time_unit(Pixel timeline_width) const {
   }
 }
 
-// Draws the timeline ruler. This includes the main horizontal line,
-// vertical tick marks indicating time intervals, and their corresponding time
-// labels.
-void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
+// Calculates the timing and pixel spacing for timeline ticks.
+// This function determines a "nice" interval (e.g., 1, 2, 5, 10...) such that
+// ticks are neither too crowded nor too sparse on screen.
+Timeline::TickInfo Timeline::CalculateTickInfo(
+    double px_per_time_unit_val) const {
+  const Microseconds min_time_interval =
+      kMinTickDistancePx / px_per_time_unit_val;
+  const Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
+  const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
+
+  const Microseconds view_start = visible_range().start();
+  const Microseconds trace_start = data_time_range_.start();
+
+  const Microseconds view_start_relative = view_start - trace_start;
+  const Microseconds first_tick_time_relative =
+      std::floor(view_start_relative / tick_interval) * tick_interval;
+
+  return {tick_interval, major_tick_dist_px, first_tick_time_relative};
+}
+
+// Renders the ruler UI element at the top of the timeline.
+// This is drawn as a table row and includes the background, the main horizontal
+// line, major/minor tick marks, and time labels.
+void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
   ImGui::TableNextRow();
   ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                          ImGui::GetColorU32(ImGuiCol_WindowBg));
@@ -737,17 +763,10 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
     draw_list->AddLine(ImVec2(pos.x, line_y),
                        ImVec2(pos.x + timeline_width, line_y), kRulerLineColor);
 
-    const Microseconds min_time_interval =
-        kMinTickDistancePx / px_per_time_unit_val;
-    const Microseconds tick_interval = CalculateNiceInterval(min_time_interval);
-    const Pixel major_tick_dist_px = tick_interval * px_per_time_unit_val;
-
-    const Microseconds view_start = visible_range().start();
+    const Microseconds tick_interval = info.tick_interval;
+    const Pixel major_tick_dist_px = info.major_tick_dist_px;
+    const Microseconds first_tick_time_relative = info.first_tick_time_relative;
     const Microseconds trace_start = data_time_range_.start();
-
-    const Microseconds view_start_relative = view_start - trace_start;
-    const Microseconds first_tick_time_relative =
-        std::floor(view_start_relative / tick_interval) * tick_interval;
 
     const Pixel minor_tick_dist_px =
         major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
@@ -761,15 +780,10 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
         break;
       }
 
-      // Draw major tick.
       if (x >= pos.x - kRulerScreenBuffer) {
-        // Draw major tick.
+        // Draw major tick marks on the ruler.
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
                            kRulerLineColor);
-
-        // Draw vertical line across the tracks.
-        draw_list->AddLine(ImVec2(x, line_y), ImVec2(x, viewport_bottom),
-                           kTraceVerticalLineColor);
 
         const std::string time_label_text = FormatTime(t_relative);
         ImGui::PushFont(fonts::label_small);
@@ -794,6 +808,43 @@ void Timeline::DrawRuler(Pixel timeline_width, Pixel viewport_bottom) {
 
   // Reserve space for the ruler
   ImGui::Dummy(ImVec2(0.0f, kRulerHeight + ImGui::GetStyle().CellPadding.y));
+}
+
+// Draws vertical grid lines that extend from the ruler down across all tracks.
+// These lines are typically drawn behind the tracks in the background layer
+// to provide a visual time reference without obscuring track content.
+void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
+                                     Pixel viewport_bottom) {
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+
+  const double px_per_time_unit_val = px_per_time_unit(timeline_width);
+  if (px_per_time_unit_val <= 0) return;
+
+  const Pixel timeline_x_start = pos.x + label_width_;
+  const Pixel line_y_top = pos.y + kRulerHeight;
+
+  const Microseconds tick_interval = info.tick_interval;
+  const Pixel major_tick_dist_px = info.major_tick_dist_px;
+  const Microseconds first_tick_time_relative = info.first_tick_time_relative;
+
+  const Microseconds trace_start = data_time_range_.start();
+
+  Microseconds t_relative = first_tick_time_relative;
+  Pixel x = TimeToScreenX(t_relative + trace_start, timeline_x_start,
+                          px_per_time_unit_val);
+
+  for (;; t_relative += tick_interval, x += major_tick_dist_px) {
+    if (x > timeline_x_start + timeline_width + kRulerScreenBuffer) {
+      break;
+    }
+
+    if (x >= timeline_x_start - kRulerScreenBuffer) {
+      // Draw vertical line across the tracks.
+      draw_list->AddLine(ImVec2(x, line_y_top), ImVec2(x, viewport_bottom),
+                         kTraceVerticalLineColor);
+    }
+  }
 }
 
 void Timeline::DrawEventName(absl::string_view event_name,
@@ -1089,8 +1140,8 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
     }
   }
 
-  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
-                        0, kLaneFlags)) {
+  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
+                        kLaneFlags)) {
     const ImVec2 max = ImGui::GetContentRegionMax();
 
     if (group.type == Group::Type::kCounter) {
@@ -1153,8 +1204,8 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
     }
   }
 
-  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height),
-                        0, kLaneFlags)) {
+  if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
+                        kLaneFlags)) {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.type == Group::Type::kCounter) {

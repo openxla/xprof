@@ -128,7 +128,67 @@ TEST(TimelineTest, TimeToScreenX) {
   EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, 0.0), 50.0f);
 
   // Test with negative px_per_unit
-  EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, -10.0), 50.0f);
+  EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, -10.0),
+            screen_x_offset);
+}
+
+TEST(TimelineTest, CalculateTickInfo) {
+  Timeline timeline;
+  // Data range: [1000, 2000].
+  timeline.set_data_time_range({1000.0, 2000.0});
+  // Visible range: [1100, 1200].
+  timeline.SetVisibleRange({1100.0, 1200.0});
+
+  // 1 pixel per microsecond.
+  double px_per_unit = 1.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 1.0 = 80.
+  // CalculateNiceInterval(80) should return 100.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 100.0);
+  EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
+
+  // view_start_relative = 1100 - 1000 = 100.
+  // first_tick_time_relative = floor(100 / 100) * 100 = 100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
+}
+
+TEST(TimelineTest, CalculateTickInfoZoomedIn) {
+  Timeline timeline;
+  timeline.set_data_time_range({1000.0, 2000.0});
+  timeline.SetVisibleRange({1105.0, 1106.0});  // Very zoomed in.
+
+  // 100 pixels per microsecond.
+  double px_per_unit = 100.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 100 = 0.8.
+  // CalculateNiceInterval(0.8) should return 1.0.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 1.0);
+  EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
+
+  // view_start_relative = 1105 - 1000 = 105.
+  // first_tick_time_relative = floor(105 / 1) * 1 = 105.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 105.0);
+}
+
+TEST(TimelineTest, CalculateTickInfoOffset) {
+  Timeline timeline;
+  timeline.set_data_time_range({1000.0, 2000.0});
+  // Visible range starts at 1105, but interval is 10.
+  timeline.SetVisibleRange({1105.0, 1150.0});
+
+  // 10 pixels per microsecond.
+  double px_per_unit = 10.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 10 = 8.
+  // CalculateNiceInterval(8) should return 10.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 10.0);
+
+  // view_start_relative = 1105 - 1000 = 105.
+  // first_tick_time_relative = floor(105 / 10) * 10 = 100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
 }
 
 // Constants for CalculateEventRect tests
@@ -3930,7 +3990,7 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
   // Check the vertical text line goes down to the exact viewport bottom
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const float expected_viewport_bottom = viewport->Pos.y + viewport->Size.y;
-  EXPECT_NEAR(max_y_for_trace_vertical_line, expected_viewport_bottom, 1.0f);
+  EXPECT_NEAR(max_y_for_trace_vertical_line, expected_viewport_bottom, 0.5f);
 
   std::vector<float> unique_xs;
   for (float x : ruler_line_x_positions) {

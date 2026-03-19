@@ -249,6 +249,19 @@ class Timeline {
   void NavigateToNextSearchResult();
   void NavigateToPrevSearchResult();
 
+  // Information about timeline ticks for drawing ruler and grid lines.
+  struct TickInfo {
+    // Time duration between major ticks.
+    Microseconds tick_interval;
+    // Pixel distance between major ticks.
+    Pixel major_tick_dist_px;
+    // Time of the first major tick relative to trace start.
+    Microseconds first_tick_time_relative;
+  };
+
+  // Calculates tick information based on current zoom level (px_per_time_unit).
+  TickInfo CalculateTickInfo(double px_per_time_unit_val) const;
+
   // Calculates the control points for a cubic Bezier curve used to draw flows.
   static void CalculateBezierControlPoints(float start_x, float start_y,
                                            float end_x, float end_y,
@@ -302,9 +315,13 @@ class Timeline {
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);
 
-  // Draws the timeline ruler. `viewport_bottom` is the y-coordinate of the
-  // bottom of the viewport, used to draw vertical grid lines across the tracks.
-  void DrawRuler(Pixel timeline_width, Pixel viewport_bottom);
+  // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
+  void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
+  // Draws vertical grid lines across the background of the tracks.
+  // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
+  // to draw vertical grid lines across the tracks.
+  void DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
+                             Pixel viewport_bottom);
 
   void DrawEventName(absl::string_view event_name, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list) const;

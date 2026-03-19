@@ -35,6 +35,7 @@ class Application {
   ~Application() { ImGui::DestroyContext(); }
 
   void Initialize();
+  void Shutdown();
   void Main();
 
   Timeline& timeline() { return *timeline_; };

@@ -90,8 +90,8 @@ export enum TraceViewerV2LoadingStatus {
 }
 
 declare function loadWasmTraceViewerModule(
-    options?: object,
-    ): Promise<TraceViewerV2Module>;
+  options?: object,
+): Promise<TraceViewerV2Module>;
 
 /**
  * Interface for the WebAssembly module loaded by `loadWasmTraceViewerModule`.
@@ -107,18 +107,22 @@ declare function loadWasmTraceViewerModule(
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;
   processTraceEvents(
-      data: TraceData,
-      timeRangeFromUrl?: [number, number],
-      ): void;
+    data: TraceData,
+    timeRangeFromUrl?: [number, number],
+  ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
   setSearchResultsInWasm(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
-  StringVector:
-      {size(): number; get(index: number): string; toArray(): string[];};
-  IntVector: {size(): number; get(index: number): number;};
+  StringVector: {
+    size(): number;
+    get(index: number): string;
+    toArray(): string[];
+  };
+  IntVector: {size(): number; get(index: number): number};
   application: {
     instance(): {
-      dataProvider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
+      shutdown(): void;
+      dataProvider(): {getFlowCategories(): TraceViewerV2Module['IntVector']};
       getCurrentSearchResultIndex(): number;
       getSearchResultsCount(): number;
       navigateToNextSearchResult(): void;
@@ -146,9 +150,51 @@ export declare interface TraceData {
  */
 export function isTraceData(data: unknown): data is TraceData {
   return (
-      typeof data === 'object' && data !== null &&
-      data.hasOwnProperty('traceEvents') &&
-      Array.isArray((data as TraceData).traceEvents));
+    typeof data === 'object' &&
+    data !== null &&
+    data.hasOwnProperty('traceEvents') &&
+    Array.isArray((data as TraceData).traceEvents)
+  );
+}
+
+// Global state to track active WASM module and event listeners for cleanup.
+let activeWasmModule: TraceViewerV2Module | null = null;
+
+/**
+ * Interface for tracking event listeners registered on the window.
+ * Each instance stores the event `type` and the `listener` function,
+ * allowing them to be properly removed when the trace viewer is shut down.
+ */
+interface RegisteredListener {
+  type: string;
+  listener: EventListener;
+}
+
+const registeredEventListeners: RegisteredListener[] = [];
+
+function registerWindowListener(type: string, listener: EventListener) {
+  window.addEventListener(type, listener);
+  registeredEventListeners.push({type, listener});
+}
+
+/**
+ * Shuts down the active Trace Viewer v2 WASM application and cleans up
+ * resources, including event listeners and WASM memory.
+ */
+export function shutdownTraceViewerV2() {
+  if (activeWasmModule) {
+    try {
+      activeWasmModule.application.instance().shutdown();
+    } catch (e) {
+      console.error('Error during WASM shutdown:', e);
+    }
+    activeWasmModule = null;
+  }
+
+  for (const {type, listener} of registeredEventListeners) {
+    window.removeEventListener(type, listener);
+  }
+  registeredEventListeners.length = 0;
 }
 
 async function getWebGpuDevice(): Promise<GPUDevice> {
@@ -163,16 +209,15 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
   const device = await adapter.requestDevice();
   if (!device) {
     throw new Error(
-        'WebGPU cannot be initialized - failed to get WebGPU device.',
+      'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
   // tslint:disable-next-line:no-any
-  (device as any)
-      .lost
-      .then(() => {
-        throw new Error('WebGPU Cannot be initialized - Device has been lost');
-      })
-      .catch(() => {});
+  (device as any).lost
+    .then(() => {
+      throw new Error('WebGPU Cannot be initialized - Device has been lost');
+    })
+    .catch(() => {});
   return device;
 }
 
@@ -188,9 +233,9 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
 }
 
 async function loadAndStartWasm(
-    canvas: HTMLCanvasElement,
-    device: GPUDevice,
-    ): Promise<TraceViewerV2Module> {
+  canvas: HTMLCanvasElement,
+  device: GPUDevice,
+): Promise<TraceViewerV2Module> {
   const moduleConfig = {
     canvas,
     print: console.log,
@@ -211,7 +256,7 @@ async function ensureWasmModuleIsLoaded(): Promise<void> {
   }
   return new Promise((resolve, reject) => {
     const existingScript = document.querySelector(
-        'script[src*="trace_viewer_v2.js"]',
+      'script[src*="trace_viewer_v2.js"]',
     );
     if (existingScript) {
       existingScript.addEventListener('load', () => {
@@ -282,9 +327,9 @@ function setupFileInputHandler(traceviewerModule: TraceViewerV2Module) {
  * @param canvas The canvas element used to determine the viewer width.
  */
 export function updateUrlWithResolution(
-    urlObj: URL,
-    canvas: HTMLCanvasElement|null|undefined,
-    ): void {
+  urlObj: URL,
+  canvas: HTMLCanvasElement | null | undefined,
+): void {
   const params = urlObj.searchParams;
 
   // Default resolution to 0, which fetches all data.
@@ -308,7 +353,7 @@ export function updateUrlWithResolution(
   params.set(TRACE_VIEW_OPTION.RESOLUTION, resolution.toString());
 }
 
-function getTimeRangeFromUrl(urlObj: URL): [number, number]|undefined {
+function getTimeRangeFromUrl(urlObj: URL): [number, number] | undefined {
   const params = urlObj.searchParams;
   const viewStart = params.get(VIEW_START);
   const viewEnd = params.get(VIEW_END);
@@ -355,26 +400,30 @@ export declare interface SearchEventsEventDetail {
  * Type guard for the 'SearchEvents' custom event.
  */
 export function isSearchEventsEvent(
-    event: Event,
-    ): event is CustomEvent<SearchEventsEventDetail> {
+  event: Event,
+): event is CustomEvent<SearchEventsEventDetail> {
   return (
-      event instanceof CustomEvent && event.detail &&
-      typeof event.detail.events_query === 'string');
+    event instanceof CustomEvent &&
+    event.detail &&
+    typeof event.detail.events_query === 'string'
+  );
 }
 
 function isFetchDataEvent(
-    event: Event,
-    ): event is CustomEvent<FetchDataEventDetail> {
+  event: Event,
+): event is CustomEvent<FetchDataEventDetail> {
   return (
-      event instanceof CustomEvent && event.detail &&
-      typeof event.detail.start_time_ms === 'number' &&
-      typeof event.detail.end_time_ms === 'number');
+    event instanceof CustomEvent &&
+    event.detail &&
+    typeof event.detail.start_time_ms === 'number' &&
+    typeof event.detail.end_time_ms === 'number'
+  );
 }
 
 async function handleFetchDataEvent(
-    event: Event,
-    currentDataUrl: string|null,
-    traceviewerModule: TraceViewerV2Module|null,
+  event: Event,
+  currentDataUrl: string | null,
+  traceviewerModule: TraceViewerV2Module | null,
 ) {
   if (!isFetchDataEvent(event)) {
     return;
@@ -390,16 +439,22 @@ async function handleFetchDataEvent(
   }
 
   try {
-    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-      detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
-    }));
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
+      }),
+    );
 
     const urlObj = new URL(currentDataUrl, window.location.href);
 
     urlObj.searchParams.set(
-        TRACE_VIEW_OPTION.START_TIME_MS, String(detail.start_time_ms));
+      TRACE_VIEW_OPTION.START_TIME_MS,
+      String(detail.start_time_ms),
+    );
     urlObj.searchParams.set(
-        TRACE_VIEW_OPTION.END_TIME_MS, String(detail.end_time_ms));
+      TRACE_VIEW_OPTION.END_TIME_MS,
+      String(detail.end_time_ms),
+    );
 
     // Update resolution
     updateUrlWithResolution(urlObj, traceviewerModule.canvas);
@@ -409,15 +464,19 @@ async function handleFetchDataEvent(
     const jsonData = await loadJsonDataInternal(urlObj.toString());
     if (!isTraceData(jsonData)) {
       console.error('File does not contain valid trace events.');
-      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.IDLE},
-      }));
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.IDLE},
+        }),
+      );
       return;
     }
 
-    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-      detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-    }));
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+      }),
+    );
 
     // Yield to the event loop to allow the UI to re-render and display the
     // 'Processing data' status before the potentially long-running
@@ -427,21 +486,25 @@ async function handleFetchDataEvent(
     });
 
     traceviewerModule.processTraceEvents(
-        jsonData, /* timeRangeFromUrl= */ undefined);
+      jsonData,
+      /* timeRangeFromUrl= */ undefined,
+    );
 
-    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-      detail: {status: TraceViewerV2LoadingStatus.IDLE},
-    }));
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.IDLE},
+      }),
+    );
   } catch (e) {
     console.error('Error fetching new data:', e);
     const error = e as Error;
     window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {
-            status: TraceViewerV2LoadingStatus.ERROR,
-            message: error.message,
-          },
-        }),
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {
+          status: TraceViewerV2LoadingStatus.ERROR,
+          message: error.message,
+        },
+      }),
     );
   }
 }
@@ -457,18 +520,30 @@ async function handleFetchDataEvent(
  * @return A promise that resolves with the initialized TraceViewerV2Module, or
  *     null if initialization fails.
  */
-export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
-  let traceviewerModule: TraceViewerV2Module|null = null;
-  let currentDataUrl: string|null = null;
+export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
+  // Shut down any existing WASM application and clean up event listeners
+  // before starting a new one. This prevents leaking resources and having
+  // multiple active instances fighting for the canvas or processing duplicate
+  // events.
+  shutdownTraceViewerV2();
+
+  let traceviewerModule: TraceViewerV2Module | null = null;
+  let currentDataUrl: string | null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
+    activeWasmModule = traceviewerModule;
   } catch (e) {
     const error = e as Error;
     console.error('Application Initialization Failed:', error);
-    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-      detail: {status: TraceViewerV2LoadingStatus.ERROR, message: error.message},
-    }));
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {
+          status: TraceViewerV2LoadingStatus.ERROR,
+          message: error.message,
+        },
+      }),
+    );
     return null;
   }
 
@@ -498,9 +573,11 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
     currentDataUrl = url;
     if (!traceviewerModule) return;
     try {
-      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
-      }));
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
+        }),
+      );
 
       let urlObj: URL;
       try {
@@ -511,12 +588,12 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
         const error = e as Error;
 
         window.dispatchEvent(
-            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-              detail: {
-                status: TraceViewerV2LoadingStatus.ERROR,
-                message: error.message,
-              },
-            }),
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {
+              status: TraceViewerV2LoadingStatus.ERROR,
+              message: error.message,
+            },
+          }),
         );
         return;
       }
@@ -528,9 +605,13 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
       // like Trace Viewer v1.
       if (timeRangeFromUrl) {
         urlObj.searchParams.set(
-            TRACE_VIEW_OPTION.START_TIME_MS, String(timeRangeFromUrl[0]));
+          TRACE_VIEW_OPTION.START_TIME_MS,
+          String(timeRangeFromUrl[0]),
+        );
         urlObj.searchParams.set(
-            TRACE_VIEW_OPTION.END_TIME_MS, String(timeRangeFromUrl[1]));
+          TRACE_VIEW_OPTION.END_TIME_MS,
+          String(timeRangeFromUrl[1]),
+        );
       }
 
       updateUrlWithResolution(urlObj, traceviewerModule.canvas);
@@ -540,16 +621,20 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
       if (!isTraceData(jsonData)) {
         console.error('File does not contain valid trace events.');
 
-        window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
-        }));
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          }),
+        );
 
         return;
       }
 
-      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-      }));
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+        }),
+      );
 
       // Yield to the event loop to allow the UI to re-render and display the
       // 'Processing data' status before the potentially long-running
@@ -560,24 +645,26 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
 
       traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
 
-      window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.IDLE},
-      }));
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.IDLE},
+        }),
+      );
     } catch (e) {
       console.error('Error processing file:', e);
       const error = e as Error;
       window.dispatchEvent(
-          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-            detail: {
-              status: TraceViewerV2LoadingStatus.ERROR,
-              message: error.message,
-            },
-          }),
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {
+            status: TraceViewerV2LoadingStatus.ERROR,
+            message: error.message,
+          },
+        }),
       );
     }
   };
 
-  window.addEventListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
+  registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
     handleFetchDataEvent(event, currentDataUrl, traceviewerModule);
   });
 

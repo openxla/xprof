@@ -32,6 +32,8 @@ inline constexpr ImU32 kInverseOnSurfaceColor = 0xFFF2F2F2;
 inline constexpr ImU32 kOutlineColor = 0xFF757774;
 // "outline variant" #C4C7C5
 inline constexpr ImU32 kOutlineVariantColor = 0xFFC5C7C4;
+// Color schemes/Secondary colors/Secondary container (#C2E7FF)
+inline constexpr ImU32 kSecondaryContainerColor = 0xFFFFE7C2;
 // go/keep-sorted end
 
 // palette for flow categories:

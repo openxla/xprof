@@ -3,6 +3,7 @@ import 'org_xprof/frontend/app/common/interfaces/window';
 import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
   EventEmitter,
@@ -12,7 +13,7 @@ import {
   OnInit,
   Output,
   SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
@@ -136,7 +137,8 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: true,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.css'],
@@ -196,7 +198,7 @@ export class TraceViewerContainer
       .subscribe((query) => {
         this.currentSearchQuery = query;
         if (this.traceViewerModule) {
-          this.traceViewerModule.Application.Instance().setSearchQuery(query);
+          this.traceViewerModule.application.instance().setSearchQuery(query);
           this.updateSearchResultCountText();
         } else if (!query) {
           this.searchResultCountText = '';
@@ -430,14 +432,18 @@ export class TraceViewerContainer
 
   nextSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance().navigateToNextSearchResult();
+      this.traceViewerModule.application
+        .instance()
+        .navigateToNextSearchResult();
       this.updateSearchResultCountText();
     }
   }
 
   prevSearchResult() {
     if (this.traceViewerModule) {
-      this.traceViewerModule.Application.Instance().navigateToPrevSearchResult();
+      this.traceViewerModule.application
+        .instance()
+        .navigateToPrevSearchResult();
       this.updateSearchResultCountText();
     }
   }
@@ -447,7 +453,7 @@ export class TraceViewerContainer
       this.searchResultCountText = '';
       return;
     }
-    const instance = this.traceViewerModule.Application.Instance();
+    const instance = this.traceViewerModule.application.instance();
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     if (count === 0) {

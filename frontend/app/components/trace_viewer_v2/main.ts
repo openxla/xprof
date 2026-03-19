@@ -90,8 +90,8 @@ export enum TraceViewerV2LoadingStatus {
 }
 
 declare function loadWasmTraceViewerModule(
-  options?: object,
-): Promise<TraceViewerV2Module>;
+    options?: object,
+    ): Promise<TraceViewerV2Module>;
 
 /**
  * Interface for the WebAssembly module loaded by `loadWasmTraceViewerModule`.
@@ -113,20 +113,17 @@ declare function loadWasmTraceViewerModule(
   getAllFlowCategories(): Array<{id: number; name: string}>;
   setSearchResultsInWasm(data: TraceData): void;
   loadJsonData?(url: string): Promise<void>;
-  StringVector: {
-    size(): number;
-    get(index: number): string;
-    toArray(): string[];
-  };
+  StringVector:
+      {size(): number; get(index: number): string; toArray(): string[];};
   IntVector: {size(): number; get(index: number): number;};
-  Application: {
-    Instance(): {
-      data_provider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
+  application: {
+    instance(): {
+      dataProvider(): {getFlowCategories(): TraceViewerV2Module['IntVector'];};
       getCurrentSearchResultIndex(): number;
       getSearchResultsCount(): number;
       navigateToNextSearchResult(): void;
       navigateToPrevSearchResult(): void;
-      Resize(dpr: number, width: number, height: number): void;
+      resize(dpr: number, width: number, height: number): void;
       setSearchQuery(query: string): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
@@ -149,11 +146,9 @@ export declare interface TraceData {
  */
 export function isTraceData(data: unknown): data is TraceData {
   return (
-    typeof data === 'object' &&
-    data !== null &&
-    data.hasOwnProperty('traceEvents') &&
-    Array.isArray((data as TraceData).traceEvents)
-  );
+      typeof data === 'object' && data !== null &&
+      data.hasOwnProperty('traceEvents') &&
+      Array.isArray((data as TraceData).traceEvents));
 }
 
 async function getWebGpuDevice(): Promise<GPUDevice> {
@@ -168,7 +163,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
   const device = await adapter.requestDevice();
   if (!device) {
     throw new Error(
-      'WebGPU cannot be initialized - failed to get WebGPU device.',
+        'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
   // tslint:disable-next-line:no-any
@@ -193,9 +188,9 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
 }
 
 async function loadAndStartWasm(
-  canvas: HTMLCanvasElement,
-  device: GPUDevice,
-): Promise<TraceViewerV2Module> {
+    canvas: HTMLCanvasElement,
+    device: GPUDevice,
+    ): Promise<TraceViewerV2Module> {
   const moduleConfig = {
     canvas,
     print: console.log,
@@ -471,6 +466,9 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
   } catch (e) {
     const error = e as Error;
     console.error('Application Initialization Failed:', error);
+    window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+      detail: {status: TraceViewerV2LoadingStatus.ERROR, message: error.message},
+    }));
     return null;
   }
 
@@ -487,15 +485,18 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module|null> {
           return;
         }
         const dpr = window.devicePixelRatio;
-        traceviewerModule.Application.Instance().Resize(dpr, width, height);
+        traceviewerModule.application.instance().resize(dpr, width, height);
       });
     }
   });
   resizeObserver.observe(traceviewerModule.canvas);
+  // Track the resize observer to disconnect it on shutdown if needed. For now
+  // it's tied to the canvas element.
 
   // Add a method to the module to load data from a URL
   traceviewerModule.loadJsonData = async (url: string) => {
     currentDataUrl = url;
+    if (!traceviewerModule) return;
     try {
       window.dispatchEvent(new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
         detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},

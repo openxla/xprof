@@ -32,93 +32,111 @@ static constexpr int kAll = -1;
 static constexpr int kNone = -2;
 }  // namespace FlowCategoryFilter
 
-// Represents a rectangle on the screen.
-struct EventRect {
-  Pixel left = 0.0f;
-  Pixel top = 0.0f;
-  Pixel right = 0.0f;
-  Pixel bottom = 0.0f;
-};
-
-struct DeleteButtonLayout {
-  ImVec2 button_pos;
-  ImRect hover_rect;
-  bool text_fits = false;
-};
-
-struct CounterData {
-  std::vector<Microseconds> timestamps;
-  std::vector<double> values;
-  double min_value = std::numeric_limits<double>::max();
-  double max_value = std::numeric_limits<double>::lowest();
-};
-
-// Represents a grouping of timeline tracks, such as processes, threads, or
-// counters.
-struct Group {
-  enum class Type { kFlame, kCounter };
-  Type type = Type::kFlame;
-  std::string name;
-  // The start level of the groups of complete events.
-  // For flame groups, we increment the group level by real events' levels.
-  // For counter groups, we increment the group level by 1.
-  int start_level = 0;
-  int nesting_level = 0;
-  bool expanded = false;
-};
-
-struct FlowLine {
-  Microseconds source_ts = 0.0;
-
-  Microseconds target_ts = 0.0;
-
-  int source_level = 0;
-
-  int target_level = 0;
-
-  uint32_t color = traceviewer::kBlackColor;
-  tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
-};
-
-// Holds all the data required to render a flame chart and counter lines,
-// including event timing, grouping information, and mappings between levels
-// and events.
-struct FlameChartTimelineData {
-  std::vector<int> entry_levels;
-  std::vector<Microseconds> entry_total_times;
-  std::vector<Microseconds> entry_start_times;
-  std::vector<std::string> entry_names;
-  std::vector<EventId> entry_event_ids;
-  // TODO: b/474668991 - Check if we can fetch PID and entry args from backend
-  // instead of storing them here, to reduce memory usage.
-  // Compare latency from network to memory-heavy local storage.
-  std::vector<ProcessId> entry_pids;
-  std::vector<ThreadId> entry_tids;
-  std::vector<std::map<std::string, std::string>> entry_args;
-  std::vector<Group> groups;
-  // A map from level to a list of event indices at that level.
-  // This is used to quickly draw events at a given level.
-  // Technically, we can calculate this in the Timeline class, but doing it here
-  // saves us from traversing all the events 2 times, though the time complexity
-  // are the same. But given there might be tens of thousands events, this
-  // optimization is worth it.
-  std::vector<std::vector<int>> events_by_level;
-  std::vector<FlowLine> flow_lines;
-  // Map from event_id to list of flow ids that connect to this event.
-  absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
-  // Map from flow_id to list of flow lines that belong to this flow.
-  absl::flat_hash_map<std::string, std::vector<FlowLine>> flow_lines_by_flow_id;
-  // A map from group index to counter data.
-  // We use group index instead of PID as the key because a process (PID) can
-  // have multiple counter tracks associated with it. The group index uniquely
-  // identifies each track within the `groups` vector.
-  std::map<int, CounterData> counter_data_by_group_index;
-};
-
 // Renders an interactive timeline visualization for trace events, handling
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  // Represents a rectangle on the screen.
+  struct EventRect {
+    Pixel left = 0.0f;
+    Pixel top = 0.0f;
+    Pixel right = 0.0f;
+    Pixel bottom = 0.0f;
+  };
+
+  // Layout information for the time range delete button.
+  struct DeleteButtonLayout {
+    // Screen position where the button should be drawn.
+    ImVec2 button_pos;
+    // Area that triggers hover effects for the delete button.
+    ImRect hover_rect;
+    // Whether the button text fits within the available space.
+    bool text_fits = false;
+  };
+
+  // Holds timing and values for a counter track.
+  struct CounterData {
+    std::vector<Microseconds> timestamps;
+    std::vector<double> values;
+    // Minimum value among all data points for scaling.
+    double min_value = std::numeric_limits<double>::max();
+    // Maximum value among all data points for scaling.
+    double max_value = std::numeric_limits<double>::lowest();
+  };
+
+  // Represents a grouping of timeline tracks, such as processes, threads, or
+  // counters.
+  struct Group {
+    enum class Type { kFlame, kCounter };
+    Type type = Type::kFlame;
+    std::string name;
+    // The start level of the groups of complete events.
+    // For flame groups, we increment the group level by real events' levels.
+    // For counter groups, we increment the group level by 1.
+    int start_level = 0;
+    int nesting_level = 0;
+    bool expanded = false;
+  };
+
+  struct FlowLine {
+    Microseconds source_ts = 0.0;
+
+    Microseconds target_ts = 0.0;
+
+    int source_level = 0;
+
+    int target_level = 0;
+
+    uint32_t color = traceviewer::kBlackColor;
+    tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
+  };
+
+  // Holds all the data required to render a flame chart and counter lines,
+  // including event timing, grouping information, and mappings between levels
+  // and events.
+  struct FlameChartTimelineData {
+    std::vector<int> entry_levels;
+    std::vector<Microseconds> entry_total_times;
+    std::vector<Microseconds> entry_start_times;
+    std::vector<std::string> entry_names;
+    std::vector<EventId> entry_event_ids;
+    // TODO: b/474668991 - Check if we can fetch PID and entry args from backend
+    // instead of storing them here, to reduce memory usage.
+    // Compare latency from network to memory-heavy local storage.
+    std::vector<ProcessId> entry_pids;
+    std::vector<ThreadId> entry_tids;
+    std::vector<std::map<std::string, std::string>> entry_args;
+    std::vector<Group> groups;
+    // A map from level to a list of event indices at that level.
+    // This is used to quickly draw events at a given level.
+    // Technically, we can calculate this in the Timeline class, but doing it
+    // here saves us from traversing all the events 2 times, though the time
+    // complexity are the same. But given there might be tens of thousands
+    // events, this optimization is worth it.
+    std::vector<std::vector<int>> events_by_level;
+    std::vector<FlowLine> flow_lines;
+    // Map from event_id to list of flow ids that connect to this event.
+    absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;
+    // Map from flow_id to list of flow lines that belong to this flow.
+    absl::flat_hash_map<std::string, std::vector<FlowLine>>
+        flow_lines_by_flow_id;
+    // A map from group index to counter data.
+    // We use group index instead of PID as the key because a process (PID) can
+    // have multiple counter tracks associated with it. The group index uniquely
+    // identifies each track within the `groups` vector.
+    std::map<int, CounterData> counter_data_by_group_index;
+  };
+
+  // Information about timeline ticks for drawing ruler and grid lines.
+  struct TickInfo {
+    // Time duration between major ticks.
+    Microseconds tick_interval;
+    // Pixel distance between major ticks.
+    Pixel major_tick_dist_px;
+    // Time of the first major tick relative to trace start.
+    Microseconds first_tick_time_relative;
+  };
+
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -138,16 +156,32 @@ class Timeline {
     event_callback_ = std::move(callback);
   }
 
-  // Sets the search query to highlight events matching the query.
-  // The search is case-insensitive.
+  // --- Search and Selection ---
+
+  // Sets the search query to highlight events matching the query. Search is
+  // case-insensitive.
   void SetSearchQuery(const std::string& query);
 
-  // Sets the visible time range. If animate is true, the transition to the
-  // new range will be animated, otherwise it will snap to the new time range.
-  // Animation is useful for smoothing out transitions caused by user actions
-  // like zooming to a selection.
-  void SetVisibleRange(const TimeRange& range, bool animate = false);
-  const TimeRange& visible_range() const { return *visible_range_; }
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
+
+  // Returns search result context.
+  size_t get_search_results_count() const {
+    return sorted_search_results_.size();
+  }
+  int get_current_search_result_index() const {
+    return current_search_result_index_;
+  }
+
+  // Navigation through search results.
+  void NavigateToEvent(int event_index);
+  void NavigateToNextSearchResult();
+  void NavigateToPrevSearchResult();
+
+  // Selection states.
+  int selected_event_index() const { return selected_event_index_; }
+  int selected_group_index() const { return selected_group_index_; }
+  int selected_counter_index() const { return selected_counter_index_; }
 
   const std::vector<TimeRange>& selected_time_ranges() const {
     return selected_time_ranges_;
@@ -157,6 +191,14 @@ class Timeline {
     return current_selected_time_range_;
   }
 
+  // --- Time Ranges and Viewport ---
+
+  // Sets the visible time range. If animate is true, the transition to the
+  // new range will be animated.
+  void SetVisibleRange(const TimeRange& range, bool animate = false);
+  const TimeRange& visible_range() const { return *visible_range_; }
+
+  // fetched_data_time_range is the range of currently loaded trace data.
   void set_fetched_data_time_range(const TimeRange& range) {
     fetched_data_time_range_ = range;
     // If the last fetch request range is empty, it means we haven't made any
@@ -170,18 +212,18 @@ class Timeline {
     return fetched_data_time_range_;
   }
 
+  // data_time_range is the total range of the entire trace.
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
+  void set_is_incremental_loading(bool is_incremental_loading) {
+    is_incremental_loading_ = is_incremental_loading;
+  }
+
+  // --- Data and Layout ---
+
   void set_timeline_data(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
-
-  // Sets the search results from the given parsed trace events.
-  void SetSearchResults(const ParsedTraceEvents& search_results);
-
-  int selected_event_index() const { return selected_event_index_; }
-  int selected_group_index() const { return selected_group_index_; }
-  int selected_counter_index() const { return selected_counter_index_; }
 
   const std::vector<float>& GetLevelYPositions() const {
     return level_y_positions_;
@@ -194,17 +236,6 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
-  void set_is_incremental_loading(bool is_incremental_loading) {
-    is_incremental_loading_ = is_incremental_loading;
-  }
-
-  size_t get_search_results_count() const {
-    return sorted_search_results_.size();
-  }
-  int get_current_search_result_index() const {
-    return current_search_result_index_;
-  }
-
   Pixel GetLabelWidth() const { return label_width_; }
 
   void SetVisibleFlowCategory(int category_id) {
@@ -212,6 +243,9 @@ class Timeline {
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
+  // --- Coordinates and Rendering ---
+
+  // Renders the timeline. Should be called every frame.
   void Draw();
 
   // Calculates the screen coordinates of the rectangle for an event.
@@ -229,41 +263,33 @@ class Timeline {
   std::string GetTextForDisplay(absl::string_view event_name,
                                 float available_width) const;
 
-  // Converts a pixel offset relative to the start of the visible range to a
-  // time.
+  // Coordinate conversion helpers.
   Microseconds PixelToTime(Pixel pixel_offset, double px_per_time_unit) const;
-
-  // Converts a time to a pixel offset relative to the start of the visible
-  // range.
   Pixel TimeToPixel(Microseconds time, double px_per_time_unit) const;
-
-  // Converts a time value to an absolute screen X coordinate.
   Pixel TimeToScreenX(Microseconds time, Pixel screen_x_offset,
                       double px_per_time_unit) const;
 
+  // Forces the range to stay within data_time_range_.
   void ConstrainTimeRange(TimeRange& range);
 
-  // Navigates to and selects the event with the given index.
-  void NavigateToEvent(int event_index);
-
-  void NavigateToNextSearchResult();
-  void NavigateToPrevSearchResult();
+  // Calculates tick information based on current zoom level (px_per_time_unit).
+  TickInfo CalculateTickInfo(double px_per_time_unit_val) const;
 
   // Calculates the control points for a cubic Bezier curve used to draw flows.
   static void CalculateBezierControlPoints(float start_x, float start_y,
                                            float end_x, float end_y,
                                            ImVec2& cp0, ImVec2& cp1);
 
+  // Methods exposed for testing.
+
   // Checks if the visible time range is close to the edge of the loaded data
   // range. If the user pans or zooms to an area where data might soon be
   // needed (i.e., outside the `preserve` range), this function triggers a data
   // fetch request for a larger range (`fetch` range) to ensure data is
   // available before it becomes visible, providing a smoother user experience.
-  // Exposed for testing.
   void MaybeRequestData();
 
   // Calculates the layout for the delete button and its hover area.
-  // Exposed for testing.
   DeleteButtonLayout GetDeleteButtonLayout(const ImVec2& text_size,
                                            const ImVec2& text_pos,
                                            const ImRect& visible_range_rect,
@@ -293,37 +319,35 @@ class Timeline {
   virtual void Zoom(float zoom_factor);
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
- private:
-  double px_per_time_unit() const;
-  double px_per_time_unit(Pixel timeline_width) const;
+  // --- Interaction Helpers ---
 
-  // Emits an event selected event to JS side.
-  void EmitEventSelected(int event_index);
-  // Emits viewport changed event to JS side.
-  void EmitViewportChanged(const TimeRange& range);
+  // Handles keyboard input for panning and zooming. Returns true if any
+  // interaction occurred.
+  bool HandleKeyboard();
 
-  // Draws the timeline ruler. `viewport_bottom` is the y-coordinate of the
-  // bottom of the viewport, used to draw vertical grid lines across the tracks.
-  void DrawRuler(Pixel timeline_width, Pixel viewport_bottom);
+  // Handles mouse wheel input for scrolling. Returns true if any interaction
+  // occurred.
+  bool HandleWheel();
 
-  void DrawEventName(absl::string_view event_name, const EventRect& rect,
-                     ImDrawList* absl_nonnull draw_list) const;
+  // Handles mouse input for selection and panning. Returns true if any
+  // interaction occurred.
+  bool HandleMouse();
 
-  void DrawEvent(int group_index, int event_index, const EventRect& rect,
-                 ImDrawList* absl_nonnull draw_list);
+  void HandleMouseDown(float timeline_origin_x);
+  void HandleMouseDrag(float timeline_origin_x);
+  void HandleMouseRelease();
 
-  void DrawEventsForLevel(int group_index, absl::Span<const int> event_indices,
-                          double px_per_time_unit, int level_in_group,
-                          const ImVec2& pos, const ImVec2& max,
-                          Pixel event_height, Pixel padding_bottom);
+  // Handles deselection of events when clicking on an empty area.
+  void HandleEventDeselection();
 
-  void DrawCounterTooltip(int group_index, const CounterData& counter_data,
-                          double px_per_time_unit_val, const ImVec2& pos,
-                          Pixel height, float y_ratio, ImDrawList* draw_list);
+  // --- Rendering Helpers ---
 
-  void DrawCounterTrack(int group_index, const CounterData& counter_data,
-                        double px_per_time_unit_val, const ImVec2& pos,
-                        Pixel height);
+  // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
+  void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
+
+  // Draws vertical grid lines across the background of the tracks.
+  void DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
+                             Pixel viewport_bottom);
 
   void DrawGroup(int group_index, double px_per_time_unit_val);
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
@@ -331,136 +355,58 @@ class Timeline {
                              double px_per_time_unit_val, const ImVec2& pos,
                              Pixel group_height, ImDrawList* draw_list);
 
+  void DrawEvent(int group_index, int event_index, const EventRect& rect,
+                 ImDrawList* absl_nonnull draw_list);
+
+  void DrawEventName(absl::string_view event_name, const EventRect& rect,
+                     ImDrawList* absl_nonnull draw_list) const;
+
+  void DrawEventsForLevel(int group_index, absl::Span<const int> event_indices,
+                          double px_per_time_unit, int level_in_group,
+                          const ImVec2& pos, const ImVec2& max,
+                          Pixel event_height, Pixel padding_bottom);
+
+  void DrawCounterTrack(int group_index, const CounterData& counter_data,
+                        double px_per_time_unit_val, const ImVec2& pos,
+                        Pixel height);
+
+  void DrawCounterTooltip(int group_index, const CounterData& counter_data,
+                          double px_per_time_unit_val, const ImVec2& pos,
+                          Pixel height, float y_ratio, ImDrawList* draw_list);
+
+  // Draws flow lines connecting events.
+  void DrawFlows(Pixel timeline_width);
+
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
                       double px_per_time, ImDrawList* draw_list);
 
-  // Draws flow lines connecting events. Each flow line is rendered as a Bezier
-  // curve connecting a start point (time and level) to an end point (time and
-  // level).
-  void DrawFlows(Pixel timeline_width);
+  // Selection overlay rendering.
+  void DrawSelectedTimeRanges(Pixel timeline_width,
+                              double px_per_time_unit_val);
 
-  // Draws a single selected time range.
-  // The `show_delete_button` will be false for the currently selected time
-  // time range.
   void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
                              double px_per_time_unit_val,
                              bool show_delete_button = true);
 
-  // Draws a delete button. Deletes the time range if the button is clicked.
   void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                         const ImRect& hover_rect, const TimeRange& range);
 
-  // Draws all the selected time ranges, including the current selected range.
-  void DrawSelectedTimeRanges(Pixel timeline_width,
-                              double px_per_time_unit_val);
+  // --- Internal Utilities ---
 
-  // Handles keyboard input for panning and zooming.
-  // Returns true if any interaction occurred.
-  bool HandleKeyboard();
+  double px_per_time_unit() const;
+  double px_per_time_unit(Pixel timeline_width) const;
 
-  // Handles mouse wheel input for scrolling.
-  // Returns true if any interaction occurred.
-  bool HandleWheel();
-
-  // Handles deselection of events when clicking on an empty area.
-  void HandleEventDeselection();
-
-  // Handles mouse input for creating curtains.
-  // Returns true if any interaction occurred.
-  bool HandleMouse();
-
-  void HandleMouseDown(float timeline_origin_x);
-  void HandleMouseDrag(float timeline_origin_x);
-  void HandleMouseRelease();
+  void EmitEventSelected(int event_index);
+  void EmitViewportChanged(const TimeRange& range);
 
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
 
-  // Updates the search results based on the current search query
+  // Updates the search results based on the current search query.
   void RecomputeSearchResults();
 
-  // Private static constants.
-  static constexpr ImGuiWindowFlags kImGuiWindowFlags =
-      ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
-      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-      ImGuiWindowFlags_NoMove;
-  static constexpr ImGuiTableFlags kImGuiTableFlags =
-      ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV |
-      ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings;
-  static constexpr ImGuiWindowFlags kLaneFlags =
-      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-
-  FlameChartTimelineData timeline_data_;
-
-  // TODO - b/444026851: Set the label width based on the real screen width.
-  Pixel label_width_ = kDefaultLabelWidth;
-  // The width of the timeline track area in pixels. Calculated in Draw() and
-  // cached for use in interaction handlers (Zoom, Pan).
-  Pixel current_timeline_width_ = 0.0f;
-  // Whether the user is currently resizing the label column.
-  bool is_resizing_label_column_ = false;
-
-  // Stores the screen Y coordinate of each level in the current frame.
-  std::vector<float> level_y_positions_;
-
-  // The visible time range in microseconds in the timeline. It is initialized
-  // to {0, 0} by the `TimeRange` default constructor.
-  // This range is updated through `SetVisibleRange`.
-  // User interactions like panning and zooming also cause updates to this
-  // range.
-  Animated<TimeRange> visible_range_;
-  // The total time range [min_time, max_time] in microseconds of the loaded
-  // trace data. This range is set when trace data is processed.
-  TimeRange fetched_data_time_range_ = TimeRange::Zero();
-  // The total time range [min_time, max_time] in microseconds of the entire
-  // trace. This might be larger than fetched_data_time_range_ if only a part
-  // of the trace is loaded. This is used as the boundaries for constraining
-  // panning and zooming.
-  TimeRange data_time_range_ = TimeRange::Zero();
-
-  // The index of the group of the currently selected event (flame or counter),
-  // or -1 if no event is selected.
-  int selected_group_index_ = -1;
-  // The index of the currently selected event, or -1 if no event is selected.
-  int selected_event_index_ = -1;
-  // The index of the currently selected counter event in the counter data, or
-  // -1 if no counter event is selected.
-  int selected_counter_index_ = -1;
-
-  EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
-  // Flag to track if an event was clicked in the current frame. This is used
-  // to detect clicks in empty areas for deselection logic.
-  bool event_clicked_this_frame_ = false;
-
-  // Whether the user is currently dragging the mouse on the timeline.
-  bool is_dragging_ = false;
-  // Controls which flow categories are visible:
-  //   `FlowCategoryFilter::kAll`: Show all categories.
-  //   `FlowCategoryFilter::kNone`: Show no categories.
-  //   `>=0`: Show only the specific category with this ID.
-  int flow_category_filter_ = FlowCategoryFilter::kNone;
-  // Stores the set of flow category IDs that are currently visible.
-  absl::flat_hash_set<int> visible_flow_categories_;
-  // Whether the current drag operation is a selection (Shift + Drag).
-  // If false, the drag operation is a pan/scroll.
-  // This flag is latched at the start of the drag.
-  bool is_selecting_ = false;
-
-  bool mpmd_pipeline_view_enabled_ = false;
-
-  std::vector<TimeRange> selected_time_ranges_;
-  Microseconds drag_start_time_ = 0.0;
-  std::optional<TimeRange> current_selected_time_range_;
-
-  // Initialize to true to prevent sending request in the initial load where
-  // JS side is already fetching the data.
-  bool is_incremental_loading_ = true;
-
-  // Stores the last requested data range to prevent redundant refetches when
-  // the returned data is empty or sparse (and thus fetched_data_time_range_
-  // doesn't cover the full requested range).
-  TimeRange last_fetch_request_range_ = TimeRange::Zero();
+  // Private structs and constants.
 
   struct SearchResult {
     EventId event_id;
@@ -471,15 +417,56 @@ class Timeline {
     ThreadId tid;
   };
 
-  // The search query in lowercase, used for case-insensitive matching.
+  static constexpr ImGuiWindowFlags kImGuiWindowFlags =
+      ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
+      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+      ImGuiWindowFlags_NoMove;
+  static constexpr ImGuiTableFlags kImGuiTableFlags =
+      ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV |
+      ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings;
+  static constexpr ImGuiWindowFlags kLaneFlags =
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+
+  // --- Data and State Members ---
+
+  FlameChartTimelineData timeline_data_;
+
+  // TODO - b/444026851: Set the label width based on the real screen width.
+  Pixel label_width_ = kDefaultLabelWidth;
+  // The width of the timeline track area in pixels.
+  Pixel current_timeline_width_ = 0.0f;
+  bool is_resizing_label_column_ = false;
+
+  std::vector<float> level_y_positions_;
+
+  Animated<TimeRange> visible_range_;
+  TimeRange fetched_data_time_range_ = TimeRange::Zero();
+  TimeRange data_time_range_ = TimeRange::Zero();
+
+  int selected_group_index_ = -1;
+  int selected_event_index_ = -1;
+  int selected_counter_index_ = -1;
+
+  EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
+  bool event_clicked_this_frame_ = false;
+
+  bool is_dragging_ = false;
+  int flow_category_filter_ = FlowCategoryFilter::kNone;
+  absl::flat_hash_set<int> visible_flow_categories_;
+  bool is_selecting_ = false;
+
+  bool mpmd_pipeline_view_enabled_ = false;
+
+  std::vector<TimeRange> selected_time_ranges_;
+  Microseconds drag_start_time_ = 0.0;
+  std::optional<TimeRange> current_selected_time_range_;
+
+  bool is_incremental_loading_ = true;
+  TimeRange last_fetch_request_range_ = TimeRange::Zero();
+
   std::string search_query_lower_ = "";
-  // A sorted list of search results with metadata..
   std::vector<SearchResult> sorted_search_results_;
-  // The index of the currently highlighted search result in search_results_.
   int current_search_result_index_ = -1;
-  // If we try to navigate to a search result that is not loaded, we set this
-  // to its event ID, zoom to its time range to trigger loading, and navigate
-  // to it in set_timeline_data once it's loaded.
   std::optional<EventId> pending_navigation_event_id_;
 };
 

@@ -85,7 +85,7 @@ inline constexpr float kGroupPreviewOpacity = 0.6f;
 // Process Track Constants
 // go/keep-sorted start
 inline constexpr ImU32 kProcessTrackCollapsedColor = kInverseOnSurfaceColor;
-inline constexpr ImU32 kProcessTrackExpandedColor = kBlue80;
+inline constexpr ImU32 kProcessTrackExpandedColor = kSecondaryContainerColor;
 // go/keep-sorted end
 
 // Time Range Selection Constants

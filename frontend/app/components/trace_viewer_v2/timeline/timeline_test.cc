@@ -52,7 +52,7 @@ class MockTimeline : public Timeline {
 
 TEST(TimelineTest, set_timeline_data) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_levels.push_back(0);
@@ -128,7 +128,67 @@ TEST(TimelineTest, TimeToScreenX) {
   EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, 0.0), 50.0f);
 
   // Test with negative px_per_unit
-  EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, -10.0), 50.0f);
+  EXPECT_EQ(timeline.TimeToScreenX(50.0, screen_x_offset, -10.0),
+            screen_x_offset);
+}
+
+TEST(TimelineTest, CalculateTickInfo) {
+  Timeline timeline;
+  // Data range: [1000, 2000].
+  timeline.set_data_time_range({1000.0, 2000.0});
+  // Visible range: [1100, 1200].
+  timeline.SetVisibleRange({1100.0, 1200.0});
+
+  // 1 pixel per microsecond.
+  double px_per_unit = 1.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 1.0 = 80.
+  // CalculateNiceInterval(80) should return 100.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 100.0);
+  EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
+
+  // view_start_relative = 1100 - 1000 = 100.
+  // first_tick_time_relative = floor(100 / 100) * 100 = 100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
+}
+
+TEST(TimelineTest, CalculateTickInfoZoomedIn) {
+  Timeline timeline;
+  timeline.set_data_time_range({1000.0, 2000.0});
+  timeline.SetVisibleRange({1105.0, 1106.0});  // Very zoomed in.
+
+  // 100 pixels per microsecond.
+  double px_per_unit = 100.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 100 = 0.8.
+  // CalculateNiceInterval(0.8) should return 1.0.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 1.0);
+  EXPECT_DOUBLE_EQ(info.major_tick_dist_px, 100.0);
+
+  // view_start_relative = 1105 - 1000 = 105.
+  // first_tick_time_relative = floor(105 / 1) * 1 = 105.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 105.0);
+}
+
+TEST(TimelineTest, CalculateTickInfoOffset) {
+  Timeline timeline;
+  timeline.set_data_time_range({1000.0, 2000.0});
+  // Visible range starts at 1105, but interval is 10.
+  timeline.SetVisibleRange({1105.0, 1150.0});
+
+  // 10 pixels per microsecond.
+  double px_per_unit = 10.0;
+  Timeline::TickInfo info = timeline.CalculateTickInfo(px_per_unit);
+
+  // min_time_interval = 80 / 10 = 8.
+  // CalculateNiceInterval(8) should return 10.
+  EXPECT_DOUBLE_EQ(info.tick_interval, 10.0);
+
+  // view_start_relative = 1105 - 1000 = 105.
+  // first_tick_time_relative = floor(105 / 10) * 10 = 100.
+  EXPECT_DOUBLE_EQ(info.first_tick_time_relative, 100.0);
 }
 
 // Constants for CalculateEventRect tests
@@ -144,7 +204,7 @@ TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
 
   // Event time range: [110.0, 120.0].
   // Screen range before adjustments: [10.0, 20.0].
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -161,7 +221,7 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedLeft) {
 
   // Event time range: [90.0, 110.0].
   // Screen range after left clipping: [0.0, 10.0].
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/90.0, /*end=*/110.0, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -176,7 +236,7 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedRight) {
 
   // Event time range: [190.0, 210.0].
   // Screen range after right clipping: [90.0, 100.0].
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/190.0, /*end=*/210.0, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -193,7 +253,7 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   // Screen range will be less than time start.
   // Expected to be fully clipped to the left edge [0.0, 0.0] (padding right
   // won't effect here because the event is clipped to the left edge).
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/80.0, /*end=*/90.0, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -210,7 +270,7 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideRight) {
   // Screen range will be larger than time end.
   // Expected to be fully clipped to the right edge [100.0, 100.0] (padding
   // right won't effect here because the event is clipped to the right edge).
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/210.0, /*end=*/220.0, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -225,7 +285,7 @@ TEST(TimelineTest, CalculateEventRect_EventSmallerThanMinimumWidth) {
 
   // Event time range: [110.0, 110.1].
   // Screen width is expanded to kEventMinimumDrawWidth.
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/110.1, kScreenXOffset, kScreenYOffset,
       kPxPerTimeUnit, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -241,7 +301,7 @@ TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
 
   // With px_per_time_unit = 0, the event width is 0, so it's expanded to
   // kEventMinimumDrawWidth.
-  EventRect rect = timeline.CalculateEventRect(
+  Timeline::EventRect rect = timeline.CalculateEventRect(
       /*start=*/110.0, /*end=*/120.0, kScreenXOffset, kScreenYOffset,
       /*px_per_time_unit=*/0.0, kLevelInGroup, kTimelineWidth, kEventHeight,
       kEventPaddingBottom);
@@ -255,7 +315,7 @@ TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
 TEST(TimelineTest, CalculateEventTextRect_TextFits) {
   MockTimeline timeline;
   std::string event_name = "Test";
-  EventRect event_rect = {10.0f, 0.0f, 100.0f, kEventHeight};
+  Timeline::EventRect event_rect = {10.0f, 0.0f, 100.0f, kEventHeight};
   ImVec2 fake_text_size = {40.0f, kEventHeight};
 
   EXPECT_CALL(timeline, GetTextSize(event_name))
@@ -275,7 +335,7 @@ TEST(TimelineTest, CalculateEventTextRect_TextFits) {
 TEST(TimelineTest, CalculateEventTextRect_TextWiderThanRect) {
   MockTimeline timeline;
   std::string event_name = "ThisIsAVeryLongEventName";
-  EventRect event_rect = {10.0f, 0.0f, 50.0f, kEventHeight};
+  Timeline::EventRect event_rect = {10.0f, 0.0f, 50.0f, kEventHeight};
   ImVec2 fake_text_size = {100.0f, kEventHeight};
 
   EXPECT_CALL(timeline, GetTextSize(event_name))
@@ -292,7 +352,7 @@ TEST(TimelineTest, CalculateEventTextRect_TextWiderThanRect) {
 TEST(TimelineTest, CalculateEventTextRect_EmptyText) {
   MockTimeline timeline;
   std::string event_name = "";
-  EventRect event_rect = {10.0f, 0.0f, 100.0f, kEventHeight};
+  Timeline::EventRect event_rect = {10.0f, 0.0f, 100.0f, kEventHeight};
   ImVec2 fake_text_size = {0.0f, kEventHeight};
 
   EXPECT_CALL(timeline, GetTextSize(event_name))
@@ -311,7 +371,7 @@ TEST(TimelineTest, CalculateEventTextRect_EmptyText) {
 TEST(TimelineTest, CalculateEventTextRect_SpecialCharacters) {
   MockTimeline timeline;
   std::string event_name = "Test!@#$%^&*()_+";
-  EventRect event_rect = {10.0f, 0.0f, 150.0f, kEventHeight};
+  Timeline::EventRect event_rect = {10.0f, 0.0f, 150.0f, kEventHeight};
   ImVec2 fake_text_size = {120.0f, kEventHeight};
 
   EXPECT_CALL(timeline, GetTextSize(event_name))
@@ -331,7 +391,8 @@ TEST(TimelineTest, CalculateEventTextRect_SpecialCharacters) {
 TEST(TimelineTest, CalculateEventTextRect_NarrowEvent) {
   MockTimeline timeline;
   std::string event_name = "Name";
-  EventRect event_rect = {0.0f, 0.0f, 0.0f, kEventHeight};  // 0px wide
+  Timeline::EventRect event_rect = {0.0f, 0.0f, 0.0f,
+                                    kEventHeight};  // 0px wide
   ImVec2 fake_text_size = {50.0f, kEventHeight};
 
   EXPECT_CALL(timeline, GetTextSize(event_name))
@@ -606,7 +667,7 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 
 TEST(TimelineTest, NavigateToEvent) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -644,7 +705,7 @@ TEST(TimelineTest, NavigateToEvent) {
 
 TEST(TimelineTest, NavigateToEventClampedMin) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -678,7 +739,7 @@ TEST(TimelineTest, NavigateToEventClampedMin) {
 
 TEST(TimelineTest, NavigateToEventClampedMax) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -711,7 +772,7 @@ TEST(TimelineTest, NavigateToEventClampedMax) {
 
 TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_args.push_back({});
@@ -728,7 +789,7 @@ TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
 
 TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   Timeline timeline;
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_args.push_back({});
@@ -1670,7 +1731,7 @@ TEST_F(MockTimelineImGuiFixture, ClickAndPressShiftMidDragContinuesPanning) {
 }
 
 TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1699,7 +1760,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
 
 TEST_F(MockTimelineImGuiFixture,
        DrawEventNameTextHiddenWhenSlightlyNarrowerThanMinTextWidth) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2013,7 +2074,7 @@ TEST_F(RealTimelineImGuiFixture, DrawSetsWindowPaddingToZero) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2058,7 +2119,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2091,7 +2152,7 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
 
 TEST_F(RealTimelineImGuiFixture,
        ClickingSelectedEventAgainDoesNotFireCallback) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2134,7 +2195,7 @@ TEST_F(RealTimelineImGuiFixture,
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2182,7 +2243,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2238,7 +2299,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2280,7 +2341,7 @@ TEST_F(RealTimelineImGuiFixture, NavigateOnEmptySearchResults) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2323,7 +2384,7 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2360,7 +2421,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2392,7 +2453,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2454,7 +2515,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2510,7 +2571,7 @@ TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
 }
 
 TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2544,7 +2605,7 @@ TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
 }
 
 TEST_F(RealTimelineImGuiFixture, NavigateToPrevSearchResultWrapping) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2591,7 +2652,7 @@ TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -2635,7 +2696,7 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
 
 TEST_F(RealTimelineImGuiFixture,
        ShiftClickMultipleEventsSelectsMultipleRanges) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3010,14 +3071,14 @@ TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
+  Timeline::FlameChartTimelineData data;
+  data.groups.push_back({.type = Timeline::Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
 
-  CounterData counter_data;
+  Timeline::CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
@@ -3050,8 +3111,8 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
+  Timeline::FlameChartTimelineData data;
+  data.groups.push_back({.type = Timeline::Group::Type::kFlame,
                          .name = "Flame Group",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3110,14 +3171,14 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
 }
 
 TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
+  Timeline::FlameChartTimelineData data;
+  data.groups.push_back({.type = Timeline::Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
 
-  CounterData counter_data;
+  Timeline::CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
@@ -3193,7 +3254,7 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3220,14 +3281,14 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
+  Timeline::FlameChartTimelineData data;
+  data.groups.push_back({.type = Timeline::Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
 
-  CounterData counter_data;
+  Timeline::CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
   counter_data.values = {0.0, 10.0, 5.0};
   counter_data.min_value = 0.0;
@@ -3275,7 +3336,7 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
 }
 
 TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   // Group 0: Flame Events
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -3290,12 +3351,12 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   data.entry_args.push_back({});
 
   // Group 1: Counter Events
-  data.groups.push_back({.type = Group::Type::kCounter,
+  data.groups.push_back({.type = Timeline::Group::Type::kCounter,
                          .name = "Counter Group",
                          .start_level = 1,
                          .nesting_level = 0,
                          .expanded = true});
-  CounterData counter_data;
+  Timeline::CounterData counter_data;
   // We need at least 2 timestamps for the counter track to be drawn.
   counter_data.timestamps = {20.0, 30.0};
   counter_data.values = {5.0, 5.0};
@@ -3357,7 +3418,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3391,8 +3452,8 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   EXPECT_EQ(timeline_.selected_counter_index(), -1);
 }
 
-FlameChartTimelineData GetTestFlowData() {
-  FlameChartTimelineData data;
+Timeline::FlameChartTimelineData GetTestFlowData() {
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3405,18 +3466,19 @@ FlameChartTimelineData GetTestFlowData() {
   data.entry_total_times = {5.0, 5.0};
   data.entry_pids = {1, 2};
   data.entry_args = {{}, {}};
-  FlowLine flow1 = {.source_ts = 12.0,
-                    .target_ts = 52.0,
-                    .source_level = 0,
-                    .target_level = 0,
-                    .color = 0xFFFF0000,
-                    .category = tsl::profiler::ContextType::kGeneric};
-  FlowLine flow2 = {.source_ts = 15.0,
-                    .target_ts = 55.0,
-                    .source_level = 0,
-                    .target_level = 0,
-                    .color = 0xFF00FF00,
-                    .category = tsl::profiler::ContextType::kGpuLaunch};
+  Timeline::FlowLine flow1 = {.source_ts = 12.0,
+                              .target_ts = 52.0,
+                              .source_level = 0,
+                              .target_level = 0,
+                              .color = 0xFFFF0000,
+                              .category = tsl::profiler::ContextType::kGeneric};
+  Timeline::FlowLine flow2 = {
+      .source_ts = 15.0,
+      .target_ts = 55.0,
+      .source_level = 0,
+      .target_level = 0,
+      .color = 0xFF00FF00,
+      .category = tsl::profiler::ContextType::kGpuLaunch};
   data.flow_lines = {flow1, flow2};
   data.flow_ids_by_event_id = {{1000, {"1"}}, {2000, {"2"}}};
   data.flow_lines_by_flow_id = {{"1", {flow1}}, {"2", {flow2}}};
@@ -3498,7 +3560,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithVisibleFlowCategoriesNone) {
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEmptyFlowLinesButSelectedEvent) {
-  FlameChartTimelineData data = GetTestFlowData();
+  Timeline::FlameChartTimelineData data = GetTestFlowData();
   data.flow_lines.clear();  // flow_lines is empty
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3519,7 +3581,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEmptyFlowLinesButSelectedEvent) {
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawFlowsWithSelectedEventButNoEventIds) {
-  FlameChartTimelineData data = GetTestFlowData();
+  Timeline::FlameChartTimelineData data = GetTestFlowData();
   data.entry_event_ids.clear();
   timeline_.set_timeline_data(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3623,15 +3685,15 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawFlowsWithInvalidLevels) {
-  FlameChartTimelineData data = GetTestFlowData();
-  FlowLine flow_invalid_source = {
+  Timeline::FlameChartTimelineData data = GetTestFlowData();
+  Timeline::FlowLine flow_invalid_source = {
       .source_ts = 12.0,
       .target_ts = 52.0,
       .source_level = 999,  // invalid
       .target_level = 0,
       .color = 0xFF0000FF,  // Blue
       .category = tsl::profiler::ContextType::kGeneric};
-  FlowLine flow_invalid_target = {
+  Timeline::FlowLine flow_invalid_target = {
       .source_ts = 13.0,
       .target_ts = 53.0,
       .source_level = 0,
@@ -3672,7 +3734,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithInvalidLevels) {
 using TimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
 
 TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 0",
                          .start_level = 0,
                          .nesting_level = 0,
@@ -3768,7 +3830,7 @@ TEST(TimelineTest, BezierControlPointCalculation) {
 
 TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   // Ensure we have some data so tracks are drawn.
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1", .start_level = 0});
   timeline_.set_timeline_data(std::move(data));
 
@@ -3876,7 +3938,7 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
   // Set up timeline with simple data so it draws
   timeline_.SetVisibleRange({0.0, 100.0});
   timeline_.set_data_time_range({0.0, 100.0});
-  FlameChartTimelineData data;
+  Timeline::FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1", .start_level = 0});
   timeline_.set_timeline_data(std::move(data));
 

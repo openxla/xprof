@@ -278,6 +278,17 @@ jax.profiler.stop_trace()
    each sparse core to trace on the TPU.
 4. `tpu_num_chips_to_profile_per_task`: Specifies the number of TPU chips to
    profile per task.
+5. `tpu_cpu_perf_counter_profile_events`: Specifies a comma-separated list of
+   CPU performance counter events to profile by name (e.g.,
+   `"context-switches,page-faults"`). This is the recommended way to profile CPU
+   events because string names are automatically resolved to hardware/software
+   types.
+6. `tpu_cpu_perf_counter_configs`: Specifies a comma-separated list of CPU
+   performance counter configurations. Each configuration is structured as
+   `config:type:name` where `config` and `type` map directly to the integer
+   fields in the Linux `perf_event_attr` struct, and `name` is a custom string
+   label. This is an advanced fallback option for passing RAW events or custom
+   PMU configs not recognized by name. For example: `"3:1:context-switches"`.
 
 #### GPU options
 

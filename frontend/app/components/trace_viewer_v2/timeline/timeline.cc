@@ -369,6 +369,8 @@ void Timeline::Draw() {
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 
+    // Render the track name (e.g., process, thread, or counter group name).
+    ImGui::PushFont(traceviewer::fonts::label_large);
     const float text_height = ImGui::GetTextLineHeight();
     const float vertical_offset = (centereable_height - text_height) * 0.5f;
     ImGui::SetCursorPosY(label_start_y + vertical_offset);
@@ -383,6 +385,7 @@ void Timeline::Draw() {
         ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
+    ImGui::PopFont();
 
     ImGui::Unindent(indent_amount);
     ImGui::SetCursorPosY(label_start_y);

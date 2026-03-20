@@ -8,12 +8,16 @@
 
 namespace traceviewer::fonts {
 
-ImFont* body = nullptr;
+ImFont* body_large = nullptr;
 ImFont* caption = nullptr;
+ImFont* label_large = nullptr;
+ImFont* label_medium = nullptr;
 ImFont* label_small = nullptr;
 
 // The font sizes correspond to the GM3 Typography Type scale tokens.
-constexpr float kBodyFontSize = 16.0f;
+constexpr float kBodyLargeFontSize = 16.0f;
+constexpr float kLabelLargeFontSize = 14.0f;
+constexpr float kLabelMediumFontSize = 12.0f;
 constexpr float kLabelSmallFontSize = 11.0f;
 
 void LoadFonts(float pixel_ratio) {
@@ -38,7 +42,7 @@ void LoadFonts(float pixel_ratio) {
   };
 
   io.Fonts->AddFontDefault(&config);
-  io.FontDefault = body;
+  io.FontDefault = body_large;
 }
 
 }  // namespace traceviewer::fonts

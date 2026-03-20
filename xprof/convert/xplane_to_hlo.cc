@@ -19,6 +19,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -73,7 +74,8 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
 
   // Save HLO protos to session run directory.
   for (const absl::string_view module_name : module_list) {
-    auto hlo_proto_or = hlo_proto_map.GetHloProtoByModuleName(module_name);
+    absl::StatusOr<const xla::HloProto*> hlo_proto_or =
+        hlo_proto_map.GetHloProtoByModuleName(module_name);
     if (!hlo_proto_or.ok()) {
       return tsl::errors::Internal(hlo_proto_or.status().message());
     }
@@ -91,8 +93,7 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
 }  // namespace
 
 absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
-    const SessionSnapshot& session_snapshot,
-    const absl::string_view module_name) {
+    const SessionSnapshot& session_snapshot, absl::string_view module_name) {
   std::string file_name =
       ProfilerJoinPath(session_snapshot.GetSessionRunDir(),
                        absl::StrCat(module_name, kHloProtoSuffix));
@@ -101,9 +102,38 @@ absl::StatusOr<xla::HloProto> GetHloProtoByModuleName(
   return hlo_proto;
 }
 
+absl::StatusOr<xla::HloProto> GetHloProtoByNodeName(
+    const SessionSnapshot& session_snapshot, absl::string_view node_name) {
+  std::vector<std::string> files;
+  TF_RETURN_IF_ERROR(tsl::Env::Default()->GetChildren(
+      std::string(session_snapshot.GetSessionRunDir()), &files));
+
+  for (absl::string_view module_name : files) {
+    if (!absl::ConsumeSuffix(&module_name, kHloProtoSuffix)) {
+      continue;
+    }
+    absl::StatusOr<xla::HloProto> hlo_proto_or =
+        GetHloProtoByModuleName(session_snapshot, module_name);
+    if (!hlo_proto_or.ok()) continue;
+    const xla::HloProto& hlo_proto = *hlo_proto_or;
+    if (!hlo_proto.has_hlo_module()) continue;
+    for (const xla::HloComputationProto& computation :
+         hlo_proto.hlo_module().computations()) {
+      for (const xla::HloInstructionProto& instruction :
+           computation.instructions()) {
+        if (instruction.name() == node_name) {
+          return hlo_proto_or;
+        }
+      }
+    }
+  }
+  return absl::NotFoundError(
+      absl::StrCat("HLO proto file containing node name ", node_name,
+                   " not found in ", session_snapshot.GetSessionRunDir()));
+}
+
 absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
-    const SessionSnapshot& session_snapshot,
-    const absl::string_view program_id_str) {
+    const SessionSnapshot& session_snapshot, absl::string_view program_id_str) {
   std::vector<std::string> files;
   TF_RETURN_IF_ERROR(tsl::Env::Default()->GetChildren(
       std::string(session_snapshot.GetSessionRunDir()), &files));
@@ -111,23 +141,21 @@ absl::StatusOr<xla::HloProto> GetHloProtoByProgramId(
   std::string target_module_name = "";
 
   for (const std::string& file : files) {
-    if (absl::EndsWith(file, kHloProtoSuffix)) {
-      absl::string_view module_name = file;
-      if (!absl::ConsumeSuffix(&module_name, kHloProtoSuffix)) {
-        continue;  // Should not happen based on the EndsWith check
-      }
+    absl::string_view module_name = file;
+    if (!absl::ConsumeSuffix(&module_name, kHloProtoSuffix)) {
+      continue;
+    }
 
-      // Fuzzy search: Check if the module name contains the program_id string.
-      if (absl::StrContains(module_name, program_id_str)) {
-        // Assuming the first match is the desired one.
-        target_module_name = std::string(module_name);
-        break;
-      }
+    // Fuzzy search: Check if the module name contains the program_id string.
+    if (absl::StrContains(module_name, program_id_str)) {
+      // Assuming the first match is the desired one.
+      target_module_name = std::string(module_name);
+      break;
     }
   }
 
   if (target_module_name.empty()) {
-    return tsl::errors::NotFound(
+    return absl::NotFoundError(
         absl::StrCat("HLO proto file containing program ID ", program_id_str,
                      " not found in ", session_snapshot.GetSessionRunDir()));
   }
@@ -148,7 +176,7 @@ absl::StatusOr<xla::HloProto> GetHloProtoByOptions(
   } else if (program_id.has_value() && !program_id->empty()) {
     return GetHloProtoByProgramId(session_snapshot, *program_id);
   } else {
-    return tsl::errors::InvalidArgument("Can not load hlo proto from options.");
+    return absl::InvalidArgumentError("Can not load hlo proto from options.");
   }
 }
 

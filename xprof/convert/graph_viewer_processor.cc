@@ -16,7 +16,6 @@ limitations under the License.
 #include "xprof/convert/graph_viewer_processor.h"
 
 #include <memory>
-#include <optional>
 #include <string>
 
 #include "absl/log/log.h"
@@ -47,11 +46,11 @@ limitations under the License.
 
 namespace xprof {
 
+namespace {
+
 using ::tensorflow::profiler::ConvertHloProtoToGraph;
 using ::tensorflow::profiler::ConvertHloProtoToStringView;
 using ::tensorflow::profiler::GetAdjacentNodes;
-using ::tensorflow::profiler::GetHloProtoByModuleName;
-using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::GraphViewerParams;
 using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
@@ -59,6 +58,22 @@ using ::tensorflow::profiler::kGraphTypeName;
 using ::tensorflow::profiler::ParseGraphViewerParams;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
+
+absl::StatusOr<xla::HloProto> GetHloProto(
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  absl::StatusOr<xla::HloProto> hlo_proto =
+      GetHloProtoByOptions(session_snapshot, options);
+  if (hlo_proto.ok()) return hlo_proto;
+
+  // Fallback: If module not found/provided, try searching by node name.
+  absl::StatusOr<GraphViewerParams> params = ParseGraphViewerParams(options);
+  if (params.ok() && !params->node_name.empty()) {
+    hlo_proto = GetHloProtoByNodeName(session_snapshot, params->node_name);
+  }
+  return hlo_proto;
+}
+
+}  // namespace
 
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
@@ -89,16 +104,20 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
 
 absl::Status GraphViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
-                      GetHloProtoByOptions(session_snapshot, options));
+  absl::StatusOr<xla::HloProto> hlo_proto =
+      GetHloProto(session_snapshot, options);
+
+  if (!hlo_proto.ok()) {
+    return hlo_proto.status();
+  }
 
   LOG(INFO) << "Processing graph viewer for  hlo module: "
-            << hlo_proto.hlo_module().name();
+            << hlo_proto->hlo_module().name();
 
   std::string graph_viewer_json;
 
   TF_ASSIGN_OR_RETURN(graph_viewer_json,
-                      ConvertHloProtoToGraphViewer(hlo_proto, options));
+                      ConvertHloProtoToGraphViewer(*hlo_proto, options));
 
   SetOutput(graph_viewer_json, "application/json");
   return absl::OkStatus();

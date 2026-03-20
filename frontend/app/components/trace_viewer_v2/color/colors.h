@@ -28,6 +28,8 @@ inline constexpr ImU32 kYellow90 = 0xFF7CE0FF;
 // go/keep-sorted start
 // "inverse on surface" #F2F2F2
 inline constexpr ImU32 kInverseOnSurfaceColor = 0xFFF2F2F2;
+// "on surface" #1F1F1F
+inline constexpr ImU32 kOnSurfaceColor = 0xFF1F1F1F;
 // "outline" #747775
 inline constexpr ImU32 kOutlineColor = 0xFF757774;
 // "outline variant" #C4C7C5

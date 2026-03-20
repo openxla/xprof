@@ -27,6 +27,7 @@
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -46,11 +47,6 @@ struct GroupKey {
            std::tie(other.nesting_level, other.name, other.parent_name);
   }
 };
-
-// The nesting level of a process group in the flame chart.
-constexpr int kProcessNestingLevel = 0;
-// The nesting level of a thread group in the flame chart.
-constexpr int kThreadNestingLevel = 1;
 
 bool GetExpandedState(int nesting_level, absl::string_view name,
                       absl::string_view parent_name, bool default_expanded,
@@ -498,7 +494,7 @@ void PopulateCounterTrack(ProcessId pid, const std::string& name,
   Group group;
   group.type = Group::Type::kCounter;
   group.name = name;
-  group.nesting_level = kThreadNestingLevel;
+  group.nesting_level = kCounterNestingLevel;
   group.start_level = current_level;
 
   // Counters always take one level, so force them to be expanded.

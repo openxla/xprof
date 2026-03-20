@@ -90,6 +90,7 @@ wasm_cc_library(
     ],
     hdrs = ["data_provider.h"],
     deps = [
+        ":constants",
         ":time_range",
         ":timeline",
         "@com_google_absl//absl/algorithm:container",

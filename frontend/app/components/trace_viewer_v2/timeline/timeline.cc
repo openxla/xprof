@@ -76,20 +76,20 @@ absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
 }
 
 // Draws an expand/collapse button for a group.
-void DrawExpandCollapseButton(Group& group, int group_index) {
+void DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
   // Always show the expand/collapse button.
   ImGui::PushID(group_index);
   // Draw a smaller arrow button.
   const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
-  const Pixel kButtonSize = ImGui::GetFrameHeight();
+  const Pixel kButtonHeight = height;
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
-  Pixel center_y = p.y + kButtonSize * 0.5f;
+  Pixel center_y = p.y + kButtonHeight * 0.5f;
   Pixel center_x = p.x + kArrowSize * 0.5f;
 
   // Invisible button for interaction
   if (ImGui::InvisibleButton("##expand_collapse",
-                             ImVec2(kArrowSize, kButtonSize))) {
+                             ImVec2(kArrowSize, kButtonHeight))) {
     group.expanded = !group.expanded;
   }
 
@@ -264,6 +264,8 @@ void Timeline::Draw() {
 
   // Use the fixed table width so the table width is constant to reserve space
   // for the vertical scrollbar.
+  ImGui::PushStyleColor(ImGuiCol_TableBorderLight, kOnSurfaceColor);
+  ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, kOnSurfaceColor);
   ImGui::BeginTable("Timeline", 2, kImGuiTableFlags,
                     ImVec2(content_region_avail_width, -FLT_MIN));
   ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
@@ -290,8 +292,9 @@ void Timeline::Draw() {
 
     const bool is_process = group.nesting_level == 0;
     if (group_index > 0) {
-      ImGui::SetCursorPosY(ImGui::GetCursorPosY() + kTrackVerticalGap);
-      ImGui::Dummy(ImVec2(0.0f, 0.0f));
+      const float gap =
+          group.nesting_level == 0 ? kProcessTrackGap : kThreadTrackGap;
+      ImGui::TableNextRow(ImGuiTableRowFlags_None, gap);
     }
 
     ImGui::TableNextRow();
@@ -317,6 +320,23 @@ void Timeline::Draw() {
     const bool expandable = group.type == Group::Type::kFlame &&
                             (has_children || has_multiple_levels);
 
+    const bool is_collapsed = expandable && !group.expanded;
+    Pixel group_height = kEventHeight;
+    if (group.nesting_level == kProcessNestingLevel) {
+      group_height = kProcessTrackHeight;
+    } else if (!is_collapsed) {
+      if (group.type == Group::Type::kCounter) {
+        group_height = kCounterTrackHeight;
+      } else if (group.type == Group::Type::kFlame) {
+        const int end_level =
+            group_index + 1 < timeline_data_.groups.size()
+                ? timeline_data_.groups[group_index + 1].start_level
+                : timeline_data_.events_by_level.size();
+        group_height = std::max(1, end_level - group.start_level) *
+                       (kEventHeight + kEventPaddingBottom);
+      }
+    }
+
     const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
     // We add 1 to the nesting level because ImGui::Indent(0) results in a
     // default, potentially large indentation. By adding 1, even top-level
@@ -330,23 +350,33 @@ void Timeline::Draw() {
       indent_amount = kIndentSize;
     }
 
+    const float label_start_y = ImGui::GetCursorPosY();
+    // Use the first level's height for centering if the track has multiple
+    // levels, to keep the label near the top. Process track uses its height.
+    const float centereable_height =
+        group.nesting_level == kProcessNestingLevel
+            ? kProcessTrackHeight
+            : (group.type == Group::Type::kFlame ? kEventHeight : group_height);
+
     ImGui::Indent(indent_amount);
 
     if (expandable) {
-      DrawExpandCollapseButton(group, group_index);
+      DrawExpandCollapseButton(group, group_index, centereable_height);
     } else {
-      ImGui::Dummy(ImVec2(kArrowSize, ImGui::GetFrameHeight()));
+      ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
     }
 
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
-    ImGui::AlignTextToFramePadding();
+
+    const float text_height = ImGui::GetTextLineHeight();
+    const float vertical_offset = (centereable_height - text_height) * 0.5f;
+    ImGui::SetCursorPosY(label_start_y + vertical_offset);
 
     ImGui::PushStyleColor(ImGuiCol_FrameBg, 0);
     ImGui::PushStyleColor(ImGuiCol_Border, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    Pixel text_height = ImGui::GetTextLineHeight();
-    Pixel text_width = ImGui::GetContentRegionAvail().x;
+    const Pixel text_width = ImGui::GetContentRegionAvail().x;
     ImGui::InputTextMultiline(
         "##name", const_cast<char*>(group.name.data()), group.name.size() + 1,
         ImVec2(text_width, text_height),
@@ -355,10 +385,10 @@ void Timeline::Draw() {
     ImGui::PopStyleColor(2);
 
     ImGui::Unindent(indent_amount);
+    ImGui::SetCursorPosY(label_start_y);
 
     ImGui::TableNextColumn();
 
-    const bool is_collapsed = expandable && !group.expanded;
     if (is_collapsed) {
       DrawGroupPreview(group_index, px_per_time_unit_val);
       int current_nesting_level = group.nesting_level;
@@ -372,6 +402,8 @@ void Timeline::Draw() {
     }
     ImGui::PopID();
   }
+
+  ImGui::PopStyleColor(2);  // Pop TableBorderLight and TableBorderStrong
 
   // Update `label_width_` after the table has been fully laid out.
   // This ensures we capture the updated `ResizedColumn` and `WidthGiven` state
@@ -1118,10 +1150,13 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   // This is important for parent groups (e.g., a process) that might not
   // contain any event levels directly.
   // TODO: b/453676716 - Add tests for group height calculation.
-  const Pixel group_height = group.type == Group::Type::kCounter
-                                 ? kCounterTrackHeight
-                                 : std::max(1, end_level - start_level) *
-                                       (kEventHeight + kEventPaddingBottom);
+  const Pixel group_height =
+      group.type == Group::Type::kCounter
+          ? kCounterTrackHeight
+          : (group.nesting_level == kProcessNestingLevel
+                 ? kProcessTrackHeight
+                 : std::max(1, end_level - start_level) *
+                       (kEventHeight + kEventPaddingBottom));
   // Groups might have the same name. We add the index of the group to the ID
   // to ensure each ImGui::BeginChild call has a unique ID, otherwise ImGui
   // might ignore later calls with the same name.
@@ -1166,15 +1201,6 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
     }
   }
   ImGui::EndChild();
-
-  if (group_index < timeline_data_.groups.size() - 1) {
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    Pixel line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
-    draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
-                       ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
-                       kLightGrayColor);
-  }
 }
 
 void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
@@ -1182,8 +1208,11 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   const std::string timeline_child_id =
       absl::StrCat("TimelineChildPreview_", group.name, "_", group_index);
 
-  // We use a fixed height for the preview, same as a single event height.
-  const Pixel group_height = kEventHeight;
+  // Process tracks have a fixed height, other tracks use a single event height
+  // for the preview.
+  const Pixel group_height = group.nesting_level == kProcessNestingLevel
+                                 ? kProcessTrackHeight
+                                 : kEventHeight;
 
   // Calculate level Y positions for the preview.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -1200,7 +1229,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
 
   for (int level = start_level; level < end_level; ++level) {
     if (level < level_y_positions_.size()) {
-      level_y_positions_[level] = pos.y + kEventHeight * 0.5f;
+      level_y_positions_[level] = pos.y + group_height * 0.5f;
     }
   }
 
@@ -1221,15 +1250,6 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
     }
   }
   ImGui::EndChild();
-
-  if (group_index < timeline_data_.groups.size() - 1) {
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    Pixel line_y = ImGui::GetItemRectMax().y + ImGui::GetStyle().CellPadding.y;
-    draw_list->AddLine(ImVec2(viewport->Pos.x + label_width_, line_y),
-                       ImVec2(viewport->Pos.x + viewport->Size.x, line_y),
-                       kLightGrayColor);
-  }
 }
 
 void Timeline::DrawFlameGroupPreview(int start_level, int end_level,

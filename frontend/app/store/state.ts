@@ -1,27 +1,31 @@
 import {DataRequestType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
-import {AllReduceOpInfo, ChannelInfo, PodStatsRecord} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  AllReduceOpInfo,
+  ChannelInfo,
+  PodStatsRecord,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 
 /** Type for active heap object state */
-type ActiveHeapObjectState = HeapObject|null;
+type ActiveHeapObjectState = HeapObject;
 
 /** State of memory viewer */
 export interface MemoryViewerState {
-  activeHeapObject: ActiveHeapObjectState;
+  activeHeapObject: ActiveHeapObjectState | null;
 }
 
 /** Type for active op profile node state */
-type ActiveOpProfileNodeState = Node|null;
+type ActiveOpProfileNodeState = Node;
 
 /** State of op profile */
 export interface OpProfileState {
-  activeOpProfileNode: ActiveOpProfileNodeState;
+  activeOpProfileNode: ActiveOpProfileNodeState | null;
   selectedOpNodeChain: string[];
-  rootNode: ActiveOpProfileNodeState;
+  rootNode: ActiveOpProfileNodeState | null;
 }
 
 /** State of op analysis settings */
@@ -34,12 +38,12 @@ export interface ProfilingGeneralState {
   deviceType: string;
 }
 
-/** Type for active pod viewer info state */
-type ActivePodViewerInfoState = AllReduceOpInfo|ChannelInfo|PodStatsRecord|null;
+/** Type for active pod viewer info */
+type ActivePodViewerInfo = AllReduceOpInfo | ChannelInfo | PodStatsRecord;
 
 /** State of pod viewer */
 export interface PodViewerState {
-  activePodViewerInfo: ActivePodViewerInfoState;
+  activePodViewerInfo: ActivePodViewerInfo | null;
 }
 
 /** Type for capturing profile state */
@@ -65,7 +69,7 @@ export interface ToolInfo {
 }
 
 /** Type for tools info state */
-export type ToolsInfoState = ToolInfo[]|[];
+export type ToolsInfoState = ToolInfo[] | [];
 
 /** The interface of params of DataRequest */
 interface DataRequestParams {
@@ -108,11 +112,11 @@ export interface AppState {
   currentRun: string;
   profilingGeneralState: ProfilingGeneralState;
   opAnalysisState: OpAnalysisState;
-  config: ProfilerConfig|null;
+  config: ProfilerConfig | null;
 }
 
 /** Initial state of active heap object */
-const INIT_ACTIVE_HEAP_OBJECT_STATE: ActiveHeapObjectState = null;
+const INIT_ACTIVE_HEAP_OBJECT_STATE: ActiveHeapObjectState | null = null;
 
 /** Initial state object */
 export const INIT_MEMORY_VIEWER_STATE: MemoryViewerState = {
@@ -120,7 +124,7 @@ export const INIT_MEMORY_VIEWER_STATE: MemoryViewerState = {
 };
 
 /** Initial state of active op profile node */
-const INIT_ACTIVE_OP_PROFILE_NODE_STATE: ActiveOpProfileNodeState = null;
+const INIT_ACTIVE_OP_PROFILE_NODE_STATE: ActiveOpProfileNodeState | null = null;
 
 /** Initial state of op profile */
 export const INIT_OP_PROFILE_STATE: OpProfileState = {
@@ -140,7 +144,7 @@ export const INIT_OP_ANALYSIS_STATE: OpAnalysisState = {
 };
 
 /** Initial state of active pod viewer info */
-const INIT_ACTIVE_POD_VIEWER_INFO_STATE: ActivePodViewerInfoState = null;
+const INIT_ACTIVE_POD_VIEWER_INFO_STATE: ActivePodViewerInfo | null = null;
 
 /** Initial state of pod viewer */
 export const INIT_POD_VIEWER_STATE: PodViewerState = {
@@ -187,7 +191,7 @@ const INIT_HOSTS_STATE: HostMetadata[] = [];
 const INIT_TAGS_STATE: string[] = [];
 
 /** Initial state of config */
-const INIT_CONFIG_STATE: ProfilerConfig|null = null;
+const INIT_CONFIG_STATE: ProfilerConfig | null = null;
 
 /** Initial state object */
 export const INIT_APP_STATE: AppState = {

@@ -1,27 +1,38 @@
-import {Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  ViewChild,
+} from '@angular/core';
 import {KELLY_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
-import {PrimitiveTypeNumberStringOrUndefined} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {PrimitiveTypeNumberString} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
 const BAR_WIDTH = 50;
 const DEFAULT_CHART_WIDTH = 500;
 
 /** A stack bar chart view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'stack-bar-chart',
   templateUrl: './stack_bar_chart.ng.html',
-  styleUrls: ['./stack_bar_chart.scss']
+  styleUrls: ['./stack_bar_chart.scss'],
 })
 export class StackBarChart implements OnChanges, OnInit {
   /** The data to be display. */
-  @Input() data?: PrimitiveTypeNumberStringOrUndefined[][];
+  @Input() data?: Array<Array<PrimitiveTypeNumberString | undefined>>;
 
   /** The event when the selection of the chart is changed. */
   @Output() selected = new EventEmitter<number>();
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 
-  chart: google.visualization.BarChart|null = null;
+  chart: google.visualization.BarChart | null = null;
   chartWidth = DEFAULT_CHART_WIDTH;
 
   ngOnInit() {
@@ -37,8 +48,10 @@ export class StackBarChart implements OnChanges, OnInit {
       return;
     }
 
-    this.chartWidth =
-        Math.max(DEFAULT_CHART_WIDTH, this.data.length * BAR_WIDTH);
+    this.chartWidth = Math.max(
+      DEFAULT_CHART_WIDTH,
+      this.data.length * BAR_WIDTH,
+    );
     const dataTable = window.google.visualization.arrayToDataTable(this.data);
 
     const options = {
@@ -76,15 +89,18 @@ export class StackBarChart implements OnChanges, OnInit {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.BarChart(this.chartRef.nativeElement);
+      this.chart = new google.visualization.BarChart(
+        this.chartRef.nativeElement,
+      );
 
       google.visualization.events.addListener(
-          this.chart, 'onmouseover',
-          (event: google.visualization.ChartSelection) => {
-            event = event || {};
-            this.selected.emit(event.row || 0);
-          });
+        this.chart,
+        'onmouseover',
+        (event: google.visualization.ChartSelection) => {
+          event = event || {};
+          this.selected.emit(event.row || 0);
+        },
+      );
 
       this.drawChart();
     });

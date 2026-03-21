@@ -13,11 +13,11 @@ export const DEFAULT_SIMPLE_DATA_TABLE = {
 };
 
 /** All cell value type */
-export type DataTableCellValue = string|number|boolean;
+export type DataTableCellValue = string | number | boolean;
 
 /** The base interface for a table filter.  */
-export declare interface Filter extends
-    google.visualization.DataTableCellFilter {}
+export declare interface Filter
+  extends google.visualization.DataTableCellFilter {}
 
 /** The base interface for a genreal property object. */
 // Make the property k-v pair more general, note:
@@ -33,8 +33,8 @@ declare interface GeneralProperty {
 // which is the contract between XProf FE and BE (API implementation also has p
 // as optional)
 // We partially extends the gviz interface to enable that
-export interface SimpleDataTable extends
-    Partial<google.visualization.DataObject> {}
+export interface SimpleDataTable
+  extends Partial<google.visualization.DataObject> {}
 
 /* tslint:disable enforce-name-casing */
 /** The base interface for properties of meta host-op table. */
@@ -86,7 +86,7 @@ export declare interface TopOpsColumn {
 
 /** The base interface for a run environment. */
 export declare interface RunEnvironment extends SimpleDataTable {
-  p?: Record<string, string>; /* Run environment property */
+  p?: Record<string, string> /* Run environment property */;
 }
 
 /**
@@ -96,13 +96,13 @@ export declare interface RunEnvironment extends SimpleDataTable {
  * is updated.
  */
 export declare interface RecommendationResult extends SimpleDataTable {
-  p?: Record<string, string>; /* Recommendation result property */
+  p?: Record<string, string> /* Recommendation result property */;
 }
 
 /** The base interface for a normalized accelerator performance. */
-export declare interface NormalizedAcceleratorPerformance extends
-    SimpleDataTable {
-  p?: Record<string, string>/* Normalized accelerator performance property */;
+export declare interface NormalizedAcceleratorPerformance
+  extends SimpleDataTable {
+  p?: Record<string, string> /* Normalized accelerator performance property */;
 }
 
 /** The data table type for an input pipeline device-side analysis. */
@@ -110,7 +110,7 @@ export type InputPipelineDeviceAnalysis = InputPipelineAnalysis;
 
 /** The base interface for an input pipeline host-side analysis. */
 export declare interface InputPipelineHostAnalysis extends SimpleDataTable {
-  p?: Record<string, string>/* Input pipeline host analysis property */;
+  p?: Record<string, string> /* Input pipeline host analysis property */;
 }
 
 /** The base interface for a host ops table column. */
@@ -126,7 +126,7 @@ export interface HostOpsColumn {
 
 /** The base interface for a tensorflow stats. */
 export declare interface FrameworkOpStatsData extends SimpleDataTable {
-  p?: Record<string, string>/* Framework op stats property */;
+  p?: Record<string, string> /* Framework op stats property */;
 }
 
 /** The base interface for a replica group. */
@@ -240,7 +240,7 @@ export type HloProto = hloProto.HloProto;
 
 /** The data table type for a preprocessed memory viewer */
 export type MemoryViewerPreprocessResult =
-    memoryViewerPreprocess.PreprocessResult;
+  memoryViewerPreprocess.PreprocessResult;
 
 /** The interface for a HLO module. */
 export declare interface HloModule {
@@ -252,7 +252,7 @@ export declare interface HloModule {
 }
 
 /** The data table type for a MemoryProfile. */
-export type MemoryProfileProto = memoryProfileProto.MemoryProfile&{
+export type MemoryProfileProto = memoryProfileProto.MemoryProfile & {
   hloModules?: HloModule[];
 };
 
@@ -264,8 +264,13 @@ export type OpProfileProto = opProfileProto.Profile;
 
 /** All overview page data table type. */
 export type OverviewPageDataTable =
-    GeneralAnalysis|InputPipelineAnalysis|RecommendationResult|RunEnvironment|
-    SimpleDataTable|NormalizedAcceleratorPerformance|PodViewerTopology;
+  | GeneralAnalysis
+  | InputPipelineAnalysis
+  | RecommendationResult
+  | RunEnvironment
+  | SimpleDataTable
+  | NormalizedAcceleratorPerformance
+  | PodViewerTopology;
 
 /** All overview page data tuple type. */
 export type OverviewPageDataTuple = [
@@ -310,28 +315,50 @@ export declare interface TfFunctionDataTable extends SimpleDataTable {
 
 /** The data table type in tf-function stats. */
 export type TfFunctionStatsTable =
-    TfFunctionDataTable|TfFunctionExplanationTable;
+  | TfFunctionDataTable
+  | TfFunctionExplanationTable;
 
 /** All input pipeline page data table type. */
-export type InputPipelineDataTable = InputPipelineDeviceAnalysis|
-    InputPipelineHostAnalysis|MetaHostOpTable|HostOpTable|SimpleDataTable;
+export type InputPipelineDataTable =
+  | InputPipelineDeviceAnalysis
+  | InputPipelineHostAnalysis
+  | MetaHostOpTable
+  | HostOpTable
+  | SimpleDataTable;
 
-/** The data types with number, string, or undefined. */
-export type PrimitiveTypeNumberStringOrUndefined = number|string|undefined;
+/** The data types with number and string. */
+export type PrimitiveTypeNumberString = number | string;
 
 /** All data type from tool response data. */
-export type DataTable = SimpleDataTable|OverviewPageDataTable[]|
-    InputPipelineDataTable[]|FrameworkOpStatsData[]|HloProto|
-    MemoryViewerPreprocessResult|MemoryProfileProto|OpProfileProto|
-    PodViewerDatabase|RooflineModelData[]|InferenceProfileTable[];
+export type DataTable =
+  | SimpleDataTable
+  | OverviewPageDataTable[]
+  | InputPipelineDataTable[]
+  | FrameworkOpStatsData[]
+  | HloProto
+  | MemoryViewerPreprocessResult
+  | MemoryProfileProto
+  | OpProfileProto
+  | PodViewerDatabase
+  | RooflineModelData[]
+  | InferenceProfileTable[];
 
 /**
  * All DataTable types extended from google.visualization.DataTable.
  */
-export type DataTableUnion = SimpleDataTable|FrameworkOpStatsData|
-    TfFunctionExplanationTable|TfFunctionDataTable|MetaHostOpTable|HostOpTable|
-    GeneralAnalysis|InputPipelineAnalysis|InputPipelineHostAnalysis|
-    RunEnvironment|RecommendationResult|RecommendationResult;
+export type DataTableUnion =
+  | SimpleDataTable
+  | FrameworkOpStatsData
+  | TfFunctionExplanationTable
+  | TfFunctionDataTable
+  | MetaHostOpTable
+  | HostOpTable
+  | GeneralAnalysis
+  | InputPipelineAnalysis
+  | InputPipelineHostAnalysis
+  | RunEnvironment
+  | RecommendationResult
+  | RecommendationResult;
 
 /** The base interface for a property of inference latency. */
 export declare interface InferenceLatencyProperty {
@@ -370,4 +397,5 @@ export declare interface InferenceProfileData extends SimpleDataTable {
 
 /** All Inference Stats page data table type. */
 export type InferenceProfileTable =
-    |InferenceProfileMetadata|InferenceProfileData;
+  | InferenceProfileMetadata
+  | InferenceProfileData;

@@ -215,7 +215,7 @@ export class SideNav implements OnInit, OnDestroy {
       ...this.navigationParams,
     };
     if (this.isMultiHostsEnabled) {
-      navigationEvent.hosts = this.selectedHostsInternal;
+      navigationEvent.hosts = this.selectedHostsInternal.join(',');
     } else {
       navigationEvent.host = this.selectedHost;
     }

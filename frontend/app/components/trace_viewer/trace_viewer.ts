@@ -73,7 +73,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   selectedEventProperties: SelectedEventProperty[] = [];
   eventDetailColumns: string[] = ['property', 'value'];
   private readonly eventArgsCache = new Map<string, {[key: string]: string}>();
-  private queryString = '';
   searching = false;
 
   @ViewChild(TraceViewerContainer, {static: false})
@@ -86,6 +85,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     platformLocation: PlatformLocation,
     route: ActivatedRoute,
   ) {
+    console.log('constructor: zzzz this is the new build');
     if (String(platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)) {
       this.pathPrefix = String(platformLocation.pathname).split(
         API_PREFIX + PLUGIN_NAME,
@@ -149,44 +149,30 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const tag = event.tag || '';
     const runPath = event.run_path || '';
     const sessionPath = event.session_path || '';
-    this.queryString = `run=${run}&tag=${tag}`;
+    const queryParams = new Map<string, string>();
 
     if (sessionPath) {
-      this.queryString += `&session_path=${sessionPath}`;
+      queryParams.set('session_path', sessionPath);
     } else if (runPath) {
-      this.queryString += `&run_path=${runPath}`;
+      queryParams.set('run_path', runPath);
     }
-
+    console.log('zzzz this is the new build');
+    let host = '';
     if (event.hosts && typeof event.hosts === 'string') {
       // Since event.hosts is a comma-separated string, we can use it directly.
-      this.queryString += `&hosts=${event.hosts}`;
+      queryParams.set('hosts', event.hosts);
+      host = event.hosts.split(',')[0];
     } else if (event.host) {
-      this.queryString += `&host=${event.host}`;
+      host = event.host;
     } else {
-      this.queryString += `&host=${this.hostList.length > 0 ? this.hostList[0] : ''}`;
-    }
-
-    const additionalParams = new Map<string, string>();
-    if (sessionPath) {
-      additionalParams.set('session_path', sessionPath);
-    } else if (runPath) {
-      additionalParams.set('run_path', runPath);
-    }
-
-    if (event.hosts) {
-      const isString = typeof event.hosts === 'string';
-      const hostsString = isString
-        ? (event.hosts as unknown as string)
-        : event.hosts.join(',');
-
-      additionalParams.set('hosts', hostsString);
+      host = this.hostList.length > 0 ? this.hostList[0] : '';
     }
 
     const traceDataUrl = this.dataService.getDataUrl(
       run,
       tag,
-      event.host || this.hostList[0] || event.hosts?.[0] || '',
-      additionalParams,
+      host,
+      queryParams,
     );
 
     if (this.useTraceViewerV2) {

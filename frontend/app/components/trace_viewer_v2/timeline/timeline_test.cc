@@ -4036,6 +4036,12 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
   ImGui::EndFrame();
 }
 
+TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {
+  Timeline timeline;
+  EXPECT_EQ(timeline.get_copy_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline.get_copied_track_name_for_test(), "");
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

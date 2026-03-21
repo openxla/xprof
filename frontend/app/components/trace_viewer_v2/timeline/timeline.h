@@ -132,6 +132,14 @@ class Timeline {
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
+  // For testing only
+  float get_copy_notification_timer_for_test() const {
+    return copy_notification_timer_;
+  }
+  const std::string& get_copied_track_name_for_test() const {
+    return copied_track_name_;
+  }
+
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
   // instance.
@@ -468,6 +476,7 @@ class Timeline {
   bool mpmd_pipeline_view_enabled_ = false;
 
   std::vector<TimeRange> selected_time_ranges_;
+
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;
 
@@ -499,6 +508,12 @@ class Timeline {
   // to its event ID, zoom to its time range to trigger loading, and navigate
   // to it in set_timeline_data once it's loaded.
   std::optional<EventId> pending_navigation_event_id_;
+
+  // Stores the remaining time (in seconds) to display the "Copied!"
+  // notification.
+  float copy_notification_timer_ = 0.0f;
+  // The name of the track that was recently copied to the clipboard.
+  std::string copied_track_name_ = "";
 };
 
 }  // namespace traceviewer

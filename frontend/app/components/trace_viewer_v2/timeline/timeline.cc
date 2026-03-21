@@ -27,6 +27,7 @@
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
+#include "frontend/app/components/trace_viewer_v2/helper/clipboard.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
@@ -419,6 +420,26 @@ void Timeline::Draw() {
 
     ImGui::EndGroup();
 
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+      if (ImGui::IsMouseClicked(0)) {
+        ImGui::SetClipboardText(group.name.c_str());
+        traceviewer::CopyToClipboard(group.name);
+
+        copied_track_name_ = group.name;
+        copy_notification_timer_ = 2.0f;
+      }
+    }
+
+    // "Selecting text" visual effect when clicked/timer active
+    if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
+      ImVec2 group_min = ImGui::GetItemRectMin();
+      ImVec2 group_max = ImGui::GetItemRectMax();
+      // Draw a blue highlight over the text to simulate browser selection
+      ImGui::GetWindowDrawList()->AddRectFilled(group_min, group_max,
+                                                IM_COL32(66, 133, 244, 128));
+    }
+
     ImGui::Unindent(indent_amount);
     ImGui::SetCursorPosY(label_start_y);
 
@@ -496,6 +517,35 @@ void Timeline::Draw() {
   DrawFlows(current_timeline_width_);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
   ImGui::EndChild();
+
+  if (copy_notification_timer_ > 0.0f) {
+    copy_notification_timer_ -= ImGui::GetIO().DeltaTime;
+
+    ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+    std::string toast_text = "Copied track name: " + copied_track_name_;
+    ImVec2 text_size = ImGui::CalcTextSize(toast_text.c_str());
+    ImVec2 padding(16.0f, 8.0f);
+    ImVec2 toast_size(text_size.x + padding.x * 2.0f,
+                      text_size.y + padding.y * 2.0f);
+
+    ImVec2 toast_pos(
+        main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
+        main_viewport->Pos.y + main_viewport->Size.y - toast_size.y - 32.0f);
+
+    float alpha =
+        std::min(1.0f, copy_notification_timer_ * 2.0f);  // fade out at the end
+    ImU32 bg_color = IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
+    ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
+
+    draw_list->AddRectFilled(
+        toast_pos,
+        ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
+        bg_color, 4.0f);
+    draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+                       text_color, toast_text.c_str());
+  }
 
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding

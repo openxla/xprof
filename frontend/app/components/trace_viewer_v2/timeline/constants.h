@@ -70,8 +70,10 @@ inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 
 // Highlighting Constants
 // go/keep-sorted start
+inline constexpr ImU32 kCounterHoverColor = kBlue80;
 inline constexpr ImU32 kHoverMaskColor = kTransparentWhiteColor;
 inline constexpr ImU32 kSelectedBorderColor = kBlueColor;
+inline constexpr Pixel kCounterHoverThickness = 3.5f;
 // The corner rounding applied to hovered events. Set to half of `kEventHeight`
 // to create a half-circle effect on the ends of the event.
 inline constexpr Pixel kHoverCornerRounding = kEventHeight / 2.0f;

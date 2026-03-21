@@ -1110,10 +1110,31 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
   // Ensure we are not before the first timestamp.
   if (it != data.timestamps.begin()) {
     size_t index = std::distance(data.timestamps.begin(), std::prev(it));
-    const double val = data.values[index];
+    double val = data.values[index];
+
+    const Pixel y_base = pos.y + height;
+
+    if (index + 1 < data.timestamps.size()) {
+      const double t1 = data.timestamps[index];
+      const double t2 = data.timestamps[index + 1];
+      const double v1 = data.values[index];
+      const double v2 = data.values[index + 1];
+
+      // Linear interpolation to match the lines drawn in DrawCounterTrack.
+      // This ensures the hover circle remains on the sloped line.
+      val = v1 + (v2 - v1) * (mouse_time - t1) / (t2 - t1);
+
+      // Highlight the entire line segment under hover.
+      const Pixel x1 = TimeToScreenX(t1, pos.x, px_per_time_unit_val);
+      const Pixel y1 = y_base - (v1 - data.min_value) * y_ratio;
+      const Pixel x2 = TimeToScreenX(t2, pos.x, px_per_time_unit_val);
+      const Pixel y2 = y_base - (v2 - data.min_value) * y_ratio;
+      draw_list->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), kCounterHoverColor,
+                         kCounterHoverThickness);
+    }
 
     const Pixel x = mouse_pos.x;
-    const Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+    const Pixel y = y_base - (val - data.min_value) * y_ratio;
 
     // Draw circle
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);

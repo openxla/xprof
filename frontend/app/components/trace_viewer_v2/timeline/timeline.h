@@ -59,6 +59,7 @@ struct Group {
   enum class Type { kFlame, kCounter };
   Type type = Type::kFlame;
   std::string name;
+  std::string subtitle;
   // The start level of the groups of complete events.
   // For flame groups, we increment the group level by real events' levels.
   // For counter groups, we increment the group level by 1.

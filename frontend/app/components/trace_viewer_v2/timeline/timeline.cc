@@ -290,10 +290,11 @@ void Timeline::Draw() {
     Group& group = timeline_data_.groups[group_index];
     ImGui::PushID(group_index);
 
-    const bool is_process = group.nesting_level == 0;
+    const bool is_process = group.nesting_level == kProcessNestingLevel;
     if (group_index > 0) {
-      const float gap =
-          group.nesting_level == 0 ? kProcessTrackGap : kThreadTrackGap;
+      const float gap = group.nesting_level == kProcessNestingLevel
+                            ? kProcessTrackGap
+                            : kThreadTrackGap;
       ImGui::TableNextRow(ImGuiTableRowFlags_None, gap);
     }
 
@@ -369,23 +370,54 @@ void Timeline::Draw() {
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 
-    // Render the track name (e.g., process, thread, or counter group name).
     ImGui::PushFont(traceviewer::fonts::label_large);
-    const float text_height = ImGui::GetTextLineHeight();
-    const float vertical_offset = (centereable_height - text_height) * 0.5f;
-    ImGui::SetCursorPosY(label_start_y + vertical_offset);
-
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, 0);
-    ImGui::PushStyleColor(ImGuiCol_Border, 0);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    const Pixel text_width = ImGui::GetContentRegionAvail().x;
-    ImGui::InputTextMultiline(
-        "##name", const_cast<char*>(group.name.data()), group.name.size() + 1,
-        ImVec2(text_width, text_height),
-        ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll);
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(2);
+    const Pixel text_height_large = ImGui::GetTextLineHeight();
     ImGui::PopFont();
+
+    ImGui::PushFont(traceviewer::fonts::label_medium);
+    const Pixel text_height_medium = ImGui::GetTextLineHeight();
+    ImGui::PopFont();
+
+    const bool has_subtitle = !group.subtitle.empty();
+
+    // We let ImGui native stacking handle the gap.
+    const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
+    const Pixel total_text_height =
+        has_subtitle ? (text_height_large + spacing + text_height_medium)
+                     : text_height_large;
+
+    // Perfectly vertically center the text sequence within the track's height.
+    const Pixel vertical_offset =
+        (centereable_height - total_text_height) * 0.5f;
+    ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
+
+    // Begin a Group so both texts form a SINGLE item on the SameLine as the
+    // toggle arrow! This perfectly isolates the text so they stack normally
+    // without being pushed below the 50px Dummy.
+    ImGui::BeginGroup();
+
+    absl::string_view display_name = group.name;
+    if (has_subtitle) {
+      display_name.remove_prefix(group.subtitle.size() + 1);
+      if (!display_name.empty() && display_name.front() == '/') {
+        display_name.remove_prefix(1);
+      }
+    }
+
+    ImGui::PushFont(traceviewer::fonts::label_large);
+    ImGui::TextUnformatted(display_name.data(),
+                           display_name.data() + display_name.size());
+    ImGui::PopFont();
+
+    if (has_subtitle) {
+      ImGui::PushFont(traceviewer::fonts::label_medium);
+      ImGui::PushStyleColor(ImGuiCol_Text, kOnSecondaryFixedVariantColor);
+      ImGui::TextUnformatted(group.subtitle.data());
+      ImGui::PopStyleColor();
+      ImGui::PopFont();
+    }
+
+    ImGui::EndGroup();
 
     ImGui::Unindent(indent_amount);
     ImGui::SetCursorPosY(label_start_y);

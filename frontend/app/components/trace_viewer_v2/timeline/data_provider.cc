@@ -39,8 +39,8 @@ namespace {
 
 struct GroupKey {
   int nesting_level;
-  std::string name;
-  std::string parent_name;
+  absl::string_view name;
+  absl::string_view parent_name;
 
   bool operator<(const GroupKey& other) const {
     return std::tie(nesting_level, name, parent_name) <
@@ -51,8 +51,7 @@ struct GroupKey {
 bool GetExpandedState(int nesting_level, absl::string_view name,
                       absl::string_view parent_name, bool default_expanded,
                       const std::map<GroupKey, bool>& expanded_states) {
-  if (auto it_state = expanded_states.find(
-          {nesting_level, std::string(name), std::string(parent_name)});
+  if (auto it_state = expanded_states.find({nesting_level, name, parent_name});
       it_state != expanded_states.end()) {
     return it_state->second;
   }
@@ -62,7 +61,7 @@ bool GetExpandedState(int nesting_level, absl::string_view name,
 std::map<GroupKey, bool> GetRestoredExpandedStates(
     const std::vector<Group>& groups) {
   std::map<GroupKey, bool> expanded_states;
-  std::string current_process_name;
+  absl::string_view current_process_name;
   for (const auto& group : groups) {
     if (group.nesting_level == kProcessNestingLevel) {
       current_process_name = group.name;
@@ -92,11 +91,11 @@ struct TraceInformation {
 };
 
 std::string GetDefaultThreadName(ThreadId tid) {
-  return absl::StrCat("Thread ", tid);
+  return absl::StrCat("Thread_", tid);
 }
 
 std::string GetDefaultProcessName(ProcessId pid) {
-  return absl::StrCat("Process ", pid);
+  return absl::StrCat("Process_", pid);
 }
 
 // Extracts the name from event.args. If not found or empty, returns the
@@ -572,7 +571,15 @@ void PopulateProcessTrack(ProcessId pid, const TraceInformation& trace_info,
   bool expanded = GetExpandedState(kProcessNestingLevel, process_group_name, "",
                                    default_expanded, expanded_states);
 
+  std::string track_subtitle;
+
+  const size_t separator_pos = process_group_name.find(' ');
+  if (separator_pos != std::string::npos) {
+    track_subtitle = process_group_name.substr(0, separator_pos);
+  }
+
   data.groups.push_back({.name = process_group_name,
+                         .subtitle = std::move(track_subtitle),
                          .start_level = current_level,
                          .nesting_level = kProcessNestingLevel,
                          .expanded = expanded});

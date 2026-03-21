@@ -73,8 +73,8 @@ TEST_F(DataProviderTest, ProcessEmptyTraceData) {
 
 TEST_F(DataProviderTest, ProcessMetadataEvents) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A"),
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1")};
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_A"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1")};
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
@@ -102,9 +102,9 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
 
   ASSERT_THAT(data.groups, SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
-  EXPECT_EQ(data.groups[1].name, "Thread 101");
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].nesting_level, 1);
 }
 
@@ -142,9 +142,9 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
 
   ASSERT_THAT(data.groups, SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
-  EXPECT_EQ(data.groups[1].name, "Thread 101");
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].nesting_level, 1);
 }
 
@@ -172,13 +172,13 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
 
   ASSERT_THAT(data.groups, SizeIs(3));
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].start_level, 0);
   EXPECT_EQ(data.groups[0].nesting_level, 0);
-  EXPECT_EQ(data.groups[1].name, "Thread 101");
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].start_level, 0);
   EXPECT_EQ(data.groups[1].nesting_level, 1);
-  EXPECT_EQ(data.groups[2].name, "Thread 102");
+  EXPECT_EQ(data.groups[2].name, "Thread_102");
   EXPECT_EQ(data.groups[2].start_level, 1);
   EXPECT_EQ(data.groups[2].nesting_level, 1);
 
@@ -222,10 +222,10 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
 
   ASSERT_THAT(data.groups, SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].start_level, 0);
   EXPECT_EQ(data.groups[0].nesting_level, 0);
-  EXPECT_EQ(data.groups[1].name, "Thread 101");
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].start_level, 0);
   EXPECT_EQ(data.groups[1].nesting_level, 1);
 
@@ -264,7 +264,7 @@ TEST_F(DataProviderTest, TimeRangeCoversDuration) {
 
 TEST_F(DataProviderTest, ProcessMixedEvents) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Main Process"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Main_Process"),
       CreateMetadataEvent(std::string(kThreadName), 1, 101, "Worker Thread"),
       {.ph = Phase::kComplete,
        .pid = 1,
@@ -274,7 +274,7 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
        .dur = 1000.0,
        .id = "",
        .args = {}},
-      // No metadata for tid 102, uses default "Thread 102".
+      // No metadata for tid 102, uses default "Thread_102".
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 102,
@@ -283,7 +283,7 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
        .dur = 1500.0,
        .id = "",
        .args = {}},
-      // No metadata for pid 2, uses default "Process 2".
+      // No metadata for pid 2, uses default "Process_2".
       {.ph = Phase::kComplete,
        .pid = 2,
        .tid = 201,
@@ -299,15 +299,15 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
 
   ASSERT_THAT(data.groups, SizeIs(5));
 
-  EXPECT_EQ(data.groups[0].name, "Main Process");
+  EXPECT_EQ(data.groups[0].name, "Main_Process");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
   EXPECT_EQ(data.groups[1].name, "Worker Thread");
   EXPECT_EQ(data.groups[1].nesting_level, 1);
-  EXPECT_EQ(data.groups[2].name, "Thread 102");
+  EXPECT_EQ(data.groups[2].name, "Thread_102");
   EXPECT_EQ(data.groups[2].nesting_level, 1);
-  EXPECT_EQ(data.groups[3].name, "Process 2");
+  EXPECT_EQ(data.groups[3].name, "Process_2");
   EXPECT_EQ(data.groups[3].nesting_level, 0);
-  EXPECT_EQ(data.groups[4].name, "Thread 201");
+  EXPECT_EQ(data.groups[4].name, "Thread_201");
   EXPECT_EQ(data.groups[4].nesting_level, 1);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(5000.0, 5500.0, 6000.0));
@@ -321,8 +321,8 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
 
 TEST_F(DataProviderTest, ProcessMultipleProcesses) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
-      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_A1"),
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 101,
@@ -331,8 +331,8 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
        .dur = 100.0,
        .id = "",
        .args = {}},
-      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process B"),
-      CreateMetadataEvent(std::string(kThreadName), 2, 201, "Thread B1"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_B"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 201, "Thread_B1"),
       {.ph = Phase::kComplete,
        .pid = 2,
        .tid = 201,
@@ -341,7 +341,7 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
        .dur = 100.0,
        .id = "",
        .args = {}},
-      CreateMetadataEvent(std::string(kThreadName), 1, 102, "Thread A2"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 102, "Thread_A2"),
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 102,
@@ -358,19 +358,19 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
   ASSERT_THAT(data.groups, SizeIs(5));
 
   // Process A
-  EXPECT_EQ(data.groups[0].name, "Process A");
+  EXPECT_EQ(data.groups[0].name, "Process_A");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
-  EXPECT_EQ(data.groups[1].name, "Thread A1");
+  EXPECT_EQ(data.groups[1].name, "Thread_A1");
   EXPECT_EQ(data.groups[1].nesting_level, 1);
   EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[2].name, "Thread A2");
+  EXPECT_EQ(data.groups[2].name, "Thread_A2");
   EXPECT_EQ(data.groups[2].nesting_level, 1);
   EXPECT_EQ(data.groups[2].start_level, 1);
 
   // Process B
-  EXPECT_EQ(data.groups[3].name, "Process B");
+  EXPECT_EQ(data.groups[3].name, "Process_B");
   EXPECT_EQ(data.groups[3].nesting_level, 0);
-  EXPECT_EQ(data.groups[4].name, "Thread B1");
+  EXPECT_EQ(data.groups[4].name, "Thread_B1");
   EXPECT_EQ(data.groups[4].nesting_level, 1);
   EXPECT_EQ(data.groups[4].start_level, 2);
 
@@ -388,7 +388,7 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
 
   ASSERT_THAT(data.groups, SizeIs(2));  // Process group + Counter group
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
@@ -495,10 +495,10 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
   ASSERT_THAT(data.groups,
               SizeIs(3));  // Process group + Thread group + Counter group
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
 
-  EXPECT_EQ(data.groups[1].name, "Thread 1");
+  EXPECT_EQ(data.groups[1].name, "Thread_1");
   EXPECT_EQ(data.groups[1].nesting_level, 1);
 
   EXPECT_EQ(data.groups[2].name, "Counter A");
@@ -536,17 +536,17 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
   ASSERT_THAT(data.groups,
               SizeIs(4));  // Process 1, Counter A, Process 2, Thread 1
 
-  EXPECT_EQ(data.groups[0].name, "Process 1");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 0);
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 1);
 
-  EXPECT_EQ(data.groups[2].name, "Process 2");
+  EXPECT_EQ(data.groups[2].name, "Process_2");
   EXPECT_EQ(data.groups[2].nesting_level, 0);
 
-  EXPECT_EQ(data.groups[3].name, "Thread 1");
+  EXPECT_EQ(data.groups[3].name, "Thread_1");
   EXPECT_EQ(data.groups[3].nesting_level, 1);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
@@ -586,13 +586,13 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
 
   ASSERT_THAT(data.groups, SizeIs(5));
 
-  EXPECT_EQ(data.groups[1].name, "Thread 1");
+  EXPECT_EQ(data.groups[1].name, "Thread_1");
   EXPECT_EQ(data.groups[1].start_level, 0);
 
   EXPECT_EQ(data.groups[2].name, "CounterA");
   EXPECT_EQ(data.groups[2].start_level, 1);
 
-  EXPECT_EQ(data.groups[4].name, "Thread 2");
+  EXPECT_EQ(data.groups[4].name, "Thread_2");
   EXPECT_EQ(data.groups[4].start_level, 2);
 }
 
@@ -635,7 +635,7 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
 
 TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       {.ph = Phase::kMetadata,
        .pid = 1,
        .tid = 0,
@@ -650,7 +650,7 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
        .name = "Event 1",
        .ts = 0.0,
        .dur = 10.0},
-      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_2"),
       {.ph = Phase::kMetadata,
        .pid = 2,
        .tid = 0,
@@ -665,7 +665,7 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
        .name = "Event 2",
        .ts = 0.0,
        .dur = 10.0},
-      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process 3"),
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process_3"),
       // Process 3 has no sort index, defaults to pid (3)
       // Add a complete event for Process 3
       {.ph = Phase::kComplete,
@@ -687,14 +687,14 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
   // Groups for Process 2 are at indices 0 (process) and 1 (thread)
   // Groups for Process 1 are at indices 2 (process) and 3 (thread)
   // Groups for Process 3 are at indices 4 (process) and 5 (thread)
-  EXPECT_EQ(data.groups[0].name, "Process 2");
-  EXPECT_EQ(data.groups[2].name, "Process 1");
-  EXPECT_EQ(data.groups[4].name, "Process 3");
+  EXPECT_EQ(data.groups[0].name, "Process_2");
+  EXPECT_EQ(data.groups[2].name, "Process_1");
+  EXPECT_EQ(data.groups[4].name, "Process_3");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       {.ph = Phase::kMetadata,
        .pid = 1,
        .tid = 0,
@@ -709,7 +709,7 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
        .name = "Event 1",
        .ts = 0.0,
        .dur = 10.0},
-      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_2"),
       {.ph = Phase::kMetadata,
        .pid = 2,
        .tid = 0,
@@ -736,13 +736,13 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   // same sort index.
   // Groups for Process 1 are at indices 0 (process) and 1 (thread)
   // Groups for Process 2 are at indices 2 (process) and 3 (thread)
-  EXPECT_EQ(data.groups[0].name, "Process 1");
-  EXPECT_EQ(data.groups[2].name, "Process 2");
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[2].name, "Process_2");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       // Process 1 has malformed sort index, fallback to pid 1.
       {.ph = Phase::kMetadata,
        .pid = 1,
@@ -757,7 +757,7 @@ TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
        .name = "Event 1",
        .ts = 0.0,
        .dur = 10.0},
-      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_2"),
       // Process 2 has sort index 0.
       {.ph = Phase::kMetadata,
        .pid = 2,
@@ -772,7 +772,7 @@ TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
        .name = "Event 2",
        .ts = 0.0,
        .dur = 10.0},
-      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process 3"),
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Process_3"),
       // Process 3 has process_sort_index event but missing sort_index arg,
       // fallback to pid 3.
       {.ph = Phase::kMetadata,
@@ -799,9 +799,9 @@ TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
   // pid 2 -> sort key 0
   // pid 3 -> sort key 3 (fallback)
   // Expected order: 2, 1, 3
-  EXPECT_EQ(data.groups[0].name, "Process 2");
-  EXPECT_EQ(data.groups[2].name, "Process 1");
-  EXPECT_EQ(data.groups[4].name, "Process 3");
+  EXPECT_EQ(data.groups[0].name, "Process_2");
+  EXPECT_EQ(data.groups[2].name, "Process_1");
+  EXPECT_EQ(data.groups[4].name, "Process_3");
 }
 
 TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
@@ -1570,8 +1570,8 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsFlowCategories) {
 
 TEST_F(DataProviderTest, FlowLinesNestedEventLevelTest) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
-      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread 101"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_101"),
       // Level 0 event
       {.ph = Phase::kComplete,
        .pid = 1,
@@ -1621,7 +1621,7 @@ TEST_F(DataProviderTest, FlowLinesNestedEventLevelTest) {
 
 TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       // Thread 101 has multiple levels (Task A1 is nested inside Task A).
       // This makes Thread 101 collapsible.
       {.ph = Phase::kComplete,
@@ -1636,7 +1636,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
        .name = "Task A1",
        .ts = 110.0,
        .dur = 50.0},
-      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process 2"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Process_2"),
       // Thread 201 has only a single level, making it non-collapsible.
       {.ph = Phase::kComplete,
        .pid = 2,
@@ -1744,7 +1744,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
 TEST_F(DataProviderTest,
        ProcessTraceEventsPreservesExpandedStateForCounterTrack) {
   const std::vector<TraceEvent> events = {
-      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process 1"),
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
       {.ph = Phase::kComplete,
        .pid = 1,
        .tid = 101,

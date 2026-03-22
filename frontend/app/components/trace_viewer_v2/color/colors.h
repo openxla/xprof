@@ -14,6 +14,8 @@ namespace traceviewer {
 
 // Static palette:
 // go/keep-sorted start
+// Blue 70: #7BAAF7
+inline constexpr ImU32 kBlue70 = 0xFFF7AA7B;
 // Blue 80: #A1C9FF
 inline constexpr ImU32 kBlue80 = 0xFFFFC9A1;
 // Green 80: #80DA88

@@ -3114,7 +3114,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Flame Group",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = 1,
                          .expanded = false});  // Collapsed triggers preview
 
   data.events_by_level.push_back({0});

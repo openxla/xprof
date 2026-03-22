@@ -1351,8 +1351,13 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
                          group_height);
       }
     } else if (group.type == Group::Type::kFlame) {
-      DrawFlameGroupPreview(start_level, end_level, px_per_time_unit_val, pos,
-                            group_height, draw_list);
+      if (group.nesting_level == kProcessNestingLevel) {
+        DrawUtilizationAreaChart(start_level, end_level, px_per_time_unit_val,
+                                 pos, group_height, draw_list);
+      } else {
+        DrawFlameGroupPreview(start_level, end_level, px_per_time_unit_val, pos,
+                              group_height, draw_list);
+      }
     }
   }
   ImGui::EndChild();
@@ -1416,6 +1421,93 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
 
       draw_list->AddRectFilled(ImVec2(x_start, pos.y),
                                ImVec2(x_end, pos.y + group_height), color);
+    }
+  }
+}
+
+void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
+                                        double px_per_time_unit_val,
+                                        const ImVec2& pos, Pixel group_height,
+                                        ImDrawList* draw_list) {
+  const Microseconds visible_start = visible_range().start();
+  const Microseconds visible_end = visible_range().end();
+  const Pixel timeline_width = current_timeline_width_;
+  if (timeline_width <= 0) return;
+
+  const int num_bins = static_cast<int>(std::ceil(timeline_width));
+  if (num_bins <= 0) return;
+
+  if (utilization_bins_.size() < num_bins) utilization_bins_.resize(num_bins);
+  std::fill(utilization_bins_.begin(), utilization_bins_.begin() + num_bins,
+            0.0f);
+
+  for (int level = start_level; level < end_level; ++level) {
+    if (level >= timeline_data_.events_by_level.size()) continue;
+    const auto& indices = timeline_data_.events_by_level[level];
+
+    auto it = std::lower_bound(
+        indices.begin(), indices.end(), visible_start,
+        [&](int event_idx, Microseconds t) {
+          const Microseconds end = timeline_data_.entry_start_times[event_idx] +
+                                   timeline_data_.entry_total_times[event_idx];
+          return end <= t;
+        });
+
+    for (; it != indices.end(); ++it) {
+      int event_index = *it;
+      const Microseconds start = timeline_data_.entry_start_times[event_index];
+      if (start >= visible_end) break;
+      const Microseconds end =
+          start + timeline_data_.entry_total_times[event_index];
+
+      // Calculate pixel coordinates relative to the start of the visible range.
+      Pixel x_start = TimeToPixel(start, px_per_time_unit_val);
+      Pixel x_end = TimeToPixel(end, px_per_time_unit_val);
+
+      // Clip events that are partially outside the visible range.
+      // Offset by 0.5 to center the bins on pixels? No, ImGui uses screen
+      // coords.
+      int bin_start = std::max(0, static_cast<int>(std::floor(x_start)));
+      int bin_end =
+          std::min(num_bins - 1, static_cast<int>(std::ceil(x_end - 0.001f)));
+
+      for (int i = bin_start; i <= bin_end; ++i) {
+        float overlap = std::min(x_end, static_cast<float>(i + 1)) -
+                        std::max(x_start, static_cast<float>(i));
+        if (overlap > 0) {
+          utilization_bins_[i] += overlap;
+        }
+      }
+    }
+  }
+
+  float max_util = 0.0f;
+  for (int i = 0; i < num_bins; ++i) {
+    if (utilization_bins_[i] > max_util) max_util = utilization_bins_[i];
+  }
+  // Normalize by at least one full track of activity.
+  max_util = std::max(1.0f, max_util);
+
+  for (int i = 0; i < num_bins; ++i) {
+    if (utilization_bins_[i] > 0.0f) {
+      float h = (utilization_bins_[i] / max_util) * group_height;
+      draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - h),
+                               ImVec2(pos.x + i + 1, pos.y + group_height),
+                               kBlue70);
+    }
+  }
+
+  // Draw tooltips when hovering over the chart.
+  if (ImGui::IsWindowHovered()) {
+    const ImVec2 mouse_pos = ImGui::GetMousePos();
+    if (mouse_pos.x >= pos.x && mouse_pos.x < pos.x + timeline_width &&
+        mouse_pos.y >= pos.y && mouse_pos.y < pos.y + group_height) {
+      const int bin_idx = static_cast<int>(mouse_pos.x - pos.x);
+      if (bin_idx >= 0 && bin_idx < num_bins) {
+        float val = utilization_bins_[bin_idx];
+        ImGui::SetTooltip(
+            "Utilization: %.2f\n(Chart height represents event density)", val);
+      }
     }
   }
 }

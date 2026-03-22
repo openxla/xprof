@@ -356,6 +356,9 @@ class Timeline {
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,
                              Pixel group_height, ImDrawList* draw_list);
+  void DrawUtilizationAreaChart(int start_level, int end_level,
+                                double px_per_time_unit_val, const ImVec2& pos,
+                                Pixel group_height, ImDrawList* draw_list);
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
@@ -418,6 +421,7 @@ class Timeline {
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
   FlameChartTimelineData timeline_data_;
+  std::vector<float> utilization_bins_;
 
   // TODO - b/444026851: Set the label width based on the real screen width.
   Pixel label_width_ = kDefaultLabelWidth;

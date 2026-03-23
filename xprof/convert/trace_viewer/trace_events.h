@@ -596,6 +596,8 @@ template <typename EventFactory, typename RawData,
           typename Hash = DefaultStdHash>
 class TraceEventsContainerBase {
  public:
+  using RawDataType = RawData;
+
   TraceEventsContainerBase() {
     arenas_.insert(std::make_shared<EventFactory>());
   }

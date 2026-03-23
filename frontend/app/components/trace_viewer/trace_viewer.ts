@@ -187,7 +187,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const traceDataUrl = this.dataService.getDataUrl(
       run,
       tag,
-      event.host || this.hostList[0] || event.hosts?.[0] || '',
+      this.getCurrentHost(),
       additionalParams,
     );
 
@@ -210,6 +210,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();
     this.destroyed.complete();
+  }
+
+  getCurrentHost(): string {
+    const event = this.navigationEvent;
+    return event.host ||
+        (event.hosts &&
+         (typeof event.hosts === 'string' ? event.hosts : event.hosts[0])) ||
+        (this.hostList && this.hostList[0]) || '';
   }
 
   // START Trace Viewer V2 WASM App Methods
@@ -261,7 +269,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .getData(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
-        this.navigationEvent.host || this.hostList[0],
+        this.getCurrentHost(),
         new Map([['search_prefix', query]]),
       )
       .pipe(takeUntil(this.destroyed))
@@ -308,7 +316,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .getData(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
-        this.navigationEvent.host || this.hostList[0],
+        this.getCurrentHost(),
         params,
       )
       .pipe(takeUntil(this.destroyed))

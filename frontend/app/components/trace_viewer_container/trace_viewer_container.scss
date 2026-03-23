@@ -38,11 +38,39 @@ canvas {
   box-sizing: border-box;
 }
 
-.search-container ::ng-deep .mat-mdc-form-field-infix {
-  min-height: 30px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  align-items: center;
+.search-container mat-form-field.mat-mdc-form-field {
+  width: 350px;
+  --mdc-outlined-text-field-container-shape: 100px;
+
+  ::ng-deep {
+    .mat-mdc-text-field-wrapper {
+      height: 28px;
+    }
+
+    .mat-mdc-form-field-infix {
+      min-height: 28px;
+      padding-top: 2px;
+      padding-bottom: 2px;
+      align-items: center;
+      display: flex;
+    }
+
+    // Bypass stylelint 'selector-class-pattern' for strictly necessary deeply nested overrides
+    [class~='mdc-notched-outline__leading'] {
+      border-top-left-radius: 100px;
+      border-bottom-left-radius: 100px;
+      width: 14px;
+    }
+
+    [class~='mdc-notched-outline__trailing'] {
+      border-top-right-radius: 100px;
+      border-bottom-right-radius: 100px;
+    }
+
+    .mat-mdc-input-element {
+      padding-left: 6px;
+    }
+  }
 }
 
 .search-result-count {

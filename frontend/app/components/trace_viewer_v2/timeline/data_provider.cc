@@ -660,7 +660,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty() &&
       parsed_events.flow_events.empty()) {
-    timeline.set_timeline_data({});
+    timeline.SetTimelineData({});
     timeline.set_fetched_data_time_range(TimeRange::Zero());
     timeline.SetVisibleRange(TimeRange::Zero());
     return;
@@ -756,7 +756,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   const std::map<GroupKey, bool> expanded_states =
       GetRestoredExpandedStates(timeline.timeline_data().groups);
 
-  timeline.set_timeline_data(CreateTimelineData(
+  timeline.SetTimelineData(CreateTimelineData(
       trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds,
       expanded_states));
 

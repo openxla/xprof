@@ -182,7 +182,7 @@ class Timeline {
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
   const TimeRange& data_time_range() const { return data_time_range_; }
 
-  void set_timeline_data(FlameChartTimelineData data);
+  void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
   // Sets the search results from the given parsed trace events.
@@ -401,8 +401,8 @@ class Timeline {
   // Returns true if any interaction occurred.
   bool HandleMouse();
 
-  void HandleMouseDown(float timeline_origin_x);
-  void HandleMouseDrag(float timeline_origin_x);
+  void HandleMouseDown(Pixel timeline_origin_x);
+  void HandleMouseDrag(Pixel timeline_origin_x);
   void HandleMouseRelease();
 
   // Helper to calculate the timeline area.
@@ -416,10 +416,7 @@ class Timeline {
       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
       ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
       ImGuiWindowFlags_NoMove;
-  static constexpr ImGuiTableFlags kImGuiTableFlags =
-      ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_BordersInnerV |
-      ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings;
-  static constexpr ImGuiWindowFlags kLaneFlags =
+  static constexpr ImGuiWindowFlags kTrackFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
   FlameChartTimelineData timeline_data_;
@@ -515,7 +512,7 @@ class Timeline {
   int current_search_result_index_ = -1;
   // If we try to navigate to a search result that is not loaded, we set this
   // to its event ID, zoom to its time range to trigger loading, and navigate
-  // to it in set_timeline_data once it's loaded.
+  // to it in SetTimelineData once it's loaded.
   std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the "Copied!"

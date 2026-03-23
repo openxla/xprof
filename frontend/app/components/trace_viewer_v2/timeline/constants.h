@@ -61,11 +61,17 @@ inline constexpr Pixel kEventPaddingRight = 1.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;
+inline constexpr Pixel kLabelPaddingLeft = 4.0f;
 inline constexpr Pixel kMinTextWidth = 5.0f;
+inline constexpr Pixel kMinUtilizationNormalization = 1.0f;
 inline constexpr Pixel kProcessTrackGap = 7.0f;
+inline constexpr Pixel kSplitterOffset = 4.0f;
+inline constexpr Pixel kSplitterWidth = 8.0f;
 inline constexpr Pixel kThreadTrackGap = 4.0f;
 // Padding on the right to prevent content from touching the window edge.
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
+inline constexpr Pixel kToastCornerRounding = 4.0f;
+inline constexpr double kEpsilon = 0.001;
 // go/keep-sorted end
 
 // Highlighting Constants

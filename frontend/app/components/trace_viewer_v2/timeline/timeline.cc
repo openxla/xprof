@@ -307,7 +307,7 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   }
 }
 
-void Timeline::set_timeline_data(FlameChartTimelineData data) {
+void Timeline::SetTimelineData(FlameChartTimelineData data) {
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
@@ -346,7 +346,7 @@ void Timeline::Draw() {
   // doesn't shift horizontally when the scrollbar appears/disappears due to
   // drawer resizing. We calculate the fixed table width based on the parent
   // window's available width, minus the scrollbar size.
-  const float content_region_avail_width =
+  const Pixel content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
 
   current_timeline_width_ =
@@ -414,7 +414,7 @@ void Timeline::Draw() {
     ImGui::PushClipRect(
         ImVec2(tracks_start_screen_pos.x,
                tracks_start_screen_pos.y + group_offsets_[group_index]),
-        ImVec2(tracks_start_screen_pos.x + label_width_ - 4.0f,
+        ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
                tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
         true);
 
@@ -462,10 +462,10 @@ void Timeline::Draw() {
       indent_amount = kIndentSize;
     }
 
-    const float label_start_y = ImGui::GetCursorPosY();
+    const Pixel label_start_y = ImGui::GetCursorPosY();
     // Use the first level's height for centering if the track has multiple
     // levels, to keep the label near the top. Process track uses its height.
-    const float centereable_height =
+    const Pixel centereable_height =
         group.nesting_level == kProcessNestingLevel
             ? kProcessTrackHeight
             : (group.type == Group::Type::kFlame ? kEventHeight : group_height);
@@ -481,7 +481,7 @@ void Timeline::Draw() {
     }
 
     ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
     ImGui::PushFont(traceviewer::fonts::label_large);
     const Pixel text_height_large = ImGui::GetTextLineHeight();
@@ -580,9 +580,10 @@ void Timeline::Draw() {
   ImGui::Dummy(ImVec2(content_region_avail_width, 0));
 
   // Handle label resizing manually since we removed the table
-  ImGui::SetCursorPos(
-      ImVec2(tracks_start_pos.x + label_width_ - 4.0f, tracks_start_pos.y));
-  ImGui::InvisibleButton("##LabelResizer", ImVec2(8.0f, group_offsets_.back()));
+  ImGui::SetCursorPos(ImVec2(
+      tracks_start_pos.x + label_width_ - kSplitterOffset, tracks_start_pos.y));
+  ImGui::InvisibleButton("##LabelResizer",
+                         ImVec2(kSplitterWidth, group_offsets_.back()));
   if (ImGui::IsItemActive()) {
     label_width_ += ImGui::GetIO().MouseDelta.x;
     label_width_ = std::max(10.0f, label_width_);
@@ -641,7 +642,7 @@ void Timeline::Draw() {
   // Draw vertical split line between sidebar and tracks
   // Drawn last inside SelectionOverlay so it sits on top of other elements,
   // and extends upwards to the beginning of the ruler.
-  float split_x = std::floor(ruler_start_screen_pos.x + label_width_) + 0.5f;
+  Pixel split_x = std::floor(ruler_start_screen_pos.x + label_width_) + 0.5f;
   ImGui::GetWindowDrawList()->AddLine(
       ImVec2(split_x, ruler_start_screen_pos.y),
       ImVec2(split_x, ruler_start_screen_pos.y + ImGui::GetWindowHeight()),
@@ -673,7 +674,7 @@ void Timeline::Draw() {
     draw_list->AddRectFilled(
         toast_pos,
         ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
-        bg_color, 4.0f);
+        bg_color, kToastCornerRounding);
     draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
                        text_color, toast_text.c_str());
   }
@@ -745,12 +746,12 @@ ImVec2 Timeline::CalculateEventTextRect(absl::string_view event_name,
 }
 
 std::string Timeline::GetTextForDisplay(absl::string_view event_name,
-                                        float available_width) const {
-  const ImVec2 text_size = GetTextSize(event_name);
+                                        Pixel available_width) const {
+  const Pixel text_width = GetTextSize(event_name).x;
 
-  if (text_size.x > available_width) {
+  if (text_width > available_width) {
     // Truncate text with "..." at the end
-    const float ellipsis_width = GetTextSize("...").x;
+    const Pixel ellipsis_width = GetTextSize("...").x;
     if (available_width <= ellipsis_width) {
       return "";
     }
@@ -891,7 +892,7 @@ void Timeline::NavigateToEvent(int event_index) {
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,
                                             ImVec2& cp0, ImVec2& cp1) {
-  const float dist = std::abs(end_x - start_x) * 0.5f;
+  const Pixel dist = std::abs(end_x - start_x) * 0.5f;
   cp0 = ImVec2(start_x + dist, start_y);
   cp1 = ImVec2(end_x - dist, end_y);
 }
@@ -1355,7 +1356,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
 
     draw_list->AddCircleFilled(ImVec2(x, y), kPointRadius, kWhiteColor);
     draw_list->AddCircle(ImVec2(x, y), kPointRadius, kSelectedBorderColor,
-                         /*num_segments=*/0, /*thickness=*/2.0f);
+                         /*num_segments=*/0,
+                         /*thickness=*/kSelectedBorderThickness);
   }
 
   if (ImGui::IsWindowHovered()) {
@@ -1409,7 +1411,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
-                        kLaneFlags)) {
+                        kTrackFlags)) {
     const ImVec2 max = ImGui::GetContentRegionMax();
 
     if (group.type == Group::Type::kCounter) {
@@ -1467,7 +1469,7 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
   }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
-                        kLaneFlags)) {
+                        kTrackFlags)) {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.type == Group::Type::kCounter) {
@@ -1596,10 +1598,10 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
       // coords.
       int bin_start = std::max(0, static_cast<int>(std::floor(x_start)));
       int bin_end =
-          std::min(num_bins - 1, static_cast<int>(std::ceil(x_end - 0.001f)));
+          std::min(num_bins - 1, static_cast<int>(std::ceil(x_end - kEpsilon)));
 
       for (int i = bin_start; i <= bin_end; ++i) {
-        float overlap = std::min(x_end, static_cast<float>(i + 1)) -
+        Pixel overlap = std::min(x_end, static_cast<Pixel>(i + 1)) -
                         std::max(x_start, static_cast<float>(i));
         if (overlap > 0) {
           utilization_bins_[i] += overlap;
@@ -1608,16 +1610,18 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
     }
   }
 
-  float max_util = 0.0f;
-  for (int i = 0; i < num_bins; ++i) {
-    if (utilization_bins_[i] > max_util) max_util = utilization_bins_[i];
+  Pixel max_util = 0.0f;
+  for (Pixel val : utilization_bins_) {
+    max_util = std::max(max_util, val);
   }
-  // Normalize by at least one full track of activity.
-  max_util = std::max(1.0f, max_util);
 
-  for (int i = 0; i < num_bins; ++i) {
+  // Normalize by at least one full track of activity.
+  max_util = std::max(kMinUtilizationNormalization, max_util);
+
+  // Draw each bin as a bar.
+  for (size_t i = 0; i < utilization_bins_.size(); ++i) {
     if (utilization_bins_[i] > 0.0f) {
-      float h = (utilization_bins_[i] / max_util) * group_height;
+      Pixel h = (utilization_bins_[i] / max_util) * group_height;
       draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - h),
                                ImVec2(pos.x + i + 1, pos.y + group_height),
                                kBlue70);
@@ -1793,7 +1797,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     // edge.
     const Pixel text_y =
         rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
-    const float text_x = clipped_x_start +
+    const Pixel text_x = clipped_x_start +
                          (clipped_x_end - clipped_x_start - text_size.x) / 2.0f;
     const ImVec2 text_pos(text_x, text_y);
 
@@ -1849,7 +1853,7 @@ DeleteButtonLayout Timeline::GetDeleteButtonLayout(
     hover_rect = ImRect(hover_min, hover_max);
   } else {
     // If text doesn't fit, center the button in the visible range.
-    const float center_x = visible_range_rect.GetCenter().x;
+    const Pixel center_x = visible_range_rect.GetCenter().x;
     button_pos = ImVec2(center_x - kCloseButtonSize / 2.0f,
                         text_pos.y + (text_size.y - kCloseButtonSize) / 2.0f);
 
@@ -1868,7 +1872,7 @@ DeleteButtonLayout Timeline::GetDeleteButtonLayout(
 void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                                 const ImRect& hover_rect,
                                 const TimeRange& range) {
-  const float button_size = kCloseButtonSize;
+  const Pixel button_size = kCloseButtonSize;
   const ImVec2 button_min = button_pos;
   const ImVec2 button_max(button_pos.x + button_size,
                           button_pos.y + button_size);
@@ -2001,9 +2005,9 @@ bool Timeline::HandleWheel() {
     return true;
   }
 
-  const float horizontal_pan_delta =
+  const Pixel horizontal_pan_delta =
       io.KeyShift ? io.MouseWheel : io.MouseWheelH;
-  const float vertical_scroll_delta =
+  const Pixel vertical_scroll_delta =
       io.KeyShift ? io.MouseWheelH : io.MouseWheel;
 
   if (horizontal_pan_delta != 0.0f) Pan(horizontal_pan_delta);
@@ -2057,7 +2061,7 @@ bool Timeline::HandleMouse() {
   return false;
 }
 
-void Timeline::HandleMouseDown(float timeline_origin_x) {
+void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
   // ImGui uses 0 to represent the left mouse button, as defined in the
   // ImGuiMouseButton enum. We check if the left mouse button was clicked.
   if (ImGui::IsMouseClicked(0) && !event_clicked_this_frame_) {
@@ -2074,7 +2078,7 @@ void Timeline::HandleMouseDown(float timeline_origin_x) {
   }
 }
 
-void Timeline::HandleMouseDrag(float timeline_origin_x) {
+void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
   // ImGui uses 0 to represent the left mouse button, as defined in the
   // ImGuiMouseButton enum. We check if the left mouse button was clicked.
   if (ImGui::IsMouseDown(0)) {

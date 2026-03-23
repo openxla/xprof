@@ -1665,7 +1665,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
     data.groups[1].expanded = false;  // Thread 101 (collapsible) -> false
     data.groups[2].expanded = true;   // Process 2 -> true
     data.groups[3].expanded = false;  // Thread 201 (non-collapsible) -> false
-    timeline_.set_timeline_data(std::move(data));
+    timeline_.SetTimelineData(std::move(data));
   }
 
   // Simulate incremental loading (new events)
@@ -1706,7 +1706,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
 
 TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   // Initial load
-  timeline_.set_timeline_data({});
+  timeline_.SetTimelineData({});
   const std::vector<TraceEvent> events = {
       // Process 1: Thread 101 (one line)
       {.ph = Phase::kComplete,
@@ -1729,7 +1729,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   {
     FlameChartTimelineData data = timeline_.timeline_data();
     data.groups[1].expanded = false;
-    timeline_.set_timeline_data(std::move(data));
+    timeline_.SetTimelineData(std::move(data));
   }
 
   // Reload same data (simulate update)
@@ -1777,7 +1777,7 @@ TEST_F(DataProviderTest,
     data.groups[0].expanded = false;  // Manually collapse Process 1
     data.groups[1].expanded = false;  // Manually collapse single-line thread
     data.groups[2].expanded = false;  // Manually collapse counter track
-    timeline_.set_timeline_data(std::move(data));
+    timeline_.SetTimelineData(std::move(data));
   }
 
   // Simulate incremental loading (new events)

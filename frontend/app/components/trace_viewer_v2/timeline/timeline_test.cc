@@ -1297,21 +1297,22 @@ class TimelineImGuiTestFixture : public Test {
   // right edge of the label column).
   float GetTimelineStartX() { return timeline_.GetLabelWidth(); }
 
-  // Simulates grabbing the label column's resize handle. Use this to explicitly
-  // test interactions during label column resizing.
   void SimulateLabelColumnResizeDragStart() {
-    float resize_handle_x = 0;
-    float resize_handle_y = 0;
-    ImGuiContext& g = *GImGui;
-    for (int i = 0; i < g.Tables.GetMapSize(); i++) {
-      if (ImGuiTable* table = g.Tables.TryGetMapData(i)) {
-        if (table->ColumnsCount == 2) {
-          resize_handle_x = table->Columns[0].MaxX;
-          resize_handle_y = table->WorkRect.Min.y + 2.0f;
-          break;
-        }
-      }
-    }
+    // Produce one frame to init window
+    SimulateFrame();
+
+    ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+    float win_x = window ? window->Pos.x : 0.0f;
+    float win_y = window ? window->DC.CursorStartPos.y : 0.0f;
+
+    // The resize handle is positioned at `label_width_ - 4.0f` with width 8.0f.
+    // The timeline area starts at `label_width_`.
+    // By clicking at `label_width_ - 2.0f`, we hit the resize handle but avoid
+    // `GetTimelineArea()` which would trigger `HandleMouseDown`, ensuring only
+    // resize happens.
+    float resize_handle_x = win_x + GetTimelineStartX() - 2.0f;
+    float resize_handle_y = win_y + 50.0f;
+
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(resize_handle_x, resize_handle_y);
     SimulateFrame();
@@ -3971,13 +3972,19 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
   // of unique X positions that have kRulerLineColor.
   std::set<float> ruler_line_x_positions;
 
-  for (const auto& vtx : draw_list->VtxBuffer) {
+  for (const auto& vtx : tracks_window->DrawList->VtxBuffer) {
     if (vtx.col == kTraceVerticalLineColor) {
       if (vtx.pos.y > max_y_for_trace_vertical_line) {
         max_y_for_trace_vertical_line = vtx.pos.y;
       }
       found_trace_vertical_line = true;
     } else if (vtx.col == kRulerLineColor) {
+      ruler_line_x_positions.insert(std::round(vtx.pos.x));
+    }
+  }
+
+  for (const auto& vtx : timeline_window->DrawList->VtxBuffer) {
+    if (vtx.col == kRulerLineColor) {
       ruler_line_x_positions.insert(std::round(vtx.pos.x));
     }
   }

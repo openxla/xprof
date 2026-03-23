@@ -223,6 +223,8 @@ class Timeline {
 
   void Draw();
 
+  void UpdateLevelPositions(const FlameChartTimelineData& data);
+
   // Calculates the screen coordinates of the rectangle for an event.
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
                                Pixel screen_x_offset, Pixel screen_y_offset,
@@ -433,6 +435,9 @@ class Timeline {
 
   // Stores the screen Y coordinate of each level in the current frame.
   std::vector<float> level_y_positions_;
+  std::vector<Pixel> group_offsets_;
+  std::vector<Pixel> visible_level_offsets_;
+  std::vector<Pixel> visible_level_heights_;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

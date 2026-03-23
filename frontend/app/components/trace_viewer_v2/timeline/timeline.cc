@@ -77,7 +77,8 @@ absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
 }
 
 // Draws an expand/collapse button for a group.
-void DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
+bool DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
+  bool toggled = false;
   // Always show the expand/collapse button.
   ImGui::PushID(group_index);
   // Draw a smaller arrow button.
@@ -92,6 +93,7 @@ void DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
   if (ImGui::InvisibleButton("##expand_collapse",
                              ImVec2(kArrowSize, kButtonHeight))) {
     group.expanded = !group.expanded;
+    toggled = true;
   }
 
   // Draw the arrow
@@ -119,8 +121,97 @@ void DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
                        ImVec2(center_x - w, center_y + h), arrow_col, 1.2f);
   }
   ImGui::PopID();
+
+  return toggled;
 }
 }  // namespace
+
+void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
+  const int level_count = data.events_by_level.size();
+  const int group_count = data.groups.size();
+
+  std::vector<float> new_visible_level_offsets(level_count + 1, 0.0f);
+  std::vector<float> new_visible_level_heights(level_count, 0.0f);
+  std::vector<float> new_group_offsets(group_count + 1, 0.0f);
+
+  Pixel current_offset =
+      ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
+  int hidden_nesting_level = std::numeric_limits<int>::max();
+
+  for (int group_index = 0; group_index < group_count; ++group_index) {
+    const Group& group = data.groups[group_index];
+
+    if (group.nesting_level <= hidden_nesting_level) {
+      hidden_nesting_level = std::numeric_limits<int>::max();
+    }
+
+    if (hidden_nesting_level != std::numeric_limits<int>::max()) {
+      new_group_offsets[group_index] = current_offset;
+      continue;
+    }
+
+    if (group_index > 0) {
+      current_offset += (group.nesting_level == kProcessNestingLevel)
+                            ? kProcessTrackGap
+                            : kThreadTrackGap;
+    }
+
+    new_group_offsets[group_index] = current_offset;
+
+    const bool has_children =
+        group_index + 1 < data.groups.size() &&
+        data.groups[group_index + 1].nesting_level > group.nesting_level;
+    const int next_group_start_level =
+        group_index + 1 < data.groups.size()
+            ? data.groups[group_index + 1].start_level
+            : level_count;
+    const bool has_multiple_levels =
+        next_group_start_level - group.start_level > 1;
+
+    const bool expandable = group.type == Group::Type::kFlame &&
+                            (has_children || has_multiple_levels);
+
+    const bool is_collapsed = expandable && !group.expanded;
+
+    if (is_collapsed &&
+        hidden_nesting_level == std::numeric_limits<int>::max()) {
+      hidden_nesting_level = group.nesting_level;
+    }
+
+    Pixel group_height = kEventHeight;
+    if (group.nesting_level == kProcessNestingLevel) {
+      group_height = kProcessTrackHeight;
+    } else if (!is_collapsed) {
+      if (group.type == Group::Type::kCounter) {
+        group_height = kCounterTrackHeight;
+      } else if (group.type == Group::Type::kFlame) {
+        group_height = std::max(1, next_group_start_level - group.start_level) *
+                       (kEventHeight + kEventPaddingBottom);
+      }
+    }
+
+    const int start_level = group.start_level;
+    const int end_level = is_collapsed ? start_level : next_group_start_level;
+
+    for (int level = start_level; level < end_level; ++level) {
+      if (level < level_count) {
+        new_visible_level_offsets[level] =
+            current_offset +
+            (level - start_level) * (kEventHeight + kEventPaddingBottom);
+        new_visible_level_heights[level] = kEventHeight;
+      }
+    }
+
+    current_offset += group_height;
+  }
+
+  new_group_offsets[group_count] = current_offset;
+  new_visible_level_offsets[level_count] = current_offset;
+
+  group_offsets_ = std::move(new_group_offsets);
+  visible_level_offsets_ = std::move(new_visible_level_offsets);
+  visible_level_heights_ = std::move(new_visible_level_heights);
+}
 
 void Timeline::SetSearchQuery(const std::string& query) {
   search_query_lower_ = absl::AsciiStrToLower(query);
@@ -217,6 +308,9 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
 }
 
 void Timeline::set_timeline_data(FlameChartTimelineData data) {
+  // Pre-calculate the level positions to avoid partial state and per-frame
+  // layout recalculations before saving the newly arrived timeline_data.
+  UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
   if (pending_navigation_event_id_.has_value()) {
     EventId event_id = pending_navigation_event_id_.value();
@@ -245,14 +339,6 @@ void Timeline::Draw() {
 
   ImGui::Begin("Timeline viewer", nullptr, kImGuiWindowFlags);
 
-  // The tracks are in a child window to allow scrolling independently of the
-  // ruler.
-  // Keep the NoScrollWithMouse flag to disable the default scroll behavior
-  // of ImGui, and use the custom scroll handler defined in `HandleWheel`
-  // instead.
-  ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
-                    ImGuiWindowFlags_NoScrollWithMouse);
-
   // Calculate the available width for the timeline before entering the table.
   // This ensures we get the correct width even if the table layout hasn't
   // finished or if GetContentRegionAvail behaves differently inside the table.
@@ -263,50 +349,74 @@ void Timeline::Draw() {
   const float content_region_avail_width =
       ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
 
-  // Use the fixed table width so the table width is constant to reserve space
-  // for the vertical scrollbar.
-  ImGui::PushStyleColor(ImGuiCol_TableBorderLight, kOnSurfaceColor);
-  ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, kOnSurfaceColor);
-  ImGui::BeginTable("Timeline", 2, kImGuiTableFlags,
-                    ImVec2(content_region_avail_width, -FLT_MIN));
-  ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
-                          label_width_);
-  ImGui::TableSetupColumn("Timeline", ImGuiTableColumnFlags_WidthStretch);
-
   current_timeline_width_ =
       content_region_avail_width - label_width_ - kTimelinePaddingRight;
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
   const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
 
-  // Draw vertical lines across the background first so they are behind the
-  // table rows (specifically the process track headers).
+  const ImVec2 ruler_start_pos = ImGui::GetCursorPos();
+  const ImVec2 ruler_start_screen_pos = ImGui::GetCursorScreenPos();
+
+  // Draw Ruler background anchored to the top (outside the scrollable child
+  // window). The background starts *after* the left label area according to
+  // user request.
+  ImGui::GetWindowDrawList()->AddRectFilled(
+      ImVec2(ruler_start_screen_pos.x + label_width_, ruler_start_screen_pos.y),
+      ImVec2(ruler_start_screen_pos.x + content_region_avail_width,
+             ruler_start_screen_pos.y + kRulerHeight),
+      kWhiteColor);
+
+  ImGui::SetCursorPos(ruler_start_pos);
+  DrawRulerUI(tick_info, current_timeline_width_);
+
+  // Now move the cursor below the Ruler to start the Tracks child
+  ImGui::SetCursorPos(
+      ImVec2(ruler_start_pos.x, ruler_start_pos.y + kRulerHeight));
+
+  // The tracks are in a child window to allow scrolling independently of the
+  // ruler.
+  // Keep the NoScrollWithMouse flag to disable the default scroll behavior
+  // of ImGui, and use the custom scroll handler defined in `HandleWheel`
+  // instead.
+  ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
+                    ImGuiWindowFlags_NoScrollWithMouse);
+
+  // We set cursor to 0,0 locally
+  const ImVec2 tracks_start_pos = ImGui::GetCursorPos();
+  const ImVec2 tracks_start_screen_pos = ImGui::GetCursorScreenPos();
+
   DrawVerticalGridLines(tick_info, current_timeline_width_,
                         viewport->Pos.y + viewport->Size.y);
-
-  // Draw Ruler
-  DrawRulerUI(tick_info, current_timeline_width_);
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
     Group& group = timeline_data_.groups[group_index];
     ImGui::PushID(group_index);
 
-    const bool is_process = group.nesting_level == kProcessNestingLevel;
-    if (group_index > 0) {
-      const float gap = group.nesting_level == kProcessNestingLevel
-                            ? kProcessTrackGap
-                            : kThreadTrackGap;
-      ImGui::TableNextRow(ImGuiTableRowFlags_None, gap);
+    // Set cursor to draw the label
+    ImGui::SetCursorPos(ImVec2(
+        tracks_start_pos.x, tracks_start_pos.y + group_offsets_[group_index]));
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    if (group.nesting_level == kProcessNestingLevel) {
+      ImU32 bg_color = group.expanded ? kProcessTrackExpandedColor
+                                      : kProcessTrackCollapsedColor;
+      draw_list->AddRectFilled(
+          ImVec2(tracks_start_screen_pos.x,
+                 tracks_start_screen_pos.y + group_offsets_[group_index]),
+          ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
+                 tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+          bg_color);
     }
 
-    ImGui::TableNextRow();
-    if (is_process) {
-      ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
-                             group.expanded ? kProcessTrackExpandedColor
-                                            : kProcessTrackCollapsedColor);
-    }
-
-    ImGui::TableNextColumn();
+    // Push clip rect to prevent label text from bleeding into the track area
+    ImGui::PushClipRect(
+        ImVec2(tracks_start_screen_pos.x,
+               tracks_start_screen_pos.y + group_offsets_[group_index]),
+        ImVec2(tracks_start_screen_pos.x + label_width_ - 4.0f,
+               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+        true);
 
     const bool has_children =
         group_index + 1 < timeline_data_.groups.size() &&
@@ -363,7 +473,9 @@ void Timeline::Draw() {
     ImGui::Indent(indent_amount);
 
     if (expandable) {
-      DrawExpandCollapseButton(group, group_index, centereable_height);
+      if (DrawExpandCollapseButton(group, group_index, centereable_height)) {
+        UpdateLevelPositions(timeline_data_);
+      }
     } else {
       ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
     }
@@ -442,8 +554,11 @@ void Timeline::Draw() {
 
     ImGui::Unindent(indent_amount);
     ImGui::SetCursorPosY(label_start_y);
+    ImGui::PopClipRect();
 
-    ImGui::TableNextColumn();
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_,
+               tracks_start_pos.y + group_offsets_[group_index]));
 
     if (is_collapsed) {
       DrawGroupPreview(group_index, px_per_time_unit_val);
@@ -459,19 +574,25 @@ void Timeline::Draw() {
     ImGui::PopID();
   }
 
-  ImGui::PopStyleColor(2);  // Pop TableBorderLight and TableBorderStrong
+  // Create a dummy at the end to ensure the Tracks child has the right
+  // scrolling height
+  ImGui::SetCursorPos(ImVec2(0, tracks_start_pos.y + group_offsets_.back()));
+  ImGui::Dummy(ImVec2(content_region_avail_width, 0));
 
-  // Update `label_width_` after the table has been fully laid out.
-  // This ensures we capture the updated `ResizedColumn` and `WidthGiven` state
-  // which is only set internally by ImGui after the first `TableNextRow()`.
-  ImGuiTable* table = ImGui::GetCurrentTable();
-  is_resizing_label_column_ = false;
-  if (table != nullptr) {
-    label_width_ = table->Columns[0].WidthGiven;
-    is_resizing_label_column_ = (table->ResizedColumn == 0);
+  // Handle label resizing manually since we removed the table
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x + label_width_ - 4.0f, tracks_start_pos.y));
+  ImGui::InvisibleButton("##LabelResizer", ImVec2(8.0f, group_offsets_.back()));
+  if (ImGui::IsItemActive()) {
+    label_width_ += ImGui::GetIO().MouseDelta.x;
+    label_width_ = std::max(10.0f, label_width_);
+    is_resizing_label_column_ = true;
+  } else {
+    is_resizing_label_column_ = false;
   }
-
-  ImGui::EndTable();
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  }
 
   HandleEventDeselection();
 
@@ -516,6 +637,16 @@ void Timeline::Draw() {
   // elements like tooltips.
   DrawFlows(current_timeline_width_);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
+
+  // Draw vertical split line between sidebar and tracks
+  // Drawn last inside SelectionOverlay so it sits on top of other elements,
+  // and extends upwards to the beginning of the ruler.
+  float split_x = std::floor(ruler_start_screen_pos.x + label_width_) + 0.5f;
+  ImGui::GetWindowDrawList()->AddLine(
+      ImVec2(split_x, ruler_start_screen_pos.y),
+      ImVec2(split_x, ruler_start_screen_pos.y + ImGui::GetWindowHeight()),
+      ImGui::GetColorU32(ImGuiCol_TableBorderLight), 1.0f);
+
   ImGui::EndChild();
 
   if (copy_notification_timer_ > 0.0f) {
@@ -863,22 +994,20 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
 // This is drawn as a table row and includes the background, the main horizontal
 // line, major/minor tick marks, and time labels.
 void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
-  ImGui::TableNextRow();
-  ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
-                         ImGui::GetColorU32(ImGuiCol_WindowBg));
-  ImGui::TableNextColumn();
-  ImGui::Dummy(ImVec2(label_width_, kRulerHeight));
-  ImGui::TableNextColumn();
-
   const ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImGui::SetCursorScreenPos(ImVec2(pos.x + label_width_, pos.y));
+
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
   const double px_per_time_unit_val = px_per_time_unit(timeline_width);
   if (px_per_time_unit_val > 0) {
     // Draw horizontal line
     const Pixel line_y = pos.y + kRulerHeight;
-    draw_list->AddLine(ImVec2(pos.x, line_y),
-                       ImVec2(pos.x + timeline_width, line_y), kRulerLineColor);
+    draw_list->AddLine(
+        ImVec2(pos.x + label_width_, line_y),
+        ImVec2(pos.x + label_width_ + timeline_width + kTimelinePaddingRight,
+               line_y),
+        kRulerLineColor);
 
     const Microseconds tick_interval = info.tick_interval;
     const Pixel major_tick_dist_px = info.major_tick_dist_px;
@@ -889,15 +1018,15 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         major_tick_dist_px / static_cast<float>(kMinorTickDivisions);
 
     Microseconds t_relative = first_tick_time_relative;
-    Pixel x =
-        TimeToScreenX(t_relative + trace_start, pos.x, px_per_time_unit_val);
+    Pixel x = TimeToScreenX(t_relative + trace_start, pos.x + label_width_,
+                            px_per_time_unit_val);
 
     for (;; t_relative += tick_interval, x += major_tick_dist_px) {
-      if (x > pos.x + timeline_width + kRulerScreenBuffer) {
+      if (x > pos.x + label_width_ + timeline_width + kRulerScreenBuffer) {
         break;
       }
 
-      if (x >= pos.x - kRulerScreenBuffer) {
+      if (x >= pos.x + label_width_ - kRulerScreenBuffer) {
         // Draw major tick marks on the ruler.
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
                            kRulerLineColor);
@@ -912,19 +1041,17 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
       // Draw minor ticks for the current interval.
       for (int i = 1; i < kMinorTickDivisions; ++i) {
         const Pixel minor_x = x + i * minor_tick_dist_px;
-        if (minor_x > pos.x + timeline_width + kRulerScreenBuffer) {
+        if (minor_x >
+            pos.x + label_width_ + timeline_width + kRulerScreenBuffer) {
           break;
         }
-        if (minor_x >= pos.x - kRulerScreenBuffer) {
+        if (minor_x >= pos.x + label_width_ - kRulerScreenBuffer) {
           draw_list->AddLine(ImVec2(minor_x, line_y - kRulerMinorTickHeight),
                              ImVec2(minor_x, line_y), kRulerLineColor);
         }
       }
     }
   }
-
-  // Reserve space for the ruler
-  ImGui::Dummy(ImVec2(0.0f, kRulerHeight + ImGui::GetStyle().CellPadding.y));
 }
 
 // Draws vertical grid lines that extend from the ruler down across all tracks.
@@ -939,7 +1066,7 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
   if (px_per_time_unit_val <= 0) return;
 
   const Pixel timeline_x_start = pos.x + label_width_;
-  const Pixel line_y_top = pos.y + kRulerHeight;
+  const Pixel line_y_top = pos.y;
 
   const Microseconds tick_interval = info.tick_interval;
   const Pixel major_tick_dist_px = info.major_tick_dist_px;

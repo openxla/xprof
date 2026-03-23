@@ -3754,49 +3754,33 @@ TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
 
   SimulateFrame();
 
-  const auto& y_positions = timeline_.GetLevelYPositions();
-  EXPECT_EQ(y_positions.size(), 6);
+  const auto& y_offsets = timeline_.GetVisibleLevelOffsets();
+  EXPECT_EQ(y_offsets.size(), 6);
 
   const float level_height = kEventHeight + kEventPaddingBottom;
 
-  // We need to get the initial cursor screen pos Y to verify the absolute
-  // positions. This is tricky as it depends on the ImGui window state. Let's
-  // assume it's 0 for the first group's content for now and adjust if needed.
-  // A more robust way would be to mock ImGui::GetCursorScreenPos(), but that's
-  // not easily done without changing the Timeline class interface.
-
-  // Instead of absolute y, we can check the relative y positions within a
-  // group. However, the level_y_positions_ are absolute screen coordinates.
-
-  // Let's run the test once to see what the actual y_positions[0] is, assuming
-  // the window starts at some Y. All other positions will be relative to that.
-
   // For now, let's just check the difference between levels in the same group.
-  if (y_positions.size() >= 2) {
-    EXPECT_FLOAT_EQ(y_positions[1] - y_positions[0], level_height);
+  if (y_offsets.size() >= 2) {
+    EXPECT_FLOAT_EQ(y_offsets[1] - y_offsets[0], level_height);
   }
-  if (y_positions.size() >= 6) {
-    EXPECT_FLOAT_EQ(y_positions[4] - y_positions[3], level_height);
-    EXPECT_FLOAT_EQ(y_positions[5] - y_positions[4], level_height);
-  }
-
-  // The difference between the start of Group 1 (level 2) and Group 0 (level 1)
-  // will depend on the height of Group 0, which is 2 * level_height.
-  if (y_positions.size() >= 3) {
-    // This check is not straight forward because of the child windows.
+  if (y_offsets.size() >= 6) {
+    EXPECT_FLOAT_EQ(y_offsets[4] - y_offsets[3], level_height);
+    EXPECT_FLOAT_EQ(y_offsets[5] - y_offsets[4], level_height);
   }
 
   // Group 0: Levels 0, 1
-  const float group0_base_y = y_positions[0];
-  EXPECT_FLOAT_EQ(y_positions[1] - group0_base_y, level_height);
+  if (y_offsets.size() >= 6) {
+    const float group0_base_y = y_offsets[0];
+    EXPECT_FLOAT_EQ(y_offsets[1] - group0_base_y, level_height);
 
-  // Group 1: Level 2
-  // No relative checks needed within Group 1 as it has only one level.
+    // Group 1: Level 2
+    // No relative checks needed within Group 1 as it has only one level.
 
-  // Group 2: Levels 3, 4, 5
-  const float group2_base_y = y_positions[3];
-  EXPECT_FLOAT_EQ(y_positions[4] - group2_base_y, level_height);
-  EXPECT_FLOAT_EQ(y_positions[5] - group2_base_y, 2 * level_height);
+    // Group 2: Levels 3, 4, 5
+    const float group2_base_y = y_offsets[3];
+    EXPECT_FLOAT_EQ(y_offsets[4] - group2_base_y, level_height);
+    EXPECT_FLOAT_EQ(y_offsets[5] - group2_base_y, 2 * level_height);
+  }
 }
 
 TEST(TimelineTest, BezierControlPointCalculation) {

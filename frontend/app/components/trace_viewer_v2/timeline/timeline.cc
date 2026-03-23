@@ -130,13 +130,13 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
 
-  std::vector<float> new_visible_level_offsets(level_count + 1, 0.0f);
-  std::vector<float> new_visible_level_heights(level_count, 0.0f);
-  std::vector<float> new_group_offsets(group_count + 1, 0.0f);
+  std::vector<Pixel> new_visible_level_offsets(level_count, 0.0f);
+  std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
 
   Pixel current_offset =
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
   int hidden_nesting_level = std::numeric_limits<int>::max();
+  Pixel hidden_group_center_y = 0.0f;
 
   for (int group_index = 0; group_index < group_count; ++group_index) {
     const Group& group = data.groups[group_index];
@@ -145,8 +145,19 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       hidden_nesting_level = std::numeric_limits<int>::max();
     }
 
+    const int next_group_start_level =
+        group_index + 1 < data.groups.size()
+            ? data.groups[group_index + 1].start_level
+            : level_count;
+
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
+      for (int level = group.start_level; level < next_group_start_level;
+           ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] = hidden_group_center_y;
+        }
+      }
       continue;
     }
 
@@ -161,10 +172,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     const bool has_children =
         group_index + 1 < data.groups.size() &&
         data.groups[group_index + 1].nesting_level > group.nesting_level;
-    const int next_group_start_level =
-        group_index + 1 < data.groups.size()
-            ? data.groups[group_index + 1].start_level
-            : level_count;
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
 
@@ -172,11 +179,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
                             (has_children || has_multiple_levels);
 
     const bool is_collapsed = expandable && !group.expanded;
-
-    if (is_collapsed &&
-        hidden_nesting_level == std::numeric_limits<int>::max()) {
-      hidden_nesting_level = group.nesting_level;
-    }
 
     Pixel group_height = kEventHeight;
     if (group.nesting_level == kProcessNestingLevel) {
@@ -190,15 +192,29 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       }
     }
 
-    const int start_level = group.start_level;
-    const int end_level = is_collapsed ? start_level : next_group_start_level;
+    if (is_collapsed &&
+        hidden_nesting_level == std::numeric_limits<int>::max()) {
+      hidden_nesting_level = group.nesting_level;
+      hidden_group_center_y = current_offset + group_height * 0.5f;
+    }
 
-    for (int level = start_level; level < end_level; ++level) {
-      if (level < level_count) {
-        new_visible_level_offsets[level] =
-            current_offset +
-            (level - start_level) * (kEventHeight + kEventPaddingBottom);
-        new_visible_level_heights[level] = kEventHeight;
+    const int start_level = group.start_level;
+
+    if (is_collapsed) {
+      for (int level = start_level; level < next_group_start_level; ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] =
+              current_offset + group_height * 0.5f;
+        }
+      }
+    } else {
+      for (int level = start_level; level < next_group_start_level; ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] =
+              current_offset +
+              (level - start_level) * (kEventHeight + kEventPaddingBottom) +
+              kEventHeight * 0.5f;
+        }
       }
     }
 
@@ -206,11 +222,9 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   }
 
   new_group_offsets[group_count] = current_offset;
-  new_visible_level_offsets[level_count] = current_offset;
 
   group_offsets_ = std::move(new_group_offsets);
   visible_level_offsets_ = std::move(new_visible_level_offsets);
-  visible_level_heights_ = std::move(new_visible_level_heights);
 }
 
 void Timeline::SetSearchQuery(const std::string& query) {
@@ -325,7 +339,6 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 
 void Timeline::Draw() {
   event_clicked_this_frame_ = false;
-  level_y_positions_.assign(timeline_data_.events_by_level.size(), -FLT_MAX);
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
@@ -636,7 +649,7 @@ void Timeline::Draw() {
   // flow lines and selected time ranges are rendered on top of everything
   // else within the current ImGui window, without affecting global foreground
   // elements like tooltips.
-  DrawFlows(current_timeline_width_);
+  DrawFlows(current_timeline_width_, tracks_start_screen_pos.y);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
 
   // Draw vertical split line between sidebar and tracks
@@ -1398,17 +1411,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   const std::string timeline_child_id =
       absl::StrCat("TimelineChild_", group.name, "_", group_index);
 
-  // Calculate level Y positions regardless of whether the child window is
-  // visible. This ensures that flow lines connecting to off-screen groups are
-  // drawn correctly.
   const ImVec2 pos = ImGui::GetCursorScreenPos();
-  for (int level = start_level; level < end_level; ++level) {
-    if (level < level_y_positions_.size()) {
-      level_y_positions_[level] =
-          pos.y + (level - start_level) * (kEventHeight + kEventPaddingBottom) +
-          kEventHeight * 0.5f;
-    }
-  }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
                         kTrackFlags)) {
@@ -1461,12 +1464,6 @@ void Timeline::DrawGroupPreview(int group_index, double px_per_time_unit_val) {
     }
   }
   end_level = std::max(start_level, end_level);
-
-  for (int level = start_level; level < end_level; ++level) {
-    if (level < level_y_positions_.size()) {
-      level_y_positions_[level] = pos.y + group_height * 0.5f;
-    }
-  }
 
   if (ImGui::BeginChild(timeline_child_id.c_str(), ImVec2(0, group_height), 0,
                         kTrackFlags)) {
@@ -1644,18 +1641,17 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
 }
 
 void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
-                              double px_per_time, ImDrawList* draw_list) {
-  if (flow.source_level >= level_y_positions_.size() ||
-      flow.target_level >= level_y_positions_.size()) {
+                              Pixel timeline_y_start, double px_per_time,
+                              ImDrawList* draw_list) {
+  if (flow.source_level >= visible_level_offsets_.size() ||
+      flow.target_level >= visible_level_offsets_.size()) {
     return;
   }
 
-  const Pixel start_y = level_y_positions_[flow.source_level];
-  const Pixel end_y = level_y_positions_[flow.target_level];
-
-  if (start_y == -FLT_MAX || end_y == -FLT_MAX) {
-    return;
-  }
+  const Pixel start_y =
+      timeline_y_start + visible_level_offsets_[flow.source_level];
+  const Pixel end_y =
+      timeline_y_start + visible_level_offsets_[flow.target_level];
 
   const Pixel start_x =
       TimeToScreenX(flow.source_ts, timeline_x_start, px_per_time);
@@ -1679,7 +1675,7 @@ void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
   visible_flow_categories_.insert(category_ids.begin(), category_ids.end());
 }
 
-void Timeline::DrawFlows(Pixel timeline_width) {
+void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
   const bool has_selected_event =
       selected_event_index_ != -1 &&
       selected_event_index_ < timeline_data_.entry_event_ids.size();
@@ -1721,7 +1717,8 @@ void Timeline::DrawFlows(Pixel timeline_width) {
         auto it_lines = timeline_data_.flow_lines_by_flow_id.find(flow_id);
         if (it_lines != timeline_data_.flow_lines_by_flow_id.end()) {
           for (const auto& flow : it_lines->second) {
-            DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+            DrawSingleFlow(flow, timeline_x_start, timeline_y_start,
+                           px_per_time, draw_list);
           }
         }
       }
@@ -1729,7 +1726,8 @@ void Timeline::DrawFlows(Pixel timeline_width) {
   } else {
     for (const auto& flow : timeline_data_.flow_lines) {
       if (visible_flow_categories_.contains(static_cast<int>(flow.category))) {
-        DrawSingleFlow(flow, timeline_x_start, px_per_time, draw_list);
+        DrawSingleFlow(flow, timeline_x_start, timeline_y_start, px_per_time,
+                       draw_list);
       }
     }
   }

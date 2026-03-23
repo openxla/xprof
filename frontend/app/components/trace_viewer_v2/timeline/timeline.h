@@ -192,8 +192,8 @@ class Timeline {
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
 
-  const std::vector<float>& GetLevelYPositions() const {
-    return level_y_positions_;
+  const std::vector<Pixel>& GetVisibleLevelOffsets() const {
+    return visible_level_offsets_;
   }
 
   void set_mpmd_pipeline_view_enabled(bool enabled) {
@@ -364,12 +364,13 @@ class Timeline {
 
   // Draws a single flow line.
   void DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
-                      double px_per_time, ImDrawList* draw_list);
+                      Pixel timeline_y_start, double px_per_time,
+                      ImDrawList* draw_list);
 
   // Draws flow lines connecting events. Each flow line is rendered as a Bezier
   // curve connecting a start point (time and level) to an end point (time and
   // level).
-  void DrawFlows(Pixel timeline_width);
+  void DrawFlows(Pixel timeline_width, Pixel timeline_y_start);
 
   // Draws a single selected time range.
   // The `show_delete_button` will be false for the currently selected time
@@ -430,11 +431,10 @@ class Timeline {
   // Whether the user is currently resizing the label column.
   bool is_resizing_label_column_ = false;
 
-  // Stores the screen Y coordinate of each level in the current frame.
-  std::vector<float> level_y_positions_;
-  std::vector<Pixel> group_offsets_;
+  // Stores the relative Y coordinate offset of the center of each level from
+  // the top of the track area. Precalculated upon updates to the tree state.
   std::vector<Pixel> visible_level_offsets_;
-  std::vector<Pixel> visible_level_heights_;
+  std::vector<Pixel> group_offsets_;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

@@ -183,7 +183,11 @@ export class SideNav implements OnInit, OnDestroy {
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
-        this.selectedHostsInternal = hostsParam.split(',');
+        let hostsList = hostsParam.split(',');
+        if (hostsList.length > 10) {
+          hostsList = hostsList.slice(0, 10);
+        }
+        this.selectedHostsInternal = hostsList;
       }
       this.selectedHostsPending = [...this.selectedHostsInternal];
       this.updateAllHostsSelectedState();
@@ -419,6 +423,11 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   onSubmitHosts() {
+    if (this.selectedHostsPending.length > 10) {
+      alert('Warning: Maximum 10 selected hosts allowed. Loading the first 10 hosts in alphabetical order.');
+      this.selectedHostsPending = this.selectedHostsPending.slice(0, 10);
+      this.updateAllHostsSelectedState();
+    }
     this.selectedHostsInternal = [...this.selectedHostsPending];
     this.navigateTools();
   }

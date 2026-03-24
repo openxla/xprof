@@ -157,9 +157,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.queryString += `&run_path=${runPath}`;
     }
 
-    if (event.hosts && typeof event.hosts === 'string') {
-      // Since event.hosts is a comma-separated string, we can use it directly.
-      this.queryString += `&hosts=${event.hosts}`;
+    let hostsString = '';
+    if (event.hosts) {
+      // Use unknown casting to handle runtime cases where query parameters may be parsed as strings
+      const runtimeHosts = event.hosts as unknown;
+      const hostsList = typeof runtimeHosts === 'string'
+          ? runtimeHosts.split(',').filter((h) => !!h)
+          : (Array.isArray(runtimeHosts) ? runtimeHosts : []);
+
+      hostsString = hostsList.slice(0, 10).join(',');
+      this.queryString += `&hosts=${hostsString}`;
     } else if (event.host) {
       this.queryString += `&host=${event.host}`;
     } else {
@@ -173,12 +180,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('run_path', runPath);
     }
 
-    if (event.hosts) {
-      const isString = typeof event.hosts === 'string';
-      const hostsString = isString
-        ? (event.hosts as unknown as string)
-        : event.hosts.join(',');
-
+    if (hostsString) {
       additionalParams.set('hosts', hostsString);
     }
 

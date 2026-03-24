@@ -434,7 +434,10 @@ class Timeline {
   // Stores the relative Y coordinate offset of the center of each level from
   // the top of the track area. Precalculated upon updates to the tree state.
   std::vector<Pixel> visible_level_offsets_;
-  std::vector<Pixel> group_offsets_;
+  // Initialized to {0.0f} to represent the total height of 0 groups.
+  // This prevents memory access out of bounds when `group_offsets_.back()`
+  // is called during rendering before timeline_data_ has been fully loaded.
+  std::vector<Pixel> group_offsets_ = {0.0f};
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

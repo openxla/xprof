@@ -33,6 +33,8 @@ wasm_cc_library(
         "@com_google_absl//absl/strings",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@tsl//tsl/platform:fingerprint",
     ],
     alwayslink = True,

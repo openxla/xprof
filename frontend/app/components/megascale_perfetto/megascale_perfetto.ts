@@ -1,4 +1,4 @@
-import {Component, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {ChangeDetectionStrategy, Component, OnDestroy} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -13,7 +13,8 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A megascale perfetto viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'megascale-perfetto',
   templateUrl: './megascale_perfetto.ng.html',
   styleUrls: ['./megascale_perfetto.scss'],
@@ -67,7 +68,7 @@ export class MegascalePerfetto implements OnDestroy {
 
   async initPerfetto() {
     if (this.initTimer !== null) {
-      clearTimeout(this.initTimer);
+      window.clearTimeout(this.initTimer);
       this.initTimer = null;
     }
     // We cannot check perfettoWindow.document.readyState for megascale because of
@@ -159,14 +160,14 @@ export class MegascalePerfetto implements OnDestroy {
       );
     };
     window.addEventListener('message', this.messageHandler);
-    this.pingTimer = setInterval(() => {
+    this.pingTimer = window.setInterval(() => {
       perfettoWindow.postMessage('PING', this.perfettoOrigin);
     }, 250);
   }
 
   private cleanupPing() {
     if (this.pingTimer !== null) {
-      clearInterval(this.pingTimer);
+      window.clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
     if (this.messageHandler) {
@@ -177,7 +178,7 @@ export class MegascalePerfetto implements OnDestroy {
 
   ngOnDestroy() {
     if (this.initTimer !== null) {
-      clearTimeout(this.initTimer);
+      window.clearTimeout(this.initTimer);
       this.initTimer = null;
     }
     this.cleanupPing();

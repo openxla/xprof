@@ -290,7 +290,12 @@ void GenerateFlowLines(const TraceInformation& trace_info,
                                              ThreadLevelInfo>& thread_levels,
                        const std::vector<int>& top_5_flow_categories,
                        FlameChartTimelineData& data, TimeBounds& bounds) {
-  for (const auto& [id, flow_events] : trace_info.flow_events_by_id) {
+  for (const auto& [id, raw_flow_events] : trace_info.flow_events_by_id) {
+    std::vector<const TraceEvent*> flow_events = raw_flow_events;
+    absl::c_stable_sort(
+        flow_events,
+        [](const TraceEvent* a, const TraceEvent* b) { return a->ts < b->ts; });
+
     for (const TraceEvent* event : flow_events) {
       std::vector<std::string>& event_flow_ids =
           data.flow_ids_by_event_id[event->event_id];

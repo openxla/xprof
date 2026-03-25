@@ -8,6 +8,9 @@
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "xla/tsl/lib/io/iterator.h"
+#include "xla/tsl/lib/io/table.h"
+#include "xla/tsl/lib/io/table_options.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 
@@ -128,5 +131,35 @@ TEST(PrefixTrieTest, PrefixTrieSearchWithFileNotFound) {
   auto results =
       LoadTrieAsLevelDbTableAndSearch("non_existent_file.ptldb2", "a");
   EXPECT_EQ(results.status().code(), absl::StatusCode::kNotFound);
+}
+
+TEST_F(PrefixTrieWithDataTest, TotalEntriesInTable) {
+  uint64_t file_size;
+  ASSERT_OK(tsl::Env::Default()->GetFileSize(filename_, &file_size));
+
+  tsl::FileSystem* file_system;
+  ASSERT_OK(tsl::Env::Default()->GetFileSystemForFile(filename_, &file_system));
+
+  std::unique_ptr<tsl::RandomAccessFile> random_access_file;
+  ASSERT_OK(file_system->NewRandomAccessFile(filename_, &random_access_file));
+
+  tsl::table::Options options;
+  options.block_size = 20 * 1024 * 1024;
+  tsl::table::Table* table = nullptr;
+  ASSERT_OK(tsl::table::Table::Open(options, random_access_file.get(),
+                                     file_size, &table));
+  std::unique_ptr<tsl::table::Table> table_deleter(table);
+  std::unique_ptr<tsl::table::Iterator> iterator(table->NewIterator());
+
+  int count = 0;
+  iterator->SeekToFirst();
+  while (iterator->Valid()) {
+    count++;
+    iterator->Next();
+  }
+
+  // Unique keys inserted: "a", "abc", "abcd", "abce", "def".
+  // Total = 5.
+  EXPECT_EQ(count, 5);
 }
 }  // namespace

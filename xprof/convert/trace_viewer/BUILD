@@ -216,7 +216,7 @@ cc_library(
     srcs = ["prefix_trie.cc"],
     hdrs = ["prefix_trie.h"],
     deps = [
-        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -252,6 +252,9 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/lib/io:iterator",
+        "@xla//xla/tsl/lib/io:table",
+        "@xla//xla/tsl/lib/io:table_options",
         "@xla//xla/tsl/platform:env",
     ],
 )

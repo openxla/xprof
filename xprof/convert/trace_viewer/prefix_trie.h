@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "absl/container/btree_map.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -14,19 +14,6 @@
 
 namespace tensorflow {
 namespace profiler {
-
-// A node in the prefix trie data structure.
-struct PrefixTrieNode {
-  // The ids of the keys that are terminated at this node.
-  std::vector<std::string> terminal_key_ids;
-  absl::btree_map<char, std::unique_ptr<PrefixTrieNode>> children;
-
-  // Converts the node to a proto which is then serialized to a file.
-  // Currently, The proto contains just the terminal key ids field which can
-  // later be extended to include other fields like children if there is a need
-  // to load the whole trie into memory for caching.
-  PrefixTrieNodeProto ToProto() const;
-};
 
 // The result of a prefix search.
 struct PrefixSearchResult {
@@ -50,13 +37,11 @@ class PrefixTrie {
 
   // Saves the trie as a leveldb table where each node's key becomes a LevelDB
   // table key and the value is the serialized terminal key ids. This format is
-  // optimized for prefix searches using LevelDB's iterator. The whole trie
-  // node is not stored currently, but can be added later if there is a need to
-  // load the whole trie into memory for caching.
+  // optimized for prefix searches using LevelDB's iterator.
   absl::Status SaveAsLevelDbTable(tsl::WritableFile* file);
 
  private:
-  PrefixTrieNode root_;
+  absl::flat_hash_map<std::string, std::vector<std::string>> map_;
 };
 
 }  // namespace profiler

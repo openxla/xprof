@@ -1,5 +1,6 @@
 #include "xprof/convert/trace_viewer/prefix_trie.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -23,42 +24,31 @@
 namespace tensorflow {
 namespace profiler {
 
-PrefixTrieNodeProto PrefixTrieNode::ToProto() const {
-  PrefixTrieNodeProto proto;
-  proto.mutable_terminal_key_ids()->Add(terminal_key_ids.begin(),
-                                        terminal_key_ids.end());
-  return proto;
-}
-
 void PrefixTrie::Insert(absl::string_view key, absl::string_view id) {
-  PrefixTrieNode* node = &root_;
-  for (const char c : key) {
-    auto& child = node->children[c];
-    if (child == nullptr) {
-      child = std::make_unique<PrefixTrieNode>();
-    }
-    node = child.get();
-  }
-  node->terminal_key_ids.emplace_back(id);
+  map_[std::string(key)].emplace_back(id);
 }
 
-void IterateTrieAndSaveToLevelDbTable(PrefixTrieNode* node,
-                                      std::string key,
-                                      tsl::table::TableBuilder& builder) {
-  auto proto = node->ToProto();
-  builder.Add(key, proto.SerializeAsString());
-  for (const auto& [c, child] : node->children) {
-    IterateTrieAndSaveToLevelDbTable(child.get(), key + c, builder);
-  }
-}
-
-absl::Status PrefixTrie::SaveAsLevelDbTable(
-    tsl::WritableFile* file) {
+absl::Status PrefixTrie::SaveAsLevelDbTable(tsl::WritableFile* file) {
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
   options.compression = tsl::table::kSnappyCompression;
   tsl::table::TableBuilder builder(options, file);
-  IterateTrieAndSaveToLevelDbTable(&root_, "", builder);
+
+  // Collect and sort keys to satisfy TableBuilder's strictly increasing order.
+  std::vector<absl::string_view> keys;
+  keys.reserve(map_.size());
+  for (const auto& [key, _] : map_) {
+    keys.push_back(key);
+  }
+  std::sort(keys.begin(), keys.end());
+
+  for (const auto& key : keys) {
+    const auto& ids = map_.find(std::string(key))->second;
+    PrefixTrieNodeProto proto;
+    proto.mutable_terminal_key_ids()->Add(ids.begin(), ids.end());
+    builder.Add(key, proto.SerializeAsString());
+  }
+
   TF_RETURN_IF_ERROR(builder.Finish());
   absl::string_view filename;
   TF_RETURN_IF_ERROR(file->Name(&filename));

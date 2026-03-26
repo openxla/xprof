@@ -1246,6 +1246,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
     }
     if request.args.get('group_by'):
       params['group_by'] = request.args.get('group_by')
+    if request.args.get('refresh_suggestion'):
+      params['refresh_suggestion'] = request.args.get('refresh_suggestion')
     content_type = 'application/json'
 
     if tool not in TOOLS and not use_xplane(tool):

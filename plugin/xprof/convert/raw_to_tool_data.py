@@ -223,6 +223,7 @@ def xspace_to_tool_data(
     if success:
       data = json_data
   elif tool == 'smart_suggestion':
+    options['refresh_suggestion'] = params.get('refresh_suggestion', False)
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = json_data

@@ -42,6 +42,7 @@ limitations under the License.
 namespace xprof {
 namespace {
 
+using ::tensorflow::profiler::GetParam;
 using ::tensorflow::profiler::kAllHostsIdentifier;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::SignalProvider;
@@ -79,8 +80,19 @@ absl::Status SmartSuggestionProcessor::Reduce(
 
 absl::Status SmartSuggestionProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  bool refresh_suggestion = false;
+  if (auto refresh_str = GetParam<std::string>(options, "refresh_suggestion")) {
+    refresh_suggestion = (*refresh_str == "true" || *refresh_str == "1");
+  } else if (auto refresh_bool =
+                 GetParam<bool>(options, "refresh_suggestion")) {
+    refresh_suggestion = *refresh_bool;
+  } else if (auto refresh_int = GetParam<int>(options, "refresh_suggestion")) {
+    refresh_suggestion = (*refresh_int == 1);
+  }
+
   SmartSuggestionReport report;
-  if (!ReadBinaryProto(session_snapshot, StoredDataType::SMART_SUGGESTION,
+  if (refresh_suggestion ||
+      !ReadBinaryProto(session_snapshot, StoredDataType::SMART_SUGGESTION,
                        kAllHostsIdentifier, &report)
            .ok()) {
     SmartSuggestionEngine engine;

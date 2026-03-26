@@ -373,9 +373,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToInferenceStats(
 }
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToSmartSuggestion(
-    const SessionSnapshot& session_snapshot) {
-  xprof::SmartSuggestionProcessor processor({});
-  TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, {}));
+    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+  xprof::SmartSuggestionProcessor processor(options);
+  TF_RETURN_IF_ERROR(processor.ProcessSession(session_snapshot, options));
   return processor.GetData();
 }
 
@@ -432,7 +432,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
   } else if (tool_name == "inference_profile") {
     tool_data = ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
-    tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot);
+    tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot, options);
   } else if (tool_name == "utilization_viewer") {
     if (session_snapshot.XSpaceSize() != 1) {
       tool_data = tsl::errors::InvalidArgument(

@@ -3,12 +3,13 @@ import 'org_xprof/frontend/app/common/interfaces/window';
 import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   inject,
   Injector,
   OnDestroy,
   OnInit,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -49,7 +50,8 @@ export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css'],
@@ -161,9 +163,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (event.hosts) {
       // Use unknown casting to handle runtime cases where query parameters may be parsed as strings
       const runtimeHosts = event.hosts as unknown;
-      const hostsList = typeof runtimeHosts === 'string'
+      const hostsList =
+        typeof runtimeHosts === 'string'
           ? runtimeHosts.split(',').filter((h) => !!h)
-          : (Array.isArray(runtimeHosts) ? runtimeHosts : []);
+          : Array.isArray(runtimeHosts)
+            ? runtimeHosts
+            : [];
 
       hostsString = hostsList.slice(0, 10).join(',');
       this.queryString += `&hosts=${hostsString}`;
@@ -192,8 +197,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     );
 
     if (this.useTraceViewerV2) {
-      if (this.traceViewerModule && this.traceViewerModule.loadJsonData) {
-        this.traceViewerModule.loadJsonData(traceDataUrl);
+      if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
+        this.traceViewerModule.loadTraceData(traceDataUrl);
       }
     } else {
       this.url = `${this.pathPrefix}${API_PREFIX}${
@@ -252,30 +257,54 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   onSearchEvents(detail: SearchEventsEventDetail) {
     const query = detail.events_query;
     if (!query) {
-      this.traceViewerModule?.setSearchResultsInWasm({traceEvents: []});
+      if (this.traceViewerModule?.setSearchResultsInWasm) {
+        this.traceViewerModule.setSearchResultsInWasm({traceEvents: []});
+      }
       this.container?.updateSearchResultCountText();
       return;
     }
+
     this.searching = true;
-    this.dataService
-      .getData(
+
+    if (this.useTraceViewerV2 && this.traceViewerModule?.loadSearchResults) {
+      const url = this.dataService.getDataUrl(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
         this.navigationEvent.host || this.hostList[0],
         new Map([['search_prefix', query]]),
-      )
-      .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        this.searching = false;
-        if (this.traceViewerModule && data) {
-          const traceData = data as TraceData;
-          this.traceViewerModule.setSearchResultsInWasm({
-            ...traceData,
-            traceEvents: traceData.traceEvents || [],
-          } as MainTraceData);
+      );
+
+      this.traceViewerModule
+        .loadSearchResults(url)
+        .then(() => {
+          this.searching = false;
           this.container?.updateSearchResultCountText();
-        }
-      });
+        })
+        .catch((e) => {
+          this.searching = false;
+          console.error('Failed to load search results:', e);
+        });
+    } else {
+      this.dataService
+        .getData(
+          this.navigationEvent.run || '',
+          this.navigationEvent.tag || '',
+          this.navigationEvent.host || this.hostList[0],
+          new Map([['search_prefix', query]]),
+        )
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((data) => {
+          this.searching = false;
+          if (this.traceViewerModule && data) {
+            const traceData = data as TraceData;
+            this.traceViewerModule.setSearchResultsInWasm({
+              ...traceData,
+              traceEvents: traceData.traceEvents || [],
+            } as MainTraceData);
+            this.container?.updateSearchResultCountText();
+          }
+        });
+    }
   }
 
   onInitializeWasm() {

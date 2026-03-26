@@ -3,6 +3,8 @@
 
 #include <emscripten/val.h>
 
+#include <string>
+
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -13,6 +15,16 @@ ParsedTraceEvents ParseTraceEvents(
 
 // Parses trace data containing search results and updates the timeline.
 void SetSearchResultsInWasm(const emscripten::val& trace_data);
+
+void SetCompressedSearchResultsInWasm(const std::string& buffer_data);
+
+ParsedTraceEvents ParseCompressedTraceEvents(
+    const std::string& buffer_data,
+    const emscripten::val& visible_range_from_url);
+
+void ParseAndProcessCompressedTraceEvents(
+    const std::string& buffer_data,
+    const emscripten::val& visible_range_from_url);
 
 }  // namespace traceviewer
 

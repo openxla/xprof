@@ -202,6 +202,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "trace_data_response_proto",
+    srcs = ["trace_data_response.proto"],
+)
+
+xprof_proto_library(
     name = "trace_events_proto",
     srcs = ["trace_events.proto"],
     protodeps = [":task_proto"],
@@ -268,6 +273,7 @@ xprof_proto_library(
         ":topology_proto",
         ":tpu_input_pipeline_proto",
         ":trace_events_proto",
+        ":trace_data_response_proto",
         ":trace_events_old_proto",
         ":trace_events_raw_proto",
         ":smart_suggestion_proto",
@@ -307,6 +313,7 @@ exports_files(
         "tfstreamz.proto",
         "topology.proto",
         "tpu_input_pipeline.proto",
+        "trace_data_response.proto",
         "trace_events.proto",
         "trace_events_old.proto",
         "trace_events_raw.proto",

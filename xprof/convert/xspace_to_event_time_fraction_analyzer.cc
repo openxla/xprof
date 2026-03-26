@@ -48,6 +48,11 @@ namespace profiler {
 absl::StatusOr<EventTimeFractionAnalyzerResults>
 ConvertXSpaceToEventTimeFractionAnalyzerResults(
     const XSpace& xspace, absl::Span<const std::string> target_event_names) {
+  if (target_event_names.empty()) {
+    std::vector<std::string> wildcard = {""};
+    return ConvertXSpaceToEventTimeFractionAnalyzerResults(xspace, wildcard);
+  }
+
   EventTimeFractionAnalyzerResults results_proto;
 
   absl::flat_hash_map<std::string, tensorflow::profiler::StepEvents>
@@ -61,6 +66,7 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
     EventTimeFractionAnalyzerResult result_proto;
     absl::btree_map<int64_t, absl::flat_hash_map<std::string, double>>
         step_id_to_plane_fractions;
+    absl::flat_hash_map<int64_t, uint64_t> step_id_to_duration_ps;
 
     for (const auto& plane : xspace.planes()) {
       const StepEvents& step_events =
@@ -107,16 +113,30 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
           float portion_of_step = static_cast<double>(event_duration_ps) /
                                   static_cast<double>(step_duration_ps);
           step_id_to_plane_fractions[step_id][plane.name()] += portion_of_step;
+          step_id_to_duration_ps[step_id] = step_duration_ps;
         });
       });
     }
 
     // Heuristic to remove incomplete steps from the analysis.
-    // If there are at least 3 steps, remove the first and last steps.
+    // If there are at least 3 steps, remove the first and last steps. If there
+    // are exactly 2 steps, remove the shorter step if its duration is less than
+    // step_duration_ratio of the longer step.
+    constexpr double kDefaultStepDurationRatioThreshold = 0.01;
     if (step_id_to_plane_fractions.size() >= 3) {
       step_id_to_plane_fractions.erase(step_id_to_plane_fractions.begin());
       step_id_to_plane_fractions.erase(
           std::prev(step_id_to_plane_fractions.end()));
+    } else if (step_id_to_plane_fractions.size() == 2) {
+      auto it1 = step_id_to_plane_fractions.begin();
+      auto it2 = std::next(it1);
+      uint64_t duration1 = step_id_to_duration_ps[it1->first];
+      uint64_t duration2 = step_id_to_duration_ps[it2->first];
+      if (duration2 < kDefaultStepDurationRatioThreshold * duration1) {
+        step_id_to_plane_fractions.erase(it2);
+      } else if (duration1 < kDefaultStepDurationRatioThreshold * duration2) {
+        step_id_to_plane_fractions.erase(it1);
+      }
     }
 
     absl::flat_hash_map<std::string, EventTimeFractionPerChip>

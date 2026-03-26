@@ -1350,6 +1350,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:derived_timeline",
+        "@org_xprof//xprof/utils:xplane_hlo_fixer",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:group_events",
         "@xla//xla/tsl/profiler/utils:preprocess_xplane",

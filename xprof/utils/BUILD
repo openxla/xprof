@@ -702,3 +702,28 @@ cc_library(
     name = "tpu_counter_ids_v7",
     hdrs = ["tpu_counter_ids_v7.h"],
 )
+
+cc_library(
+    name = "xplane_hlo_fixer",
+    srcs = ["xplane_hlo_fixer.cc"],
+    hdrs = ["xplane_hlo_fixer.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/strings",
+        "@com_googlesource_code_re2//:re2",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_test(
+    name = "xplane_hlo_fixer_test",
+    srcs = ["xplane_hlo_fixer_test.cc"],
+    deps = [
+        ":xplane_hlo_fixer",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)

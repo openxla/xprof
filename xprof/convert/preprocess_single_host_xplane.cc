@@ -22,6 +22,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xprof/utils/derived_timeline.h"
+#include "xprof/utils/xplane_hlo_fixer.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -31,6 +32,7 @@ using tsl::profiler::kTpuPlanePrefix;
 void PreprocessSingleHostXSpace(
     XSpace* space, bool step_grouping, bool derived_timeline,
     tsl::profiler::GroupMetadataMap* group_metadata_map) {
+  xprof::FixHloMetadataInXSpace(space);
   if (step_grouping && !tsl::profiler::IsXSpaceGrouped(*space)) {
     // Grouping (i.e. marking step number) events in the XSpace.
     std::vector<XPlane*> device_traces;

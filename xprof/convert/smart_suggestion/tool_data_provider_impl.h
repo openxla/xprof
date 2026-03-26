@@ -24,11 +24,13 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "google/protobuf/json/json.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
+#include "xprof/convert/smart_suggestion/constants.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/op_stats_to_op_profile.h"
@@ -79,20 +81,25 @@ class ToolDataProviderImpl : public ToolDataProvider {
   }
 
   absl::StatusOr<const EventTimeFractionAnalyzerResult*>
-  GetEventTimeFractionAnalyzerResult(const std::string& target_event_name)
-      override {
+  GetEventTimeFractionAnalyzerResult(
+      const std::string& target_event_name) override {
     absl::MutexLock lock(mutex_);
-    if (!event_time_fraction_analyzer_cache_.contains(target_event_name)) {
-      EventTimeFractionAnalyzerResult combined_result;
+    if (!event_time_fraction_analyzer_results_cache_) {
+      event_time_fraction_analyzer_results_cache_ =
+          std::make_unique<EventTimeFractionAnalyzerResults>();
       ToolOptions options;
-      options["event_name"] = target_event_name;
-      TF_RETURN_IF_ERROR(GetToolDataHelper("event_time_fraction_analyzer",
-                                           &combined_result, options));
-      event_time_fraction_analyzer_cache_[target_event_name] =
-          std::make_unique<EventTimeFractionAnalyzerResult>(
-              std::move(combined_result));
+      options["event_name"] = std::string(kEventTimeFractionAnalyzerEvents);
+      TF_RETURN_IF_ERROR(GetToolDataHelper(
+          "event_time_fraction_analyzer",
+          event_time_fraction_analyzer_results_cache_.get(), options));
     }
-    return event_time_fraction_analyzer_cache_[target_event_name].get();
+    const auto& results =
+        event_time_fraction_analyzer_results_cache_->results();
+    if (auto it = results.find(target_event_name); it != results.end()) {
+      return &it->second;
+    }
+    return absl::NotFoundError(
+        absl::StrCat("Event not found: ", target_event_name));
   }
 
   // Returns a non-owning pointer to OpStats. The lifetime of the returned
@@ -119,8 +126,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
     absl::MutexLock lock(mutex_);
     if (!memory_profile_cache_) {
       memory_profile_cache_ = std::make_unique<MemoryProfile>();
-      TF_RETURN_IF_ERROR(GetToolDataHelper("memory_profile",
-                                           memory_profile_cache_.get(), {}));
+      TF_RETURN_IF_ERROR(
+          GetToolDataHelper("memory_profile", memory_profile_cache_.get(), {}));
     }
     return memory_profile_cache_.get();
   }
@@ -167,11 +174,9 @@ class ToolDataProviderImpl : public ToolDataProvider {
   std::unique_ptr<OpStats> op_stats_cache_ ABSL_GUARDED_BY(mutex_);
   std::unique_ptr<op_profile::Profile> op_profile_cache_
       ABSL_GUARDED_BY(mutex_);
-  std::unique_ptr<MemoryProfile> memory_profile_cache_
-      ABSL_GUARDED_BY(mutex_);
-  absl::flat_hash_map<std::string,
-                      std::unique_ptr<EventTimeFractionAnalyzerResult>>
-      event_time_fraction_analyzer_cache_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<MemoryProfile> memory_profile_cache_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<EventTimeFractionAnalyzerResults>
+      event_time_fraction_analyzer_results_cache_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace profiler

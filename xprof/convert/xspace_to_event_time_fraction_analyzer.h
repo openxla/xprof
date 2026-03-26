@@ -16,8 +16,11 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_XSPACE_TO_EVENT_TIME_FRACTION_ANALYZER_H_
 #define THIRD_PARTY_XPROF_CONVERT_XSPACE_TO_EVENT_TIME_FRACTION_ANALYZER_H_
 
+#include <string>
+
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
@@ -25,17 +28,17 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-// Converts XSpace to EventTimeFractionAnalyzerResult for the given event.
-absl::StatusOr<EventTimeFractionAnalyzerResult>
-ConvertXSpaceToEventTimeFractionAnalyzerResult(
-    const XSpace& xspace, absl::string_view target_event_name);
+// Converts XSpace to EventTimeFractionAnalyzerResults for the given events.
+absl::StatusOr<EventTimeFractionAnalyzerResults>
+ConvertXSpaceToEventTimeFractionAnalyzerResults(
+    const XSpace& xspace, absl::Span<const std::string> target_event_names);
 
-// Converts multiple XSpaces to EventTimeFractionAnalyzerResult for the given
-// event.
-absl::StatusOr<EventTimeFractionAnalyzerResult>
-ConvertMultiXSpacesToEventTimeFractionAnalyzerResult(
+// Converts multiple XSpaces to EventTimeFractionAnalyzerResults for the given
+// events.
+absl::StatusOr<EventTimeFractionAnalyzerResults>
+ConvertMultiXSpacesToEventTimeFractionAnalyzerResults(
     const SessionSnapshot& session_snapshot,
-    absl::string_view target_event_name);
+    absl::Span<const std::string> target_event_names);
 
 }  // namespace profiler
 }  // namespace tensorflow

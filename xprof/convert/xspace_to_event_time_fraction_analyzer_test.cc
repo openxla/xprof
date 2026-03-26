@@ -18,11 +18,11 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::tsl::profiler::StatType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XLineBuilder;
 using ::tsl::profiler::XPlaneBuilder;
 using ::tsl::profiler::XStatsBuilder;
-using ::tsl::profiler::StatType;
 
 TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BasicTest) {
   XSpace xspace;
@@ -36,7 +36,7 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BasicTest) {
   step_line.SetName(tsl::profiler::kStepLineName);
 
   XEventMetadata* step_metadata =
-    plane_builder.GetOrCreateEventMetadata("step");
+      plane_builder.GetOrCreateEventMetadata("step");
   XStatsBuilder<XEventMetadata> step_stats(step_metadata, &plane_builder);
   const XStatMetadata& group_id_stat = *plane_builder.GetOrCreateStatMetadata(
       GetStatTypeStr(StatType::kGroupId));
@@ -53,7 +53,7 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BasicTest) {
   op_line.SetName(tsl::profiler::kXlaOpLineName);
 
   XEventMetadata* op_metadata =
-    plane_builder.GetOrCreateEventMetadata("matmul");
+      plane_builder.GetOrCreateEventMetadata("matmul");
   XStatsBuilder<XEventMetadata> op_stats(op_metadata, &plane_builder);
 
   const XStatMetadata& duration_stat = *plane_builder.GetOrCreateStatMetadata(
@@ -75,14 +75,15 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BasicTest) {
   }
 
   auto result_or =
-    ConvertXSpaceToEventTimeFractionAnalyzerResult(xspace, "matmul");
+      ConvertXSpaceToEventTimeFractionAnalyzerResults(xspace, {"matmul"});
   ASSERT_TRUE(result_or.ok());
-  const auto& result = result_or.value();
+  auto results = result_or.value();
+  auto result = results.results().at("matmul");
 
   ASSERT_EQ(result.chip_event_time_fractions().size(), 1);
   ASSERT_TRUE(result.chip_event_time_fractions().contains("/device:TPU:0"));
   const auto& fractions =
-    result.chip_event_time_fractions().at("/device:TPU:0");
+      result.chip_event_time_fractions().at("/device:TPU:0");
   ASSERT_EQ(fractions.event_time_fractions_size(), 1);
   // (200 + 100) / 1000 = 0.3
   EXPECT_NEAR(fractions.event_time_fractions(0), 0.3, 1e-6);
@@ -99,7 +100,7 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BarrierCoresFiltering) {
   step_line.SetName(tsl::profiler::kStepLineName);
 
   XEventMetadata* step_metadata =
-    plane_builder.GetOrCreateEventMetadata("step");
+      plane_builder.GetOrCreateEventMetadata("step");
   const XStatMetadata& group_id_stat = *plane_builder.GetOrCreateStatMetadata(
       GetStatTypeStr(StatType::kGroupId));
 
@@ -114,7 +115,7 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BarrierCoresFiltering) {
   op_line.SetName(tsl::profiler::kXlaOpLineName);
 
   XEventMetadata* op_metadata =
-    plane_builder.GetOrCreateEventMetadata("barrier-cores");
+      plane_builder.GetOrCreateEventMetadata("barrier-cores");
   const XStatMetadata& duration_stat = *plane_builder.GetOrCreateStatMetadata(
       GetStatTypeStr(StatType::kDeviceDurationPs));
 
@@ -143,15 +144,16 @@ TEST(ConvertXSpaceToEventTimeFractionAnalyzerResult, BarrierCoresFiltering) {
     event.AddStatValue(duration_stat, static_cast<uint64_t>(5000));
   }
 
-  auto result_or =
-    ConvertXSpaceToEventTimeFractionAnalyzerResult(xspace, "barrier-cores");
+  auto result_or = ConvertXSpaceToEventTimeFractionAnalyzerResults(
+      xspace, {"barrier-cores"});
   ASSERT_TRUE(result_or.ok());
-  const auto& result = result_or.value();
+  auto results = result_or.value();
+  auto result = results.results().at("barrier-cores");
 
   ASSERT_EQ(result.chip_event_time_fractions().size(), 1);
   ASSERT_TRUE(result.chip_event_time_fractions().contains("/device:TPU:0"));
   const auto& fractions =
-    result.chip_event_time_fractions().at("/device:TPU:0");
+      result.chip_event_time_fractions().at("/device:TPU:0");
   ASSERT_EQ(fractions.event_time_fractions_size(), 1);
   // 5000 / 10000 = 0.5
   EXPECT_NEAR(fractions.event_time_fractions(0), 0.5, 1e-6);
@@ -173,10 +175,9 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
     XLineBuilder step_line = plane_builder.GetOrCreateLine(0);
     step_line.SetName(tsl::profiler::kStepLineName);
     XEventMetadata* step_metadata =
-      plane_builder.GetOrCreateEventMetadata("step");
-    const XStatMetadata& group_id_stat =
-        *plane_builder.GetOrCreateStatMetadata(
-          GetStatTypeStr(StatType::kGroupId));
+        plane_builder.GetOrCreateEventMetadata("step");
+    const XStatMetadata& group_id_stat = *plane_builder.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kGroupId));
 
     {
       XEventBuilder event = step_line.AddEvent(*step_metadata);
@@ -188,10 +189,9 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
     XLineBuilder op_line = plane_builder.GetOrCreateLine(1);
     op_line.SetName(tsl::profiler::kXlaOpLineName);
     XEventMetadata* op_metadata =
-    plane_builder.GetOrCreateEventMetadata("matmul");
-    const XStatMetadata& duration_stat =
-        *plane_builder.GetOrCreateStatMetadata(
-          GetStatTypeStr(StatType::kDeviceDurationPs));
+        plane_builder.GetOrCreateEventMetadata("matmul");
+    const XStatMetadata& duration_stat = *plane_builder.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kDeviceDurationPs));
 
     {
       XEventBuilder event = op_line.AddEvent(*op_metadata);
@@ -217,10 +217,9 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
     XLineBuilder step_line = plane_builder.GetOrCreateLine(0);
     step_line.SetName(tsl::profiler::kStepLineName);
     XEventMetadata* step_metadata =
-      plane_builder.GetOrCreateEventMetadata("step");
-    const XStatMetadata& group_id_stat =
-        *plane_builder.GetOrCreateStatMetadata(
-          GetStatTypeStr(StatType::kGroupId));
+        plane_builder.GetOrCreateEventMetadata("step");
+    const XStatMetadata& group_id_stat = *plane_builder.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kGroupId));
 
     {
       XEventBuilder event = step_line.AddEvent(*step_metadata);
@@ -232,10 +231,9 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
     XLineBuilder op_line = plane_builder.GetOrCreateLine(1);
     op_line.SetName(tsl::profiler::kXlaOpLineName);
     XEventMetadata* op_metadata =
-      plane_builder.GetOrCreateEventMetadata("matmul");
-    const XStatMetadata& duration_stat =
-        *plane_builder.GetOrCreateStatMetadata(
-          GetStatTypeStr(StatType::kDeviceDurationPs));
+        plane_builder.GetOrCreateEventMetadata("matmul");
+    const XStatMetadata& duration_stat = *plane_builder.GetOrCreateStatMetadata(
+        GetStatTypeStr(StatType::kDeviceDurationPs));
 
     {
       XEventBuilder event = op_line.AddEvent(*op_metadata);
@@ -249,15 +247,16 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
     xspace_paths.push_back("/tmp/host2.xplane.pb");
   }
 
-  auto session_snapshot_or = SessionSnapshot::Create(
-    xspace_paths, std::move(xspaces));
+  auto session_snapshot_or =
+      SessionSnapshot::Create(xspace_paths, std::move(xspaces));
   ASSERT_TRUE(session_snapshot_or.ok()) << session_snapshot_or.status();
   const auto& session_snapshot = session_snapshot_or.value();
 
-  auto result_or = ConvertMultiXSpacesToEventTimeFractionAnalyzerResult(
-    session_snapshot, "matmul");
+  auto result_or = ConvertMultiXSpacesToEventTimeFractionAnalyzerResults(
+      session_snapshot, {"matmul"});
   ASSERT_TRUE(result_or.ok());
-  const auto& result = result_or.value();
+  auto results = result_or.value();
+  auto result = results.results().at("matmul");
 
   ASSERT_EQ(result.chip_event_time_fractions().size(), 2);
   ASSERT_TRUE(result.chip_event_time_fractions().contains("/device:TPU:0"));
@@ -278,14 +277,12 @@ TEST(ConvertMultiXSpacesToEventTimeFractionAnalyzerResult, MultiXSpaceTest) {
   ASSERT_TRUE(result.host_event_time_fractions().contains("host1"));
   ASSERT_TRUE(result.host_event_time_fractions().contains("host2"));
 
-  EXPECT_NEAR(result.host_event_time_fractions()
-                  .at("host1")
-                  .event_time_fractions(0),
-              0.2, 1e-6);
-  EXPECT_NEAR(result.host_event_time_fractions()
-                  .at("host2")
-                  .event_time_fractions(0),
-              0.5, 1e-6);
+  EXPECT_NEAR(
+      result.host_event_time_fractions().at("host1").event_time_fractions(0),
+      0.2, 1e-6);
+  EXPECT_NEAR(
+      result.host_event_time_fractions().at("host2").event_time_fractions(0),
+      0.5, 1e-6);
 }
 
 }  // namespace

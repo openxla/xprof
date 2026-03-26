@@ -2414,8 +2414,10 @@ cc_library(
         ":xplane_to_step_events",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@org_xprof//xprof/utils:event_span",
@@ -2441,41 +2443,19 @@ cc_library(
         ":xspace_to_event_time_fraction_analyzer",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
     ],
     alwayslink = 1,
-)
-
-cc_library(
-    name = "multi_xspace_to_event_time_fraction_analyzer",
-    srcs = ["multi_xspace_to_event_time_fraction_analyzer.cc"],
-    hdrs = ["xspace_to_event_time_fraction_analyzer.h"],
-    deps = [
-        ":event_time_fraction_analyzer_processor",
-        ":repository",
-        ":tool_options",
-        ":xplane_to_tools_data_with_profile_processor",
-        ":xspace_to_event_time_fraction_analyzer",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
-        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@xla//xla/tsl/platform:errors",
-        "@xla//xla/tsl/platform:statusor",
-    ],
 )
 
 cc_test(
     name = "xspace_to_event_time_fraction_analyzer_test",
     srcs = ["xspace_to_event_time_fraction_analyzer_test.cc"],
     deps = [
-        ":multi_xspace_to_event_time_fraction_analyzer",
         ":repository",
         ":xspace_to_event_time_fraction_analyzer",
         "@com_google_absl//absl/status:statusor",

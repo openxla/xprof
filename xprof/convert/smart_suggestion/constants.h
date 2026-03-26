@@ -83,6 +83,11 @@ inline constexpr double kMemoryUtilizationHighThreshold = 50;
 // A small number to compare floating point numbers with zero.
 inline constexpr double kZeroEpsilon = 1e-6;
 
+// The events to be parsed by EventTimeFractionAnalyzer for smart suggestion.
+// Currently it includes barrier-cores and debug_print.
+inline constexpr char kEventTimeFractionAnalyzerEvents[] =
+    "barrier-cores,debug_print";
+
 }  // namespace profiler
 }  // namespace tensorflow
 

@@ -571,12 +571,12 @@ void AddLatencyRow(DataTable* data_table, absl::string_view label,
 std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
     const OverviewInferenceLatency& result) {
   std::vector<std::vector<std::string>> kColumns = {
-      {"percentile", "string", "percentile"},
+      {"percentage", "string", "percentage"},
       {"hostTimeMs", "number", "Host time (in ms)"},
       {"deviceTimeMs", "number", "Device time (in ms)"},
       {"communicationTimeMs", "number",
        "Host-device communication time (in ms)"},
-      {"totalTimeMs", "number", "Total latency (in ms)"}};
+      {"totalTimeinsec", "number", "Total latency (in seconds)"}};
 
   auto data_table = std::make_unique<DataTable>();
   for (const auto& column : kColumns) {

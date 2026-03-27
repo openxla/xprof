@@ -157,7 +157,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:task_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
@@ -253,5 +253,18 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "trace_events_test",
+    srcs = ["trace_events_test.cc"],
+    deps = [
+        ":trace_events",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
     ],
 )

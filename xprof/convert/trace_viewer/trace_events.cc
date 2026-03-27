@@ -22,7 +22,6 @@ limitations under the License.
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -38,6 +37,8 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/io/coded_stream.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -92,6 +93,20 @@ inline void AppendEvents(TraceEventTrack&& src, TraceEventTrack* dst) {
   } else {
     absl::c_move(src, std::back_inserter(*dst));
   }
+}
+
+template <typename Modifier>
+absl::Status SerializeWithReusableEvent(const TraceEvent* event,
+                                        TraceEvent* reusable_event_copy,
+                                        std::string& output,
+                                        Modifier modifier) {
+  *reusable_event_copy = *event;
+  modifier(reusable_event_copy);
+
+  output.clear();
+  return reusable_event_copy->AppendToString(&output)
+             ? absl::OkStatus()
+             : absl::InternalError("Failed to serialize trace event");
 }
 
 }  // namespace
@@ -259,20 +274,21 @@ absl::Status DoStoreAsLevelDbTables(
     const Trace& trace, std::unique_ptr<tsl::WritableFile>& trace_events_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file) {
-  auto executor = std::make_unique<XprofThreadPoolExecutor>(
-      "StoreAsLevelDbTables", /*num_threads=*/3);
+  std::unique_ptr<XprofThreadPoolExecutor> executor =
+      std::make_unique<XprofThreadPoolExecutor>("StoreAsLevelDbTables",
+                                                /*num_threads=*/3);
   absl::Status trace_events_status, trace_events_metadata_status;
   executor->Execute(
       [&trace_events_file, &trace, &events_by_level, &trace_events_status]() {
         trace_events_status = DoStoreAsLevelDbTable(
             trace_events_file, trace, events_by_level,
-            GenerateTraceEventCopyForPersistingEventWithoutMetadata);
+            SerializeTraceEventForPersistingEventWithoutMetadata);
       });
   executor->Execute([&trace_events_metadata_file, &events_by_level, &trace,
                      &trace_events_metadata_status]() {
     trace_events_metadata_status = DoStoreAsLevelDbTable(
         trace_events_metadata_file, trace, events_by_level,
-        GenerateTraceEventCopyForPersistingOnlyMetadata);
+        SerializeTraceEventForPersistingOnlyMetadata);
   });
   absl::Status trace_events_prefix_trie_status;
   executor->Execute([&trace_events_prefix_trie_file, &events_by_level,
@@ -286,43 +302,47 @@ absl::Status DoStoreAsLevelDbTables(
   return trace_events_status;
 }
 
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingFullEvent(
-    const TraceEvent* event) {
-  TraceEvent event_copy = *event;
-  // To reduce file size, clear the timestamp from the value. It is
-  // redundant info because the timestamp is part of the key.
-  event_copy.clear_timestamp_ps();
-  return event_copy;
+absl::Status SerializeTraceEventForPersistingFullEvent(
+    const TraceEvent* event, TraceEvent* reusable_event_copy,
+    std::string& output) {
+  return SerializeWithReusableEvent(
+      event, reusable_event_copy, output,
+      [](TraceEvent* copy) { copy->clear_timestamp_ps(); });
 }
 
-std::optional<TraceEvent>
-GenerateTraceEventCopyForPersistingEventWithoutMetadata(
-    const TraceEvent* event) {
-  TraceEvent event_copy = *event;
-  // To reduce file size, clear the timestamp from the value. It is
-  // redundant info because the timestamp is part of the key.
-  event_copy.clear_timestamp_ps();
-  // To reduce file size, clear the raw data from the value. It is
-  // redundant info because the raw data is stored in the metadata file.
-  // However, we still need to keep the raw data for counter events as they
-  // are a special case and we need to return the args for the same during the
-  // initial read.
-  if (GetTraceEventType(*event) != TraceEvent::EVENT_TYPE_COUNTER) {
-    event_copy.clear_raw_data();
-  }
-  return event_copy;
+absl::Status SerializeTraceEventForPersistingEventWithoutMetadata(
+    const TraceEvent* event, TraceEvent* reusable_event_copy,
+    std::string& output) {
+  return SerializeWithReusableEvent(
+      event, reusable_event_copy, output, [](TraceEvent* copy) {
+        copy->clear_timestamp_ps();
+        if (GetTraceEventType(*copy) != TraceEvent::EVENT_TYPE_COUNTER) {
+          copy->clear_raw_data();
+        }
+      });
 }
 
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
-    const TraceEvent* event) {
+absl::Status SerializeTraceEventForPersistingOnlyMetadata(
+    const TraceEvent* event, TraceEvent* reusable_event, std::string& output) {
+  // Counter events are stored in the trace events file itself and do not
+  // require a metadata copy.
   if (GetTraceEventType(*event) == TraceEvent::EVENT_TYPE_COUNTER) {
-    // Counter events are stored in the trace events file itself and do not
-    // require a metadata copy.
-    return std::nullopt;
+    return absl::NotFoundError("No metadata found for counter event");
   }
-  TraceEvent event_copy;
-  event_copy.set_raw_data(event->raw_data());
-  return event_copy;
+
+  // Reconstruct explicitly avoiding a deep copy inside
+  // SerializeWithReusableEvent to save substantial memory allocation
+  // operations.
+  reusable_event->Clear();
+  if (event->has_raw_data()) {
+    reusable_event->set_raw_data(event->raw_data());
+  } else {
+    reusable_event->set_raw_data("");
+  }
+  output.clear();
+  return reusable_event->AppendToString(&output)
+             ? absl::OkStatus()
+             : absl::InternalError("Failed to serialize trace event");
 }
 
 // Store the contents of this container in an sstable file. The format is as
@@ -340,8 +360,7 @@ std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    std::function<std::optional<TraceEvent>(const TraceEvent*)>
-        generate_event_copy_fn) {
+    SerializeEventFn serialize_event_fn) {
   absl::Time start_time = absl::Now();
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
@@ -351,6 +370,9 @@ absl::Status DoStoreAsLevelDbTable(
   builder.Add(kTraceMetadataKey, trace.SerializeAsString());
 
   size_t num_of_events_dropped = 0;  // Due to too many timestamp repetitions.
+  google::protobuf::Arena arena;
+  TraceEvent* reusable_event = google::protobuf::Arena::Create<TraceEvent>(&arena);
+  std::string buffer;
   for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
     // The key of level db table have to be monotonically increasing, therefore
     // we make the timestamp repetition count as the last byte of key as tie
@@ -361,9 +383,11 @@ absl::Status DoStoreAsLevelDbTable(
       uint64_t timestamp = event->timestamp_ps();
       std::string key = LevelDbTableKey(zoom_level, timestamp, event->serial());
       if (!key.empty()) {
-        auto event_copy = generate_event_copy_fn(event);
-        if (event_copy.has_value()) {
-          builder.Add(key, event_copy->SerializeAsString());
+        absl::Status status = serialize_event_fn(event, reusable_event, buffer);
+        if (status.ok()) {
+          builder.Add(key, buffer);
+        } else if (!absl::IsNotFound(status)) {
+          return status;
         }
       } else {
         ++num_of_events_dropped;

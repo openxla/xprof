@@ -1,0 +1,16 @@
+{
+  global:
+    InitializeProfiler;
+    FreeString;
+    Trace;
+    Monitor;
+    StartContinuousProfiling;
+    StopContinuousProfiling;
+    GetSnapshot;
+    XSpaceToToolsData;
+    XSpaceToToolsDataFromByteString;
+    StartGrpcServer;
+    InitializeStubs;
+  local:
+    *;
+};

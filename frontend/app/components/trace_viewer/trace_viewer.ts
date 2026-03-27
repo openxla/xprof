@@ -46,6 +46,12 @@ interface TraceData {
  * Viewer v2.
  */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
+function parseHostsList(hosts: unknown): string[] {
+  if (typeof hosts === 'string') {
+    return hosts.split(',').map((h) => h.trim()).filter(Boolean);
+  }
+  return Array.isArray(hosts) ? hosts : [];
+}
 
 /** A trace viewer component. */
 @Component({
@@ -159,12 +165,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     let hostsString = '';
     if (event.hosts) {
-      // Use unknown casting to handle runtime cases where query parameters may be parsed as strings
-      const runtimeHosts = event.hosts as unknown;
-      const hostsList = typeof runtimeHosts === 'string'
-          ? runtimeHosts.split(',').filter((h) => !!h)
-          : (Array.isArray(runtimeHosts) ? runtimeHosts : []);
-
+      const hostsList = parseHostsList(event.hosts);
       hostsString = hostsList.slice(0, 10).join(',');
       this.queryString += `&hosts=${hostsString}`;
     } else if (event.host) {
@@ -187,7 +188,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const traceDataUrl = this.dataService.getDataUrl(
       run,
       tag,
-      event.host || this.hostList[0] || event.hosts?.[0] || '',
+      this.getCurrentHost(event),
       additionalParams,
     );
 
@@ -210,6 +211,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();
     this.destroyed.complete();
+  }
+
+  getCurrentHost(event: NavigationEvent = this.navigationEvent): string {
+    if (event.hosts) {
+      const hostsList = parseHostsList(event.hosts);
+      if (hostsList.length > 0) {
+        return hostsList[0];
+      }
+    }
+    return event.host || (this.hostList && this.hostList[0]) || '';
   }
 
   // START Trace Viewer V2 WASM App Methods
@@ -261,7 +272,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .getData(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
-        this.navigationEvent.host || this.hostList[0],
+        this.getCurrentHost(),
         new Map([['search_prefix', query]]),
       )
       .pipe(takeUntil(this.destroyed))
@@ -308,7 +319,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .getData(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
-        this.navigationEvent.host || this.hostList[0],
+        this.getCurrentHost(),
         params,
       )
       .pipe(takeUntil(this.destroyed))

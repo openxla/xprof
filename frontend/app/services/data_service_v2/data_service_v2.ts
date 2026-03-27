@@ -172,6 +172,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
     if (host) {
       searchParams.set('host', host);
     }
+    const hosts = parameters.get('hosts');
+    if (typeof hosts === 'string') {
+      searchParams.set('hosts', hosts);
+    }
     if (updateSearchParams) {
       this.setSearchParams(searchParams);
     }

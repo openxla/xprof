@@ -1074,6 +1074,82 @@ TEST(TimelineTest, MaybeRequestDataRefetchWhenZoomedIn) {
       MicrosToMillis(5800000.0));
 }
 
+TEST(TimelineTest,
+     MaybeRequestDataNoTriggerAfterInitializeLastFetchRequestRange) {
+  Timeline timeline;
+  timeline.set_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_is_incremental_loading(false);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  // Setup initial visible range mimicking URL load.
+  TimeRange visible = {5000000.0, 6000000.0};  // 1s duration
+  timeline.SetVisibleRange(visible);
+  timeline.InitializeLastFetchRequestRange(visible);
+
+  // Trigger MaybeRequestData
+  timeline.MaybeRequestData();
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest, InitializeLastFetchRequestRange_SetsCorrectRange) {
+  Timeline timeline;
+  timeline.set_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_is_incremental_loading(false);
+
+  TimeRange visible = {5000000.0, 6000000.0};  // 1s duration
+  timeline.SetVisibleRange(visible);
+  timeline.InitializeLastFetchRequestRange(visible);
+
+  EXPECT_EQ(timeline.last_fetch_request_range().start(), 4000000.0);
+  EXPECT_EQ(timeline.last_fetch_request_range().end(), 7000000.0);
+}
+
+TEST(TimelineTest, InitializeLastFetchRequestRange_ConstrainsRange) {
+  Timeline timeline;
+  timeline.set_data_time_range({5500000.0, 6500000.0});  // Narrow data range
+  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_is_incremental_loading(false);
+
+  TimeRange visible = {5000000.0, 6000000.0};  // 1s duration
+  timeline.SetVisibleRange(visible);
+  timeline.InitializeLastFetchRequestRange(visible);
+
+  // Unscaled fetch would be [4e6, 7e6]
+  // Constrained to [5.5e6, 6.5e6]
+  EXPECT_EQ(timeline.last_fetch_request_range().start(), 5500000.0);
+  EXPECT_EQ(timeline.last_fetch_request_range().end(), 6500000.0);
+}
+
+TEST(TimelineTest, InitializeLastFetchRequestRange_ExpandsToMinDuration) {
+  Timeline timeline;
+  timeline.set_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_is_incremental_loading(false);
+
+  TimeRange visible = {5000000.0, 5000100.0};  // 100us duration
+  timeline.SetVisibleRange(visible);
+  timeline.InitializeLastFetchRequestRange(visible);
+
+  // Unscaled fetch would be [5e6, 5e6+100]
+  // Scaled 3.0: center 5000050, duration 300
+  // Expands to kMinFetchDurationMicros (1000us)
+  // center 5000050
+  // expected start: 5000050 - 500 = 4999550
+  // expected end: 5000050 + 500 = 5000550
+  EXPECT_EQ(timeline.last_fetch_request_range().start(), 4999550.0);
+  EXPECT_EQ(timeline.last_fetch_request_range().end(), 5000550.0);
+}
+
 TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
   Timeline timeline;
   // Scenario: Visible range is very small (100us).

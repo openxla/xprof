@@ -10,6 +10,14 @@
 export const ZOOM_RATIO = 8;
 
 /**
+ * The over-fetching factor for the initial fetch.
+ *
+ * We request FETCH_RATIO times more data than the current viewport width
+ * requires for the initial fetch.
+ */
+export const FETCH_RATIO = 3.0;
+
+/**
  * The width of the left-side label column in the trace viewer in pixels.
  *
  * This corresponds to the `label_width_` in `timeline.h`.
@@ -367,6 +375,25 @@ function getTimeRangeFromUrl(urlObj: URL): [number, number] | undefined {
   return undefined;
 }
 
+/**
+ * Expands the time range of the given URL using the pre-defined FETCH_RATIO.
+ */
+function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
+  const center = (timeRange[0] + timeRange[1]) / 2;
+  const duration = timeRange[1] - timeRange[0];
+  const expandedStart = center - (duration * FETCH_RATIO) / 2;
+  const expandedEnd = center + (duration * FETCH_RATIO) / 2;
+
+  urlObj.searchParams.set(
+    TRACE_VIEW_OPTION.START_TIME_MS,
+    String(expandedStart),
+  );
+  urlObj.searchParams.set(
+    TRACE_VIEW_OPTION.END_TIME_MS,
+    String(expandedEnd),
+  );
+}
+
 // Fetches JSON data from the given URL. The `response.json()` method returns
 // `any`, so this function returns `unknown`. Validation of the data structure
 // (e.g., using `isTraceData`) is expected to be done by the caller.
@@ -529,6 +556,7 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
 
   let traceviewerModule: TraceViewerV2Module | null = null;
   let currentDataUrl: string | null = null;
+  let currentLoadingPromise: Promise<void> | null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
@@ -570,23 +598,87 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
 
   // Add a method to the module to load data from a URL
   traceviewerModule.loadJsonData = async (url: string) => {
+    if (url === currentDataUrl && currentLoadingPromise) {
+      return currentLoadingPromise;
+    }
     currentDataUrl = url;
     if (!traceviewerModule) return;
-    try {
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
-        }),
-      );
 
-      let urlObj: URL;
+    currentLoadingPromise = (async () => {
       try {
-        urlObj = new URL(url, window.location.href);
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
+          }),
+        );
+
+        let urlObj: URL;
+        try {
+          urlObj = new URL(url, window.location.href);
+        } catch (e) {
+          console.error('Invalid URL:', url, e);
+
+          const error = e as Error;
+
+          window.dispatchEvent(
+            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+              detail: {
+                status: TraceViewerV2LoadingStatus.ERROR,
+                message: error.message,
+              },
+            }),
+          );
+          return;
+        }
+
+        const timeRangeFromUrl = getTimeRangeFromUrl(urlObj);
+        if (timeRangeFromUrl) {
+          expandUrlTimeRange(urlObj, timeRangeFromUrl);
+        }
+
+        updateUrlWithResolution(urlObj, traceviewerModule.canvas);
+
+        const jsonData = await loadJsonDataInternal(urlObj.toString());
+
+        if (url !== currentDataUrl) {
+          return;
+        }
+
+        if (!isTraceData(jsonData)) {
+          console.error('File does not contain valid trace events.');
+
+          window.dispatchEvent(
+            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+              detail: {status: TraceViewerV2LoadingStatus.IDLE},
+            }),
+          );
+
+          return;
+        }
+
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+          }),
+        );
+
+        // Yield to the event loop to allow the UI to re-render and display the
+        // 'Processing data' status before the potentially long-running
+        // processTraceEvents call.
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0);
+        });
+
+        traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
+
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          }),
+        );
       } catch (e) {
-        console.error('Invalid URL:', url, e);
-
+        console.error('Error processing file:', e);
         const error = e as Error;
-
         window.dispatchEvent(
           new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
             detail: {
@@ -595,73 +687,14 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
             },
           }),
         );
-        return;
+      } finally {
+        if (url === currentDataUrl) {
+          currentLoadingPromise = null;
+        }
       }
+    })();
 
-      const timeRangeFromUrl = getTimeRangeFromUrl(urlObj);
-      // If the time range is present in the URL, we just need to fetch the
-      // visible part.
-      // TODO(b/471367724): We may need to expand the time range by FETCH_RATIO
-      // like Trace Viewer v1.
-      if (timeRangeFromUrl) {
-        urlObj.searchParams.set(
-          TRACE_VIEW_OPTION.START_TIME_MS,
-          String(timeRangeFromUrl[0]),
-        );
-        urlObj.searchParams.set(
-          TRACE_VIEW_OPTION.END_TIME_MS,
-          String(timeRangeFromUrl[1]),
-        );
-      }
-
-      updateUrlWithResolution(urlObj, traceviewerModule.canvas);
-
-      const jsonData = await loadJsonDataInternal(urlObj.toString());
-
-      if (!isTraceData(jsonData)) {
-        console.error('File does not contain valid trace events.');
-
-        window.dispatchEvent(
-          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-            detail: {status: TraceViewerV2LoadingStatus.IDLE},
-          }),
-        );
-
-        return;
-      }
-
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-        }),
-      );
-
-      // Yield to the event loop to allow the UI to re-render and display the
-      // 'Processing data' status before the potentially long-running
-      // processTraceEvents call.
-      await new Promise((resolve) => {
-        setTimeout(resolve, 0);
-      });
-
-      traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
-
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
-        }),
-      );
-    } catch (e) {
-      console.error('Error processing file:', e);
-      const error = e as Error;
-      window.dispatchEvent(
-        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {
-            status: TraceViewerV2LoadingStatus.ERROR,
-            message: error.message,
-          },
-        }),
-      );
-    }
+    return currentLoadingPromise;
   };
 
   registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {

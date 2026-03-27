@@ -179,6 +179,14 @@ class Timeline {
     return fetched_data_time_range_;
   }
 
+  const TimeRange& last_fetch_request_range() const {
+    return last_fetch_request_range_;
+  }
+
+  // Calculates and initializes the last_fetch_request_range_ using the same
+  // logic as MaybeRequestData (scaling, min-bounds, and ConstrainTimeRange).
+  void InitializeLastFetchRequestRange(const TimeRange& visible_range);
+
   void set_data_time_range(const TimeRange& range) { data_time_range_ = range; }
   const TimeRange& data_time_range() const { return data_time_range_; }
 

@@ -1,12 +1,10 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
 #include <algorithm>
-#include <cfloat>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <numeric>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -2117,6 +2115,19 @@ ImRect Timeline::GetTimelineArea() const {
   const Pixel end_y = window_pos.y + ImGui::GetWindowHeight();
 
   return {start_x, start_y, end_x, end_y};
+}
+
+void Timeline::InitializeLastFetchRequestRange(const TimeRange& visible_range) {
+  TimeRange fetch = visible_range.Scale(kFetchRatio);
+
+  if (fetch.duration() < kMinFetchDurationMicros) {
+    Microseconds center = fetch.center();
+    fetch = {center - kMinFetchDurationMicros / 2.0,
+             center + kMinFetchDurationMicros / 2.0};
+  }
+
+  ConstrainTimeRange(fetch);
+  last_fetch_request_range_ = fetch;
 }
 
 void Timeline::MaybeRequestData() {

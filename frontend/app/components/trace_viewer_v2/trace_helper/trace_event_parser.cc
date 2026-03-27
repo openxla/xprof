@@ -14,6 +14,7 @@
 #include "tsl/platform/fingerprint.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/application.h"
+#include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -320,10 +321,24 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   Application::Instance().data_provider().ProcessTraceEvents(
       parsed_events, Application::Instance().timeline());
 
+  // Set last_fetch_request_range_ correctly to avoid duplicate fetches.
+  Timeline& timeline = Application::Instance().timeline();
+  if (!visible_range_from_url.isNull() &&
+      !visible_range_from_url.isUndefined() &&
+      visible_range_from_url["length"].as<int>() == 2) {
+    Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
+    Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
+
+    timeline.InitializeLastFetchRequestRange(
+        {MillisToMicros(start), MillisToMicros(end)});
+  } else {
+    timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
+  }
+
   // Reset the loading flag to allow subsequent data requests (e.g. on panning).
   // This is necessary because is_incremental_loading_ is initialized to true to
   // prevent duplicate requests during the initial load.
-  Application::Instance().timeline().set_is_incremental_loading(false);
+  timeline.set_is_incremental_loading(false);
 }
 
 void SetSearchResultsInWasm(const emscripten::val& trace_data) {

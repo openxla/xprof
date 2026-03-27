@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package tensorflow.profiler;
+
+// Metadata identifying a unique series of trace events.
+// A series is typically defined by the process, thread, and the name of the
+// events it contains.
+message TraceEventSeriesMetadata {
+  uint32 process_id = 1;
+  uint32 thread_id = 2;
+  uint32 name_ref = 3;
+}
+
+// Metadata for a specific occurrence of a trace event.
+// This contains optional fields that are not present on every event.
+message TraceEventMetadata {
+  uint32 flow_id = 1;
+  uint32 flow_category = 2;
+  uint32 group_id = 3;
+  uint32 serial = 4;
+  // A value associated with the event (e.g., for counter events).
+  oneof counter_value {
+    double counter_value_double = 5;
+    uint64 counter_value_uint64 = 6;
+  }
+}
+
+// Represents a sequence of trace events, grouped by their metadata (e.g., same
+// process, thread, and name). To save space, the timestamps are delta-encoded.
+message TraceEventSeries {
+  TraceEventSeriesMetadata metadata = 1;
+  // Delta-encoded start timestamps of the events.
+  // The first element is the absolute start timestamp of the first event.
+  // Subsequent elements are the time differences from the previous event's
+  // timestamp.
+  repeated uint64 deltas = 2;
+  // The durations of each event in the series.
+  // The length of this array should match the length of `deltas`.
+  repeated uint64 durations = 3;
+  // Optional name references for individual events within this series,
+  // pointing to indices in `interned_strings`. Used if events in the series
+  // have different names.
+  repeated uint32 name_refs = 4;
+  // Metadata for the events in this series.
+  repeated TraceEventMetadata event_metadata = 5;
+}
+
+// Describes a thread that appears in the trace.
+message Thread {
+  string name = 1;
+  uint32 id = 2;
+  uint32 sort_index = 3;
+}
+
+// Describes a process that appears in the trace.
+message Process {
+  string name = 1;
+  uint32 id = 2;
+  uint32 sort_index = 3;
+  repeated Thread threads = 4;
+}
+
+// Contains all metadata relating to the processes and threads in the trace.
+message TraceMetadata {
+  repeated Process processes = 1;
+}
+
+// The root response message representing a delta-compressed trace.
+message TraceDataResponse {
+  // Sequence of standard duration events.
+  repeated TraceEventSeries complete_events = 1;
+  // Sequence of counter events.
+  repeated TraceEventSeries counter_events = 2;
+  // Sequence of asynchronous events.
+  repeated TraceEventSeries async_events = 3;
+  // Trace metadata describing the hierarchy of processes and threads.
+  TraceMetadata metadata = 4;
+  // A centralized list of strings used throughout the trace data.
+  // `name_ref` fields in other messages are indices into this array.
+  repeated string interned_strings = 5;
+}

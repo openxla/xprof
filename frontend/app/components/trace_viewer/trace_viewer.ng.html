@@ -1,4 +1,14 @@
 <div style="display: flex; justify-content: flex-end; width: 100%;">
+  <div *ngIf="traceDetails && traceDetails.size > 0">
+    <button mat-button [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
+    <mat-menu #detailsMenu="matMenu" class="details-menu">
+      <div *ngFor="let detail of availableDetails" (click)="$event.stopPropagation()">
+        <mat-checkbox [checked]="traceDetails.get(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
+          {{detail.label}}
+        </mat-checkbox>
+      </div>
+    </mat-menu>
+  </div>
   <button mat-button (click)="switchVersion()">
     Switch to {{useTraceViewerV2 ? 'V1' : 'V2'}}
   </button>

@@ -29,6 +29,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
@@ -288,9 +289,18 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
                          plane_builder, tf_name_scope, tf_ops);
       }
       if (!symbol.source_info.empty()) {
-        source.ExpandOrAddEvent(
-            *plane_builder.GetOrCreateEventMetadata(symbol.source_info),
-            event_span, stats.group_id);
+        std::vector<absl::string_view> stack =
+            absl::StrSplit(symbol.source_info, '\n');
+        std::vector<XEventMetadata*> source_events_metadata;
+        source_events_metadata.reserve(stack.size());
+        for (absl::string_view frame : stack) {
+          source_events_metadata.push_back(
+              plane_builder.GetOrCreateEventMetadata(frame));
+        }
+        std::reverse(source_events_metadata.begin(),
+                     source_events_metadata.end());
+        source.ExpandOrAddEvents(source_events_metadata, event_span,
+                                 stats.group_id);
       }
     } else if (stats.IsTfOp()) {
       ProcessTfOpEvent(stats.tf_op_fullname, event_span, stats.group_id,
@@ -725,7 +735,7 @@ void GenerateDerivedTimeLines(
         GetHloInstruction(hlo_module_map, program_id, hlo_op);
     if (hlo_instruction != nullptr) {
       output.tf_op_name = hlo_instruction->op_full_name();
-      output.source_info = std::string(hlo_instruction->source_info());
+      output.source_info = hlo_instruction->SourceInfo().stack_frame;
     }
     return output;
   };

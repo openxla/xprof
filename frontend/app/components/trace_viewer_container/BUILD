@@ -26,6 +26,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_menu",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_bar",
         "@org_xprof//frontend/app/common/angular:angular_material_progress_spinner",
+        "@org_xprof//frontend/app/common/angular:angular_material_sort",
         "@org_xprof//frontend/app/common/angular:angular_material_table",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",

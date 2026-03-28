@@ -203,6 +203,14 @@ ts_library(
 )
 
 ts_library(
+    name = "angular_material_sort",
+    srcs = [],
+    deps = [
+        "@npm//@angular/material",
+    ],
+)
+
+ts_library(
     name = "angular_material_table",
     srcs = [],
     deps = [

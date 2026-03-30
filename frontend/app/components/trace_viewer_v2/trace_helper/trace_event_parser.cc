@@ -8,7 +8,6 @@
 
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/hash/hash.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tsl/platform/fingerprint.h"
@@ -26,13 +25,18 @@ constexpr char kFullTimespan[] = "fullTimespan";
 
 Phase ParsePhase(const std::string& ph_str) {
   if (!ph_str.empty()) {
-    switch (ph_str[0]) {
+    char ph_char = ph_str[0];
+    switch (ph_char) {
       case static_cast<char>(Phase::kComplete):
         return Phase::kComplete;
       case static_cast<char>(Phase::kCounter):
         return Phase::kCounter;
       case static_cast<char>(Phase::kMetadata):
         return Phase::kMetadata;
+      case static_cast<char>(Phase::kAsyncBegin):
+        return Phase::kAsyncBegin;
+      case static_cast<char>(Phase::kAsyncEnd):
+        return Phase::kAsyncEnd;
       case static_cast<char>(Phase::kFlowStart):
         return Phase::kFlowStart;
       case static_cast<char>(Phase::kFlowEnd):
@@ -134,7 +138,9 @@ tsl::profiler::ContextType GetContextTypeFromString(
 //       [1000000.0, 1.0],
 //       [1000001.0, 2.0]
 //     ]
-void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
+void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
+                    absl::flat_hash_map<std::pair<ProcessId, std::string>,
+                                        TraceEvent>& open_async_events) {
   if (!event.hasOwnProperty("ph")) {
     return;
   }
@@ -237,6 +243,30 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result) {
     ev.event_id =
         tsl::Fingerprint64(absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
     switch (ev.ph) {
+      case Phase::kAsyncBegin:
+        if (!ev.id.empty()) {
+          open_async_events[{ev.pid, ev.id}] = std::move(ev);
+        }
+        break;
+      case Phase::kAsyncEnd:
+        if (!ev.id.empty()) {
+          auto it = open_async_events.find({ev.pid, ev.id});
+          if (it != open_async_events.end()) {
+            TraceEvent& begin_ev = it->second;
+            begin_ev.ph = Phase::kComplete;
+            begin_ev.is_async = true;
+            if (ev.ts > begin_ev.ts) {
+              begin_ev.dur = ev.ts - begin_ev.ts;
+            }
+            // Merge arguments from end event if any.
+            if (!ev.args.empty()) {
+              begin_ev.args.insert(ev.args.begin(), ev.args.end());
+            }
+            result.flame_events.push_back(std::move(begin_ev));
+            open_async_events.erase(it);
+          }
+        }
+        break;
       case Phase::kFlowStart:
       case Phase::kFlowEnd:
         if (!ev.id.empty()) {
@@ -281,8 +311,10 @@ ParsedTraceEvents ParseTraceEvents(
   // in number.
   result.flame_events.reserve(js_events.size());
 
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
   for (const auto& js_event : js_events) {
-    ParseAndAppend(js_event, result);
+    ParseAndAppend(js_event, result, open_async_events);
   }
   // Reclaim unused memory.
   result.flame_events.shrink_to_fit();

@@ -36,8 +36,10 @@ enum class Phase : char {
   kComplete = 'X',
   kCounter = 'C',
   kMetadata = 'M',
-  kFlowStart = 'b',
-  kFlowEnd = 'e',
+  kAsyncBegin = 'b',
+  kAsyncEnd = 'e',
+  kFlowStart = 's',
+  kFlowEnd = 'f',
 
   // Represents an unknown or unspecified event phase.
   // This makes the default state more explicit and type-safe.
@@ -62,6 +64,7 @@ struct TraceEvent {
   std::string id;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
   std::map<std::string, std::string> args;
+  bool is_async = false;
 };
 
 struct CounterEvent {
@@ -115,6 +118,8 @@ inline constexpr absl::string_view kComputeUtilization =
     "Compute Utilization/Roofline Efficiency";
 inline constexpr absl::string_view kDataMotionLayersUtilization =
     "Data motion layers utilization";
+inline constexpr absl::string_view kAsyncXlaOps = "Async XLA Ops";
+inline constexpr absl::string_view kDma = "DMA";
 
 // Other constants.
 inline constexpr absl::string_view kHloModuleDefault = "default";

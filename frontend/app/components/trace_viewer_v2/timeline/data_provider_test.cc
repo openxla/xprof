@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <utility>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/algorithm/container.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "imgui.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -242,6 +244,61 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
 
   EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
+}
+
+TEST_F(DataProviderTest, ProcessNonOverlappingCompleteEventsSameThread) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event A",
+                                           .ts = 100.0,
+                                           .dur = 50.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event B",
+                                           .ts = 160.0,
+                                           .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  ASSERT_THAT(data.groups, SizeIs(2));  // Process and Thread
+
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
+  EXPECT_EQ(data.groups[1].start_level, 0);
+
+  EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 160.0));
+  EXPECT_THAT(data.entry_total_times, ElementsAre(50.0, 50.0));
+  // Both should be on level 0 (row reuse)
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 0));
+  EXPECT_THAT(data.entry_names, ElementsAre("Event A", "Event B"));
+}
+
+TEST_F(DataProviderTest, PopulateThreadTrackWithPackedLayoutSorting) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "AsyncEvent",
+                                           .ts = 150.0,
+                                           .dur = 50.0,
+                                           .is_async = true},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "AsyncEvent",
+                                           .ts = 100.0,
+                                           .dur = 50.0,
+                                           .is_async = true}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Verify they are sorted by timestamp and packed onto the same row.
+  EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 150.0));
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 0));
 }
 
 TEST_F(DataProviderTest, TimeRangeCoversDuration) {
@@ -738,6 +795,191 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   // Groups for Process 2 are at indices 2 (process) and 3 (thread)
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[2].name, "Process_2");
+}
+
+TEST_F(DataProviderTest, ProcessesSortedByAsyncPriority) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Host Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task 1",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          std::string(kAsyncXlaOps)),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Async 1",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "Device DMA"),
+      {.ph = Phase::kComplete,
+       .pid = 3,
+       .tid = 301,
+       .name = "DMA 1",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 4, 0, "Device Process"),
+      {.ph = Phase::kMetadata,
+       .pid = 4,
+       .tid = 0,
+       .name = std::string(kProcessSortIndex),
+       .ts = 0.0,
+       .dur = 0.0,
+       .args = {{std::string(kSortIndex), "0"}}},
+      {.ph = Phase::kComplete,
+       .pid = 4,
+       .tid = 401,
+       .name = "Task 2",
+       .ts = 0.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 4 processes -> 8 groups (process + thread each)
+  ASSERT_THAT(data.groups, SizeIs(8));
+
+  // Expected order:
+  // 1. Async XLA Ops (priority 2)
+  // 2. Device DMA (priority 1)
+  // 3. Device Process (priority 0, but sort_index 0)
+  // 4. Host Process (priority 0, fallback pid 1)
+
+  EXPECT_EQ(data.groups[0].name, kAsyncXlaOps);
+  EXPECT_EQ(data.groups[2].name, "Device DMA");
+  EXPECT_EQ(data.groups[4].name, "Device Process");
+  EXPECT_EQ(data.groups[6].name, "Host Process");
+}
+
+TEST_F(DataProviderTest, ProcessesSortedByAsyncThreadPriority) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Host Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task 1",
+       .ts = 0.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Async Host"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 201,
+                          std::string(kAsyncXlaOps)),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Async 1",
+       .ts = 0.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 2 processes -> 4 groups
+  ASSERT_THAT(data.groups, SizeIs(4));
+
+  // Expected order:
+  // 1. Async Host (priority 2 because of thread name)
+  // 2. Host Process (priority 0)
+  EXPECT_EQ(data.groups[0].name, "Async Host");
+  EXPECT_EQ(data.groups[2].name, "Host Process");
+}
+
+TEST_F(DataProviderTest, AsyncProcessesGroupedByName) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Generic Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 0,
+       .name = "async-copy-1",
+       .ts = 10.0,
+       .dur = 10.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 0,
+       .name = "async-copy-2",
+       .ts = 20.0,
+       .dur = 10.0,
+       .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 1 process + 2 named tracks = 3 groups
+  ASSERT_THAT(data.groups, SizeIs(3));
+
+  EXPECT_EQ(data.groups[0].name, "Generic Process");
+  EXPECT_EQ(data.groups[1].name, "async-copy-1");
+  EXPECT_EQ(data.groups[2].name, "async-copy-2");
+}
+
+TEST_F(DataProviderTest, AsyncProcessesMixedGrouping) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Mixed Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "async-op",
+       .ts = 10.0,
+       .dur = 10.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "sync-op",
+       .ts = 30.0,
+       .dur = 10.0,
+       .is_async = false},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // 1 process header + 1 thread track + 1 async track = 3 groups
+  ASSERT_THAT(data.groups, SizeIs(3));
+
+  EXPECT_EQ(data.groups[0].name, "Mixed Process");
+  EXPECT_EQ(data.groups[1].name, "async-op");
+  EXPECT_EQ(data.groups[2].name, "Thread_55");
+}
+
+TEST_F(DataProviderTest, AsyncProcessesConcurrentPacking) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Packed Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "async-op",
+       .ts = 10.0,
+       .dur = 20.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 55,
+       .name = "async-op",
+       .ts = 15.0,
+       .dur = 10.0,
+       .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(2));
+
+  EXPECT_EQ(data.groups[0].name, "Packed Process");
+  EXPECT_EQ(data.groups[1].name, "async-op");
+
+  ASSERT_THAT(data.entry_start_times, SizeIs(2));
+
+  int start_level = data.groups[1].start_level;
+  EXPECT_EQ(data.entry_levels[0], start_level);
+  EXPECT_EQ(data.entry_levels[1], start_level + 1);
 }
 
 TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
@@ -1486,6 +1728,62 @@ TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
   EXPECT_EQ(get_color(tsl::profiler::ContextType::kLegacy), kPurple80);
 }
 
+TEST_F(DataProviderTest, FlowLineColoringWithTieBreaker) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread A"),
+  };
+
+  // Add 50 flow events for kTfExecutor and 50 for kGpuLaunch
+  for (int i = 0; i < 50; ++i) {
+    std::string id_executor = absl::StrCat("executor_", i);
+    std::string id_gpu = absl::StrCat("gpu_", i);
+
+    parsed_events.flow_events.push_back(
+        {.ph = Phase::kFlowStart,
+         .pid = 1,
+         .tid = 101,
+         .id = id_executor,
+         .category = tsl::profiler::ContextType::kTfExecutor});
+    parsed_events.flow_events.push_back(
+        {.ph = Phase::kFlowEnd,
+         .pid = 1,
+         .tid = 101,
+         .id = id_executor,
+         .category = tsl::profiler::ContextType::kTfExecutor});
+
+    parsed_events.flow_events.push_back(
+        {.ph = Phase::kFlowStart,
+         .pid = 1,
+         .tid = 101,
+         .id = id_gpu,
+         .category = tsl::profiler::ContextType::kGpuLaunch});
+    parsed_events.flow_events.push_back(
+        {.ph = Phase::kFlowEnd,
+         .pid = 1,
+         .tid = 101,
+         .id = id_gpu,
+         .category = tsl::profiler::ContextType::kGpuLaunch});
+  }
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  auto get_color = [&](tsl::profiler::ContextType cat) -> ImU32 {
+    for (const auto& line : data.flow_lines) {
+      if (line.category == cat) return line.color;
+    }
+    return 0;
+  };
+
+  // Since kTfExecutor (2) < kGpuLaunch (9), kTfExecutor should come first and
+  // get kOrange80!
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kOrange80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kYellow80);
+}
+
 TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
   auto create_flow_events =
       [](tsl::profiler::ContextType cat) -> std::vector<TraceEvent> {
@@ -1806,6 +2104,846 @@ TEST_F(DataProviderTest,
   EXPECT_TRUE(timeline_.timeline_data()
                   .groups[2]
                   .expanded);  // Test Counter (FORCED TRUE)
+}
+
+TEST_F(DataProviderTest, ProcessesSortedByThreadDmaPriority) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Normal Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Normal Thread"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task 1",
+       .ts = 100.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Another Process"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 201,
+                          "Thread containing DMA"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task 2",
+       .ts = 110.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+
+  EXPECT_EQ(data.groups[0].name, "Another Process");
+  EXPECT_EQ(data.groups[2].name, "Normal Process");
+}
+
+TEST_F(DataProviderTest, ProcessesSortedByAsyncEventPriority) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Normal Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task 1",
+       .ts = 100.0,
+       .dur = 10.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          "Async Process Event"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task 2",
+       .ts = 110.0,
+       .dur = 10.0,
+       .id = "",
+       .args = {},
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 202,  // Different tid, but same name and process
+       .name = "Task 2",
+       .ts = 130.0,
+       .dur = 10.0,
+       .id = "",
+       .args = {},
+       .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+
+  EXPECT_EQ(data.groups[0].name, "Async Process Event");
+  EXPECT_EQ(data.groups[2].name, "Normal Process");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataWithDataMotionLayersUtilizationKillsMutant) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kThreadName), 1, 101,
+                          std::string(kDataMotionLayersUtilization)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{"Name", "HloOpValue"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "HloOpValue");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataNormalThreadWithOnlyHloModuleDoesNotAddHloOp) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Normal Thread"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Normal Task",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloModule), "ModuleValue"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+
+  // Normal thread should NOT enter HLO processing block and should NOT create
+  // kHloOp if it wasn't there.
+  EXPECT_EQ(data.entry_args[0].count(std::string(kHloOp)), 0);
+}
+
+TEST_F(DataProviderTest, AppendEventToTimelineDataDecoratesHloModule) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"},
+                {std::string(kHloModule), "ModuleValue"},
+                {std::string(kHloModuleId), "123"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+
+  // Should be decorated as "ModuleValue(123)"
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(123)");
+}
+
+TEST_F(DataProviderTest, PopulateSyncProcessTrackDoesNotUseAsyncLayout) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B",
+       .ts = 120.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // In Sync mode, it should group by TID. We expect:
+  // - 1 Process Track
+  // - 1 Thread Track
+  // Total 2 groups.
+  // If the mutant makes it Async, it will split by name into "Task A" and "Task
+  // B" tracks (Total 3 groups).
+  ASSERT_THAT(data.groups, SizeIs(2));
+}
+
+TEST_F(DataProviderTest,
+       PopulateProcessTrackWithDataMotionLayersUtilizationNameIsAsync) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          std::string(kDataMotionLayersUtilization)),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = false},
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Normal Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = false},
+  };
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Process 2 (Data Motion Layers Utilization) has priority 1.
+  // Process 1 (Normal Process) has priority 0.
+  // So Process 2 should be first!
+  ASSERT_THAT(data.groups, Not(IsEmpty()));
+  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
+}
+
+TEST_F(DataProviderTest, PopulateProcessTrackWithDmaThreadNameIsAsync) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kThreadName), 2, 101, "Device DMA"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = false},
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Normal Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "Task B",
+       .ts = 100.0,
+       .dur = 50.0,
+       .is_async = false},
+  };
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Process 2 (has DMA thread) has priority 1.
+  // Process 1 (Normal Process) has priority 0.
+  // So Process 2 should be first!
+  ASSERT_THAT(data.groups, Not(IsEmpty()));
+  EXPECT_EQ(data.groups[0].name, "Process_2");
+}
+
+TEST_F(DataProviderTest,
+       PopulateProcessTrackWithAsyncProcessNameButSyncEventsIsTreatedAsAsync) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Normal Process"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task B",
+       .ts = 100.0,
+       .dur = 50.0},
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          std::string(kDataMotionLayersUtilization)),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 102,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0},
+  };
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Process 2 (DataMotionLayersUtilization) has higher priority because of its
+  // name. Process 1 (Normal Process) has priority 0. So Process 2 should be
+  // first!
+  ASSERT_THAT(data.groups, Not(IsEmpty()));
+  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
+}
+
+TEST_F(DataProviderTest,
+       PopulateProcessTrackWithDataMotionLayersUtilizationPackedEfficiently) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0,
+                          std::string(kDataMotionLayersUtilization)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 10.0,  // Non-overlapping!
+       .id = "",
+       .args = {},
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 120.0,
+       .dur = 10.0,
+       .id = "",
+       .args = {},
+       .is_async = true},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // In Async mode with non-overlapping events, it should PACK them into ONE
+  // track. We expect:
+  // - 1 Process Track
+  // - 1 packed track for both "Task A" and "Task B" (since they don't overlap).
+  // Total 2 groups.
+  // If the mutant makes it create a new row unconditionally, it will split into
+  // "Task A" and "Task B" tracks (Total 3 groups).
+  ASSERT_THAT(data.groups, SizeIs(2));
+}
+
+TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadName) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, std::string(kDma)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "SyncTask",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Verify that the thread is present and named correctly.
+  ASSERT_THAT(data.groups, SizeIs(2));
+  EXPECT_EQ(data.groups[1].name, std::string(kDma));
+}
+
+TEST_F(DataProviderTest, PopulateThreadTrackWithPackedLayoutNonNestedOverlap) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "AsyncOp",
+                                           .ts = 50.0,
+                                           .dur = 100.0,
+                                           .is_async = true},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 102,
+                                           .name = "AsyncOp",
+                                           .ts = 100.0,
+                                           .dur = 100.0,
+                                           .is_async = true}};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // We expect Process Track and Synthetic Async Track.
+  ASSERT_THAT(data.groups, SizeIs(2));
+  // We expect BOTH events to be rendered in Packed Layout.
+  EXPECT_THAT(data.entry_names, SizeIs(2));
+}
+
+TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncProcessNamePriorityFlip) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "NormalProcess"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          std::string(kDataMotionLayersUtilization)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "TaskA",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "TaskB",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Async process named kDataMotionLayersUtilization should be prioritized
+  // over normal process, even with a higher PID.
+  // Track order: Process 2 (Async) -> Thread 201 -> Process 1 (Normal) ->
+  // Thread 101.
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
+  EXPECT_EQ(data.groups[2].name, "NormalProcess");
+}
+
+TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadNamePriorityFlip) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "NormalProcess"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0,
+                          "AsyncThreadProcess"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 201, std::string(kDma)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "TaskA",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "TaskB",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Process 2 (with kDma thread) should be prioritized over normal process 1,
+  // even with a higher PID.
+  // Track order: Process 2 Group -> Thread 201 Group -> Process 1 Group ->
+  // Thread 101 Group.
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "AsyncThreadProcess");
+  EXPECT_EQ(data.groups[2].name, "NormalProcess");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataWithProgramIdDecoratesHloModule) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"},
+                {std::string(kHloModule), "ModuleValue"},
+                {std::string(kProgramId), "456"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(456)");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataWithKernelDetailsDecoratesHloModule) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"},
+                {std::string(kHloModule), "ModuleValue"},
+                {std::string(kKernelDetails), "some module:foo_789 inside"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(789)");
+}
+
+TEST_F(
+    DataProviderTest,
+    AppendEventToTimelineDataWithKernelDetailsNoMatchDoesNotDecorateHloModule) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"},
+                {std::string(kHloModule), "ModuleValue"},
+                {std::string(kKernelDetails), "no match"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
+}
+
+TEST_F(DataProviderTest, AppendEventToTimelineDataViaXlaModulesThread) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101,
+                          std::string(kXlaOps)),
+      CreateMetadataEvent(std::string(kThreadName), 1, 102,
+                          std::string(kXlaModules)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "ModuleValue(789)",
+       .ts = 50.0,
+       .dur = 200.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"}}}  // No kHloModule!
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // We expect 2 entries in entry_args:
+  // 1. Task A (which gets decorated from XLA Modules)
+  // 2. The module event in XLA Modules thread itself (which does not get
+  // decorated, so gets default)
+  ASSERT_THAT(data.entry_args, SizeIs(2));
+
+  // Find which one is for Task A (it has hlo_op).
+  int task_a_index = -1;
+  for (size_t i = 0; i < data.entry_args.size(); ++i) {
+    if (data.entry_args[i].count(std::string(kHloOp)) > 0) {
+      task_a_index = i;
+      break;
+    }
+  }
+  ASSERT_NE(task_a_index, -1);
+  EXPECT_EQ(data.entry_args[task_a_index].at(std::string(kHloModule)),
+            "ModuleValue(789)");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataViaXlaModulesThreadModuleEventEndsBefore) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101,
+                          std::string(kXlaOps)),
+      CreateMetadataEvent(std::string(kThreadName), 1, 102,
+                          std::string(kXlaModules)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 102,
+       .name = "ModuleValue(789)",
+       .ts = 50.0,
+       .dur = 30.0},  // Ends at 80.0
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"}}}  // No kHloModule!
+  };
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // We expect 2 entries in entry_args:
+  // 1. Task A (should NOT be decorated)
+  // 2. The module event in XLA Modules thread itself
+  ASSERT_THAT(data.entry_args, SizeIs(2));
+
+  // Find which one is for Task A (it has hlo_op).
+  int task_a_index = -1;
+  for (size_t i = 0; i < data.entry_args.size(); ++i) {
+    if (data.entry_args[i].count(std::string(kHloOp)) > 0) {
+      task_a_index = i;
+      break;
+    }
+  }
+  ASSERT_NE(task_a_index, -1);
+  // Should be default because it ended before Task A started.
+  EXPECT_EQ(data.entry_args[task_a_index].at(std::string(kHloModule)),
+            "default");
+}
+
+TEST_F(DataProviderTest, UnnamedProcessWithEvents) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 4,
+                                           .tid = 401,
+                                           .name = "Task A",
+                                           .ts = 100.0,
+                                           .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(2));  // Process group and thread group
+
+  EXPECT_EQ(data.groups[0].name, "Process_4");  // Default name!
+  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[1].name, "Thread_401");  // Default name!
+  EXPECT_EQ(data.groups[1].nesting_level, 1);
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataWithXlaOpsThreadDefaultHloOp) {
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process A"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101,
+                          std::string(kXlaOps)),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "OpName",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "OpName");
+}
+
+TEST_F(DataProviderTest,
+       AppendEventToTimelineDataWithHloModuleOnlyNoDecoration) {
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task A",
+       .ts = 100.0,
+       .dur = 50.0,
+       .args = {{std::string(kHloOp), "OpValue"},
+                {std::string(kHloModule), "ModuleValue"}}}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_args, SizeIs(1));
+  EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
+}
+
+TEST_F(DataProviderTest, IgnoredPhaseEvent) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kAsyncBegin,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Task A",
+                                           .ts = 100.0,
+                                           .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  EXPECT_THAT(data.entry_start_times, IsEmpty());
+}
+
+TEST_F(DataProviderTest, EventSortingWithTieBreaker) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "ShortEvent",
+                                           .ts = 100.0,
+                                           .dur = 10.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "LongEvent",
+                                           .ts = 100.0,
+                                           .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_names, SizeIs(2));
+  EXPECT_EQ(data.entry_names[0], "LongEvent");
+  EXPECT_EQ(data.entry_names[1], "ShortEvent");
+}
+
+TEST_F(DataProviderTest, CounterSortingWithEmptyTimestamps) {
+  CounterEvent empty_event;
+  empty_event.name = "CounterA";
+  empty_event.pid = 1;
+
+  CounterEvent normal_event;
+  normal_event.name = "CounterA";
+  normal_event.pid = 1;
+  normal_event.timestamps = {100.0};
+  normal_event.values = {10.0};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.counter_events = {empty_event, normal_event};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, Not(IsEmpty()));
+}
+
+TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "AsyncOp",
+                                           .ts = 100.0,
+                                           .dur = 50.0,
+                                           .is_async = true}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.entry_tids, Not(IsEmpty()));
+  EXPECT_EQ(data.entry_tids[0], 101);
+  EXPECT_LT(data.entry_tids[0], 0x80000000);
+}
+
+TEST_F(DataProviderTest, HloModuleDecorationChecksProcessId) {
+  TraceEvent t1 = {.ph = Phase::kMetadata,
+                   .pid = 1,
+                   .tid = 101,
+                   .name = std::string(kThreadName),
+                   .args = {{"name", "XLA Modules"}}};
+  TraceEvent t2 = {.ph = Phase::kMetadata,
+                   .pid = 2,
+                   .tid = 101,
+                   .name = std::string(kThreadName),
+                   .args = {{"name", "Ordinary Thread"}}};
+  TraceEvent t3 = {.ph = Phase::kMetadata,
+                   .pid = 2,
+                   .tid = 202,
+                   .name = std::string(kThreadName),
+                   .args = {{"name", "Ordinary Thread 2"}}};
+
+  TraceEvent p1 = {.ph = Phase::kMetadata,
+                   .pid = 1,
+                   .name = std::string(kProcessName),
+                   .args = {{"name", "Process 1"}}};
+  TraceEvent p2 = {.ph = Phase::kMetadata,
+                   .pid = 2,
+                   .name = std::string(kProcessName),
+                   .args = {{"name", "Process 2"}}};
+
+  TraceEvent m1 = {.ph = Phase::kComplete,
+                   .pid = 1,
+                   .tid = 101,
+                   .name = "module: module1",
+                   .ts = 100.0,
+                   .dur = 50.0};
+  TraceEvent e1 = {.ph = Phase::kComplete,
+                   .pid = 2,
+                   .tid = 101,
+                   .name = "OrdinaryEvent",
+                   .ts = 100.0,
+                   .dur = 50.0};
+  TraceEvent e2 = {.ph = Phase::kComplete,
+                   .pid = 2,
+                   .tid = 202,
+                   .name = "EventE",
+                   .ts = 120.0,
+                   .dur = 10.0};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {t1, t2, t3, p1, p2, m1, e1, e2};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  bool found = false;
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (absl::StrContains(data.entry_names[i], "EventE")) {
+      found = true;
+      EXPECT_EQ(data.entry_names[i], "EventE");
+    }
+  }
+  EXPECT_TRUE(found);
+}
+
+TEST_F(DataProviderTest, HloModuleDecorationChecksDuration) {
+  TraceEvent t1 = {.ph = Phase::kMetadata,
+                   .pid = 1,
+                   .tid = 101,
+                   .name = std::string(kThreadName),
+                   .args = {{"name", "XLA Modules"}}};
+  TraceEvent t2 = {.ph = Phase::kMetadata,
+                   .pid = 1,
+                   .tid = 102,
+                   .name = std::string(kThreadName),
+                   .args = {{"name", "Ordinary Thread"}}};
+
+  TraceEvent p1 = {.ph = Phase::kMetadata,
+                   .pid = 1,
+                   .name = std::string(kProcessName),
+                   .args = {{"name", "Process 1"}}};
+
+  TraceEvent m1 = {.ph = Phase::kComplete,
+                   .pid = 1,
+                   .tid = 101,
+                   .name = "module: module1",
+                   .ts = 100.0,
+                   .dur = 50.0};
+  TraceEvent e2 = {.ph = Phase::kComplete,
+                   .pid = 1,
+                   .tid = 102,
+                   .name = "EventE",
+                   .ts = 200.0,
+                   .dur = 10.0};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {t1, t2, p1, m1, e2};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  bool found = false;
+  for (size_t i = 0; i < data.entry_names.size(); ++i) {
+    if (absl::StrContains(data.entry_names[i], "EventE")) {
+      found = true;
+      EXPECT_EQ(data.entry_names[i], "EventE");
+    }
+  }
+  EXPECT_TRUE(found);
+}
+
+TEST_F(DataProviderTest, AsyncProcessNamedAsyncXlaOpsIsTreatedAsAsync) {
+  TraceEvent p1 =
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Async XLA Ops");
+
+  TraceEvent e1 = {.ph = Phase::kComplete,
+                   .pid = 1,
+                   .tid = 101,
+                   .name = "AsyncOp",
+                   .ts = 100.0,
+                   .dur = 50.0,
+                   .is_async = true};
+
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = {p1, e1};
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(testing::Ge(2)));
+  EXPECT_EQ(data.groups[1].name, "AsyncOp");
 }
 
 }  // namespace

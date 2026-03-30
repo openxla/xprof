@@ -32,6 +32,7 @@ limitations under the License.
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/functional/bind_front.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -40,7 +41,6 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -87,11 +87,13 @@ static constexpr int kSearchParallelizationThreshold = 100;
 std::vector<TraceEvent*> MergeEventTracks(
     const std::vector<const TraceEventTrack*>& event_tracks);
 
+using SerializeEventFn = absl::AnyInvocable<absl::Status(
+    const TraceEvent&, TraceEvent&, std::string&)>;
+
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
-    std::function<std::optional<TraceEvent>(const TraceEvent*)>
-        generate_event_copy_fn);
+    SerializeEventFn serialize_event_fn);
 
 absl::Status DoStoreAsLevelDbTables(
     const std::vector<std::vector<const TraceEvent*>>& events_by_level,
@@ -99,22 +101,21 @@ absl::Status DoStoreAsLevelDbTables(
     std::unique_ptr<tsl::WritableFile>& trace_events_metadata_file,
     std::unique_ptr<tsl::WritableFile>& trace_events_prefix_trie_file);
 
-// Generates a copy of the event to be persisted in the trace events file.
+// Serializes a copy of the event to be persisted in the trace events file.
 // This is the copy of the passed event without the timestamp_ps field.
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingFullEvent(
-    const TraceEvent* event);
+absl::Status SerializeTraceEventForPersistingFullEvent(
+    const TraceEvent& event, TraceEvent& reusable_event, std::string& output);
 
-// Generates a copy of the event to be persisted in the trace events file.
+// Serializes a copy of the event to be persisted in the trace events file.
 // This is the copy of the passed event without the raw_data and timestamp_ps
 // fields.
-std::optional<TraceEvent>
-GenerateTraceEventCopyForPersistingEventWithoutMetadata(
-    const TraceEvent* event);
+absl::Status SerializeTraceEventForPersistingEventWithoutMetadata(
+    const TraceEvent& event, TraceEvent& reusable_event, std::string& output);
 
-// It generates a copy of the event to be persisted in the trace events metadata
-// file. This only has the raw_data field set.
-std::optional<TraceEvent> GenerateTraceEventCopyForPersistingOnlyMetadata(
-    const TraceEvent* event);
+// It serializes a copy of the event to be persisted in the trace events
+// metadata file. This only has the raw_data field set.
+absl::Status SerializeTraceEventForPersistingOnlyMetadata(
+    const TraceEvent& event, TraceEvent& reusable_event, std::string& output);
 
 // Opens the level db table from the given filename. The table is owned by the
 // caller.
@@ -776,7 +777,7 @@ class TraceEventsContainerBase {
     trace.set_num_events(NumEvents());
     auto events_by_level = EventsByLevel();
     return DoStoreAsLevelDbTable(file, trace, events_by_level,
-                                 GenerateTraceEventCopyForPersistingFullEvent);
+                                 SerializeTraceEventForPersistingFullEvent);
   }
 
   // Stores the contents of this container in three level-db sstable files. The

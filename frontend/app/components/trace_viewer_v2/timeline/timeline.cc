@@ -494,6 +494,28 @@ void Timeline::Draw() {
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
+    ImGui::PushFont(traceviewer::fonts::body_large);
+    const Pixel handle_y =
+        label_start_y +
+        (centereable_height - ImGui::GetTextLineHeight()) * 0.5f;
+    ImGui::SetCursorPosY(handle_y);
+    ImGui::PushStyleColor(ImGuiCol_Text, kOnSecondaryFixedVariantColor);
+    ImGui::Selectable("::", false, ImGuiSelectableFlags_None,
+                      ImGui::CalcTextSize("::"));
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+      ImGui::SetDragDropPayload("GROUP_DRAG", &group_index, sizeof(int));
+      ImGui::Text("Reordering %s", group.name.c_str());
+      ImGui::EndDragDropSource();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      ImGui::SetTooltip("Drag to reorder");
+    }
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
+
     ImGui::PushFont(traceviewer::fonts::label_large);
     const Pixel text_height_large = ImGui::GetTextLineHeight();
     ImGui::PopFont();
@@ -542,6 +564,97 @@ void Timeline::Draw() {
     }
 
     ImGui::EndGroup();
+    if (ImGui::BeginDragDropTarget()) {
+      if (const ImGuiPayload* payload =
+              ImGui::AcceptDragDropPayload("GROUP_DRAG")) {
+        int source_group_index = *(const int*)payload->Data;
+        if (source_group_index != group_index &&
+            timeline_data_.groups[source_group_index].nesting_level ==
+                group.nesting_level) {
+          auto& groups = timeline_data_.groups;
+          auto& levels = timeline_data_.events_by_level;
+
+          int drag_group_end_idx = source_group_index + 1;
+          while (drag_group_end_idx < groups.size() &&
+                 groups[drag_group_end_idx].nesting_level >
+                     groups[source_group_index].nesting_level) {
+            drag_group_end_idx++;
+          }
+
+          if (!(group_index >= source_group_index &&
+                group_index < drag_group_end_idx)) {
+            std::vector<int> level_counts;
+            level_counts.reserve(groups.size());
+            for (size_t i = 0; i < groups.size(); ++i) {
+              level_counts.push_back(
+                  (i + 1 < groups.size() ? groups[i + 1].start_level
+                                         : levels.size()) -
+                  groups[i].start_level);
+            }
+
+            int level_start_idx = groups[source_group_index].start_level;
+            int level_end_idx = drag_group_end_idx < groups.size()
+                                    ? groups[drag_group_end_idx].start_level
+                                    : levels.size();
+
+            std::vector<Group> temp_groups = groups;
+
+            std::vector<Group> moved_groups(
+                groups.begin() + source_group_index,
+                groups.begin() + drag_group_end_idx);
+            std::vector<std::vector<int>> moved_levels(
+                levels.begin() + level_start_idx,
+                levels.begin() + level_end_idx);
+
+            groups.erase(groups.begin() + source_group_index,
+                         groups.begin() + drag_group_end_idx);
+            levels.erase(levels.begin() + level_start_idx,
+                         levels.begin() + level_end_idx);
+
+            int current_drop_idx = -1;
+            for (int i = 0; i < groups.size(); ++i) {
+              if (i < groups.size() && &groups[i] == &group) {
+                current_drop_idx = i;
+                break;
+              }
+            }
+
+            if (current_drop_idx != -1) {
+              int level_insert_idx = 0;
+              for (int i = 0; i < current_drop_idx; ++i) {
+                for (size_t j = 0; j < temp_groups.size(); ++j) {
+                  if (temp_groups[j].name == groups[i].name &&
+                      temp_groups[j].subtitle == groups[i].subtitle) {
+                    level_insert_idx += level_counts[j];
+                    break;
+                  }
+                }
+              }
+
+              groups.insert(groups.begin() + current_drop_idx,
+                            moved_groups.begin(), moved_groups.end());
+              levels.insert(levels.begin() + level_insert_idx,
+                            moved_levels.begin(), moved_levels.end());
+
+              int cur_level = 0;
+              for (size_t i = 0; i < groups.size(); ++i) {
+                groups[i].start_level = cur_level;
+                for (size_t j = 0; j < temp_groups.size(); ++j) {
+                  if (temp_groups[j].name == groups[i].name &&
+                      temp_groups[j].subtitle == groups[i].subtitle) {
+                    cur_level += level_counts[j];
+                    break;
+                  }
+                }
+              }
+
+              UpdateLevelPositions(timeline_data_);
+            }
+          }
+        }
+      }
+      ImGui::EndDragDropTarget();
+    }
 
     if (ImGui::IsItemHovered()) {
       ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);

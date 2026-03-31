@@ -108,5 +108,31 @@ TEST_F(EventManagerTest, DispatchEventWithNestedData) {
   EXPECT_EQ(event_detail["nested"]["value"].as<std::string>(), "nested");
 }
 
+TEST_F(EventManagerTest, DispatchEventWithIntegerTypes) {
+  const std::string event_name = "integer-types-event";
+
+  SetupEventListener(event_name);
+
+  EventManager& event_manager = EventManager::Instance();
+  EventData detail;
+  detail["uint32_val"] = static_cast<uint32_t>(42);
+  detail["int64_val"] = static_cast<int64_t>(123456789012345LL);
+  detail["uint64_val"] = static_cast<uint64_t>(987654321098765ULL);
+
+  event_manager.DispatchEvent(event_name, detail);
+
+  // Check the results from JS.
+  emscripten::val results =
+      emscripten::val::global("window")["testResults"][event_name];
+
+  ASSERT_TRUE(results["received"].as<bool>());
+
+  emscripten::val event_detail = results["detail"];
+
+  EXPECT_EQ(event_detail["uint32_val"].as<uint32_t>(), 42);
+  EXPECT_EQ(event_detail["int64_val"].as<double>(), 123456789012345.0);
+  EXPECT_EQ(event_detail["uint64_val"].as<double>(), 987654321098765.0);
+}
+
 }  // namespace
 }  // namespace traceviewer

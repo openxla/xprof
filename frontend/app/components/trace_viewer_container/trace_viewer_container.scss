@@ -93,7 +93,8 @@ canvas {
     table-layout: fixed;
 
     th.mat-mdc-header-cell,
-    td.mat-mdc-cell {
+    td.mat-mdc-cell,
+    td.mat-mdc-footer-cell {
       border-bottom: none;
       font-size: 12px;
       padding-top: 0;
@@ -104,6 +105,16 @@ canvas {
       width: 30%;
     }
 
+    tr.mat-mdc-header-row,
+    tr.mat-mdc-footer-row {
+      background-color: #f5f5f5;
+    }
+
+    th.mat-mdc-header-cell,
+    td.mat-mdc-footer-cell {
+      font-weight: bold;
+    }
+
     tr.mat-mdc-header-row {
       height: 30px;
     }
@@ -111,6 +122,28 @@ canvas {
     tr.mat-mdc-row {
       height: 24px;
     }
+
+    &.single-event-table {
+      width: auto !important;
+      table-layout: auto !important;
+
+      td.mat-column-property {
+        width: 1% !important;
+        white-space: nowrap !important;
+        padding-right: 16px !important;
+      }
+
+      td.mat-mdc-cell {
+        padding-left: 0 !important;
+      }
+    }
+  }
+
+  .selection-info {
+    font-size: 12px;
+    font-weight: bold;
+    padding-left: 16px;
+    margin-top: 8px;
   }
 }
 

@@ -1,12 +1,19 @@
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
+#include <cmath>
+#include <cstddef>
 #include <vector>
 
-#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "absl/base/no_destructor.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/string_view.h"
 #include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
 namespace traceviewer {
 

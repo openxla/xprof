@@ -14,6 +14,7 @@ wasm_cc_library(
     ],
     deps = [
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@imgui",

@@ -2946,5 +2946,39 @@ TEST_F(DataProviderTest, AsyncProcessNamedAsyncXlaOpsIsTreatedAsAsync) {
   EXPECT_EQ(data.groups[1].name, "AsyncOp");
 }
 
+TEST_F(DataProviderTest, ProcessLargeIds) {
+  // IDs that would collide if truncated to 32-bit.
+  const ProcessId pid = 1;
+  const ThreadId tid1 = 0x100000001ULL;
+  const ThreadId tid2 = 0x200000001ULL;
+
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = pid,
+                                           .tid = tid1,
+                                           .name = "Event 1",
+                                           .ts = 1000.0,
+                                           .dur = 100.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = pid,
+                                           .tid = tid2,
+                                           .name = "Event 2",
+                                           .ts = 1100.0,
+                                           .dur = 100.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // 1 process group + 2 thread groups = 3 groups total.
+  // If IDs were truncated, they would be merged into 1 thread group.
+  ASSERT_THAT(data.groups, SizeIs(3));
+
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Thread_4294967297");
+  EXPECT_EQ(data.groups[2].name, "Thread_8589934593");
+
+  EXPECT_THAT(data.entry_tids, ElementsAre(tid1, tid2));
+}
+
 }  // namespace
 }  // namespace traceviewer

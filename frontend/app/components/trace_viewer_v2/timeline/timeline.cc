@@ -846,8 +846,9 @@ void Timeline::EmitEventSelected(int event_index) {
   event_data.try_emplace(
       kEventSelectedDurationFormatted,
       FormatTime(timeline_data_.entry_total_times[event_index]));
-  event_data.try_emplace(kEventSelectedPid,
-                         timeline_data_.entry_pids[event_index]);
+  event_data.try_emplace(
+      kEventSelectedPid,
+      static_cast<double>(timeline_data_.entry_pids[event_index]));
   auto& args = timeline_data_.entry_args[event_index];
   if (auto it = args.find("uid"); it != args.end()) {
     event_data.try_emplace(kEventSelectedUid, it->second);

@@ -154,7 +154,8 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
       return;
     }
     CounterEvent ev;
-    if (event.hasOwnProperty("pid")) ev.pid = event["pid"].as<ProcessId>();
+    if (event.hasOwnProperty("pid"))
+      ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
 
     emscripten::val entries = event["entries"];
@@ -185,8 +186,10 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     // Parse non-counter events, such as complete or metadata events.
     TraceEvent ev;
     ev.ph = ph;
-    if (event.hasOwnProperty("pid")) ev.pid = event["pid"].as<ProcessId>();
-    if (event.hasOwnProperty("tid")) ev.tid = event["tid"].as<ThreadId>();
+    if (event.hasOwnProperty("pid"))
+      ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
+    if (event.hasOwnProperty("tid"))
+      ev.tid = static_cast<ThreadId>(event["tid"].as<double>());
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
     if (event.hasOwnProperty("ts")) ev.ts = event["ts"].as<Microseconds>();
     if (event.hasOwnProperty("dur")) ev.dur = event["dur"].as<Microseconds>();

@@ -55,6 +55,12 @@ emscripten::val AnyToVal(const absl::any& any_val) {
   if (any_val.type() == typeid(EventData)) {
     return EventDataToVal(absl::any_cast<EventData>(any_val));
   }
+  if (any_val.type() == typeid(uint64_t)) {
+    return emscripten::val(absl::any_cast<uint64_t>(any_val));
+  }
+  if (any_val.type() == typeid(int64_t)) {
+    return emscripten::val(absl::any_cast<int64_t>(any_val));
+  }
   // Add more types in the future if needed.
 
   // Log a warning for unsupported types.

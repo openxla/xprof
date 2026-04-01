@@ -15,8 +15,8 @@
 namespace traceviewer {
 
 // Type aliases for clarity
-using ProcessId = uint32_t;
-using ThreadId = uint32_t;
+using ProcessId = uint64_t;
+using ThreadId = uint64_t;
 // EventId is a unique identifier for an event.
 // Event timestamp, duration and its name are used to generate the event ID.
 // See http://shortn/_lVpPbx16ZS for more details.

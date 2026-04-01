@@ -101,7 +101,7 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
   // Return the pre-loaded XSpace proto.
   if (xspaces_.has_value()) {
     if (xspaces_->at(index) == nullptr) {
-      return tsl::errors::Internal("");
+      return absl::InternalError("");
     }
     return xspaces_->at(index).get();
   }

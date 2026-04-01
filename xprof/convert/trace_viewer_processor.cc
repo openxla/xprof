@@ -46,9 +46,9 @@ absl::Status TraceViewerProcessor::ProcessSession(
             << session_id;
   absl::Time start_time = absl::Now();
   if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
-        "Trace events tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
+    return absl::InvalidArgumentError(
+        absl::StrCat("Trace events tool expects only 1 XSpace path but gets ",
+                     session_snapshot.XSpaceSize()));
   }
 
   google::protobuf::Arena arena;

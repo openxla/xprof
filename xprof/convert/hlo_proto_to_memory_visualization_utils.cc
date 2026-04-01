@@ -604,7 +604,7 @@ struct HeapSimulatorStats {
     logical_buffers.remove(canonical_buffer_id);
     heap_size_bytes -= canonical_logical_buffer->size();
     if (heap_size_bytes < 0) {
-      return tsl::errors::InvalidArgument(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Heap size should be non-negative, but get: ", heap_size_bytes));
     }
     unpadded_heap_size_bytes -= canonical_logical_buffer->unpadded_size();
@@ -626,7 +626,7 @@ struct HeapSimulatorStats {
     hlo_instruction_name_timeline.push_back("");
 
     if (seen_buffer_allocations.size() != 1) {
-      return tsl::errors::InvalidArgument(
+      return absl::InvalidArgumentError(
           absl::StrCat("All heap simulation should work out of a single buffer "
                        "allocation, actual seen_buffer_allocations.size():",
                        seen_buffer_allocations.size()));
@@ -713,7 +713,7 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
     } else if (event.kind() == HeapSimulatorTrace::Event::FREE) {
       auto ref_count = logical_buffer->dec();
       if (ref_count < 0) {
-        return tsl::errors::InvalidArgument(absl::StrCat(
+        return absl::InvalidArgumentError(absl::StrCat(
             "Buffer ", logical_buffer->proto.id(), "is freed multiple times."));
       }
       if (ref_count == 0) {
@@ -740,7 +740,7 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
                                    /*init_buffer_span=*/false);
       }
     } else {
-      return tsl::errors::InvalidArgument(
+      return absl::InvalidArgumentError(
           absl::StrCat("Unhandled event kind: ", event.kind()));
     }
   }

@@ -39,9 +39,9 @@ using ::tensorflow::profiler::XSpace;
 absl::Status MemoryProfileProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
-        "Memory profile tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
+    return absl::InvalidArgumentError(
+        absl::StrCat("Memory profile tool expects only 1 XSpace path but gets ",
+                     session_snapshot.XSpaceSize()));
   }
 
   LOG(INFO) << "Processing memory profile for host: "

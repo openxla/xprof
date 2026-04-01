@@ -59,8 +59,8 @@ absl::Status OpProfileProcessor::ProcessSession(
       tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
-        "Could not convert op profile proto to json. Error: ", error_message);
+    return absl::InternalError(absl::StrCat(
+        "Could not convert op profile proto to json. Error: ", error_message));
   }
   SetOutput(json_output, "application/json");
   return absl::OkStatus();
@@ -83,8 +83,8 @@ absl::Status OpProfileProcessor::ProcessCombinedOpStats(
       tsl::protobuf::util::MessageToJsonString(profile, &op_profile_json, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
-        "Could not convert op profile proto to json. Error: ", error_message);
+    return absl::InternalError(absl::StrCat(
+        "Could not convert op profile proto to json. Error: ", error_message));
   }
 
   SetOutput(op_profile_json, "application/json");

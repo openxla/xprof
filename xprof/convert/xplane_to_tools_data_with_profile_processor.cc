@@ -149,9 +149,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
   auto processor =
       xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);
   if (!processor) {
-    return tsl::errors::InvalidArgument(
-        "Can not find tool: ", tool_name,
-        ". Please update to the latest version of Tensorflow.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Can not find tool: ", tool_name,
+                     ". Please update to the latest version of Tensorflow."));
   }
 
   if (processor->ShouldUseWorkerService(session_snapshot, options)) {

@@ -48,8 +48,8 @@ absl::Status PodViewerProcessor::ProcessSession(
       ConvertOpStatsToPodViewer(combined_op_stats), &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
-        "Could not convert pod viewer to json. Error: ", error_message);
+    return absl::InternalError(absl::StrCat(
+        "Could not convert pod viewer to json. Error: ", error_message));
   }
   SetOutput(json_output, "application/json");
   return absl::OkStatus();

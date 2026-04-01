@@ -42,9 +42,9 @@ absl::StatusOr<PreprocessResult> GetMemoryViewerPreprocessResult(
     const xla::HloProto& hlo_proto, const MemoryViewerOption& option) {
   auto result_or = ConvertHloProtoToPreprocessResult(hlo_proto, option);
   if (!result_or.ok()) {
-    return tsl::errors::Internal(
-        "Failed to convert HLO proto to memory viewer result: ",
-        result_or.status().message());
+    return absl::InternalError(
+        absl::StrCat("Failed to convert HLO proto to memory viewer result: ",
+                     result_or.status().message()));
   }
   return result_or;
 }
@@ -91,8 +91,7 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
     TF_ASSIGN_OR_RETURN(hlo_proto, GetHloProtoByProgramId(session_snapshot,
                                                          *program_id));
   } else {
-    return tsl::errors::InvalidArgument(
-        "Can not load hlo proto from options.");
+    return absl::InvalidArgumentError("Can not load hlo proto from options.");
   }
 
   // Convert from HLO proto to tools data.
@@ -115,9 +114,9 @@ absl::StatusOr<std::string> ConvertHloProtoToToolData(
   } else if (tool_name == "graph_viewer") {
     return ConvertHloProtoToGraphViewer(hlo_proto, options);
   } else {
-    return tsl::errors::InvalidArgument(
-        "Can not find tool: ", tool_name,
-        ". Please update to the latest version of Tensorflow.");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Can not find tool: ", tool_name,
+                     ". Please update to the latest version of Tensorflow."));
   }
 }
 

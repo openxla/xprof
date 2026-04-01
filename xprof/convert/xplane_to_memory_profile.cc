@@ -541,9 +541,8 @@ absl::Status ConvertProtoToJson(const Proto& proto_output,
     // Convert error_msg google::protobuf::StringPiece (or absl::string_view) to
     // tensorflow::StringPiece.
     auto error_msg = status.message();
-    return tsl::errors::Internal(
-        "Could not convert proto to JSON string: ",
-        absl::string_view(error_msg.data(), error_msg.length()));
+    return absl::InternalError(
+        absl::StrCat("Could not convert proto to JSON string: ", error_msg));
   }
   return absl::OkStatus();
 }

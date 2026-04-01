@@ -129,14 +129,14 @@ absl::StatusOr<std::string> PlotMe(std::unique_ptr<HloModule> module,
                                    int graph_width) {
   if (node_name.empty()) {
     // This should not happen.
-    return InvalidArgument("node_name should not be empty");
+    return absl::InvalidArgumentError("node_name should not be empty");
   }
   // Find the node with the given name.
   const HloInstruction* instr = FindInstruction(*module, node_name);
   const HloComputation* comp = FindComputation(*module, node_name);
 
   if (!instr && !comp) {
-    return InvalidArgument(
+    return absl::InvalidArgumentError(
         absl::StrCat("Couldn't find HloInstruction or HloComputation named ",
                      node_name, "."));
   }
@@ -174,13 +174,13 @@ absl::StatusOr<std::string> Plot(std::unique_ptr<HloModule> module,
                                  const RenderedGraphFormat& format) {
   if (node_name.empty()) {
     // This should not happen.
-    return InvalidArgument("node_name should not be empty");
+    return absl::InvalidArgumentError("node_name should not be empty");
   }
   // Find the node with the given name.
   const HloInstruction* instr = FindInstruction(*module, node_name);
   const HloComputation* comp = FindComputation(*module, node_name);
   if (!instr && !comp) {
-    return InvalidArgument(
+    return absl::InvalidArgumentError(
         absl::StrCat("Couldn't find HloInstruction or HloComputation named ",
                      node_name, "."));
   }
@@ -297,7 +297,8 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
   GraphViewerParams params;
   std::optional<std::string> type = GetParam<std::string>(options, "type");
   if (!type.has_value()) {
-    return InvalidArgument("Graph viewer must provide a type option.");
+    return absl::InvalidArgumentError(
+        "Graph viewer must provide a type option.");
   }
   auto valid_types = {
       kGraphTypeName,    kJsonTypeName,

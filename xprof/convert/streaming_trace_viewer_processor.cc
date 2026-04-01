@@ -89,7 +89,7 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
 
     if (!trace_events_sstable_path || !trace_events_metadata_sstable_path ||
         !trace_events_prefix_trie_sstable_path) {
-      return tsl::errors::Unimplemented(
+      return absl::UnimplementedError(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
 
@@ -244,7 +244,7 @@ absl::StatusOr<std::string> StreamingTraceViewerProcessor::Map(
   if (!trace_events_sstable_path.has_value() ||
       !trace_events_metadata_sstable_path.has_value() ||
       !trace_events_prefix_trie_sstable_path.has_value()) {
-    return tsl::errors::Unimplemented(
+    return absl::UnimplementedError(
         "streaming trace viewer hasn't been supported in Cloud AI");
   }
 
@@ -301,14 +301,15 @@ absl::StatusOr<TraceEventsContainer> LoadTraceContainerForHost(
       hostname);
   if (!metadata_path.has_value() ||
       !tsl::Env::Default()->FileExists(*metadata_path).ok()) {
-    return tsl::errors::Internal("Could not find metadata file for host: ",
-                                 hostname,
-                                 ", path: ", metadata_path.value_or(""));
+    return absl::InternalError(
+        absl::StrCat("Could not find metadata file for host: ", hostname,
+                     ", path: ", metadata_path.value_or("")));
   }
   if (!trie_path.has_value() ||
       !tsl::Env::Default()->FileExists(*trie_path).ok()) {
-    return tsl::errors::Internal("Could not find trie file for host: ",
-                                 hostname, ", path: ", trie_path.value_or(""));
+    return absl::InternalError(
+        absl::StrCat("Could not find trie file for host: ", hostname,
+                     ", path: ", trie_path.value_or("")));
   }
   file_paths.trace_events_metadata_file_path = *metadata_path;
   file_paths.trace_events_prefix_trie_file_path = *trie_path;

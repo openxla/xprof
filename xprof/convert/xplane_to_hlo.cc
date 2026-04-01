@@ -77,7 +77,7 @@ absl::StatusOr<bool> GetHloProtoFromMultiXSpaceAndSaveToFile(
     absl::StatusOr<const xla::HloProto*> hlo_proto_or =
         hlo_proto_map.GetHloProtoByModuleName(module_name);
     if (!hlo_proto_or.ok()) {
-      return tsl::errors::Internal(hlo_proto_or.status().message());
+      return absl::InternalError(hlo_proto_or.status().message());
     }
     std::string file_name =
         ProfilerJoinPath(session_snapshot.GetSessionRunDir(),

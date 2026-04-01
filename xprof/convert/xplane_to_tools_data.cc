@@ -116,7 +116,7 @@ absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
       !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
       !absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id) ||
       !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
-    return tsl::errors::InvalidArgument("wrong arguments");
+    return absl::InvalidArgumentError("wrong arguments");
   }
   return trace_options;
 }
@@ -125,9 +125,9 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
     const ToolOptions& options) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
-        "Trace events tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
+    return absl::InvalidArgumentError(
+        absl::StrCat("Trace events tool expects only 1 XSpace path but gets ",
+                     session_snapshot.XSpaceSize()));
   }
 
   google::protobuf::Arena arena;
@@ -154,7 +154,7 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
             StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, host_name);
     if (!trace_events_sstable_path || !trace_events_metadata_sstable_path ||
         !trace_events_prefix_trie_sstable_path) {
-      return tsl::errors::Unimplemented(
+      return absl::UnimplementedError(
           "streaming trace viewer hasn't been supported in Cloud AI");
     }
     if (!tsl::Env::Default()->FileExists(*trace_events_sstable_path).ok()) {
@@ -266,9 +266,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToKernelStats(
 absl::StatusOr<std::string> ConvertXSpaceToMemoryProfile(
     const SessionSnapshot& session_snapshot) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
-        "Memory profile tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
+    return absl::InvalidArgumentError(
+        absl::StrCat("Memory profile tool expects only 1 XSpace path but gets ",
+                     session_snapshot.XSpaceSize()));
   }
 
   std::string json_output;
@@ -321,8 +321,8 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
       tsl::protobuf::util::MessageToJsonString(profile, &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
-        "Could not convert op profile proto to json. Error: ", error_message);
+    return absl::InternalError(absl::StrCat(
+        "Could not convert op profile proto to json. Error: ", error_message));
   }
   return json_output;
 }
@@ -330,9 +330,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToOpProfileViewer(
 absl::StatusOr<std::string> PreprocessXSpace(
     const SessionSnapshot& session_snapshot) {
   if (session_snapshot.XSpaceSize() != 1) {
-    return tsl::errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "PreprocessXSpace tool expects only 1 XSpace path but gets ",
-        session_snapshot.XSpaceSize());
+        session_snapshot.XSpaceSize()));
   }
 
   google::protobuf::Arena arena;
@@ -435,9 +435,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot, options);
   } else if (tool_name == "utilization_viewer") {
     if (session_snapshot.XSpaceSize() != 1) {
-      tool_data = tsl::errors::InvalidArgument(
+      tool_data = absl::InvalidArgumentError(absl::StrCat(
           "Utilization viewer tool expects only 1 XSpace path but gets ",
-          session_snapshot.XSpaceSize());
+          session_snapshot.XSpaceSize()));
     } else {
       google::protobuf::Arena arena;
       auto xspace = session_snapshot.GetXSpace(0, &arena);
@@ -450,9 +450,9 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
       }
     }
   } else {
-    tool_data = tsl::errors::InvalidArgument(
-        "Can not find tool: ", tool_name,
-        ". Please update to the latest version of Tensorflow.");
+    tool_data = absl::InvalidArgumentError(
+        absl::StrCat("Can not find tool: ", tool_name,
+                     ". Please update to the latest version of Tensorflow."));
   }
 
   LOG(INFO) << "serving tool: " << tool_name << " session_id: " << session_id

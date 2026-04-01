@@ -119,9 +119,9 @@ absl::Status SmartSuggestionProcessor::ProcessSession(
       tsl::protobuf::util::MessageToJsonString(report, &json_output, opts);
   if (!encode_status.ok()) {
     const auto& error_message = encode_status.message();
-    return tsl::errors::Internal(
+    return absl::InternalError(absl::StrCat(
         "Could not convert smart suggestion report to json. Error: ",
-        error_message);
+        error_message));
   }
 
   SetOutput(json_output, "application/json");

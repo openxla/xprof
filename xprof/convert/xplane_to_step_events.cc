@@ -372,12 +372,8 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
       [&](const ParentRef& parent) {
         OpMetrics op_metrics = FromXEvent(parent.event);
         op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-        // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb is
-        // implemented.
-        if (device_id < kSparseCoreIndexStart) {
-          op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                      parent.children_duration_ps);
-        }
+        op_metrics.set_self_time_ps(op_metrics.time_ps() -
+                                    parent.children_duration_ps);
         op_metrics_builder[parent.group_id].AddOpMetric(
             op_metrics, GetOpKeyFromXEvent(parent.event));
       },
@@ -424,12 +420,16 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
     int64_t line_id = line.Id();
     if (line_id == tsl::profiler::kThreadIdStepInfo ||
         (tpu_core_id.has_value() &&
-         line.Name() == tsl::profiler::kStepLineName)) {
+         line.Name() == tsl::profiler::kStepLineName) ||
+        (sc_core_id.has_value() &&
+         line.Name() == tsl::profiler::kSparseCoreStepLineName)) {
       // There should only be a single StepLine per TPU core.
       DCHECK(step_markers.empty());
-      // TODO(b/397774568): Re-add processing of SparseCore steps once the
-      // SparseCore OpMetricsDb is implemented.
-      step_markers = ConvertDeviceStepInfoToStepMarkers(line, plane.Id());
+      uint32_t id = plane.Id();
+      if (sc_core_id.has_value()) {
+        id = kSparseCoreIndexStart + id;
+      }
+      step_markers = ConvertDeviceStepInfoToStepMarkers(line, id);
     } else if (tsl::profiler::IsDerivedThreadId(line_id)) {
       return;
     } else {
@@ -437,20 +437,11 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
         if (!tsl::profiler::IsOpLineName(line.Name())) return;
         // There should only be a single OpLine per TPU core.
         DCHECK(step_events.empty());
-        // In TPU sampling mode, the profiling session could stop in the middle
-        //  of a training step. In this case, the "XLA Ops" line will have
-        // one more step than the "Step" line. We need to intersect them to get
-        // the common step numbers.
         step_events = ConvertTpuDeviceTraceXLineToStepEvents(plane.Id(), line);
       } else if (sc_core_id.has_value()) {
-        // TODO(b/397774568): Redefine step events and markers in terms of
-        // offload to SparseCore.
-        if (line.Name() != tsl::profiler::kSparseCoreStepLineName) return;
+        if (line.Name() != tsl::profiler::kSparseCoreOpLineName) return;
         // There should only be a single SparseCore StepLine per SparseCore.
-        DCHECK(step_markers.empty());
         DCHECK(step_events.empty());
-        step_markers = ConvertDeviceStepInfoToStepMarkers(
-            line, kSparseCoreIndexStart + plane.Id());
         step_events = ConvertTpuDeviceTraceXLineToStepEvents(
             kSparseCoreIndexStart + plane.Id(), line);
       } else {

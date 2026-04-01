@@ -216,7 +216,6 @@ TEST(TfOpStatsToInputPipelineAnalysisTest, EnsureSparseCoreStepsSetStepNumber) {
   tsl::protobuf::Map<std::string, uint64_t>& category_ps =
       *sparse_core_step_breakdown.mutable_category_ps();
   category_ps[tensorflow::profiler::kIdle] = 500;
-  category_ps["sparse_core_busy_ops"] = 500;
   step_info.mutable_step_breakdown()->PackFrom(sparse_core_step_breakdown);
 
   tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
@@ -241,12 +240,11 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   StepInfoResult& sc_step_info = step_info_per_core[sparse_core_id];
   sc_step_info.set_step_num(1);
   sc_step_info.set_begin_ps(100);
-  sc_step_info.set_duration_ps(1000*1e9);
+  sc_step_info.set_duration_ps(1000 * 1e9);
   GenericStepBreakdown sparse_core_step_breakdown;
   tsl::protobuf::Map<std::string, uint64_t>& sc_category_ps =
       *sparse_core_step_breakdown.mutable_category_ps();
-  sc_category_ps[tensorflow::profiler::kIdle] = 200*1e9;
-  sc_category_ps["sparse_core_busy_ops"] = 800*1e9;
+  sc_category_ps[tensorflow::profiler::kIdle] = 200 * 1e9;
   sc_step_info.mutable_step_breakdown()->PackFrom(sparse_core_step_breakdown);
 
   // Setup CoreDetails for the SparseCore

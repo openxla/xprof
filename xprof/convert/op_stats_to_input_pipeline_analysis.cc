@@ -969,17 +969,15 @@ PerTpuStepDetails ComputeTpuPerStepDataAcrossCores(
       if (core_id >= kSparseCoreIndexStart) {
         // Sparse core step breakdown from xspace.
         uint64_t idle_time_ps = 0;
-        uint64_t busy_time_ps = 0;
         for (const auto& [category, time_ps] :
              generic_step_breakdown.category_ps()) {
           if (category == kIdle) {
             idle_time_ps = time_ps;
-          } else if (category == "sparse_core_busy_ops") {
-            busy_time_ps = time_ps;
           }
         }
         sc_step_stats_in_ps.UpdateStat(step_info.duration_ps());
-        sc_compute_time_ps.UpdateStat(busy_time_ps);
+        // Assume non-idle time is compute time for SparseCore.
+        sc_compute_time_ps.UpdateStat(step_info.duration_ps() - idle_time_ps);
         sc_idle_time_in_ps.UpdateStat(idle_time_ps);
         continue;
       } else {

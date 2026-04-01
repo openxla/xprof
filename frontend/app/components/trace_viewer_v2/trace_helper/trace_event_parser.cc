@@ -374,12 +374,18 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   // This is necessary because is_incremental_loading_ is initialized to true to
   // prevent duplicate requests during the initial load.
   timeline.set_is_incremental_loading(false);
+
+  // Redraw the trace viewer to reflect the loaded data. This is necessary
+  // because the trace viewer is not redrawn automatically. So every time new
+  // data is processed, we need to redraw the trace viewer.
+  Application::Instance().RequestRedraw();
 }
 
 void SetSearchResultsInWasm(const emscripten::val& trace_data) {
   const ParsedTraceEvents parsed_events =
       ParseTraceEvents(trace_data, emscripten::val::null());
   Application::Instance().timeline().SetSearchResults(parsed_events);
+  Application::Instance().RequestRedraw();
 }
 
 emscripten::val GetAllFlowCategories() {

@@ -2,8 +2,11 @@
 
 #include <dirent.h>
 #include <emscripten/bind.h>
+#include <emscripten/em_asm.h>
+#include <emscripten/em_types.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <emscripten/val.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -20,6 +23,7 @@
 #include "frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
 #include "frontend/app/components/trace_viewer_v2/input_handler.h"
+#include "frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
@@ -41,6 +45,12 @@ void ApplyLightTheme() {
   // We only use this color for the vertical lines between track title and
   // framechart. Horizontal lines are rendered in timeline.
   style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+}
+
+EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
+                 void* userData) {
+  Application::Instance().RequestRedraw();
+  return EM_FALSE;
 }
 
 }  // namespace
@@ -70,6 +80,7 @@ void Application::Initialize() {
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);
       });
+  timeline_->set_redraw_callback([this]() { this->RequestRedraw(); });
 
   ImGuiIO& io = ImGui::GetIO();
 
@@ -101,10 +112,14 @@ void Application::Initialize() {
   // Register wheel event handlers to the canvas element.
   emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/this,
                                 /*use_capture=*/true, HandleWheel);
+  emscripten_set_resize_callback(kWindowTarget, /*user_data=*/nullptr,
+                                 /*use_capture=*/true, OnResize);
+
+  Scheduler::Instance().SetMainLoopCallback([this]() { MainLoop(); });
 }
 
 void Application::Shutdown() {
-  emscripten_cancel_main_loop();
+  Scheduler::Instance().Reset();
 
   // Unregister event handlers. Passing nullptr unregisters the callback.
   emscripten_set_keydown_callback(kWindowTarget, /*user_data=*/nullptr,
@@ -119,6 +134,8 @@ void Application::Shutdown() {
                                   /*use_capture=*/true, nullptr);
   emscripten_set_wheel_callback(kCanvasTarget, /*user_data=*/nullptr,
                                 /*use_capture=*/true, nullptr);
+  emscripten_set_resize_callback(kWindowTarget, /*user_data=*/nullptr,
+                                 /*use_capture=*/true, nullptr);
 
   // Clean up and release memory.
   timeline_.reset();
@@ -143,6 +160,10 @@ void Application::Draw() {
   timeline_->Draw();
   UpdateMouseCursor();
   platform_->RenderFrame();
+
+  if (Animation::HasActiveAnimations()) {
+    RequestRedraw();
+  }
 }
 
 void Application::UpdateMouseCursor() {
@@ -171,14 +192,6 @@ void Application::UpdateMouseCursor() {
         document.getElementById('canvas').style.cursor = cursor_css;
       },
       cursor);
-}
-
-void Application::Main() {
-  emscripten_set_main_loop_arg(
-      [](void* app) {
-        static_cast<traceviewer::Application*>(app)->MainLoop();
-      },
-      this, 0, true);
 }
 
 float Application::GetDeltaTime() {
@@ -218,7 +231,7 @@ void Application::Resize(float dpr, int width, int height) {
   fonts::LoadFonts(canvas_state.device_pixel_ratio());
 
   // Force a redraw immediately to avoid flashing/blank canvas.
-  Draw();
+  RequestRedraw();
 }
 
 }  // namespace traceviewer

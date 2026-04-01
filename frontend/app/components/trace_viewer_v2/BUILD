@@ -18,6 +18,15 @@ config_setting(
 )
 
 wasm_cc_library(
+    name = "scheduler",
+    srcs = ["scheduler.cc"],
+    hdrs = ["scheduler.h"],
+    deps = [
+        "@com_google_absl//absl/base:no_destructor",
+    ],
+)
+
+wasm_cc_library(
     name = "animation",
     hdrs = ["animation.h"],
     visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
@@ -65,6 +74,7 @@ wasm_cc_library(
         ":canvas_state",
         ":event_manager",
         ":input_handler",
+        ":scheduler",
         ":webgpu_render_platform",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/time",
@@ -80,6 +90,7 @@ wasm_cc_library(
     srcs = ["input_handler.cc"],
     hdrs = ["input_handler.h"],
     deps = [
+        ":scheduler",
         "@com_google_absl//absl/strings",
         "@imgui",
     ],

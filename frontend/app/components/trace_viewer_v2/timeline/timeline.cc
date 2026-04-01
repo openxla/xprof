@@ -229,6 +229,7 @@ void Timeline::SetSearchQuery(const std::string& query) {
   search_query_lower_ = absl::AsciiStrToLower(query);
   pending_navigation_event_id_.reset();
   RecomputeSearchResults();
+  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
@@ -237,6 +238,7 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
   } else {
     visible_range_.snap_to(range);
   }
+  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
@@ -255,7 +257,10 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   current_search_result_index_ = -1;
 
   // If the search query is empty, there are no results to process.
-  if (search_query_lower_.empty()) return;
+  if (search_query_lower_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
 
   // Build a map of event IDs to their levels in the timeline for quick lookup.
   // This helps in assigning levels to search results for sorting.
@@ -283,7 +288,10 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
   }
 
   // If no complete events were found, there's nothing more to do.
-  if (sorted_search_results_.empty()) return;
+  if (sorted_search_results_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
 
   // Extract process sort indices from metadata events. These indices are used
   // to sort search results in an order consistent with the timeline display.
@@ -317,6 +325,7 @@ void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
           std::distance(sorted_search_results_.begin(), it);
     }
   }
+  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
@@ -333,6 +342,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
       pending_navigation_event_id_.reset();
     }
   }
+  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::Draw() {
@@ -486,6 +496,7 @@ void Timeline::Draw() {
     if (expandable) {
       if (DrawExpandCollapseButton(group, group_index, centereable_height)) {
         UpdateLevelPositions(timeline_data_);
+        if (redraw_callback_) redraw_callback_();
       }
     } else {
       ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
@@ -663,6 +674,7 @@ void Timeline::Draw() {
 
   if (copy_notification_timer_ > 0.0f) {
     copy_notification_timer_ -= ImGui::GetIO().DeltaTime;
+    if (redraw_callback_) redraw_callback_();
 
     ImGuiViewport* main_viewport = ImGui::GetMainViewport();
     ImDrawList* draw_list = ImGui::GetForegroundDrawList();
@@ -1672,6 +1684,7 @@ void Timeline::DrawSingleFlow(const FlowLine& flow, Pixel timeline_x_start,
 void Timeline::SetVisibleFlowCategories(const std::vector<int>& category_ids) {
   visible_flow_categories_.clear();
   visible_flow_categories_.insert(category_ids.begin(), category_ids.end());
+  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {

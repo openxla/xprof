@@ -1,15 +1,21 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
+
 #include <cstddef>
 #include <memory>
+#include <string>
 
 #include "emscripten/val.h"
 #include "absl/base/no_destructor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
 namespace traceviewer {
@@ -36,7 +42,8 @@ class Application {
 
   void Initialize();
   void Shutdown();
-  void Main();
+  void Main() { RequestRedraw(); }
+  void RequestRedraw() { Scheduler::Instance().RequestRedraw(); }
 
   Timeline& timeline() { return *timeline_; };
   DataProvider& data_provider() { return data_provider_; };
@@ -100,6 +107,9 @@ class Application {
   DataProvider data_provider_;
 
   void MainLoop();
+  // Draws a single frame. Should ONLY be called from MainLoop() to ensure
+  // DeltaTime and Animations are updated correctly. Other methods should
+  // use RequestRedraw() instead of calling Draw() directly.
   void Draw();
 
   absl::Time last_frame_time_ = absl::Now();

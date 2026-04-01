@@ -68,6 +68,16 @@ TEST(TimelineTest, SetTimelineData) {
   EXPECT_THAT(timeline.timeline_data().entry_total_times, ElementsAre(5.0));
 }
 
+TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetTimelineData({});
+
+  EXPECT_TRUE(redraw_called);
+}
+
 TEST(TimelineTest, SetVisibleRange) {
   Timeline timeline;
   TimeRange range(10.0, 50.0);
@@ -76,6 +86,46 @@ TEST(TimelineTest, SetVisibleRange) {
 
   EXPECT_EQ(timeline.visible_range().start(), 10.0);
   EXPECT_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, SetSearchQueryTriggersRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetSearchQuery("test");
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetVisibleFlowCategoriesTriggersRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetVisibleFlowCategories({1, 2});
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetVisibleRangeTriggersRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetVisibleRange({10.0, 20.0});
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetSearchResultsTriggersRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetSearchResults({});
+
+  EXPECT_TRUE(redraw_called);
 }
 
 TEST(TimelineTest, PixelToTime) {
@@ -1331,19 +1381,19 @@ class TimelineImGuiTestFixture : public Test {
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
     timeline_.SetTimelineData({{},
-                                 {},
-                                 {},
-                                 {},
-                                 {},
-                                 {},
-                                 {},
-                                 {},
-                                 {{.name = "group",
-                                   .start_level = 0,
-                                   .nesting_level = 0,
-                                   .expanded = true}},
-                                 {},
-                                 {}});
+                               {},
+                               {},
+                               {},
+                               {},
+                               {},
+                               {},
+                               {},
+                               {{.name = "group",
+                                 .start_level = 0,
+                                 .nesting_level = 0,
+                                 .expanded = true}},
+                               {},
+                               {}});
   }
 
   void TearDown() override { ImGui::DestroyContext(); }

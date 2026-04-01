@@ -127,6 +127,7 @@ class Timeline {
   // called on the main thread.
   using EventCallback =
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
+  using RedrawCallback = absl::AnyInvocable<void()>;
 
   Timeline() = default;
   // This is necessary because MockTimeline in the tests inherits from Timeline.
@@ -145,6 +146,9 @@ class Timeline {
   // instance.
   void set_event_callback(EventCallback callback) {
     event_callback_ = std::move(callback);
+  }
+  void set_redraw_callback(RedrawCallback callback) {
+    redraw_callback_ = std::move(callback);
   }
 
   // Sets the search query to highlight events matching the query.
@@ -531,6 +535,7 @@ class Timeline {
   float copy_notification_timer_ = 0.0f;
   // The name of the track that was recently copied to the clipboard.
   std::string copied_track_name_ = "";
+  RedrawCallback redraw_callback_;
 };
 
 }  // namespace traceviewer

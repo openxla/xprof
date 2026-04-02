@@ -357,7 +357,17 @@ async function initGpuAndStartWasmApp(): Promise<TraceViewerV2Module> {
   return loadAndStartWasm(canvas, device);
 }
 
-function setupFileInputHandler(traceviewerModule: TraceViewerV2Module) {
+/**
+ * Sets up drag-and-drop and file input handlers for uploading trace files.
+ *
+ * @param traceviewerModule The initialized Trace Viewer v2 WASM module.
+ * @param onFileProcessed Optional callback to execute when a file is
+ *     successfully processed.
+ */
+function setupFileInputHandler(
+  traceviewerModule: TraceViewerV2Module,
+  onFileProcessed?: () => void,
+) {
   const fileInput = document.getElementById('fileInput') as HTMLInputElement;
   if (fileInput) {
     fileInput.addEventListener('change', async (event) => {
@@ -365,19 +375,90 @@ function setupFileInputHandler(traceviewerModule: TraceViewerV2Module) {
       if (!file) {
         return;
       }
-
-      try {
-        const fileContent = await file.text();
-        const jsonData = JSON.parse(fileContent) as unknown;
-        if (!isTraceData(jsonData)) {
-          console.error('File does not contain valid trace events.');
-          return;
-        }
-        traceviewerModule.processTraceEvents(jsonData, undefined);
-      } catch (error) {
-        console.error('Error processing file:', error);
-      }
+      await processUploadedFile(file, traceviewerModule, onFileProcessed);
     });
+  }
+
+  function isDragEvent(event: Event): event is DragEvent {
+    return event instanceof DragEvent;
+  }
+
+  // Set up drag-and-drop on the window/document body or canvas.
+  const handleDragOver = (event: Event) => {
+    if (!isDragEvent(event)) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDrop = async (event: Event) => {
+    if (!isDragEvent(event)) {
+      return;
+    }
+    event.preventDefault();
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) {
+      return;
+    }
+    await processUploadedFile(file, traceviewerModule, onFileProcessed);
+  };
+
+  registerWindowListener('dragover', handleDragOver);
+  registerWindowListener('drop', handleDrop);
+}
+
+/**
+ * Dispatches an ERROR loading status event to the window and logs the message.
+ */
+function dispatchErrorStatus(msg: string) {
+  console.error(msg);
+
+  window.dispatchEvent(
+    new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+      detail: {
+        status: TraceViewerV2LoadingStatus.ERROR,
+        message: msg,
+      },
+    }),
+  );
+}
+
+/**
+ * Processes an uploaded file containing trace data.
+ *
+ * Reads the file content, parses it as JSON, validates the data structure, and
+ * passes the valid trace events to the provided WebAssembly module for
+ * processing. It also handles dispatching status updates in case of errors.
+ *
+ * @param file The uploaded file to process.
+ * @param traceviewerModule The initialized Trace Viewer v2 WASM module.
+ * @param onFileProcessed Optional callback to execute when a file is
+ *     successfully processed.
+ */
+async function processUploadedFile(
+  file: File,
+  traceviewerModule: TraceViewerV2Module,
+  onFileProcessed?: () => void,
+) {
+  try {
+    const fileContent = await file.text();
+    const jsonData = JSON.parse(fileContent) as unknown;
+
+    if (!isTraceData(jsonData)) {
+      dispatchErrorStatus('File does not contain valid trace events.');
+      return;
+    }
+
+    traceviewerModule.processTraceEvents(jsonData, undefined);
+
+    onFileProcessed?.();
+  } catch (error) {
+    dispatchErrorStatus(
+      `Error processing file: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -505,14 +586,15 @@ function isFetchDataEvent(
 
 async function handleFetchDataEvent(
   event: Event,
-  currentDataUrl: string | null,
+  getCurrentDataUrl: () => string | null,
   traceviewerModule: TraceViewerV2Module | null,
 ) {
   if (!isFetchDataEvent(event)) {
     return;
   }
   const detail = event.detail;
-  if (!currentDataUrl) {
+  const initialDataUrl = getCurrentDataUrl();
+  if (!initialDataUrl) {
     console.warn('Data URL not set, cannot fetch new data.');
     return;
   }
@@ -528,7 +610,7 @@ async function handleFetchDataEvent(
       }),
     );
 
-    const urlObj = new URL(currentDataUrl, window.location.href);
+    const urlObj = new URL(initialDataUrl, window.location.href);
 
     urlObj.searchParams.set(
       TRACE_VIEW_OPTION.START_TIME_MS,
@@ -545,6 +627,11 @@ async function handleFetchDataEvent(
     // TODO(b/470214911): Add support for additional query parameters to allow
     // for filtering by specific events, groups, or other criteria.
     const jsonData = await loadJsonDataInternal(urlObj.toString());
+
+    if (initialDataUrl !== getCurrentDataUrl()) {
+      return;
+    }
+
     if (!isTraceData(jsonData)) {
       console.error('File does not contain valid trace events.');
       window.dispatchEvent(
@@ -569,6 +656,10 @@ async function handleFetchDataEvent(
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
+
+    if (initialDataUrl !== getCurrentDataUrl()) {
+      return;
+    }
 
     traceviewerModule.processTraceEvents(
       jsonData,
@@ -595,6 +686,14 @@ async function handleFetchDataEvent(
 }
 
 /**
+ * Options for Trace Viewer v2 initialization.
+ */
+export declare interface TraceViewerV2Options {
+  // Optional callback to execute when a file is successfully uploaded to the application.
+  onFileUploadedToXprof?: () => void;
+}
+
+/**
  * Initializes the Trace Viewer v2 application.
  * This function sets up the necessary environment, including requesting a
  * WebGPU device, configuring a canvas for WebGPU rendering, and loading the
@@ -602,10 +701,13 @@ async function handleFetchDataEvent(
  * returned module to load trace data from a JSON URL. This is the main entry
  * point for the Trace Viewer v2.
  *
+ * @param options Options for configuring the Trace Viewer v2 module.
  * @return A promise that resolves with the initialized TraceViewerV2Module, or
  *     null if initialization fails.
  */
-export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
+export async function traceViewerV2Main(
+  options?: TraceViewerV2Options,
+): Promise<TraceViewerV2Module | null> {
   // Shut down any existing WASM application and clean up event listeners
   // before starting a new one. This prevents leaking resources and having
   // multiple active instances fighting for the canvas or processing duplicate
@@ -633,7 +735,12 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
     return null;
   }
 
-  setupFileInputHandler(traceviewerModule);
+  setupFileInputHandler(traceviewerModule, () => {
+    currentDataUrl = null;
+    if (options?.onFileUploadedToXprof) {
+      options.onFileUploadedToXprof();
+    }
+  });
 
   const resizeObserver = new ResizeObserver(() => {
     if (traceviewerModule?.canvas) {
@@ -758,7 +865,7 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
   };
 
   registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {
-    handleFetchDataEvent(event, currentDataUrl, traceviewerModule);
+    handleFetchDataEvent(event, () => currentDataUrl, traceviewerModule);
   });
 
   return traceviewerModule;

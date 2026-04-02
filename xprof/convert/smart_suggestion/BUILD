@@ -139,6 +139,21 @@ cc_library(
 )
 
 cc_library(
+    name = "host_cpu_bound_rule",
+    hdrs = ["host_cpu_bound_rule.h"],
+    deps = [
+        ":constants",
+        ":signal_provider",
+        ":smart_suggestion_rule",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_library(
     name = "memory_bound_rule",
     hdrs = ["memory_bound_rule.h"],
     deps = [
@@ -275,6 +290,7 @@ cc_library(
         ":data_shuffle_bound_rule",
         ":data_transfer_bound_rule",
         ":debug_print_rule",
+        ":host_cpu_bound_rule",
         ":host_processing_bound_rule",
         ":input_bound_rule",
         ":memory_bound_rule",
@@ -347,6 +363,21 @@ cc_test(
     srcs = ["barrier_cores_rule_test.cc"],
     deps = [
         ":barrier_cores_rule",
+        ":mock_tool_data_provider",
+        ":signal_provider",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:event_time_fraction_analyzer_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "host_cpu_bound_rule_test",
+    srcs = ["host_cpu_bound_rule_test.cc"],
+    deps = [
+        ":host_cpu_bound_rule",
         ":mock_tool_data_provider",
         ":signal_provider",
         "@com_google_absl//absl/status",

@@ -61,9 +61,10 @@ class SignalProvider {
       : tool_data_provider_(std::move(tool_data_provider)) {}
 
   // Average HBM utilization from overview page.
+
   absl::StatusOr<double> GetHbmUtilization() const {
     TF_ASSIGN_OR_RETURN(const auto* overview_page,
-                     tool_data_provider_->GetOverviewPage());
+                        tool_data_provider_->GetOverviewPage());
     return overview_page->analysis()
         .memory_bw_utilization_relative_to_hw_limit_percent();
   }
@@ -71,7 +72,7 @@ class SignalProvider {
   // Average MXU utilization from overview page.
   absl::StatusOr<double> GetMxuUtilization() const {
     TF_ASSIGN_OR_RETURN(const auto* overview_page,
-                     tool_data_provider_->GetOverviewPage());
+                        tool_data_provider_->GetOverviewPage());
     return overview_page->analysis().mxu_utilization_percent();
   }
 
@@ -79,7 +80,7 @@ class SignalProvider {
   // Used for the input bound rule.
   absl::StatusOr<double> GetInputPercentOfStepTime() const {
     TF_ASSIGN_OR_RETURN(const auto* input_pipeline_analysis,
-                     tool_data_provider_->GetInputPipelineAnalysisResult());
+                        tool_data_provider_->GetInputPipelineAnalysisResult());
     return input_pipeline_analysis->input_percent();
   }
 
@@ -88,7 +89,7 @@ class SignalProvider {
   // Used for the input bound rule.
   absl::StatusOr<double> GetEnqueueUs() const {
     TF_ASSIGN_OR_RETURN(const auto* input_pipeline_analysis,
-                     tool_data_provider_->GetInputPipelineAnalysisResult());
+                        tool_data_provider_->GetInputPipelineAnalysisResult());
     return input_pipeline_analysis->input_time_breakdown().enqueue_us();
   }
 
@@ -97,7 +98,7 @@ class SignalProvider {
   // Used for the input bound rule.
   absl::StatusOr<double> GetNonEnqueueUs() const {
     TF_ASSIGN_OR_RETURN(const auto* input_pipeline_analysis,
-                     tool_data_provider_->GetInputPipelineAnalysisResult());
+                        tool_data_provider_->GetInputPipelineAnalysisResult());
     const auto& breakdown = input_pipeline_analysis->input_time_breakdown();
     return breakdown.demanded_file_read_us() +
            breakdown.advanced_file_read_us() + breakdown.preprocessing_us() +
@@ -129,9 +130,8 @@ class SignalProvider {
 
   // Returns the collective time fraction of each step for collective ops.
   absl::StatusOr<std::vector<float>> GetCollectiveTimeFractionEachStep() const {
-    return GetTimeFractionEachStepImpl([this](absl::string_view category) {
-      return IsCollective(category);
-    });
+    return GetTimeFractionEachStepImpl(
+        [this](absl::string_view category) { return IsCollective(category); });
   }
 
   // Returns the average percentage from a vector of fractions.
@@ -211,8 +211,8 @@ class SignalProvider {
     if (input_pipeline_analysis->step_time_breakdown().UnpackTo(
             &step_time_breakdown)) {
       sparse_core_time_ms = step_time_breakdown.sparse_core_step_summary()
-                                     .sc_step_time_ms_summary()
-                                     .average();
+                                .sc_step_time_ms_summary()
+                                .average();
     } else {
       return absl::NotFoundError("Failed to unpack TpuStepTimeBreakdown.");
     }
@@ -249,9 +249,8 @@ class SignalProvider {
   // Returns the time fraction of each step for data shuffle ops.
   absl::StatusOr<std::vector<float>> GetDataShuffleTimeFractionEachStep()
       const {
-    return GetTimeFractionEachStepImpl([this](absl::string_view category) {
-      return IsDataShuffle(category);
-    });
+    return GetTimeFractionEachStepImpl(
+        [this](absl::string_view category) { return IsDataShuffle(category); });
   }
 
   // Returns per-host average event time percent for a given event name.
@@ -467,9 +466,9 @@ class SignalProvider {
     if (it != event_time_fraction_analyzer_cache_.end()) {
       return it->second;
     }
-    TF_ASSIGN_OR_RETURN(const auto* analyzer_result,
-                        tool_data_provider_->GetEventTimeFractionAnalyzerResult(
-                            event_name));
+    TF_ASSIGN_OR_RETURN(
+        const auto* analyzer_result,
+        tool_data_provider_->GetEventTimeFractionAnalyzerResult(event_name));
     event_time_fraction_analyzer_cache_[event_name] = analyzer_result;
     return analyzer_result;
   }

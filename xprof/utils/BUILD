@@ -712,6 +712,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_googlesource_code_re2//:re2",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )

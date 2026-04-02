@@ -32,12 +32,10 @@ using tsl::profiler::kHloProto;
 using tsl::profiler::kMetadataPlaneName;
 using tsl::profiler::XPlaneBuilder;
 
-
 TEST(XPlaneHloFixerTest, FixesHloMetadataSuccess) {
   XSpace space;
   XPlaneBuilder metadata_plane(space.add_planes());
   metadata_plane.SetName(kMetadataPlaneName);
-
 
   // Add legacy HLO Proto metadata.
   auto* hlo_metadata = metadata_plane.GetOrCreateStatMetadata("HLO Proto");
@@ -84,7 +82,7 @@ TEST(XPlaneHloFixerTest, DoesNotFixIfNoLegacyHloStat) {
   EXPECT_TRUE(event_meta_map.contains(original_event_id));
 }
 
-TEST(XPlaneHloFixerTest, DoesNotFixIfHloStatAlreadyHasExpectedName) {
+TEST(XPlaneHloFixerTest, FixesEvenIfHloStatAlreadyHasExpectedName) {
   XSpace space;
   XPlaneBuilder metadata_plane(space.add_planes());
   metadata_plane.SetName(kMetadataPlaneName);
@@ -103,12 +101,15 @@ TEST(XPlaneHloFixerTest, DoesNotFixIfHloStatAlreadyHasExpectedName) {
   stat->set_str_value("hlo_content");
   int64_t original_event_id = event_meta->id();
 
+  ASSERT_NE(original_event_id, static_cast<int64_t>(prog_id));
+
   FixHloMetadataInXSpace(&space);
 
-  // Verify event metadata ID is NOT updated.
+  // Verify event metadata ID IS updated.
   auto event_meta_map = space.planes(0).event_metadata();
-  EXPECT_TRUE(event_meta_map.contains(original_event_id));
-  EXPECT_FALSE(event_meta_map.contains(prog_id));
+  EXPECT_FALSE(event_meta_map.contains(original_event_id));
+  EXPECT_TRUE(event_meta_map.contains(prog_id));
+  EXPECT_EQ(event_meta_map.at(prog_id).id(), prog_id);
 }
 
 TEST(XPlaneHloFixerTest, SkipsIfNoHloStatInEvent) {

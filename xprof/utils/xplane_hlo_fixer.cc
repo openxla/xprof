@@ -24,6 +24,7 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "re2/re2.h"
+#include "xla/tsl/platform/logging.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 
@@ -34,19 +35,25 @@ constexpr absl::string_view kHloStatNameLegacy = "HLO Proto";
 // Matches the program ID in parentheses at the end of the name.
 static const RE2* kProgIdRegex = new RE2(".*\\((\\d+)\\)");
 
-// Returns the stat ID for HLO Proto, if legacy HLO Proto stat is present,
-// updates it to the expected name and returns the ID.
-std::optional<int64_t> GetAndRenameLegacyHloStatId(
-    tensorflow::profiler::XPlane* plane) {
+// Returns the stat ID for HLO Proto. If legacy name "HLO Proto" is found,
+// it is renamed to the expected name.
+std::optional<int64_t> GetHloStatId(tensorflow::profiler::XPlane* plane) {
   std::string hlo_stat_name_expected =
       std::string(tsl::profiler::GetStatTypeStr(tsl::profiler::kHloProto));
+  std::optional<int64_t> expected_id;
+
   for (auto& kv : *plane->mutable_stat_metadata()) {
     if (kv.second.name() == kHloStatNameLegacy) {
+      LOG(INFO) << "Found legacy HLO Proto stat, renaming to "
+                << hlo_stat_name_expected;
       kv.second.set_name(hlo_stat_name_expected);
       return kv.second.id();
+    } else if (kv.second.name() == hlo_stat_name_expected) {
+      expected_id = kv.second.id();
     }
   }
-  return std::nullopt;
+
+  return expected_id;
 }
 
 // Fixes event metadata IDs to match program IDs for events with HLO stats.
@@ -71,6 +78,8 @@ void FixHloEventMetadataIds(tensorflow::profiler::XPlane* plane,
       if (RE2::FullMatch(event_meta.name(), *kProgIdRegex, &program_id)) {
         int64_t prog_id = static_cast<int64_t>(program_id);
         if (event_meta.id() != prog_id) {
+          VLOG(1) << "Updating event metadata ID for " << event_meta.name()
+                  << " from " << event_meta.id() << " to " << prog_id;
           program_id_to_event_meta[prog_id] = std::move(event_meta);
           event_metadata_ids_to_delete.push_back(kv.first);
         }
@@ -102,9 +111,10 @@ void FixHloMetadataInXSpace(tensorflow::profiler::XSpace* space) {
 
   for (auto& plane : *space->mutable_planes()) {
     if (plane.name() == tsl::profiler::kMetadataPlaneName) {
-      std::optional<int64_t> hlo_stat_id = GetAndRenameLegacyHloStatId(&plane);
+      std::optional<int64_t> hlo_stat_id = GetHloStatId(&plane);
 
       if (hlo_stat_id.has_value()) {
+        LOG(INFO) << "XProf HLO fixer triggered for metadata plane.";
         FixHloEventMetadataIds(&plane, *hlo_stat_id);
       }
     }

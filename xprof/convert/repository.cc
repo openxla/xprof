@@ -36,6 +36,7 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/utils/xplane_hlo_fixer.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -110,6 +111,7 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
   XSpace* xspace_from_file = google::protobuf::Arena::Create<XSpace>(arena);
   const std::string& path = xspace_paths_.at(index);
   TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(path, xspace_from_file));
+  xprof::FixHloMetadataInXSpace(xspace_from_file);
   return xspace_from_file;
 }
 

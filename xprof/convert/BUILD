@@ -1849,6 +1849,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
         "@org_xprof//xprof/utils:hlo_module_map",
+        "@org_xprof//xprof/utils:xplane_hlo_fixer",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",

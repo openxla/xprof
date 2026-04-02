@@ -222,7 +222,9 @@ export class TraceViewerContainer
   }
 
   ngAfterViewInit() {
-    if (!this.useTraceViewerV2) {
+    if (this.useTraceViewerV2) {
+      this.initializeWasm.emit();
+    } else {
       window.addEventListener('mouseup', this.mouseUpEventListener);
       window.addEventListener('keydown', this.keyDownEventListener);
     }

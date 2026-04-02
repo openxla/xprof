@@ -74,6 +74,34 @@ export const VIEW_END = 'view_end';
 export const LOADING_STATUS_UPDATE_EVENT_NAME = 'loadingstatusupdate';
 
 /**
+ * Event dispatched when details (like full_dma) are returned by the backend.
+ */
+export const DETAILS_RECEIVED_EVENT_NAME = 'details_received';
+
+/** Represents trace details toggles. */
+/** Supported trace detail keys. */
+export type TraceDetailKey = 'full_dma';
+
+/** Represents trace details toggles. */
+export type TraceDetails = Map<TraceDetailKey, boolean>;
+
+/** Detail of the event dispatched when trace details are received. */
+export declare interface DetailsReceivedEventDetail {
+  details: TraceDetails;
+}
+
+/** Type guard for DetailsReceivedEvent. */
+export function isDetailsReceivedEvent(
+  event: Event,
+): event is CustomEvent<DetailsReceivedEventDetail> {
+  return (
+    event instanceof CustomEvent &&
+    !!event.detail &&
+    event.detail.details instanceof Map
+  );
+}
+
+/**
  * The name of the request data custom event, dispatched from the UI when the
  * user requests new data (e.g. by zooming or panning).
  */
@@ -149,6 +177,7 @@ declare function loadWasmTraceViewerModule(
 export declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
+  details?: TraceDetails;
 }
 
 /**
@@ -163,6 +192,36 @@ export function isTraceData(data: unknown): data is TraceData {
     data.hasOwnProperty('traceEvents') &&
     Array.isArray((data as TraceData).traceEvents)
   );
+}
+
+/**
+ * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
+ */
+function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
+  const rawDetails = jsonData.details as unknown;
+  if (!rawDetails) return;
+
+  const details: TraceDetails = new Map();
+  if (Array.isArray(rawDetails)) {
+    for (const d of rawDetails) {
+      if (d && typeof d === 'object' && d.name === 'full_dma') {
+        details.set('full_dma', d.value);
+      }
+    }
+  } else if (typeof rawDetails === 'object' && rawDetails !== null) {
+    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    if (rawDetailsObj['full_dma'] !== undefined) {
+      details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
+    }
+  }
+
+  if (details.size > 0) {
+    window.dispatchEvent(
+      new CustomEvent(DETAILS_RECEIVED_EVENT_NAME, {
+        detail: {details},
+      }),
+    );
+  }
 }
 
 // Global state to track active WASM module and event listeners for cleanup.
@@ -388,10 +447,7 @@ function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
     TRACE_VIEW_OPTION.START_TIME_MS,
     String(expandedStart),
   );
-  urlObj.searchParams.set(
-    TRACE_VIEW_OPTION.END_TIME_MS,
-    String(expandedEnd),
-  );
+  urlObj.searchParams.set(TRACE_VIEW_OPTION.END_TIME_MS, String(expandedEnd));
 }
 
 // Fetches JSON data from the given URL. The `response.json()` method returns
@@ -498,6 +554,8 @@ async function handleFetchDataEvent(
       );
       return;
     }
+
+    maybeDispatchDetailsReceivedEvent(jsonData);
 
     window.dispatchEvent(
       new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
@@ -655,6 +713,8 @@ export async function traceViewerV2Main(): Promise<TraceViewerV2Module | null> {
 
           return;
         }
+
+        maybeDispatchDetailsReceivedEvent(jsonData);
 
         window.dispatchEvent(
           new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {

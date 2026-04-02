@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -18,11 +19,13 @@
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
 #include "frontend/app/components/trace_viewer_v2/helper/clipboard.h"
@@ -372,6 +375,7 @@ void Timeline::Draw() {
 
   current_timeline_width_ =
       content_region_avail_width - label_width_ - kTimelinePaddingRight;
+
   const double px_per_time_unit_val = px_per_time_unit(current_timeline_width_);
   const TickInfo tick_info = CalculateTickInfo(px_per_time_unit_val);
 
@@ -402,9 +406,15 @@ void Timeline::Draw() {
   ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
                     ImGuiWindowFlags_NoScrollWithMouse);
 
+  if (reset_scroll_) {
+    ImGui::SetScrollY(0.0f);
+    reset_scroll_ = false;
+  }
+
   // We set cursor to 0,0 locally
   const ImVec2 tracks_start_pos = ImGui::GetCursorPos();
   const ImVec2 tracks_start_screen_pos = ImGui::GetCursorScreenPos();
+  tracks_start_screen_pos_ = tracks_start_screen_pos;
 
   DrawVerticalGridLines(tick_info, current_timeline_width_,
                         viewport->Pos.y + viewport->Size.y);
@@ -660,6 +670,7 @@ void Timeline::Draw() {
   // elements like tooltips.
   DrawFlows(current_timeline_width_, tracks_start_screen_pos.y);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
+  DrawSelectionRectangle();
 
   // Draw vertical split line between sidebar and tracks
   // Drawn last inside SelectionOverlay so it sits on top of other elements,
@@ -1169,35 +1180,46 @@ void Timeline::DrawEvent(int group_index, int event_index,
 
       // ImGui uses 0 to represent the left mouse button, as defined in the
       // ImGuiMouseButton enum. We check if the left mouse button was clicked.
-      if (ImGui::IsMouseClicked(0)) {
-        event_clicked_this_frame_ = true;
-
-        // If shift is held down, select/deselect the time range of the event.
-        if (ImGui::GetIO().KeyShift) {
-          const Microseconds start =
-              timeline_data_.entry_start_times[event_index];
-          const Microseconds end =
-              start + timeline_data_.entry_total_times[event_index];
-          TimeRange selected_time_range(start, end);
-          auto it = absl::c_find(selected_time_ranges_, selected_time_range);
-          // Click on the event to select, and click on the same event to
-          // de-select.
-          if (it != selected_time_ranges_.end()) {
-            selected_time_ranges_.erase(it);
-          } else {
-            selected_time_ranges_.push_back(selected_time_range);
+      if (ImGui::IsMouseReleased(0)) {
+        bool is_click = true;
+        if (selection_start_pos_) {
+          const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+          const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
+          const float distance_squared = dx * dx + dy * dy;
+          if (distance_squared > kClickDistanceThresholdSquared) {
+            is_click = false;
           }
         }
+        if (is_click) {
+          event_clicked_this_frame_ = true;
 
-        if (selected_event_index_ != event_index) {
-          selected_group_index_ = group_index;
-          selected_event_index_ = event_index;
-          // Deselect any selected counter event.
-          selected_counter_index_ = -1;
+          // If shift is held down, select/deselect the time range of the event.
+          if (ImGui::GetIO().KeyShift) {
+            const Microseconds start =
+                timeline_data_.entry_start_times[event_index];
+            const Microseconds end =
+                start + timeline_data_.entry_total_times[event_index];
+            TimeRange selected_time_range(start, end);
+            auto it = absl::c_find(selected_time_ranges_, selected_time_range);
+            // Click on the event to select, and click on the same event to
+            // de-select.
+            if (it != selected_time_ranges_.end()) {
+              selected_time_ranges_.erase(it);
+            } else {
+              selected_time_ranges_.push_back(selected_time_range);
+            }
+          }
 
-          EmitEventSelected(event_index);
-        }
-      }
+          if (selected_event_index_ != event_index) {
+            selected_group_index_ = group_index;
+            selected_event_index_ = event_index;
+            // Deselect any selected counter event.
+            selected_counter_index_ = -1;
+
+            EmitEventSelected(event_index);
+          }
+        }  // close if (is_click)
+      }  // close if (IsMouseReleased)
     }
 
     if (selected_event_index_ == event_index) {
@@ -1298,25 +1320,36 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
 
     // ImGui uses 0 to represent the left mouse button, as defined in the
     // ImGuiMouseButton enum. We check if the left mouse button was clicked.
-    if (ImGui::IsMouseClicked(0)) {
-      event_clicked_this_frame_ = true;
-      if (selected_group_index_ != group_index ||
-          selected_counter_index_ != index) {
-        selected_group_index_ = group_index;
-        selected_counter_index_ = index;
-        // Deselect any selected flame event.
-        selected_event_index_ = -1;
+    if (ImGui::IsMouseReleased(0) && mouse_mode_ != MouseMode::kSelect) {
+      bool is_click = true;
+      if (selection_start_pos_) {
+        const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+        const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
+        const float distance_squared = dx * dx + dy * dy;
+        if (distance_squared > kClickDistanceThresholdSquared) {
+          is_click = false;
+        }
+      }
+      if (is_click) {
+        event_clicked_this_frame_ = true;
+        if (selected_group_index_ != group_index ||
+            selected_counter_index_ != index) {
+          selected_group_index_ = group_index;
+          selected_counter_index_ = index;
+          // Deselect any selected flame event.
+          selected_event_index_ = -1;
 
-        // Emit an event to notify the application that a counter event was
-        // selected.
-        const std::string& name = timeline_data_.groups[group_index].name;
-        EventData event_data;
-        // We pass -1 for the event index to indicate that no flame event is
-        // selected.
-        event_data.try_emplace(kEventSelectedIndex, -1);
-        event_data.try_emplace(kEventSelectedName, name);
+          // Emit an event to notify the application that a counter event was
+          // selected.
+          const std::string& name = timeline_data_.groups[group_index].name;
+          EventData event_data;
+          // We pass -1 for the event index to indicate that no flame event is
+          // selected.
+          event_data.try_emplace(kEventSelectedIndex, -1);
+          event_data.try_emplace(kEventSelectedName, name);
 
-        event_callback_(kEventSelected, event_data);
+          event_callback_(kEventSelected, event_data);
+        }
       }
     }
   }
@@ -1773,19 +1806,9 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
 
     const Pixel rect_y_min = viewport->Pos.y;
     const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
-    const Pixel rect_y_mid = (rect_y_min + rect_y_max) * 0.5f;
 
-    // Draw the top half with a lighter color to keep the timeline content
-    // visible.
-    draw_list->AddRectFilled(ImVec2(clipped_x_start, rect_y_min),
-                             ImVec2(clipped_x_end, rect_y_mid),
-                             kSelectedTimeRangeTopColor);
-
-    // Apply the gradient only to the bottom half of the timeline.
-    // Increase the opacity of the bottom part to make the text area less
-    // transparent and the text more visible.
     draw_list->AddRectFilledMultiColor(
-        ImVec2(clipped_x_start, rect_y_mid), ImVec2(clipped_x_end, rect_y_max),
+        ImVec2(clipped_x_start, rect_y_min), ImVec2(clipped_x_end, rect_y_max),
         kSelectedTimeRangeTopColor, kSelectedTimeRangeTopColor,
         kSelectedTimeRangeBottomColor, kSelectedTimeRangeBottomColor);
 
@@ -2030,22 +2053,34 @@ void Timeline::HandleEventDeselection() {
   // If an event was selected, and the user clicks on an empty area
   // (i.e., not on any event), deselect the event.
   if ((selected_event_index_ != -1 || selected_group_index_ != -1) &&
-      ImGui::IsMouseClicked(0) &&
+      ImGui::IsMouseReleased(0) &&
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
       !event_clicked_this_frame_) {
-    selected_event_index_ = -1;
-    selected_group_index_ = -1;
-    selected_counter_index_ = -1;
+    bool is_click = true;
+    if (selection_start_pos_) {
+      const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+      const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
+      const float distance_squared = dx * dx + dy * dy;
+      if (distance_squared > kClickDistanceThresholdSquared) {
+        is_click = false;
+      }
+    }
+    if (is_click) {
+      selected_event_index_ = -1;
+      selected_group_index_ = -1;
+      selected_counter_index_ = -1;
 
-    EventData event_data;
-    event_data[std::string(kEventSelectedIndex)] = -1;
-    event_data[std::string(kEventSelectedName)] = std::string("");
-    event_data[std::string(kEventSelectedStart)] = 0.0;
-    event_data[std::string(kEventSelectedDuration)] = 0.0;
-    event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
-    event_data[std::string(kEventSelectedDurationFormatted)] = std::string("");
+      EventData event_data;
+      event_data[std::string(kEventSelectedIndex)] = -1;
+      event_data[std::string(kEventSelectedName)] = std::string("");
+      event_data[std::string(kEventSelectedStart)] = 0.0;
+      event_data[std::string(kEventSelectedDuration)] = 0.0;
+      event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
+      event_data[std::string(kEventSelectedDurationFormatted)] =
+          std::string("");
 
-    event_callback_(kEventSelected, event_data);
+      event_callback_(kEventSelected, event_data);
+    }
   }
 }
 
@@ -2077,13 +2112,20 @@ void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
   if (ImGui::IsMouseClicked(0) && !event_clicked_this_frame_) {
     is_dragging_ = true;
     ImGuiIO& io = ImGui::GetIO();
-    is_selecting_ = io.KeyShift;
-    if (is_selecting_) {
-      const double px_per_time = px_per_time_unit();
-      drag_start_time_ =
-          PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
-      current_selected_time_range_ =
-          TimeRange(drag_start_time_, drag_start_time_);
+    selection_start_pos_ = io.MousePos;
+    if (mouse_mode_ == MouseMode::kSelect && !is_selecting_) {
+      is_selecting_ = true;
+      selection_end_pos_ = io.MousePos;
+      selected_event_indices_.clear();
+    } else if (mouse_mode_ != MouseMode::kSelect) {
+      is_selecting_ = io.KeyShift || mouse_mode_ == MouseMode::kTiming;
+      if (is_selecting_) {
+        const double px_per_time = px_per_time_unit();
+        drag_start_time_ =
+            PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
+        current_selected_time_range_ =
+            TimeRange(drag_start_time_, drag_start_time_);
+      }
     }
   }
 }
@@ -2094,12 +2136,16 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
   if (ImGui::IsMouseDown(0)) {
     ImGuiIO& io = ImGui::GetIO();
     if (is_selecting_) {
-      const double px_per_time = px_per_time_unit();
-      Microseconds current_time =
-          PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
-      current_selected_time_range_ =
-          TimeRange(std::min(drag_start_time_, current_time),
-                    std::max(drag_start_time_, current_time));
+      if (mouse_mode_ == MouseMode::kSelect) {
+        selection_end_pos_ = io.MousePos;
+      } else {
+        const double px_per_time = px_per_time_unit();
+        Microseconds current_time =
+            PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
+        current_selected_time_range_ =
+            TimeRange(std::min(drag_start_time_, current_time),
+                      std::max(drag_start_time_, current_time));
+      }
     } else {
       Pan(-io.MouseDelta.x);
       Scroll(-io.MouseDelta.y);
@@ -2111,11 +2157,26 @@ void Timeline::HandleMouseRelease() {
   if (ImGui::IsMouseReleased(0)) {
     is_dragging_ = false;
     is_selecting_ = false;
-    if (current_selected_time_range_ &&
-        current_selected_time_range_->duration() > 0) {
+    if (mouse_mode_ == MouseMode::kSelect && selection_start_pos_ &&
+        selection_end_pos_) {
+      const float dx = selection_end_pos_->x - selection_start_pos_->x;
+      const float dy = selection_end_pos_->y - selection_start_pos_->y;
+      const float distance_squared = dx * dx + dy * dy;
+      if (distance_squared > kClickDistanceThresholdSquared) {
+        ImRect selection_rect =
+            ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
+                   std::min(selection_start_pos_->y, selection_end_pos_->y),
+                   std::max(selection_start_pos_->x, selection_end_pos_->x),
+                   std::max(selection_start_pos_->y, selection_end_pos_->y));
+        FindSelectedEvents(selection_rect);
+        CalculateAndEmitMetrics();
+      }
+    } else if (current_selected_time_range_ &&
+               current_selected_time_range_->duration() > 0) {
       selected_time_ranges_.push_back(*current_selected_time_range_);
     }
     current_selected_time_range_.reset();
+    selection_start_pos_ = std::nullopt;
   }
 }
 
@@ -2300,6 +2361,144 @@ void Timeline::NavigateToPrevSearchResult() {
     ConstrainTimeRange(new_range);
     SetVisibleRange(new_range, /*animate=*/true);
   }
+}
+
+void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
+  selected_event_indices_.clear();
+
+  const ImRect timeline_area = GetTimelineArea();
+  const Pixel screen_x_offset = timeline_area.Min.x;
+  const double px_per_time = px_per_time_unit();
+  const Pixel scroll_y = ImGui::GetScrollY();
+
+  for (size_t group_index = 0; group_index < timeline_data_.groups.size();
+       ++group_index) {
+    const auto& group = timeline_data_.groups[group_index];
+    if (group.type != Group::Type::kFlame) continue;
+    if (!group.expanded) continue;
+
+    const int start_level = group.start_level;
+    int end_level = (group_index + 1 < timeline_data_.groups.size())
+                        ? timeline_data_.groups[group_index + 1].start_level
+                        : timeline_data_.events_by_level.size();
+
+    for (int level = start_level; level < end_level; ++level) {
+      if (level >= timeline_data_.events_by_level.size()) continue;
+
+      const auto& events = timeline_data_.events_by_level[level];
+      const Pixel y_top = tracks_start_screen_pos_.y +
+                          visible_level_offsets_[level] - kEventHeight * 0.5f -
+                          scroll_y;
+      const Pixel y_bottom = y_top + kEventHeight;
+
+      if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
+        continue;
+      }
+
+      for (const int event_index : events) {
+        const Microseconds start =
+            timeline_data_.entry_start_times[event_index];
+        const Microseconds end =
+            start + timeline_data_.entry_total_times[event_index];
+
+        const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time);
+        Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time);
+        right = std::max(right, left + kEventMinimumDrawWidth);
+
+        if (right < selection_rect.Min.x || left > selection_rect.Max.x) {
+          continue;
+        }
+
+        selected_event_indices_.push_back(event_index);
+      }
+    }
+  }
+}
+
+void Timeline::CalculateAndEmitMetrics() {
+  if (selected_event_indices_.empty()) {
+    event_callback_(kEventsSelected, EventData());
+    return;
+  }
+
+  struct Metrics {
+    int count = 0;
+    Microseconds wall_time = 0;
+    Microseconds self_time = 0;
+  };
+
+  absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
+
+  for (const int event_index : selected_event_indices_) {
+    const std::string& name = timeline_data_.entry_names[event_index];
+    Microseconds wall = timeline_data_.entry_total_times[event_index];
+    Microseconds self = timeline_data_.entry_self_times[event_index];
+
+    Metrics& m = aggregated_metrics[name];
+    m.count++;
+    m.wall_time += wall;
+    m.self_time += self;
+  }
+
+  std::string metrics_json = "[";
+  bool first = true;
+  for (const auto& [name, metrics] : aggregated_metrics) {
+    if (!first) metrics_json += ',';
+    first = false;
+    metrics_json += absl::StrFormat(
+        R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
+        name, metrics.count, metrics.wall_time, metrics.self_time,
+        metrics.wall_time / metrics.count);
+  }
+  metrics_json += ']';
+
+  Microseconds selection_start_us = 0;
+  Microseconds selection_extent_us = 0;
+  if (selection_start_pos_ && selection_end_pos_ &&
+      visible_range_->duration() > 0) {
+    ImRect timeline_area = GetTimelineArea();
+    double px_per_time = current_timeline_width_ / visible_range_->duration();
+    Microseconds start_us =
+        PixelToTime(std::min(selection_start_pos_->x, selection_end_pos_->x) -
+                        timeline_area.Min.x,
+                    px_per_time) +
+        visible_range_->start();
+    Microseconds end_us =
+        PixelToTime(std::max(selection_start_pos_->x, selection_end_pos_->x) -
+                        timeline_area.Min.x,
+                    px_per_time) +
+        visible_range_->start();
+    selection_start_us = start_us;
+    selection_extent_us = end_us - start_us;
+  }
+
+  std::string json = absl::StrFormat(
+      R"({"selectionStartUs":%.1f,"selectionExtentUs":%.1f,"metrics":%s})",
+      selection_start_us, selection_extent_us, metrics_json);
+
+  EventData event_data;
+  event_data.try_emplace(kEventsSelectedData, json);
+  event_callback_(kEventsSelected, event_data);
+}
+
+void Timeline::DrawSelectionRectangle() {
+  if (mouse_mode_ != MouseMode::kSelect || !is_selecting_ ||
+      !selection_start_pos_ || !selection_end_pos_) {
+    return;
+  }
+
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  const ImU32 color = IM_COL32(0, 120, 215, 64);
+  const ImU32 border_color = IM_COL32(0, 120, 215, 255);
+
+  ImRect rect =
+      ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
+             std::min(selection_start_pos_->y, selection_end_pos_->y),
+             std::max(selection_start_pos_->x, selection_end_pos_->x),
+             std::max(selection_start_pos_->y, selection_end_pos_->y));
+
+  draw_list->AddRectFilled(rect.Min, rect.Max, color);
+  draw_list->AddRect(rect.Min, rect.Max, border_color, 0.0f, 0, 2.0f);
 }
 
 }  // namespace traceviewer

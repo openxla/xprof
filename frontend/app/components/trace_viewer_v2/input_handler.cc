@@ -18,6 +18,10 @@ ImGuiKey TranslateKey(absl::string_view code) {
   if (code == "KeyW") return ImGuiKey_W;
   if (code == "ArrowDown") return ImGuiKey_DownArrow;
   if (code == "ArrowUp") return ImGuiKey_UpArrow;
+  if (code == "Digit1") return ImGuiKey_1;
+  if (code == "Digit2") return ImGuiKey_2;
+  if (code == "Digit3") return ImGuiKey_3;
+  if (code == "Digit4") return ImGuiKey_4;
   if (code == "Escape") return ImGuiKey_Escape;
   return ImGuiKey_None;
 }

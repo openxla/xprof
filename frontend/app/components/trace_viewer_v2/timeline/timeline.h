@@ -32,6 +32,17 @@ static constexpr int kAll = -1;
 static constexpr int kNone = -2;
 }  // namespace FlowCategoryFilter
 
+enum class MouseMode {
+  // Select events in an area (legacy mode 1)
+  kSelect = 1,
+  // Pan the view (legacy mode 2)
+  kPan = 2,
+  // Zoom the view (legacy mode 3)
+  kZoom = 3,
+  // Create or move markers (legacy mode 4)
+  kTiming = 4
+};
+
 // Represents a rectangle on the screen.
 struct EventRect {
   Pixel left = 0.0f;
@@ -87,6 +98,7 @@ struct FlowLine {
 struct FlameChartTimelineData {
   std::vector<int> entry_levels;
   std::vector<Microseconds> entry_total_times;
+  std::vector<Microseconds> entry_self_times;
   std::vector<Microseconds> entry_start_times;
   std::vector<std::string> entry_names;
   std::vector<EventId> entry_event_ids;
@@ -215,6 +227,9 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
+  void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
+  MouseMode mouse_mode() const { return mouse_mode_; }
+
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
   }
@@ -232,6 +247,8 @@ class Timeline {
     flow_category_filter_ = category_id;
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
+
+  void ResetScroll() { reset_scroll_ = true; }
 
   void Draw();
 
@@ -297,6 +314,8 @@ class Timeline {
   // available before it becomes visible, providing a smoother user experience.
   // Exposed for testing.
   void MaybeRequestData();
+  double px_per_time_unit() const;
+  double px_per_time_unit(Pixel timeline_width) const;
 
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
@@ -330,9 +349,6 @@ class Timeline {
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
  private:
-  double px_per_time_unit() const;
-  double px_per_time_unit(Pixel timeline_width) const;
-
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
   // Emits viewport changed event to JS side.
@@ -390,8 +406,6 @@ class Timeline {
   void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
                              double px_per_time_unit_val,
                              bool show_delete_button = true);
-
-  // Draws a delete button. Deletes the time range if the button is clicked.
   void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                         const ImRect& hover_rect, const TimeRange& range);
 
@@ -418,6 +432,10 @@ class Timeline {
   void HandleMouseDrag(Pixel timeline_origin_x);
   void HandleMouseRelease();
 
+  void FindSelectedEvents(const ImRect& selection_rect);
+  void CalculateAndEmitMetrics();
+  void DrawSelectionRectangle();
+
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
 
@@ -440,6 +458,7 @@ class Timeline {
   // The width of the timeline track area in pixels. Calculated in Draw() and
   // cached for use in interaction handlers (Zoom, Pan).
   Pixel current_timeline_width_ = 0.0f;
+  ImVec2 tracks_start_screen_pos_ = {0.0f, 0.0f};
   // Whether the user is currently resizing the label column.
   bool is_resizing_label_column_ = false;
 
@@ -474,6 +493,7 @@ class Timeline {
   // The index of the currently selected counter event in the counter data, or
   // -1 if no counter event is selected.
   int selected_counter_index_ = -1;
+  bool reset_scroll_ = false;
 
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
   // Flag to track if an event was clicked in the current frame. This is used
@@ -494,9 +514,15 @@ class Timeline {
   // This flag is latched at the start of the drag.
   bool is_selecting_ = false;
 
+  MouseMode mouse_mode_ = MouseMode::kPan;
+
   bool mpmd_pipeline_view_enabled_ = false;
 
   std::vector<TimeRange> selected_time_ranges_;
+
+  std::optional<ImVec2> selection_start_pos_;
+  std::optional<ImVec2> selection_end_pos_;
+  std::vector<int> selected_event_indices_;
 
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;

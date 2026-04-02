@@ -1388,6 +1388,7 @@ class TimelineImGuiTestFixture : public Test {
                                {},
                                {},
                                {},
+                               {},
                                {{.name = "group",
                                  .start_level = 0,
                                  .nesting_level = 0,
@@ -2232,7 +2233,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   // 36).
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
 
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   EXPECT_TRUE(callback_called);
@@ -2276,6 +2279,47 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   EXPECT_FALSE(callback_called);
 }
 
+TEST_F(RealTimelineImGuiFixture, DragOverEventDoesNotSelectEvent) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(0.0);
+  data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  bool callback_called = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        callback_called = true;
+      });
+
+  const float start_x = GetTimelineStartX() + 50.0f;
+  const float start_y = kFirstEventY;
+
+  ImGui::GetIO().MousePos = ImVec2(start_x, start_y);
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MousePos = ImVec2(start_x + 10.0f, start_y);
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
 TEST_F(RealTimelineImGuiFixture,
        ClickingSelectedEventAgainDoesNotFireCallback) {
   FlameChartTimelineData data;
@@ -2306,14 +2350,16 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
-  EXPECT_EQ(callback_count, 1);
-
-  // Frame with mouse up.
   ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
+  EXPECT_EQ(callback_count, 1);
+
   // Second click on the same event.
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   // Callback count should still be 1.
@@ -2362,7 +2408,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f,
                                    100.f);  // A position outside the event.
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
 
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   EXPECT_TRUE(deselection_callback_called);
@@ -2797,21 +2845,23 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 250.0f, kFirstEventY);
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
 
-  // First shift-click, should add a curtain range.
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
   EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
 
-  // Frame with mouse up
-  ImGui::GetIO().MouseDown[0] = false;
-  SimulateFrame();
-
   // Second shift-click on the same event, should remove the curtain.
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 0);
 
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
 
@@ -2851,18 +2901,20 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
   EXPECT_EQ(timeline_.selected_time_ranges()[0].end(), 30.0);
 
-  // Frame with mouse up.
-  ImGui::GetIO().MouseDown[0] = false;
-  SimulateFrame();
-
   // Second shift-click on event 2.
-  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 850.0f,
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 900.0f,
                                    kFirstEventY);  // Position over event 2.
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
@@ -2879,6 +2931,9 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 250.0f,
                                    kFirstEventY);  // Position over event 1.
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
@@ -3150,8 +3205,8 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   SimulateFrame();
 
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
-  // Verify that the cursor changes back to an arrow after the button is
-  // removed.
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
 }
 
@@ -3194,6 +3249,99 @@ TEST_F(TimelineDragSelectionTest, ClickingTextDoesNotRemoveSelectedTimeRange) {
   SimulateFrame();
 
   EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
+}
+
+class TimelineMouseModeSelectTestSuite : public TimelineDragSelectionTest {
+ protected:
+  void SetUp() override {
+    TimelineDragSelectionTest::SetUp();
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+    timeline_.set_mouse_mode(MouseMode::kSelect);
+
+    FlameChartTimelineData data;
+    data.entry_levels = {0, 1};
+    data.entry_total_times = {100.0, 50.0};
+    data.entry_self_times = {50.0, 50.0};
+    data.entry_start_times = {0.0, 0.0};
+    data.entry_names = {"event1", "event2"};
+    data.entry_event_ids = {1, 2};
+    data.entry_pids = {1, 1};
+    data.entry_tids = {1, 1};
+    data.entry_args = {{}, {}};
+    data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+    data.events_by_level = {{0}, {1}};
+    timeline_.SetTimelineData(data);
+  }
+};
+
+TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsEmitsJson) {
+  ImGuiIO& io = ImGui::GetIO();
+  bool callback_called = false;
+  std::string captured_payload;
+  timeline_.set_event_callback(
+      [&](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventsSelected) {
+          callback_called = true;
+          auto it = data.find(std::string(kEventsSelectedData));
+          if (it != data.end()) {
+            captured_payload = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+
+  SimulateFrame();  // Warm-up frame
+
+  // Set start position.
+  io.MousePos = ImVec2(GetTimelineStartX() + 200.0f, 35.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();  // Frame 1
+
+  SimulateFrame();  // Frame 2 (let it settle)
+
+  // Move to end position.
+  io.MousePos = ImVec2(GetTimelineStartX(), 150.0f);
+  SimulateFrame();  // Frame 3
+
+  // Release.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();  // Frame 4
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_FALSE(captured_payload.empty());
+  EXPECT_THAT(captured_payload, ::testing::HasSubstr("event1"));
+}
+
+TEST_F(TimelineMouseModeSelectTestSuite,
+       FindSelectedEventsEmitsEmptyJsonWhenNoSelection) {
+  ImGuiIO& io = ImGui::GetIO();
+  bool callback_called = false;
+  std::string captured_payload;
+  timeline_.set_event_callback(
+      [&](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventsSelected) {
+          callback_called = true;
+          auto it = data.find(std::string(kEventsSelectedData));
+          if (it != data.end()) {
+            captured_payload = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+
+  SimulateFrame();
+
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 100.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, 150.0f);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_TRUE(captured_payload.empty());
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
@@ -3398,7 +3546,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   // Set a mouse position that is guaranteed to be over the event.
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
 
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   EXPECT_EQ(timeline_.selected_event_index(), 0);
@@ -3455,10 +3605,65 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   ImGui::GetIO().MouseDown[0] = true;
   SimulateFrame();
 
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
   EXPECT_EQ(timeline_.selected_event_index(), -1);
   EXPECT_EQ(timeline_.selected_group_index(), 0);
-  // Timestamp 20.0 is at index 1.
   EXPECT_EQ(timeline_.selected_counter_index(), 1);
+}
+
+TEST_F(RealTimelineImGuiFixture, DragOverCounterPointDoesNotSelectEvent) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {0.0, 10.0, 5.0};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 10.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+
+  ImVec2 target_pos = counter_window->Pos;
+  target_pos.x += counter_window->Size.x * 0.25f;
+  target_pos.y += counter_window->Size.y * 0.5f;
+
+  ImGui::EndFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(target_pos.x, target_pos.y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(target_pos.x + 10.0f, target_pos.y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_counter_index(), -1);
 }
 
 TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
@@ -3506,6 +3711,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   EXPECT_EQ(timeline_.selected_counter_index(), -1);
 
   // Step 2: Select Counter Event
+  timeline_.ResetScroll();
   ImGui::NewFrame();
   timeline_.Draw();
   ImGuiWindow* counter_window = nullptr;
@@ -3523,10 +3729,11 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   counter_pos.y += counter_window->Size.y * 0.5f;
   ImGui::EndFrame();
 
-  ImGui::GetIO().MousePos = counter_pos;
-  ImGui::GetIO().MouseDown[0] = true;
+  ImGui::GetIO().AddMousePosEvent(counter_pos.x, counter_pos.y);
   SimulateFrame();
-  ImGui::GetIO().MouseDown[0] = false;
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  ImGui::GetIO().AddMouseButtonEvent(0, false);
   SimulateFrame();
 
   EXPECT_EQ(timeline_.selected_event_index(), -1);
@@ -3534,8 +3741,11 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   EXPECT_EQ(timeline_.selected_counter_index(), 0);
 
   // Step 3: Select Flame Event Again
-  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
-  ImGui::GetIO().MouseDown[0] = true;
+  ImGui::GetIO().AddMousePosEvent(GetTimelineStartX() + 50.0f, kFirstEventY);
+  SimulateFrame();
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  ImGui::GetIO().AddMouseButtonEvent(0, false);
   SimulateFrame();
 
   EXPECT_EQ(timeline_.selected_event_index(), 0);
@@ -3571,6 +3781,9 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   // Click empty area
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, 100.f);
   ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
   SimulateFrame();
 
   EXPECT_EQ(timeline_.selected_event_index(), -1);

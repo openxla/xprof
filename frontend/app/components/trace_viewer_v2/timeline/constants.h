@@ -16,8 +16,12 @@ using Pixel = float;
 inline constexpr ImU32 kBlackColor = IM_COL32(0, 0, 0, 255);
 // Blue color with 100% opacity, rgba(0, 0, 255, 1).
 inline constexpr ImU32 kBlueColor = IM_COL32(0, 0, 255, 255);
+// Dark gray color for timing marker edges.
+inline constexpr ImU32 kDarkGrayColor = IM_COL32(100, 100, 100, 255);
 // A light gray line,  #E3E3E3 (GM3 Grey 90)
 inline constexpr ImU32 kLightGrayColor = IM_COL32(0xE3, 0xE3, 0xE3, 255);
+// Black color with 30% opacity for subtle dimming.
+inline constexpr ImU32 kSubtleDimmingColor = IM_COL32(0, 0, 0, 77);
 // White color with 30% opacity, rgba(255, 255, 255, 0.3).
 inline constexpr ImU32 kTransparentWhiteColor = IM_COL32(255, 255, 255, 77);
 // White color with 100% opacity, rgba(255, 255, 255, 1).
@@ -116,6 +120,7 @@ inline constexpr ImU32 kSelectedTimeRangeBottomColor = 0x99FFC9A1;
 // at 10% opacity.
 inline constexpr ImU32 kSelectedTimeRangeTopColor = 0x1AFFC9A1;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
+inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
 // go/keep-sorted end
 
 // Close Button Constants
@@ -124,6 +129,15 @@ inline constexpr ImU32 kCloseButtonColor = IM_COL32(128, 128, 128, 255);
 inline constexpr ImU32 kCloseButtonHoverColor = IM_COL32(100, 100, 100, 255);
 inline constexpr Pixel kCloseButtonPadding = 4.0f;
 inline constexpr Pixel kCloseButtonSize = 14.0f;
+inline constexpr Pixel kSelectedTimeRangeArrowHeadSize = 5.0f;
+inline constexpr Pixel kSelectedTimeRangeArrowPadding = 4.0f;
+// go/keep-sorted end
+
+// Mouse Interaction Constants
+// go/keep-sorted start
+// If the mouse moves more than 5 pixels (5*5=25) between mouse down and mouse
+// up, it's considered a drag, not a click.
+inline constexpr float kClickDistanceThresholdSquared = 25.0f;
 // go/keep-sorted end
 
 // Zooming and Panning Constants

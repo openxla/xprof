@@ -9,7 +9,10 @@
                         [selectedEvent]="selectedEvent"
                         [selectedEventProperties]="selectedEventProperties"
                         [eventDetailColumns]="eventDetailColumns"
+                        [selectionStartFormat]="selectionStartFormat"
+                        [selectionExtentFormat]="selectionExtentFormat"
                         (eventSelected)="onEventSelected($event)"
+                        (eventsSelected)="onEventsSelected($event)"
                         (searchEvents)="onSearchEvents($event)"
                         (initializeWasm)="onInitializeWasm()">
 </trace-viewer-container>

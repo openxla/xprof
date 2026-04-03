@@ -22,7 +22,8 @@ import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
-import {MatTableModule} from '@angular/material/table';
+import {MatSort, MatSortModule} from '@angular/material/sort';
+import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {AngularSplitModule} from 'angular-split';
 import {
   isSearchEventsEvent,
@@ -41,6 +42,32 @@ import {debounceTime, takeUntil} from 'rxjs/operators';
  * Viewer v2.
  */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
+
+/**
+ * The name of the events selected custom event, dispatched from WASM in Trace
+ * Viewer v2.
+ */
+export const EVENTS_SELECTED_EVENT_NAME = 'events_selected';
+
+/**
+ * The detail of an 'EventsSelected' custom event. The properties are quoted to
+ * prevent renaming during minification.
+ */
+export declare interface EventsSelectedEventDetail {
+  events_selected_data: string;
+}
+
+// Type guard for the 'EventsSelected' custom event.
+function isEventsSelectedEvent(
+  event: Event,
+): event is CustomEvent<EventsSelectedEventDetail> {
+  return (
+    event instanceof CustomEvent &&
+    event.detail &&
+    typeof (event.detail as Record<string, unknown>)['events_selected_data'] ===
+      'string'
+  );
+}
 
 /**
  * The detail of an 'EntrySelected' custom event. The properties are quoted to
@@ -66,12 +93,7 @@ function isEntrySelectedEvent(
   return (
     event instanceof CustomEvent &&
     event.detail &&
-    typeof event.detail.eventIndex === 'number' &&
-    typeof event.detail.name === 'string' &&
-    typeof event.detail.startUs === 'number' &&
-    typeof event.detail.durationUs === 'number' &&
-    typeof event.detail.startUsFormatted === 'string' &&
-    typeof event.detail.durationUsFormatted === 'string'
+    (event.detail as Record<string, unknown>)['eventIndex'] !== undefined
   );
 }
 
@@ -91,8 +113,9 @@ export interface SelectedEvent {
  * The interface for selected event property.
  */
 export interface SelectedEventProperty {
-  property: string;
-  value: string | undefined;
+  property?: string;
+  value?: string | number;
+  [key: string]: string | number | undefined;
 }
 
 // The tutorials to display while the trace viewer is loading.
@@ -153,6 +176,7 @@ declare interface TfTraceViewer {
     MatFormFieldModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatSortModule,
     MatTableModule,
   ],
 })
@@ -165,14 +189,36 @@ export class TraceViewerContainer
   @Input() selectedEvent?: SelectedEvent | null;
   @Input() searching = false;
   isInitialLoading = true;
-  @Input() selectedEventProperties: SelectedEventProperty[] = [];
   @Input() eventDetailColumns: string[] = [];
+  @Input() selectionStartFormat?: string;
+  @Input() selectionExtentFormat?: string;
+
+  selectedEventPropertiesDataSource =
+    new MatTableDataSource<SelectedEventProperty>();
+  @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
+    this.selectedEventPropertiesDataSource.data = data;
+  }
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
+  @Output()
+  readonly eventsSelected =
+    new EventEmitter<EventsSelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
 
+  getTotal(column: string): number {
+    return this.selectedEventPropertiesDataSource.data
+      .map((t) => Number(t[column]))
+      .filter((n) => !isNaN(n))
+      .reduce((acc, value) => acc + value, 0);
+  }
+
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
+  @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
+    if (matSort) {
+      this.selectedEventPropertiesDataSource.sort = matSort;
+    }
+  }
 
   readonly TraceViewerV2LoadingStatus = TraceViewerV2LoadingStatus;
   traceViewerV2LoadingStatus: TraceViewerV2LoadingStatus =
@@ -216,6 +262,10 @@ export class TraceViewerContainer
       this.eventSelectedEventListener,
     );
     window.addEventListener(
+      EVENTS_SELECTED_EVENT_NAME,
+      this.eventsSelectedEventListener,
+    );
+    window.addEventListener(
       SEARCH_EVENTS_EVENT_NAME,
       this.searchEventsEventListener,
     );
@@ -238,6 +288,10 @@ export class TraceViewerContainer
     window.removeEventListener(
       EVENT_SELECTED_EVENT_NAME,
       this.eventSelectedEventListener,
+    );
+    window.removeEventListener(
+      EVENTS_SELECTED_EVENT_NAME,
+      this.eventsSelectedEventListener,
     );
     window.removeEventListener(
       SEARCH_EVENTS_EVENT_NAME,
@@ -315,6 +369,17 @@ export class TraceViewerContainer
       this.eventSelected.emit(null);
     } else {
       this.eventSelected.emit(e.detail);
+    }
+  };
+
+  private readonly eventsSelectedEventListener = (e: Event) => {
+    if (isEventsSelectedEvent(e)) {
+      this.eventsSelected.emit(e.detail);
+    } else {
+      console.warn(
+        'TraceViewerContainer: Received event but failed type guard',
+        e,
+      );
     }
   };
 

@@ -1,7 +1,9 @@
 import {CommonModule} from '@angular/common';
 import {NgModule} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
 import {MatIconModule} from '@angular/material/icon';
+import {MatMenuModule} from '@angular/material/menu';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
@@ -15,7 +17,9 @@ import {TraceViewer} from './trace_viewer';
   imports: [
     CommonModule,
     MatButtonModule,
+    MatCheckboxModule,
     MatIconModule,
+    MatMenuModule,
     MatProgressBarModule,
     PipesModule,
     TraceViewerContainer,

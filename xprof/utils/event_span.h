@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -208,7 +209,7 @@ class StepDetails {
   std::string DebugString() const;
 
   void SetPerCoreOpMetricsDb(OpMetricsDb db, uint32_t core_id) {
-    per_core_op_metrics_db_[core_id] = db;
+    per_core_op_metrics_db_[core_id] = std::move(db);
   }
 
  private:

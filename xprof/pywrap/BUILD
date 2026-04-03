@@ -22,6 +22,9 @@ cc_binary(
     ] + select({
         ":dbg_build": ["-g"],
         "//conditions:default": [],
+    }) + select({
+        "//xprof:module_summary_enabled": ["-DENABLE_MODULE_SUMMARY"],
+        "//conditions:default": [],
     }),
     linkopts = select({
         "@xla//xla/tsl:windows": [
@@ -43,7 +46,13 @@ cc_binary(
         "@org_xprof//xprof/convert:tool_options",
         "@rules_python//python/cc:current_py_cc_headers",
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
-    ],
+    ] + select({
+        "//xprof:module_summary_enabled": [
+            "@org_xprof//internal/module_summary:module_summary_c_api",
+            "@org_xprof//internal/module_summary:refactored_tool_lib",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 py_library(

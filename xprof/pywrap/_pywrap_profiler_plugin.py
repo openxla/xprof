@@ -505,3 +505,60 @@ def initialize_stubs(worker_service_addresses: str) -> None:
   _lib.InitializeStubs(
       worker_service_addresses.encode() if worker_service_addresses else None
   )
+
+
+if hasattr(_lib, "CreateModuleSummary"):
+  _lib.CreateModuleSummary.argtypes = [ctypes.c_char_p]
+  _lib.CreateModuleSummary.restype = ctypes.c_void_p
+
+  _lib.GetTotalCount.argtypes = [ctypes.c_void_p]
+  _lib.GetTotalCount.restype = ctypes.c_int
+
+  _lib.GetUniqueResourceCount.argtypes = [ctypes.c_void_p]
+  _lib.GetUniqueResourceCount.restype = ctypes.c_int
+
+  _lib.GetHistogramBuckets.argtypes = [ctypes.c_void_p]
+  _lib.GetHistogramBuckets.restype = ctypes.c_int
+
+  _lib.GetBucketKey.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetBucketKey.restype = ctypes.c_int
+
+  _lib.GetBucketValue.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetBucketValue.restype = ctypes.c_int
+
+  _lib.FreeModuleSummary.argtypes = [ctypes.c_void_p]
+  _lib.FreeModuleSummary.restype = None
+
+  def get_module_digest(filename: str) -> dict[str, Any]:
+    """Gets a module digest."""
+    _ensure_initialized()
+    handle = _lib.CreateModuleSummary(filename.encode("utf-8"))
+    if not handle:
+      return {"success": False}
+
+    try:
+      result = {
+          "success": True,
+          "total_count": _lib.GetTotalCount(handle),
+          "unique_resource_count": _lib.GetUniqueResourceCount(handle),
+      }
+
+      resources = {}
+      num_resources = _lib.GetHistogramBuckets(handle)
+      for i in range(num_resources):
+        resource = _lib.GetBucketKey(handle, i)
+        count = _lib.GetBucketValue(handle, i)
+        resources[resource] = count
+
+      result["resource_histogram"] = resources
+      return result
+    finally:
+      _lib.FreeModuleSummary(handle)
+
+else:
+
+  def get_module_digest(filename: str) -> dict[str, Any]:
+    del filename
+    raise NotImplementedError(
+        "get_module_digest is not supported in this build"
+    )

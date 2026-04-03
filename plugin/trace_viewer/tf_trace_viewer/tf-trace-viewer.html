@@ -823,9 +823,9 @@ dashboard would integrate trace viewer app using iframe.
       `;
     },
 
-    createPercaleLink: function(hloOp, host) {
+    createPercaleLink: function(hloOp, hloModule, host) {
       if (!this._percaleUrlPrefix || !this._sessionId || !hloOp) return;
-      const percaleLink = new URL(`${this._percaleUrlPrefix}/static?id=${this._sessionId}&hlo=${hloOp}`);
+      const percaleLink = new URL(`${this._percaleUrlPrefix}/static?id=${this._sessionId}&hlo=${hloOp}&hlo_module=${hloModule}`);
       if (host) {
         percaleLink.searchParams.append('host', host);
       }
@@ -902,7 +902,7 @@ dashboard would integrate trace viewer app using iframe.
             this.createCrossToolLink("roofline_model", "Roofline Model", {"roofline_op_name": hloOp}, rooflineText);
             const hostnamePrefix = currentProcess.name.split(' ')[0];
             const host = this._selectedHosts.find(host => host.startsWith(hostnamePrefix));
-            this.createPercaleLink(hloOp, host);
+            this.createPercaleLink(hloOp, hloModule, host);
           } else {
             // Add crosslink form trace viewer to graph viewer
             // per event selection for tensorboard profiler

@@ -3,7 +3,7 @@ load("//defs:backend_defs.bzl", "if_oss", "tf_profiler_alias")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
-    default_visibility = ["//visibility:public"],  # TODO(matthurd): Update to profiler:internal after xprof migration.
+    default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
 

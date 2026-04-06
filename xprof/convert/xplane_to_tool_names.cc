@@ -93,9 +93,18 @@ absl::StatusOr<std::string> GetAvailableToolNames(
     has_dcn_collective_stats =
         has_dcn_collective_stats || HasDcnCollectiveStatsInXSpace(*xspace);
 
-    std::vector<const XPlane*> tpu_planes = tsl::profiler::FindPlanesWithPrefix(
-        *xspace, tsl::profiler::kTpuPlanePrefix);
-    for (const XPlane* plane : tpu_planes) {
+    // Check both TPU and GPU planes for perf counter data.
+    std::vector<const XPlane*> device_planes =
+        tsl::profiler::FindPlanesWithPrefix(*xspace,
+                                            tsl::profiler::kTpuPlanePrefix);
+    {
+      std::vector<const XPlane*> gpu_planes =
+          tsl::profiler::FindPlanesWithPrefix(*xspace,
+                                              tsl::profiler::kGpuPlanePrefix);
+      device_planes.insert(device_planes.end(), gpu_planes.begin(),
+                           gpu_planes.end());
+    }
+    for (const XPlane* plane : device_planes) {
       tsl::profiler::XPlaneVisitor visitor =
           tsl::profiler::CreateTfXPlaneVisitor(plane);
       visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {

@@ -1,0 +1,9 @@
+--- emscripten_toolchain/BUILD.bazel
++++ emscripten_toolchain/BUILD.bazel
+@@ -98,3 +98,5 @@
+     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+ )
+
++load("@rules_python//python:defs.bzl", "py_binary")
++
+ py_binary(

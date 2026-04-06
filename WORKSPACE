@@ -363,9 +363,8 @@ http_archive(
 http_archive(
     name = "emsdk",
     # TODO(b/490301506): Remove this patch once emsdk version is upgraded
-    patch_cmds = [
-        "sed -i 's|py_binary(|load(\"@rules_python//python:defs.bzl\", \"py_binary\")\\n\\npy_binary(|' emscripten_toolchain/BUILD.bazel",
-    ],
+    patch_args = ["-p0"],
+    patches = ["//third_party:emsdk.patch"],
     sha256 = "2d3292d508b4f5477f490b080b38a34aaefed43e85258a1de72cb8dde3f8f3af",
     strip_prefix = "emsdk-4.0.6/bazel",
     url = "https://github.com/emscripten-core/emsdk/archive/4.0.6.tar.gz",

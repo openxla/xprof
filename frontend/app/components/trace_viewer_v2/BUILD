@@ -151,7 +151,7 @@ BINARY_LINKOPTS = [
     "-sENVIRONMENT=web,worker",
     "-sALLOW_MEMORY_GROWTH",
     "-sEXPORT_NAME=loadWasmTraceViewerModule",
-    "-sEXPORTED_RUNTIME_METHODS=callMain",
+    "-sEXPORTED_RUNTIME_METHODS=callMain,HEAPU8",
     "-sEXPORTED_FUNCTIONS=_main,_malloc,_free",
     "-sDISABLE_DEPRECATED_FIND_EVENT_TARGET_BEHAVIOR",
     "-g",

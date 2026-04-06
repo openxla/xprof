@@ -129,14 +129,12 @@ declare function loadWasmTraceViewerModule(
   options?: object,
 ): Promise<TraceViewerV2Module>;
 
-/**
- * Interface for the WebAssembly module loaded by `loadWasmTraceViewerModule`.
- * This interface extends the base `WasmModule` and includes properties and
- * methods specific to the Trace Viewer v2 WASM application. It defines the
- * API through which the JavaScript/TypeScript code interacts with the
- * compiled C++ Trace Viewer logic, including canvas access, WebGPU device
- * injection, and trace data processing.
- */
+declare global {
+  interface Window {
+    wasmMemoryBytes: number;
+  }
+}
+
   export declare interface TraceViewerV2Module extends EmscriptenModule {
   HEAPU8: Uint8Array;
   canvas: HTMLCanvasElement;
@@ -310,9 +308,23 @@ async function loadAndStartWasm(
     setStatus: console.debug,
     noInitialRun: true,
   };
+
+  performance.mark('wasmLoadStart');
+
   const traceviewerModule = await loadWasmTraceViewerModule(moduleConfig);
+
+  performance.mark('wasmLoadEnd');
+  performance.measure('wasmModuleLoadTime', 'wasmLoadStart', 'wasmLoadEnd');
+
   traceviewerModule.preinitializedWebGPUDevice = device;
+
+  performance.mark('appInitStart');
+
   traceviewerModule.callMain([]);
+
+  performance.mark('appInitEnd');
+  performance.measure('appInitializationTime', 'appInitStart', 'appInitEnd');
+
   return traceviewerModule;
 }
 
@@ -661,10 +673,27 @@ async function handleFetchDataEvent(
       return;
     }
 
+    performance.mark('traceProcessStart');
+
     traceviewerModule.processTraceEvents(
       jsonData,
       /* timeRangeFromUrl= */ undefined,
     );
+
+    performance.mark('traceProcessEnd');
+    performance.measure(
+      'traceProcessingTime',
+      'traceProcessStart',
+      'traceProcessEnd',
+    );
+    // HEAPU8.length represents the total size of the WASM heap (the memory
+    // reserved from the browser). Since ALLOW_MEMORY_GROWTH is enabled,
+    // this value will effectively track the peak memory reservation reached
+    // during processing. This is a good metric, but worth noting it might
+    // differ from the actual active allocation size.
+    window.wasmMemoryBytes = traceviewerModule.HEAPU8
+      ? traceviewerModule.HEAPU8.length
+      : 0;
 
     window.dispatchEvent(
       new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
@@ -836,7 +865,24 @@ export async function traceViewerV2Main(
           setTimeout(resolve, 0);
         });
 
+        performance.mark('traceProcessStart');
+
         traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
+
+        performance.mark('traceProcessEnd');
+        performance.measure(
+          'traceProcessingTime',
+          'traceProcessStart',
+          'traceProcessEnd',
+        );
+        // HEAPU8.length represents the total size of the WASM heap (the memory
+        // reserved from the browser). Since ALLOW_MEMORY_GROWTH is enabled,
+        // this value will effectively track the peak memory reservation reached
+        // during processing. This is a good metric, but worth noting it might
+        // differ from the actual active allocation size.
+        window.wasmMemoryBytes = traceviewerModule.HEAPU8
+          ? traceviewerModule.HEAPU8.length
+          : 0;
 
         window.dispatchEvent(
           new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {

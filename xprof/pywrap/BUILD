@@ -28,6 +28,9 @@ cc_binary(
             "/OPT:REF",  # Remove unused functions and data
             "/OPT:ICF",  # Merge identical functions
         ],
+        "@xla//xla/tsl:macos": [
+            "-Wl,-dead_strip",  # Remove unreferenced symbols
+        ],
         "//conditions:default": [
             "-Wl,--exclude-libs,ALL",  # Prevent exposing symbols from dependencies
             "-Wl,--gc-sections",  # Garbage collect any unused sections

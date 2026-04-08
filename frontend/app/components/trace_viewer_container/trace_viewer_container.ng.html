@@ -23,6 +23,56 @@
     <button mat-icon-button aria-label="Next search result" (click)="nextSearchResult()" [disabled]="!currentSearchQuery">
       <mat-icon>chevron_right</mat-icon>
     </button>
+    <div class="mouse-mode-container">
+      <button mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" title="Select Mode" aria-label="Select Mode">
+        <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#clip0_71_476)">
+            <path d="M15.1875 22L12.3125 15.8542L9 20V6L20 15H14.125L17 21.1458L15.1875 22Z" fill="#444746"/>
+          </g>
+          <defs>
+            <clipPath id="clip0_71_476">
+              <rect width="20" height="20" fill="white" transform="translate(4 4)"/>
+            </clipPath>
+          </defs>
+        </svg>
+      </button>
+      <button mat-icon-button [class.active]="currentMouseMode === MouseMode.PAN" (click)="setMouseMode(MouseMode.PAN)" title="Pan Mode" aria-label="Pan Mode">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#clip0_71_473)">
+            <path d="M10 18L6.5 14.5L7.5625 13.4375L9.25 15.125V10.75H4.875L6.5625 12.4375L5.5 13.5L2 10L5.5 6.5L6.5625 7.5625L4.875 9.25H9.25V4.875L7.5625 6.5625L6.5 5.5L10 2L13.5 5.5L12.4375 6.5625L10.75 4.875V9.25H15.125L13.4375 7.5625L14.5 6.5L18 10L14.5 13.5L13.4375 12.4375L15.125 10.75H10.75V15.125L12.4375 13.4375L13.5 14.5L10 18Z" fill="#444746"/>
+          </g>
+          <defs>
+            <clipPath id="clip0_71_473">
+              <rect width="20" height="20" fill="white"/>
+            </clipPath>
+          </defs>
+        </svg>
+      </button>
+      <button mat-icon-button [class.active]="currentMouseMode === MouseMode.ZOOM" (click)="setMouseMode(MouseMode.ZOOM)" title="Zoom Mode" aria-label="Zoom Mode">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#clip0_71_470)">
+            <path d="M10 17L7 14L8.0625 12.9375L9.25 14.125V5.875L8.0625 7.0625L7 6L10 3L13 6L11.9375 7.0625L10.75 5.875V14.125L11.9375 12.9375L13 14L10 17Z" fill="#444746"/>
+          </g>
+          <defs>
+            <clipPath id="clip0_71_470">
+              <rect width="20" height="20" fill="white"/>
+            </clipPath>
+          </defs>
+        </svg>
+      </button>
+      <button mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g clip-path="url(#clip0_71_467)">
+            <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
+          </g>
+          <defs>
+            <clipPath id="clip0_71_467">
+              <rect width="20" height="20" fill="white" transform="matrix(0 -1 1 0 0 20)"/>
+            </clipPath>
+          </defs>
+        </svg>
+      </button>
+    </div>
     <div class="spacer"></div>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>

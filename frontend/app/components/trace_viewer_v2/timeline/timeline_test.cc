@@ -4560,6 +4560,23 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
   EXPECT_NEAR(timeline_.visible_range().duration(), 140.0, 1.0);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       HandleMouseWithInvalidMouseModeDoesNotChangeCursor) {
+  timeline_.set_mouse_mode(static_cast<MouseMode>(0));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 50.0f);
+
+  ImGui::NewFrame();
+  ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+
+  timeline_.Draw();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
+
+  ImGui::EndFrame();
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

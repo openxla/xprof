@@ -423,6 +423,12 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   emscripten::register_vector<std::string>("StringVector");
   emscripten::register_vector<int>("IntVector");
 
+  emscripten::enum_<MouseMode>("MouseMode")
+      .value("Select", MouseMode::kSelect)
+      .value("Pan", MouseMode::kPan)
+      .value("Zoom", MouseMode::kZoom)
+      .value("Timing", MouseMode::kTiming);
+
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
       .function("getFlowCategories",
@@ -452,6 +458,7 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                 &traceviewer::Application::NavigateToPrevSearchResult)
       .function("resize", &traceviewer::Application::Resize)
       .function("setSearchQuery", &traceviewer::Application::SetSearchQuery)
+      .function("setMouseMode", &traceviewer::Application::SetMouseMode)
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
       .function("setVisibleFlowCategories",

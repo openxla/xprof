@@ -77,6 +77,32 @@ canvas {
   margin: 0 8px;
 }
 
+.mouse-mode-container {
+  display: flex;
+  align-items: center;
+  margin-left: 0;
+
+  button.mat-mdc-icon-button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    min-width: unset;
+    border-radius: 4px;
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.04);
+    }
+
+    &.active {
+      background-color: #d3e3fd;
+    }
+
+    svg {
+      vertical-align: middle;
+    }
+  }
+}
+
 .drawer {
   height: 100%;
   background-color: white;

@@ -68,6 +68,12 @@ class Application {
     }
   }
 
+  void SetMouseMode(int mode) {
+    if (timeline_) {
+      timeline_->set_mouse_mode(static_cast<MouseMode>(mode));
+    }
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

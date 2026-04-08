@@ -127,6 +127,17 @@ export interface SelectedEventProperty {
   [key: string]: string | number | undefined;
 }
 
+/**
+ * Mouse modes for trace viewer interaction.
+ * Must match the values in C++ MouseMode enum.
+ */
+export enum MouseMode {
+  SELECT = 1,
+  PAN = 2,
+  ZOOM = 3,
+  TIMING = 4,
+}
+
 // The tutorials to display while the trace viewer is loading.
 const TUTORIALS = Object.freeze([
   'Pan: A/D or Shift+Scroll or Drag',
@@ -276,6 +287,8 @@ export class TraceViewerContainer
   traceViewerV2LoadingStatus: TraceViewerV2LoadingStatus =
     TraceViewerV2LoadingStatus.IDLE;
   traceViewerV2ErrorMessage?: string;
+  readonly MouseMode = MouseMode;
+  currentMouseMode = MouseMode.PAN;
   searchQuery = '';
   search$ = new Subject<string>();
   currentSearchQuery = '';
@@ -527,6 +540,13 @@ export class TraceViewerContainer
   onSearchEvent(query: string) {
     this.search$.next(query);
     this.searchEvents.emit({events_query: query});
+  }
+
+  setMouseMode(mode: MouseMode) {
+    this.currentMouseMode = mode;
+    if (this.traceViewerModule) {
+      this.traceViewerModule.application.instance().setMouseMode(mode);
+    }
   }
 
   /**

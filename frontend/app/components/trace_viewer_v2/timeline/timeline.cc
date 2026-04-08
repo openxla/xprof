@@ -2105,15 +2105,14 @@ bool Timeline::HandleMouse() {
 
   if (is_mouse_over_timeline) {
     switch (mouse_mode_) {
+      case MouseMode::kSelect:
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+        break;
       case MouseMode::kTiming:
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         break;
       case MouseMode::kPan:
-        if (is_dragging_) {
-          ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-        } else {
-          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-        }
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
         break;
       case MouseMode::kZoom:
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);

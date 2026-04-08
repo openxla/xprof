@@ -6,8 +6,10 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer",
     srcs = [
+        "interfaces.ts",
         "trace_viewer.ts",
         "trace_viewer_module.ts",
+        "utils.ts",
     ],
     assets = [
         ":trace_viewer_css",

@@ -21,6 +21,7 @@ import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {
   EntrySelectedEventDetail,
+  EventsSelectedEventDetail,
   SelectedEvent,
   SelectedEventProperty,
   TraceViewerContainer,
@@ -40,6 +41,7 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+import {parseEventsSelectedData} from './utils';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
@@ -51,6 +53,9 @@ interface TraceData {
  * Viewer v2.
  */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
+
+const DEFAULT_EVENT_DETAIL_COLUMNS = Object.freeze(['property', 'value']);
+
 function parseHostsList(hosts: unknown): string[] {
   if (typeof hosts === 'string') {
     return hosts
@@ -99,7 +104,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   traceViewerModule: TraceViewerV2Module | null = null;
   selectedEvent: SelectedEvent | null = null;
   selectedEventProperties: SelectedEventProperty[] = [];
-  eventDetailColumns: string[] = ['property', 'value'];
+  eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+
+  selectionStartFormat?: string;
+  selectionExtentFormat?: string;
   private readonly eventArgsCache = new Map<string, {[key: string]: string}>();
   private queryString = '';
   searching = false;
@@ -299,34 +307,78 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (!event) {
       this.selectedEvent = null;
       this.selectedEventProperties = [];
+      this.selectionStartFormat = undefined;
+      this.selectionExtentFormat = undefined;
+      return;
+    }
+    this.selectionStartFormat = undefined;
+    this.selectionExtentFormat = undefined;
+    this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+
+    const {
+      name,
+      startUsFormatted,
+      durationUsFormatted,
+      hloModuleName,
+      hloOpName,
+      uid,
+      startUs,
+      durationUs,
+    } = event;
+
+    this.selectedEvent = {
+      name,
+      startUsFormatted,
+      durationUsFormatted,
+    };
+
+    const properties: SelectedEventProperty[] = [];
+    properties.push({property: 'Name', value: name});
+    properties.push({property: 'Start Time', value: startUsFormatted});
+    properties.push({property: 'Duration', value: durationUsFormatted});
+    if (hloModuleName) {
+      properties.push({property: 'HLO Module', value: hloModuleName});
+    }
+    if (hloOpName) {
+      properties.push({property: 'HLO Op', value: hloOpName});
+    }
+    this.selectedEventProperties = properties;
+
+    if (uid) {
+      this.maybeFetchEventArgs(name, startUs, durationUs, uid);
+    }
+  }
+
+  onEventsSelected(event: EventsSelectedEventDetail | null) {
+    if (!event) {
+      this.selectedEvent = null;
+      this.selectedEventProperties = [];
+      this.selectionStartFormat = undefined;
+      this.selectionExtentFormat = undefined;
       return;
     }
 
     this.selectedEvent = {
-      name: event.name,
-      startUsFormatted: event.startUsFormatted,
-      durationUsFormatted: event.durationUsFormatted,
+      name: 'Multiple Events Selected',
     };
 
-    const properties: SelectedEventProperty[] = [];
-    properties.push({property: 'Name', value: event.name});
-    properties.push({property: 'Start Time', value: event.startUsFormatted});
-    properties.push({property: 'Duration', value: event.durationUsFormatted});
-    if (event.hloModuleName) {
-      properties.push({property: 'HLO Module', value: event.hloModuleName});
-    }
-    if (event.hloOpName) {
-      properties.push({property: 'HLO Op', value: event.hloOpName});
-    }
-    this.selectedEventProperties = properties;
+    try {
+      const result = parseEventsSelectedData(event.events_selected_data);
+      this.selectedEventProperties = result.properties;
+      this.selectionStartFormat = result.selectionStartFormat;
+      this.selectionExtentFormat = result.selectionExtentFormat;
 
-    if (event.uid) {
-      this.maybeFetchEventArgs(
-        event.name,
-        event.startUs,
-        event.durationUs,
-        event.uid,
-      );
+      this.eventDetailColumns = [
+        'name',
+        'occurrences',
+        'wallDuration',
+        'selfTime',
+        'avgWallDuration',
+      ];
+    } catch (e) {
+      console.error('Failed to parse events selected data:', e);
+      this.selectedEventProperties = [];
+      this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
     }
   }
 

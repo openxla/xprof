@@ -176,15 +176,16 @@ void Application::UpdateMouseCursor() {
         // EM_ASM only supports JavaScript, not TypeScript.
         var cursor = $0;
         var cursor_css = 'default';
-        // TODO: b/470449677 - Support other cursor styles.
-        // https://developer.mozilla.org/en-US/docs/Web/CSS/cursor
-        // ImGuiMouseCursor_ResizeEW = 4
-        // ImGuiMouseCursor_Hand = 7
-        if (cursor == 4) {
+        if (cursor == 1)  // ImGuiMouseCursor_TextInput
+          cursor_css = 'text';
+        else if (cursor == 2)  // ImGuiMouseCursor_ResizeAll
+          cursor_css = 'move';
+        else if (cursor == 3)  // ImGuiMouseCursor_ResizeNS
+          cursor_css = 'row-resize';
+        else if (cursor == 4)  // ImGuiMouseCursor_ResizeEW
           cursor_css = 'col-resize';
-        } else if (cursor == 7) {
+        else if (cursor == 7)  // ImGuiMouseCursor_Hand
           cursor_css = 'pointer';
-        }
 
         // The canvas element is guaranteed to exist at this point, because
         // traceViewerV2Main() in main.ts ensures it before calling callMain(),

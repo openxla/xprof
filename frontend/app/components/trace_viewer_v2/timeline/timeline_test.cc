@@ -2945,49 +2945,6 @@ TEST_F(RealTimelineImGuiFixture,
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
 }
 
-TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
-  timeline_.set_data_time_range({10.0, 100.0});
-  timeline_.SetVisibleRange({11.0, 61.0});
-
-  // Simulate holding 'A' (Pan Left). Panning left will attempt to move the
-  // visible range before the data range start, so it should be constrained.
-  SimulateKeyHeldForDuration(ImGuiKey_A, 1.0f);
-  SimulateFrame();
-
-  // The visible range end should not go below the data range start (10.0).
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 10.0);
-}
-
-TEST_F(RealTimelineImGuiFixture, PanRightBeyondDataRangeShouldBeConstrained) {
-  timeline_.set_data_time_range({10.0, 100.0});
-  timeline_.SetVisibleRange({49.0, 99.0});
-
-  // Simulate holding 'D' (Pan Right). Panning right will attempt to move the
-  // visible range beyond the data range end, so it should be constrained.
-  SimulateKeyHeldForDuration(ImGuiKey_D, 1.0f);
-  SimulateFrame();
-
-  // The visible range end should not go above the data range end (100.0).
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 100.0);
-}
-
-TEST_F(RealTimelineImGuiFixture, ZoomInBeyondMinDurationShouldBeConstrained) {
-  timeline_.set_data_time_range({0.0, 100.0});
-  // set duration to be very close to kMinDurationMicros
-  timeline_.SetVisibleRange(
-      {50.0 - kMinDurationMicros / 2.0, 50.0 + kMinDurationMicros / 2.0});
-
-  ASSERT_NEAR(timeline_.visible_range().duration(), kMinDurationMicros, 1e-9);
-
-  // Zoom in, duration should decrease but be capped at kMinDurationMicros by
-  // ConstrainTimeRange. Hold W for 1s to zoom in a lot.
-  SimulateKeyHeldForDuration(ImGuiKey_W, 1.0f);
-  SimulateFrame();
-
-  EXPECT_NEAR(timeline_.visible_range().duration(), kMinDurationMicros, 1e-9);
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().center(), 50.0);
-}
-
 class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
  protected:
   // Horizontal offset for the start of test selections/events.
@@ -3153,6 +3110,8 @@ TEST_F(TimelineDragSelectionTest, EscapeCancelsSelection) {
 
 TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   ImGuiIO& io = ImGui::GetIO();
+  EXPECT_EQ(timeline_.mouse_mode(), MouseMode::kPan);
+  EXPECT_FALSE(ImGui::IsKeyDown(ImGuiKey_4));
 
   // Start drag in timeline area.
   io.MousePos =
@@ -3206,6 +3165,7 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
 
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  ImGui::GetIO().MousePos = ImVec2(0.0f, 0.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
 }
@@ -3344,6 +3304,86 @@ TEST_F(TimelineMouseModeSelectTestSuite,
   EXPECT_TRUE(captured_payload.empty());
 }
 
+TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
+  ImGuiIO& io = ImGui::GetIO();
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+
+  // First selection: drag from x=300 to x=400.
+  io.MousePos = ImVec2(GetTimelineStartX() + 300.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.MousePos = ImVec2(GetTimelineStartX() + 400.0f, 50.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second selection: start a new drag at x=500.
+  // The first selection should NOT be cleared immediately on MouseDown.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Complete the second drag to x=600.
+  io.MousePos = ImVec2(GetTimelineStartX() + 600.0f, 50.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+
+  // Clicking somewhere else (no drag) should NOT clear the selection.
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 2);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 2);
+}
+
+TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
+  timeline_.set_data_time_range({10.0, 100.0});
+  timeline_.SetVisibleRange({11.0, 61.0});
+
+  // Simulate holding 'A' (Pan Left). Panning left will attempt to move the
+  // visible range before the data range start, so it should be constrained.
+  SimulateKeyHeldForDuration(ImGuiKey_A, 1.0f);
+  SimulateFrame();
+
+  // The visible range end should not go below the data range start (10.0).
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 10.0);
+}
+
+TEST_F(RealTimelineImGuiFixture, PanRightBeyondDataRangeShouldBeConstrained) {
+  timeline_.set_data_time_range({10.0, 100.0});
+  timeline_.SetVisibleRange({49.0, 99.0});
+
+  // Simulate holding 'D' (Pan Right). Panning right will attempt to move the
+  // visible range beyond the data range end, so it should be constrained.
+  SimulateKeyHeldForDuration(ImGuiKey_D, 1.0f);
+  SimulateFrame();
+
+  // The visible range end should not go above the data range end (100.0).
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 100.0);
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomInBeyondMinDurationShouldBeConstrained) {
+  timeline_.set_data_time_range({0.0, 100.0});
+  // set duration to be very close to kMinDurationMicros
+  timeline_.SetVisibleRange(
+      {50.0 - kMinDurationMicros / 2.0, 50.0 + kMinDurationMicros / 2.0});
+
+  ASSERT_NEAR(timeline_.visible_range().duration(), kMinDurationMicros, 1e-9);
+
+  // Zoom in, duration should decrease but be capped at kMinDurationMicros by
+  // ConstrainTimeRange. Hold W for 1s to zoom in a lot.
+  SimulateKeyHeldForDuration(ImGuiKey_W, 1.0f);
+  SimulateFrame();
+
+  EXPECT_NEAR(timeline_.visible_range().duration(), kMinDurationMicros, 1e-9);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().center(), 50.0);
+}
 TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   FlameChartTimelineData data;
   data.groups.push_back({.type = Group::Type::kCounter,
@@ -4370,6 +4410,154 @@ TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {
   Timeline timeline;
   EXPECT_EQ(timeline.get_copy_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline.get_copied_track_name_for_test(), "");
+}
+
+TEST_F(TimelineImGuiFixture, SelectEvents) {
+  // 1. Setup Data
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.events_by_level.resize(1);
+  data.events_by_level[0].push_back(0);
+  data.entry_names.push_back("Event 1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(50.0);
+  data.entry_self_times.push_back(50.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 1000.0});
+
+  // 2. Set Mouse Mode
+  timeline_.set_mouse_mode(MouseMode::kSelect);
+
+  // 3. Simulate Mouse Drag
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+  float win_y = window->DC.CursorStartPos.y;
+
+  float tracks_x = GetTimelineStartX();
+  float start_time_px =
+      timeline_.TimeToScreenX(50.0, tracks_x, timeline_.px_per_time_unit());
+  float end_time_px =
+      timeline_.TimeToScreenX(200.0, tracks_x, timeline_.px_per_time_unit());
+
+  float start_px_y = win_y + kRulerHeight;
+  float end_px_y = win_y + kRulerHeight + kEventHeight * 2;
+
+  bool event_called = false;
+  std::string received_json;
+
+  timeline_.set_event_callback(
+      [&](absl::string_view name, const EventData& data) {
+        if (name == kEventsSelected) {
+          event_called = true;
+          auto it = data.find(kEventsSelectedData);
+          if (it != data.end()) {
+            received_json = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+
+  io.AddMousePosEvent(start_time_px, start_px_y);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);  // Mouse down
+  SimulateFrame();
+
+  io.AddMousePosEvent(end_time_px, end_px_y);  // Mouse drag
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);  // Mouse release
+  SimulateFrame();
+
+  EXPECT_TRUE(event_called);
+  EXPECT_FALSE(received_json.empty());
+
+  EXPECT_THAT(received_json, ::testing::HasSubstr(R"("name":"Event 1")"));
+  EXPECT_THAT(received_json, ::testing::HasSubstr(R"("count":1)"));
+  EXPECT_THAT(received_json, ::testing::HasSubstr(R"("wallTimeUs":50)"));
+  EXPECT_THAT(received_json, ::testing::HasSubstr(R"("avgWallDurationUs":50)"));
+}
+
+TEST_F(TimelineImGuiFixture, Shortcuts) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+
+  io.AddKeyEvent(ImGuiKey_1, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.mouse_mode(), MouseMode::kSelect);
+
+  io.AddKeyEvent(ImGuiKey_2, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.mouse_mode(), MouseMode::kPan);
+
+  io.AddKeyEvent(ImGuiKey_3, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.mouse_mode(), MouseMode::kZoom);
+
+  io.AddKeyEvent(ImGuiKey_4, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.mouse_mode(), MouseMode::kTiming);
+}
+
+// Verifies that zoom mode correctly updates cursor and visible range.
+TEST_F(TimelineImGuiFixture, ZoomMode) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  timeline_.set_mouse_mode(MouseMode::kZoom);
+
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.events_by_level.resize(1);
+  data.events_by_level[0].push_back(0);
+  data.entry_names.push_back("Event 1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(900.0);
+  data.entry_self_times.push_back(900.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetVisibleRange({100.0, 200.0});
+  EXPECT_EQ(timeline_.visible_range().duration(), 100.0);
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+
+  // Hover over timeline
+  float tracks_x = GetTimelineStartX();
+  io.AddMousePosEvent(tracks_x + 10.0f,
+                      window->DC.CursorStartPos.y + kRulerHeight + 10.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeNS);
+
+  // Drag mouse vertically
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(tracks_x + 10.0f,
+                      window->DC.CursorStartPos.y + kRulerHeight + 50.0f);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  io.DeltaTime = 1.0f;
+  SimulateFrame();
+
+  // Verify visible range changed.
+  EXPECT_NEAR(timeline_.visible_range().duration(), 140.0, 1.0);
 }
 
 }  // namespace

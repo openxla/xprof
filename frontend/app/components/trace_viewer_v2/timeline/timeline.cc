@@ -2020,6 +2020,20 @@ bool Timeline::HandleKeyboard() {
     }
   }
 
+  // Mouse Mode shortcuts
+  if (ImGui::IsKeyPressed(ImGuiKey_1)) {
+    mouse_mode_ = MouseMode::kSelect;
+  }
+  if (ImGui::IsKeyPressed(ImGuiKey_2)) {
+    mouse_mode_ = MouseMode::kPan;
+  }
+  if (ImGui::IsKeyPressed(ImGuiKey_3)) {
+    mouse_mode_ = MouseMode::kZoom;
+  }
+  if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+    mouse_mode_ = MouseMode::kTiming;
+  }
+
   return is_interacting;
 }
 
@@ -2089,6 +2103,26 @@ bool Timeline::HandleMouse() {
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
+  if (is_mouse_over_timeline) {
+    switch (mouse_mode_) {
+      case MouseMode::kTiming:
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        break;
+      case MouseMode::kPan:
+        if (is_dragging_) {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        } else {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        }
+        break;
+      case MouseMode::kZoom:
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+        break;
+      default:
+        break;
+    }
+  }
+
   if (!is_mouse_over_timeline && !is_dragging_) {
     return false;
   }
@@ -2146,6 +2180,8 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
             TimeRange(std::min(drag_start_time_, current_time),
                       std::max(drag_start_time_, current_time));
       }
+    } else if (mouse_mode_ == MouseMode::kZoom) {
+      Zoom(1.0f + io.MouseDelta.y * 0.01f);
     } else {
       Pan(-io.MouseDelta.x);
       Scroll(-io.MouseDelta.y);
@@ -2175,6 +2211,8 @@ void Timeline::HandleMouseRelease() {
                current_selected_time_range_->duration() > 0) {
       selected_time_ranges_.push_back(*current_selected_time_range_);
     }
+    selection_start_pos_.reset();
+    selection_end_pos_.reset();
     current_selected_time_range_.reset();
     selection_start_pos_ = std::nullopt;
   }

@@ -225,6 +225,7 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
 
 // Global state to track active WASM module and event listeners for cleanup.
 let activeWasmModule: TraceViewerV2Module | null = null;
+let activeResolution: number | null = null;
 
 /**
  * Interface for tracking event listeners registered on the window.
@@ -261,6 +262,7 @@ export function shutdownTraceViewerV2() {
     window.removeEventListener(type, listener);
   }
   registeredEventListeners.length = 0;
+  activeResolution = null;
 }
 
 async function getWebGpuDevice(): Promise<GPUDevice> {
@@ -509,6 +511,19 @@ export function updateUrlWithResolution(
         resolution = Math.round(viewerWidth / MIN_EVENT_WIDTH) * ZOOM_RATIO;
       }
     }
+  }
+
+  // If activeResolution is non-zero and close to new resolution, keep it.
+  const tolerance = 0.05; // 5% tolerance
+  if (
+    activeResolution !== null &&
+    activeResolution > 0 &&
+    resolution > 0 &&
+    Math.abs(resolution - activeResolution) / activeResolution < tolerance
+  ) {
+    resolution = activeResolution;
+  } else {
+    activeResolution = resolution;
   }
 
   params.set(TRACE_VIEW_OPTION.RESOLUTION, resolution.toString());
@@ -800,6 +815,7 @@ export async function traceViewerV2Main(
     if (!traceviewerModule) return;
 
     currentLoadingPromise = (async () => {
+      let loadSuccessful = false;
       try {
         window.dispatchEvent(
           new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
@@ -890,6 +906,7 @@ export async function traceViewerV2Main(
             detail: {status: TraceViewerV2LoadingStatus.IDLE},
           }),
         );
+        loadSuccessful = true;
       } catch (e) {
         console.error('Error processing file:', e);
         const error = e as Error;
@@ -902,7 +919,7 @@ export async function traceViewerV2Main(
           }),
         );
       } finally {
-        if (url === currentDataUrl) {
+        if (!loadSuccessful && url === currentDataUrl) {
           currentLoadingPromise = null;
         }
       }

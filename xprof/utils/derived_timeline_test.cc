@@ -734,6 +734,34 @@ TEST(DerivedTimelineTest, MultiThreadedTensorCorePlaneProcessing) {
   }
 }
 
+TEST(DerivedTimelineTest, CycleDetectionTest) {
+  XSpace space;
+  XPlane* plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  XPlaneBuilder plane_builder(plane);
+  auto line_builder = plane_builder.GetOrCreateLine(0);
+
+  // Add an event with a scope_range_id.
+  CreateXEvent(&plane_builder, &line_builder, "kernel", 0, 100,
+               {{StatType::kHloModule, "Module"},
+                {StatType::kKernelDetails, "Details"},
+                {StatType::kScopeRangeId, XStatValue{int64_t{10}}}});
+
+  ScopeRangeIdTree scope_range_id_tree;
+  scope_range_id_tree[10] = 20;
+  scope_range_id_tree[20] = 10;  // Cycle
+
+  SymbolResolver symbol_resolver = [](std::optional<uint64_t> program_id,
+                                      absl::string_view hlo_module_name,
+                                      absl::string_view hlo_op) {
+    return Symbol{hlo_module_name, "", ""};
+  };
+
+  // This should finish without hanging/OOM.
+  DeriveEventsFromAnnotations(symbol_resolver, plane, &scope_range_id_tree);
+
+  SUCCEED();
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

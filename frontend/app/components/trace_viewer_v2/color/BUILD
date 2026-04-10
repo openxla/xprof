@@ -14,9 +14,9 @@ wasm_cc_library(
     ],
     deps = [
         "@com_google_absl//absl/base:no_destructor",
-        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@imgui",
+        "@tsl//tsl/platform:fingerprint",
     ],
 )
 

@@ -24,7 +24,6 @@
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
-#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -940,6 +939,31 @@ TEST(TimelineTest, RevealEventOutOfView) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 1000.0);
 }
 
+TEST(TimelineTest, RevealEventOutOfViewRight) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10000.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 20000.0});
+  timeline.SetVisibleRange({0.0, 5000.0});
+
+  timeline.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 5010);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 10010);
+}
+
 TEST(TimelineTest, ZoomEvent) {
   Timeline timeline;
   FlameChartTimelineData data;
@@ -1254,6 +1278,27 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
   EXPECT_DOUBLE_EQ(
       std::any_cast<double>(received_data.at(std::string(kFetchDataEnd))),
       MicrosToMillis(5000600.0));
+}
+
+TEST(TimelineTest, MaybeRequestDataDoesNotRefetchWhenZoomAtBoundary) {
+  Timeline timeline;
+  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.set_fetched_data_time_range({0.0, 24000.0});
+  timeline.set_is_incremental_loading(false);
+
+  timeline.SetVisibleRange({10000.0, 11000.0});
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  timeline.MaybeRequestData();
+
+  EXPECT_FALSE(request_triggered);
 }
 
 TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
@@ -4802,26 +4847,120 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
   EXPECT_NEAR(timeline_.visible_range().start(), expected_start, 0.001);
 }
 
-TEST(TimelineTest, MaybeRequestDataDoesNotRefetchWhenZoomAtBoundary) {
-  Timeline timeline;
-  const TimeRange data_range = {0.0, 1000.0};
-  timeline.set_data_time_range(data_range);
-  timeline.set_fetched_data_time_range(data_range);
-  timeline.set_is_incremental_loading(false);
-  timeline.InitializeLastFetchRequestRange(data_range);
+TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(100);  // High level to trigger scrolling
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.events_by_level.resize(101);
+  data.events_by_level[100].push_back(0);
 
-  bool request_triggered = false;
-  timeline.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-        }
-      });
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
 
-  timeline.SetVisibleRange({0.0, 100.0});
-  timeline.MaybeRequestData();
+  SimulateFrame();
+  SimulateFrame();
 
-  EXPECT_FALSE(request_triggered);
+  timeline_.RevealEvent(0);
+  // Simulate frames with Render() to ensure layout is processed
+  for (int i = 0; i < 3; ++i) {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+
+  ASSERT_NE(tracks_window, nullptr);
+  EXPECT_GT(tracks_window->Scroll.y, 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomEventInvalidIndexReturnsEarly) {
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  timeline_.SetTimelineData(std::move(data));
+
+  timeline_.ZoomEvent(-1);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+
+  timeline_.ZoomEvent(1);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventInvalidIndexReturnsEarly) {
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  timeline_.SetTimelineData(std::move(data));
+
+  timeline_.RevealEvent(-1);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+
+  timeline_.RevealEvent(1);
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.events_by_level.resize(1);
+  data.events_by_level[0].push_back(0);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({-1000.0, 20000.0});
+
+  timeline_.SetVisibleRange({500.0, 10500.0}, /*animate=*/false);
+
+  SimulateFrame();
+
+  timeline_.ZoomEvent(0);
+  // Complete the animation to reach the target visible range.
+  Animation::UpdateAll(1.0f);
+
+  // Event duration is 1.0.
+  // min_visible_width_time depends on the current px_per_time_unit.
+  // Initial visible range {500.0, 10500.0}, width ~1670px.
+  // px_per_time_unit = 1670 / 10000 = 0.167.
+  // min_visible_width_time (30px) = 30.0 / 0.167 = 179.64.
+  // The event duration is 1.0. The base duration for zooming is
+  // max(1.0, 179.64) = 179.64.
+  // This base duration is multiplied by kEventNavigationZoomScale (20.0)
+  // giving 3592.8.
+  // The final visible range duration is clamped by
+  // kEventNavigationMaxDurationMicros (10000.0). Since 3592.8 < 10000.0,
+  // the clamped duration would normally be 3592.8. However, because the
+  // initial visible range duration (10000.0) is greater than this, the
+  // visible range duration remains at 10000.0.
+  // The event is at [100.0, 101.0], center 100.5. The visible range is adjusted
+  // to be centered around the event, while maintaining the 10000.0 duration.
+  // New center = 100.5. Duration = 10000.0.
+  // New range = [100.5 - 5000.0, 100.5 + 5000.0] = [-4899.5, 5100.5].
+  // This range is then constrained by the data_time_range {-1000.0, 20000.0}.
+  // The start is clamped to -1000.0. The end becomes -1000.0 + 10000.0 =
+  // 9000.0.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), -1000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 9000.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 10000.0);
 }
 
 TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
@@ -5092,6 +5231,132 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
 
   EXPECT_GT(redraw_count, 0);
   EXPECT_EQ(redraw_count, 1);
+}
+
+TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Event 0 at level 5
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(5);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1 at level 50 to force content size to be larger than scroll target.
+  data.entry_names.push_back("event_dummy");
+  data.entry_levels.push_back(50);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  data.events_by_level.resize(51);
+  data.events_by_level[5].push_back(0);
+  data.events_by_level[50].push_back(1);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  SimulateFrame();
+  SimulateFrame();
+
+  // Set display size to a small value to force scrolling
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  // Set initial scroll to a large value (500.0f) to ensure event 0 (level 5) is
+  // above viewport.
+  tracks_window->Scroll.y = 500.0f;
+
+  timeline_.RevealEvent(0);
+
+  // Simulate frames with Render() to ensure layout is processed
+  for (int i = 0; i < 3; ++i) {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+
+  // Expect scroll to go to y_top of level 5.
+  EXPECT_NEAR(tracks_window->Scroll.y, 122.0f, 0.1f);
+}
+
+TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  // Event 0 is at level 30
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(30);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1 is at level 50, increasing content height to avoid clamp
+  data.entry_names.push_back("event_dummy");
+  data.entry_levels.push_back(50);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  data.events_by_level.resize(51);
+  data.events_by_level[30].push_back(0);
+  data.events_by_level[50].push_back(1);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  SimulateFrame();
+  SimulateFrame();
+
+  // Force viewport height to 200 to trigger scrolling.
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(tracks_window, nullptr);
+
+  // Set initial scroll to 100.0f to avoid 0 and edge cases as preferred.
+  tracks_window->Scroll.y = 100.0f;
+
+  // Reveal event 0 (at level 30).
+  timeline_.RevealEvent(0);
+
+  // Render a few frames to process pending scroll.
+  for (int i = 0; i < 3; ++i) {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+
+  // With dummy event at level 50, the content is tall enough to avoid clamp
+  // limit. Target scroll is calculated exactly to 565.0f based on level 30.
+  // Reduced tolerance to 0.1f to kill mutant at line 2067.
+  EXPECT_NEAR(tracks_window->Scroll.y, 565.0f, 0.1f);
 }
 
 }  // namespace

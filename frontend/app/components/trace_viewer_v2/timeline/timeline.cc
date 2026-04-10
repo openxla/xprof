@@ -505,9 +505,15 @@ void Timeline::Draw() {
   }
 
   // Create a dummy at the end to ensure the Tracks child has the right
-  // scrolling height
-  ImGui::SetCursorPos(ImVec2(0, tracks_start_pos.y + group_offsets_.back()));
-  ImGui::Dummy(ImVec2(content_region_avail_width, 0));
+  // scrolling height. We position the top of a 1px high dummy at
+  // `group_offsets_.back() - 1.0f`. This means the bottom of the dummy is
+  // exactly at `group_offsets_.back()`, ensuring the content size of the
+  // child window matches the total calculated height from group offsets.
+  // Using a 1px dummy instead of a 0-height dummy helps avoid potential issues
+  // with ImGui's `ItemSpacing` adding extra space around zero-sized items.
+  ImGui::SetCursorPos(
+      ImVec2(0, tracks_start_pos.y + group_offsets_.back() - 1.0f));
+  ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
 
   // Handle label resizing manually since we removed the table
   ImGui::SetCursorPos(ImVec2(
@@ -547,6 +553,8 @@ void Timeline::Draw() {
   if (!is_interacting) {
     MaybeRequestData();
   }
+
+  ProcessPendingScroll();
 
   ImGui::EndChild();
 
@@ -801,6 +809,7 @@ void Timeline::RevealEvent(int event_index) {
   }
 
   selected_event_index_ = event_index;
+  event_index_to_scroll_to_ = event_index;
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   Microseconds event_duration = timeline_data_.entry_total_times[event_index];
@@ -845,6 +854,7 @@ void Timeline::ZoomEvent(int event_index) {
   }
 
   selected_event_index_ = event_index;
+  event_index_to_scroll_to_ = event_index;
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   const Microseconds event_duration =
@@ -2021,6 +2031,54 @@ bool Timeline::HandleWheel() {
   if (vertical_scroll_delta != 0.0f) Scroll(vertical_scroll_delta);
 
   return true;
+}
+
+// Checks if there is a pending request to vertically scroll to a specific
+// event, and sets next window scroll to make it visible if it's out of view.
+void Timeline::ProcessPendingScroll() {
+  // Check if there is a pending request to scroll to an event.
+  if (event_index_to_scroll_to_ < 0) return;
+
+  int level = timeline_data_.entry_levels[event_index_to_scroll_to_];
+  if (level < 0 || level >= visible_level_offsets_.size()) return;
+
+  Pixel y_center = visible_level_offsets_[level];
+  Pixel y_top = y_center - kEventHeight * 0.5f;
+  Pixel y_bottom = y_center + kEventHeight * 0.5f;
+  Pixel window_height = ImGui::GetWindowHeight();
+  Pixel current_scroll_y = ImGui::GetScrollY();
+
+  // Default target scroll position is current scroll position.
+  Pixel target_scroll_y = current_scroll_y;
+
+  // Check if the event is already fully visible.
+  bool is_fully_visible = (y_top >= current_scroll_y) &&
+                          (y_bottom <= current_scroll_y + window_height);
+
+  if (is_fully_visible) {
+    // Event is fully visible, no need to scroll.
+  } else if (y_top < current_scroll_y) {
+    // Case A: Event is above the current viewport, scroll up until top is
+    // visible.
+    target_scroll_y = y_top;
+  } else if (y_bottom > current_scroll_y + window_height) {
+    // Case B: Event is below the current viewport, scroll down until bottom
+    // is visible.
+    target_scroll_y = y_bottom - window_height;
+  }
+
+  // Ensure scroll value is not negative.
+  target_scroll_y = std::max(0.0f, target_scroll_y);
+
+  // Trigger scroll if target position changed.
+  if (target_scroll_y != current_scroll_y) {
+    ImGui::SetScrollY(target_scroll_y);
+    // Request a redraw to ensure the UI updates immediately after scrolling.
+    if (redraw_callback_) redraw_callback_();
+  }
+
+  // Reset request flag to prevent repeated scrolling.
+  event_index_to_scroll_to_ = -1;
 }
 
 void Timeline::HandleEventDeselection() {

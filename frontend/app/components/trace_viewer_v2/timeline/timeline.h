@@ -422,6 +422,9 @@ class Timeline {
   // Returns true if any interaction occurred.
   bool HandleWheel();
 
+  // Processes any pending vertical scroll request to reveal a specific event.
+  void ProcessPendingScroll();
+
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
 
@@ -456,6 +459,7 @@ class Timeline {
   // The width of the timeline track area in pixels. Calculated in Draw() and
   // cached for use in interaction handlers (Zoom, Pan).
   Pixel current_timeline_width_ = 0.0f;
+
   ImVec2 tracks_start_screen_pos_ = {0.0f, 0.0f};
   // Whether the user is currently resizing the label column.
   bool is_resizing_label_column_ = false;
@@ -515,6 +519,9 @@ class Timeline {
   MouseMode mouse_mode_ = MouseMode::kPan;
 
   bool mpmd_pipeline_view_enabled_ = false;
+
+  // The index of the event to scroll to in the next Draw call.
+  int event_index_to_scroll_to_ = -1;
 
   std::vector<TimeRange> selected_time_ranges_;
 

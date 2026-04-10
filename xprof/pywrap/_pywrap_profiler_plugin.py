@@ -111,8 +111,7 @@ def _pack_options(options: Mapping[str, Any] | None) -> PackedOptions:
         keep_alive=[],
     )
 
-  # Filter out None values and complex types (lists, tuples, dicts), matching
-  # the old pybind11 behavior of ignoring them.
+  # Filter out None values and complex types (lists, tuples, dicts).
   options = {
       k: v
       for k, v in options.items()

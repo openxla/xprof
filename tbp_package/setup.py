@@ -50,7 +50,7 @@ setuptools.setup(
     + setuptools.find_namespace_packages(
         include=['xprof.*'],
     ),
-    python_requires='>= 2.7, != 3.0.*, != 3.1.*',
+    python_requires='>= 3.10',
     author='Google Inc.',
     author_email='packages@tensorflow.org',
     url='https://github.com/openxla/xprof',

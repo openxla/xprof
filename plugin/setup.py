@@ -81,7 +81,7 @@ setuptools.setup(
             'xprof = xprof.server:main',
         ],
     },
-    python_requires='>= 2.7, != 3.0.*, != 3.1.*',
+    python_requires='>= 3.10',
     install_requires=REQUIRED_PACKAGES,
     tests_require=REQUIRED_PACKAGES,
     # PyPI package information.
@@ -90,7 +90,6 @@ setuptools.setup(
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
-        'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 3',
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Software Development :: Libraries :: Python Modules',

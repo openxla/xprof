@@ -21,6 +21,21 @@ import setuptools
 
 from xprof import version
 
+try:
+  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+
+  class CustomBdistWheel(_bdist_wheel):
+
+    def finalize_options(self):
+      _bdist_wheel.finalize_options(self)
+      self.root_is_pure = False
+
+    def get_tag(self):
+      return ('py3', 'none') + _bdist_wheel.get_tag(self)[2:]
+
+except ImportError:
+  CustomBdistWheel = None  # pylint: disable=invalid-name
+
 
 PROJECT_NAME = 'xprof'
 VERSION = version.__version__
@@ -42,11 +57,9 @@ def get_readme():
     return f.read()
 
 
-class BinaryDistribution(setuptools.Distribution):
-
-  def has_ext_modules(self):
-    del self  # Unused by BinaryDistribution.
-    return True
+cmdclass = {}
+if CustomBdistWheel:
+  cmdclass['bdist_wheel'] = CustomBdistWheel
 
 
 setuptools.setup(
@@ -63,7 +76,6 @@ setuptools.setup(
         include=['xprof.*'],
         exclude=['xprof.static'],
     ),
-    distclass=BinaryDistribution,
     package_data={
         'xprof': [
             'static/**',
@@ -81,6 +93,7 @@ setuptools.setup(
             'xprof = xprof.server:main',
         ],
     },
+    cmdclass=cmdclass,
     python_requires='>= 3.10',
     install_requires=REQUIRED_PACKAGES,
     tests_require=REQUIRED_PACKAGES,

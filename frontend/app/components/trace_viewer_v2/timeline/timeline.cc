@@ -1469,6 +1469,24 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                          group_height);
       }
     } else if (group.type == Group::Type::kFlame) {
+      if (group.nesting_level == kProcessNestingLevel) {
+        ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+        if (draw_list) {
+          // Find the next group that is NOT a child of the current group to
+          // determine the end level for the utilization chart.
+          int proc_end_level = timeline_data_.events_by_level.size();
+          for (size_t i = group_index + 1; i < timeline_data_.groups.size();
+               ++i) {
+            if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
+              proc_end_level = timeline_data_.groups[i].start_level;
+              break;
+            }
+          }
+          DrawUtilizationAreaChart(start_level, proc_end_level,
+                                   px_per_time_unit_val, pos, group_height,
+                                   draw_list);
+        }
+      }
       for (int level = start_level; level < end_level; ++level) {
         // This is a sanity check to ensure the level is within the bounds of
         // events_by_level.

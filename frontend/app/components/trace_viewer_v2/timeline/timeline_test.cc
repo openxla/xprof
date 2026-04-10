@@ -3484,6 +3484,75 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
+  FlameChartTimelineData data;
+  // Group 0: Process track at nesting level 0
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Track",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = false});
+  // Group 1: Next track at same nesting level, starts at level 1.
+  // This will cause the loop in timeline.cc to break and set end_level to 1.
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Next Track",
+                         .start_level = 1,
+                         .nesting_level = 0,
+                         .expanded = false});
+
+  data.events_by_level.push_back({0});  // Level 0 has event 0
+  data.events_by_level.push_back({1});  // Level 1 has event 1
+
+  // Event 0 on level 0
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1 on level 1
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(1);
+  data.entry_start_times.push_back(40.0);
+  data.entry_total_times.push_back(20.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* utilization_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Track_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      utilization_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(utilization_window, nullptr);
+
+  // We count the total number of vertices instead of just checking for
+  // existence (as found_utilization_rect did) because mutants can cause extra
+  // shapes to be drawn (e.g., by incorrectly processing deeper levels).
+  // Counting allows us to detect these incorrect additions.
+  int blue_vtx_count = 0;
+  for (const auto& vtx : utilization_window->DrawList->VtxBuffer) {
+    if (vtx.col == 0xFFF7AA7B) {
+      blue_vtx_count++;
+    }
+  }
+
+  // We expect a specific number of vertices for level 0 only.
+  // If any mutant causes level 1 to be processed, this count will increase.
+  EXPECT_EQ(blue_vtx_count, 1328);
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   FlameChartTimelineData data;
   data.groups.push_back({.type = Group::Type::kCounter,

@@ -9,7 +9,6 @@ import enum
 import glob
 import itertools
 import os
-import threading
 from typing import Any
 
 
@@ -42,7 +41,6 @@ class PackedOptions:
   keep_alive: list[bytes]
 
 
-# Look for the fully-linked shared library and skip any .abi3.so stubs.
 _lib_paths = tuple(
     p
     for p in itertools.chain.from_iterable(
@@ -54,7 +52,6 @@ _lib_paths = tuple(
             "profiler_plugin_c_api*.dll",
         )
     )
-    if ".abi3." not in p
 )
 
 if not _lib_paths:
@@ -64,20 +61,11 @@ if not _lib_paths:
 
 _lib = ctypes.CDLL(
     sorted(_lib_paths)[0],
-    mode=ctypes.RTLD_LOCAL | getattr(os, "RTLD_DEEPBIND", 0),
+    mode=getattr(os, "RTLD_LAZY", 1)
+    | ctypes.RTLD_LOCAL
+    | getattr(os, "RTLD_DEEPBIND", 0),
 )
-
-_initialized_lock = threading.Lock()
-_initialized = False
-
-
-def _ensure_initialized() -> None:
-  global _initialized
-  if not _initialized:
-    with _initialized_lock:
-      if not _initialized:
-        _lib.InitializeProfiler()
-        _initialized = True
+LIB_PATH = sorted(_lib_paths)[0]
 
 
 _lib.FreeString.argtypes = [ctypes.c_void_p]
@@ -196,7 +184,6 @@ def trace(
     num_tracing_attempts: Number of tracing attempts.
     options: Dictionary of options to pass to the C API.
   """
-  _ensure_initialized()
   packed = _pack_options(options)
   err = _lib.Trace(
       service_addr.encode() if service_addr else None,
@@ -244,7 +231,6 @@ def monitor(
   Returns:
     The monitoring results as a string.
   """
-  _ensure_initialized()
   content_ptr = ctypes.c_void_p()
   err = _lib.Monitor(
       service_addr.encode() if service_addr else None,
@@ -284,7 +270,6 @@ def start_continuous_profiling(
     service_addr: Address of the profiler service.
     options: Dictionary of options.
   """
-  _ensure_initialized()
   packed = _pack_options(options)
   err = _lib.StartContinuousProfiling(
       service_addr.encode() if service_addr else None,
@@ -305,7 +290,6 @@ _lib.StopContinuousProfiling.restype = ctypes.c_void_p
 
 
 def stop_continuous_profiling(service_addr: str) -> None:
-  _ensure_initialized()
   err = _lib.StopContinuousProfiling(
       service_addr.encode() if service_addr else None
   )
@@ -317,7 +301,6 @@ _lib.GetSnapshot.restype = ctypes.c_void_p
 
 
 def get_snapshot(service_addr: str, logdir: str) -> None:
-  _ensure_initialized()
   err = _lib.GetSnapshot(
       service_addr.encode() if service_addr else None,
       logdir.encode() if logdir else None,
@@ -359,7 +342,6 @@ def xspace_to_tools_data(
     tools data as bytes, and success_flag is True if the conversion was
     successful.
   """
-  _ensure_initialized()
   packed = _pack_options(options or {})
 
   c_paths = (ctypes.c_char_p * len(xspace_paths))()
@@ -434,7 +416,6 @@ def xspace_to_tools_data_from_byte_string(
   Returns:
     A tuple of (result_bytes, success_flag).
   """
-  _ensure_initialized()
   packed = _pack_options(options or {})
 
   num_xspaces = len(xspace_strings)
@@ -491,7 +472,6 @@ _lib.StartGrpcServer.restype = None
 
 
 def start_grpc_server(port: int, max_concurrent_requests: int) -> None:
-  _ensure_initialized()
   _lib.StartGrpcServer(port, max_concurrent_requests)
 
 
@@ -500,7 +480,6 @@ _lib.InitializeStubs.restype = None
 
 
 def initialize_stubs(worker_service_addresses: str) -> None:
-  _ensure_initialized()
   _lib.InitializeStubs(
       worker_service_addresses.encode() if worker_service_addresses else None
   )

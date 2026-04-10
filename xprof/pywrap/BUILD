@@ -1,6 +1,7 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:defs.bzl", "py_library")
+load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_test")
 
 package(default_visibility = ["//visibility:public"])

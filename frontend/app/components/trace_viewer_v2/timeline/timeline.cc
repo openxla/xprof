@@ -810,6 +810,7 @@ void Timeline::RevealEvent(int event_index) {
 
   selected_event_index_ = event_index;
   event_index_to_scroll_to_ = event_index;
+  ExpandRelatedTracks(event_index);
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   Microseconds event_duration = timeline_data_.entry_total_times[event_index];
@@ -874,6 +875,44 @@ void Timeline::ZoomEvent(int event_index) {
   SetVisibleRange(new_range, /*animate=*/true);
 
   EmitEventSelected(event_index);
+}
+
+void Timeline::ExpandRelatedTracks(int event_index) {
+  int level = timeline_data_.entry_levels[event_index];
+  int group_index = -1;
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    int next_group_start_level =
+        (i + 1 < timeline_data_.groups.size())
+            ? timeline_data_.groups[i + 1].start_level
+            : static_cast<int>(timeline_data_.events_by_level.size());
+    if (level >= timeline_data_.groups[i].start_level &&
+        level < next_group_start_level) {
+      group_index = i;
+      break;
+    }
+  }
+
+  if (group_index != -1) {
+    bool changed = false;
+    if (!timeline_data_.groups[group_index].expanded) {
+      timeline_data_.groups[group_index].expanded = true;
+      changed = true;
+    }
+    int current_nesting = timeline_data_.groups[group_index].nesting_level;
+    for (int i = group_index - 1; i >= 0 && current_nesting > 0; --i) {
+      if (timeline_data_.groups[i].nesting_level < current_nesting) {
+        if (!timeline_data_.groups[i].expanded) {
+          timeline_data_.groups[i].expanded = true;
+          changed = true;
+        }
+        current_nesting = timeline_data_.groups[i].nesting_level;
+      }
+    }
+    if (changed) {
+      UpdateLevelPositions(timeline_data_);
+      if (redraw_callback_) redraw_callback_();
+    }
+  }
 }
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,

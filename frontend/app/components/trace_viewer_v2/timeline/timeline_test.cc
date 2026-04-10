@@ -775,6 +775,41 @@ TEST(TimelineTest, RevealEventOutToRight) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 50.0);
 }
 
+TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = false});
+  data.groups.push_back({.name = "Thread 1",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = false});
+
+  data.events_by_level.resize(2);
+  data.events_by_level[1].push_back(0);
+
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(1);
+  data.entry_start_times.push_back(50.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  EXPECT_FALSE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[1].expanded);
+
+  timeline.RevealEvent(0);
+
+  EXPECT_TRUE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[1].expanded);
+}
+
 TEST(TimelineTest, RevealEventInvalidIndexNegative) {
   Timeline timeline;
   FlameChartTimelineData data;

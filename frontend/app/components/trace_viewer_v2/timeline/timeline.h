@@ -249,6 +249,9 @@ class Timeline {
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
 
+  // Expands the minimum necessary tracks to make the event visible.
+  void ExpandRelatedTracks(int event_index);
+
   // Calculates the screen coordinates of the rectangle for an event.
   EventRect CalculateEventRect(Microseconds start, Microseconds end,
                                Pixel screen_x_offset, Pixel screen_y_offset,

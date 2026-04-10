@@ -37,6 +37,12 @@ except ImportError:
   CustomBdistWheel = None  # pylint: disable=invalid-name
 
 
+class BinaryDistribution(setuptools.Distribution):
+
+  def has_ext_modules(self):
+    return True
+
+
 PROJECT_NAME = 'xprof'
 VERSION = version.__version__
 REQUIRED_PACKAGES = [
@@ -65,6 +71,7 @@ if CustomBdistWheel:
 setuptools.setup(
     name=PROJECT_NAME,
     version=VERSION,
+    distclass=BinaryDistribution,
     description='XProf Profiler Plugin',
     long_description=get_readme(),
     long_description_content_type='text/markdown',

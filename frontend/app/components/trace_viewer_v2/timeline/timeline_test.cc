@@ -798,6 +798,82 @@ TEST(TimelineTest, RevealEventOutToRight) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 50.0);
 }
 
+TEST(TimelineTest, RevealEventInvalidIndexNegative) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  bool callback_called = false;
+  timeline.set_event_callback([&callback_called](absl::string_view event_type,
+                                                 const EventData& detail) {
+    if (event_type == kEventSelected) {
+      callback_called = true;
+    }
+  });
+
+  timeline.RevealEvent(-1);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_FALSE(callback_called);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, RevealEventInvalidIndexOutOfBounds) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  bool callback_called = false;
+  timeline.set_event_callback([&callback_called](absl::string_view event_type,
+                                                 const EventData& detail) {
+    if (event_type == kEventSelected) {
+      callback_called = true;
+    }
+  });
+
+  timeline.RevealEvent(1);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_FALSE(callback_called);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, RevealEventInvalidIndexMismatchedSizes) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  bool callback_called = false;
+  timeline.set_event_callback([&callback_called](absl::string_view event_type,
+                                                 const EventData& detail) {
+    if (event_type == kEventSelected) {
+      callback_called = true;
+    }
+  });
+
+  timeline.RevealEvent(1);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_FALSE(callback_called);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
 TEST(TimelineTest, RevealEventOutOfView) {
   Timeline timeline;
   FlameChartTimelineData data;
@@ -822,6 +898,135 @@ TEST(TimelineTest, RevealEventOutOfView) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 100);
   EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 1100);
   EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 1000.0);
+}
+
+TEST(TimelineTest, ZoomEvent) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10000.0);
+  data.entry_total_times.push_back(1000.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 30000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  bool callback_called = false;
+  timeline.set_event_callback(
+      [&callback_called](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventSelected) {
+          callback_called = true;
+        }
+      });
+
+  timeline.ZoomEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  // event 0 is 10000-11000, center is 10500.
+  // duration is clamp(1000*20, 10000, 5000000) = 20000.
+  // new_range center=10500, duration=20000 -> [500, 20500].
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 500);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 20500);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 20000.0);
+  EXPECT_TRUE(callback_called);
+}
+
+TEST(TimelineTest, ZoomEventInvalidIndex) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  // Invalid negative index
+  timeline.ZoomEvent(-1);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+
+  // Invalid out of bounds index
+  timeline.ZoomEvent(1);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+}
+
+TEST(TimelineTest, RevealEventInvalidIndex) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  // Invalid negative index
+  timeline.RevealEvent(-1);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+
+  // Invalid out of bounds index
+  timeline.RevealEvent(1);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+}
+
+TEST(TimelineTest, RevealEventTriggersCallback) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  bool callback_called = false;
+  timeline.set_event_callback(
+      [&callback_called](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventSelected) {
+          callback_called = true;
+        }
+      });
+
+  timeline.RevealEvent(0);
+
+  EXPECT_TRUE(callback_called);
+}
+
+TEST(TimelineTest, RevealEventUnequalSizes) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  // entry_total_times is empty!
+
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  // Index 0 is valid for start_times but invalid for total_times
+  timeline.RevealEvent(0);
+
+  // Verify it returned early and didn't change anything
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
 }
 
 TEST(TimelineTest, RevealEventOutToRightLarge) {

@@ -937,6 +937,36 @@ void Timeline::RevealEvent(int event_index) {
   EmitEventSelected(event_index);
 }
 
+void Timeline::ZoomEvent(int event_index) {
+  if (event_index < 0 ||
+      event_index >= timeline_data_.entry_start_times.size() ||
+      event_index >= timeline_data_.entry_total_times.size()) {
+    LOG(ERROR) << "Invalid event index: " << event_index;
+    return;
+  }
+
+  selected_event_index_ = event_index;
+
+  const Microseconds start = timeline_data_.entry_start_times[event_index];
+  const Microseconds event_duration =
+      timeline_data_.entry_total_times[event_index];
+  // When navigating to an event, set the visible duration to 20 times the
+  // event's duration to provide context around the event. Clamp the
+  // duration between 10ms and 5s to prevent zooming in too far on
+  // short events or zooming out too far on long events.
+  const Microseconds duration =
+      std::max(kEventNavigationMinDurationMicros,
+               std::min(event_duration * kEventNavigationZoomFactor,
+                        kEventNavigationMaxDurationMicros));
+  const Microseconds center = start + event_duration / 2.0;
+  TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+  ConstrainTimeRange(new_range);
+
+  SetVisibleRange(new_range, /*animate=*/true);
+
+  EmitEventSelected(event_index);
+}
+
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,
                                             ImVec2& cp0, ImVec2& cp1) {

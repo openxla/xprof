@@ -289,6 +289,9 @@ class Timeline {
   // without altering the zoom level.
   void RevealEvent(int event_index);
 
+  // Navigates to and selects the event with the given index, zooming to it.
+  void ZoomEvent(int event_index);
+
   void NavigateToNextSearchResult();
   void NavigateToPrevSearchResult();
 

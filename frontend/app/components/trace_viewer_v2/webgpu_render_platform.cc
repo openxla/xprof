@@ -51,8 +51,6 @@ void WGPURenderPlatform::Init(const CanvasState& canvas_state) {
 }
 
 void WGPURenderPlatform::ResizeSurface(const CanvasState& canvas_state) {
-  ImGui_ImplWGPU_InvalidateDeviceObjects();
-
   const ImVec2 size = canvas_state.physical_pixels();
   // WebGPU surface configuration requires dimensions in physical pixels.
   // This ensures the underlying framebuffer is sized correctly for the
@@ -61,6 +59,10 @@ void WGPURenderPlatform::ResizeSurface(const CanvasState& canvas_state) {
   surface_config_.width = size.x;
   surface_config_.height = size.y;
   surface_.Configure(&surface_config_);
+
+  // Note: We do NOT call ImGui_ImplWGPU_InvalidateDeviceObjects() here.
+  // Doing so would destroy and recreate all WebGPU resources (like the font
+  // texture) on every resize, causing significant flickering.
 
   InitMultisampleTexture();
 }

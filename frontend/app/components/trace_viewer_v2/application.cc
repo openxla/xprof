@@ -224,15 +224,23 @@ void Application::SetVisibleFlowCategories(
 }
 
 void Application::Resize(float dpr, int width, int height) {
+  float old_dpr = CanvasState::Current().device_pixel_ratio();
+
   CanvasState::SetState(dpr, width, height);
   const CanvasState& canvas_state = CanvasState::Current();
   platform_->ResizeSurface(canvas_state);
 
   UpdateImGuiDisplaySize(canvas_state);
-  fonts::LoadFonts(canvas_state.device_pixel_ratio());
 
-  // Force a redraw immediately to avoid flashing/blank canvas.
-  RequestRedraw();
+  if (dpr != old_dpr) {
+    fonts::LoadFonts(canvas_state.device_pixel_ratio());
+  }
+
+  // Trigger an immediate synchronous redraw instead of waiting for the next
+  // animation frame via RequestRedraw(). This ensures the canvas is updated in
+  // the same event loop tick as the resize, preventing a blank or stretched
+  // frame from being displayed (flicker).
+  MainLoop();
 }
 
 }  // namespace traceviewer

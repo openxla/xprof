@@ -79,37 +79,6 @@ TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
   EXPECT_TRUE(redraw_called);
 }
 
-TEST(TimelineTest, SetTimelineDataRevealsPendingEvent) {
-  Timeline timeline;
-  timeline.SetSearchQuery("foo");
-
-  ParsedTraceEvents search_results;
-  search_results.flame_events.push_back({.ph = Phase::kComplete,
-                                         .event_id = 123,
-                                         .pid = 1,
-                                         .tid = 1,
-                                         .ts = 100.0,
-                                         .dur = 10.0});
-  timeline.SetSearchResults(search_results);
-
-  timeline.NavigateToNextSearchResult();
-
-  FlameChartTimelineData data;
-  data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
-  data.entry_names.push_back("event0");
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(100.0);
-  data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_args.push_back({});
-  data.entry_event_ids.push_back(123);
-
-  timeline.SetTimelineData(std::move(data));
-
-  EXPECT_EQ(timeline.selected_event_index(), 0);
-}
-
 TEST(TimelineTest, SetVisibleRange) {
   Timeline timeline;
   TimeRange range(10.0, 50.0);
@@ -118,16 +87,6 @@ TEST(TimelineTest, SetVisibleRange) {
 
   EXPECT_EQ(timeline.visible_range().start(), 10.0);
   EXPECT_EQ(timeline.visible_range().end(), 50.0);
-}
-
-TEST(TimelineTest, SetSearchQueryTriggersRedraw) {
-  Timeline timeline;
-  bool redraw_called = false;
-  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
-
-  timeline.SetSearchQuery("test");
-
-  EXPECT_TRUE(redraw_called);
 }
 
 TEST(TimelineTest, SetVisibleFlowCategoriesTriggersRedraw) {
@@ -150,13 +109,32 @@ TEST(TimelineTest, SetVisibleRangeTriggersRedraw) {
   EXPECT_TRUE(redraw_called);
 }
 
-TEST(TimelineTest, SetSearchResultsTriggersRedraw) {
+TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("apple");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("apple");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+
   bool redraw_called = false;
   timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
-  timeline.SetSearchResults({});
+  timeline.SetSearchQuery("");
 
+  EXPECT_EQ(timeline.get_search_results_count(), 0);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
   EXPECT_TRUE(redraw_called);
 }
 
@@ -874,6 +852,68 @@ TEST(TimelineTest, RevealEventInvalidIndexMismatchedSizes) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
 }
 
+TEST(TimelineTest, ZoomEventInvalidIndexNegative) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  timeline.ZoomEvent(-1);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, ZoomEventInvalidIndexOutOfBounds) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  timeline.ZoomEvent(1);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  timeline.ZoomEvent(1);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes_StartTimesShorter) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(20.0);
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 50.0});
+
+  timeline.ZoomEvent(1);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
 TEST(TimelineTest, RevealEventOutOfView) {
   Timeline timeline;
   FlameChartTimelineData data;
@@ -1027,6 +1067,88 @@ TEST(TimelineTest, RevealEventUnequalSizes) {
 
   // Verify it returned early and didn't change anything
   EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
+}
+
+TEST(TimelineTest, SetSearchQuery) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("apple");
+  data.entry_names.push_back("banana");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  timeline.SetSearchQuery("apple");
+  EXPECT_EQ(timeline.get_search_results_count(), 1);
+  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
+
+  timeline.SetSearchQuery("an");
+  EXPECT_EQ(timeline.get_search_results_count(),
+            0);  // "banana" does not start with "an"
+
+  timeline.SetSearchQuery("a");
+  EXPECT_EQ(timeline.get_search_results_count(),
+            1);  // only "apple" starts with "a"
+
+  timeline.SetSearchQuery("xyz");
+  EXPECT_EQ(timeline.get_search_results_count(), 0);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
+}
+
+TEST(TimelineTest, NavigateSearchQueryResult) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1});
+  data.entry_names.push_back("apple");
+  data.entry_names.push_back("apricot");
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  timeline.SetSearchQuery("ap");
+  EXPECT_EQ(timeline.get_search_results_count(), 2);
+  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 1);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 0);  // Wrap around
+
+  timeline.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 1);  // Wrap around
+
+  timeline.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
 }
 
 TEST(TimelineTest, RevealEventOutToRightLarge) {
@@ -2787,313 +2909,6 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   SimulateFrame();
 
   EXPECT_FALSE(callback_called);
-}
-
-TEST_F(RealTimelineImGuiFixture, NavigateOnEmptySearchResults) {
-  timeline_.SetSearchQuery("foo");  // no data, so no results
-
-  timeline_.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), -1);
-  timeline_.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), -1);
-}
-
-TEST_F(RealTimelineImGuiFixture, SearchQueryHighlightsMatchingEvent) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
-  data.events_by_level.push_back({1});
-  data.entry_names.push_back("event1");
-  data.entry_names.push_back("event2");
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(1);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 2};
-  data.entry_tids = {1, 2};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  timeline_.SetSearchQuery("event1");
-
-  ImGui::NewFrame();
-  timeline_.Draw();
-
-  ImGuiWindow* window = nullptr;
-  const std::string child_id = "TimelineChild_Group 1_0";
-  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
-    if (std::string(w->Name).find(child_id) != std::string::npos) {
-      window = w;
-      break;
-    }
-  }
-  ASSERT_NE(window, nullptr);
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-
-  ImGui::EndFrame();
-}
-
-TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithResults) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
-  data.entry_names.push_back("event1_foo");
-  data.entry_names.push_back("event2_bar");
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  bool search_callback_called = false;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kSearchEvents) {
-          search_callback_called = true;
-        }
-      });
-
-  timeline_.SetSearchQuery("foo");
-  EXPECT_TRUE(search_callback_called);
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-}
-
-TEST_F(RealTimelineImGuiFixture, SetSearchQueryWithNoResults) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
-  data.entry_names.push_back("event1_foo");
-  data.entry_event_ids.push_back(1);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1};
-  data.entry_tids = {1};
-  data.entry_args = {{}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  bool search_callback_called = false;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kSearchEvents) {
-          search_callback_called = true;
-        }
-      });
-
-  timeline_.SetSearchQuery("bar");
-  EXPECT_TRUE(search_callback_called);
-  EXPECT_EQ(timeline_.selected_event_index(), -1);
-}
-
-TEST_F(RealTimelineImGuiFixture, SetSearchResults) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
-  data.entry_names.push_back("event1_foo");
-  data.entry_names.push_back("event2_foo");
-  data.entry_event_ids.push_back(10);
-  data.entry_event_ids.push_back(20);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 2};
-  data.entry_tids = {1, 1};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  timeline_.SetSearchQuery("foo");
-  // With shallow search, event with pid 1 is selected.
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-
-  ParsedTraceEvents search_results;
-  search_results.flame_events.push_back({.ph = Phase::kMetadata,
-                                         .pid = 2,
-                                         .name = "process_sort_index",
-                                         .args = {{"sort_index", "0"}}});
-  search_results.flame_events.push_back({.ph = Phase::kMetadata,
-                                         .pid = 1,
-                                         .name = "process_sort_index",
-                                         .args = {{"sort_index", "1"}}});
-  search_results.flame_events.push_back({.ph = Phase::kComplete,
-                                         .event_id = 10,
-                                         .pid = 1,
-                                         .tid = 1,
-                                         .name = "event1_foo",
-                                         .ts = 10.0,
-                                         .dur = 5.0});
-  search_results.flame_events.push_back({.ph = Phase::kComplete,
-                                         .event_id = 20,
-                                         .pid = 2,
-                                         .tid = 1,
-                                         .name = "event2_foo",
-                                         .ts = 30.0,
-                                         .dur = 5.0});
-
-  timeline_.SetSearchResults(search_results);
-  timeline_.NavigateToNextSearchResult();
-  // After deep search results, pid=2 should come first due to sort order 0.
-  // Then pid=1 with sort order 1.
-  // Search result index should be 0, pointing to event with pid=2
-  EXPECT_EQ(timeline_.selected_event_index(), 1);  // event2_foo has pid 2
-  timeline_.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 0);  // event1_foo has pid 1
-}
-
-TEST_F(RealTimelineImGuiFixture, SetSearchResultsWithInvalidSortIndex) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
-  data.entry_names.push_back("event1_foo");
-  data.entry_names.push_back("event2_foo");
-  data.entry_event_ids.push_back(10);
-  data.entry_event_ids.push_back(20);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 2};
-  data.entry_tids = {1, 1};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  timeline_.SetSearchQuery("foo");
-
-  ParsedTraceEvents search_results;
-  search_results.flame_events.push_back({.ph = Phase::kMetadata,
-                                         .pid = 1,
-                                         .name = "process_sort_index",
-                                         .args = {{"sort_index", "invalid"}}});
-  search_results.flame_events.push_back({.ph = Phase::kComplete,
-                                         .event_id = 10,
-                                         .pid = 1,
-                                         .tid = 1,
-                                         .name = "event1_foo",
-                                         .ts = 10.0,
-                                         .dur = 5.0});
-  search_results.flame_events.push_back({.ph = Phase::kComplete,
-                                         .event_id = 20,
-                                         .pid = 2,
-                                         .tid = 1,
-                                         .name = "event2_foo",
-                                         .ts = 30.0,
-                                         .dur = 5.0});
-
-  timeline_.SetSearchResults(search_results);
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-  timeline_.NavigateToNextSearchResult();
-  // process_sort_index for pid 1 is invalid, so it will use pid for sorting.
-  // pid 1 will come before pid 2.
-  EXPECT_EQ(timeline_.selected_event_index(), 1);
-  timeline_.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-}
-
-TEST_F(RealTimelineImGuiFixture, NavigateToNextSearchResultWrapping) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
-  data.entry_names.push_back("event1_foo");
-  data.entry_names.push_back("event2_foo");
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  timeline_.SetSearchQuery("foo");
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-
-  timeline_.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 1);
-
-  timeline_.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-}
-
-TEST_F(RealTimelineImGuiFixture, NavigateToPrevSearchResultWrapping) {
-  FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
-  data.entry_names.push_back("event1_foo");
-  data.entry_names.push_back("event2_foo");
-  data.entry_event_ids.push_back(1);
-  data.entry_event_ids.push_back(2);
-  data.entry_levels.push_back(0);
-  data.entry_levels.push_back(0);
-  data.entry_start_times.push_back(10.0);
-  data.entry_start_times.push_back(30.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_total_times.push_back(5.0);
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
-  data.entry_args = {{}, {}};
-  timeline_.SetTimelineData(std::move(data));
-  timeline_.set_data_time_range({0.0, 100.0});
-  timeline_.SetVisibleRange({0.0, 100.0});
-
-  timeline_.SetSearchQuery("foo");
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
-
-  timeline_.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 1);
-
-  timeline_.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline_.selected_event_index(), 0);
 }
 
 TEST_F(RealTimelineImGuiFixture, DrawsTimelineWindowWhenTimelineDataIsEmpty) {
@@ -4985,6 +4800,298 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
   double expected_start = 101.0 - expected_min_window;
 
   EXPECT_NEAR(timeline_.visible_range().start(), expected_start, 0.001);
+}
+
+TEST(TimelineTest, MaybeRequestDataDoesNotRefetchWhenZoomAtBoundary) {
+  Timeline timeline;
+  const TimeRange data_range = {0.0, 1000.0};
+  timeline.set_data_time_range(data_range);
+  timeline.set_fetched_data_time_range(data_range);
+  timeline.set_is_incremental_loading(false);
+  timeline.InitializeLastFetchRequestRange(data_range);
+
+  bool request_triggered = false;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kFetchData) {
+          request_triggered = true;
+        }
+      });
+
+  timeline.SetVisibleRange({0.0, 100.0});
+  timeline.MaybeRequestData();
+
+  EXPECT_FALSE(request_triggered);
+}
+
+TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(100.0);
+  data.entry_start_times.push_back(50.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("event");
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetSearchQuery("event");
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(50.0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("event");
+
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.NavigateToNextSearchResult();
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetSearchQueryEmptyQueryCallsRedraw) {
+  Timeline timeline;
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.SetSearchQuery("");
+
+  EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetSearchQueryFiltering) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event1");
+  data.entry_names.push_back("foo");
+  data.entry_names.push_back("event2");
+  data.entry_names.push_back("long_non_match");
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(20.0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_start_times.push_back(40.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("event");
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 2);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("foo");
+  data.entry_start_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("bar");
+
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.NavigateToNextSearchResult();
+
+  EXPECT_FALSE(redraw_called);
+}
+
+TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("foo");
+  data.entry_start_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("bar");
+
+  bool redraw_called = false;
+  timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
+  timeline.NavigateToPrevSearchResult();
+
+  EXPECT_FALSE(redraw_called);
+}
+
+TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event1");
+  data.entry_names.push_back("event2");
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(20.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("event");
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+
+  timeline.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+
+  timeline.NavigateToPrevSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
+
+  int redraw_count = 0;
+  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
+
+  timeline.SetSearchQuery("event");
+
+  EXPECT_GT(redraw_count, 0);
+  EXPECT_EQ(redraw_count, 1);
+}
+
+TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(50.0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
+
+  timeline.SetSearchQuery("event");
+
+  int redraw_count = 0;
+  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
+
+  timeline.NavigateToNextSearchResult();
+
+  EXPECT_GT(redraw_count, 0);
+  EXPECT_EQ(redraw_count, 1);
+}
+
+TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event");
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(50.0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_pids.push_back(0);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.SetVisibleRange(TimeRange(0.0, 200.0));
+
+  timeline.SetSearchQuery("event");
+
+  int redraw_count = 0;
+  timeline.set_redraw_callback([&redraw_count]() { redraw_count++; });
+
+  timeline.NavigateToPrevSearchResult();
+
+  EXPECT_GT(redraw_count, 0);
+  EXPECT_EQ(redraw_count, 1);
 }
 
 }  // namespace

@@ -167,6 +167,11 @@ class Timeline {
   // The search is case-insensitive.
   void SetSearchQuery(const std::string& query);
 
+  int get_search_results_count() const { return search_results_.size(); }
+  int get_current_search_result_index() const {
+    return current_search_result_index_;
+  }
+
   // Sets the visible time range. If animate is true, the transition to the
   // new range will be animated, otherwise it will snap to the new time range.
   // Animation is useful for smoothing out transitions caused by user actions
@@ -209,9 +214,6 @@ class Timeline {
   void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
-  // Sets the search results from the given parsed trace events.
-  void SetSearchResults(const ParsedTraceEvents& search_results);
-
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }
@@ -232,13 +234,6 @@ class Timeline {
 
   void set_is_incremental_loading(bool is_incremental_loading) {
     is_incremental_loading_ = is_incremental_loading;
-  }
-
-  size_t get_search_results_count() const {
-    return sorted_search_results_.size();
-  }
-  int get_current_search_result_index() const {
-    return current_search_result_index_;
   }
 
   Pixel GetLabelWidth() const { return label_width_; }
@@ -445,9 +440,6 @@ class Timeline {
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
 
-  // Updates the search results based on the current search query
-  void RecomputeSearchResults();
-
   // Private static constants.
   static constexpr ImGuiWindowFlags kImGuiWindowFlags =
       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
@@ -542,25 +534,10 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
-  struct SearchResult {
-    EventId event_id;
-    int level;
-    Microseconds start_time;
-    Microseconds duration;
-    ProcessId pid;
-    ThreadId tid;
-  };
-
-  // The search query in lowercase, used for case-insensitive matching.
-  std::string search_query_lower_ = "";
-  // A sorted list of search results with metadata..
-  std::vector<SearchResult> sorted_search_results_;
-  // The index of the currently highlighted search result in search_results_.
+  std::string search_query_lower_;
+  // Indices into timeline_data_ entries
+  std::vector<int> search_results_;
   int current_search_result_index_ = -1;
-  // If we try to navigate to a search result that is not loaded, we set this
-  // to its event ID, zoom to its time range to trigger loading, and navigate
-  // to it in SetTimelineData once it's loaded.
-  std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the "Copied!"
   // notification.

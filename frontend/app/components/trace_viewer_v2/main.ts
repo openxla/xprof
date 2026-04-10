@@ -145,7 +145,7 @@ declare global {
     timeRangeFromUrl?: [number, number],
   ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
-  setSearchResultsInWasm(data: TraceData): void;
+
   loadJsonData?(url: string): Promise<void>;
   StringVector: {
     size(): number;

@@ -28,13 +28,11 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
-  isDetailsReceivedEvent,
-  TraceData as MainTraceData,
-  SearchEventsEventDetail,
+  isDetailsReceivedEvent, SearchEventsEventDetail,
   TraceDetailKey,
   TraceDetails,
   traceViewerV2Main,
-  TraceViewerV2Module,
+  TraceViewerV2Module
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
@@ -384,31 +382,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   onSearchEvents(detail: SearchEventsEventDetail) {
     const query = detail.events_query;
-    if (!query) {
-      this.traceViewerModule?.setSearchResultsInWasm({traceEvents: []});
-      this.container?.updateSearchResultCountText();
-      return;
-    }
-    this.searching = true;
-    this.dataService
-      .getData(
-        this.navigationEvent.run || '',
-        this.navigationEvent.tag || '',
-        this.getCurrentHost(),
-        new Map([['search_prefix', query]]),
-      )
-      .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        this.searching = false;
-        if (this.traceViewerModule && data) {
-          const traceData = data as TraceData;
-          this.traceViewerModule.setSearchResultsInWasm({
-            ...traceData,
-            traceEvents: traceData.traceEvents || [],
-          } as MainTraceData);
-          this.container?.updateSearchResultCountText();
-        }
-      });
+    if (!this.traceViewerModule) return;
+
+    const app = this.traceViewerModule.application.instance();
+    app.setSearchQuery(query || '');
+    this.container?.updateSearchResultCountText();
   }
 
   onInitializeWasm() {

@@ -340,8 +340,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
     EventId event_id = pending_navigation_event_id_.value();
     auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
     if (it != timeline_data_.entry_event_ids.end()) {
-      NavigateToEvent(
-          std::distance(timeline_data_.entry_event_ids.begin(), it));
+      RevealEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
       pending_navigation_event_id_.reset();
     }
   }
@@ -894,7 +893,7 @@ void Timeline::EmitViewportChanged(const TimeRange& range) {
   event_callback_(kViewportChanged, detail_obj);
 }
 
-void Timeline::NavigateToEvent(int event_index) {
+void Timeline::RevealEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
       event_index >= timeline_data_.entry_total_times.size()) {
@@ -905,21 +904,35 @@ void Timeline::NavigateToEvent(int event_index) {
   selected_event_index_ = event_index;
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
-  const Microseconds event_duration =
-      timeline_data_.entry_total_times[event_index];
-  // When navigating to an event, set the visible duration to 20 times the
-  // event's duration to provide context around the event. Clamp the
-  // duration between 10ms and 5s to prevent zooming in too far on
-  // short events or zooming out too far on long events.
-  const Microseconds duration =
-      std::max(kEventNavigationMinDurationMicros,
-               std::min(event_duration * kEventNavigationZoomFactor,
-                        kEventNavigationMaxDurationMicros));
-  const Microseconds center = start + event_duration / 2.0;
-  TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
-  ConstrainTimeRange(new_range);
+  Microseconds event_duration = timeline_data_.entry_total_times[event_index];
+  // Marker entries or zero duration events.
+  if (std::isnan(event_duration) || event_duration <= 0) {
+    event_duration = kMinVisibleEventDuration;
+  }
+  const Microseconds end = start + event_duration;
+  const Microseconds time_left = visible_range().start();
+  const Microseconds time_right = visible_range().end();
+  const Microseconds current_duration = visible_range().duration();
 
-  SetVisibleRange(new_range, /*animate=*/true);
+  Microseconds min_entry_time_window =
+      std::min(event_duration, current_duration);
+
+  // Ensure at least 30 pixels are visible.
+  double min_visible_width_px = 30.0;
+  double px_per_time = px_per_time_unit();
+  if (px_per_time > 0) {
+    double time_per_px = 1.0 / px_per_time;
+    min_entry_time_window =
+        std::max(min_entry_time_window, time_per_px * min_visible_width_px);
+  }
+
+  if (time_left > end) {
+    double delta = time_left - end + min_entry_time_window;
+    SetVisibleRange({time_left - delta, time_right - delta}, /*animate=*/true);
+  } else if (time_right < start) {
+    double delta = start - time_right + min_entry_time_window;
+    SetVisibleRange({time_left + delta, time_right + delta}, /*animate=*/true);
+  }
 
   EmitEventSelected(event_index);
 }
@@ -2370,7 +2383,7 @@ void Timeline::NavigateToNextSearchResult() {
   EventId event_id = result.event_id;
   auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
   if (it != timeline_data_.entry_event_ids.end()) {
-    NavigateToEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
+    RevealEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
   } else {
     pending_navigation_event_id_ = event_id;
     // If event is not in current data, zoom to its time range to trigger load.
@@ -2398,7 +2411,7 @@ void Timeline::NavigateToPrevSearchResult() {
   EventId event_id = result.event_id;
   auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
   if (it != timeline_data_.entry_event_ids.end()) {
-    NavigateToEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
+    RevealEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
   } else {
     // TODO(jonahweaver): Remove this section once deep search is implemented.
     // Expected behavior is that the event might not be loaded yet, and might

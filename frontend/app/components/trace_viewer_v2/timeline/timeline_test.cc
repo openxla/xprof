@@ -1,5 +1,6 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 
+#include <algorithm>
 #include <any>
 #include <cmath>
 #include <cstddef>
@@ -76,6 +77,37 @@ TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
   timeline.SetTimelineData({});
 
   EXPECT_TRUE(redraw_called);
+}
+
+TEST(TimelineTest, SetTimelineDataRevealsPendingEvent) {
+  Timeline timeline;
+  timeline.SetSearchQuery("foo");
+
+  ParsedTraceEvents search_results;
+  search_results.flame_events.push_back({.ph = Phase::kComplete,
+                                         .event_id = 123,
+                                         .pid = 1,
+                                         .tid = 1,
+                                         .ts = 100.0,
+                                         .dur = 10.0});
+  timeline.SetSearchResults(search_results);
+
+  timeline.NavigateToNextSearchResult();
+
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.entry_event_ids.push_back(123);
+
+  timeline.SetTimelineData(std::move(data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
 }
 
 TEST(TimelineTest, SetVisibleRange) {
@@ -714,45 +746,59 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
   EXPECT_NEAR(range.duration(), kMinDurationMicros, 1e-14);
 }
 
-TEST(TimelineTest, NavigateToEvent) {
+TEST(TimelineTest, RevealEventAlreadyInView) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0, 1});
+  data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
-  data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(50000.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 100000.0});
+  timeline.SetVisibleRange({10000.0, 60000.0});
+
+  timeline.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 10000.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 60000.0);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 50000.0);
+}
+
+TEST(TimelineTest, RevealEventOutToRight) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10000.0);
-  data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1000.0);
-  data.entry_total_times.push_back(20.0);
   data.entry_pids.push_back(1);
-  data.entry_pids.push_back(2);
-  data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 30000.0});
   timeline.SetVisibleRange({0.0, 50.0});
 
-  timeline.NavigateToEvent(0);
-  // A large delta time should complete the animation in one step.
+  timeline.RevealEvent(0);
   Animation::UpdateAll(1.0f);
 
-  // event 0 is 10000-11000, center is 10500.
-  // duration is clamp(1000*20, 10000, 5000000) = 20000.
-  // new_range center=10500, duration=20000 -> [500, 20500].
-  // data_range is [0, 30000].
-  // Constrained range is [500, 20500].
-  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 20500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 20000);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 10000);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 10050);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 50.0);
 }
 
-TEST(TimelineTest, NavigateToEventClampedMin) {
+TEST(TimelineTest, RevealEventOutOfView) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
@@ -768,25 +814,17 @@ TEST(TimelineTest, NavigateToEventClampedMin) {
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 20000.0});
-  timeline.SetVisibleRange({0.0, 50.0});
+  timeline.SetVisibleRange({1000.0, 2000.0});
 
-  timeline.NavigateToEvent(0);
-  // A large delta time should complete the animation in one step.
+  timeline.RevealEvent(0);
   Animation::UpdateAll(1.0f);
 
-  // event 0 is 100-110, center is 105.
-  // duration is clamp(10*20, 10000, 5000000) = clamp(200, 10000, 5000000) =
-  // 10000.
-  // new_range center=105, duration=10000 -> [105-5000, 105+5000] = [-4895,
-  // 5105].
-  // data_range is [0, 20000].
-  // Constrained range is [0, 10000].
-  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 10000);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 10000);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 100);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 1100);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 1000.0);
 }
 
-TEST(TimelineTest, NavigateToEventClampedMax) {
+TEST(TimelineTest, RevealEventOutToRightLarge) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
@@ -804,22 +842,15 @@ TEST(TimelineTest, NavigateToEventClampedMax) {
   timeline.set_data_time_range({0.0, 6000000.0});
   timeline.SetVisibleRange({0.0, 50.0});
 
-  timeline.NavigateToEvent(0);
-  // A large delta time should complete the animation in one step.
+  timeline.RevealEvent(0);
   Animation::UpdateAll(1.0f);
 
-  // event 0 is 100-300100, center is 150100.
-  // duration is clamp(300000*20, 10000, 5000000) =
-  // clamp(6M, 10k, 5M) = 5M.
-  // new_range center=150100, duration=5M -> [-2349900, 2650100].
-  // data_range is [0, 6M].
-  // Constrained range is [0, 5000000].
-  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 5000000);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 5000000);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 100);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 150);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 50.0);
 }
 
-TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
+TEST(TimelineTest, RevealEventWithNegativeIndex) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
@@ -829,14 +860,14 @@ TEST(TimelineTest, NavigateToEventWithNegativeIndex) {
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
-  timeline.NavigateToEvent(-1);
+  timeline.RevealEvent(-1);
 
   // Visible range should not change because event index is invalid.
   EXPECT_EQ(timeline.visible_range().start(), initial_range.start());
   EXPECT_EQ(timeline.visible_range().end(), initial_range.end());
 }
 
-TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
+TEST(TimelineTest, RevealEventWithIndexOutOfBounds) {
   Timeline timeline;
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
@@ -846,7 +877,7 @@ TEST(TimelineTest, NavigateToEventWithIndexOutOfBounds) {
   TimeRange initial_range(0.0, 50.0);
   timeline.SetVisibleRange(initial_range);
 
-  timeline.NavigateToEvent(1);
+  timeline.RevealEvent(1);
 
   // Visible range should not change for out of bounds event index.
   EXPECT_EQ(timeline.visible_range().start(), initial_range.start());
@@ -2198,6 +2229,54 @@ TEST_F(RealTimelineImGuiFixture, DrawSetsWindowPaddingToZero) {
   EXPECT_EQ(window->WindowPadding.y, 0.0f);
 
   ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(1000.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+
+  timeline_.SetVisibleRange({0.0, 500.0});
+
+  timeline_.RevealEvent(0);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.visible_range().start(), 1000.0);
+  EXPECT_EQ(timeline_.visible_range().end(), 1500.0);
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(1000.0);
+  data.entry_total_times.push_back(std::numeric_limits<double>::quiet_NaN());
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+
+  timeline_.SetVisibleRange({0.0, 500.0});
+
+  timeline_.RevealEvent(0);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.visible_range().start(), 1000.0);
+  EXPECT_EQ(timeline_.visible_range().end(), 1500.0);
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
@@ -3942,7 +4021,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsForSelectedEvent) {
                                                        // event selected
 
   // Select event 0 (id 1000), which is part of flow "1" (flow1).
-  timeline_.NavigateToEvent(0);
+  timeline_.RevealEvent(0);
 
   ImGui::NewFrame();
   timeline_.Draw();
@@ -3971,7 +4050,7 @@ TEST_F(RealTimelineImGuiFixture,
   timeline_.SetVisibleFlowCategories({});  // No flow categories visible
 
   // Select event 0 (id 1000), which is part of flow "1" (flow1).
-  timeline_.NavigateToEvent(0);
+  timeline_.RevealEvent(0);
 
   ImGui::NewFrame();
   timeline_.Draw();
@@ -4015,7 +4094,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithEmptyFlowLinesButSelectedEvent) {
 
   // Select event 0 (id 1000), which is part of flow "1" (flow1).
   // flow1 is in flow_lines_by_flow_id from GetTestFlowData().
-  timeline_.NavigateToEvent(0);  // has_selected_event is true
+  timeline_.RevealEvent(0);  // has_selected_event is true
 
   // With flow_lines empty, DrawFlows should return early, and nothing should
   // be drawn. If the early return is skipped, flows for selected events will be
@@ -4037,7 +4116,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithSelectedEventButNoEventIds) {
        static_cast<int>(tsl::profiler::ContextType::kGeneric)});
 
   // Select event 0.
-  timeline_.NavigateToEvent(0);
+  timeline_.RevealEvent(0);
 
   ImGui::NewFrame();
   timeline_.Draw();
@@ -4644,6 +4723,63 @@ TEST_F(RealTimelineImGuiFixture,
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
 
   ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  timeline_.SetVisibleRange({2000.0, 3000.0});
+
+  timeline_.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_NEAR(timeline_.visible_range().start(), 100.0, 0.1);
+  EXPECT_NEAR(timeline_.visible_range().end(), 1100.0, 0.1);
+}
+
+TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  SimulateFrame();
+
+  timeline_.SetVisibleRange({2000.0, 3000.0});
+
+  timeline_.RevealEvent(0);
+  Animation::UpdateAll(1.0f);
+
+  double px_per_time = timeline_.px_per_time_unit();
+  ASSERT_GT(px_per_time, 0);
+  double time_per_px = 1.0 / px_per_time;
+  double expected_min_window = std::max(1.0, time_per_px * 30.0);
+  double expected_start = 101.0 - expected_min_window;
+
+  EXPECT_NEAR(timeline_.visible_range().start(), expected_start, 0.001);
 }
 
 }  // namespace

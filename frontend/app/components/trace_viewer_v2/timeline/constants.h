@@ -56,6 +56,7 @@ inline constexpr int kMinorTickDivisions = 5;
 // go/keep-sorted start
 inline constexpr ImDrawFlags kImDrawFlags = ImDrawFlags_RoundCornersDefault_;
 inline constexpr ImU32 kDefaultTextColor = kBlackColor;
+inline constexpr Microseconds kMinVisibleEventDuration = 1000.0;
 inline constexpr Pixel kCornerRounding = 0.0f;
 inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 23.0f;

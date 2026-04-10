@@ -283,8 +283,11 @@ class Timeline {
 
   void ConstrainTimeRange(TimeRange& range);
 
-  // Navigates to and selects the event with the given index.
-  void NavigateToEvent(int event_index);
+  // Selects the event with the given index and ensures it is visible.
+  // If the event is already fully visible, the viewport is not changed.
+  // If the event is out of view, the viewport pans horizontally to reveal it
+  // without altering the zoom level.
+  void RevealEvent(int event_index);
 
   void NavigateToNextSearchResult();
   void NavigateToPrevSearchResult();

@@ -125,6 +125,18 @@ bool DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
 
   return toggled;
 }
+
+// Gets the starting level index of the group immediately following the group
+// at the given index. If the given group is the last one, returns the total
+// number of levels.
+int GetNextGroupStartLevel(const FlameChartTimelineData& data,
+                           int group_index) {
+  if (group_index + 1 < data.groups.size()) {
+    return data.groups[group_index + 1].start_level;
+  }
+  return static_cast<int>(data.events_by_level.size());
+}
+
 }  // namespace
 
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
@@ -147,9 +159,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     }
 
     const int next_group_start_level =
-        group_index + 1 < data.groups.size()
-            ? data.groups[group_index + 1].start_level
-            : level_count;
+        GetNextGroupStartLevel(data, group_index);
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
@@ -352,9 +362,7 @@ void Timeline::Draw() {
         timeline_data_.groups[group_index + 1].nesting_level >
             group.nesting_level;
     const int next_group_start_level =
-        group_index + 1 < timeline_data_.groups.size()
-            ? timeline_data_.groups[group_index + 1].start_level
-            : timeline_data_.events_by_level.size();
+        GetNextGroupStartLevel(timeline_data_, group_index);
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
 
@@ -370,9 +378,7 @@ void Timeline::Draw() {
         group_height = kCounterTrackHeight;
       } else if (group.type == Group::Type::kFlame) {
         const int end_level =
-            group_index + 1 < timeline_data_.groups.size()
-                ? timeline_data_.groups[group_index + 1].start_level
-                : timeline_data_.events_by_level.size();
+            GetNextGroupStartLevel(timeline_data_, group_index);
         group_height = std::max(1, end_level - group.start_level) *
                        (kEventHeight + kEventPaddingBottom);
       }
@@ -881,10 +887,7 @@ void Timeline::ExpandRelatedTracks(int event_index) {
   int level = timeline_data_.entry_levels[event_index];
   int group_index = -1;
   for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
-    int next_group_start_level =
-        (i + 1 < timeline_data_.groups.size())
-            ? timeline_data_.groups[i + 1].start_level
-            : static_cast<int>(timeline_data_.events_by_level.size());
+    int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
     if (level >= timeline_data_.groups[i].start_level &&
         level < next_group_start_level) {
       group_index = i;
@@ -1417,11 +1420,7 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
 void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
   const Group& group = timeline_data_.groups[group_index];
   const int start_level = group.start_level;
-  int end_level = (group_index + 1 < timeline_data_.groups.size())
-                      ? timeline_data_.groups[group_index + 1].start_level
-                      // If this is the last group, the end level is the total
-                      // number of levels.
-                      : timeline_data_.events_by_level.size();
+  int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
   if (group.type == Group::Type::kFlame && !group.expanded) {
     end_level = start_level;
   }
@@ -2431,9 +2430,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
     if (!group.expanded) continue;
 
     const int start_level = group.start_level;
-    int end_level = (group_index + 1 < timeline_data_.groups.size())
-                        ? timeline_data_.groups[group_index + 1].start_level
-                        : timeline_data_.events_by_level.size();
+    int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
 
     for (int level = start_level; level < end_level; ++level) {
       if (level >= timeline_data_.events_by_level.size()) continue;

@@ -1,4 +1,4 @@
-# XProf (+ Tensorboard Profiler Plugin)
+# XProf ( + Tensorboard Profiler Plugin)
 
 XProf offers a number of tools to analyse and visualize the
 performance of your model across multiple devices. Some of the tools include:

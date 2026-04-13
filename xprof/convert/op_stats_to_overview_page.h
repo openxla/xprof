@@ -63,6 +63,9 @@ OverviewPageRecommendation ComputeGenericRecommendation(
 
 OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats);
 
+bool ComputeTpuAnalysisResult(const OpStats& op_stats,
+                              OverviewPageAnalysis* analysis);
+
 OverviewPageRunEnvironment ComputeRunEnvironment(
     const RunEnvironment& run_environment);
 

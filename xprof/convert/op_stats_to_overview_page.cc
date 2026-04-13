@@ -184,6 +184,23 @@ OverviewPageRecommendation ComputeGenericRecommendation(
   return re;
 }
 
+bool ComputeTpuAnalysisResult(const OpStats& op_stats,
+                              OverviewPageAnalysis* analysis) {
+  analysis->set_device_duty_cycle_percent(
+      tsl::profiler::SafeDivide(
+          op_stats.device_op_metrics_db().busy_time_ps(),
+          op_stats.device_op_metrics_db().busy_time_ps() +
+              op_stats.device_op_metrics_db().idle_time_ps()) *
+      100.0);
+  analysis->set_device_idle_time_percent(
+      IdleTimeRatio(op_stats.device_op_metrics_db()) * 100.0);
+
+  analysis->set_host_idle_time_percent(
+      IdleTimeRatio(op_stats.host_op_metrics_db()) * 100.0);
+
+  return true;
+}
+
 OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
   OverviewPageAnalysis analysis;
   OpMetricsDb device_tf_op_metrics_db = CreateTfMetricsDbFromDeviceOpMetricsDb(
@@ -392,6 +409,12 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
 
   LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting ComputeAnalysisResult";
   *overview_page.mutable_analysis() = ComputeAnalysisResult(op_stats);
+
+  HardwareType hardware_type =
+      ParseHardwareType(op_stats.run_environment().device_type());
+  if (hardware_type == tensorflow::profiler::TPU) {
+    ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis());
+  }
 
   LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting "
                "ConvertOpStatsToInputPipelineAnalysis";

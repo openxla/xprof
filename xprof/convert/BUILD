@@ -786,6 +786,17 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_stats_to_overview_page_test",
+    srcs = ["op_stats_to_overview_page_test.cc"],
+    deps = [
+        ":op_stats_to_overview_page",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+    ],
+)
+
 cc_library(
     name = "op_stats_to_pod_stats",
     srcs = ["op_stats_to_pod_stats.cc"],

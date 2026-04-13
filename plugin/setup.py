@@ -18,8 +18,15 @@ from __future__ import division
 from __future__ import print_function
 
 import setuptools
+from setuptools.dist import Distribution
 
 from xprof import version
+
+
+class BinaryDistribution(Distribution):
+
+  def has_ext_modules(self):
+    return True
 
 try:
   from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
@@ -63,6 +70,7 @@ if CustomBdistWheel:
 
 
 setuptools.setup(
+    distclass=BinaryDistribution,
     name=PROJECT_NAME,
     version=VERSION,
     description='XProf Profiler Plugin',

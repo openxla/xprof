@@ -676,10 +676,10 @@ async function handleFetchDataEvent(
 
     performance.mark('traceProcessStart');
 
-    traceviewerModule.processTraceEvents(
-      jsonData,
-      /* timeRangeFromUrl= */ undefined,
-    );
+    traceviewerModule.processTraceEvents(jsonData, [
+      detail.start_time_ms,
+      detail.end_time_ms,
+    ]);
 
     performance.mark('traceProcessEnd');
     performance.measure(

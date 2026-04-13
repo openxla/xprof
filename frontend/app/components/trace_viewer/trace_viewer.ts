@@ -207,7 +207,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     let hostsString = '';
     if (event.hosts) {
       const hostsList = parseHostsList(event.hosts);
-      hostsString = hostsList.slice(0, 10).join(',');
+      // Sort hosts to ensure stable query string
+      hostsString = hostsList.sort().slice(0, 10).join(',');
       this.queryString += `&hosts=${hostsString}`;
     } else if (event.host) {
       this.queryString += `&host=${event.host}`;
@@ -226,7 +227,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('hosts', hostsString);
     }
 
-    this.traceDetails.forEach((value, key) => {
+    // Sort keys to ensure stable query string regardless of insertion order
+    const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    );
+    entries.forEach(([key, value]) => {
       if (value) {
         additionalParams.set(key, 'true');
       }

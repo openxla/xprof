@@ -93,6 +93,7 @@ setuptools.setup(
             'xprof = xprof.server:main',
         ],
     },
+    has_ext_modules=lambda: True,
     cmdclass=cmdclass,
     python_requires='>= 3.10',
     install_requires=REQUIRED_PACKAGES,

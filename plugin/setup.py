@@ -21,6 +21,16 @@ import setuptools
 
 from xprof import version
 
+
+class BinaryDistribution(setuptools.Distribution):
+  """This class is needed in order to create OS specific wheels."""
+
+  def has_ext_modules(self):
+    return True
+
+  def is_pure(self):
+    return False
+
 try:
   from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
 
@@ -93,6 +103,7 @@ setuptools.setup(
             'xprof = xprof.server:main',
         ],
     },
+    distclass=BinaryDistribution,
     cmdclass=cmdclass,
     python_requires='>= 3.10',
     install_requires=REQUIRED_PACKAGES,

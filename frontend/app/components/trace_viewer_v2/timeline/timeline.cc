@@ -806,6 +806,14 @@ void Timeline::EmitViewportChanged(const TimeRange& range) {
   event_callback_(kViewportChanged, detail_obj);
 }
 
+void Timeline::EmitMouseModeChanged() {
+  if (!event_callback_) return;
+  EventData event_data;
+  event_data.try_emplace(std::string(kMouseModeKey),
+                         static_cast<int>(mouse_mode_));
+  event_callback_(kMouseModeChanged, event_data);
+}
+
 void Timeline::RevealEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
@@ -2031,15 +2039,19 @@ bool Timeline::HandleKeyboard() {
   // Mouse Mode shortcuts
   if (ImGui::IsKeyPressed(ImGuiKey_1)) {
     mouse_mode_ = MouseMode::kSelect;
+    EmitMouseModeChanged();
   }
   if (ImGui::IsKeyPressed(ImGuiKey_2)) {
     mouse_mode_ = MouseMode::kPan;
+    EmitMouseModeChanged();
   }
   if (ImGui::IsKeyPressed(ImGuiKey_3)) {
     mouse_mode_ = MouseMode::kZoom;
+    EmitMouseModeChanged();
   }
   if (ImGui::IsKeyPressed(ImGuiKey_4)) {
     mouse_mode_ = MouseMode::kTiming;
+    EmitMouseModeChanged();
   }
 
   return is_interacting;

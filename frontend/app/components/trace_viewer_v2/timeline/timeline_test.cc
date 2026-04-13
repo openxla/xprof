@@ -1242,6 +1242,101 @@ TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
       MicrosToMillis(300.0));
 }
 
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key1_EmitsMouseModeChanged) {
+  bool event_called = false;
+  int emitted_mode = -1;
+
+  timeline_.set_event_callback(
+      [&](absl::string_view event_name, const EventData& data) {
+        if (event_name == kMouseModeChanged) {
+          event_called = true;
+          auto it = data.find(std::string(kMouseModeKey));
+          if (it != data.end()) {
+            emitted_mode = std::any_cast<int>(it->second);
+          }
+        }
+      });
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_1, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(event_called);
+  EXPECT_EQ(emitted_mode, static_cast<int>(MouseMode::kSelect));
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key2_EmitsMouseModeChanged) {
+  bool event_called = false;
+  int emitted_mode = -1;
+
+  timeline_.set_event_callback(
+      [&](absl::string_view event_name, const EventData& data) {
+        if (event_name == kMouseModeChanged) {
+          event_called = true;
+          auto it = data.find(std::string(kMouseModeKey));
+          if (it != data.end()) {
+            emitted_mode = std::any_cast<int>(it->second);
+          }
+        }
+      });
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_2, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(event_called);
+  EXPECT_EQ(emitted_mode, static_cast<int>(MouseMode::kPan));
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key3_EmitsMouseModeChanged) {
+  bool event_called = false;
+  int emitted_mode = -1;
+
+  timeline_.set_event_callback(
+      [&](absl::string_view event_name, const EventData& data) {
+        if (event_name == kMouseModeChanged) {
+          event_called = true;
+          auto it = data.find(std::string(kMouseModeKey));
+          if (it != data.end()) {
+            emitted_mode = std::any_cast<int>(it->second);
+          }
+        }
+      });
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_3, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(event_called);
+  EXPECT_EQ(emitted_mode, static_cast<int>(MouseMode::kZoom));
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key4_EmitsMouseModeChanged) {
+  bool event_called = false;
+  int emitted_mode = -1;
+
+  timeline_.set_event_callback(
+      [&](absl::string_view event_name, const EventData& data) {
+        if (event_name == kMouseModeChanged) {
+          event_called = true;
+          auto it = data.find(std::string(kMouseModeKey));
+          if (it != data.end()) {
+            emitted_mode = std::any_cast<int>(it->second);
+          }
+        }
+      });
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_4, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(event_called);
+  EXPECT_EQ(emitted_mode, static_cast<int>(MouseMode::kTiming));
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_EmptyCallback_DoesNotCrash) {
+  timeline_.set_event_callback({});
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_1, true);
+  SimulateFrame();
+}
+
 TEST(TimelineTest, NavigateSearchQueryResult) {
   Timeline timeline;
   FlameChartTimelineData data;

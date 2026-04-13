@@ -138,6 +138,25 @@ export enum MouseMode {
   TIMING = 4,
 }
 
+/** Event name for mouse mode changes. */
+export const MOUSE_MODE_CHANGED_EVENT_NAME = 'mouse_mode_changed';
+
+/** Detail for mouse mode changed event. */
+export declare interface MouseModeChangedEventDetail {
+  mouseMode: number;
+}
+
+/** Type guard for MouseModeChangedEvent. */
+export function isMouseModeChangedEvent(
+  event: Event,
+): event is CustomEvent<MouseModeChangedEventDetail> {
+  return !!(
+    event instanceof CustomEvent &&
+    event.detail &&
+    typeof event.detail.mouseMode === 'number'
+  );
+}
+
 // The tutorials to display while the trace viewer is loading.
 const TUTORIALS = Object.freeze([
   'Pan: A/D or Shift+Scroll or Drag',
@@ -334,6 +353,10 @@ export class TraceViewerContainer
       SEARCH_EVENTS_EVENT_NAME,
       this.searchEventsEventListener,
     );
+    window.addEventListener(
+      MOUSE_MODE_CHANGED_EVENT_NAME,
+      this.mouseModeChangedEventListener,
+    );
   }
 
   ngAfterViewInit() {
@@ -361,6 +384,10 @@ export class TraceViewerContainer
     window.removeEventListener(
       SEARCH_EVENTS_EVENT_NAME,
       this.searchEventsEventListener,
+    );
+    window.removeEventListener(
+      MOUSE_MODE_CHANGED_EVENT_NAME,
+      this.mouseModeChangedEventListener,
     );
     if (!this.useTraceViewerV2) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
@@ -423,6 +450,12 @@ export class TraceViewerContainer
       this.traceViewerV2ErrorMessage = undefined;
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
+    }
+  };
+
+  private readonly mouseModeChangedEventListener = (e: Event) => {
+    if (isMouseModeChangedEvent(e)) {
+      this.currentMouseMode = e.detail.mouseMode;
     }
   };
 

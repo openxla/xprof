@@ -357,6 +357,8 @@ class Timeline {
   void EmitEventSelected(int event_index);
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);
+  // Emits mouse mode changed event to JS side.
+  void EmitMouseModeChanged();
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);

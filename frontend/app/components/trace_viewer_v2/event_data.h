@@ -52,6 +52,10 @@ inline constexpr absl::string_view kViewportChangedRange = "range";
 inline constexpr absl::string_view kViewportChangedMin = "min_ms";
 inline constexpr absl::string_view kViewportChangedMax = "max_ms";
 
+// Constants for mouse mode changed event.
+inline constexpr absl::string_view kMouseModeChanged = "mouse_mode_changed";
+inline constexpr absl::string_view kMouseModeKey = "mouseMode";
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_EVENT_DATA_H_

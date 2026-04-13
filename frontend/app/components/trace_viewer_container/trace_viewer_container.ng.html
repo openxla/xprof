@@ -15,8 +15,8 @@
   <div class="search-container">
     <mat-form-field appearance="outline">
       <input matInput #searchBox placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult()" />
+      <span matSuffix *ngIf="currentSearchQuery" class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
     </mat-form-field>
-    <div *ngIf="currentSearchQuery" class="search-result-count">{{searchResultCountText}}</div>
     <button mat-icon-button aria-label="Previous search result" (click)="prevSearchResult()" [disabled]="!currentSearchQuery">
       <mat-icon>chevron_left</mat-icon>
     </button>

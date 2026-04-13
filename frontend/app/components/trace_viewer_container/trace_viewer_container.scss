@@ -74,7 +74,13 @@ canvas {
 }
 
 .search-result-count {
-  margin: 0 8px;
+  display: inline-block;
+  color: rgba(0, 0, 0, 0.54);
+  font-size: 12px;
+  white-space: nowrap;
+  width: 80px;
+  text-align: right;
+  margin-right: 8px;
 }
 
 .mouse-mode-container {

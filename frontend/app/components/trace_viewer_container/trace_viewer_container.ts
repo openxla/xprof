@@ -296,6 +296,7 @@ export class TraceViewerContainer
   }
 
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
+  @ViewChild('searchContainer') searchContainer?: ElementRef<HTMLElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -633,5 +634,60 @@ export class TraceViewerContainer
       return;
     }
     this.searchResultCountText = `${index === -1 ? 1 : index + 1} / ${count}`;
+  }
+
+  /**
+   * Handles keydown events in the search container to manage focus flow
+   * and trigger actions on Enter for buttons.
+   */
+  onKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Tab') {
+      // Custom Tab navigation to ensure focus stays within the search container elements.
+      const container = this.searchContainer?.nativeElement;
+      if (!container) return;
+
+      const focusableElements = container.querySelectorAll(
+        'input, button:not([disabled])',
+      );
+      const elementsArray = Array.from(focusableElements).filter(
+        (el): el is HTMLElement => el instanceof HTMLElement,
+      );
+
+      const activeElement = document.activeElement;
+      const currentIndex =
+        activeElement instanceof HTMLElement
+          ? elementsArray.indexOf(activeElement)
+          : -1;
+
+      if (currentIndex !== -1) {
+        if (event.shiftKey) {
+          // Shift+Tab: move to previous element
+          if (currentIndex > 0) {
+            elementsArray[currentIndex - 1].focus();
+            event.preventDefault();
+          }
+        } else {
+          // Tab: move to next element
+          if (currentIndex < elementsArray.length - 1) {
+            elementsArray[currentIndex + 1].focus();
+            event.preventDefault();
+          }
+        }
+      }
+    } else if (event.key === 'Enter') {
+      // Force Enter key to trigger click on buttons within the search container,
+      // as default behavior might be prevented by framework or parent components.
+      const currentElement = document.activeElement;
+      const container = this.searchContainer?.nativeElement;
+      if (
+        currentElement instanceof HTMLElement &&
+        container &&
+        container.contains(currentElement) &&
+        currentElement.tagName.toUpperCase() === 'BUTTON'
+      ) {
+        currentElement.click();
+        event.preventDefault();
+      }
+    }
   }
 }

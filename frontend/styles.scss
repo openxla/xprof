@@ -1,5 +1,18 @@
 @use '@angular/material' as mat;
 
+:root {
+  // Google Material 3 (GM3) Design Tokens.
+  --md-sys-color--on-secondary-container: #004A77;
+  --md-sys-color--on-surface-variant: #444746;
+  --md-sys-color--primary-container: #d3e3fd;
+  --md-sys-color--primary: #0b57d0;
+  --md-sys-color--secondary-container: #c2e7ff;
+  --md-sys-color--surface-container-highest: #dde3ea;
+  --md-sys-color--surface-container-low: #f8fafd;
+  --md-sys-color--surface-container: #f0f4f9;
+  --md-sys-color--surface: #fff;
+}
+
 $typography-config: mat.define-typography-config();
 
 @include mat.all-component-typographies($typography-config);

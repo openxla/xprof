@@ -83,7 +83,9 @@
   <div class="main-content-area">
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
-        <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+        <div class="canvas-container">
+          <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+        </div>
       </as-split-area>
       <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">
         <div *ngIf="selectedEvent" #drawer class="drawer">

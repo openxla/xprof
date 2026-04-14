@@ -5,12 +5,20 @@ $filter-bar-height: 50px;
 // 40px + 8(padding)*2
 $search-bar-height: 56px;
 
+:host {
+  display: block;
+  height: 100%;
+  background: var(--md-sys-color--surface-container-low);
+}
+
 .main-content-area {
   position: absolute;
   width: 100%;
   height: calc(
     100% - $menu-bar-height - $filter-bar-height - $search-bar-height
   );
+  padding: 0 16px 8px 8px;
+  box-sizing: border-box;
 }
 
 iframe {
@@ -20,6 +28,14 @@ iframe {
   box-sizing: border-box;
   border-style: unset;
   transition: height 0.05s ease-in-out;
+}
+
+.canvas-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  background: var(--md-sys-color--surface);
+  overflow: hidden;
 }
 
 canvas {
@@ -37,7 +53,7 @@ canvas {
   height: 40px;
   padding: 0 12px;
   flex-grow: 1;
-  margin: 8px 16px 8px 0; // Top Right Bottom Left
+  margin: 8px 16px 8px 8px;
   box-sizing: border-box;
 }
 

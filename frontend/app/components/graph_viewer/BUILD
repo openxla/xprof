@@ -63,3 +63,34 @@ sass_binary(
         "@org_xprof//frontend/app/styles:common",
     ],
 )
+
+filegroup(
+    name = "scuba_goldens",
+    srcs = glob(["scuba_goldens/**/*.png"]),
+)
+
+xprof_ng_module(
+    name = "screenshot_tests",
+    testonly = True,
+    srcs = [
+        "graph_viewer_screenshot_test.ts",
+    ],
+    tags = ["requires-net:external"],
+    deps = [
+        ":graph_viewer",
+        "//javascript/angular2/testing/catalyst/async",
+        "//learning/brain/mobile/lite/tooling/model_graph_visualizer",
+        # ksf,
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "@npm//safevalues",
+        "//third_party/javascript/safevalues/dom",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)

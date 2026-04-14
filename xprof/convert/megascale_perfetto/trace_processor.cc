@@ -13,7 +13,9 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "re2/re2.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -297,8 +299,9 @@ void TraceProcessor::MarkLastDmaEvents() {
 void TraceProcessor::ResolveFlows() {
   int64_t next_flow_id = 1;
 
-  // map key: graph_name -> {send_channel_id, recv_channel_id}
-  absl::flat_hash_map<std::string, std::pair<int64_t, int64_t>>
+  // map key: graph_name -> {vector<send_channel_id>, vector<recv_channel_id>}
+  absl::flat_hash_map<
+      std::string, std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       graph_to_channels;
   absl::flat_hash_map<int64_t, int64_t> recv_to_send_channel_id;
 
@@ -404,13 +407,50 @@ void TraceProcessor::ResolveFlows() {
     // If this is the "header" event, extract channel ID mappings.
     absl::string_view graph_name = ExtractGraphName(event.name);
     if (!graph_name.empty()) {
-      int64_t send_channel_id = -1;
-      int64_t recv_channel_id = -1;
-      FindArgInt(event, trace_, "send_channel_id", &send_channel_id);
-      FindArgInt(event, trace_, "recv_channel_id", &recv_channel_id);
-      if (recv_channel_id != -1 && send_channel_id != -1) {
-        graph_to_channels[graph_name] = {send_channel_id, recv_channel_id};
-        recv_to_send_channel_id[recv_channel_id] = send_channel_id;
+      std::vector<int64_t> send_channel_ids;
+      std::vector<int64_t> recv_channel_ids;
+
+      absl::string_view send_channel_ids_str;
+      if (FindArgString(event, trace_, "send_channel_id",
+                        &send_channel_ids_str)) {
+        for (absl::string_view s : absl::StrSplit(send_channel_ids_str, ',')) {
+          int64_t id;
+          if (absl::SimpleAtoi(s, &id)) {
+            send_channel_ids.push_back(id);
+          }
+        }
+      } else {
+        int64_t send_channel_id = -1;
+        if (FindArgInt(event, trace_, "send_channel_id", &send_channel_id) &&
+            send_channel_id != -1) {
+          send_channel_ids.push_back(send_channel_id);
+        }
+      }
+
+      absl::string_view recv_channel_ids_str;
+      if (FindArgString(event, trace_, "recv_channel_id",
+                        &recv_channel_ids_str)) {
+        for (absl::string_view s : absl::StrSplit(recv_channel_ids_str, ',')) {
+          int64_t id;
+          if (absl::SimpleAtoi(s, &id)) {
+            recv_channel_ids.push_back(id);
+          }
+        }
+      } else {
+        int64_t recv_channel_id = -1;
+        if (FindArgInt(event, trace_, "recv_channel_id", &recv_channel_id) &&
+            recv_channel_id != -1) {
+          recv_channel_ids.push_back(recv_channel_id);
+        }
+      }
+
+      if (!send_channel_ids.empty() || !recv_channel_ids.empty()) {
+        graph_to_channels[graph_name] = {send_channel_ids, recv_channel_ids};
+        for (size_t i = 0; i < std::min(send_channel_ids.size(),
+                                        recv_channel_ids.size());
+             ++i) {
+          recv_to_send_channel_id[recv_channel_ids[i]] = send_channel_ids[i];
+        }
       }
       return;
     }
@@ -442,7 +482,13 @@ void TraceProcessor::ResolveFlows() {
       return;
     }
     // Use the channel id of the corresponding send/recv event.
-    int64_t channel_id = is_d2h ? it->second.first : it->second.second;
+    const auto& [send_ids, recv_ids] = it->second;
+    int64_t channel_id = -1;
+    if (is_d2h) {
+      if (!send_ids.empty()) channel_id = send_ids[0];
+    } else {
+      if (!recv_ids.empty()) channel_id = recv_ids[0];
+    }
     if (channel_id == -1) {
       return;
     }

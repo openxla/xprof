@@ -32,8 +32,32 @@ wasm_cc_library(
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/strings",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@tsl//tsl/platform:fingerprint",
+    ],
+    alwayslink = True,
+)
+
+wasm_cc_library(
+    name = "trace_pb_event_parser",
+    srcs = ["trace_pb_event_parser.cc"],
+    hdrs = ["trace_pb_event_parser.h"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        "//third_party/emscripten:embind",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
+        "@tsl//tsl/platform:fingerprint",
+        "@tsl//tsl/profiler/lib:context_types",
     ],
     alwayslink = True,
 )

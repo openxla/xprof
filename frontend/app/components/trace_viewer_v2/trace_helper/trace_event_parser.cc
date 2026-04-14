@@ -4,10 +4,11 @@
 #include <emscripten/val.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
+#include <string>
+#include <utility>
 
-#include "absl/base/no_destructor.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tsl/platform/fingerprint.h"
@@ -15,6 +16,7 @@
 #include "frontend/app/components/trace_viewer_v2/application.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -77,37 +79,6 @@ GetPrettyNames() {
           {tsl::profiler::ContextType::kScOffload, "Sc Offload"},
       });
   return *kPrettyNames;
-}
-
-tsl::profiler::ContextType GetContextTypeFromString(
-    absl::string_view category) {
-  static const absl::NoDestructor<
-      absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType>>
-      kCategoryMap([] {
-        absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType> map;
-
-        // 1. Add pretty names
-        for (const auto& [type, name] : GetPrettyNames()) {
-          map[name] = type;
-        }
-
-        // 2. Add canonical names from tsl::profiler::GetContextTypeString
-        for (int i = 0; i <= static_cast<int>(
-                                 tsl::profiler::ContextType::kLastContextType);
-             ++i) {
-          auto type = static_cast<tsl::profiler::ContextType>(i);
-          absl::string_view name(tsl::profiler::GetContextTypeString(type));
-          if (!name.empty()) {
-            map.emplace(name, type);
-          }
-        }
-        return map;
-      }());
-
-  if (auto it = kCategoryMap->find(category); it != kCategoryMap->end()) {
-    return it->second;
-  }
-  return tsl::profiler::ContextType::kGeneric;
 }
 
 // Helper function to convert emscripten::val to TraceEvent
@@ -290,8 +261,38 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     }
   }
 }
-
 }  // namespace
+
+tsl::profiler::ContextType GetContextTypeFromString(
+    absl::string_view category) {
+  static const absl::NoDestructor<
+      absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType>>
+      kCategoryMap([] {
+        absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType> map;
+
+        // 1. Add pretty names
+        for (const auto& [type, name] : GetPrettyNames()) {
+          map[name] = type;
+        }
+
+        // 2. Add canonical names from tsl::profiler::GetContextTypeString
+        for (int i = 0; i <= static_cast<int>(
+                                 tsl::profiler::ContextType::kLastContextType);
+             ++i) {
+          auto type = static_cast<tsl::profiler::ContextType>(i);
+          absl::string_view name(tsl::profiler::GetContextTypeString(type));
+          if (!name.empty()) {
+            map.emplace(name, type);
+          }
+        }
+        return map;
+      }());
+
+  if (auto it = kCategoryMap->find(category); it != kCategoryMap->end()) {
+    return it->second;
+  }
+  return tsl::profiler::ContextType::kGeneric;
+}
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,

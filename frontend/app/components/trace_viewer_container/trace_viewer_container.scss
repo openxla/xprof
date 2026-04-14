@@ -2,7 +2,8 @@
 
 $menu-bar-height: 64px;
 $filter-bar-height: 50px;
-$search-bar-height: 50px;
+// 40px + 8(padding)*2
+$search-bar-height: 56px;
 
 .main-content-area {
   position: absolute;
@@ -31,44 +32,78 @@ canvas {
 .search-container {
   display: flex;
   align-items: center;
-  margin-left: 16px;
-  height: $search-bar-height;
-  border-bottom: 1px solid black;
-
+  background-color: var(--md-sys-color--surface-container);
+  border-radius: 24px;
+  height: 40px;
+  padding: 0 12px;
+  flex-grow: 1;
+  margin: 8px 16px 8px 0; // Top Right Bottom Left
   box-sizing: border-box;
 }
 
-.search-container mat-form-field.mat-mdc-form-field {
-  width: 350px;
-  --mdc-outlined-text-field-container-shape: 100px;
+.search-container mat-form-field.search-form-field {
+  flex-grow: 1;
+  max-width: 500px;
+  margin: 0;
+  padding: 0;
 
   ::ng-deep {
-    .mat-mdc-text-field-wrapper {
-      height: 28px;
-    }
-
-    .mat-mdc-form-field-infix {
-      min-height: 28px;
-      padding-top: 2px;
-      padding-bottom: 2px;
-      align-items: center;
+    [class*='mat-mdc-text-field-wrapper'] {
       display: flex;
+      align-items: center;
+      height: 28px;
+      background-color: var(--md-sys-color--surface);
+      border-radius: 24px;
+      padding: 0 12px 0 0;
+      box-sizing: border-box;
     }
 
-    // Bypass stylelint 'selector-class-pattern' for strictly necessary deeply nested overrides
-    [class~='mdc-notched-outline__leading'] {
-      border-top-left-radius: 100px;
-      border-bottom-left-radius: 100px;
-      width: 14px;
+    [class*='mat-mdc-form-field-flex'] {
+      display: flex;
+      align-items: center;
+      height: 28px;
+      width: 100%;
     }
 
-    [class~='mdc-notched-outline__trailing'] {
-      border-top-right-radius: 100px;
-      border-bottom-right-radius: 100px;
+    [class*='mat-mdc-form-field-infix'] {
+      padding: 0;
+      min-height: unset;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      flex: 1;
     }
 
-    .mat-mdc-input-element {
-      padding-left: 6px;
+    [class*='mdc-notched-outline'] {
+      display: none;
+    }
+
+    [class*='mat-mdc-form-field-subscript-wrapper'] {
+      display: none;
+    }
+
+    [class*='mat-mdc-form-field-icon-prefix'] {
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+
+      mat-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+        color: #5f6368;
+      }
+    }
+
+    [class*='mat-mdc-input-element'] {
+      padding: 0;
+      height: 28px;
+      font-size: 13px;
+      color: #1f1f1f;
+      caret-color: var(--md-sys-color--primary);
+      background: transparent;
     }
   }
 }
@@ -86,27 +121,33 @@ canvas {
 .mouse-mode-container {
   display: flex;
   align-items: center;
-  margin-left: 0;
+  margin-left: 12px;
 
   button.mat-mdc-icon-button {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     min-width: unset;
-    border-radius: 4px;
+    border-radius: 50%;
+    color: #5f6368;
 
     &:hover {
-      background-color: rgba(0, 0, 0, 0.04);
+      background-color: rgba(0, 0, 0, 0.06);
     }
 
     &.active {
       background-color: #d3e3fd;
+      color: #0b57d0;
     }
 
     svg {
       vertical-align: middle;
     }
   }
+}
+
+.spacer {
+  flex-grow: 1;
 }
 
 .drawer {

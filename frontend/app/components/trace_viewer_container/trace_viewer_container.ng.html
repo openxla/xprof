@@ -13,7 +13,8 @@
     </div>
   </ng-container>
   <div #searchContainer class="search-container" (keydown)="onKeyDown($event)">
-    <mat-form-field appearance="outline">
+    <mat-form-field appearance="outline" class="search-form-field">
+      <mat-icon matPrefix>search</mat-icon>
       <input matInput #searchBox placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult()" />
       <span matSuffix *ngIf="currentSearchQuery" class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
     </mat-form-field>

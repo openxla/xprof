@@ -128,19 +128,34 @@ canvas {
     height: 32px;
     padding: 0;
     min-width: unset;
-    border-radius: 50%;
-    color: #5f6368;
+    border-radius: 4px;
+    color: var(--md-sys-color--on-surface-variant);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    ::ng-deep {
+      [class*='mat-mdc-button-persistent-ripple'],
+      [class*='mat-mdc-focus-indicator'],
+      [class*='mat-ripple'] {
+        display: none;
+      }
+    }
 
     &:hover {
-      background-color: rgba(0, 0, 0, 0.06);
+      background-color: var(--md-sys-color--primary-container);
     }
 
     &.active {
-      background-color: #d3e3fd;
+      background-color: var(--md-sys-color--primary-container);
       color: #0b57d0;
     }
 
+    mat-icon,
     svg {
+      width: 20px;
+      height: 20px;
+      font-size: 20px;
       vertical-align: middle;
     }
   }

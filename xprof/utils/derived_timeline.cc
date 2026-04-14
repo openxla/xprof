@@ -230,9 +230,15 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
       if (stats.scope_range_id.has_value()) {
         level_range_ids.push_back(stats.scope_range_id);
         if (scope_range_id_tree) {
+          absl::flat_hash_set<int64_t> visited;
           for (auto it = scope_range_id_tree->find(*stats.scope_range_id);
                it != scope_range_id_tree->end();
                it = scope_range_id_tree->find(it->second)) {
+            if (!visited.insert(it->second).second) {
+              LOG(ERROR) << "Cycle detected in scope_range_id_tree for ID: "
+                         << it->second << ". The trace will likely be invalid.";
+              break;
+            }
             level_range_ids.push_back(it->second);
           }
         }

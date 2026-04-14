@@ -2180,7 +2180,11 @@ bool Timeline::HandleMouse() {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         break;
       case MouseMode::kPan:
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        if (ImGui::IsMouseDown(0)) {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        } else {
+          ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+        }
         break;
       case MouseMode::kZoom:
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);

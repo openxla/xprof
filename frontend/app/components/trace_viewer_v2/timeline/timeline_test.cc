@@ -5515,6 +5515,39 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
   EXPECT_NEAR(timeline_.visible_range().duration(), 140.0, 1.0);
 }
 
+TEST_F(TimelineImGuiFixture, PanModeCursor) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Init window
+
+  timeline_.set_mouse_mode(MouseMode::kPan);
+
+  ImGuiWindow* window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(window, nullptr);
+
+  // Hover over timeline
+  float tracks_x = GetTimelineStartX();
+  io.AddMousePosEvent(tracks_x + 10.0f,
+                      window->DC.CursorStartPos.y + kRulerHeight + 10.0f);
+  SimulateFrame();
+
+  // Not dragging, should be Arrow
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
+
+  // Press mouse button (simulate drag start)
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Dragging, should be ResizeAll
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_ResizeAll);
+
+  // Release mouse button
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Back to Arrow
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer

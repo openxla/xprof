@@ -21,4 +21,5 @@ export interface CaptureProfileOptions {
 export interface ProfilerConfig {
   hideCaptureProfileButton: boolean;
   srcPathPrefix: string;
+  enableTabNameLabel?: boolean;
 }

@@ -45,6 +45,7 @@ export class SideNav implements OnInit, OnDestroy {
   selectedHostInternal = '';
   runPathInternal = '';
   sessionPathInternal = '';
+  labelInternal = '';
   selectedHostsInternal: string[] = [];
   selectedHostsPending: string[] = [];
   selectedModuleInternal = '';
@@ -53,6 +54,7 @@ export class SideNav implements OnInit, OnDestroy {
   allHostsSelected = false;
 
   hideCaptureProfileButton = false;
+  enableTabNameLabel = false;
 
   constructor(
     private readonly router: Router,
@@ -169,6 +171,7 @@ export class SideNav implements OnInit, OnDestroy {
         : params.get('hosts');
     const sessionPath = params.get('session_path') ?? '';
     const runPath = params.get('run_path') ?? '';
+    const label = params.get('label') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';
     const moduleName = params.get('module_name') ?? '';
     this.navigationParams['firstLoad'] = true;
@@ -180,6 +183,7 @@ export class SideNav implements OnInit, OnDestroy {
     this.selectedModuleInternal = moduleName;
     this.runPathInternal = runPath;
     this.sessionPathInternal = sessionPath;
+    this.labelInternal = label;
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
@@ -209,6 +213,7 @@ export class SideNav implements OnInit, OnDestroy {
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));
       this.hideCaptureProfileButton = config.hideCaptureProfileButton;
+      this.enableTabNameLabel = config.enableTabNameLabel ?? false;
     }
   }
 
@@ -511,6 +516,40 @@ export class SideNav implements OnInit, OnDestroy {
     });
     delete this.navigationParams['firstLoad'];
     this.updateUrlHistory();
+    this.updateTitle();
+  }
+
+  updateTitle() {
+    if (!this.enableTabNameLabel) {
+      return;
+    }
+    const toolName = this.getDisplayTagName(this.selectedTag);
+    let sessionName = '';
+
+    if (this.sessionPathInternal) {
+      const parts = this.sessionPathInternal.split('/').filter((p) => p.length > 0);
+      const pluginsIndex = parts.indexOf('plugins');
+      if (pluginsIndex > 0) {
+        sessionName = parts[pluginsIndex - 1];
+      } else {
+        sessionName = parts[parts.length - 1] || '';
+      }
+    }
+
+    if (!sessionName) {
+      sessionName = this.selectedRun;
+    }
+
+    let titleLabel = sessionName;
+    if (this.labelInternal) {
+      titleLabel += ` (${this.labelInternal})`;
+    }
+
+    if (titleLabel) {
+      document.title = `${titleLabel} | ${toolName} - XProf`;
+    } else {
+      document.title = `${toolName} - XProf`;
+    }
   }
 
   update() {

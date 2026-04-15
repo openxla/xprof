@@ -64,6 +64,7 @@ class ServerConfig:
   hide_capture_profile_button: bool
   src_prefix: Optional[str]
   max_concurrent_worker_requests: int
+  enable_tab_name_label: bool = False
 
 
 def make_wsgi_app(plugin):
@@ -163,6 +164,7 @@ def _launch_server(
       config.logdir, DataProvider(config.logdir), TBContext.Flags(False)
   )
   context.hide_capture_profile_button = config.hide_capture_profile_button
+  context.enable_tab_name_label = config.enable_tab_name_label
   context.src_prefix = config.src_prefix
   loader = ProfilePluginLoader()
   plugin = loader.load(context)
@@ -248,6 +250,13 @@ def _create_argument_parser() -> argparse.ArgumentParser:
   )
 
   parser.add_argument(
+      "--enable_tab_name_label",
+      action="store_true",
+      default=False,
+      help="Enables dynamic browser tab title updates.",
+  )
+
+  parser.add_argument(
       "-wsa",
       "--worker_service_address",
       type=str,
@@ -321,6 +330,7 @@ def main() -> int:
       grpc_port=args.grpc_port,
       worker_service_address=worker_service_address,
       hide_capture_profile_button=args.hide_capture_profile_button,
+      enable_tab_name_label=args.enable_tab_name_label,
       src_prefix=args.src_prefix,
       max_concurrent_worker_requests=args.max_concurrent_worker_requests,
   )

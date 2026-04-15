@@ -739,6 +739,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self.hide_capture_profile_button = getattr(
         context, 'hide_capture_profile_button', False
     )
+    self.enable_tab_name_label = getattr(
+        context, 'enable_tab_name_label', False
+    )
     self.src_prefix = getattr(context, 'src_prefix', '')
     self._epath = epath_module
     self._xspace_to_tool_data = xspace_to_tool_data_fn
@@ -839,6 +842,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     config_data = {
         'hideCaptureProfileButton': self.hide_capture_profile_button,
         'srcPathPrefix': self.src_prefix,
+        'enableTabNameLabel': self.enable_tab_name_label,
     }
     logger.info('config_route: %s', config_data)
     return respond(config_data, 'application/json')

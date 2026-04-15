@@ -11,6 +11,7 @@ struct Tpuv7GenericUtilizationOptions {
   bool is_tpu7;
   double frequency_hz;
   double peak_hbm_bw_bps;
+  double pstate_normalized_frequency_hz;
 };
 
 void ComputeTpuv7GenericTcUnitUtilization(

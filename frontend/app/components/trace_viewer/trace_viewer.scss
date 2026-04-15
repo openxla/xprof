@@ -7,3 +7,10 @@ iframe {
   box-sizing: border-box;
   border-style: unset;
 }
+
+.details-button {
+  display: inline-flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 4px;
+}

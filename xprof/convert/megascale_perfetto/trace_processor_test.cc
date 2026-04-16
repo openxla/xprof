@@ -194,5 +194,160 @@ TEST(TraceProcessorTest, ModifiesTrackNames) {
   EXPECT_EQ(trace.megascale_fragments[0][0].name, "device_0_gid_rendezvous_0");
 }
 
+TEST(TraceProcessorTest, ResolvesFlows) {
+  XprofTrace trace;
+  auto& tpu_tracks = trace.tpu_fragments[0];
+  tpu_tracks.reserve(2);
+
+  Track& modules = tpu_tracks.emplace_back();
+  modules.name = "XLA Modules";
+  Event m1{"module 1", /*ts=*/50, /*duration=*/1000};
+  m1.args.push_back({trace.string_table.Intern("run_id"), uint64_t{123}});
+  modules.events.push_back(std::move(m1));
+
+  Track& ops = tpu_tracks.emplace_back();
+  ops.name = "XLA Ops";
+  ops.events.reserve(5);
+
+  Event send_event{"send", /*ts=*/150, /*duration=*/10};
+  send_event.args.push_back({trace.string_table.Intern("long_name"),
+                             trace.string_table.Intern("channel_id=42")});
+  ops.events.push_back(std::move(send_event));
+  Event& send_ref = ops.events.back();
+
+  Event recv_event{"recv", /*ts=*/160, /*duration=*/10};
+  recv_event.args.push_back({trace.string_table.Intern("long_name"),
+                             trace.string_table.Intern("channel_id=43")});
+  ops.events.push_back(std::move(recv_event));
+  Event& recv_ref = ops.events.back();
+
+  Event send_done_event{"send-done", /*ts=*/400, /*duration=*/10};
+  send_done_event.args.push_back({trace.string_table.Intern("long_name"),
+                                  trace.string_table.Intern("channel_id=42")});
+  ops.events.push_back(std::move(send_done_event));
+  Event& send_done_ref = ops.events.back();
+
+  Event recv_done_event{"recv-done", /*ts=*/500, /*duration=*/10};
+  recv_done_event.args.push_back({trace.string_table.Intern("long_name"),
+                                  trace.string_table.Intern("channel_id=43")});
+  ops.events.push_back(std::move(recv_done_event));
+  Event& recv_done_ref = ops.events.back();
+
+  Track& ms = trace.megascale_fragments[0].emplace_back();
+  ms.name = "rendezvous";
+  ms.events.reserve(5);
+
+  Event header_event{"device_0_gid_rendezvous_0", /*ts=*/50, /*duration=*/2000};
+  header_event.args.push_back({trace.string_table.Intern("send_channel_id"),
+                               trace.string_table.Intern("42")});
+  header_event.args.push_back({trace.string_table.Intern("recv_channel_id"),
+                               trace.string_table.Intern("43")});
+  ms.events.push_back(std::move(header_event));
+
+  Event d2h_start{"DeviceToHost START", /*ts=*/200, /*duration=*/10};
+  d2h_start.args.push_back(
+      {trace.string_table.Intern("graph_key"),
+       trace.string_table.Intern("device_0_gid_rendezvous_0")});
+  d2h_start.args.push_back(
+      {trace.string_table.Intern("action_index"), int64_t{0}});
+  ms.events.push_back(std::move(d2h_start));
+  Event& d2h_start_ref = ms.events.back();
+
+  Event d2h_end{"DeviceToHost END", /*ts=*/250, /*duration=*/10};
+  d2h_end.args.push_back(
+      {trace.string_table.Intern("graph_key"),
+       trace.string_table.Intern("device_0_gid_rendezvous_0")});
+  d2h_end.args.push_back(
+      {trace.string_table.Intern("is_last_instance"), int64_t{1}});
+  ms.events.push_back(std::move(d2h_end));
+  Event& d2h_end_ref = ms.events.back();
+
+  Event h2d_start{"HostToDevice START", /*ts=*/300, /*duration=*/10};
+  h2d_start.args.push_back(
+      {trace.string_table.Intern("graph_key"),
+       trace.string_table.Intern("device_0_gid_rendezvous_0")});
+  h2d_start.args.push_back(
+      {trace.string_table.Intern("action_index"), int64_t{0}});
+  ms.events.push_back(std::move(h2d_start));
+  Event& h2d_start_ref = ms.events.back();
+
+  Event h2d_end{"HostToDevice END", /*ts=*/350, /*duration=*/10};
+  h2d_end.args.push_back(
+      {trace.string_table.Intern("graph_key"),
+       trace.string_table.Intern("device_0_gid_rendezvous_0")});
+  h2d_end.args.push_back(
+      {trace.string_table.Intern("is_last_instance"), int64_t{1}});
+  ms.events.push_back(std::move(h2d_end));
+  Event& h2d_end_ref = ms.events.back();
+
+  TraceProcessor processor(&trace);
+  processor.Process();
+
+  auto get_flow_ids = [&](const Event& event, FlowDirection dir) {
+    std::vector<int64_t> ids;
+    for (const auto& flow : event.flows) {
+      if (flow.direction == dir) {
+        ids.push_back(flow.id);
+      }
+    }
+    return ids;
+  };
+
+  auto has_common_element = [](const std::vector<int64_t>& a,
+                               const std::vector<int64_t>& b) {
+    for (auto x : a) {
+      for (auto y : b) {
+        if (x == y) return true;
+      }
+    }
+    return false;
+  };
+
+  // 1. send -> send-done
+  std::vector<int64_t> send_out =
+      get_flow_ids(send_ref, FlowDirection::kSource);
+  std::vector<int64_t> send_done_in =
+      get_flow_ids(send_done_ref, FlowDirection::kSink);
+  EXPECT_TRUE(has_common_element(send_out, send_done_in));
+
+  // 2. send -> recv-done
+  std::vector<int64_t> recv_done_in =
+      get_flow_ids(recv_done_ref, FlowDirection::kSink);
+  EXPECT_TRUE(has_common_element(send_out, recv_done_in));
+
+  // 3. send -> D2H start
+  std::vector<int64_t> d2h_start_in =
+      get_flow_ids(d2h_start_ref, FlowDirection::kSink);
+  EXPECT_TRUE(has_common_element(send_out, d2h_start_in));
+
+  // 4. recv -> recv-done
+  std::vector<int64_t> recv_out =
+      get_flow_ids(recv_ref, FlowDirection::kSource);
+  EXPECT_TRUE(has_common_element(recv_out, recv_done_in));
+
+  // 5. recv -> H2D start
+  std::vector<int64_t> h2d_start_in =
+      get_flow_ids(h2d_start_ref, FlowDirection::kSink);
+  EXPECT_TRUE(has_common_element(recv_out, h2d_start_in));
+
+  // 6. D2H END -> send-done
+  std::vector<int64_t> d2h_end_out =
+      get_flow_ids(d2h_end_ref, FlowDirection::kSource);
+  EXPECT_TRUE(has_common_element(d2h_end_out, send_done_in));
+
+  // 7. H2D END -> recv-done (recv-done END)
+  std::vector<int64_t> h2d_end_out =
+      get_flow_ids(h2d_end_ref, FlowDirection::kSource);
+
+  // Verify that a recv-done END event is added and that it has the expected
+  // inflows.
+  ASSERT_EQ(ops.events.size(), 5);
+  EXPECT_EQ(ops.events[4].name, "recv-done END");
+  Event& recv_done_end_ref = ops.events[4];
+  std::vector<int64_t> recv_done_end_in =
+      get_flow_ids(recv_done_end_ref, FlowDirection::kSink);
+  EXPECT_TRUE(has_common_element(h2d_end_out, recv_done_end_in));
+}
+
 }  // namespace
 }  // namespace xprof::megascale

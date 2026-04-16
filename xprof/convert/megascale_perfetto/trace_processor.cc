@@ -13,7 +13,9 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "re2/re2.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -98,6 +100,24 @@ int64_t ExtractChannelIdFromLongName(const Event& event,
     return channel_id;
   }
   return -1;
+}
+
+int64_t ExtractChannelId(const Event& event, const XprofTrace& trace,
+                         bool is_send) {
+  absl::string_view arg_name = is_send ? "send_channel_id" : "recv_channel_id";
+  absl::string_view channel_id_str;
+  int64_t channel_id = -1;
+
+  if (FindArgString(event, trace, arg_name, &channel_id_str)) {
+    if (!absl::SimpleAtoi(channel_id_str, &channel_id)) {
+      LOG(ERROR) << "Failed to parse channel ID: " << channel_id_str;
+    }
+    return channel_id;
+  }
+
+  // Fallback to old int arg.
+  FindArgInt(event, trace, arg_name, &channel_id);
+  return channel_id;
 }
 
 absl::string_view ExtractGraphName(absl::string_view graph_key) {
@@ -404,10 +424,11 @@ void TraceProcessor::ResolveFlows() {
     // If this is the "header" event, extract channel ID mappings.
     absl::string_view graph_name = ExtractGraphName(event.name);
     if (!graph_name.empty()) {
-      int64_t send_channel_id = -1;
-      int64_t recv_channel_id = -1;
-      FindArgInt(event, trace_, "send_channel_id", &send_channel_id);
-      FindArgInt(event, trace_, "recv_channel_id", &recv_channel_id);
+      int64_t send_channel_id =
+          ExtractChannelId(event, trace_, /*is_send=*/true);
+      int64_t recv_channel_id =
+          ExtractChannelId(event, trace_, /*is_send=*/false);
+
       if (recv_channel_id != -1 && send_channel_id != -1) {
         graph_to_channels[graph_name] = {send_channel_id, recv_channel_id};
         recv_to_send_channel_id[recv_channel_id] = send_channel_id;

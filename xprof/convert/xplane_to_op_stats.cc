@@ -36,6 +36,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -280,6 +281,17 @@ void UpdateOpMetricsDbFromHloModuleMap(OpMetricsDb& op_metrics_db,
   }
 }
 
+bool IsCustomCallEventOffDutyOp(const XEventVisitor& event) {
+  auto hlo_category_stat = event.GetStat(StatType::kHloCategory);
+  if (!hlo_category_stat ||
+      hlo_category_stat->StrOrRefValue() !=
+          xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+    return false;
+  }
+  auto model_flops_stat = event.GetStat(StatType::kModelFlops);
+  return model_flops_stat && model_flops_stat->IntOrUintValue() == 0;
+}
+
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   DutyCycleTracker duty_cycle_tracker;
   visitor.ForEachLine([&](const XLineVisitor& line) {
@@ -290,7 +302,8 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&
-              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+              (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
+               IsCustomCallEventOffDutyOp(event))));
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {

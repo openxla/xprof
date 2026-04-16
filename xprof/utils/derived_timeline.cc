@@ -309,13 +309,28 @@ std::vector<int64_t> DeriveEventsFromAnnotationsForLines(
 
 }  // namespace
 
-void ProcessTfOpEvent(absl::string_view tf_op_full_name,
-                      tsl::profiler::Timespan event_span,
-                      std::optional<int64_t> group_id,
-                      XPlaneBuilder& plane_builder,
-                      DerivedXLineBuilder& tf_name_scope_line_builder,
-                      DerivedXLineBuilder& tf_op_line_builder) {
-  tsl::profiler::TfOp tf_op = tsl::profiler::ParseTfOpFullname(tf_op_full_name);
+void ProcessTfOpEvent(
+    absl::string_view tf_op_full_name, tsl::profiler::Timespan event_span,
+    std::optional<int64_t> group_id, XPlaneBuilder& plane_builder,
+    DerivedXLineBuilder& tf_name_scope_line_builder,
+    DerivedXLineBuilder& tf_op_line_builder,
+    absl::flat_hash_map<std::string, tsl::profiler::TfOp>* cache) {
+  tsl::profiler::TfOp tf_op;
+  bool from_c = false;
+  if (cache != nullptr) {
+    if (auto it = cache->find(tf_op_full_name); it != cache->end()) {
+      tf_op = it->second;
+      from_c = true;
+    }
+  }
+
+  if (!from_c) {
+    tf_op = tsl::profiler::ParseTfOpFullname(tf_op_full_name);
+    if (cache != nullptr) {
+      cache->insert({std::string(tf_op_full_name), tf_op});
+    }
+  }
+
   tsl::profiler::Category category = tf_op.category;
   if (category == tsl::profiler::Category::kTensorFlow ||
       category == tsl::profiler::Category::kJax) {
@@ -779,6 +794,13 @@ void GenerateDerivedTimeLines(
                "joined successfully";
 }
 
+struct EventMetadataStatCache {
+  std::optional<absl::string_view> tf_op_name;
+  std::optional<absl::string_view> source_info;
+  std::optional<uint64_t> group_id;
+  std::optional<uint64_t> is_async;
+};
+
 void DeriveLinesFromStats(XPlane* device_trace) {
   XPlaneVisitor plane_visitor =
       tsl::profiler::CreateTfXPlaneVisitor(device_trace);
@@ -799,6 +821,10 @@ void DeriveLinesFromStats(XPlane* device_trace) {
   HostOffloadEventProcessor host_offload_event_processor(&plane_builder,
                                                          start_timestamp_ns);
 
+  absl::flat_hash_map<int64_t, EventMetadataStatCache>
+      event_metadata_stat_cache;
+
+  absl::flat_hash_map<std::string, tsl::profiler::TfOp> cache;
   for (const XEventVisitor& event :
        tsl::profiler::GetSortedEvents<XEventVisitor>(plane_visitor, true)) {
     tsl::profiler::Timespan event_span = event.GetTimespan();
@@ -817,14 +843,42 @@ void DeriveLinesFromStats(XPlane* device_trace) {
         is_async = stat.IntOrUintValue();
       }
     };
-    event.Metadata().ForEachStat(for_each_stat);
+
+    if (auto it = event_metadata_stat_cache.find(event.Metadata().Id());
+        it != event_metadata_stat_cache.end()) {
+      tf_op_name = it->second.tf_op_name;
+      group_id = it->second.group_id;
+      source_info = it->second.source_info;
+      is_async = it->second.is_async;
+    } else {
+      EventMetadataStatCache data;
+      event.Metadata().ForEachStat([&](const XStatVisitor& stat) {
+        if (stat.Type() == StatType::kTfOp) {
+          data.tf_op_name = stat.StrOrRefValue();
+        } else if (stat.Type() == StatType::kGroupId) {
+          data.group_id = stat.IntOrUintValue();
+        } else if (stat.Type() == StatType::kSourceInfo) {
+          data.source_info = stat.StrOrRefValue();
+        } else if (stat.Type() == StatType::kIsAsync) {
+          data.is_async = stat.IntOrUintValue();
+        }
+      });
+
+      tf_op_name = data.tf_op_name;
+      group_id = data.group_id;
+      source_info = data.source_info;
+      is_async = data.is_async;
+
+      event_metadata_stat_cache.insert({event.Metadata().Id(), data});
+    }
+
     event.ForEachStat(for_each_stat);
 
     if (is_async && *is_async) continue;  // Disregard asynchronous events.
 
     if (tf_op_name && !tf_op_name->empty()) {
       ProcessTfOpEvent(*tf_op_name, event_span, group_id, plane_builder,
-                       tf_name_scope, tf_ops);
+                       tf_name_scope, tf_ops, &cache);
     }
     if (source_info && !source_info->empty()) {
       source.ExpandOrAddEvent(

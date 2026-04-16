@@ -243,6 +243,61 @@ canvas {
     }
   }
 
+  .single-event-details {
+    padding: 16px;
+    border: 1px solid var(--md-sys-color--outline-variant);
+    border-radius: 8px;
+    background-color: var(--md-sys-color--surface-container-low);
+    margin-bottom: 16px;
+    max-width: 800px;
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      color: var(--md-sys-color--on-surface);
+    }
+
+    .detail-row {
+      display: flex;
+      margin-bottom: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+
+      .detail-label {
+        font-weight: 600;
+        width: 150px;
+        flex-shrink: 0;
+        color: var(--md-sys-color--on-surface-variant);
+      }
+
+      .detail-value {
+        color: var(--md-sys-color--on-surface);
+        word-break: break-word;
+      }
+    }
+
+    .cross-tool-links {
+      margin-top: 16px;
+      display: flex;
+      gap: 12px;
+
+      ::ng-deep a {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 4px;
+        background-color: var(--md-sys-color--primary-container);
+        color: var(--md-sys-color--on-primary-container);
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 500;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+    }
+  }
+
   .selection-info {
     font-size: 12px;
     font-weight: bold;

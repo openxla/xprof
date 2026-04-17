@@ -22,14 +22,23 @@ cc_binary(
     ] + select({
         ":dbg_build": ["-g"],
         "//conditions:default": [],
+    }) + select({
+        "@xla//xla/tsl:macos_arm64": ["-mmacosx-version-min=11.0"],
+        "@xla//xla/tsl:macos_x86_64": ["-mmacosx-version-min=10.15"],
+        "//conditions:default": [],
     }),
     linkopts = select({
         "@xla//xla/tsl:windows": [
             "/OPT:REF",  # Remove unused functions and data
             "/OPT:ICF",  # Merge identical functions
         ],
-        "@xla//xla/tsl:macos": [
+        "@xla//xla/tsl:macos_arm64": [
             "-Wl,-dead_strip",  # Remove unreferenced symbols
+            "-mmacosx-version-min=11.0",
+        ],
+        "@xla//xla/tsl:macos_x86_64": [
+            "-Wl,-dead_strip",  # Remove unreferenced symbols
+            "-mmacosx-version-min=10.15",
         ],
         "//conditions:default": [
             "-Wl,--exclude-libs,ALL",  # Prevent exposing symbols from dependencies

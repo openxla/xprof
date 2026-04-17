@@ -757,6 +757,7 @@ cc_library(
     hdrs = ["op_stats_to_overview_page.h"],
     deps = [
         ":data_table_utils",
+        ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":op_stats_to_input_pipeline_analysis",
         "@com_google_absl//absl/algorithm:container",
@@ -780,6 +781,7 @@ cc_library(
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:types",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:format_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
         "@xla//xla/tsl/profiler/utils:tf_op_utils",

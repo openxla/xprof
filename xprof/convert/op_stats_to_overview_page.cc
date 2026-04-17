@@ -18,6 +18,7 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,11 +34,13 @@ limitations under the License.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/format_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
+#include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
@@ -185,7 +188,8 @@ OverviewPageRecommendation ComputeGenericRecommendation(
 }
 
 bool ComputeTpuAnalysisResult(const OpStats& op_stats,
-                              OverviewPageAnalysis* analysis) {
+                              OverviewPageAnalysis* analysis,
+                              std::optional<TpuPerformanceLimits> limits) {
   analysis->set_device_duty_cycle_percent(
       tsl::profiler::SafeDivide(
           op_stats.device_op_metrics_db().busy_time_ps(),
@@ -197,6 +201,41 @@ bool ComputeTpuAnalysisResult(const OpStats& op_stats,
 
   analysis->set_host_idle_time_percent(
       IdleTimeRatio(op_stats.host_op_metrics_db()) * 100.0);
+
+  if (limits.has_value()) {
+    const tensorflow::profiler::OpMetricsDb& hlo_db_complete_steps_only =
+        op_stats.hlo_metrics_db_complete_steps_only();
+    uint64_t total_time_ps = hlo_db_complete_steps_only.total_time_ps();
+    OpMetrics aggregated;
+    for (const auto& metrics : hlo_db_complete_steps_only.metrics_db()) {
+      if (metrics.occurrences() == 0) continue;
+      if (tsl::profiler::MayHaveInnerOps(metrics.category())) continue;
+      CombineOpMetrics(metrics, &aggregated, /*update_num_cores=*/false);
+    }
+    double total_flops = aggregated.flops_v2();
+    uint64_t total_bytes_accessed =
+        BytesAccessedPerCore(aggregated, MemorySpace::MEMORY_SPACE_HBM,
+                             OpMetrics::MemoryAccessed::READ) +
+        BytesAccessedPerCore(aggregated, MemorySpace::MEMORY_SPACE_HBM,
+                             OpMetrics::MemoryAccessed::WRITE);
+    double operational_intensity_flops_per_byte =
+        tsl::profiler::SafeDivide(total_flops, total_bytes_accessed);
+    double measured_gigaflops_per_second = tsl::profiler::SafeDivide(
+        total_flops, tsl::profiler::PicoToNano(total_time_ps));
+    double measured_gigabytes_per_second = tsl::profiler::SafeDivide(
+        total_bytes_accessed, tsl::profiler::PicoToNano(total_time_ps));
+
+    double optimal_gigaflops_per_second =
+        std::min(operational_intensity_flops_per_byte *
+                     limits->max_gigabytes_per_second,
+                 limits->max_gigaflops_per_second);
+    analysis->set_flop_rate_utilization_relative_to_roofline_percent(
+        100.0 * tsl::profiler::SafeDivide(measured_gigaflops_per_second,
+                                          optimal_gigaflops_per_second));
+    analysis->set_memory_bw_utilization_relative_to_hw_limit_percent(
+        100.0 * tsl::profiler::SafeDivide(measured_gigabytes_per_second,
+                                          limits->max_gigabytes_per_second));
+  }
 
   return true;
 }

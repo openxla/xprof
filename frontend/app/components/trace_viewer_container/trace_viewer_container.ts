@@ -203,7 +203,7 @@ declare interface TfTraceViewer {
   standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
-  styleUrls: ['./trace_viewer_container.css'],
+  styleUrls: ['./trace_viewer_container.scss'],
   imports: [
     AngularSplitModule,
     CommonModule,
@@ -297,6 +297,10 @@ export class TraceViewerContainer
 
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
   @ViewChild('searchContainer') searchContainer?: ElementRef<HTMLElement>;
+  @ViewChild('selectBtn') selectBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('panBtn') panBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('timingBtn') timingBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
     if (matSort) {
       this.selectedEventPropertiesDataSource.sort = matSort;
@@ -415,11 +419,19 @@ export class TraceViewerContainer
       case 'd':
       case 's':
       case 'w':
-      case '1':
-      case '2':
-      case '3':
-      case '4':
         this.tvIframe?.nativeElement?.contentWindow?.focus();
+        break;
+      case '1':
+        this.setMouseMode(MouseMode.SELECT);
+        break;
+      case '2':
+        this.setMouseMode(MouseMode.PAN);
+        break;
+      case '3':
+        this.setMouseMode(MouseMode.ZOOM);
+        break;
+      case '4':
+        this.setMouseMode(MouseMode.TIMING);
         break;
       default:
         break;
@@ -456,7 +468,7 @@ export class TraceViewerContainer
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
     if (isMouseModeChangedEvent(e)) {
-      this.currentMouseMode = e.detail.mouseMode;
+      this.setMouseMode(e.detail.mouseMode);
     }
   };
 
@@ -581,6 +593,23 @@ export class TraceViewerContainer
     if (this.traceViewerModule) {
       this.traceViewerModule.application.instance().setMouseMode(mode);
     }
+    // Sync focus to the corresponding button
+    switch (mode) {
+      case MouseMode.SELECT:
+        this.selectBtn?.nativeElement?.focus();
+        break;
+      case MouseMode.PAN:
+        this.panBtn?.nativeElement?.focus();
+        break;
+      case MouseMode.ZOOM:
+        this.zoomBtn?.nativeElement?.focus();
+        break;
+      case MouseMode.TIMING:
+        this.timingBtn?.nativeElement?.focus();
+        break;
+      default:
+        break;
+    }
   }
 
   /**
@@ -641,40 +670,7 @@ export class TraceViewerContainer
    * and trigger actions on Enter for buttons.
    */
   onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Tab') {
-      // Custom Tab navigation to ensure focus stays within the search container elements.
-      const container = this.searchContainer?.nativeElement;
-      if (!container) return;
-
-      const focusableElements = container.querySelectorAll(
-        'input, button:not([disabled])',
-      );
-      const elementsArray = Array.from(focusableElements).filter(
-        (el): el is HTMLElement => el instanceof HTMLElement,
-      );
-
-      const activeElement = document.activeElement;
-      const currentIndex =
-        activeElement instanceof HTMLElement
-          ? elementsArray.indexOf(activeElement)
-          : -1;
-
-      if (currentIndex !== -1) {
-        if (event.shiftKey) {
-          // Shift+Tab: move to previous element
-          if (currentIndex > 0) {
-            elementsArray[currentIndex - 1].focus();
-            event.preventDefault();
-          }
-        } else {
-          // Tab: move to next element
-          if (currentIndex < elementsArray.length - 1) {
-            elementsArray[currentIndex + 1].focus();
-            event.preventDefault();
-          }
-        }
-      }
-    } else if (event.key === 'Enter') {
+    if (event.key === 'Enter') {
       // Force Enter key to trigger click on buttons within the search container,
       // as default behavior might be prevented by framework or parent components.
       const currentElement = document.activeElement;

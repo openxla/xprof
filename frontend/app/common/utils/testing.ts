@@ -8,6 +8,12 @@ declare interface WindowForTesting {
 
 /** Injects GVIZ_FOR_TESTING into the global window. */
 export function injectMockGviz() {
+  if ((window as unknown as Record<string, unknown>)['__WANT_REAL_GVIZ__']) {
+    console.log(
+      'Test: Skipping injectMockGviz because __WANT_REAL_GVIZ__ is true',
+    );
+    return;
+  }
   // Need to cast through unknown because the types do not overlap.
   const windowForTesting = window as unknown as WindowForTesting;
   windowForTesting.google = GVIZ_FOR_TESTING;

@@ -23,6 +23,16 @@ message TraceEventMetadata {
     double counter_value_double = 5;
     uint64 counter_value_uint64 = 6;
   }
+  // Interned string IDs for arguments.
+  map<uint32, uint32> args = 7;
+
+  enum FlowEntryType {
+    FLOW_NONE = 0;
+    FLOW_START = 1;
+    FLOW_MID = 2;
+    FLOW_END = 3;
+  }
+  FlowEntryType flow_entry_type = 8;
 }
 
 // Represents a sequence of trace events, grouped by their metadata (e.g., same
@@ -65,6 +75,11 @@ message TraceMetadata {
   repeated Process processes = 1;
 }
 
+message DetailItem {
+  string name = 1;
+  bool value = 2;
+}
+
 // The root response message representing a delta-compressed trace.
 message TraceDataResponse {
   // Sequence of standard duration events.
@@ -77,4 +92,6 @@ message TraceDataResponse {
   // A centralized list of strings used throughout the trace data.
   // `name_ref` fields in other messages are indices into this array.
   repeated string interned_strings = 5;
+  // Details for the trace (e.g., flags for the frontend).
+  repeated DetailItem details = 6;
 }

@@ -30,6 +30,7 @@ limitations under the License.
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -95,18 +96,6 @@ std::string ShapeDescription(const Shape& shape) {
   return ShapeUtil::HumanStringWithLayout(shape);
 }
 
-// A wrapper around ShapeUtil::ByteSizeOf that clears out the layout/padding,
-// since that is considered in the ByteSizeOf calculation.
-int64_t ShapeUnpaddedSize(Shape shape) {
-  // Ensure the layout has no padding by making it the default layout.
-  LayoutUtil::SetToDefaultLayout(&shape);
-  // Note: we make a simplifying assumption here that a "minimal" size for a
-  // tuple member would be the size of a `void*` -- there may be even fancier
-  // ways of doing things, but this should give a good enough approximation of
-  // what a minimal tuple size is.
-  return ShapeUtil::ByteSizeOf(shape, /*pointer_size=*/sizeof(void*));
-}
-
 class BufferAllocationStruct {
  public:
   explicit BufferAllocationStruct(const BufferAllocationProto& proto)
@@ -157,19 +146,21 @@ class BufferAllocationStruct {
 struct LogicalBufferStruct {
   LogicalBufferStruct(const LogicalBufferProto& p,
                       const BufferAllocationStruct& b,
-                      const ::xla::HloInstructionProto& i, uint64_t offset)
+                      const ::xla::HloInstructionProto& i, uint64_t offset,
+                      int64_t unpadded_size)
       : proto(p),
         buffer_allocation(b),
         hlo_instruction(i),
         offset(offset),
         shape(ResolveShapeIndex(hlo_instruction.shape(),
-                                proto.defined_at().shape_index())) {}
+                                proto.defined_at().shape_index())),
+        unpadded_size_(unpadded_size) {}
 
   absl::string_view instruction_name() const { return hlo_instruction.name(); }
 
   int64_t color() const { return proto.color(); }
   size_t size() const { return proto.size(); }
-  size_t unpadded_size() const { return ShapeUnpaddedSize(shape); }
+  size_t unpadded_size() const { return unpadded_size_; }
 
   // reference counting related
   int64_t inc() {
@@ -217,6 +208,7 @@ struct LogicalBufferStruct {
   xla::Shape shape;
   int64_t ref_count = 0;
   LogicalBufferStruct* canonical_buffer = nullptr;
+  int64_t unpadded_size_;
 };
 
 // A wrapper of HLO BufferAssignment, with lookup maps for logical buffers and
@@ -312,6 +304,11 @@ class HloProtoBufferWrapper {
       id_to_logical_buffer_proto[logical_buffer.id()] = &logical_buffer;
     }
 
+    absl::StatusOr<absl::flat_hash_map<int64_t, int64_t>>
+        logical_buffer_unpadded_sizes = ComputeLogicalBufferUnpaddedSizes(
+            hlo_proto_.hlo_module(), hlo_proto_.buffer_assignment());
+    CHECK_OK(logical_buffer_unpadded_sizes);
+
     for (const auto& buffer_allocation :
          hlo_proto_.buffer_assignment().buffer_allocations()) {
       auto& buffer_allocation_s =
@@ -333,7 +330,8 @@ class HloProtoBufferWrapper {
         const auto* instruction = unique_id_to_hlo.at(inst_id);
         id_to_logical_buffer_[id] = std::make_unique<LogicalBufferStruct>(
             *logical_buffer, *buffer_allocation_s, *instruction,
-            assigned.offset());
+            assigned.offset(),
+            logical_buffer_unpadded_sizes->at(logical_buffer->id()));
       }
     }
 
@@ -514,7 +512,6 @@ void NoteSpecialAllocations(const HloProtoBufferWrapper& wrapper,
   int64_t entry_parameters_bytes = 0;
   int64_t non_reusable_bytes = 0;
   int64_t maybe_live_out_bytes = 0;
-  int64_t indefinite_buffer_allocation_bytes = 0;
   for (const auto* buffer_allocation_struct :
        wrapper.GetBufferAllocations(memory_color)) {
     const auto& buffer_allocation = buffer_allocation_struct->proto();
@@ -533,7 +530,6 @@ void NoteSpecialAllocations(const HloProtoBufferWrapper& wrapper,
       maybe_live_out_bytes += buffer_allocation.size();
     }
     if (buffer_allocation_struct->IsIndefinite()) {
-      indefinite_buffer_allocation_bytes += buffer_allocation.size();
       Convert(buffer_allocation, wrapper, result->add_indefinite_lifetimes());
     }
   }
@@ -546,7 +542,8 @@ void NoteSpecialAllocations(const HloProtoBufferWrapper& wrapper,
       BytesToMiB(xla::ComputeTotalAllocationBytes(
           wrapper.GetHloProto().buffer_assignment(), memory_color)));
   result->set_indefinite_buffer_allocation_mib(
-      BytesToMiB(indefinite_buffer_allocation_bytes));
+      BytesToMiB(xla::ComputeIndefiniteAllocationsInBytes(
+          wrapper.GetHloProto().buffer_assignment(), memory_color)));
 }
 
 // Memory usage statistics collected from heap simulator trace.

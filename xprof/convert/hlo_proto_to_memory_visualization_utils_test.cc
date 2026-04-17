@@ -28,8 +28,8 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-// 1 buffer allocation of 1MB
-// 2 logical buffers, each is 0.5MB
+// 2 buffer allocations of 1MB, one of which is indefinite (constant).
+// 3 logical buffers
 static constexpr char kHLOBase[] = R"pb(
   hlo_module {
     name: "test_module"
@@ -46,6 +46,11 @@ static constexpr char kHLOBase[] = R"pb(
         id: 1
         shape { tuple_shapes { element_type: U64 } }
       }
+      instructions {
+        name: "constant.1"
+        id: 2
+        shape { tuple_shapes { element_type: U64 } }
+      }
     }
   }
   buffer_assignment {
@@ -55,6 +60,13 @@ static constexpr char kHLOBase[] = R"pb(
       color: 0
       assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
       assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
+    }
+    buffer_allocations {
+      index: 1
+      size: 1048576
+      color: 0
+      is_constant: true
+      assigned { logical_buffer_id: 3 offset: 0 size: 1048576 }
     }
     logical_buffers {
       id: 1
@@ -67,6 +79,12 @@ static constexpr char kHLOBase[] = R"pb(
       size: 524288
       color: 0
       defined_at { instruction_id: 1 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 3
+      size: 1048576
+      color: 0
+      defined_at { instruction_id: 2 shape_index: 0 }
     }
     heap_simulator_traces { %s }
   }
@@ -86,8 +104,13 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_1) {
   TF_ASSERT_OK_AND_ASSIGN(
       PreprocessResult preprocess_result,
       ConvertHloProtoToPreprocessResult(hlo_proto, {.small_buffer_size = 0}));
-  EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
-  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 1);
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 1.5);
+  // [Peak unpadded heap] = [peak of unpadded heap-simulated buffer sizes] +
+  // [padded size of indefinite buffers]. In this case, the computations are on
+  // a single U64 (8 bytes), and we have 1MB of indefinite buffers.
+  EXPECT_EQ(preprocess_result.peak_unpadded_heap_mib(), 8.0 / (1 << 20) + 1);
+  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 2);
+  EXPECT_EQ(preprocess_result.indefinite_buffer_allocation_mib(), 1);
 }
 
 TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
@@ -105,8 +128,13 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
   ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
   TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
                           ConvertHloProtoToPreprocessResult(hlo_proto, option));
-  EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
-  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 1);
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 1.5);
+  // [Peak unpadded heap] = [peak of unpadded heap-simulated buffer sizes] +
+  // [padded size of indefinite buffers]. In this case, the computations are on
+  // a single U64 (8 bytes), and we have 1MB of indefinite buffers.
+  EXPECT_EQ(preprocess_result.peak_unpadded_heap_mib(), 8.0 / (1 << 20) + 1);
+  EXPECT_EQ(preprocess_result.total_buffer_allocation_mib(), 2);
+  EXPECT_EQ(preprocess_result.indefinite_buffer_allocation_mib(), 1);
   EXPECT_FALSE(preprocess_result.allocation_timeline().empty());
 }
 

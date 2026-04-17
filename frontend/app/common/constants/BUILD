@@ -31,6 +31,7 @@ ts_library(
         "testing.ts",
     ],
     deps = [
+        "@npm//@types/google.visualization",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )

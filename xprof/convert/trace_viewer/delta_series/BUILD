@@ -43,6 +43,7 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@tsl//tsl/profiler/lib:context_types",

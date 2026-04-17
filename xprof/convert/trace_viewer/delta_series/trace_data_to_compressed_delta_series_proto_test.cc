@@ -395,6 +395,157 @@ TEST(DeltaSeriesProtoConverterTest, HonorsMpmdPipelineView) {
   }
 }
 
+TEST(DeltaSeriesProtoConverterTest, ConvertsEventsWithArguments) {
+  Trace trace;
+  Device device;
+  Resource resource;
+  (*device.mutable_resources())[1] = resource;
+  (*trace.mutable_devices())[0] = device;
+
+  TraceEvent event1;
+  event1.set_device_id(0);
+  event1.set_resource_id(1);
+  event1.set_name("Compute");
+  event1.set_timestamp_ps(1000);
+  event1.set_duration_ps(500);
+
+  // Set arguments via RawData
+  RawData raw_data;
+  auto* arg1 = raw_data.mutable_args()->add_arg();
+  arg1->set_name("framework_op");
+  arg1->set_str_value("MatMul");
+
+  auto* arg2 = raw_data.mutable_args()->add_arg();
+  arg2->set_name("name_scope");
+  arg2->set_str_value("model/layer1");
+
+  auto* arg3 = raw_data.mutable_args()->add_arg();
+  arg3->set_name("uint_arg");
+  arg3->set_uint_value(1234);
+
+  auto* arg4 = raw_data.mutable_args()->add_arg();
+  arg4->set_name("int_arg");
+  arg4->set_int_value(-5678);
+
+  auto* arg5 = raw_data.mutable_args()->add_arg();
+  arg5->set_name("double_arg");
+  arg5->set_double_value(3.14);
+
+  auto* arg6 = raw_data.mutable_args()->add_arg();
+  arg6->set_name("ref_arg");
+  arg6->set_ref_value(100);
+
+  event1.set_raw_data(raw_data.SerializeAsString());
+  event1.set_flow_id(42);
+  event1.set_flow_entry_type(TraceEvent::FLOW_START);
+
+  (*trace.mutable_name_table())[100] = "RefStringValue";
+
+  TestTraceEventsContainer container(trace);
+  container.AddCompleteEvent(0, 1, &event1);
+
+  absl::StatusOr<std::string> compressed_result =
+      ConvertTraceDataToCompressedDeltaSeriesProto(
+          DeltaSeriesProtoConversionOptions{}, container);
+  ASSERT_TRUE(compressed_result.ok());
+
+  absl::StatusOr<std::string> decompressed =
+      ZstdCompression::Decompress(*compressed_result);
+  ASSERT_TRUE(decompressed.ok());
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(*decompressed));
+
+  ASSERT_EQ(response.complete_events_size(), 1);
+  const auto& series = response.complete_events(0);
+
+  ASSERT_EQ(series.event_metadata_size(), 1);
+  const auto& metadata = series.event_metadata(0);
+
+  EXPECT_EQ(metadata.flow_id(), 42);
+  EXPECT_EQ(metadata.flow_entry_type(), xprof::TraceEventMetadata::FLOW_START);
+
+  ASSERT_EQ(metadata.args_size(), 6);
+
+  uint32_t framework_op_id = 0;
+  uint32_t matmul_id = 0;
+  uint32_t name_scope_id = 0;
+  uint32_t model_layer1_id = 0;
+  uint32_t uint_arg_id = 0;
+  uint32_t uint_val_id = 0;
+  uint32_t int_arg_id = 0;
+  uint32_t int_val_id = 0;
+  uint32_t double_arg_id = 0;
+  uint32_t double_val_id = 0;
+  uint32_t ref_arg_id = 0;
+  uint32_t ref_val_id = 0;
+
+  for (int i = 0; i < response.interned_strings_size(); ++i) {
+    const auto& s = response.interned_strings(i);
+    if (s == "framework_op")
+      framework_op_id = i;
+    else if (s == "MatMul")
+      matmul_id = i;
+    else if (s == "name_scope")
+      name_scope_id = i;
+    else if (s == "model/layer1")
+      model_layer1_id = i;
+    else if (s == "uint_arg")
+      uint_arg_id = i;
+    else if (s == "1234")
+      uint_val_id = i;
+    else if (s == "int_arg")
+      int_arg_id = i;
+    else if (s == "-5678")
+      int_val_id = i;
+    else if (s == "double_arg")
+      double_arg_id = i;
+    else if (s == "3.140000")
+      double_val_id = i;
+    else if (s == "ref_arg")
+      ref_arg_id = i;
+    else if (s == "RefStringValue")
+      ref_val_id = i;
+  }
+
+  ASSERT_NE(framework_op_id, 0);
+  ASSERT_NE(matmul_id, 0);
+  ASSERT_NE(name_scope_id, 0);
+  ASSERT_NE(model_layer1_id, 0);
+  ASSERT_NE(uint_arg_id, 0);
+  ASSERT_NE(uint_val_id, 0);
+  ASSERT_NE(int_arg_id, 0);
+  ASSERT_NE(int_val_id, 0);
+  ASSERT_NE(double_arg_id, 0);
+  ASSERT_NE(double_val_id, 0);
+  ASSERT_NE(ref_arg_id, 0);
+  ASSERT_NE(ref_val_id, 0);
+
+  auto it = metadata.args().find(framework_op_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, matmul_id);
+
+  it = metadata.args().find(name_scope_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, model_layer1_id);
+
+  it = metadata.args().find(uint_arg_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, uint_val_id);
+
+  it = metadata.args().find(int_arg_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, int_val_id);
+
+  it = metadata.args().find(double_arg_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, double_val_id);
+
+  it = metadata.args().find(ref_arg_id);
+  ASSERT_NE(it, metadata.args().end());
+  EXPECT_EQ(it->second, ref_val_id);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

@@ -210,8 +210,12 @@ export class DataServiceV2 implements DataServiceV2Interface {
       parameters,
       {updateSearchParams},
     );
+    let url = this.pathPrefix + DATA_API;
+    if (tool.endsWith('.pb')) {
+      url += '.pb';
+    }
     return this.get(
-      this.pathPrefix + DATA_API,
+      url,
       {'params': params},
       !ignoreError,
     ) as Observable<DataTable>;
@@ -229,7 +233,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
       host || '',
       parameters,
     );
-    return this.pathPrefix + DATA_API + '?' + params.toString();
+    let url = this.pathPrefix + DATA_API;
+    if (tool.endsWith('.pb')) {
+      url += '.pb';
+    }
+    return url + '?' + params.toString();
   }
 
   getSmartSuggestions(

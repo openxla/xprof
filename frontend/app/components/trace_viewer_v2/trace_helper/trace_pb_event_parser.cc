@@ -82,6 +82,10 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
       }
 
       ev.args["uid"] = std::to_string(ev_meta.serial());
+      for (const auto& [key_id, val_id] : ev_meta.args()) {
+        ev.args[response.interned_strings(key_id)] =
+            response.interned_strings(val_id);
+      }
       ev.event_id =
           tsl::Fingerprint64(absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
 
@@ -95,6 +99,16 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
                         ParsedTraceEvents& result) {
+  struct AsyncKey {
+    ProcessId pid;
+    std::string id;
+    bool operator<(const AsyncKey& o) const {
+      if (pid != o.pid) return pid < o.pid;
+      return id < o.id;
+    }
+  };
+  std::map<AsyncKey, TraceEvent> open_async_events;
+
   for (const auto& series : response.async_events()) {
     const auto& metadata = series.metadata();
     uint64_t current_ts_ps = 0;
@@ -103,43 +117,64 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
       const auto& ev_meta = series.event_metadata(i);
       if (ev_meta.flow_id() != 0) {
         std::string flow_id_str = std::to_string(ev_meta.flow_id());
-        tsl::profiler::ContextType category =
-            tsl::profiler::ContextType::kGeneric;
+
+        TraceEvent ev;
+        ev.pid = metadata.process_id();
+        ev.id = flow_id_str;
+        ev.ts = current_ts_ps / 1000000.0;
+        ev.name = response.interned_strings(series.metadata().name_ref());
+
         if (ev_meta.flow_category() != 0) {
-          category = GetContextTypeFromString(
+          ev.category = GetContextTypeFromString(
               response.interned_strings(ev_meta.flow_category()));
         }
 
-        TraceEvent ev_start;
-        ev_start.ph = Phase::kFlowStart;
-        ev_start.name = response.interned_strings(series.metadata().name_ref());
-        ev_start.pid = metadata.process_id();
-        ev_start.ts = current_ts_ps / 1000000.0;
-        ev_start.id = flow_id_str;
-        ev_start.category = category;
-        ev_start.args["uid"] = std::to_string(ev_meta.serial());
+        ev.args["uid"] = std::to_string(ev_meta.serial());
         if (ev_meta.group_id() != 0) {
-          ev_start.args["group_id"] = std::to_string(ev_meta.group_id());
+          ev.args["group_id"] = std::to_string(ev_meta.group_id());
         }
-        ev_start.event_id = tsl::Fingerprint64(
-            absl::StrCat(ev_start.name, ":", ev_start.ts, ":", ev_start.dur));
-        result.flow_events.push_back(std::move(ev_start));
+        for (const auto& [key_id, val_id] : ev_meta.args()) {
+          ev.args[response.interned_strings(key_id)] =
+              response.interned_strings(val_id);
+        }
 
-        if (series.durations(i) > 0) {
-          TraceEvent ev_end;
-          ev_end.ph = Phase::kFlowEnd;
-          ev_end.name = response.interned_strings(series.metadata().name_ref());
-          ev_end.pid = metadata.process_id();
-          ev_end.ts = (current_ts_ps + series.durations(i)) / 1000000.0;
-          ev_end.id = flow_id_str;
-          ev_end.category = category;
-          ev_end.args["uid"] = std::to_string(ev_meta.serial());
-          if (ev_meta.group_id() != 0) {
-            ev_end.args["group_id"] = std::to_string(ev_meta.group_id());
+        auto flow_entry_type = ev_meta.flow_entry_type();
+        if (flow_entry_type == xprof::TraceEventMetadata::FLOW_START) {
+          ev.ph = Phase::kAsyncBegin;
+          open_async_events[{ev.pid, ev.id}] = std::move(ev);
+        } else if (flow_entry_type == xprof::TraceEventMetadata::FLOW_END) {
+          auto it = open_async_events.find({ev.pid, ev.id});
+          if (it != open_async_events.end()) {
+            TraceEvent& begin_ev = it->second;
+            begin_ev.ph = Phase::kComplete;
+            begin_ev.is_async = true;
+            if (ev.ts > begin_ev.ts) {
+              begin_ev.dur = ev.ts - begin_ev.ts;
+            }
+            // Merge arguments from end event if any.
+            if (!ev.args.empty()) {
+              begin_ev.args.insert(ev.args.begin(), ev.args.end());
+            }
+            begin_ev.event_id = tsl::Fingerprint64(absl::StrCat(
+                begin_ev.name, ":", begin_ev.ts, ":", begin_ev.dur));
+            result.flame_events.push_back(std::move(begin_ev));
+            open_async_events.erase(it);
           }
-          ev_end.event_id = tsl::Fingerprint64(
-              absl::StrCat(ev_end.name, ":", ev_end.ts, ":", ev_end.dur));
-          result.flow_events.push_back(std::move(ev_end));
+        } else if (flow_entry_type == xprof::TraceEventMetadata::FLOW_MID ||
+                   (flow_entry_type == xprof::TraceEventMetadata::FLOW_NONE &&
+                    series.durations(i) > 0)) {
+          ev.ph = Phase::kComplete;
+          ev.is_async = true;
+          ev.dur = series.durations(i) / 1000000.0;
+          ev.event_id = tsl::Fingerprint64(
+              absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+
+          if (flow_entry_type == xprof::TraceEventMetadata::FLOW_MID) {
+            // Replicate old behavior: erase pending start event with same ID.
+            open_async_events.erase({ev.pid, ev.id});
+          }
+
+          result.flame_events.push_back(std::move(ev));
         }
       }
     }
@@ -187,6 +222,24 @@ ParsedTraceEvents ParseCompressedTraceEvents(
     return result;
   }
 
+  if (response.details_size() > 0) {
+    emscripten::val details_map = emscripten::val::global("Map").new_();
+    for (const auto& detail : response.details()) {
+      details_map.call<void>("set", emscripten::val(detail.name()),
+                             emscripten::val(detail.value()));
+    }
+    emscripten::val detail_obj = emscripten::val::object();
+    detail_obj.set("details", details_map);
+
+    emscripten::val event_init = emscripten::val::object();
+    event_init.set("detail", detail_obj);
+
+    emscripten::val event =
+        emscripten::val::global("CustomEvent")
+            .new_(emscripten::val("details_received"), event_init);
+    emscripten::val::global("window").call<void>("dispatchEvent", event);
+  }
+
   ProcessMetadataEvents(response, result);
   ProcessCompleteEvents(response, result);
   ProcessAsyncEvents(response, result);
@@ -230,9 +283,15 @@ void ParseAndProcessCompressedTraceEvents(
   Application::Instance().RequestRedraw();
 }
 
+void SetCompressedSearchResultsInWasm(const std::string& buffer_data) {
+  ParseAndProcessCompressedTraceEvents(buffer_data, emscripten::val::null());
+}
+
 EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
   emscripten::function("processCompressedTraceEvents",
                        &traceviewer::ParseAndProcessCompressedTraceEvents);
+  emscripten::function("setCompressedSearchResultsInWasm",
+                       &traceviewer::SetCompressedSearchResultsInWasm);
 }
 
 }  // namespace traceviewer

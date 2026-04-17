@@ -441,12 +441,12 @@ std::string OutsideCompilationRecommendationHtml(
 
 OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
   absl::Time start_time = absl::Now();
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting ComputeRunEnvironment";
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting ComputeRunEnvironment";
   OverviewPage overview_page;
   *overview_page.mutable_run_environment() =
       ComputeRunEnvironment(op_stats.run_environment());
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting ComputeAnalysisResult";
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting ComputeAnalysisResult";
   *overview_page.mutable_analysis() = ComputeAnalysisResult(op_stats);
 
   HardwareType hardware_type =
@@ -455,23 +455,23 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
     ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis());
   }
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting "
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting "
                "ConvertOpStatsToInputPipelineAnalysis";
   *overview_page.mutable_input_analysis() =
       ConvertOpStatsToInputPipelineAnalysis(op_stats);
 
-  LOG(INFO)
+  VLOG(1)
       << "ConvertOpStatsToOverviewPage: Starting ComputeBottleneckAnalysis";
   BottleneckAnalysis bottleneck = ComputeBottleneckAnalysis(
       overview_page.input_analysis().input_time_breakdown(),
       overview_page.input_analysis().step_details());
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting "
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting "
                "ComputeGenericRecommendation";
   *overview_page.mutable_recommendation() = ComputeGenericRecommendation(
       bottleneck, op_stats.device_op_metrics_db().precision_stats());
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting SetCommonRecommendation";
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting SetCommonRecommendation";
   SetCommonRecommendation(
       bottleneck.input_classification(), bottleneck.input_statement(), "",
       ParseHardwareType(op_stats.run_environment().device_type()),
@@ -484,17 +484,17 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
               .device_op_time_outside_compilation_percent()),
       overview_page.mutable_recommendation());
 
-  LOG(INFO)
+  VLOG(1)
       << "ConvertOpStatsToOverviewPage: Starting PopulateOverviewDiagnostics";
   PopulateOverviewDiagnostics(op_stats, overview_page.mutable_diagnostics());
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Starting setting utilizations";
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Starting setting utilizations";
   overview_page.mutable_analysis()->set_mxu_utilization_percent(
       op_stats.performance_counter_result().matrix_unit_utilization_percent());
   overview_page.mutable_analysis()->set_hbm_utilization_percent(
       op_stats.performance_counter_result().hbm_utilization_percent());
 
-  LOG(INFO) << "ConvertOpStatsToOverviewPage: Overall Finished in "
+  VLOG(1) << "ConvertOpStatsToOverviewPage: Overall Finished in "
             << absl::Now() - start_time;
   return overview_page;
 }

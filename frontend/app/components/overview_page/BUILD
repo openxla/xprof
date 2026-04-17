@@ -43,3 +43,30 @@ sass_binary(
         "@org_xprof//frontend/app/styles:common",
     ],
 )
+
+xprof_ng_module(
+    name = "screenshot_tests",
+    testonly = True,
+    srcs = [
+        "overview_page_screenshot_test.ts",
+    ],
+    tags = ["requires-net:external"],
+    deps = [
+        ":overview_page",
+        "//javascript/angular2/testing/catalyst/async",
+        # ksf,
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "@npm//safevalues",
+        "//third_party/javascript/safevalues/dom",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/constants:testing",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/components/smart_suggestion",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)

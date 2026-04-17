@@ -56,7 +56,6 @@ cc_test(
     deps = [
         ":trace_data_to_compressed_delta_series_proto",
         ":zstd_compression",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",

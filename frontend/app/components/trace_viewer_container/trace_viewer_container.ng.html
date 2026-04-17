@@ -7,7 +7,7 @@
   </ng-container>
   <ng-container *ngIf="traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR">
     <div *ngIf="isInitialLoading" class="loading-overlay">
-      <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+      <mat-progress-bar mode="indeterminate" aria-label="Loading trace data"></mat-progress-bar>
       <div class="loading-status">{{traceViewerV2LoadingStatus}}</div>
       <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
     </div>

@@ -16,16 +16,28 @@
       border-radius: 16px;
       background: var(--md-sys-color--surface);
     }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
   </style>
   <title>WASM Trace Viewer</title>
 </head>
 
 <body>
+  <label for="fileInput" class="visually-hidden">Upload Trace JSON</label>
   <input type="file" id="fileInput" accept=".json">
-  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" aria-label="Trace viewer timeline" role="application"></canvas>
   <script src="/trace_viewer_v2.js" defer></script>
   <script src="/app_bundle.js" defer></script>
-  </script>
 </body>
 
 </html>

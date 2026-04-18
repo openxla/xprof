@@ -25,6 +25,7 @@ namespace profiler {
 
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
+  JsonTraceOptions::Details details;
 };
 
 // Internal class handling the stateful conversion of trace events.
@@ -126,6 +127,12 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
     SortMpmdDevices(container, mpmd_sort_indices_);
   }
   *response->mutable_metadata() = GetTraceMetadata();
+
+  for (const auto& detail : options_.details) {
+    auto* d = response->add_details();
+    d->set_name(detail.first);
+    d->set_value(detail.second);
+  }
 
   using TidOrName = std::variant<uint64_t, absl::string_view>;
 

@@ -9,6 +9,7 @@
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
+#include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -66,6 +67,9 @@ void DeltaSeriesProtoConverter::PopulateTraceEventMetadata(
     const TraceEvent& event, xprof::TraceEventMetadata* metadata) {
   if (event.has_flow_id()) {
     metadata->set_flow_id(event.flow_id());
+    metadata->set_flow_entry_type(
+        static_cast<xprof::TraceEventMetadata::FlowEntryType>(
+            event.flow_entry_type()));
   }
   if (event.has_flow_category()) {
     tsl::profiler::ContextType type =
@@ -81,6 +85,35 @@ void DeltaSeriesProtoConverter::PopulateTraceEventMetadata(
   }
   if (event.has_serial()) {
     metadata->set_serial(event.serial());
+  }
+  if (event.has_raw_data()) {
+    tensorflow::profiler::RawData raw_data;
+    if (raw_data.ParseFromString(event.raw_data())) {
+      if (raw_data.has_args()) {
+        for (const auto& arg : raw_data.args().arg()) {
+          std::string value_str;
+          if (arg.has_str_value()) {
+            value_str = arg.str_value();
+          } else if (arg.has_uint_value()) {
+            value_str = std::to_string(arg.uint_value());
+          } else if (arg.has_int_value()) {
+            value_str = std::to_string(arg.int_value());
+          } else if (arg.has_double_value()) {
+            value_str = std::to_string(arg.double_value());
+          } else if (arg.has_ref_value()) {
+            auto it = trace_->name_table().find(arg.ref_value());
+            if (it != trace_->name_table().end()) {
+              value_str = it->second;
+            }
+          }
+          if (!value_str.empty()) {
+            uint32_t key_id = MaybeInternString(arg.name());
+            uint32_t val_id = MaybeInternString(value_str);
+            (*metadata->mutable_args())[key_id] = val_id;
+          }
+        }
+      }
+    }
   }
 }
 

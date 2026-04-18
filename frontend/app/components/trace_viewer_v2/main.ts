@@ -144,9 +144,15 @@ declare global {
     data: TraceData,
     timeRangeFromUrl?: [number, number],
   ): void;
+  processCompressedTraceEvents(
+    data: Uint8Array,
+    timeRangeFromUrl?: [number, number],
+  ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
-
-  loadJsonData?(url: string): Promise<void>;
+  setCompressedSearchResultsInWasm(data: Uint8Array): void;
+  setSearchResultsInWasm(data: TraceData): void;
+  loadTraceData?(url: string): Promise<void>;
+  loadSearchResults?(url: string): Promise<void>;
   StringVector: {
     size(): number;
     get(index: number): string;
@@ -560,6 +566,21 @@ async function loadJsonDataInternal(url: string): Promise<unknown> {
   }
 }
 
+async function loadCompressedTraceDataInternal(
+  url: string,
+): Promise<ArrayBuffer> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.arrayBuffer();
+  } catch (e) {
+    console.error('Failed to load compressed trace data:', e);
+    throw e;
+  }
+}
+
 declare interface FetchDataEventDetail {
   start_time_ms: number;
   end_time_ms: number;
@@ -624,6 +645,7 @@ async function handleFetchDataEvent(
     );
 
     const urlObj = new URL(initialDataUrl, window.location.href);
+    urlObj.searchParams.delete('use_saved_result');
 
     urlObj.searchParams.set(
       TRACE_VIEW_OPTION.START_TIME_MS,
@@ -639,47 +661,71 @@ async function handleFetchDataEvent(
 
     // TODO(b/470214911): Add support for additional query parameters to allow
     // for filtering by specific events, groups, or other criteria.
-    const jsonData = await loadJsonDataInternal(urlObj.toString());
+    if (urlObj.pathname.includes('trace_viewer.pb')) {
+      const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
+      if (initialDataUrl !== getCurrentDataUrl()) {
+        return;
+      }
 
-    if (initialDataUrl !== getCurrentDataUrl()) {
-      return;
-    }
-
-    if (!isTraceData(jsonData)) {
-      console.error('File does not contain valid trace events.');
       window.dispatchEvent(
         new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-          detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
         }),
       );
-      return;
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+
+      if (initialDataUrl !== getCurrentDataUrl()) {
+        return;
+      }
+
+      performance.mark('traceProcessStart');
+
+      traceviewerModule.processCompressedTraceEvents(
+        new Uint8Array(buffer),
+        [detail.start_time_ms, detail.end_time_ms],
+      );
+    } else {
+      const jsonData = await loadJsonDataInternal(urlObj.toString());
+      if (initialDataUrl !== getCurrentDataUrl()) {
+        return;
+      }
+
+      if (!isTraceData(jsonData)) {
+        console.error('File does not contain valid trace events.');
+        window.dispatchEvent(
+          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+            detail: {status: TraceViewerV2LoadingStatus.IDLE},
+          }),
+        );
+        return;
+      }
+
+      maybeDispatchDetailsReceivedEvent(jsonData);
+
+      window.dispatchEvent(
+        new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+          detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+        }),
+      );
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+
+      if (initialDataUrl !== getCurrentDataUrl()) {
+        return;
+      }
+
+      performance.mark('traceProcessStart');
+
+      traceviewerModule.processTraceEvents(
+        jsonData,
+        [detail.start_time_ms, detail.end_time_ms],
+      );
     }
-
-    maybeDispatchDetailsReceivedEvent(jsonData);
-
-    window.dispatchEvent(
-      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-        detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-      }),
-    );
-
-    // Yield to the event loop to allow the UI to re-render and display the
-    // 'Processing data' status before the potentially long-running
-    // processTraceEvents call.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-
-    if (initialDataUrl !== getCurrentDataUrl()) {
-      return;
-    }
-
-    performance.mark('traceProcessStart');
-
-    traceviewerModule.processTraceEvents(jsonData, [
-      detail.start_time_ms,
-      detail.end_time_ms,
-    ]);
 
     performance.mark('traceProcessEnd');
     performance.measure(
@@ -792,7 +838,7 @@ export async function traceViewerV2Main(
   // it's tied to the canvas element.
 
   // Add a method to the module to load data from a URL
-  traceviewerModule.loadJsonData = async (url: string) => {
+  traceviewerModule.loadTraceData = async (url: string) => {
     if (url === currentDataUrl && currentLoadingPromise) {
       return currentLoadingPromise;
     }
@@ -812,9 +858,7 @@ export async function traceViewerV2Main(
           urlObj = new URL(url, window.location.href);
         } catch (e) {
           console.error('Invalid URL:', url, e);
-
           const error = e as Error;
-
           window.dispatchEvent(
             new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
               detail: {
@@ -833,42 +877,60 @@ export async function traceViewerV2Main(
 
         updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
-        const jsonData = await loadJsonDataInternal(urlObj.toString());
+        performance.mark('traceProcessStart');
 
-        if (url !== currentDataUrl) {
-          return;
-        }
-
-        if (!isTraceData(jsonData)) {
-          console.error('File does not contain valid trace events.');
+        if (urlObj.pathname.includes('trace_viewer.pb')) {
+          const buffer = await loadCompressedTraceDataInternal(
+            urlObj.toString(),
+          );
 
           window.dispatchEvent(
             new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-              detail: {status: TraceViewerV2LoadingStatus.IDLE},
+              detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
             }),
           );
 
-          return;
+          // Yield to the event loop to allow the UI to re-render and display the
+          // 'Processing data' status before the potentially long-running
+          // processCompressedTraceEvents call.
+          await new Promise((resolve) => {
+            setTimeout(resolve, 0);
+          });
+
+          traceviewerModule.processCompressedTraceEvents(
+            new Uint8Array(buffer),
+            timeRangeFromUrl,
+          );
+        } else {
+          const jsonData = await loadJsonDataInternal(urlObj.toString());
+
+          if (!isTraceData(jsonData)) {
+            console.error('File does not contain valid trace events.');
+            window.dispatchEvent(
+              new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+                detail: {status: TraceViewerV2LoadingStatus.IDLE},
+              }),
+            );
+            return;
+          }
+
+          maybeDispatchDetailsReceivedEvent(jsonData);
+
+          window.dispatchEvent(
+            new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+              detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+            }),
+          );
+
+          // Yield to the event loop to allow the UI to re-render and display the
+          // 'Processing data' status before the potentially long-running
+          // processTraceEvents call.
+          await new Promise((resolve) => {
+            setTimeout(resolve, 0);
+          });
+
+          traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
         }
-
-        maybeDispatchDetailsReceivedEvent(jsonData);
-
-        window.dispatchEvent(
-          new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
-            detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
-          }),
-        );
-
-        // Yield to the event loop to allow the UI to re-render and display the
-        // 'Processing data' status before the potentially long-running
-        // processTraceEvents call.
-        await new Promise((resolve) => {
-          setTimeout(resolve, 0);
-        });
-
-        performance.mark('traceProcessStart');
-
-        traceviewerModule.processTraceEvents(jsonData, timeRangeFromUrl);
 
         performance.mark('traceProcessEnd');
         performance.measure(
@@ -909,6 +971,42 @@ export async function traceViewerV2Main(
     })();
 
     return currentLoadingPromise;
+  };
+
+  traceviewerModule.loadSearchResults = async (url: string) => {
+    if (!traceviewerModule) return;
+    try {
+      let urlObj: URL;
+      try {
+        urlObj = new URL(url, window.location.href);
+      } catch (e) {
+        console.error('Invalid URL for search results:', url, e);
+        return;
+      }
+
+      if (urlObj.pathname.includes('trace_viewer.pb')) {
+        const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
+        traceviewerModule.setCompressedSearchResultsInWasm(
+          new Uint8Array(buffer),
+        );
+      } else {
+        const jsonData = (await loadJsonDataInternal(
+          urlObj.toString(),
+        )) as Record<string, unknown>;
+        // Mirror the legacy behavior: gently default to an empty array if traceEvents is missing
+        // so that the WASM module can safely clear out any previous search results.
+        const normalizedData: TraceData = {
+          ...jsonData,
+          traceEvents: Array.isArray(jsonData?.['traceEvents'])
+            ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
+            : [],
+        };
+        traceviewerModule.setSearchResultsInWasm(normalizedData);
+      }
+    } catch (e) {
+      console.error('Error loading search results:', e);
+      throw e;
+    }
   };
 
   registerWindowListener(FETCH_DATA_EVENT_NAME, (event: Event) => {

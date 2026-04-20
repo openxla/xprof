@@ -72,6 +72,11 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
     return false;
   }
 
+  // Always let the browser handle Tab navigation.
+  if (absl::string_view(event->code) == "Tab") {
+    return false;
+  }
+
   ImGuiKey key = TranslateKey(event->code);
   if (key != ImGuiKey_None) {
     ImGui::GetIO().AddKeyEvent(key, true);
@@ -85,6 +90,11 @@ EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
 
   // If a native input element has focus, do not let ImGui capture the keyboard.
   if (IsActiveElementInput()) {
+    return false;
+  }
+
+  // Always let the browser handle Tab navigation.
+  if (absl::string_view(event->code) == "Tab") {
     return false;
   }
 

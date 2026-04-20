@@ -72,6 +72,11 @@ canvas {
       border-radius: 24px;
       padding: 0 12px 0 0;
       box-sizing: border-box;
+
+      &:focus-within {
+        outline: 2px solid var(--md-sys-color--primary);
+        outline-offset: 2px;
+      }
     }
 
     [class*='mat-mdc-form-field-flex'] {
@@ -158,8 +163,10 @@ canvas {
       }
     }
 
-    &:hover {
+    &:hover,
+    &:focus-visible {
       background-color: var(--md-sys-color--primary-container);
+      outline: none;
     }
 
     &.active {

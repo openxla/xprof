@@ -17,6 +17,11 @@
       background: var(--md-sys-color--surface);
     }
 
+    .emscripten:focus {
+      outline: 2px solid var(--md-sys-color--primary);
+      outline-offset: -2px;
+    }
+
     .visually-hidden {
       position: absolute;
       width: 1px;
@@ -35,7 +40,7 @@
 <body>
   <label for="fileInput" class="visually-hidden">Upload Trace JSON</label>
   <input type="file" id="fileInput" accept=".json">
-  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" aria-label="Trace viewer timeline" role="application"></canvas>
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" aria-label="Trace viewer timeline" role="application" tabindex="0"></canvas>
   <script src="/trace_viewer_v2.js" defer></script>
   <script src="/app_bundle.js" defer></script>
 </body>

@@ -144,6 +144,12 @@ declare global {
     data: TraceData,
     timeRangeFromUrl?: [number, number],
   ): void;
+  processPerfettoTraceEvents(
+    ptr: number,
+    length: number,
+    timeRangeFromUrl: [number, number] | undefined,
+    normalizeTimestamps: boolean,
+  ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
 
   loadJsonData?(url: string): Promise<void>;
@@ -457,15 +463,82 @@ async function processUploadedFile(
   onFileProcessed?: () => void,
 ) {
   try {
-    const fileContent = await file.text();
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const arrayBuffer = await file.arrayBuffer();
+    let uint8Array = new Uint8Array(arrayBuffer);
 
-    if (!isTraceData(jsonData)) {
-      dispatchErrorStatus('File does not contain valid trace events.');
-      return;
+    // Check for gzip magic numbers (0x1f, 0x8b)
+    if (
+      uint8Array.length > 2 &&
+      uint8Array[0] === 0x1f &&
+      uint8Array[1] === 0x8b
+    ) {
+      const ds = new DecompressionStream('gzip');
+      const response = new Response(uint8Array);
+      if (response.body) {
+        const decompressedStream = response.body.pipeThrough(ds);
+        const decompressedArrayBuffer = await new Response(
+          decompressedStream,
+        ).arrayBuffer();
+        uint8Array = new Uint8Array(decompressedArrayBuffer);
+      } else {
+        console.error(
+          'Frontend: failed to create response body for decompression',
+        );
+      }
     }
 
-    traceviewerModule.processTraceEvents(jsonData, undefined);
+    // Heuristic to check if it's JSON
+    let isJson = false;
+    if (file.name.endsWith('.json')) {
+      isJson = true;
+    } else {
+      // Check first non-whitespace character
+      for (let i = 0; i < Math.min(uint8Array.length, 100); i++) {
+        const char = String.fromCharCode(uint8Array[i]);
+        if (char === '{' || char === '[') {
+          isJson = true;
+          break;
+        }
+        if (!/\s/.test(char)) {
+          break; // Non-whitespace, not JSON start
+        }
+      }
+    }
+
+    if (
+      file.name.endsWith('.pftrace') ||
+      file.name.endsWith('.perfetto-trace') ||
+      !isJson
+    ) {
+      let ptr: number | undefined;
+      try {
+        ptr = traceviewerModule._malloc(uint8Array.length);
+        traceviewerModule.HEAPU8.set(uint8Array, ptr);
+
+        traceviewerModule.processPerfettoTraceEvents(
+          ptr,
+          uint8Array.length,
+          undefined,
+          true,
+        );
+      } finally {
+        if (ptr !== undefined) {
+          traceviewerModule._free(ptr);
+        }
+      }
+    } else {
+      // Process as JSON
+      const decoder = new TextDecoder('utf-8');
+      const fileContent = decoder.decode(uint8Array);
+      const jsonData = JSON.parse(fileContent) as unknown;
+
+      if (!isTraceData(jsonData)) {
+        dispatchErrorStatus('File does not contain valid trace events.');
+        return;
+      }
+
+      traceviewerModule.processTraceEvents(jsonData, undefined);
+    }
 
     onFileProcessed?.();
   } catch (error) {

@@ -872,6 +872,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
         HandleMetadataEvent(event, trace_info);
         break;
       case Phase::kComplete:
+      case Phase::kInstant:
+      case Phase::kInstantDeprecated:
         HandleCompleteEvent(event, trace_info);
         break;
       default:

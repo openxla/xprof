@@ -31,6 +31,8 @@ Phase ParsePhase(const std::string& ph_str) {
     switch (ph_char) {
       case static_cast<char>(Phase::kComplete):
         return Phase::kComplete;
+      case static_cast<char>(Phase::kInstant):
+        return Phase::kInstant;
       case static_cast<char>(Phase::kCounter):
         return Phase::kCounter;
       case static_cast<char>(Phase::kMetadata):
@@ -248,6 +250,7 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         }
         break;
       case Phase::kComplete:
+      case Phase::kInstant:
         if (!ev.id.empty()) {
           result.flow_events.push_back(ev);
         }

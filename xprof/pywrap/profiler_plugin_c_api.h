@@ -15,9 +15,6 @@ extern "C" {
 #define EXPORT_C __attribute__((visibility("default")))
 #endif
 #endif
-
-EXPORT_C void InitializeProfiler();
-
 // Returns memory allocated in standard c-api strings. Free using FreeString.
 EXPORT_C void FreeString(char* str);
 

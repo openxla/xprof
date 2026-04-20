@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
@@ -53,13 +54,6 @@ char* StatusToCError(const absl::Status& status) {
 }  // namespace
 
 extern "C" {
-EXPORT_C void InitializeProfiler() {
-  int argc = 1;
-  static char arg0[] = "profiler_plugin";
-  static char* argv[] = {arg0};
-  char** argv_ptr = argv;
-}
-
 EXPORT_C void FreeString(char* str) { free(str); }
 
 EXPORT_C char* Trace(const char* service_addr, const char* logdir,

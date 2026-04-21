@@ -60,23 +60,23 @@ export function parseEventsSelectedData(dataString: string): {
     if (isMetricsItemArray(data)) {
       metricsData = data;
     } else if (isEventsSelectedData(data)) {
-      metricsData = data.metrics ?? [];
-      selectionStartUs = data.selectionStartUs;
-      selectionExtentUs = data.selectionExtentUs;
+      metricsData = (data['metrics'] as MetricsItem[]) ?? [];
+      selectionStartUs = data['selectionStartUs'] as number | undefined;
+      selectionExtentUs = data['selectionExtentUs'] as number | undefined;
     } else {
       throw new Error('Invalid events selected data format');
     }
 
     for (const item of metricsData) {
-      const name = item.name;
+      const name = item['name'] as string;
       properties.push({
         'property': name,
         'value': '',
         'name': name,
-        'occurrences': item.count,
-        'wallDuration': item.wallTimeUs,
-        'selfTime': item.selfTimeUs,
-        'avgWallDuration': item.avgWallDurationUs,
+        'occurrences': item['count'] as number,
+        'wallDuration': item['wallTimeUs'] as number,
+        'selfTime': item['selfTimeUs'] as number,
+        'avgWallDuration': item['avgWallDurationUs'] as number,
       });
     }
 

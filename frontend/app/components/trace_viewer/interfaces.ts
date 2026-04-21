@@ -1,7 +1,8 @@
 import {SelectedEventProperty} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 
 /** Represents an item in the metrics array of events selection data. */
-export interface MetricsItem {
+export declare interface MetricsItem {
+  [key: string]: string | number;
   name: string;
   count: number;
   wallTimeUs: number;
@@ -10,7 +11,8 @@ export interface MetricsItem {
 }
 
 /** Represents the parsed JSON data structure for events selection. */
-export interface EventsSelectedData {
+export declare interface EventsSelectedData {
+  [key: string]: number | MetricsItem[] | undefined;
   selectionStartUs?: number;
   selectionExtentUs?: number;
   metrics?: MetricsItem[];

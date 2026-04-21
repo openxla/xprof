@@ -329,6 +329,15 @@ absl::StatusOr<GraphViewerParams> ParseGraphViewerParams(
     params.format = GetRenderFormat(GetParamWithDefault<std::string>(
         options, "format", kDefaultFormatString));
 
+    // By default, use the optimized HLO proto.
+    params.hlo_proto_source = HloProtoSource::kOptimized;
+    if (std::optional<std::string> graph_type =
+            GetParam<std::string>(options, "graph_type")) {
+      if (*graph_type == "original_hlo") {
+        params.hlo_proto_source = HloProtoSource::kOriginal;
+      }
+    }
+
     return params;
   } else if (type == kAdjacentNodes) {
     params.type = type.value();

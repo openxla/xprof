@@ -473,6 +473,7 @@ class ProfilePluginTest(absltest.TestCase):
             'merge_fusion': 0,
             'format': None,
             'type': None,
+            'graph_type': 'xla',
         },
         'tqx': None,
         'perfetto': False,

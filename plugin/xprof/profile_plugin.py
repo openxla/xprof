@@ -1501,6 +1501,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     show_metadata = int(request.args.get('show_metadata') == 'true')
     merge_fusion = int(request.args.get('merge_fusion') == 'true')
     program_id = request.args.get('program_id')
+    graph_type = request.args.get('graph_type') or 'xla'
     return {
         'node_name': node_name,
         'module_name': module_name,
@@ -1510,6 +1511,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         'merge_fusion': merge_fusion,
         'format': request.args.get('format'),
         'type': request.args.get('type'),
+        'graph_type': graph_type,
     }
 
   def generate_runs(self) -> Iterator[str]:

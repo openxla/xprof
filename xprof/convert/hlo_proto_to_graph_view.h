@@ -31,6 +31,11 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+enum class HloProtoSource {
+  kOptimized,
+  kOriginal,
+};
+
 // All the parameters for graph viewer.
 struct GraphViewerParams {
   // Whether to use GraphView or TxtView.
@@ -40,6 +45,7 @@ struct GraphViewerParams {
   int graph_width;
   xla::HloRenderOptions render_options;
   xla::RenderedGraphFormat format;
+  HloProtoSource hlo_proto_source;
   // Parameters for TxtView.
   bool verbose;
   bool show_metadata;

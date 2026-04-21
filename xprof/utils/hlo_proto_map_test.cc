@@ -8,6 +8,10 @@
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
+#include "xla/backends/profiler/cpu/metadata_utils.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -57,6 +61,34 @@ TEST(HloProtoMapTest, GetOriginalHloProto) {
               StatusIs(absl::StatusCode::kNotFound));
   EXPECT_THAT(hlo_proto_map.GetOriginalHloProtoByModuleName("module2(1)"),
               StatusIs(absl::StatusCode::kNotFound));
+}
+
+TEST(HloProtoMapTest, AddHloProtosFromXSpace) {
+  tensorflow::profiler::XSpace space;
+  tensorflow::profiler::XPlane* metadata_plane = space.add_planes();
+  tsl::profiler::XPlaneBuilder plane_builder(metadata_plane);
+  plane_builder.SetName(tsl::profiler::kMetadataPlaneName);
+
+  xla::profiler::MetadataXPlaneBuilder metadata_builder(metadata_plane);
+
+  xla::HloProto optimized_proto;
+  optimized_proto.mutable_hlo_module()->set_name("optimized_module");
+  metadata_builder.AddHloProto(1, optimized_proto);
+
+  xla::HloProto original_proto;
+  original_proto.mutable_hlo_module()->set_name("original_module");
+  metadata_builder.AddOriginalHloProto(1, original_proto);
+
+  HloProtoMap hlo_proto_map;
+  hlo_proto_map.AddHloProtosFromXSpace(space);
+
+  ASSERT_OK_AND_ASSIGN(const xla::HloProto* opt_result,
+                       hlo_proto_map.GetHloProtoByProgramId(1));
+  EXPECT_EQ(opt_result->hlo_module().name(), "optimized_module");
+
+  ASSERT_OK_AND_ASSIGN(const xla::HloProto* orig_result,
+                       hlo_proto_map.GetOriginalHloProtoByProgramId(1));
+  EXPECT_EQ(orig_result->hlo_module().name(), "original_module");
 }
 
 }  // namespace

@@ -144,6 +144,10 @@ declare global {
     data: TraceData,
     timeRangeFromUrl?: [number, number],
   ): void;
+  processPerfettoTraceEvents(
+    data: string,
+    timeRangeFromUrl?: [number, number],
+  ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
 
   loadJsonData?(url: string): Promise<void>;
@@ -442,8 +446,9 @@ function dispatchErrorStatus(msg: string) {
 /**
  * Processes an uploaded file containing trace data.
  *
- * Reads the file content, parses it as JSON, validates the data structure, and
- * passes the valid trace events to the provided WebAssembly module for
+ * If the file is a Perfetto trace (.pftrace or .perfetto-trace), it is
+ * processed as a binary file. Otherwise, it is assumed to be a JSON file,
+ * read, parsed, validated, and then passed to the WebAssembly module for
  * processing. It also handles dispatching status updates in case of errors.
  *
  * @param file The uploaded file to process.
@@ -457,15 +462,29 @@ async function processUploadedFile(
   onFileProcessed?: () => void,
 ) {
   try {
-    const fileContent = await file.text();
-    const jsonData = JSON.parse(fileContent) as unknown;
+    if (
+      file.name.endsWith('.pftrace') ||
+      file.name.endsWith('.perfetto-trace')
+    ) {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      // Use iso-8859-1 to preserve binary data as string
+      const decoder = new TextDecoder('iso-8859-1');
+      const binaryString = decoder.decode(uint8Array);
 
-    if (!isTraceData(jsonData)) {
-      dispatchErrorStatus('File does not contain valid trace events.');
-      return;
+      traceviewerModule.processPerfettoTraceEvents(binaryString, undefined);
+    } else {
+      // If the file is not a Perfetto trace, assume it's a JSON file.
+      const fileContent = await file.text();
+      const jsonData = JSON.parse(fileContent) as unknown;
+
+      if (!isTraceData(jsonData)) {
+        dispatchErrorStatus('File does not contain valid trace events.');
+        return;
+      }
+
+      traceviewerModule.processTraceEvents(jsonData, undefined);
     }
-
-    traceviewerModule.processTraceEvents(jsonData, undefined);
 
     onFileProcessed?.();
   } catch (error) {

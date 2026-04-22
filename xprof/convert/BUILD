@@ -47,6 +47,52 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "unified_profile_processor",
+    hdrs = ["unified_profile_processor.h"],
+    deps = [
+        ":repository",
+        ":tool_options",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_library(
+    name = "unified_profile_processor_factory",
+    srcs = ["unified_profile_processor_factory.cc"],
+    hdrs = ["unified_profile_processor_factory.h"],
+    deps = [
+        ":tool_options",
+        ":unified_profile_processor",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_test(
+    name = "unified_profile_processor_factory_test",
+    srcs = ["unified_profile_processor_factory_test.cc"],
+    deps = [
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
 cc_test(
     name = "preprocess_single_host_xplane_test",
     srcs = ["preprocess_single_host_xplane_test.cc"],

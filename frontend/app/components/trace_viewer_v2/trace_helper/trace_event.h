@@ -76,6 +76,12 @@ struct CounterEvent {
   double max_value = -std::numeric_limits<double>::infinity();
 };
 
+// Enum to represent the status of trace parsing.
+enum class ParsingStatus {
+  kSuccess = 0,
+  kFailed = 1,
+};
+
 struct ParsedTraceEvents {
   std::vector<TraceEvent> flame_events;
   std::vector<CounterEvent> counter_events;
@@ -87,6 +93,7 @@ struct ParsedTraceEvents {
   std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
 
   bool mpmd_pipeline_view = false;
+  ParsingStatus parsing_status = ParsingStatus::kSuccess;
 };
 
 // Constants for metadata events.
@@ -124,6 +131,7 @@ inline constexpr absl::string_view kDma = "DMA";
 // Other constants.
 inline constexpr absl::string_view kHloModuleDefault = "default";
 inline constexpr absl::string_view kModuleRegex = "module:.*_(\\d+)";
+inline constexpr absl::string_view kUnknown = "Unknown";
 
 }  // namespace traceviewer
 

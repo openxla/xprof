@@ -1,7 +1,9 @@
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
 
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("//third_party/protobuf/bazel:cc_proto_library.bzl", "cc_proto_library")
+load("//third_party/protobuf/bazel:proto_library.bzl", "proto_library")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
@@ -60,6 +62,16 @@ wasm_cc_library(
         "@tsl//tsl/profiler/lib:context_types",
     ],
     alwayslink = True,
+)
+
+proto_library(
+    name = "trace_lite_proto",
+    srcs = ["trace_lite.proto"],
+)
+
+cc_proto_library(
+    name = "trace_lite_proto_cc",
+    deps = [":trace_lite_proto"],
 )
 
 wasm_cc_library(

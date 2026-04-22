@@ -144,6 +144,12 @@ declare global {
     data: TraceData,
     timeRangeFromUrl?: [number, number],
   ): void;
+  processPerfettoTraceEvents(
+    ptr: number,
+    length: number,
+    timeRangeFromUrl: [number, number] | undefined,
+    normalizeTimestamps: boolean,
+  ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
 
   loadJsonData?(url: string): Promise<void>;
@@ -439,6 +445,97 @@ function dispatchErrorStatus(msg: string) {
   );
 }
 
+function hasGzipMagicNumber(data: Uint8Array): boolean {
+  return data.length > 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
+async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
+  try {
+    const ds = new DecompressionStream('gzip');
+    const response = new Response(data.buffer as ArrayBuffer);
+    if (!response.body) {
+      throw new Error('Failed to create response body for decompression');
+    }
+    const decompressedStream = response.body.pipeThrough(ds);
+    const decompressedArrayBuffer = await new Response(
+      decompressedStream,
+    ).arrayBuffer();
+    return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
+  } catch (error) {
+    console.error('Frontend: failed to decompress file', error);
+    dispatchErrorStatus('Failed to decompress gzipped file.');
+    return null;
+  }
+}
+
+function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
+  return (
+    fileName.endsWith('.pftrace') ||
+    fileName.endsWith('.perfetto-trace') ||
+    !isJsonContent(data, fileName)
+  );
+}
+
+function processPerfettoTrace(
+  data: Uint8Array,
+  traceviewerModule: TraceViewerV2Module,
+) {
+  let ptr: number | undefined;
+  try {
+    ptr = traceviewerModule._malloc(data.length);
+    traceviewerModule.HEAPU8.set(data, ptr);
+
+    traceviewerModule.processPerfettoTraceEvents(
+      ptr,
+      data.length,
+      undefined,
+      true,
+    );
+  } catch (error) {
+    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (ptr !== undefined) {
+      traceviewerModule._free(ptr);
+    }
+  }
+}
+
+function isJsonContent(data: Uint8Array, fileName: string): boolean {
+  if (fileName.endsWith('.json')) {
+    return true;
+  }
+  for (let i = 0; i < Math.min(data.length, 100); i++) {
+    const char = String.fromCharCode(data[i]);
+    if (char === '{' || char === '[') {
+      return true;
+    }
+    if (!/\s/.test(char)) {
+      break;
+    }
+  }
+  return false;
+}
+
+function processJsonTrace(
+  data: Uint8Array,
+  traceviewerModule: TraceViewerV2Module,
+) {
+  try {
+    const decoder = new TextDecoder('utf-8');
+    const fileContent = decoder.decode(data);
+    const jsonData = JSON.parse(fileContent) as unknown;
+
+    if (!isTraceData(jsonData)) {
+      throw new Error('File does not contain valid trace events.');
+    }
+
+    traceviewerModule.processTraceEvents(jsonData, undefined);
+  } catch (error) {
+    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
 /**
  * Processes an uploaded file containing trace data.
  *
@@ -457,15 +554,25 @@ async function processUploadedFile(
   onFileProcessed?: () => void,
 ) {
   try {
-    const fileContent = await file.text();
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const arrayBuffer = await file.arrayBuffer();
+    let uint8Array = new Uint8Array(arrayBuffer);
 
-    if (!isTraceData(jsonData)) {
-      dispatchErrorStatus('File does not contain valid trace events.');
-      return;
+    if (hasGzipMagicNumber(uint8Array)) {
+      const decompressed = await decompressGzip(uint8Array);
+      if (!decompressed) {
+        // Decompression failed, error already dispatched, so just exit early.
+        return;
+      }
+      // Wrap in a new Uint8Array to resolve TypeScript type differences
+      // (ArrayBuffer vs ArrayBufferLike) without copying the underlying memory.
+      uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
     }
 
-    traceviewerModule.processTraceEvents(jsonData, undefined);
+    if (isPerfettoTrace(uint8Array, file.name)) {
+      processPerfettoTrace(uint8Array, traceviewerModule);
+    } else {
+      processJsonTrace(uint8Array, traceviewerModule);
+    }
 
     onFileProcessed?.();
   } catch (error) {

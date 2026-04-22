@@ -2,7 +2,14 @@ import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/co
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {InferenceProfileData, InferenceProfileDataProperty, InferenceProfileMetadata, InferenceProfileMetadataProperty, InferenceProfileTable, } from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  InferenceProfileData,
+  InferenceProfileDataProperty,
+  InferenceProfileMetadata,
+  InferenceProfileMetadataProperty,
+  InferenceProfileTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
@@ -39,6 +46,13 @@ export class InferenceProfile implements OnDestroy {
   selectedIndex = 0;
   isInitialLoad = true;
   loading = true;
+  diagnostics: Diagnostics = {
+    info: [],
+    warnings: [
+      'The Inference Profile data might be inaccurate for some models in TFRT. Fix is in progress b/389168121',
+    ],
+    errors: [],
+  };
 
   requestView?: google.visualization.DataView;
   batchView?: google.visualization.DataView;
@@ -53,30 +67,30 @@ export class InferenceProfile implements OnDestroy {
   batchPercentileIndex = 0;
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          this.update();
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        this.update();
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
   }
 
   processQueryParams(queryParams: Params) {
     this.sessionId =
-        queryParams['run'] || queryParams['sessionId'] || this.sessionId;
+      queryParams['run'] || queryParams['sessionId'] || this.sessionId;
     this.tool = queryParams['tag'] || this.tool;
     this.host = queryParams['host'] || this.host;
   }
 
   parseMetadata(metadataOrNull: InferenceProfileTable) {
     if (!metadataOrNull) return false;
-    const metadata = (metadataOrNull as InferenceProfileMetadata).p as
-        InferenceProfileMetadataProperty;
+    const metadata = (metadataOrNull as InferenceProfileMetadata)
+      .p as InferenceProfileMetadataProperty;
     this.hasBatching = metadata.hasBatching === 'true';
     this.hasTensorPattern = metadata.hasTensorPattern === 'true';
 
@@ -199,32 +213,32 @@ export class InferenceProfile implements OnDestroy {
     this.allBatchTables = [];
 
     this.dataService
-        .getData(
-            this.sessionId,
-            this.tool,
-            this.host,
-            new Map([
-              [
-                'request_column',
-                this.requestPercentileColumns[this.requestPercentileIndex],
-              ],
-              [
-                'batch_column',
-                this.batchPercentileColumns[this.batchPercentileIndex],
-              ],
-            ]),
-            )
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (this.isInitialLoad) {
-            this.throbber.stop();
-            setLoadingState(false, this.store);
-            this.isInitialLoad = false;
-          }
-          this.loading = false;
-          if (!this.parseData(data as InferenceProfileTable[])) return;
-          this.updateView();
-        });
+      .getData(
+        this.sessionId,
+        this.tool,
+        this.host,
+        new Map([
+          [
+            'request_column',
+            this.requestPercentileColumns[this.requestPercentileIndex],
+          ],
+          [
+            'batch_column',
+            this.batchPercentileColumns[this.batchPercentileIndex],
+          ],
+        ]),
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        if (this.isInitialLoad) {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          this.isInitialLoad = false;
+        }
+        this.loading = false;
+        if (!this.parseData(data as InferenceProfileTable[])) return;
+        this.updateView();
+      });
   }
 
   ngOnDestroy() {

@@ -1,4 +1,4 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -30,6 +30,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
   @Input() columnColors = STACK_CHART_FILL_COLORS;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  @Output() readonly ready = new EventEmitter<void>();
 
   title = 'Step-time Graph';
   height = 300;
@@ -115,8 +116,12 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
 
     google.charts.safeLoad({'packages': ['corechart']});
     google.charts.setOnLoadCallback(() => {
-      this.chart =
-          new google.visualization.AreaChart(this.chartRef.nativeElement);
+      this.chart = new google.visualization.AreaChart(
+        this.chartRef.nativeElement,
+      );
+      google.visualization.events.addListener(this.chart, 'ready', () => {
+        this.ready.emit();
+      });
       this.drawChart();
     });
   }

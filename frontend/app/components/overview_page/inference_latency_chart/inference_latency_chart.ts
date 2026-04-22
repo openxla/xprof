@@ -1,12 +1,15 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
   ElementRef,
+  EventEmitter,
   HostListener,
   Input,
   OnChanges,
+  Output,
   SimpleChanges,
-  ViewChild, ChangeDetectionStrategy,
+  ViewChild,
 } from '@angular/core';
 import {type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 
@@ -24,6 +27,7 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
   @Input() inferenceLatencyData?: SimpleDataTable;
 
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
+  @Output() readonly ready = new EventEmitter<void>();
 
   title = 'Inference Session Latency Breakdown';
   height = 300;
@@ -114,6 +118,9 @@ export class InferenceLatencyChart implements AfterViewInit, OnChanges {
       this.chart = new google.visualization.ColumnChart(
         this.chartRef.nativeElement,
       );
+      google.visualization.events.addListener(this.chart, 'ready', () => {
+        this.ready.emit();
+      });
       this.drawChart();
     });
   }

@@ -36,12 +36,14 @@
         *ngIf="hasStepTimeGraphData"
         id="step-time-graph"
         [inputPipelineAnalysis]="inputPipelineAnalysis"
-        [class]="darkTheme ? 'dark-theme' : ''">
+        [class]="darkTheme ? 'dark-theme' : ''"
+        (ready)="onChartReady()">
       </step-time-graph>
       <inference-latency-chart
         *ngIf="hasInferenceLatencyData"
         [inferenceLatencyData]="inferenceLatencyData"
-        [class]="darkTheme ? 'dark-theme' : ''">
+        [class]="darkTheme ? 'dark-theme' : ''"
+        (ready)="onChartReady()">
       </inference-latency-chart>
       <smart-suggestion-view
         *ngIf="enableSmartSuggestion && isOverviewPageLoaded"

@@ -12,7 +12,7 @@ import {RunEnvironmentViewModule} from 'org_xprof/frontend/app/components/overvi
 import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph_module';
 import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
 import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {combineLatest, ReplaySubject} from 'rxjs';
+import {combineLatest, ReplaySubject, BehaviorSubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const GENERAL_ANALYSIS_INDEX = 0;
@@ -32,7 +32,8 @@ const DISAGGREGATED_SERVING_LATENCY_INDEX = 8;
 export class OverviewPage implements OnDestroy {
   @Input() darkTheme = false;
   @Output()
-  readonly onDataLoaded = new EventEmitter<OverviewPageDataTuple|null>();
+  readonly onDataLoaded = new EventEmitter<OverviewPageDataTuple | null>();
+  @Output() readonly ready = new EventEmitter<void>();
 
   diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
   generalAnalysis: GeneralAnalysis|null = null;
@@ -51,10 +52,15 @@ export class OverviewPage implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
+  private readonly readyChartsCount = new BehaviorSubject<number>(0);
+
   private readonly route: ActivatedRoute = inject(ActivatedRoute);
   private readonly store: Store = inject(Store);
 
   constructor() {
+    this.readyChartsCount.pipe(takeUntil(this.destroyed)).subscribe(() => {
+      this.checkReady();
+    });
     combineLatest([this.route.params, this.route.queryParams])
         .pipe(takeUntil(this.destroyed))
         .subscribe(([params, queryParams]) => {
@@ -114,6 +120,27 @@ export class OverviewPage implements OnDestroy {
           this.parseOverviewPageData(data as OverviewPageDataTuple);
           this.isLoaded = true;
         });
+  }
+
+  onChartReady() {
+    this.readyChartsCount.next(this.readyChartsCount.value + 1);
+  }
+
+  private checkReady() {
+    if (!this.isLoaded) {
+      return;
+    }
+    let expectedCharts = 0;
+    if (this.hasStepTimeGraphData) {
+      expectedCharts++;
+    }
+    if (this.hasInferenceLatencyData) {
+      expectedCharts++;
+    }
+
+    if (this.readyChartsCount.value >= expectedCharts) {
+      this.ready.emit();
+    }
   }
 
   parseOverviewPageData(data: OverviewPageDataTuple) {

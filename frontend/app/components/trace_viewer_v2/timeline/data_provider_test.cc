@@ -80,8 +80,12 @@ TEST_F(DataProviderTest, ProcessMetadataEvents) {
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
-  // Metadata alone doesn't create entries in timeline_data
-  EXPECT_THAT(timeline_.timeline_data().groups, IsEmpty());
+  // Metadata for named threads creates entries in timeline_data even without
+  // events.
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(2));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Thread_A");
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {

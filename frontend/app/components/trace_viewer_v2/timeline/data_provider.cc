@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -714,9 +715,28 @@ void PopulateSyncProcessTrack(
     bool default_expanded,
     const absl::btree_map<GroupKey, bool>& expanded_states) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
-  if (it_events == trace_info.events_by_pid_tid.end()) return;
+  std::set<ThreadId> tids;
+  if (it_events != trace_info.events_by_pid_tid.end()) {
+    for (const auto& [tid, _] : it_events->second) {
+      tids.insert(tid);
+    }
+  }
 
-  for (const auto& [tid, events] : it_events->second) {
+  // Collect tids from thread_names
+  for (const auto& [key, _] : trace_info.thread_names) {
+    if (key.first == pid) {
+      tids.insert(key.second);
+    }
+  }
+
+  for (const auto tid : tids) {
+    absl::Span<const TraceEvent* const> events;
+    if (it_events != trace_info.events_by_pid_tid.end()) {
+      auto it = it_events->second.find(tid);
+      if (it != it_events->second.end()) {
+        events = it->second;
+      }
+    }
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
                         default_expanded, expanded_states);
@@ -743,8 +763,17 @@ void PopulateProcessTrack(
       it_counters != trace_info.counters_by_pid_name.end() &&
       !it_counters->second.empty();
 
-  if (!has_events && !has_counters) {
-    // No events or counters for this process, so skip this process group.
+  bool has_named_threads = false;
+  for (const auto& [key, _] : trace_info.thread_names) {
+    if (key.first == pid) {
+      has_named_threads = true;
+      break;
+    }
+  }
+
+  if (!has_events && !has_counters && !has_named_threads) {
+    // No events, counters, or named tracks for this process, so skip this
+    // process group.
     return;
   }
 
@@ -766,7 +795,7 @@ void PopulateProcessTrack(
                          .nesting_level = kProcessNestingLevel,
                          .expanded = expanded});
 
-  if (has_events) {
+  if (has_events || has_named_threads) {
     bool is_async_process = IsAsyncProcess(pid, trace_info);
 
     if (is_async_process) {

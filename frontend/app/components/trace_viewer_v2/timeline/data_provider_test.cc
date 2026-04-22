@@ -27,42 +27,85 @@ using ::testing::IsEmpty;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
+TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
+                                 ThreadId tid,
+                                 std::string thread_or_process_name) {
+  return {.ph = Phase::kMetadata,
+          .pid = pid,
+          .tid = tid,
+          .name = std::move(event_name),
+          .ts = 0.0,
+          .dur = 0.0,
+          .id = "",
+          .args = {{std::string(kName), std::move(thread_or_process_name)}}};
+}
+
+CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
+                                std::vector<double> timestamps,
+                                std::vector<double> values) {
+  CounterEvent event;
+  event.pid = pid;
+  event.name = std::move(name);
+  event.timestamps = timestamps;
+  event.values = values;
+  for (double val : values) {
+    event.min_value = std::min(event.min_value, val);
+    event.max_value = std::max(event.max_value, val);
+  }
+  return event;
+}
+
 class DataProviderTest : public ::testing::Test {
  public:
   DataProviderTest() = default;
 
  protected:
-  TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
-                                 ThreadId tid,
-                                 std::string thread_or_process_name) {
-    return {.ph = Phase::kMetadata,
-            .pid = pid,
-            .tid = tid,
-            .name = std::move(event_name),
-            .ts = 0.0,
-            .dur = 0.0,
-            .id = "",
-            .args = {{std::string(kName), std::move(thread_or_process_name)}}};
-  }
-
-  CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
-                                  std::vector<double> timestamps,
-                                  std::vector<double> values) {
-    CounterEvent event;
-    event.pid = pid;
-    event.name = std::move(name);
-    event.timestamps = timestamps;
-    event.values = values;
-    for (double val : values) {
-      event.min_value = std::min(event.min_value, val);
-      event.max_value = std::max(event.max_value, val);
-    }
-    return event;
-  }
-
   Timeline timeline_;
   DataProvider data_provider_;
 };
+
+TEST(DataProviderNoFixtureTest, SyncProcessWithNamedThreadsWithoutEvents) {
+  Timeline timeline;
+  DataProvider data_provider;
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 10, 0, "Process_10"),
+      // Thread 1: has name and event
+      CreateMetadataEvent(std::string(kThreadName), 10, 1,
+                          "Thread with events"),
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 1,
+       .name = "Event 1",
+       .ts = 1000.0,
+       .dur = 100.0},
+      // Thread 2: has name, no event
+      CreateMetadataEvent(std::string(kThreadName), 10, 2,
+                          "Thread without events"),
+      // Thread 3: no name, has event
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 3,
+       .name = "Event 3",
+       .ts = 1100.0,
+       .dur = 100.0},
+  };
+
+  data_provider.ProcessTraceEvents({events, {}}, timeline);
+
+  const FlameChartTimelineData& data = timeline.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+
+  EXPECT_EQ(data.groups[0].name, "Process_10");
+  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[1].name, "Thread with events");
+  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].name, "Thread without events");
+  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[3].name, "Thread_3");
+  EXPECT_EQ(data.groups[3].nesting_level, 1);
+
+  EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 3"));
+}
 
 TEST_F(DataProviderTest, ProcessEmptyTraceData) {
   const std::vector<TraceEvent> events;

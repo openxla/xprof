@@ -723,10 +723,9 @@ void PopulateSyncProcessTrack(
   }
 
   // Collect tids from thread_names
-  for (const auto& [key, _] : trace_info.thread_names) {
-    if (key.first == pid) {
-      tids.insert(key.second);
-    }
+  for (auto it = trace_info.thread_names.lower_bound({pid, 0});
+       it != trace_info.thread_names.end() && it->first.first == pid; ++it) {
+    tids.insert(it->first.second);
   }
 
   for (const auto tid : tids) {
@@ -763,13 +762,11 @@ void PopulateProcessTrack(
       it_counters != trace_info.counters_by_pid_name.end() &&
       !it_counters->second.empty();
 
-  bool has_named_threads = false;
-  for (const auto& [key, _] : trace_info.thread_names) {
-    if (key.first == pid) {
-      has_named_threads = true;
-      break;
-    }
-  }
+  // Check if any threads exist for this PID in thread_names.
+  auto it_thread_names = trace_info.thread_names.lower_bound({pid, 0});
+  bool has_named_threads =
+      (it_thread_names != trace_info.thread_names.end() &&
+       it_thread_names->first.first == pid);
 
   if (!has_events && !has_counters && !has_named_threads) {
     // No events, counters, or named tracks for this process, so skip this
@@ -925,6 +922,12 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   }
   for (const auto& [pid, _] : trace_info.counters_by_pid_name) {
     trace_info.process_names.try_emplace(pid, GetDefaultProcessName(pid));
+  }
+
+  // Ensure all pids from thread_names are registered.
+  for (const auto& [key, _] : trace_info.thread_names) {
+    trace_info.process_names.try_emplace(key.first,
+                                         GetDefaultProcessName(key.first));
   }
 
   // Ensure all pids/tids from flow events are registered so that thread tracks

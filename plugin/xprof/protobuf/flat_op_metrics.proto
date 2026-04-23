@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package tensorflow.profiler;
+
+message FlatOpMetrics {
+  // ---------------------------------------------------------------------------
+  // Hierarchy & Identification
+  // ---------------------------------------------------------------------------
+
+  // FlatOpMetrics instance ID.
+  uint64 op_id = 1;
+
+  // Link to parent operation (0 if root).
+  uint64 parent_op_id = 2;
+
+  // Links to same HLO symbol group.
+  uint64 symbol_id = 3;
+
+  // Containing HLO module ID. 0 for Framework ops.
+  uint64 hlo_module_id = 4;
+
+  // Number of children operations.
+  uint64 children_count = 5;
+
+  // Indicates if it has Sparse Core children.
+  bool has_sc_children = 6;
+
+  // ---------------------------------------------------------------------------
+  // Names & Categories
+  // ---------------------------------------------------------------------------
+
+  // Short name of this op.
+  string hlo_name = 7;
+
+  // Long name of this op (e.g., HLO expression).
+  string long_name = 8;
+
+  // Category of this op (e.g. Hlo op category, Framework op type).
+  string category = 9;
+
+  // Provenance of this op (e.g. TF Op name, JAX Op name).
+  string provenance = 10;
+
+  // Deduplicated HLO name for this op. Not set for TF ops.
+  string deduplicated_name = 11;
+
+  // ---------------------------------------------------------------------------
+  // Time Metrics (in picoseconds)
+  // ---------------------------------------------------------------------------
+
+  // Total self time in picoseconds.
+  uint64 self_time_ps = 12;
+
+  // Total time (self + children) in picoseconds.
+  uint64 time_ps = 13;
+
+  // Total time in picoseconds.
+  uint64 total_time_ps = 14;
+
+  // Total time (self + children) needs to be spent if running on default
+  // pstate.
+  uint64 normalized_time_ps = 15;
+
+  // Minimum time (self + children) among all occurrences.
+  uint64 min_time_ps = 16;
+
+  // Total dma stall time in picoseconds.
+  uint64 dma_stall_ps = 17;
+
+  // ---------------------------------------------------------------------------
+  // Performance Metrics
+  // ---------------------------------------------------------------------------
+
+  // Number of executions.
+  uint64 occurrences = 18;
+
+  // Deprecated in OpMetrics, kept for compatibility.
+  uint64 model_flops = 19 [deprecated = true];
+
+  // Total FLOPs for the model.
+  double model_flops_v2 = 20;
+
+  // Total FLOPs. Normalized to the devices peak bandwidth.
+  double flops_v2 = 21;
+
+  // Deprecated in OpMetrics.
+  uint64 flops = 22;
+
+  // Total bytes accessed.
+  double bytes_accessed = 23;
+
+  // ---------------------------------------------------------------------------
+  // Memory Breakdown
+  // ---------------------------------------------------------------------------
+
+  message MemoryAccessed {
+    enum OperationType {
+      UNKNOWN = 0;
+      READ = 1;
+      WRITE = 2;
+    }
+    OperationType operation_type = 1;
+    // Device-specific id of memory space.
+    uint64 memory_space = 2;
+    uint64 bytes_accessed = 3;
+  }
+  // Breakdown of memory accessed by operation type and memory space.
+  repeated MemoryAccessed memory_accessed_breakdown = 24;
+
+  // ---------------------------------------------------------------------------
+  // Execution Context & Target
+  // ---------------------------------------------------------------------------
+
+  // Whether it is executed eagerly.
+  bool is_eager = 25;
+
+  // Whether the op is autotuned.
+  bool autotuned = 26;
+
+  // Number of cores this op occurs on.
+  uint32 num_cores = 27;
+
+  enum TpuCoreType {
+    UNKNOWN = 0;
+    TENSOR_CORE = 1;
+    SPARSE_CORE = 2;
+  }
+  // Target TPU core type.
+  TpuCoreType core_type = 28;
+}
+
+message FlatOpMetricsDb {
+  // The flat list of operation instances.
+  repeated FlatOpMetrics op_instances = 1;
+
+  // ---------------------------------------------------------------------------
+  // Summary Time Metrics (in picoseconds)
+  // ---------------------------------------------------------------------------
+
+  // The total time in picoseconds.
+  uint64 total_time_ps = 2;
+
+  // Total profile time.
+  uint64 profile_time_ps = 3;
+
+  // The total time incurred by OPs in picoseconds.
+  uint64 total_op_time_ps = 4;
+
+  // Device is idle if all cores are idle.
+  uint64 idle_time_ps = 5;
+
+  // Device is busy if any core is busy.
+  uint64 busy_time_ps = 6;
+
+  // Weighted average total op time if running on default pstate.
+  uint64 normalized_total_op_time_ps = 7;
+}
+
+message FlatOpMetricsDbMap {
+  map<uint64, FlatOpMetricsDb> program_to_db = 1;
+}

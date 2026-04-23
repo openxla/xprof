@@ -24,6 +24,11 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "flat_op_metrics_proto",
+    srcs = ["flat_op_metrics.proto"],
+)
+
+xprof_proto_library(
     name = "hardware_types_proto",
     srcs = ["hardware_types.proto"],
 )
@@ -247,6 +252,7 @@ xprof_proto_library(
         ":dcn_slack_analysis_proto",
         ":diagnostics_proto",
         ":event_time_fraction_analyzer_proto",
+        ":flat_op_metrics_proto",
         ":hardware_types_proto",
         ":hlo_stats_proto",
         ":inference_stats_proto",
@@ -287,6 +293,7 @@ exports_files(
         "dcn_slack_analysis.proto",
         "diagnostics.proto",
         "event_time_fraction_analyzer.proto",
+        "flat_op_metrics.proto",
         "hardware_types.proto",
         "hlo_stats.proto",
         "inference_stats.proto",

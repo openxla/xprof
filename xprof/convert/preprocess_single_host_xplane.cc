@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/preprocess_single_host_xplane.h"
 
+#include <cstdint>
 #include <vector>
 
 #include "absl/strings/match.h"
@@ -21,6 +22,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/preprocess_xplane.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
+#include "tsl/platform/fingerprint.h"
 #include "xprof/utils/derived_timeline.h"
 #include "xprof/utils/xplane_hlo_fixer.h"
 
@@ -33,16 +35,29 @@ void PreprocessSingleHostXSpace(
     XSpace* space, bool step_grouping, bool derived_timeline,
     tsl::profiler::GroupMetadataMap* group_metadata_map) {
   xprof::FixHloMetadataInXSpace(space);
+
+  // We use a stable hash of the hostname as a unique host identifier for flow
+  // events. This prevents ID collisions in multi-host profiles.
+  int32_t host_id =
+      space->hostnames().empty()
+          ? 0
+          : static_cast<int32_t>(tsl::Fingerprint32(space->hostnames(0)));
+
   if (step_grouping && !tsl::profiler::IsXSpaceGrouped(*space)) {
     // Grouping (i.e. marking step number) events in the XSpace.
     std::vector<XPlane*> device_traces;
     bool isTpu = false;
     for (XPlane& plane : *space->mutable_planes()) {
-      if (tsl::profiler::IsDevicePlane(plane)) {
+      bool is_device = tsl::profiler::IsDevicePlane(plane);
+      if (is_device) {
         device_traces.push_back(&plane);
       }
       // Preprocess XPlane to convert stats to Traceme2 semantics
       tsl::profiler::PreprocessXPlane(&plane);
+
+      // Synthesize flow events from correlation IDs and TraceMe metadata.
+      tsl::profiler::AddFlowsToXplane(host_id, /*is_host_plane=*/!is_device,
+                                     /*connect_traceme=*/true, &plane);
 
       if (!isTpu && absl::StartsWith(plane.name(), kTpuPlanePrefix)) {
         isTpu = true;

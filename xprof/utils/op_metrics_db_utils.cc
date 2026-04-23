@@ -352,9 +352,14 @@ void XEventsOpMetricsDbBuilder::AddOpMetric(const OpMetrics& op_metrics,
   if (!key.program_id.has_value() || !key.symbol_id.has_value() ||
       key.symbol_id == kRootSymbolId)
     return;
-  MergeOpMetrics(
-      op_metrics,
-      flat_op_metric_[key.program_id.value()][key.symbol_id.value()]);
+
+  auto& m = flat_op_metric_[key.program_id.value()];
+  if (auto it = m.find(key.symbol_id.value());
+      it != m.end() && it->second.occurrences() != 0) {
+    MergeOpMetrics(std::move(op_metrics), it->second);
+  } else {
+    m.insert_or_assign(key.symbol_id.value(), std::move(op_metrics));
+  }
 }
 
 OpMetricsDb XEventsOpMetricsDbBuilder::Finalize(uint64_t total_time_ps) {
@@ -376,7 +381,7 @@ OpMetricsDb XEventsOpMetricsDbBuilder::Finalize() {
           op_metrics.self_time_ps() *
           tsl::profiler::SafeDivide(op_metrics.normalized_time_ps() * 1.0,
                                     op_metrics.time_ps());
-      db.add_metrics_db()->Swap(&op_metrics);
+      *db.add_metrics_db() = std::move(op_metrics);
     }
   }
   db.set_total_op_time_ps(total_op_time_ps);

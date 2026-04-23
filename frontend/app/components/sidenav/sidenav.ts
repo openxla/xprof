@@ -387,13 +387,14 @@ export class SideNav implements OnInit, OnDestroy {
     this.hosts = await this.getHostsForSelectedTag();
 
     if (this.isMultiHostsEnabled) {
+      this.selectedHostsInternal = this.selectedHostsInternal.filter(host => this.hosts.includes(host));
       if (this.selectedHostsInternal.length === 0 && this.hosts.length > 0) {
         this.selectedHostsInternal = [this.hosts[0]];
       }
       this.selectedHostsPending = [...this.selectedHostsInternal];
       this.updateAllHostsSelectedState();
     } else {
-      if (!this.selectedHostInternal && this.hosts.length > 0) {
+      if (!this.hosts.includes(this.selectedHostInternal) && this.hosts.length > 0) {
         this.selectedHostInternal = this.hosts[0];
       }
     }
@@ -443,9 +444,7 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   afterUpdateHost() {
-    if (!this.isMultiHostsEnabled || this.navigationParams['firstLoad']) {
-      this.navigateTools();
-    }
+    this.navigateTools();
   }
 
   // Helper function to serialize query parameters

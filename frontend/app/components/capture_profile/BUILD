@@ -30,6 +30,25 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "capture_profile_test.ts",
+    ],
+    deps = [
+        ":capture_profile",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
+        "@org_xprof//frontend/app/common/angular:angular_material_snack_bar",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "capture_profile_css",
     src = "capture_profile.scss",

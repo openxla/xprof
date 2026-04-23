@@ -48,3 +48,17 @@ xprof_ng_module(
         "@org_xprof//frontend/app/store",
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "data_request_queue_test.ts",
+    ],
+    deps = [
+        ":data_request_queue",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/constants",
+    ],
+)

@@ -24,6 +24,21 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "op_table_test.ts",
+    ],
+    deps = [
+        ":op_table",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "op_table_css",
     src = "op_table.scss",

@@ -24,6 +24,23 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "op_table_entry_test.ts",
+    ],
+    deps = [
+        ":op_table_entry",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # clean_state,
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "op_table_entry_css",
     src = "op_table_entry.scss",

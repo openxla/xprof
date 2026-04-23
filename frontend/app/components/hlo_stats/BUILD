@@ -48,6 +48,31 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "hlo_stats_test.ts",
+    ],
+    deps = [
+        ":hlo_stats",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # clean_state,
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//@angular/router",
+        "@npm//@ngrx/store",
+        "@npm//rxjs",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/components/chart:chart_options",
+        "@org_xprof//frontend/app/components/chart:default_data_provider",
+        "@org_xprof//frontend/app/components/controls/export_as_csv",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "hlo_stats_css",
     src = "hlo_stats.scss",

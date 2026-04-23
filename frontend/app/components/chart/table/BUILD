@@ -22,6 +22,27 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "table_test.ts",
+    ],
+    deps = [
+        ":table",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # ksf,
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "@org_xprof//frontend/app/common/angular:angular_material_select_testing",
+        "@npm//rxjs",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "table_css",
     src = "table.scss",

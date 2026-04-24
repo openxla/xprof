@@ -395,6 +395,32 @@ TEST(DeltaSeriesProtoConverterTest, HonorsMpmdPipelineView) {
   }
 }
 
+TEST(DeltaSeriesProtoConverterTest, PopulatesDetails) {
+  Trace trace;
+  TestTraceEventsContainer container(trace);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.details.push_back({"key1", true});
+  options.details.push_back({"key2", false});
+
+  absl::StatusOr<std::string> compressed_result =
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container);
+  ASSERT_TRUE(compressed_result.ok());
+
+  absl::StatusOr<std::string> decompressed =
+      ZstdCompression::Decompress(*compressed_result);
+  ASSERT_TRUE(decompressed.ok());
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(*decompressed));
+
+  ASSERT_EQ(response.details_size(), 2);
+  EXPECT_EQ(response.details(0).name(), "key1");
+  EXPECT_TRUE(response.details(0).value());
+  EXPECT_EQ(response.details(1).name(), "key2");
+  EXPECT_FALSE(response.details(1).value());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

@@ -17,7 +17,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/parser/hlo_parser.h"
-#include "xla/tests/hlo_test_base.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/xprof_gpu_cost_analysis_types.h"
@@ -26,7 +26,8 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-class XprofGpuCostAnalysisRegistrationTest : public xla::HloTestBase {};
+class XprofGpuCostAnalysisRegistrationTest
+    : public xla::HloHardwareIndependentTestBase {};
 
 TEST_F(XprofGpuCostAnalysisRegistrationTest, CallRegisteredFactory) {
   auto& registry = GetHloCostAnalysisWrapperRegistry();

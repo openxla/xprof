@@ -445,7 +445,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@xla//xla/hlo/ir:hlo",
-        "@xla//xla/tests:hlo_test_base",
+        "@xla//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "@xla//xla/tsl/platform:statusor",
     ],
 )
@@ -493,9 +493,9 @@ cc_test(
         "@xla//xla:shape_util",
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/hlo/testlib:hlo_hardware_independent_test_base",
         "@xla//xla/hlo/testlib:test_helpers",
         "@xla//xla/service:hlo_cost_analysis",
-        "@xla//xla/tests:hlo_test_base",
         "@xla//xla/tests:xla_internal_test_main",
         "@xla//xla/tsl/platform:statusor",
     ],
@@ -684,7 +684,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/hlo/parser:hlo_parser",
-        "@xla//xla/tests:hlo_test_base",
+        "@xla//xla/hlo/testlib:hlo_hardware_independent_test_base",
     ],
 )
 

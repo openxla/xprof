@@ -21,18 +21,18 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/testlib/hlo_hardware_independent_test_base.h"
 #include "xla/hlo/testlib/test_helpers.h"
 #include "xla/service/hlo_cost_analysis.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
-#include "xla/tests/hlo_test_base.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/xla_data.pb.h"
 
 namespace tensorflow {
 namespace profiler {
 
-class XprofGpuHloCostAnalysisTest : public xla::HloTestBase {
+class XprofGpuHloCostAnalysisTest : public xla::HloHardwareIndependentTestBase {
   xla::HloCostAnalysis::ShapeSizeFunction ShapeSizeBytesFunction() const {
     return [&](const xla::Shape& shape) {
       constexpr int64_t kPointerSize = 8;
@@ -47,7 +47,7 @@ class XprofGpuHloCostAnalysisTest : public xla::HloTestBase {
       /*min_latencies_seconds=*/{},
       /*count_multiple_input_accesses=*/true};
   XProfGpuCostAnalysis analysis_{options_};
-  XprofGpuHloCostAnalysisTest() : xla::HloTestBase() {}
+  XprofGpuHloCostAnalysisTest() : xla::HloHardwareIndependentTestBase() {}
 };
 
 TEST_F(XprofGpuHloCostAnalysisTest, Fp16GemmNoAdjustment) {

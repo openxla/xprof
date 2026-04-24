@@ -852,9 +852,11 @@ dashboard would integrate trace viewer app using iframe.
         var currentProcess = currentThread.parent;
         var hloOp;
         const dataMotionLayer = ['Compute Utilization/Roofline Efficiency', 'Data motion layers utilization'].includes(event.parentContainer.name);
-        // Event is an XLA op if it is part of the XLA Ops line or in case of host XLA ops, it has hlo_op and hlo_module in the event args.
-        const xla_ops = ('XLA Ops' === event.parentContainer.name || (event.args?.hlo_op && event.args?.hlo_module));
-        if (xla_ops || dataMotionLayer) {
+        // Event is an XLA op if it is part of the XLA Ops line or in case of host XLA ops, if it
+        // has hlo_op and hlo_module in the event args. The same logic applies to Sparse Core Ops.
+        const xlaOps = ('XLA Ops' === event.parentContainer.name ||
+            'Sparse Core Ops' === event.parentContainer.name || (event.args?.hlo_op && event.args?.hlo_module));
+        if (xlaOps || dataMotionLayer) {
           var hloOp = event.args?.hlo_op || event.title;
           if (dataMotionLayer) {
             hloOp = event.args?.Name;
@@ -870,7 +872,7 @@ dashboard would integrate trace viewer app using iframe.
           } else {
             for (t in currentProcess.threads) {
               var thread = currentProcess.threads[t];
-              if (thread.name != 'XLA Modules') continue;
+              if (thread.name != 'XLA Modules' && thread.name != 'Sparse Core Modules') continue;
               // Perform a linear search for containing module, because we are not expecting too
               // many modules per session. But binary search is possible here because the modules
               // array seems sorted.

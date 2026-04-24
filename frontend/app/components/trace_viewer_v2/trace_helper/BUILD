@@ -63,6 +63,23 @@ wasm_cc_library(
 )
 
 wasm_cc_library(
+    name = "perfetto_proto_parser",
+    srcs = ["perfetto_proto_parser.cc"],
+    hdrs = ["perfetto_proto_parser.h"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        "//third_party/emscripten:embind",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:event_manager",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@perfetto//:trace_cc_proto",
+    ],
+    alwayslink = True,
+)
+
+wasm_cc_library(
     name = "trace_event_tree",
     srcs = ["trace_event_tree.cc"],
     hdrs = ["trace_event_tree.h"],

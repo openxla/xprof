@@ -45,12 +45,28 @@ using tensorflow::profiler::hlo_stats::HloStatsDatabase;
 using tensorflow::profiler::hlo_stats::HloStatsRecord;
 using tsl::profiler::IsOutsideCompilationOp;
 
-HloStatsRecord ConvertOpMetricsToHloStatsRecord(const OpMetrics& metrics,
-                                                const PerfEnv& perf_env,
-                                                const RunEnvironment& run_env) {
+std::string GetTpuCoreType(OpMetrics::TpuCoreType core_type) {
+  switch (core_type) {
+    case OpMetrics::TENSOR_CORE:
+      return "TensorCore";
+    case OpMetrics::SPARSE_CORE:
+      return "SparseCore";
+    default:
+      return "";
+  }
+}
+
+HloStatsRecord ConvertOpMetricsToHloStatsRecord(
+    const OpMetrics& metrics, const PerfEnv& perf_env,
+    const RunEnvironment& run_env, const std::string& parent_op_name) {
   HloStatsRecord record;
   record.set_program_id(metrics.hlo_module_id());
-  record.set_hlo_expression(metrics.long_name());
+  // If long_name is empty, use the name instead for the HLO expression.
+  // This is because some ops don't have a long_name due to the event metadata
+  // not having a display name
+  // (op_metrics_db_utils.cc:SetOpMetadataFromHloEventMetadata).
+  record.set_hlo_expression(metrics.long_name().empty() ? metrics.name()
+                                                        : metrics.long_name());
   record.set_tf_op_name(metrics.provenance());
   record.set_hlo_category(metrics.category());
   record.set_autotuned(metrics.autotuned());
@@ -62,13 +78,47 @@ HloStatsRecord ConvertOpMetricsToHloStatsRecord(const OpMetrics& metrics,
       /*framework_op_name=*/metrics.provenance()));
   record.set_outside_compilation(
       IsOutsideCompilationOp(metrics.provenance(), metrics.long_name()));
+  record.set_core_type(GetTpuCoreType(metrics.core_type()));
+  record.set_parent_op_name(parent_op_name);
   *record.mutable_source_info() = metrics.source_info();
   return record;
 }
 
-std::string ToSourceTopLine(const std::string& file_name, int line_number) {
-  if (file_name.empty()) return "";
-  return absl::StrCat(file_name, ":", line_number);
+void AddHloStatsRecordsRecursively(HloStatsDatabase& hlo_stats_db,
+                                   const OpMetrics* metrics,
+                                   const OpStats& op_stats,
+                                   const HloStatsRecord*& prev_record,
+                                   double total_device_time_us,
+                                   const std::string& parent_op_name) {
+  // Skip empty metrics.
+  if (metrics->occurrences() == 0) return;
+  // For child ops, we only want the SparseCore ops.
+  if (parent_op_name.empty() ||
+      metrics->core_type() == OpMetrics::SPARSE_CORE) {
+    HloStatsRecord* record = hlo_stats_db.add_hlo_stats_record();
+    *record = ConvertOpMetricsToHloStatsRecord(*metrics, op_stats.perf_env(),
+                                               op_stats.run_environment(),
+                                               parent_op_name);
+    // Only set the rank and time fractions if there is a previous record.
+    if (prev_record != nullptr) {
+      tensorflow::profiler::SetRankAndTimeFractions(total_device_time_us,
+                                                    *prev_record, record);
+      prev_record = record;
+    }
+  }
+  // Recursively add records for ops from child metrics dbs.
+  if (metrics->children().metrics_db_size() > 0) {
+    // Do not accumulate running totals for children ops.
+    const HloStatsRecord* child_prev_record = nullptr;
+    double child_total_device_time_us =
+        tsl::profiler::PicoToMicro(metrics->children().total_time_ps());
+    for (const OpMetrics* child_metrics :
+         tensorflow::profiler::SortedOpMetricsDb(metrics->children())) {
+      AddHloStatsRecordsRecursively(
+          hlo_stats_db, child_metrics, op_stats, child_prev_record,
+          child_total_device_time_us, metrics->name());
+    }
+  }
 }
 
 }  // namespace
@@ -84,13 +134,8 @@ HloStatsDatabase ConvertOpStatsToHloStats(const OpStats& op_stats) {
   const HloStatsRecord* prev_record = &sentinel;
   for (const OpMetrics* metrics :
        tensorflow::profiler::SortedOpMetricsDb(hlo_metrics_db)) {
-    if (metrics->occurrences() == 0) continue;
-    HloStatsRecord* record = hlo_stats_db.add_hlo_stats_record();
-    *record = ConvertOpMetricsToHloStatsRecord(*metrics, op_stats.perf_env(),
-                                               op_stats.run_environment());
-    tensorflow::profiler::SetRankAndTimeFractions(total_device_time_us,
-                                                  *prev_record, record);
-    prev_record = record;
+    AddHloStatsRecordsRecursively(hlo_stats_db, metrics, op_stats, prev_record,
+                                  total_device_time_us, /*parent_op_name=*/"");
   }
   return hlo_stats_db;
 }
@@ -138,6 +183,8 @@ std::vector<std::vector<std::string>> HloStatsDataTableColumns() {
       {"outside_compilation", "string", "Outside Compilation"},
       {"autotuned", "string", "Autotuned"},
       {"source_info", "string", "Source Info"},
+      {"core_type", "string", "TPU core type"},
+      {"parent_op_name", "string", "Parent op name"},
   };
   return kColumns;
 }
@@ -176,6 +223,8 @@ std::unique_ptr<tensorflow::profiler::DataTable> CreateHloStatsDataTable(
     row->AddTextCell(record.outside_compilation() ? "Yes" : "No");
     row->AddTextCell(record.autotuned() ? "Yes" : "No");
     row->AddTextCell(SourceInfoFormattedText(record.source_info()));
+    row->AddTextCell(record.core_type());
+    row->AddTextCell(record.parent_op_name());
   }
   return data_table;
 }

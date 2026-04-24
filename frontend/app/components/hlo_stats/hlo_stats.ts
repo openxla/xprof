@@ -1,4 +1,14 @@
-import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, Renderer2, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  inject,
+  Injector,
+  NgZone,
+  OnDestroy,
+  Renderer2,
+  ViewChild,
+} from '@angular/core';
 import {FormControl} from '@angular/forms';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -9,10 +19,19 @@ import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_tab
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
 import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
-import {PIE_CHART_OPTIONS, TABLE_OPTIONS} from 'org_xprof/frontend/app/components/chart/chart_options';
+import {
+  PIE_CHART_OPTIONS,
+  TABLE_OPTIONS,
+} from 'org_xprof/frontend/app/components/chart/chart_options';
 import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
-import {DefaultDataProvider, ReplicaGroupDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DefaultDataProvider,
+  ReplicaGroupDataProvider,
+} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -32,10 +51,13 @@ const SELF_TIME_ID = 'total_self_time';
 const SOURCE_INFO_ID = 'source_info';
 const TF_OP_NAME_ID = 'tf_op_name';
 const TOTAL_TIME_ID = 'total_time';
+const CORE_TYPE_ID = 'core_type';
+const SPARSE_CORE_VALUE = 'SparseCore';
 
 /** A Hlo Stats component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'hlo-stats',
   templateUrl: './hlo_stats.ng.html',
   styleUrls: ['./hlo_stats.css'],
@@ -45,13 +67,14 @@ export class HloStats extends Dashboard implements OnDestroy {
   sessionId = '';
   host = '';
   private readonly injector = inject(Injector);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   private readonly zone = inject(NgZone);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
-  data: SimpleDataTable|null = null;
+  data: SimpleDataTable | null = null;
   hloOpNameSelected = '';
   programIdSelected = '';
   // Flop rate chart properties.
@@ -107,18 +130,32 @@ export class HloStats extends Dashboard implements OnDestroy {
       sortColumn: 0,
     },
   };
+  dataInfoForSparseCoreTable: ChartDataInfo = {
+    data: null,
+    dataProvider: new DefaultDataProvider(),
+    filters: [],
+    options: {
+      ...TABLE_OPTIONS,
+      showRowNumber: false,
+      page: 'enable',
+      pageSize: 10,
+      sortAscending: true,
+      sortColumn: 0,
+    },
+  };
   showChartSection = true;
   tableColumnsControl = new FormControl<number[]>([]);
   tableColumns: Array<{index: number; label: string}> = [];
+  hasSparseCoreData = false;
 
   // We add a listener to `chart` and manipulate multiple elements of
   // `chartElement`. Knowing that `Chart.elementRef` is private, we use
   // `ViewChild` twice to access both. See `addSourceInfoClickListener` for
   // more details.
   @ViewChild('table', {read: Chart, static: false})
-  chartRef: Chart|undefined = undefined;
+  chartRef: Chart | undefined = undefined;
   @ViewChild('table', {read: ElementRef, static: false})
-  chartElementRef: ElementRef|undefined = undefined;
+  chartElementRef: ElementRef | undefined = undefined;
   private readonly renderer: Renderer2 = inject(Renderer2);
   sourceFileAndLineNumber = '';
   stackTrace = '';
@@ -126,30 +163,32 @@ export class HloStats extends Dashboard implements OnDestroy {
   sourceCodeServiceIsAvailable = false;
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     super();
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          const oldSessionId = this.sessionId;
-          const oldTool = this.tool;
-          const oldHost = this.host;
-          const oldHloOpName = this.hloOpNameSelected;
-          const oldProgramId = this.programIdSelected;
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldTool = this.tool;
+        const oldHost = this.host;
+        const oldHloOpName = this.hloOpNameSelected;
+        const oldProgramId = this.programIdSelected;
 
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          // Trigger update only if the parameters actually changed.
-          const hasChanged = this.sessionId !== oldSessionId ||
-              this.tool !== oldTool || this.host !== oldHost ||
-              this.hloOpNameSelected !== oldHloOpName ||
-              this.programIdSelected !== oldProgramId;
-          if (hasChanged) {
-            this.update();
-          }
-        });
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        // Trigger update only if the parameters actually changed.
+        const hasChanged =
+          this.sessionId !== oldSessionId ||
+          this.tool !== oldTool ||
+          this.host !== oldHost ||
+          this.hloOpNameSelected !== oldHloOpName ||
+          this.programIdSelected !== oldProgramId;
+        if (hasChanged) {
+          this.update();
+        }
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
     this.tableColumnsControl.valueChanges.subscribe((newValue) => {
       this.updateTableColumns(newValue || []);
@@ -158,16 +197,19 @@ export class HloStats extends Dashboard implements OnDestroy {
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
-    const sourceCodeService =
-        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-          if (this.sourceCodeServiceIsAvailable) {
-            this.addSourceInfoClickListener();
-          }
-        });
+    const sourceCodeService = this.injector.get(
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
+    );
+    sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+        if (this.sourceCodeServiceIsAvailable) {
+          this.addSourceInfoClickListener();
+        }
+      });
   }
 
   processQueryParams(params: Params) {
@@ -180,39 +222,45 @@ export class HloStats extends Dashboard implements OnDestroy {
     setLoadingState(true, this.store, 'Loading hlo data');
     this.throbber.start();
 
-    this.dataService.getData(this.sessionId, this.tool, this.host)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-          this.data = data as SimpleDataTable | null;
-          this.process(this.data);
-          this.onCheckInputParams();
-        });
+    this.dataService
+      .getData(this.sessionId, this.tool, this.host)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        setLoadingState(false, this.store);
+        this.data = data as SimpleDataTable | null;
+        this.process(this.data);
+        this.onCheckInputParams();
+      });
   }
 
   onCheckInputParams() {
     this.hloOpNameSelected =
-        this.dataService.getSearchParams().get('hlo_op_name') || '';
+      this.dataService.getSearchParams().get('hlo_op_name') || '';
     // Assumption: the program_id is in format like 'main(<program_id>)'
     // parsing with a regex to match content in the bracket
-    const programIdParsed =
-        this.dataService.getSearchParams().get('program_id')?.match(/\((.*)\)/);
+    const programIdParsed = this.dataService
+      .getSearchParams()
+      .get('program_id')
+      ?.match(/\((.*)\)/);
     this.programIdSelected =
-        programIdParsed?.length === 2 ? programIdParsed[1] : '';
+      programIdParsed?.length === 2 ? programIdParsed[1] : '';
   }
 
   // Iterate through the table data
   // and inject graph link to the hlo op text cell
   addGraphViewerLinkInTableData(data: SimpleDataTable) {
     const programIdColumnIdx =
-        data.cols?.findIndex((col) => col.id === PROGRAM_ID) ?? -1;
+      data.cols?.findIndex((col) => col.id === PROGRAM_ID) ?? -1;
     const hloOpExpressionColumnIdx =
-        data.cols?.findIndex((col) => col.id === OP_EXPRESSION_ID) ?? -1;
+      data.cols?.findIndex((col) => col.id === OP_EXPRESSION_ID) ?? -1;
     const hloOpNameColumnIdx =
-        data.cols?.findIndex((col) => col.id === OP_NAME_ID) ?? -1;
-    if (programIdColumnIdx === -1 || hloOpExpressionColumnIdx === -1 ||
-        hloOpNameColumnIdx === -1) {
+      data.cols?.findIndex((col) => col.id === OP_NAME_ID) ?? -1;
+    if (
+      programIdColumnIdx === -1 ||
+      hloOpExpressionColumnIdx === -1 ||
+      hloOpNameColumnIdx === -1
+    ) {
       return data;
     }
 
@@ -222,17 +270,18 @@ export class HloStats extends Dashboard implements OnDestroy {
         const programId = (row.c![programIdColumnIdx].v as string).trim() || '';
         const hloOpName = (row.c![hloOpNameColumnIdx].v as string).trim() || '';
         const hloOpExpression =
-            (row.c![hloOpExpressionColumnIdx].v as string) || '';
+          (row.c![hloOpExpressionColumnIdx].v as string) || '';
         const graphViewerLink = this.dataService.getGraphViewerLink(
-            this.sessionId,
-            '',
-            hloOpName,
-            programId,
+          this.sessionId,
+          '',
+          hloOpName,
+          programId,
         );
-        const hyperlinkValue = graphViewerLink ?
-            `<a href="${graphViewerLink}" target="_blank">${
-                hloOpExpression}</a>` :
-            hloOpExpression;
+        const hyperlinkValue = graphViewerLink
+          ? `<a href="${graphViewerLink}" target="_blank">${
+              hloOpExpression
+            }</a>`
+          : hloOpExpression;
         return {
           ...row,
           c: [
@@ -295,18 +344,47 @@ export class HloStats extends Dashboard implements OnDestroy {
     this.showStackTrace = !this.showStackTrace;
   }
 
-  private process(data: SimpleDataTable|null) {
+  private process(data: SimpleDataTable | null) {
     if (!data) return;
 
-    this.parseData(data);
+    const coreTypeIdx =
+      data.cols?.findIndex((col) => col.id === CORE_TYPE_ID) ?? -1;
+    let tensorCoreDataRows = data.rows;
+    let sparseCoreRows: google.visualization.DataObjectRow[] = [];
+
+    if (coreTypeIdx !== -1) {
+      tensorCoreDataRows =
+        data.rows?.filter(
+          (row) => row.c![coreTypeIdx]?.v !== SPARSE_CORE_VALUE,
+        ) || [];
+      sparseCoreRows =
+        data.rows?.filter(
+          (row) => row.c![coreTypeIdx]?.v === SPARSE_CORE_VALUE,
+        ) || [];
+    }
+
+    const tensorCoreData = {...data, rows: tensorCoreDataRows};
+    const sparseCoreData = {...data, rows: sparseCoreRows};
+
+    this.parseData(tensorCoreData);
     this.drawFlopRateChart();
     this.updateOpReplicaGroupChart();
 
-    const updatedData = this.addGraphViewerLinkInTableData(data);
+    const updatedMainData = this.addGraphViewerLinkInTableData(tensorCoreData);
     this.dataInfoForTable = {
       ...this.dataInfoForTable,
-      data: updatedData,
+      data: updatedMainData,
     };
+
+    const updatedSparseCoreData =
+      this.addGraphViewerLinkInTableData(sparseCoreData);
+    this.dataInfoForSparseCoreTable = {
+      ...this.dataInfoForSparseCoreTable,
+      data: updatedSparseCoreData,
+    };
+    this.hasSparseCoreData = sparseCoreRows.length > 0;
+
+    this.dataInfoForSparseCoreTable.dataProvider.parseData(sparseCoreData);
   }
 
   override updateView() {
@@ -314,12 +392,18 @@ export class HloStats extends Dashboard implements OnDestroy {
       ...this.dataInfoForTable,
       filters: this.getFilters(),
     };
+    this.dataInfoForSparseCoreTable = {
+      ...this.dataInfoForSparseCoreTable,
+      filters: this.getFilters(),
+    };
   }
 
   updateOpReplicaGroupChart() {
-    if (!this.replicaGroupDataProvider.opCategoryIndex ||
-        !this.replicaGroupDataProvider.hloOpNameIndex ||
-        !this.replicaGroupDataProvider.selfTimeIndex) {
+    if (
+      !this.replicaGroupDataProvider.opCategoryIndex ||
+      !this.replicaGroupDataProvider.hloOpNameIndex ||
+      !this.replicaGroupDataProvider.selfTimeIndex
+    ) {
       return;
     }
 
@@ -331,11 +415,11 @@ export class HloStats extends Dashboard implements OnDestroy {
     ];
 
     this.dataInfoOpReplicaGroupChart.customChartDataProcessor =
-        new CategoryTableDataProcessor(
-            filtersForReplicaGroup,
-            this.replicaGroupDataProvider.hloOpNameIndex,
-            this.replicaGroupDataProvider.selfTimeIndex,
-        );
+      new CategoryTableDataProcessor(
+        filtersForReplicaGroup,
+        this.replicaGroupDataProvider.hloOpNameIndex,
+        this.replicaGroupDataProvider.selfTimeIndex,
+      );
 
     // Since the DataInfo has not been updated, the notifyCharts function is
     // called to redraw the graph.
@@ -359,11 +443,13 @@ export class HloStats extends Dashboard implements OnDestroy {
       TOTAL_TIME_ID,
     ]);
     for (let i = 0; i < numColumns; i++) {
+      const colId = dataTable.getColumnId(i);
+      if (colId === CORE_TYPE_ID) continue;
       this.tableColumns.push({
         index: i,
         label: dataTable.getColumnLabel(i),
       });
-      if (defaultVisibleColumnIds.has(dataTable.getColumnId(i))) {
+      if (defaultVisibleColumnIds.has(colId)) {
         defaultVisibleColumns.push(i);
       }
     }
@@ -373,12 +459,26 @@ export class HloStats extends Dashboard implements OnDestroy {
   }
 
   updateTableColumns(newValue: number[]) {
-    if (newValue.length === 0) return;
-    this.dataInfoForTable.dataProvider.setVisibleColumns(newValue);
+    if (newValue.length === 0 || !this.dataTable) return;
+
+    const coreTypeIdx = this.dataTable.getColumnIndex(CORE_TYPE_ID);
+    const rankIdx = this.dataTable.getColumnIndex(RANK_ID);
+
+    const visibleColumns = newValue.filter((index) => index !== coreTypeIdx);
+    this.dataInfoForTable.dataProvider.setVisibleColumns(visibleColumns);
+
+    const sparseCoreVisibleColumns = visibleColumns.filter(
+      (index) => index !== rankIdx,
+    );
+    this.dataInfoForSparseCoreTable.dataProvider.setVisibleColumns(
+      sparseCoreVisibleColumns,
+    );
+
     this.dataInfoForTable.dataProvider.notifyCharts();
+    this.dataInfoForSparseCoreTable.dataProvider.notifyCharts();
   }
 
-  override parseData(data: SimpleDataTable|null) {
+  override parseData(data: SimpleDataTable | null) {
     if (!data) return;
     // Five charts share one DataProvider. In order to prevent DataTable from
     // being created multiple times, it calls DataProvider function directly.
@@ -395,30 +495,30 @@ export class HloStats extends Dashboard implements OnDestroy {
     const selfTimeIndex = dataTable.getColumnIndex(SELF_TIME_ID);
     const hloRematIndex = dataTable.getColumnIndex(HLO_REMAT_ID);
     const outsideCompilationIndex = dataTable.getColumnIndex(
-        OUTSIDE_COMPILATION_ID,
+      OUTSIDE_COMPILATION_ID,
     );
 
     const filtersForRemat = [{column: hloRematIndex, value: 'Yes'}];
 
     this.dataInfoCategoryChart.customChartDataProcessor =
-        new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
+      new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
     this.dataInfoOpChart.customChartDataProcessor =
-        new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
+      new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
     this.dataInfoRematerializationChart.customChartDataProcessor =
-        new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
+      new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
     this.dataInfoRematerializationCategoryChart.customChartDataProcessor =
-        new CategoryTableDataProcessor(
-            filtersForRemat,
-            opCategoryIndex,
-            selfTimeIndex,
-        );
+      new CategoryTableDataProcessor(
+        filtersForRemat,
+        opCategoryIndex,
+        selfTimeIndex,
+      );
     this.dataInfoOutsideCompilationChart.customChartDataProcessor =
-        new CategoryTableDataProcessor(
-            [],
-            outsideCompilationIndex,
-            selfTimeIndex,
-            false,
-        );
+      new CategoryTableDataProcessor(
+        [],
+        outsideCompilationIndex,
+        selfTimeIndex,
+        false,
+      );
 
     // Since the DataInfo has not been updated, the notifyCharts function is
     // called to redraw the graph.
@@ -439,7 +539,7 @@ export class HloStats extends Dashboard implements OnDestroy {
     if (!this.dataTable || !this.dataTable.getColumnIndex) return;
     this.flopRateChartXColumn = this.dataTable.getColumnIndex(OP_EXPRESSION_ID);
     this.flopRateChartYColumn = this.dataTable.getColumnIndex(
-        MEASURED_FLOP_RATE_ID,
+      MEASURED_FLOP_RATE_ID,
     );
   }
 

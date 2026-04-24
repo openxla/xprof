@@ -156,6 +156,10 @@ export class HloStats extends Dashboard implements OnDestroy {
   chartRef: Chart | undefined = undefined;
   @ViewChild('table', {read: ElementRef, static: false})
   chartElementRef: ElementRef | undefined = undefined;
+  @ViewChild('sparseCoreTable', {read: Chart, static: false})
+  sparseCoreChartRef: Chart | undefined = undefined;
+  @ViewChild('sparseCoreTable', {read: ElementRef, static: false})
+  sparseCoreChartElementRef: ElementRef | undefined = undefined;
   private readonly renderer: Renderer2 = inject(Renderer2);
   sourceFileAndLineNumber = '';
   stackTrace = '';
@@ -207,7 +211,16 @@ export class HloStats extends Dashboard implements OnDestroy {
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
         if (this.sourceCodeServiceIsAvailable) {
-          this.addSourceInfoClickListener();
+          this.addSourceInfoClickListener(
+            this.chartRef,
+            this.chartElementRef,
+            /*isSparseCore=*/ false,
+          );
+          this.addSourceInfoClickListener(
+            this.sparseCoreChartRef,
+            this.sparseCoreChartElementRef,
+            /*isSparseCore=*/ true,
+          );
         }
       });
   }
@@ -315,13 +328,21 @@ export class HloStats extends Dashboard implements OnDestroy {
    * to the native elements of the table and add the click listener to the
    * cells with class `source-info-cell`.
    */
-  private addSourceInfoClickListener() {
-    const chart = this.chartRef?.chart;
-    const chartElement = this.chartElementRef?.nativeElement;
+  private addSourceInfoClickListener(
+    chartRef: Chart | undefined,
+    chartElementRef: ElementRef | undefined,
+    isSparseCore: boolean,
+  ) {
+    const chart = chartRef?.chart;
+    const chartElement = chartElementRef?.nativeElement;
     if (!chart || !chartElement) {
       // TODO: b/429036372 - Using setTimeout to detect change is inefficient.
       setTimeout(() => {
-        this.addSourceInfoClickListener();
+        this.addSourceInfoClickListener(
+          chartRef,
+          chartElementRef,
+          isSparseCore,
+        );
       }, 100);
       return;
     }

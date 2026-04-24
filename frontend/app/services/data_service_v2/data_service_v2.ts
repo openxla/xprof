@@ -8,6 +8,7 @@ import {
   CONFIG_API,
   DATA_API,
   DATA_CSV_API,
+  DOWNLOAD_XPLANE_API,
   GRAPH_TYPE_DEFAULT,
   GRAPHVIZ_PAN_ZOOM_CONTROL,
   HLO_MODULE_LIST_API,
@@ -528,6 +529,18 @@ export class DataServiceV2 implements DataServiceV2Interface {
     windowOpen(
       window,
       this.pathPrefix + DATA_CSV_API + '?' + params.toString(),
+      '_blank',
+    );
+  }
+
+  downloadXplane(sessionId: string, host: string) {
+    let params = this.getHttpParamsWithPath();
+    params = params
+      .set('run', sessionId)
+      .set('host', host);
+    windowOpen(
+      window,
+      this.pathPrefix + DOWNLOAD_XPLANE_API + '?' + params.toString(),
       '_blank',
     );
   }

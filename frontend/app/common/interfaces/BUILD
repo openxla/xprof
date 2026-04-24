@@ -102,6 +102,7 @@ ts_library(
         "source_stats.ts",
         "summary_info.ts",
         "tool.ts",
+        "trace_buffer_drop_analysis.ts",
         "window.ts",
     ],
     deps = [

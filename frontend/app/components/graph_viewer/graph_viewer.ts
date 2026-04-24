@@ -630,9 +630,9 @@ export class GraphViewer implements OnDestroy {
   validToPlot() {
     // Validate opName
     if (
-        // Parameter and ROOT node is not identified as an op in the HLO Graph
-        this.opName.toLowerCase().includes('parameter') ||
-        this.opName.toLowerCase().includes('root')) {
+      // Parameter and ROOT node is not identified as an op in the HLO Graph
+      /(^|::)(parameter|root)(\.\d+)?$/i.test(this.opName.trim())
+    ) {
       this.openSnackBar('Invalid Op Name.');
       return false;
     }

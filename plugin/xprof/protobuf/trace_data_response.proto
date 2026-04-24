@@ -65,6 +65,11 @@ message TraceMetadata {
   repeated Process processes = 1;
 }
 
+message DetailItem {
+  string name = 1;
+  bool value = 2;
+}
+
 // The root response message representing a delta-compressed trace.
 message TraceDataResponse {
   // Sequence of standard duration events.
@@ -77,4 +82,6 @@ message TraceDataResponse {
   // A centralized list of strings used throughout the trace data.
   // `name_ref` fields in other messages are indices into this array.
   repeated string interned_strings = 5;
+  // Details for the trace (e.g., flags for the frontend).
+  repeated DetailItem details = 6;
 }

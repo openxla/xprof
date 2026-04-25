@@ -26,3 +26,12 @@ export interface AggregatedEventProperty extends SelectedEventProperty {
   selfTime?: number;
   avgWallDuration?: number;
 }
+
+/**
+ * Response type for graph_viewer.json?type=adj_nodes.
+ */
+export declare interface AdjNodesResponse {
+  operand_names: string[];
+  consumer_names: string[];
+  [key: string]: string[];
+}

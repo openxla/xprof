@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 
@@ -14,6 +15,18 @@ exports_files([
     "tsconfig.json",
     "rollup.config.js",
 ])
+
+bool_flag(
+    name = "enable_module_summary",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "module_summary_enabled",
+    flag_values = {":enable_module_summary": "True"},
+    visibility = ["//visibility:public"],
+)
 
 py_library(
     name = "expect_tensorflow_installed",

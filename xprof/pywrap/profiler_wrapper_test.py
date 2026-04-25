@@ -59,6 +59,12 @@ class ProfilerSessionTest(parameterized.TestCase):
     with self.assertRaisesRegex(RuntimeError, r"^INVALID_ARGUMENT"):
       profiler_wrapper_plugin._check_error(err)
 
+  def test_get_module_digest(self):
+    if hasattr(profiler_wrapper_plugin, "get_module_digest"):
+      test_file = self.create_tempfile().full_path
+      result = profiler_wrapper_plugin.get_module_digest(test_file)
+      self.assertFalse(result["success"])
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -2,6 +2,7 @@ load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("@org_xprof//plugin/xprof/build_utils/google:build_config.bzl", "xprof_proto_library")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
@@ -58,6 +59,28 @@ wasm_cc_library(
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@tsl//tsl/platform:fingerprint",
         "@tsl//tsl/profiler/lib:context_types",
+    ],
+    alwayslink = True,
+)
+
+xprof_proto_library(
+    name = "trace_lite_proto",
+    srcs = ["trace_lite.proto"],
+)
+
+wasm_cc_library(
+    name = "perfetto_proto_parser",
+    srcs = ["perfetto_proto_parser.cc"],
+    hdrs = ["perfetto_proto_parser.h"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        ":trace_lite_proto_cc",
+        "//third_party/emscripten:embind",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:event_manager",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
     ],
     alwayslink = True,
 )

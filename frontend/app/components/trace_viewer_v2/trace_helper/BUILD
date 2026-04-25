@@ -1,7 +1,7 @@
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
@@ -60,6 +60,35 @@ wasm_cc_library(
         "@tsl//tsl/profiler/lib:context_types",
     ],
     alwayslink = True,
+)
+
+wasm_cc_library(
+    name = "perfetto_proto_parser",
+    srcs = ["perfetto_proto_parser.cc"],
+    hdrs = ["perfetto_proto_parser.h"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        "//third_party/emscripten:embind",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:event_manager",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@perfetto//:trace_cc_proto",
+        "@tsl//tsl/profiler/lib:context_types",
+    ],
+    alwayslink = True,
+)
+
+wasm_cc_test(
+    name = "perfetto_proto_parser_test",
+    srcs = ["perfetto_proto_parser_test.cc"],
+    deps = [
+        ":perfetto_proto_parser",
+        ":trace_event",
+        "@com_google_googletest//:gtest_main",
+        "@perfetto//:trace_cc_proto",
+    ],
 )
 
 wasm_cc_library(

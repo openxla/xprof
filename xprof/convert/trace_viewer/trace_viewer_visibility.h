@@ -62,6 +62,8 @@ class TraceViewerVisibility {
   // self-explanatory (eg. MinDurationPs)
   uint64_t ResolutionPs() const { return resolution_ps_; }
 
+  const absl::flat_hash_map<uint64_t, bool>& Flows() const { return flows_; }
+
  private:
   // Identifier for one Trace Viewer row.
   using RowId = std::pair<uint32_t /*device_id*/, uint32_t /*resource_id*/>;

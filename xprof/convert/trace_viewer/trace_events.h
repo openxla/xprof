@@ -173,7 +173,7 @@ absl::Status DoLoadFromLevelDbTable(
     std::unique_ptr<TraceEventsFilterInterface> filter,
     std::unique_ptr<TraceVisibilityFilter> visibility_filter,
     int64_t filter_by_visibility_threshold, Trace& trace,
-    bool& filter_by_visibility,
+    bool& filter_by_visibility, bool load_metadata,
     const std::function<TraceEvent*(const TraceEvent&)>& copy_event_to_arena,
     const std::function<void(TraceEvent*)>& add_arena_event) {
   std::string filename = file_paths.trace_events_file_path;
@@ -202,6 +202,19 @@ absl::Status DoLoadFromLevelDbTable(
   std::unique_ptr<tsl::table::Table> table_deleter(table);
   std::unique_ptr<tsl::table::Iterator> iterator(table->NewIterator());
   if (iterator == nullptr) return tsl::errors::Unknown("Could not open table");
+
+  tsl::table::Table* metadata_table = nullptr;
+  std::unique_ptr<tsl::RandomAccessFile> metadata_file;
+  std::unique_ptr<tsl::table::Table> metadata_table_deleter;
+  std::unique_ptr<tsl::table::Iterator> metadata_iterator;
+  if (load_metadata && trace_events_metadata_file_exists) {
+    if (OpenLevelDbTable(file_paths.trace_events_metadata_file_path,
+                         &metadata_table, metadata_file)
+            .ok()) {
+      metadata_table_deleter.reset(metadata_table);
+      metadata_iterator.reset(metadata_table->NewIterator());
+    }
+  }
 
   // Read the metadata.
   iterator->SeekToFirst();
@@ -262,6 +275,18 @@ absl::Status DoLoadFromLevelDbTable(
       }
       // Filter before copying to the arena as it does not require sorting.
       if (!filter || !filter->Filter(event)) {
+        if (metadata_iterator) {
+          metadata_iterator->Seek(iterator->key());
+          if (metadata_iterator->Valid() &&
+              metadata_iterator->key() == iterator->key()) {
+            TraceEvent event_metadata;
+            if (event_metadata.ParseFromArray(
+                    metadata_iterator->value().data(),
+                    metadata_iterator->value().size())) {
+              event.set_raw_data(event_metadata.raw_data());
+            }
+          }
+        }
         loaded_events.push_back(copy_event_to_arena(event));
       } else {
         ++filtered;
@@ -815,11 +840,12 @@ class TraceEventsContainerBase {
       const TraceEventsLevelDbFilePaths& trace_events_level_db_file_paths,
       std::unique_ptr<TraceEventsFilterInterface> filter = nullptr,
       std::unique_ptr<TraceVisibilityFilter> visibility = nullptr,
-      int64_t filter_by_visibility_threshold = -1LL) {
+      int64_t filter_by_visibility_threshold = -1LL,
+      bool load_metadata = false) {
     return DoLoadFromLevelDbTable<RawData>(
         trace_events_level_db_file_paths, std::move(filter),
         std::move(visibility), filter_by_visibility_threshold, trace_,
-        filter_by_visibility_,
+        filter_by_visibility_, load_metadata,
         absl::bind_front(&TraceEventsContainerBase::CopyEventToArena, this),
         absl::bind_front(&TraceEventsContainerBase::AddArenaEvent, this));
   }

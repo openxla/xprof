@@ -40,6 +40,11 @@ enum class Phase : char {
   kAsyncEnd = 'e',
   kFlowStart = 's',
   kFlowEnd = 'f',
+  // Instant events use the 'i' phase. Historically, 'I' was also used.
+  // Since 'I' is deprecated, we use 'i' for default instant phase.
+  // See http://docs/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0#heading=h.lenwiilchoxp
+  kInstant = 'i',
+  kInstantDeprecated = 'I',
 
   // Represents an unknown or unspecified event phase.
   // This makes the default state more explicit and type-safe.
@@ -87,6 +92,7 @@ struct ParsedTraceEvents {
   std::optional<std::pair<Milliseconds, Milliseconds>> visible_range_from_url;
 
   bool mpmd_pipeline_view = false;
+  bool parsing_failed = false;
 };
 
 // Constants for metadata events.
@@ -124,6 +130,7 @@ inline constexpr absl::string_view kDma = "DMA";
 // Other constants.
 inline constexpr absl::string_view kHloModuleDefault = "default";
 inline constexpr absl::string_view kModuleRegex = "module:.*_(\\d+)";
+inline constexpr absl::string_view kUnknown = "Unknown";
 
 }  // namespace traceviewer
 

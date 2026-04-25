@@ -175,6 +175,7 @@ cc_binary(
     deps = [
         ":application",
         ":input_handler",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:perfetto_proto_parser",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
     ],
 )

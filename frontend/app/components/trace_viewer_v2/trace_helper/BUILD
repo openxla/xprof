@@ -1,7 +1,10 @@
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("//third_party/protobuf/bazel:proto_library.bzl", "proto_library")
+load("//tools/build_defs/proto/cpp:cc_proto_library.bzl", "cc_proto_library")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
@@ -62,6 +65,47 @@ wasm_cc_library(
     alwayslink = True,
 )
 
+proto_library(
+    name = "trace_lite_proto",
+    srcs = ["trace_lite.proto"],
+)
+
+cc_proto_library(
+    name = "trace_lite_cc_proto",
+    deps = [":trace_lite_proto"],
+)
+
+wasm_cc_library(
+    name = "perfetto_proto_parser",
+    srcs = ["perfetto_proto_parser.cc"],
+    hdrs = ["perfetto_proto_parser.h"],
+    features = ["-layering_check"],
+    deps = [
+        ":perfetto_constants",
+        ":trace_event",
+        ":trace_event_parser",
+        ":trace_lite_cc_proto",
+        "//third_party/emscripten:embind",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:event_manager",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
+        "@tsl//tsl/profiler/lib:context_types",
+    ],
+    alwayslink = True,
+)
+
+wasm_cc_test(
+    name = "perfetto_proto_parser_test",
+    srcs = ["perfetto_proto_parser_test.cc"],
+    deps = [
+        ":perfetto_proto_parser",
+        ":trace_event",
+        ":trace_lite_cc_proto",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 wasm_cc_library(
     name = "trace_event_tree",
     srcs = ["trace_event_tree.cc"],
@@ -82,4 +126,9 @@ cc_test(
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
+)
+
+cc_library(
+    name = "perfetto_constants",
+    hdrs = ["perfetto_constants.h"],
 )

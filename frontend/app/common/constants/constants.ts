@@ -31,6 +31,9 @@ export const VERSION_API = API_PREFIX + PLUGIN_NAME + '/version';
 /** HLO Module List API */
 export const HLO_MODULE_LIST_API = API_PREFIX + PLUGIN_NAME + '/module_list';
 
+/** Download XPlane API */
+export const DOWNLOAD_XPLANE_API = API_PREFIX + PLUGIN_NAME + '/download_xplane';
+
 /** Capture Profile API */
 export const CAPTURE_PROFILE_API =
     API_PREFIX + PLUGIN_NAME + '/capture_profile';

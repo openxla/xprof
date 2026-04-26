@@ -91,6 +91,7 @@ LOCAL_ROUTE = '/local'
 CONFIG_ROUTE = '/config'
 CACHE_VERSION_FILE = 'cache_version.txt'
 GENERATE_CACHE_ROUTE = '/generate_cache'
+DOWNLOAD_XPLANE_ROUTE = '/download_xplane'
 
 # Suffixes of "^, #, @" symbols represent different input data formats for the
 # same tool.
@@ -825,6 +826,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
             LOCAL_ROUTE: self.default_handler,
             CONFIG_ROUTE: self.config_route,
             GENERATE_CACHE_ROUTE: self.generate_cache_route,
+            DOWNLOAD_XPLANE_ROUTE: self.download_xplane_route,
         }.items()
     }  # pytype: disable=bad-return-type
 
@@ -980,6 +982,42 @@ class ProfilePlugin(base_plugin.TBPlugin):
         tb_run_directory, PLUGIN_NAME
     )
     return os.path.join(plugin_directory, profile_run_name)
+
+  def download_xplane_impl(
+      self, request: wrappers.Request
+  ) -> wrappers.Response:
+    run = request.args.get('run')
+    host = request.args.get('host')
+    run_dir = self._run_dir(run, request)
+    try:
+      _, asset_paths = self._get_valid_hosts(
+          run_dir, run, 'xplane', '', host
+      )
+      if not asset_paths:
+        return respond('No xplane file found.', 'text/plain', code=404)
+      fs = profile_io.get_file_system(run_dir, self._epath)
+      asset_path = asset_paths[0]
+      content = fs.read_bytes(str(asset_path))
+      if content is None:
+        return respond('Failed to read file.', 'text/plain', code=500)
+      filename = os.path.basename(str(asset_path))
+      return wrappers.Response(
+          content,
+          content_type='application/octet-stream',
+          headers={
+              'Content-Disposition': f'attachment; filename="{filename}"'
+          },
+      )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      return respond(str(e), 'text/plain', code=500)
+
+  # pytype: disable=wrong-arg-types
+  @wrappers.Request.application
+  def download_xplane_route(
+      self, request: wrappers.Request
+  ) -> wrappers.Response:
+    # pytype: enable=wrong-arg-types
+    return self.download_xplane_impl(request)
 
   def runs_imp(self, request: wrappers.Request | None = None) -> list[str]:
     """Returns a list all runs for the profile plugin.

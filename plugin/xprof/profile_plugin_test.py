@@ -677,6 +677,27 @@ class ProfilePluginTest(absltest.TestCase):
       tools = self.plugin.run_tools_imp('gcs_run')
       self.assertIn('overview_page', tools)
 
+  def testDownloadXplaneRoute(self):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    request = werkzeug_test.EnvironBuilder(
+        path='/download_xplane',
+        method='GET',
+        query_string={'run': 'abc', 'host': 'host1'}
+    ).get_request()
+
+    response = self.plugin.download_xplane_impl(request)
+    self.assertEqual(response.status_code, 200)
+    self.assertEqual(
+        response.headers.get('Content-Disposition'),
+        'attachment; filename="host1.xplane.pb"',
+    )
+    self.assertEqual(
+        response.headers.get('Content-Type'), 'application/octet-stream'
+    )
+    self.assertEqual(response.get_data(), b'xplane')
+
 
 class GenerateCacheTaskTest(absltest.TestCase):
 

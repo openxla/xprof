@@ -555,6 +555,12 @@ export class SideNav implements OnInit, OnDestroy {
     this.afterUpdateRun();
   }
 
+  downloadXplane() {
+    if (this.selectedRun && this.selectedHostInternal) {
+      this.dataService.downloadXplane(this.selectedRun, this.selectedHostInternal);
+    }
+  }
+
   ngOnDestroy() {
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();

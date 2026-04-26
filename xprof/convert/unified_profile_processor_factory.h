@@ -60,9 +60,9 @@ class RegisterUnifiedProfileProcessor {
       UnifiedProfileProcessorFactory::Creator creator);
 };
 
-#define REGISTER_UNIFIED_PROFILE_PROCESSOR(tool_name, ClassName)               \
+#define REGISTER_UNIFIED_PROFILE_PROCESSOR(unique_id, tool_name, ClassName)    \
   ABSL_ATTRIBUTE_UNUSED static const ::xprof::RegisterUnifiedProfileProcessor \
-      register_##ClassName(                                                  \
+      register_##unique_id(                                                  \
           tool_name, [](const tensorflow::profiler::ToolOptions& options) {  \
             return std::make_unique<ClassName>(options);                     \
           });

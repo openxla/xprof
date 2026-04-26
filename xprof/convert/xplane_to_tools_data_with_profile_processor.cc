@@ -8,6 +8,8 @@
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -17,17 +19,24 @@
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/threadpool.h"
 #include "tsl/platform/path.h"
+#include "absl/flags/flag.h"
 #include "xprof/convert/profile_processor.h"
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_profile_processor.h"
+#include "xprof/convert/unified_profile_processor_factory.h"
 #include "plugin/xprof/protobuf/worker_service.pb.h"
 #include "plugin/xprof/worker/grpc_utils.h"
 #include "plugin/xprof/worker/stub_factory.h"
 
+ABSL_FLAG(bool, enable_unified_xprof, false, "Enable unified Xprof workflow");
+
 namespace tensorflow {
 namespace profiler {
+
 namespace {
+using xprof::UnifiedProfileProcessor;
 
 constexpr absl::string_view kXplaneFileName = ".xplane.pb";
 
@@ -133,6 +142,43 @@ absl::Status ProcessSession(xprof::ProfileProcessor* processor,
   return absl::OkStatus();
 }
 
+absl::Status RunUnifiedMapReduce(const SessionSnapshot& session_snapshot,
+                                 const absl::string_view tool_name,
+                                 UnifiedProfileProcessor* processor,
+                                 const ToolOptions& options) {
+  const int num_hosts = session_snapshot.XSpaceSize();
+  std::vector<absl::StatusOr<std::string>> map_outputs(num_hosts);
+
+  {
+    tsl::thread::ThreadPool thread_pool(tsl::Env::Default(), __FUNCTION__,
+                                        num_hosts);
+    for (int i = 0; i < num_hosts; ++i) {
+      thread_pool.Schedule([&session_snapshot, &tool_name, &options,
+                            &map_outputs, i] {
+        std::string hostname = session_snapshot.GetHostname(i);
+        std::string xspace_path = GetXSpaceFilePath(session_snapshot, hostname);
+        map_outputs[i] = CallWorkerService(xspace_path, tool_name, options);
+      });
+    }
+  }
+
+  std::vector<std::string> map_output_files;
+  map_output_files.reserve(num_hosts);
+  for (int i = 0; i < num_hosts; ++i) {
+    TF_RETURN_IF_ERROR(map_outputs[i].status());
+    map_output_files.push_back(*std::move(map_outputs[i]));
+  }
+  LOG(INFO) << "Started reducing outputs for tool: " << tool_name
+            << " num_hosts: " << num_hosts;
+  absl::Time start_time = absl::Now();
+  absl::Status reduce_status =
+      processor->Reduce(session_snapshot, map_output_files);
+  absl::Duration reduce_time = absl::Now() - start_time;
+  LOG(INFO) << "Finished reducing outputs for tool: " << tool_name
+            << " num_hosts: " << num_hosts << " time taken: " << reduce_time;
+  return reduce_status;
+}
+
 }  // namespace
 
 absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
@@ -145,6 +191,36 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
             << " session_id: " << session_id;
 
   absl::Time start_time = absl::Now();
+
+  if (absl::GetFlag(FLAGS_enable_unified_xprof)) {
+    absl::string_view clean_tool_name = tool_name;
+    if (absl::EndsWith(clean_tool_name, ".json")) {
+      clean_tool_name.remove_suffix(5);
+    } else if (absl::EndsWith(clean_tool_name, ".pb")) {
+      clean_tool_name.remove_suffix(3);
+    } else if (absl::EndsWith(clean_tool_name, ".pbtxt")) {
+      clean_tool_name.remove_suffix(6);
+    }
+    auto unified_processor =
+        xprof::UnifiedProfileProcessorFactory::GetInstance().Create(
+            clean_tool_name, options);
+    if (unified_processor) {
+      LOG(INFO) << "Using unified workflow for tool: " << tool_name;
+      if (unified_processor->ShouldUseWorkerService(session_snapshot,
+                                                    options)) {
+        TF_RETURN_IF_ERROR(RunUnifiedMapReduce(session_snapshot, tool_name,
+                                               unified_processor.get(),
+                                               options));
+      } else {
+        TF_RETURN_IF_ERROR(
+            unified_processor->ProcessSession(session_snapshot, options));
+      }
+      return unified_processor->GetData();
+    } else {
+      LOG(WARNING) << "Unified processor not found for tool: " << tool_name
+                   << ", falling back to legacy.";
+    }
+  }
 
   auto processor =
       xprof::ProfileProcessorFactory::GetInstance().Create(tool_name, options);

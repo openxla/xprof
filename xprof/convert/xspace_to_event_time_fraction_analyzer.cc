@@ -15,11 +15,14 @@ limitations under the License.
 
 #include "xprof/convert/xspace_to_event_time_fraction_analyzer.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <numeric>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
@@ -34,7 +37,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
-#include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/xplane_to_step_events.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
@@ -42,6 +44,75 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+
+absl::StatusOr<EventTimeFractionAnalyzerResults>
+ConvertXSpaceToHostEventTimeFractionAnalyzerResults(
+    const XSpace& xspace, absl::Span<const std::string> target_event_names) {
+  EventTimeFractionAnalyzerResults results_proto;
+
+  for (const std::string& target_event_name : target_event_names) {
+    EventTimeFractionAnalyzerResult result_proto;
+    absl::flat_hash_map<std::string, std::vector<double>>
+        hostname_to_plane_fractions;
+
+    for (const auto& plane : xspace.planes()) {
+      if (plane.name() != tsl::profiler::kHostThreadsPlaneName) {
+        continue;
+      }
+
+      tsl::profiler::XPlaneVisitor plane_visitor =
+          tsl::profiler::CreateTfXPlaneVisitor(&plane);
+
+      absl::flat_hash_set<int64_t> target_event_metadata_ids;
+      for (const auto& [metadata_id, metadata] : plane.event_metadata()) {
+        if (absl::StrContains(metadata.name(), target_event_name)) {
+          target_event_metadata_ids.insert(metadata_id);
+        }
+      }
+
+      if (target_event_metadata_ids.empty()) continue;
+
+      plane_visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
+        uint64_t xline_start_ps = std::numeric_limits<uint64_t>::max();
+        uint64_t xline_end_ps = 0;
+        uint64_t target_event_duration_ps = 0;
+        line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
+          xline_start_ps =
+              std::min(xline_start_ps, event.GetTimespan().begin_ps());
+          xline_end_ps = std::max(xline_end_ps, event.GetTimespan().end_ps());
+          if (target_event_metadata_ids.contains(event.Id())) {
+            target_event_duration_ps += event.GetTimespan().duration_ps();
+          }
+        });
+        if (xline_start_ps < xline_end_ps && target_event_duration_ps > 0) {
+          double fraction = static_cast<double>(target_event_duration_ps) /
+                            (xline_end_ps - xline_start_ps);
+          std::string hostname =
+              xspace.hostnames().empty() ? "unknown" : xspace.hostnames(0);
+          hostname_to_plane_fractions[hostname].push_back(fraction);
+        }
+      });
+    }
+
+    for (const auto& [hostname, host_plane_fractions] :
+         hostname_to_plane_fractions) {
+      EventTimeFractionPerHost host_fractions;
+      host_fractions.set_hostname(hostname);
+      if (!host_plane_fractions.empty()) {
+        double sum = std::accumulate(host_plane_fractions.begin(),
+                                     host_plane_fractions.end(), 0.0);
+        host_fractions.add_event_time_fractions(
+            sum / static_cast<double>(host_plane_fractions.size()));
+      }
+      if (host_fractions.event_time_fractions_size() > 0) {
+        result_proto.mutable_host_event_time_fractions()->insert(
+            {hostname, host_fractions});
+      }
+    }
+    results_proto.mutable_results()->insert({target_event_name, result_proto});
+  }
+  return results_proto;
+}
 
 // TODO(zhuruiyang): 1P SS also uses the same logic to process the Xspace to get
 // the event time fraction. We will make 1P reuse this library in the future.
@@ -58,8 +129,10 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
   absl::flat_hash_map<std::string, tensorflow::profiler::StepEvents>
       plane_name_to_step_events;
   for (const auto& plane : xspace.planes()) {
-    plane_name_to_step_events[plane.name()] =
-        ConvertDeviceTraceXPlaneToStepEvents(plane);
+    if (plane.name() != tsl::profiler::kHostThreadsPlaneName) {
+      plane_name_to_step_events[plane.name()] =
+          ConvertDeviceTraceXPlaneToStepEvents(plane);
+    }
   }
 
   for (const std::string& target_event_name : target_event_names) {
@@ -69,6 +142,9 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
     absl::flat_hash_map<int64_t, uint64_t> step_id_to_duration_ps;
 
     for (const auto& plane : xspace.planes()) {
+      if (plane.name() == tsl::profiler::kHostThreadsPlaneName) {
+        continue;
+      }
       const StepEvents& step_events =
           plane_name_to_step_events.at(plane.name());
 
@@ -81,6 +157,8 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
           target_event_metadata_ids.insert(metadata_id);
         }
       }
+
+      if (target_event_metadata_ids.empty()) continue;
 
       plane_visitor.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
         line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
@@ -98,11 +176,12 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
           const auto step_duration_ps = it->second.StepTime().duration_ps();
           if (step_duration_ps == 0) return;
 
-          auto event_duration =
-              event.GetStat(tsl::profiler::StatType::kDeviceDurationPs);
-          if (!event_duration.has_value()) return;
-
-          auto event_duration_ps = event_duration->UintValue();
+          uint64_t event_duration_ps = 0;
+          if (auto event_duration =
+                  event.GetStat(tsl::profiler::StatType::kDeviceDurationPs)) {
+            event_duration_ps = event_duration->UintValue();
+          }
+          if (event_duration_ps == 0) return;
           // TODO(zhuruiyang): Make this check more robust (megacore check).
           // Add a special check for barrier-cores events, skip when
           // event_duration_ps is 0 ns or 1.250 ns (dummy value).
@@ -168,8 +247,10 @@ ConvertXSpaceToEventTimeFractionAnalyzerResults(
         host_fractions.add_event_time_fractions(
             sum / static_cast<double>(plane_fractions_map.size()));
       }
-      result_proto.mutable_host_event_time_fractions()->insert(
-          {hostname, host_fractions});
+      if (host_fractions.event_time_fractions_size() > 0) {
+        result_proto.mutable_host_event_time_fractions()->insert(
+            {hostname, host_fractions});
+      }
     }
     results_proto.mutable_results()->insert({target_event_name, result_proto});
   }

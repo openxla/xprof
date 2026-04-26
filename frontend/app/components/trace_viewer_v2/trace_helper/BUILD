@@ -48,7 +48,6 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         ":trace_event_parser",
-        "//third_party/emscripten:embind",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",

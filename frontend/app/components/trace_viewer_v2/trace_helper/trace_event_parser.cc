@@ -412,6 +412,10 @@ emscripten::val GetAllFlowCategories() {
   return categories;
 }
 
+void SetSearchResultsInWasm(const emscripten::val& trace_data) {
+  ParseAndProcessTraceEvents(trace_data, emscripten::val::null());
+}
+
 EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind std::vector<std::string>
   emscripten::register_vector<std::string>("StringVector");
@@ -433,6 +437,9 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
 
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);
+
+  emscripten::function("setSearchResultsInWasm",
+                       &traceviewer::SetSearchResultsInWasm);
 
   // Bind Application class and expose the singleton instance and dataProvider
   emscripten::class_<traceviewer::Application>("application")

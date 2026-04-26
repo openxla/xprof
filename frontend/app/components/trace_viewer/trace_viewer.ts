@@ -28,11 +28,12 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
-  isDetailsReceivedEvent, SearchEventsEventDetail,
+  isDetailsReceivedEvent,
+  SearchEventsEventDetail,
   TraceDetailKey,
   TraceDetails,
   traceViewerV2Main,
-  TraceViewerV2Module
+  TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
@@ -207,8 +208,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     let hostsString = '';
     if (event.hosts) {
       const hostsList = parseHostsList(event.hosts);
-      // Sort hosts to ensure stable query string
-      hostsString = hostsList.sort().slice(0, 10).join(',');
+
+      hostsString = hostsList.slice(0, 10).join(',');
       this.queryString += `&hosts=${hostsString}`;
     } else if (event.host) {
       this.queryString += `&host=${event.host}`;
@@ -229,7 +230,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     // Sort keys to ensure stable query string regardless of insertion order
     const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+      a[0].localeCompare(b[0]),
     );
     entries.forEach(([key, value]) => {
       if (value) {
@@ -245,8 +246,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     );
 
     if (this.useTraceViewerV2) {
-      if (this.traceViewerModule && this.traceViewerModule.loadJsonData) {
-        this.traceViewerModule.loadJsonData(traceDataUrl);
+      if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
+        this.traceViewerModule.loadTraceData(traceDataUrl);
       }
     } else {
       this.url = `${this.pathPrefix}${API_PREFIX}${

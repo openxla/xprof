@@ -1091,7 +1091,10 @@ absl::StatusOr<std::string> ConvertHloProtoToPreprocessResultJson(
   } else {
     result.set_allocation_timeline(option.timeline_option.entry_url);
   }
-  TF_RETURN_IF_ERROR(google::protobuf::json::MessageToJsonString(result, &json_output));
+  google::protobuf::util::JsonPrintOptions json_options;
+  json_options.always_print_primitive_fields = true;
+  TF_RETURN_IF_ERROR(
+      google::protobuf::json::MessageToJsonString(result, &json_output, json_options));
   return json_output;
 }
 

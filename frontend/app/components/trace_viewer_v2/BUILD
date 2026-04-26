@@ -196,6 +196,17 @@ ts_library(
     ],
 )
 
+ts_library(
+    name = "tests",
+    testonly = True,
+    srcs = ["main_test.ts"],
+    deps = [
+        ":app_bundle_ts",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@webgpu/types",
+    ],
+)
+
 JS_COMPILER_FLAGS = []
 
 rollup_bundle(

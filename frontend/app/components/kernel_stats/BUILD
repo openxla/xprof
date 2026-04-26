@@ -41,6 +41,30 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "kernel_stats_adapter_test.ts",
+        "kernel_stats_test.ts",
+    ],
+    deps = [
+        ":kernel_stats",
+        ":kernel_stats_adapter",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/router",
+        "@npm//@ngrx/store",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "kernel_stats_css",
     src = "kernel_stats.scss",

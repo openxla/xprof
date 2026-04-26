@@ -23,6 +23,21 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "memory_profile_summary_test.ts",
+    ],
+    deps = [
+        ":memory_profile_summary",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:memory_profile_proto_defs",
+    ],
+)
+
 sass_binary(
     name = "memory_profile_summary_css",
     src = "memory_profile_summary.scss",

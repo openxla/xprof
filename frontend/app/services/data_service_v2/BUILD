@@ -36,3 +36,20 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/op_profile:op_profile_data",
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "data_service_v2_test.ts",
+    ],
+    deps = [
+        ":data_service_v2",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core_testing",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_common_http",
+        "@org_xprof//frontend/app/store",
+    ],
+)

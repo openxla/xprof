@@ -22,6 +22,21 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "max_heap_chart_test.ts",
+    ],
+    deps = [
+        ":max_heap_chart",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)
+
 sass_binary(
     name = "max_heap_chart_css",
     src = "max_heap_chart.scss",

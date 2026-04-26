@@ -26,6 +26,22 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "pod_viewer_details_test.ts",
+    ],
+    deps = [
+        ":pod_viewer_details",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "pod_viewer_details_css",
     src = "pod_viewer_details.scss",

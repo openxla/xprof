@@ -25,6 +25,23 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "memory_timeline_graph_test.ts",
+    ],
+    deps = [
+        ":memory_timeline_graph",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:memory_profile_proto_defs",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)
+
 sass_binary(
     name = "memory_timeline_graph_css",
     src = "memory_timeline_graph.scss",

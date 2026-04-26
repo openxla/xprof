@@ -27,6 +27,22 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "program_level_analysis_test.ts",
+    ],
+    deps = [
+        ":program_level_analysis",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)
+
 sass_binary(
     name = "program_level_analysis_css",
     src = "program_level_analysis.scss",

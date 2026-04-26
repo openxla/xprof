@@ -30,6 +30,21 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "capture_profile_dialog_test.ts",
+    ],
+    deps = [
+        ":capture_profile_dialog",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_material_dialog",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+    ],
+)
+
 sass_binary(
     name = "capture_profile_dialog_css",
     src = "capture_profile_dialog.scss",

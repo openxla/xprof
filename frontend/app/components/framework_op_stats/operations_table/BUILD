@@ -40,6 +40,22 @@ ts_library(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "operations_table_test.ts",
+    ],
+    deps = [
+        ":operations_table",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/constants",
+    ],
+)
+
 sass_binary(
     name = "operations_table_css",
     src = "operations_table.scss",

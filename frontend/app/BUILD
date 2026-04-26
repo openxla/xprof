@@ -35,6 +35,26 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "app_test.ts",
+    ],
+    deps = [
+        ":app",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/common",
+        "@npm//@ngrx/store",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_common_http_testing",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "app_css",
     src = "app.scss",

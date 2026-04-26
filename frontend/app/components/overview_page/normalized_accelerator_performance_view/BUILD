@@ -21,6 +21,22 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "normalized_accelerator_performance_view_test.ts",
+    ],
+    deps = [
+        ":normalized_accelerator_performance_view",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+    ],
+)
+
 sass_binary(
     name = "normalized_accelerator_performance_view_css",
     src = "normalized_accelerator_performance_view.scss",

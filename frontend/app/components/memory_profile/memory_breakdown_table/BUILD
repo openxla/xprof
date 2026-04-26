@@ -26,6 +26,25 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "memory_breakdown_table_test.ts",
+    ],
+    deps = [
+        ":memory_breakdown_table",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_material_input_testing",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:memory_profile_proto_defs",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)
+
 sass_binary(
     name = "memory_breakdown_table_css",
     src = "memory_breakdown_table.scss",

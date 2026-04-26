@@ -97,3 +97,22 @@ sass_binary(
         "@org_xprof//frontend/app/styles:common",
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "stack_frame_snippet_test.ts",
+        "stack_trace_snippet_test.ts",
+    ],
+    deps = [
+        ":stack_frame_snippet",
+        ":stack_trace_snippet",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core_testing",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
+    ],
+)

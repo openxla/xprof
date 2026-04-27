@@ -49,6 +49,7 @@ enum StoredDataType {
   TRACE_EVENTS_METADATA_LEVELDB,
   TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
   SMART_SUGGESTION,
+  RIEGELI_XSPACE,
 };
 
 // File system directory snapshot of a profile session.
@@ -76,6 +77,8 @@ class SessionSnapshot {
 
   // Gets host name.
   std::string GetHostname(size_t index) const;
+
+  static std::string GetHostnameByPath(absl::string_view xspace_path);
 
   // Gets the run directory of the profile session.
   absl::string_view GetSessionRunDir() const { return session_run_dir_; }
@@ -139,7 +142,7 @@ class SessionSnapshot {
         xspaces_(std::move(xspaces)) {
     session_run_dir_ = tsl::io::Dirname(xspace_paths_.at(0));
     for (size_t i = 0; i < xspace_paths_.size(); ++i) {
-      std::string host_name = GetHostname(i);
+      std::string host_name = GetHostnameByPath(xspace_paths_.at(i));
       hostname_map_[host_name] = i;
     }
   }

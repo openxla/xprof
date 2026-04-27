@@ -22,6 +22,8 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -29,24 +31,22 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "google/protobuf/arena.h"
+#include "third_party/riegeli/records/skipped_region.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/platform/path.h"
+#include "third_party/riegeli/bytes/string_reader.h"
+#include "third_party/riegeli/records/record_reader.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/utils/xplane_hlo_fixer.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
-std::string GetHostnameByPath(absl::string_view xspace_path) {
-  std::string_view file_name = tsl::io::Basename(xspace_path);
-  // Remove suffix from file_name, preserving entire prefix.
-  absl::ConsumeSuffix(&file_name, ".xplane.pb");
-  return std::string(file_name);
-}
 
 static auto* kHostDataSuffixes =
     new std::vector<std::pair<StoredDataType, const char*>>(
@@ -55,9 +55,59 @@ static auto* kHostDataSuffixes =
          {StoredDataType::SMART_SUGGESTION, ".smart_suggestion.pb"},
          {StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, ".metadata.SSTABLE"},
          {StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, ".trie.SSTABLE"},
+         {StoredDataType::RIEGELI_XSPACE, ".xplane.riegeli"},
          {StoredDataType::TRACE_LEVELDB, ".SSTABLE"}});
+void DestructiveMergeXSpace(std::unique_ptr<XSpace> from, XSpace* to) {
+  if (!from) return;
+
+  absl::flat_hash_set<absl::string_view> existing_hostnames;
+  for (const auto& h : to->hostnames()) existing_hostnames.insert(h);
+  for (const auto& h : from->hostnames()) {
+    if (existing_hostnames.insert(h).second) to->add_hostnames(h);
+  }
+
+  absl::flat_hash_set<absl::string_view> existing_errors;
+  for (const auto& e : to->errors()) existing_errors.insert(e);
+  for (const auto& e : from->errors()) {
+    if (existing_errors.insert(e).second) to->add_errors(e);
+  }
+
+  absl::flat_hash_set<absl::string_view> existing_warnings;
+  for (const auto& w : to->warnings()) existing_warnings.insert(w);
+  for (const auto& w : from->warnings()) {
+    if (existing_warnings.insert(w).second) to->add_warnings(w);
+  }
+
+  absl::flat_hash_map<absl::string_view, XPlane*> to_planes;
+  for (int i = 0; i < to->planes_size(); ++i) {
+    XPlane* p = to->mutable_planes(i);
+    to_planes[p->name()] = p;
+  }
+
+  while (!from->planes().empty()) {
+    std::unique_ptr<XPlane> from_plane(from->mutable_planes()->ReleaseLast());
+    auto it = to_planes.find(from_plane->name());
+
+    if (it == to_planes.end()) {
+      to->mutable_planes()->AddAllocated(from_plane.release());
+    } else {
+      tsl::profiler::MergePlanes(*from_plane, it->second);
+    }
+  }
+}
 
 }  // namespace
+
+std::string SessionSnapshot::GetHostnameByPath(absl::string_view xspace_path) {
+  std::string_view file_name = tsl::io::Basename(xspace_path);
+  absl::ConsumeSuffix(&file_name, ".pb");
+  absl::ConsumeSuffix(&file_name, ".riegeli");
+  if (!absl::ConsumeSuffix(&file_name, ".xplane.pb") &&
+      !absl::ConsumeSuffix(&file_name, ".xplane.riegeli")) {
+    absl::ConsumeSuffix(&file_name, ".xplane");
+  }
+  return std::string(file_name);
+}
 
 absl::StatusOr<SessionSnapshot> SessionSnapshot::Create(
     std::vector<std::string> xspace_paths,
@@ -99,25 +149,58 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpace(size_t index,
         xspace_paths_.size()));
   }
 
+  size_t idx = index;
+  XSpace* merged_xspace = nullptr;
+
   // Return the pre-loaded XSpace proto.
   if (xspaces_.has_value()) {
-    if (xspaces_->at(index) == nullptr) {
-      return absl::InternalError("");
+    merged_xspace = xspaces_->at(idx).get();
+    if (merged_xspace == nullptr) {
+      return tsl::errors::Internal("Preloaded XSpace is null");
     }
-    return xspaces_->at(index).get();
-  }
+  } else {
+    // Return the XSpace proto from file.
+    const std::string& path = xspace_paths_.at(idx);
+    if (absl::EndsWith(path, ".riegeli")) {
+      std::string contents;
+      TF_RETURN_IF_ERROR(
+          tsl::ReadFileToString(tsl::Env::Default(), path, &contents));
 
-  // Return the XSpace proto from file.
-  XSpace* xspace_from_file = google::protobuf::Arena::Create<XSpace>(arena);
-  const std::string& path = xspace_paths_.at(index);
-  TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(path, xspace_from_file));
-  xprof::FixHloMetadataInXSpace(xspace_from_file);
-  return xspace_from_file;
+      riegeli::RecordReaderBase::Options reader_options;
+      reader_options.set_recovery(
+          [](const riegeli::SkippedRegion&, riegeli::RecordReaderBase&) {
+            return true;
+          });
+
+      riegeli::RecordReader<riegeli::StringReader<>> reader{
+          riegeli::StringReader<>(std::move(contents)), reader_options};
+      XSpace current_record;
+      while (reader.ReadRecord(current_record)) {
+        if (merged_xspace == nullptr) {
+          merged_xspace = google::protobuf::Arena::Create<XSpace>(arena);
+          merged_xspace->Swap(&current_record);
+        } else {
+          auto chunk_up = std::make_unique<XSpace>();
+          chunk_up->Swap(&current_record);
+          DestructiveMergeXSpace(std::move(chunk_up),
+                                 merged_xspace);
+        }
+        current_record.Clear();
+      }
+      if (!reader.Close()) return reader.status();
+    } else {
+      merged_xspace = google::protobuf::Arena::Create<XSpace>(arena);
+      TF_RETURN_IF_ERROR(xprof::ReadBinaryProto(path, merged_xspace));
+      xprof::FixHloMetadataInXSpace(merged_xspace);
+    }
+  }
+  return merged_xspace;
 }
 
 absl::StatusOr<XSpace*> SessionSnapshot::GetXSpaceByName(
     absl::string_view name, google::protobuf::Arena* arena) const {
-  if (auto it = hostname_map_.find(name); it != hostname_map_.end()) {
+  if (auto it = hostname_map_.find(name);
+      it != hostname_map_.end()) {
     return GetXSpace(it->second, arena);
   }
 
@@ -127,6 +210,7 @@ absl::StatusOr<XSpace*> SessionSnapshot::GetXSpaceByName(
 }
 
 std::string SessionSnapshot::GetHostname(size_t index) const {
+  if (index >= xspace_paths_.size()) return "";
   return GetHostnameByPath(xspace_paths_.at(index));
 }
 
@@ -198,7 +282,6 @@ absl::StatusOr<std::pair<bool, std::string>> SessionSnapshot::HasCacheFile(
 absl::Status SessionSnapshot::ClearCacheFiles() const {
   if (!has_accessible_run_dir_) return absl::OkStatus();
 
-  // Delete all the cache files in session run directory for all cache types
   std::vector<std::string> results;
   TF_RETURN_IF_ERROR(::tsl::Env::Default()->GetChildren(
       std::string(GetSessionRunDir()), &results));
@@ -206,6 +289,9 @@ absl::Status SessionSnapshot::ClearCacheFiles() const {
   for (const std::string& path : results) {
     std::string file_path = tsl::io::JoinPath(GetSessionRunDir(), path);
     for (const auto& format : *kHostDataSuffixes) {
+      // FIX: Skip RIEGELI_XSPACE as it is source data, not cache.
+      if (format.first == StoredDataType::RIEGELI_XSPACE) continue;
+
       if (absl::EndsWith(path, format.second)) {
         TF_RETURN_IF_ERROR(tsl::Env::Default()->DeleteFile(file_path));
         break;

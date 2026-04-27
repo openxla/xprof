@@ -217,5 +217,86 @@ TEST(PerfettoProtoParserTest, ParsesProcessMetadata) {
   EXPECT_EQ(it->second, "test_process");
 }
 
+TEST(PerfettoProtoParserTest, IncrementalTimestamp) {
+  xprof::traceviewer::protos::Trace trace;
+
+  // Packet 1: TrackDescriptor (Thread)
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    packet->set_incremental_state_cleared(true);
+    auto* desc = packet->mutable_track_descriptor();
+    desc->set_uuid(10);
+    auto* thread = desc->mutable_thread();
+    thread->set_pid(1);
+    thread->set_tid(2);
+    thread->set_thread_name("TestThread");
+  }
+
+  // Packet 2: Slice Begin with delta
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN);
+    event->set_name("TestSlice1");
+    event->set_timestamp_delta_us(10);  // 10 us = 10000 ns
+  }
+
+  // Packet 3: Slice End with delta
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END);
+    event->set_timestamp_delta_us(5);  // +5 us = 15 us total
+  }
+
+  // Packet 4: Slice Begin with delta for another slice
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN);
+    event->set_name("TestSlice2");
+    event->set_timestamp_delta_us(5);  // +5 us = 20 us total
+  }
+
+  // Packet 5: Slice End with delta
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END);
+    event->set_timestamp_delta_us(10);  // +10 us = 30 us total
+  }
+
+  std::string serialized_trace;
+  ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
+
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+
+  // 1 thread metadata + 2 complete events = 3 flame events
+  ASSERT_EQ(parsed_events.flame_events.size(), 3);
+
+  const auto& thread_event = parsed_events.flame_events[0];
+  EXPECT_EQ(thread_event.ph, Phase::kMetadata);
+  EXPECT_EQ(thread_event.name, std::string(kThreadName));
+
+  const auto& slice1 = parsed_events.flame_events[1];
+  EXPECT_EQ(slice1.name, "TestSlice1");
+  EXPECT_EQ(slice1.ts, 10.0);
+  EXPECT_EQ(slice1.dur, 5.0);
+
+  const auto& slice2 = parsed_events.flame_events[2];
+  EXPECT_EQ(slice2.name, "TestSlice2");
+  EXPECT_EQ(slice2.ts, 20.0);
+  EXPECT_EQ(slice2.dur, 10.0);
+}
+
 }  // namespace
 }  // namespace traceviewer

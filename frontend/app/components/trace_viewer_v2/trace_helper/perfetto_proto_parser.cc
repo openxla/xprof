@@ -36,12 +36,14 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
   std::map<uint64_t, xprof::traceviewer::protos::TrackDescriptor>
       track_descriptors;
   std::map<uint64_t, std::vector<TraceEvent>> slice_stacks;
+  std::map<uint32_t, uint64_t> sequence_timestamps;
 
   for (const auto& packet : trace.packet()) {
     uint32_t seq_id = packet.trusted_packet_sequence_id();
     if (packet.incremental_state_cleared()) {
       interned_strings[seq_id].clear();
       interned_categories[seq_id].clear();
+      sequence_timestamps[seq_id] = 0;
     }
 
     if (packet.has_interned_data()) {
@@ -105,7 +107,19 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
       // TODO: This assumes nanoseconds. While this is the default for most
       // Perfetto producers, it might be worth adding a TODO to handle
       // `ClockSnapshot` or `timestamp_clock_id` for robustness in the future.
-      Microseconds ts = packet.timestamp() / 1000.0;  // ns to us
+      uint64_t timestamp_ns = sequence_timestamps[seq_id];
+      if (packet.has_timestamp()) {
+        timestamp_ns = packet.timestamp();
+      }
+
+      if (track_event.has_timestamp_delta_us()) {
+        timestamp_ns += track_event.timestamp_delta_us() * 1000;
+      } else if (track_event.has_timestamp_absolute_us()) {
+        timestamp_ns = track_event.timestamp_absolute_us() * 1000;
+      }
+
+      sequence_timestamps[seq_id] = timestamp_ns;
+      Microseconds ts = timestamp_ns / 1000.0;  // ns to us
 
       if (track_event.type() ==
           xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN) {

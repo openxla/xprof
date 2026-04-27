@@ -5,7 +5,11 @@
 
 #include <string>
 
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+
 namespace traceviewer {
+
+ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data);
 
 void ParseAndProcessPerfettoTraceEvents(
     const std::string& buffer_data,

@@ -2,7 +2,7 @@ load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
-load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
+load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 
 package(default_visibility = [
@@ -97,6 +97,17 @@ wasm_cc_library(
         ":trace_lite_proto_cc",
     ],
     alwayslink = True,
+)
+
+wasm_cc_test(
+    name = "perfetto_proto_parser_test",
+    srcs = ["perfetto_proto_parser_test.cc"],
+    deps = [
+        ":perfetto_proto_parser",
+        ":trace_event",
+        ":trace_lite_proto_cc",
+        "@com_google_googletest//:gtest_main",
+    ],
 )
 
 wasm_cc_library(

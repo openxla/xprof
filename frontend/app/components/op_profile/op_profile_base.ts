@@ -3,6 +3,7 @@ import {Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {type OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
+import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction, setOpAnalysisScalingFactorAction, setOpProfileRootNodeAction} from 'org_xprof/frontend/app/store/actions';
@@ -143,6 +144,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
     this.deviceType = this.profile.deviceType || 'TPU';
     this.dvfsTimeScaleMultiplier =
         this.profile.aggDvfsTimeScaleMultiplier || 1.0;
+
     this.store.dispatch(
         setOpProfileRootNodeAction({rootNode: this.rootNode}),
     );

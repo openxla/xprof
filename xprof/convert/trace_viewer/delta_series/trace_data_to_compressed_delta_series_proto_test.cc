@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
-#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
@@ -14,6 +14,9 @@
 namespace tensorflow {
 namespace profiler {
 namespace {
+
+using ::testing::EqualsProto;
+using ::testing::proto::Partially;
 
 class TestTraceEventsContainer
     : public TraceEventsContainerBase<EventFactory, RawData> {
@@ -86,18 +89,16 @@ TEST(DeltaSeriesProtoConverterTest, ConvertsCompleteEventsAndDeltas) {
   container.AddCompleteEvent(0, 1, &event1);
   container.AddCompleteEvent(0, 1, &event2);
 
-  absl::StatusOr<std::string> compressed_result =
-      ConvertTraceDataToCompressedDeltaSeriesProto(
-          DeltaSeriesProtoConversionOptions{}, container);
-  ASSERT_TRUE(compressed_result.ok());
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
 
   // Decompress to verify the structure
-  absl::StatusOr<std::string> decompressed =
-      ZstdCompression::Decompress(*compressed_result);
-  ASSERT_TRUE(decompressed.ok());
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
 
   xprof::TraceDataResponse response;
-  ASSERT_TRUE(response.ParseFromString(*decompressed));
+  ASSERT_TRUE(response.ParseFromString(decompressed));
 
   ASSERT_EQ(response.complete_events_size(), 1);
   const auto& series = response.complete_events(0);
@@ -156,15 +157,14 @@ TEST(DeltaSeriesProtoConverterTest, ConvertsCounterEvents) {
   container.AddCounterEvent(0, "MyCounter", &event1);
   container.AddCounterEvent(0, "MyCounter", &event2);
 
-  absl::StatusOr<std::string> compressed_result =
-      ConvertTraceDataToCompressedDeltaSeriesProto(
-          DeltaSeriesProtoConversionOptions{}, container);
-  ASSERT_TRUE(compressed_result.ok());
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
 
-  absl::StatusOr<std::string> decompressed =
-      ZstdCompression::Decompress(*compressed_result);
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
   xprof::TraceDataResponse response;
-  ASSERT_TRUE(response.ParseFromString(*decompressed));
+  ASSERT_TRUE(response.ParseFromString(decompressed));
 
   ASSERT_EQ(response.counter_events_size(), 1);
   const auto& series = response.counter_events(0);
@@ -207,15 +207,14 @@ TEST(DeltaSeriesProtoConverterTest, ConvertsAsyncEvents) {
   container.AddAsyncEvent(0, "AsyncOp", &event1);
   container.AddAsyncEvent(0, "AsyncOp", &event2);
 
-  absl::StatusOr<std::string> compressed_result =
-      ConvertTraceDataToCompressedDeltaSeriesProto(
-          DeltaSeriesProtoConversionOptions{}, container);
-  ASSERT_TRUE(compressed_result.ok());
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
 
-  absl::StatusOr<std::string> decompressed =
-      ZstdCompression::Decompress(*compressed_result);
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
   xprof::TraceDataResponse response;
-  ASSERT_TRUE(response.ParseFromString(*decompressed));
+  ASSERT_TRUE(response.ParseFromString(decompressed));
 
   ASSERT_EQ(response.async_events_size(), 1);
   const auto& series = response.async_events(0);
@@ -305,15 +304,14 @@ TEST(DeltaSeriesProtoConverterTest, ConvertsMixedEvents) {
   counter_event2.set_raw_data(raw_data2.SerializeAsString());
   container.AddCounterEvent(0, "Memory", &counter_event2);
 
-  absl::StatusOr<std::string> compressed_result =
-      ConvertTraceDataToCompressedDeltaSeriesProto(
-          DeltaSeriesProtoConversionOptions{}, container);
-  ASSERT_TRUE(compressed_result.ok());
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
 
-  absl::StatusOr<std::string> decompressed =
-      ZstdCompression::Decompress(*compressed_result);
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
   xprof::TraceDataResponse response;
-  ASSERT_TRUE(response.ParseFromString(*decompressed));
+  ASSERT_TRUE(response.ParseFromString(decompressed));
 
   EXPECT_EQ(response.complete_events_size(), 1);
   EXPECT_EQ(response.async_events_size(), 1);
@@ -372,16 +370,15 @@ TEST(DeltaSeriesProtoConverterTest, HonorsMpmdPipelineView) {
 
   DeltaSeriesProtoConversionOptions options;
   options.mpmd_pipeline_view = true;
-  absl::StatusOr<std::string> compressed_result =
-      ConvertTraceDataToCompressedDeltaSeriesProto(options, container);
-  ASSERT_TRUE(compressed_result.ok());
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
 
-  absl::StatusOr<std::string> decompressed =
-      ZstdCompression::Decompress(*compressed_result);
-  ASSERT_TRUE(decompressed.ok());
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
 
   xprof::TraceDataResponse response;
-  ASSERT_TRUE(response.ParseFromString(*decompressed));
+  ASSERT_TRUE(response.ParseFromString(decompressed));
 
   ASSERT_EQ(response.metadata().processes_size(), 2);
   for (const auto& process : response.metadata().processes()) {
@@ -393,6 +390,30 @@ TEST(DeltaSeriesProtoConverterTest, HonorsMpmdPipelineView) {
       EXPECT_EQ(process.sort_index(), 0);
     }
   }
+}
+
+TEST(DeltaSeriesProtoConverterTest, PopulatesDetails) {
+  Trace trace;
+  TestTraceEventsContainer container(trace);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.details.push_back({"key1", true});
+  options.details.push_back({"key2", false});
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  EXPECT_THAT(response, Partially(EqualsProto(R"pb(
+                details { name: "key1" value: true }
+                details { name: "key2" value: false }
+              )pb")));
 }
 
 }  // namespace

@@ -13,9 +13,11 @@ ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
     const emscripten::val& visible_range_from_url);
 
-
 // Converts a string category to its corresponding ContextType enum.
 tsl::profiler::ContextType GetContextTypeFromString(absl::string_view category);
+
+// Returns all flow categories.
+emscripten::val GetAllFlowCategories();
 
 }  // namespace traceviewer
 

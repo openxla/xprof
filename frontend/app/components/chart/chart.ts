@@ -40,7 +40,9 @@ export class Chart implements OnChanges, OnInit {
     }
 
     if (!this.dataInfo || !this.dataInfo.dataProvider) {
-      this.chart.clearChart();
+      if (this.chart.clearChart) {
+        this.chart.clearChart();
+      }
       return;
     }
 

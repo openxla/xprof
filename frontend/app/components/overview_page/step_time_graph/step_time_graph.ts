@@ -66,7 +66,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
     const dataTable =
         new google.visualization.DataTable(this.inputPipelineAnalysis);
     const columnsIds =
-        dataTable.getTableProperty('step_time_graph_column_ids').split(',');
+        dataTable.getTableProperty('step_time_graph_column_ids')?.split(',');
     let colors = this.columnColors;
     this.height = 300;
     this.inputPipelineAnalysis.p = this.inputPipelineAnalysis.p || {};
@@ -77,7 +77,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
 
     let i = 0;
     while (i < dataTable.getNumberOfColumns()) {
-      if (!columnsIds.includes(dataTable.getColumnId(i))) {
+      if (!columnsIds?.includes(dataTable.getColumnId(i))) {
         dataTable.removeColumn(i);
         continue;
       }

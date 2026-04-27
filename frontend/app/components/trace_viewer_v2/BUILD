@@ -176,6 +176,7 @@ cc_binary(
         ":application",
         ":input_handler",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_pb_event_parser",
     ],
 )
 

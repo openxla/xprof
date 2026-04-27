@@ -18,68 +18,13 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
 namespace traceviewer {
 
 namespace {
 
 constexpr char kFullTimespan[] = "fullTimespan";
-
-Phase ParsePhase(const std::string& ph_str) {
-  if (!ph_str.empty()) {
-    char ph_char = ph_str[0];
-    switch (ph_char) {
-      case static_cast<char>(Phase::kComplete):
-        return Phase::kComplete;
-      case static_cast<char>(Phase::kCounter):
-        return Phase::kCounter;
-      case static_cast<char>(Phase::kMetadata):
-        return Phase::kMetadata;
-      case static_cast<char>(Phase::kAsyncBegin):
-        return Phase::kAsyncBegin;
-      case static_cast<char>(Phase::kAsyncEnd):
-        return Phase::kAsyncEnd;
-      case static_cast<char>(Phase::kFlowStart):
-        return Phase::kFlowStart;
-      case static_cast<char>(Phase::kFlowEnd):
-        return Phase::kFlowEnd;
-      default:
-        return Phase::kUnknown;
-    }
-  }
-  return Phase::kUnknown;
-}
-
-const absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>&
-GetPrettyNames() {
-  static const absl::NoDestructor<
-      absl::flat_hash_map<tsl::profiler::ContextType, absl::string_view>>
-      kPrettyNames({
-          {tsl::profiler::ContextType::kGeneric, "Generic"},
-          {tsl::profiler::ContextType::kLegacy, "Legacy"},
-          {tsl::profiler::ContextType::kTfExecutor, "TF Executor"},
-          {tsl::profiler::ContextType::kTfrtExecutor, "TFRT Executor"},
-          {tsl::profiler::ContextType::kSharedBatchScheduler,
-           "Shared Batch Scheduler"},
-          {tsl::profiler::ContextType::kPjRt, "PjRt"},
-          {tsl::profiler::ContextType::kAdaptiveSharedBatchScheduler,
-           "Adaptive Shared Batch Scheduler"},
-          {tsl::profiler::ContextType::kTfrtTpuRuntime, "TFRT Tpu Runtime"},
-          {tsl::profiler::ContextType::kTpuEmbeddingEngine,
-           "Tpu Embedding Engine"},
-          {tsl::profiler::ContextType::kGpuLaunch, "Gpu Launch"},
-          {tsl::profiler::ContextType::kBatcher, "Batcher"},
-          {tsl::profiler::ContextType::kTpuStream, "Tpu Stream"},
-          {tsl::profiler::ContextType::kTpuLaunch, "Tpu Launch"},
-          {tsl::profiler::ContextType::kPathwaysExecutor, "Pathways Executor"},
-          {tsl::profiler::ContextType::kPjrtLibraryCall, "Pjrt Library Call"},
-          {tsl::profiler::ContextType::kThreadpoolEvent, "Threadpool Event"},
-          {tsl::profiler::ContextType::kJaxServingExecutor,
-           "Jax Serving Executor"},
-          {tsl::profiler::ContextType::kScOffload, "Sc Offload"},
-      });
-  return *kPrettyNames;
-}
 
 // Helper function to convert emscripten::val to TraceEvent
 // Processes trace data from a JSON object.
@@ -262,37 +207,6 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
   }
 }
 }  // namespace
-
-tsl::profiler::ContextType GetContextTypeFromString(
-    absl::string_view category) {
-  static const absl::NoDestructor<
-      absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType>>
-      kCategoryMap([] {
-        absl::flat_hash_map<absl::string_view, tsl::profiler::ContextType> map;
-
-        // 1. Add pretty names
-        for (const auto& [type, name] : GetPrettyNames()) {
-          map[name] = type;
-        }
-
-        // 2. Add canonical names from tsl::profiler::GetContextTypeString
-        for (int i = 0; i <= static_cast<int>(
-                                 tsl::profiler::ContextType::kLastContextType);
-             ++i) {
-          auto type = static_cast<tsl::profiler::ContextType>(i);
-          absl::string_view name(tsl::profiler::GetContextTypeString(type));
-          if (!name.empty()) {
-            map.emplace(name, type);
-          }
-        }
-        return map;
-      }());
-
-  if (auto it = kCategoryMap->find(category); it != kCategoryMap->end()) {
-    return it->second;
-  }
-  return tsl::profiler::ContextType::kGeneric;
-}
 
 ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,

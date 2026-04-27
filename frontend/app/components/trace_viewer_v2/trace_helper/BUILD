@@ -88,6 +88,18 @@ cc_proto_library(
 )
 
 wasm_cc_library(
+    name = "perfetto_proto_parser",
+    srcs = ["perfetto_proto_parser.cc"],
+    hdrs = ["perfetto_proto_parser.h"],
+    deps = [
+        ":trace_event",
+        ":trace_event_parser",
+        ":trace_lite_proto_cc",
+    ],
+    alwayslink = True,
+)
+
+wasm_cc_library(
     name = "trace_event_tree",
     srcs = ["trace_event_tree.cc"],
     hdrs = ["trace_event_tree.h"],

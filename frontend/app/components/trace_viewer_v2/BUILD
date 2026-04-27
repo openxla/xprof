@@ -111,6 +111,7 @@ wasm_cc_library(
     name = "event_manager",
     srcs = ["event_manager.cc"],
     hdrs = ["event_manager.h"],
+    visibility = ["@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__"],
     deps = [
         ":event_data",
         "@com_google_absl//absl/base:no_destructor",
@@ -175,6 +176,7 @@ cc_binary(
     deps = [
         ":application",
         ":input_handler",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:perfetto_proto_parser",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_pb_event_parser",
     ],

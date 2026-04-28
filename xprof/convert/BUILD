@@ -924,6 +924,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/utils:tensorflow_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
+        "@xla//xla/tsl/profiler/utils:trace_utils",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
@@ -1981,6 +1982,7 @@ cc_library(
     srcs = ["xplane_to_trace_container.cc"],
     hdrs = ["xplane_to_trace_container.h"],
     deps = [
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
@@ -1988,7 +1990,6 @@ cc_library(
         "@org_xprof//xprof/convert/trace_viewer:trace_event_arguments_builder",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_util",
-        "@org_xprof//xprof/convert/trace_viewer:trace_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:timespan",

@@ -22,6 +22,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/optimization.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -41,7 +42,6 @@ namespace profiler {
 namespace {
 
 using tsl::profiler::FindPlanesWithPrefix;
-using tsl::profiler::FindPlaneWithName;
 using tsl::profiler::HostEventType;
 using tsl::profiler::StatType;
 using tsl::profiler::XEventVisitor;
@@ -222,11 +222,17 @@ void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
                                          const XSpace& space,
                                          TraceEventsContainer* container) {
-  const XPlane* host_plane =
-      FindPlaneWithName(space, tsl::profiler::kHostThreadsPlaneName);
-  if (host_plane != nullptr) {
-    ConvertXPlaneToTraceEventsContainer(tsl::profiler::kHostThreadsDeviceId,
-                                        hostname, *host_plane, container);
+  std::vector<const XPlane*> host_planes =
+      FindPlanesWithPrefix(space, tsl::profiler::kHostThreadsPlaneName);
+  if (!host_planes.empty()) {
+    int32_t host_device_id = tsl::profiler::kHostThreadsDeviceId;
+    absl::c_sort(host_planes, [](const XPlane* a, const XPlane* b) {
+      return a->name() < b->name();
+    });
+    for (const XPlane* host_plane : host_planes) {
+      ConvertXPlaneToTraceEventsContainer(host_device_id++,
+                                          hostname, *host_plane, container);
+    }
   }
 
   std::vector<const XPlane*> device_planes =

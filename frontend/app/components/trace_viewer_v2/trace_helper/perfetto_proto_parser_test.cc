@@ -1,5 +1,6 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/perfetto_proto_parser.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,42 @@
 
 namespace traceviewer {
 namespace {
+
+void BuildTraceWithTimestamp(xprof::traceviewer::protos::Trace& trace,
+                             uint64_t start_ns, uint64_t end_ns) {
+  // Packet 1: TrackDescriptor (Thread)
+  {
+    auto* packet = trace.add_packet();
+    packet->set_timestamp(0);
+    auto* desc = packet->mutable_track_descriptor();
+    desc->set_uuid(10);
+    auto* thread = desc->mutable_thread();
+    thread->set_pid(1);
+    thread->set_tid(2);
+    thread->set_thread_name("TestThread");
+  }
+
+  // Packet 2: Slice Begin
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    packet->set_timestamp(start_ns);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN);
+    event->set_name("TestSlice");
+  }
+
+  // Packet 3: Slice End
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(1);
+    packet->set_timestamp(end_ns);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END);
+  }
+}
 
 TEST(PerfettoEventParserTest, BasicSlice) {
   xprof::traceviewer::protos::Trace trace;
@@ -344,6 +381,72 @@ TEST(PerfettoProtoParserTest, FallbackPidTid) {
   EXPECT_EQ(event.dur, 10);
   EXPECT_EQ(event.pid, 43);       // Should fall back to 43
   EXPECT_EQ(event.tid, 1000042);  // Should be 1000000 + 42
+}
+
+TEST(PerfettoEventParserTest, TimestampNormalization) {
+  xprof::traceviewer::protos::Trace trace;
+  // start_ns = 2,000,001,000 (2,000,001 us), end_ns = 2,000,003,000
+  // (2,000,003 us)
+  // min_ts = 2,000,001 us > 1,000,000 us threshold.
+  BuildTraceWithTimestamp(trace, 2000001000, 2000003000);
+
+  std::string serialized_trace;
+  ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
+
+  // Case 1: normalize_timestamps = true, above threshold.
+  ParsedTraceEvents parsed_events_norm =
+      ParsePerfettoTraceEvents(serialized_trace, /*normalize_timestamps=*/true);
+  EXPECT_EQ(parsed_events_norm.parsing_status, ParsingStatus::kSuccess);
+  ASSERT_EQ(parsed_events_norm.flame_events.size(), 2);
+  const TraceEvent* slice_event_norm = nullptr;
+  for (const auto& event : parsed_events_norm.flame_events) {
+    if (event.name == "TestSlice") {
+      slice_event_norm = &event;
+      break;
+    }
+  }
+  ASSERT_NE(slice_event_norm, nullptr);
+  EXPECT_EQ(slice_event_norm->ts, 0.0);  // Normalized
+  EXPECT_EQ(slice_event_norm->dur, 2.0);
+
+  // Case 2: normalize_timestamps = false, above threshold.
+  ParsedTraceEvents parsed_events_nonorm = ParsePerfettoTraceEvents(
+      serialized_trace, /*normalize_timestamps=*/false);
+  EXPECT_EQ(parsed_events_nonorm.parsing_status, ParsingStatus::kSuccess);
+  ASSERT_EQ(parsed_events_nonorm.flame_events.size(), 2);
+  const TraceEvent* slice_event_nonorm = nullptr;
+  for (const auto& event : parsed_events_nonorm.flame_events) {
+    if (event.name == "TestSlice") {
+      slice_event_nonorm = &event;
+      break;
+    }
+  }
+  ASSERT_NE(slice_event_nonorm, nullptr);
+  EXPECT_EQ(slice_event_nonorm->ts, 2000001.0);  // Not normalized
+  EXPECT_EQ(slice_event_nonorm->dur, 2.0);
+
+  // Case 3: Timestamps below threshold, normalization should not occur even if
+  // normalize_timestamps=true.
+  xprof::traceviewer::protos::Trace trace_small_ts;
+  // start_ns = 1,000 (1 us), end_ns = 3,000 (3 us)
+  // min_ts = 1 us < 1,000,000 us threshold.
+  BuildTraceWithTimestamp(trace_small_ts, 1000, 3000);
+  std::string serialized_trace_small_ts;
+  ASSERT_TRUE(trace_small_ts.SerializeToString(&serialized_trace_small_ts));
+  ParsedTraceEvents parsed_events_small_ts = ParsePerfettoTraceEvents(
+      serialized_trace_small_ts, /*normalize_timestamps=*/true);
+  EXPECT_EQ(parsed_events_small_ts.parsing_status, ParsingStatus::kSuccess);
+  ASSERT_EQ(parsed_events_small_ts.flame_events.size(), 2);
+  const TraceEvent* slice_event_small_ts = nullptr;
+  for (const auto& event : parsed_events_small_ts.flame_events) {
+    if (event.name == "TestSlice") {
+      slice_event_small_ts = &event;
+      break;
+    }
+  }
+  ASSERT_NE(slice_event_small_ts, nullptr);
+  EXPECT_EQ(slice_event_small_ts->ts, 1.0);  // Not normalized
+  EXPECT_EQ(slice_event_small_ts->dur, 2.0);
 }
 
 }  // namespace

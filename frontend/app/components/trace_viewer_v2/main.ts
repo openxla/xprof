@@ -150,7 +150,8 @@ declare global {
   ): void;
   processPerfettoTraceEvents(
     data: string,
-    timeRangeFromUrl?: [number, number],
+    timeRangeFromUrl: [number, number] | undefined,
+    normalizeTimestamps: boolean,
   ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
   setCompressedSearchResultsInWasm(data: Uint8Array): void;
@@ -478,7 +479,7 @@ async function processUploadedFile(
       const decoder = new TextDecoder('iso-8859-1');
       const binaryString = decoder.decode(uint8Array);
 
-      traceviewerModule.processPerfettoTraceEvents(binaryString, undefined);
+      traceviewerModule.processPerfettoTraceEvents(binaryString, undefined, true);
     } else {
       // If the file is not a Perfetto trace, assume it's a JSON file.
       const fileContent = await file.text();

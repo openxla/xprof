@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -22,7 +23,8 @@
 
 namespace traceviewer {
 
-ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
+ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data,
+                                           bool normalize_timestamps) {
   ParsedTraceEvents parsed_events;
 
   xprof::traceviewer::protos::Trace trace;
@@ -40,6 +42,19 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
   ProcessId fallback_pid = kPerfettoFallbackPid;
 
   // Pass 1: Collect metadata and find a fallback PID.
+  Microseconds min_ts = std::numeric_limits<double>::max();
+
+  // Flag to track if any valid timestamp is found in the trace.
+  // This is used to determine if timestamp normalization is needed.
+  bool has_valid_timestamp = false;
+
+  auto update_min_ts = [&](Microseconds ts) {
+    if (ts > 0 && ts < min_ts) {
+      min_ts = ts;
+      has_valid_timestamp = true;
+    }
+  };
+
   for (const auto& packet : trace.packet()) {
     if (packet.has_track_descriptor()) {
       const auto& desc = packet.track_descriptor();
@@ -77,13 +92,13 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
   }
 
   // Emit metadata events for named tracks using the determined fallback_pid.
-  for (const auto& pair : named_tracks) {
+  for (const auto& [track_uuid, track_name] : named_tracks) {
     TraceEvent event;
     event.ph = Phase::kMetadata;
     event.name = std::string(kThreadName);
     event.pid = fallback_pid;
-    event.tid = pair.first;  // use uuid as tid
-    event.args["name"] = pair.second;
+    event.tid = track_uuid;  // use uuid as tid
+    event.args["name"] = track_name;
     parsed_events.flame_events.push_back(event);
   }
 
@@ -154,6 +169,7 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
       event.ph = Phase::kComplete;
       event.name = name.empty() ? std::string(kUnknown) : name;
       event.ts = ts;
+      update_min_ts(ts);
       event.category = tsl::profiler::ContextType::kGeneric;
 
       auto it = track_descriptors.find(track_uuid);
@@ -190,13 +206,41 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
     }
   }
 
+  // Normalize timestamps
+  if (normalize_timestamps && has_valid_timestamp &&
+      min_ts > kPerfettoTimestampNormalizationThresholdUs) {
+    // If the minimum timestamp is large (e.g., > 1 second), we assume it's an
+    // absolute timestamp (like Unix epoch or boot time in microseconds).
+    // We normalize it by subtracting min_ts to shift the trace to start at 0.
+    // This avoids precision issues in the frontend JavaScript (which uses
+    // double floats) and makes the trace easier to navigate in the UI.
+    for (auto& event : parsed_events.flame_events) {
+      if (event.ph != Phase::kMetadata) {
+        event.ts -= min_ts;
+      }
+    }
+    // `flow_events` and `counter_events` are not currently populated by this
+    // parser, which only handles slice events. The loops below are included
+    // for future compatibility but will not modify any timestamps in the
+    // current implementation.
+    for (auto& event : parsed_events.flow_events) {
+      event.ts -= min_ts;
+    }
+    for (auto& event : parsed_events.counter_events) {
+      for (auto& ts : event.timestamps) {
+        ts -= min_ts;
+      }
+    }
+  }
+
   return parsed_events;
 }
 
 void ParseAndProcessPerfettoTraceEvents(
     const std::string& buffer_data,
-    const emscripten::val& visible_range_from_url) {
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(buffer_data);
+    const emscripten::val& visible_range_from_url, bool normalize_timestamps) {
+  ParsedTraceEvents parsed_events =
+      ParsePerfettoTraceEvents(buffer_data, normalize_timestamps);
 
   if (parsed_events.parsing_status == ParsingStatus::kFailed) {
     EventData event_data;

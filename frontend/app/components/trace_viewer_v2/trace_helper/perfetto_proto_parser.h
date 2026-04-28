@@ -9,11 +9,13 @@
 
 namespace traceviewer {
 
-ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data);
+ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data,
+                                           bool normalize_timestamps = true);
 
 void ParseAndProcessPerfettoTraceEvents(
     const std::string& buffer_data,
-    const emscripten::val& visible_range_from_url);
+    const emscripten::val& visible_range_from_url,
+    bool normalize_timestamps = true);
 
 }  // namespace traceviewer
 

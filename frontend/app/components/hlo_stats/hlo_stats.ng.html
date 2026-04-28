@@ -130,7 +130,8 @@
     <div class="mat-headline">Sparse Core Ops</div>
   </div>
   <div *ngIf="hasSparseCoreData">
-    <chart chartType="Table"
+    <chart #sparseCoreTable
+          chartType="Table"
           class="table"
           [dataInfo]="dataInfoForSparseCoreTable">
     </chart>

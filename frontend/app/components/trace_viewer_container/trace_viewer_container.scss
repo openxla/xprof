@@ -196,7 +196,7 @@ canvas {
   overflow: auto;
 
   .event-detail-table-container {
-    width: 800px;
+    width: 100%;
   }
 
   table.mat-mdc-table {
@@ -256,12 +256,23 @@ canvas {
     border-radius: 8px;
     background-color: var(--md-sys-color--surface-container-low);
     margin-bottom: 16px;
-    max-width: 800px;
 
     h3 {
       margin-top: 0;
       margin-bottom: 12px;
       color: var(--md-sys-color--on-surface);
+    }
+
+    .split-area-left {
+      background-color: var(--md-sys-color--surface-container-low);
+      padding: 8px;
+      border-radius: 4px;
+    }
+
+    .split-area-right {
+      background-color: var(--md-sys-color--surface-container);
+      padding: 8px;
+      border-radius: 4px;
     }
 
     .detail-row {
@@ -286,6 +297,7 @@ canvas {
     .cross-tool-links {
       margin-top: 16px;
       display: flex;
+      flex-wrap: wrap;
       gap: 12px;
 
       ::ng-deep a {
@@ -297,6 +309,7 @@ canvas {
         text-decoration: none;
         font-size: 12px;
         font-weight: 500;
+        white-space: nowrap;
 
         &:hover {
           text-decoration: underline;

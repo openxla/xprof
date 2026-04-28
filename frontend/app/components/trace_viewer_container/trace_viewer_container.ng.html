@@ -91,16 +91,26 @@
         <div *ngIf="selectedEvent" #drawer class="drawer">
           <div class="event-detail-table-container">
             <div *ngIf="isSingleEventTable()" class="single-event-details">
-              <h3>{{selectedEvent.name}}</h3>
-              <div class="detail-row" *ngFor="let prop of selectedEventPropertiesDataSource.data">
-                <span class="detail-label">{{prop.property}}:</span>
-                <span class="detail-value">{{prop.value}}</span>
-              </div>
-              <div class="cross-tool-links">
-                <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
-                <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
-                <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
-              </div>
+              <as-split direction="horizontal" style="min-height: 150px; width: 100%;">
+                <as-split-area [size]="60" class="split-area-left">
+                  <h3>{{selectedEvent.name}}</h3>
+                  <div class="detail-row" *ngFor="let prop of leftSideProperties">
+                    <span class="detail-label">{{prop.property}}:</span>
+                    <span class="detail-value">{{prop.value}}</span>
+                  </div>
+                </as-split-area>
+                <as-split-area [size]="40" class="split-area-right">
+                  <div class="detail-row" *ngFor="let prop of rightSideProperties">
+                    <span class="detail-label">{{prop.property}}:</span>
+                    <span class="detail-value">{{prop.value}}</span>
+                  </div>
+                  <div class="cross-tool-links">
+                    <div *ngIf="selectedEvent.stackTraceLinkHtml" [innerHTML]="selectedEvent.stackTraceLinkHtml"></div>
+                    <div *ngIf="selectedEvent.rooflineModelLinkHtml" [innerHTML]="selectedEvent.rooflineModelLinkHtml"></div>
+                    <div *ngIf="selectedEvent.graphViewerLinkHtml" [innerHTML]="selectedEvent.graphViewerLinkHtml"></div>
+                  </div>
+                </as-split-area>
+              </as-split>
             </div>
 
             <table *ngIf="!isSingleEventTable()" mat-table matSort class="event-detail-table" [dataSource]="selectedEventPropertiesDataSource">

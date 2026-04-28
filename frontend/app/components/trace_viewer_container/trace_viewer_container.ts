@@ -109,7 +109,7 @@ function isEntrySelectedEvent(
 /**
  * The interface for a selected event.
  */
-export interface SelectedEvent {
+export declare interface SelectedEvent {
   name: string;
   startUsFormatted?: string;
   durationUsFormatted?: string;
@@ -121,7 +121,7 @@ export interface SelectedEvent {
 /**
  * The interface for selected event property.
  */
-export interface SelectedEventProperty {
+export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
   [key: string]: string | number | undefined;
@@ -275,10 +275,21 @@ export class TraceViewerContainer
     return String(val);
   }
 
+  leftSideProperties: SelectedEventProperty[] = [];
+  rightSideProperties: SelectedEventProperty[] = [];
+
   selectedEventPropertiesDataSource =
     new MatTableDataSource<SelectedEventProperty>();
   @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
     this.selectedEventPropertiesDataSource.data = data;
+    this.leftSideProperties = data.filter((prop) => {
+      const p = prop['property'];
+      return p !== 'Operands' && p !== 'Consumers';
+    });
+    this.rightSideProperties = data.filter((prop) => {
+      const p = prop['property'];
+      return p === 'Operands' || p === 'Consumers';
+    });
   }
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();

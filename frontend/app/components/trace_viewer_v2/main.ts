@@ -791,7 +791,7 @@ async function handleFetchDataEvent(
     urlObj,
     traceviewerModule,
     () => initialDataUrl !== getCurrentDataUrl(),
-    [detail.start_time_ms, detail.end_time_ms],
+    undefined,
     'fetching new data',
   );
 }

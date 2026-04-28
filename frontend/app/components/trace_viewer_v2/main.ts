@@ -562,7 +562,7 @@ function getTimeRangeFromUrl(urlObj: URL): [number, number] | undefined {
 function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
   const center = (timeRange[0] + timeRange[1]) / 2;
   const duration = timeRange[1] - timeRange[0];
-  const expandedStart = center - (duration * FETCH_RATIO) / 2;
+  const expandedStart = Math.max(0, center - (duration * FETCH_RATIO) / 2);
   const expandedEnd = center + (duration * FETCH_RATIO) / 2;
 
   urlObj.searchParams.set(

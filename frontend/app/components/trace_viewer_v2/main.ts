@@ -148,8 +148,19 @@ declare global {
     data: Uint8Array,
     timeRangeFromUrl?: [number, number],
   ): void;
+  /**
+   * Pass Perfetto trace events from a memory buffer in the WASM heap.
+   * @param dataPtr A pointer to the memory address in the WASM heap where
+   *     the Perfetto trace data is stored.
+   * @param dataSize The size of the Perfetto trace data in bytes.
+   * @param timeRangeFromUrl Optional initial visible time range [start, end]
+   *     in milliseconds.
+   * @param normalizeTimestamps If true, timestamps will be normalized to
+   *     start from 0 if they seem to be absolute.
+   */
   processPerfettoTraceEvents(
-    data: string,
+    dataPtr: number,
+    dataSize: number,
     timeRangeFromUrl: [number, number] | undefined,
     normalizeTimestamps: boolean,
   ): void;
@@ -450,6 +461,106 @@ function dispatchErrorStatus(msg: string) {
   );
 }
 
+function hasGzipMagicNumber(data: Uint8Array): boolean {
+  return data.length > 2 && data[0] === 0x1f && data[1] === 0x8b;
+}
+
+// DecompressionStream is a standard Web API, but its types might be missing
+// in some TypeScript environments (e.g. presubmit). We declare it here to
+// fix compilation errors without using 'any'.
+declare class DecompressionStream {
+  constructor(format: 'gzip' | 'deflate');
+  readonly readable: ReadableStream;
+  readonly writable: WritableStream;
+}
+
+async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
+  try {
+    const ds = new DecompressionStream('gzip');
+    const response = new Response(data.buffer as ArrayBuffer);
+    if (!response.body) {
+      throw new Error('Failed to create response body for decompression');
+    }
+    const decompressedStream = response.body.pipeThrough(ds);
+    const decompressedArrayBuffer = await new Response(
+      decompressedStream,
+    ).arrayBuffer();
+    return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
+  } catch (error) {
+    console.error('Frontend: failed to decompress file', error);
+    dispatchErrorStatus('Failed to decompress gzipped file.');
+    return null;
+  }
+}
+
+function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
+  return (
+    fileName.endsWith('.pftrace') ||
+    fileName.endsWith('.perfetto-trace') ||
+    !isJsonContent(data, fileName)
+  );
+}
+
+function processPerfettoTrace(
+  data: Uint8Array,
+  traceviewerModule: TraceViewerV2Module,
+) {
+  let dataPtr: number | undefined;
+  try {
+    dataPtr = traceviewerModule._malloc(data.length);
+    traceviewerModule.HEAPU8.set(data, dataPtr);
+
+    traceviewerModule.processPerfettoTraceEvents(
+      dataPtr,
+      data.length,
+      undefined,
+      true,
+    );
+  } catch (error) {
+    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (dataPtr !== undefined) {
+      traceviewerModule._free(dataPtr);
+    }
+  }
+}
+
+function isJsonContent(data: Uint8Array, fileName: string): boolean {
+  if (fileName.endsWith('.json')) {
+    return true;
+  }
+  for (let i = 0; i < Math.min(data.length, 100); i++) {
+    const char = String.fromCharCode(data[i]);
+    if (char === '{' || char === '[') {
+      return true;
+    }
+    if (!/\s/.test(char)) {
+      break;
+    }
+  }
+  return false;
+}
+
+function processJsonTrace(
+  data: Uint8Array,
+  traceviewerModule: TraceViewerV2Module,
+) {
+  try {
+    const decoder = new TextDecoder('utf-8');
+    const fileContent = decoder.decode(data);
+    const jsonData = JSON.parse(fileContent) as unknown;
+
+    if (!isTraceData(jsonData)) {
+      throw new Error('File does not contain valid trace events.');
+    }
+
+    traceviewerModule.processTraceEvents(jsonData, undefined);
+  } catch (error) {
+    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
 /**
  * Processes an uploaded file containing trace data.
  *
@@ -469,28 +580,21 @@ async function processUploadedFile(
   onFileProcessed?: () => void,
 ) {
   try {
-    if (
-      file.name.endsWith('.pftrace') ||
-      file.name.endsWith('.perfetto-trace')
-    ) {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      // Use iso-8859-1 to preserve binary data as string
-      const decoder = new TextDecoder('iso-8859-1');
-      const binaryString = decoder.decode(uint8Array);
+    const arrayBuffer = await file.arrayBuffer();
+    let uint8Array = new Uint8Array(arrayBuffer);
 
-      traceviewerModule.processPerfettoTraceEvents(binaryString, undefined, true);
-    } else {
-      // If the file is not a Perfetto trace, assume it's a JSON file.
-      const fileContent = await file.text();
-      const jsonData = JSON.parse(fileContent) as unknown;
-
-      if (!isTraceData(jsonData)) {
-        dispatchErrorStatus('File does not contain valid trace events.');
+    if (hasGzipMagicNumber(uint8Array)) {
+      const decompressed = await decompressGzip(uint8Array);
+      if (!decompressed) {
         return;
       }
+      uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
+    }
 
-      traceviewerModule.processTraceEvents(jsonData, undefined);
+    if (isPerfettoTrace(uint8Array, file.name)) {
+      processPerfettoTrace(uint8Array, traceviewerModule);
+    } else {
+      processJsonTrace(uint8Array, traceviewerModule);
     }
 
     onFileProcessed?.();

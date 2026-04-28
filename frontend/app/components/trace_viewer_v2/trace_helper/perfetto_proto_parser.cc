@@ -4,6 +4,7 @@
 #include <emscripten/val.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -23,13 +24,13 @@
 
 namespace traceviewer {
 
-ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data,
+ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
                                            bool normalize_timestamps) {
   ParsedTraceEvents parsed_events;
 
   xprof::traceviewer::protos::Trace trace;
 
-  if (!trace.ParseFromString(buffer_data)) {
+  if (!trace.ParseFromArray(data, size)) {
     parsed_events.parsing_status = ParsingStatus::kFailed;
     return parsed_events;
   }
@@ -237,10 +238,10 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data,
 }
 
 void ParseAndProcessPerfettoTraceEvents(
-    const std::string& buffer_data,
-    const emscripten::val& visible_range_from_url, bool normalize_timestamps) {
-  ParsedTraceEvents parsed_events =
-      ParsePerfettoTraceEvents(buffer_data, normalize_timestamps);
+    int data_ptr, int data_size, const emscripten::val& visible_range_from_url,
+    bool normalize_timestamps) {
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      reinterpret_cast<const void*>(data_ptr), data_size, normalize_timestamps);
 
   if (parsed_events.parsing_status == ParsingStatus::kFailed) {
     EventData event_data;
@@ -280,8 +281,9 @@ void ParseAndProcessPerfettoTraceEvents(
 }
 
 EMSCRIPTEN_BINDINGS(perfetto_proto_parser) {
-  emscripten::function("processPerfettoTraceEvents",
-                       &traceviewer::ParseAndProcessPerfettoTraceEvents);
+  emscripten::function<void, int, int, const emscripten::val&, bool>(
+      "processPerfettoTraceEvents",
+      &traceviewer::ParseAndProcessPerfettoTraceEvents);
 }
 
 }  // namespace traceviewer

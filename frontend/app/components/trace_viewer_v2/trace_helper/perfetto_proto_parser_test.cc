@@ -97,7 +97,8 @@ TEST(PerfettoEventParserTest, BasicSlice) {
   std::string serialized_trace;
   ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
 
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      serialized_trace.data(), serialized_trace.size());
   EXPECT_EQ(parsed_events.parsing_status, ParsingStatus::kSuccess);
   ASSERT_GE(parsed_events.flame_events.size(), 1);
 
@@ -203,7 +204,8 @@ TEST(PerfettoEventParserTest, InternedStringsAndIncrementalState) {
   std::string serialized_trace;
   ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
 
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      serialized_trace.data(), serialized_trace.size());
   EXPECT_EQ(parsed_events.parsing_status, ParsingStatus::kSuccess);
   ASSERT_EQ(parsed_events.flame_events.size(), 3);
 
@@ -222,7 +224,8 @@ TEST(PerfettoEventParserTest, InternedStringsAndIncrementalState) {
 
 TEST(PerfettoEventParserTest, ParseFail) {
   std::string serialized_trace = "invalid trace";
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      serialized_trace.data(), serialized_trace.size());
   EXPECT_EQ(parsed_events.parsing_status, ParsingStatus::kFailed);
 }
 
@@ -238,7 +241,8 @@ TEST(PerfettoProtoParserTest, ParsesProcessMetadata) {
 
   ASSERT_TRUE(trace.SerializeToString(&buffer));
 
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(buffer);
+  ParsedTraceEvents parsed_events =
+      ParsePerfettoTraceEvents(buffer.data(), buffer.size());
 
   ASSERT_EQ(parsed_events.flame_events.size(), 1);
 
@@ -315,7 +319,8 @@ TEST(PerfettoProtoParserTest, IncrementalTimestamp) {
   std::string serialized_trace;
   ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
 
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      serialized_trace.data(), serialized_trace.size());
 
   // 1 thread metadata + 2 complete events = 3 flame events
   ASSERT_EQ(parsed_events.flame_events.size(), 3);
@@ -372,7 +377,8 @@ TEST(PerfettoProtoParserTest, FallbackPidTid) {
   std::string serialized_trace;
   ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
 
-  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(
+      serialized_trace.data(), serialized_trace.size());
 
   ASSERT_EQ(parsed_events.flame_events.size(), 2);
   const auto& event = parsed_events.flame_events[1];
@@ -395,7 +401,8 @@ TEST(PerfettoEventParserTest, TimestampNormalization) {
 
   // Case 1: normalize_timestamps = true, above threshold.
   ParsedTraceEvents parsed_events_norm =
-      ParsePerfettoTraceEvents(serialized_trace, /*normalize_timestamps=*/true);
+      ParsePerfettoTraceEvents(serialized_trace.data(), serialized_trace.size(),
+                               /*normalize_timestamps=*/true);
   EXPECT_EQ(parsed_events_norm.parsing_status, ParsingStatus::kSuccess);
   ASSERT_EQ(parsed_events_norm.flame_events.size(), 2);
   const TraceEvent* slice_event_norm = nullptr;
@@ -410,8 +417,9 @@ TEST(PerfettoEventParserTest, TimestampNormalization) {
   EXPECT_EQ(slice_event_norm->dur, 2.0);
 
   // Case 2: normalize_timestamps = false, above threshold.
-  ParsedTraceEvents parsed_events_nonorm = ParsePerfettoTraceEvents(
-      serialized_trace, /*normalize_timestamps=*/false);
+  ParsedTraceEvents parsed_events_nonorm =
+      ParsePerfettoTraceEvents(serialized_trace.data(), serialized_trace.size(),
+                               /*normalize_timestamps=*/false);
   EXPECT_EQ(parsed_events_nonorm.parsing_status, ParsingStatus::kSuccess);
   ASSERT_EQ(parsed_events_nonorm.flame_events.size(), 2);
   const TraceEvent* slice_event_nonorm = nullptr;
@@ -434,7 +442,8 @@ TEST(PerfettoEventParserTest, TimestampNormalization) {
   std::string serialized_trace_small_ts;
   ASSERT_TRUE(trace_small_ts.SerializeToString(&serialized_trace_small_ts));
   ParsedTraceEvents parsed_events_small_ts = ParsePerfettoTraceEvents(
-      serialized_trace_small_ts, /*normalize_timestamps=*/true);
+      serialized_trace_small_ts.data(), serialized_trace_small_ts.size(),
+      /*normalize_timestamps=*/true);
   EXPECT_EQ(parsed_events_small_ts.parsing_status, ParsingStatus::kSuccess);
   ASSERT_EQ(parsed_events_small_ts.flame_events.size(), 2);
   const TraceEvent* slice_event_small_ts = nullptr;

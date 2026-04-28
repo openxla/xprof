@@ -1,3 +1,4 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library")
 
@@ -5,7 +6,7 @@ package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
 ])
 
-wasm_cc_library(
+cc_library(
     name = "constants",
     hdrs = ["constants.h"],
     deps = [

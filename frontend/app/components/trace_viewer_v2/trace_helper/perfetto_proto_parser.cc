@@ -16,6 +16,7 @@
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/perfetto_constants.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_lite.pb.h"
 
@@ -35,6 +36,58 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
   std::map<uint32_t, std::map<uint64_t, std::string>> interned_categories;
   std::map<uint64_t, xprof::traceviewer::protos::TrackDescriptor>
       track_descriptors;
+  std::map<uint64_t, std::string> named_tracks;
+  ProcessId fallback_pid = kPerfettoFallbackPid;
+
+  // Pass 1: Collect metadata and find a fallback PID.
+  for (const auto& packet : trace.packet()) {
+    if (packet.has_track_descriptor()) {
+      const auto& desc = packet.track_descriptor();
+      track_descriptors[desc.uuid()] = desc;
+
+      if (desc.has_process()) {
+        const auto& process = desc.process();
+        if (fallback_pid == kPerfettoFallbackPid) {
+          fallback_pid = process.pid();
+        }
+
+        TraceEvent event;
+        event.ph = Phase::kMetadata;
+        event.name = std::string(kProcessName);
+        event.pid = process.pid();
+        event.args["name"] = process.process_name();
+        parsed_events.flame_events.push_back(event);
+      } else if (desc.has_thread()) {
+        // Use else if to avoid double counting if a descriptor somehow has both
+        // process and thread (though unlikely in Perfetto).
+        const auto& thread = desc.thread();
+
+        TraceEvent event;
+        event.ph = Phase::kMetadata;
+        event.name = std::string(kThreadName);
+        event.pid = thread.pid();
+        event.tid = thread.tid();
+        event.args["name"] = thread.thread_name();
+        parsed_events.flame_events.push_back(event);
+      } else if (!desc.name().empty()) {
+        // Collect named tracks for later metadata emission.
+        named_tracks[desc.uuid()] = desc.name();
+      }
+    }
+  }
+
+  // Emit metadata events for named tracks using the determined fallback_pid.
+  for (const auto& pair : named_tracks) {
+    TraceEvent event;
+    event.ph = Phase::kMetadata;
+    event.name = std::string(kThreadName);
+    event.pid = fallback_pid;
+    event.tid = pair.first;  // use uuid as tid
+    event.args["name"] = pair.second;
+    parsed_events.flame_events.push_back(event);
+  }
+
+  // Pass 2: Process track events.
   std::map<uint64_t, std::vector<TraceEvent>> slice_stacks;
   std::map<uint32_t, uint64_t> sequence_timestamps;
 
@@ -56,100 +109,83 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const std::string& buffer_data) {
       }
     }
 
-    if (packet.has_track_descriptor()) {
-      const auto& desc = packet.track_descriptor();
-      track_descriptors[desc.uuid()] = desc;
+    if (!packet.has_track_event()) continue;
 
-      if (desc.has_process()) {
-        const auto& process = desc.process();
+    const auto& track_event = packet.track_event();
+    uint64_t track_uuid = track_event.track_uuid();
 
-        TraceEvent event;
-        event.ph = Phase::kMetadata;
-        event.name = std::string(kProcessName);
-        event.pid = process.pid();
-        event.args["name"] = process.process_name();
-        parsed_events.flame_events.push_back(event);
-      }
-      if (desc.has_thread()) {
-        const auto& thread = desc.thread();
-
-        TraceEvent event;
-        event.ph = Phase::kMetadata;
-        event.name = std::string(kThreadName);
-        event.pid = thread.pid();
-        event.tid = thread.tid();
-        event.args["name"] = thread.thread_name();
-        parsed_events.flame_events.push_back(event);
-      }
-    }
-
-    if (packet.has_track_event()) {
-      const auto& track_event = packet.track_event();
-      uint64_t track_uuid = track_event.track_uuid();
-
-      std::string name;
-      if (track_event.has_name_iid()) {
-        auto seq_it = interned_strings.find(seq_id);
-        if (seq_it != interned_strings.end()) {
-          auto name_it = seq_it->second.find(track_event.name_iid());
-          if (name_it != seq_it->second.end()) {
-            name = name_it->second;
-          } else {
-            name = std::string(kUnknown);
-          }
+    std::string name;
+    if (track_event.has_name_iid()) {
+      auto seq_it = interned_strings.find(seq_id);
+      if (seq_it != interned_strings.end()) {
+        auto name_it = seq_it->second.find(track_event.name_iid());
+        if (name_it != seq_it->second.end()) {
+          name = name_it->second;
         } else {
           name = std::string(kUnknown);
         }
-      } else if (track_event.has_name()) {
-        name = track_event.name();
+      } else {
+        name = std::string(kUnknown);
       }
+    } else if (track_event.has_name()) {
+      name = track_event.name();
+    }
 
-      // TODO: This assumes nanoseconds. While this is the default for most
-      // Perfetto producers, it might be worth adding a TODO to handle
-      // `ClockSnapshot` or `timestamp_clock_id` for robustness in the future.
-      uint64_t timestamp_ns = sequence_timestamps[seq_id];
-      if (packet.has_timestamp()) {
-        timestamp_ns = packet.timestamp();
-      }
+    // TODO: This assumes nanoseconds. While this is the default for most
+    // Perfetto producers, it might be worth adding a TODO to handle
+    // `ClockSnapshot` or `timestamp_clock_id` for robustness in the future.
+    uint64_t timestamp_ns = sequence_timestamps[seq_id];
+    if (packet.has_timestamp()) {
+      timestamp_ns = packet.timestamp();
+    }
 
-      if (track_event.has_timestamp_delta_us()) {
-        timestamp_ns += track_event.timestamp_delta_us() * 1000;
-      } else if (track_event.has_timestamp_absolute_us()) {
-        timestamp_ns = track_event.timestamp_absolute_us() * 1000;
-      }
+    if (track_event.has_timestamp_delta_us()) {
+      timestamp_ns += track_event.timestamp_delta_us() * 1000;
+    } else if (track_event.has_timestamp_absolute_us()) {
+      timestamp_ns = track_event.timestamp_absolute_us() * 1000;
+    }
 
-      sequence_timestamps[seq_id] = timestamp_ns;
-      Microseconds ts = timestamp_ns / 1000.0;  // ns to us
+    sequence_timestamps[seq_id] = timestamp_ns;
+    Microseconds ts = timestamp_ns / 1000.0;  // ns to us
 
-      if (track_event.type() ==
-          xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN) {
-        TraceEvent event;
-        event.ph = Phase::kComplete;
-        event.name = name;
-        event.ts = ts;
-        event.category = tsl::profiler::ContextType::kGeneric;
+    if (track_event.type() ==
+        xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN) {
+      TraceEvent event;
+      event.ph = Phase::kComplete;
+      event.name = name.empty() ? std::string(kUnknown) : name;
+      event.ts = ts;
+      event.category = tsl::profiler::ContextType::kGeneric;
 
-        auto it = track_descriptors.find(track_uuid);
-        if (it != track_descriptors.end()) {
-          const auto& desc = it->second;
-          if (desc.has_thread()) {
-            event.tid = desc.thread().tid();
-            event.pid = desc.thread().pid();
-          } else if (desc.has_process()) {
-            event.pid = desc.process().pid();
-          }
+      auto it = track_descriptors.find(track_uuid);
+      if (it != track_descriptors.end()) {
+        const auto& desc = it->second;
+        if (desc.has_thread()) {
+          event.tid = desc.thread().tid();
+          event.pid = desc.thread().pid();
+        } else if (desc.has_process()) {
+          event.pid = desc.process().pid();
+        } else if (!desc.name().empty()) {
+          event.tid = desc.uuid();
         }
+      }
 
-        slice_stacks[track_uuid].push_back(event);
-      } else if (track_event.type() ==
-                 xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END) {
-        auto& stack = slice_stacks[track_uuid];
-        if (!stack.empty()) {
-          TraceEvent event = stack.back();
-          stack.pop_back();
-          event.dur = std::max(0.0, ts - event.ts);
-          parsed_events.flame_events.push_back(event);
-        }
+      // Fallback if pid/tid are still not resolved
+      if (event.pid == 0) {
+        event.pid = fallback_pid;
+      }
+      if (event.tid == 0) {
+        event.tid = kPerfettoFallbackTidOffset + seq_id;
+      }
+
+      slice_stacks[track_uuid].push_back(event);
+    } else if (track_event.type() ==
+               xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END) {
+      auto& stack = slice_stacks[track_uuid];
+      if (!stack.empty()) {
+        TraceEvent event = stack.back();
+        stack.pop_back();
+        event.dur = std::max(0.0, ts - event.ts);
+        parsed_events.flame_events.push_back(event);
       }
     }
   }

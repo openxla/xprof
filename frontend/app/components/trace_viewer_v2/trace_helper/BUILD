@@ -87,11 +87,17 @@ cc_proto_library(
     deps = [":trace_lite_proto"],
 )
 
+cc_library(
+    name = "perfetto_constants",
+    hdrs = ["perfetto_constants.h"],
+)
+
 wasm_cc_library(
     name = "perfetto_proto_parser",
     srcs = ["perfetto_proto_parser.cc"],
     hdrs = ["perfetto_proto_parser.h"],
     deps = [
+        ":perfetto_constants",
         ":trace_event",
         ":trace_event_parser",
         ":trace_lite_proto_cc",

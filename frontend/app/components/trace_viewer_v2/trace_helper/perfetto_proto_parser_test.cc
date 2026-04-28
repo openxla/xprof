@@ -298,5 +298,53 @@ TEST(PerfettoProtoParserTest, IncrementalTimestamp) {
   EXPECT_EQ(slice2.dur, 10.0);
 }
 
+TEST(PerfettoProtoParserTest, FallbackPidTid) {
+  xprof::traceviewer::protos::Trace trace;
+
+  // Packet 0: Process Descriptor
+  {
+    auto* packet = trace.add_packet();
+    auto* desc = packet->mutable_track_descriptor();
+    desc->set_uuid(1);
+    auto* process = desc->mutable_process();
+    process->set_pid(43);
+    process->set_process_name("TestProcess");
+  }
+
+  // Packet 1: Slice Begin without descriptors
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(42);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_BEGIN);
+    event->set_name("TestSlice");
+    event->set_timestamp_absolute_us(10);
+  }
+
+  // Packet 2: Slice End
+  {
+    auto* packet = trace.add_packet();
+    packet->set_trusted_packet_sequence_id(42);
+    auto* event = packet->mutable_track_event();
+    event->set_track_uuid(10);
+    event->set_type(xprof::traceviewer::protos::TrackEvent::TYPE_SLICE_END);
+    event->set_timestamp_absolute_us(20);
+  }
+
+  std::string serialized_trace;
+  ASSERT_TRUE(trace.SerializeToString(&serialized_trace));
+
+  ParsedTraceEvents parsed_events = ParsePerfettoTraceEvents(serialized_trace);
+
+  ASSERT_EQ(parsed_events.flame_events.size(), 2);
+  const auto& event = parsed_events.flame_events[1];
+  EXPECT_EQ(event.name, "TestSlice");
+  EXPECT_EQ(event.ts, 10);
+  EXPECT_EQ(event.dur, 10);
+  EXPECT_EQ(event.pid, 43);       // Should fall back to 43
+  EXPECT_EQ(event.tid, 1000042);  // Should be 1000000 + 42
+}
+
 }  // namespace
 }  // namespace traceviewer

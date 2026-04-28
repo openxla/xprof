@@ -28,8 +28,8 @@ using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
 TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
-                                 ThreadId tid,
-                                 std::string thread_or_process_name) {
+                               ThreadId tid,
+                               std::string thread_or_process_name) {
   return {.ph = Phase::kMetadata,
           .pid = pid,
           .tid = tid,
@@ -1188,6 +1188,30 @@ TEST_F(DataProviderTest, ProcessTraceEventsWithVisibleRangeFromUrl) {
   // fetched_data_time_range should still be the event's timespan (10.0 to 20.0)
   EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().start(), 10.0);
   EXPECT_DOUBLE_EQ(timeline_.fetched_data_time_range().end(), 20.0);
+}
+
+TEST_F(DataProviderTest,
+       ProcessTraceEventsDoesNotOverwriteVisibleRangeFromUrl) {
+  // Set a non-zero visible range in advance, simulating a user-modified
+  // viewport.
+  timeline_.SetVisibleRange({5.0, 8.0});
+
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 1,
+                                           .name = "Event 1",
+                                           .ts = 10.0,
+                                           .dur = 10.0}};
+  ParsedTraceEvents parsed_events;
+  parsed_events.flame_events = events;
+  parsed_events.visible_range_from_url =
+      std::make_pair(0.015, 0.018);  // 15us, 18us
+
+  data_provider_.ProcessTraceEvents(parsed_events, timeline_);
+
+  // visible_range should stay as what was preset, NOT overwritten by URL.
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 5.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 8.0);
 }
 
 TEST_F(DataProviderTest,

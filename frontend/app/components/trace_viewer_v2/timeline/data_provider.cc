@@ -1002,7 +1002,9 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       Microseconds end =
           MillisToMicros(parsed_events.visible_range_from_url->second);
 
-      timeline.SetVisibleRange({start, end});
+      if (timeline.visible_range() == TimeRange::Zero()) {
+        timeline.SetVisibleRange({start, end});
+      }
     } else {
       // If the visible range is not zero, we just keep it. This happens when
       // the incremental loading is triggered and we don't want to override the

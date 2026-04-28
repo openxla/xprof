@@ -26,10 +26,6 @@ TEST(TraceEventParserCoreTest, ProcessMetadata) {
   ParsedTraceEvents result;
   ProcessMetadataEvents(response, result);
 
-  // We expect:
-  // 1. Process name Metadata event
-  // 2. Process sort_index Metadata event
-  // 3. Thread name Metadata event
   ASSERT_EQ(result.flame_events.size(), 3);
 
   EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
@@ -60,14 +56,12 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   series->mutable_metadata()->set_process_id(1);
   series->mutable_metadata()->set_thread_id(2);
 
-  // Event 1
   series->add_deltas(1000000);     // 1 us
   series->add_durations(5000000);  // 5 us
   series->add_name_refs(1);        // "compute_op"
   auto* meta1 = series->add_event_metadata();
   meta1->set_serial(123);
 
-  // Event 2 (Delta from Event 1)
   series->add_deltas(2000000);     // +2 us = 3 us absolute
   series->add_durations(3000000);  // 3 us
   series->add_name_refs(1);
@@ -81,7 +75,6 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
 
   ASSERT_EQ(result.flame_events.size(), 2);
 
-  // Event 1
   EXPECT_EQ(result.flame_events[0].ph, Phase::kComplete);
   EXPECT_EQ(result.flame_events[0].pid, 1);
   EXPECT_EQ(result.flame_events[0].tid, 2);
@@ -90,7 +83,6 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_EQ(result.flame_events[0].name, "compute_op");
   EXPECT_EQ(result.flame_events[0].args.at("uid"), "123");
 
-  // Event 2
   EXPECT_EQ(result.flame_events[1].ph, Phase::kComplete);
   EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 3.0);
   EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 3.0);
@@ -99,7 +91,6 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_EQ(result.flame_events[1].category,
             tsl::profiler::ContextType::kTpuLaunch);
 
-  // Checks Flow events extraction! (Contains Event 2 with flow_id)
   ASSERT_EQ(result.flow_events.size(), 1);
   EXPECT_EQ(result.flow_events[0].id, "999");
 }
@@ -112,11 +103,9 @@ TEST(TraceEventParserCoreTest, ProcessCounterEvents) {
   series->mutable_metadata()->set_process_id(1);
   series->mutable_metadata()->set_name_ref(0);
 
-  // Entry 1
   series->add_deltas(1000000);  // 1 us
   series->add_event_metadata()->set_counter_value_double(100.5);
 
-  // Entry 2
   series->add_deltas(2000000);  // +2 us = 3 us
   series->add_event_metadata()->set_counter_value_double(50.2);
 
@@ -138,6 +127,68 @@ TEST(TraceEventParserCoreTest, ProcessCounterEvents) {
 
   EXPECT_DOUBLE_EQ(counter.min_value, 50.2);
   EXPECT_DOUBLE_EQ(counter.max_value, 100.5);
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDuration) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("async_op");
+
+  auto* series = response.add_async_events();
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_process_id(1);
+
+  series->add_deltas(1000000);     // 1 us
+  series->add_durations(5000000);  // 5 us
+
+  auto* meta = series->add_event_metadata();
+  meta->set_flow_id(500);
+  meta->set_serial(42);
+  meta->set_group_id(99);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kComplete);
+  EXPECT_EQ(result.flame_events[0].pid, 1);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
+  EXPECT_EQ(result.flame_events[0].name, "async_op");
+  EXPECT_EQ(result.flame_events[0].args.at("uid"), "42");
+  EXPECT_EQ(result.flame_events[0].args.at("group_id"), "99");
+}
+
+TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
+  xprof::TraceDataResponse response;
+  response.add_interned_strings("dma_transfer");
+
+  auto* series = response.add_async_events();
+  series->mutable_metadata()->set_name_ref(0);
+  series->mutable_metadata()->set_process_id(1);
+
+  series->add_deltas(1000000);  // 1 us
+  series->add_durations(0);     // 0 duration -> part of Pair
+  auto* meta1 = series->add_event_metadata();
+  meta1->set_flow_id(777);
+  meta1->set_serial(101);
+
+  series->add_deltas(4000000);  // +4 us = 5 us absolute
+  series->add_durations(0);
+  auto* meta2 = series->add_event_metadata();
+  meta2->set_flow_id(777);
+  meta2->set_serial(102);
+
+  ParsedTraceEvents result;
+  ProcessAsyncEvents(response, result);
+
+  ASSERT_EQ(result.flame_events.size(), 1);
+  EXPECT_TRUE(result.flame_events[0].is_async);
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kComplete);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].ts, 1.0);
+  EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
+  EXPECT_EQ(result.flame_events[0].name, "dma_transfer");
+  EXPECT_EQ(result.flame_events[0].args.at("uid"), "101");
 }
 
 }  // namespace

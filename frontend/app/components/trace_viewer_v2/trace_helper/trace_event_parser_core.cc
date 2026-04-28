@@ -174,6 +174,9 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
 
 void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
                         ParsedTraceEvents& result) {
+  absl::flat_hash_map<std::pair<ProcessId, std::string>, TraceEvent>
+      open_async_events;
+
   for (const auto& series : response.async_events()) {
     const auto& metadata = series.metadata();
     uint64_t current_ts_ps = 0;
@@ -189,36 +192,54 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
               response.interned_strings(ev_meta.flow_category()));
         }
 
-        TraceEvent ev_start;
-        ev_start.ph = Phase::kFlowStart;
-        ev_start.name = response.interned_strings(series.metadata().name_ref());
-        ev_start.pid = metadata.process_id();
-        ev_start.ts = current_ts_ps / 1000000.0;
-        ev_start.id = flow_id_str;
-        ev_start.category = category;
-        ev_start.args["uid"] = std::to_string(ev_meta.serial());
-        if (ev_meta.group_id() != 0) {
-          ev_start.args["group_id"] = std::to_string(ev_meta.group_id());
+        double dur = 0.0;
+        if (i < series.durations_size()) {
+          dur = series.durations(i) / 1000000.0;
         }
-        ev_start.event_id = tsl::Fingerprint64(
-            absl::StrCat(ev_start.name, ":", ev_start.ts, ":", ev_start.dur));
-        result.flow_events.push_back(std::move(ev_start));
 
-        if (series.durations(i) > 0) {
-          TraceEvent ev_end;
-          ev_end.ph = Phase::kFlowEnd;
-          ev_end.name = response.interned_strings(series.metadata().name_ref());
-          ev_end.pid = metadata.process_id();
-          ev_end.ts = (current_ts_ps + series.durations(i)) / 1000000.0;
-          ev_end.id = flow_id_str;
-          ev_end.category = category;
-          ev_end.args["uid"] = std::to_string(ev_meta.serial());
-          if (ev_meta.group_id() != 0) {
-            ev_end.args["group_id"] = std::to_string(ev_meta.group_id());
+        TraceEvent ev;
+        ev.pid = metadata.process_id();
+        ev.ts = current_ts_ps / 1000000.0;
+        ev.name = response.interned_strings(series.metadata().name_ref());
+        ev.id = flow_id_str;
+        ev.category = category;
+        ev.args["uid"] = std::to_string(ev_meta.serial());
+        if (ev_meta.group_id() != 0) {
+          ev.args["group_id"] = std::to_string(ev_meta.group_id());
+        }
+
+        if (dur > 0.0) {
+          // Pre-computed duration available, treat as complete event.
+          ev.dur = dur;
+          ev.ph = Phase::kComplete;
+          ev.is_async = true;
+          ev.event_id = tsl::Fingerprint64(
+              absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+          result.flame_events.push_back(std::move(ev));
+        } else {
+          // No duration, assume it's part of a separate Begin/End pair.
+          auto key = std::make_pair(ev.pid, ev.id);
+          auto it = open_async_events.find(key);
+          if (it == open_async_events.end()) {
+            // Begin
+            ev.ph = Phase::kAsyncBegin;
+            open_async_events.try_emplace(std::move(key), std::move(ev));
+          } else {
+            // End
+            TraceEvent& begin_ev = it->second;
+            begin_ev.ph = Phase::kComplete;
+            begin_ev.is_async = true;
+            if (ev.ts > begin_ev.ts) {
+              begin_ev.dur = ev.ts - begin_ev.ts;
+            }
+            if (!ev.args.empty()) {
+              begin_ev.args.insert(ev.args.begin(), ev.args.end());
+            }
+            begin_ev.event_id = tsl::Fingerprint64(absl::StrCat(
+                begin_ev.name, ":", begin_ev.ts, ":", begin_ev.dur));
+            result.flame_events.push_back(std::move(begin_ev));
+            open_async_events.erase(it);
           }
-          ev_end.event_id = tsl::Fingerprint64(
-              absl::StrCat(ev_end.name, ":", ev_end.ts, ":", ev_end.dur));
-          result.flow_events.push_back(std::move(ev_end));
         }
       }
     }

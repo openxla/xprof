@@ -1904,7 +1904,11 @@ cc_library(
     hdrs = ["repository.h"],
     deps = [
         ":file_utils",
+        "//third_party/riegeli/bytes:string_reader",
+        "//third_party/riegeli/records:record_reader",
+        "//third_party/riegeli/records:skipped_region",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -1917,6 +1921,7 @@ cc_library(
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/utils:file_system_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_utils",
     ],
 )
 
@@ -1926,6 +1931,8 @@ cc_test(
     srcs = ["repository_test.cc"],
     deps = [
         ":repository",
+        "//third_party/riegeli/bytes:string_writer",
+        "//third_party/riegeli/records:record_writer",
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:protobuf",

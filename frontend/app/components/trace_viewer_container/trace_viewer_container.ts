@@ -599,6 +599,13 @@ export class TraceViewerContainer
     this.searchEvents.emit({events_query: query});
   }
 
+  blurActiveElement() {
+    const el = document.activeElement;
+    if (el instanceof HTMLInputElement) {
+      el.blur();
+    }
+  }
+
   setMouseMode(mode: MouseMode) {
     this.currentMouseMode = mode;
     if (this.traceViewerModule) {

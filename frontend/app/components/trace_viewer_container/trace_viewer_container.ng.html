@@ -84,7 +84,7 @@
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container">
-          <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+          <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
         </div>
       </as-split-area>
       <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">

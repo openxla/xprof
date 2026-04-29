@@ -180,8 +180,6 @@ lines may or may not appear in certain profiles.
     post-processing information it receives from different components (e.g.,
     CUPTI drivers, kernel launch IDs, TPU runtime information, etc.).
 
-    ![Trace Viewer Flow Events button](images/trace_viewer_flow.png)
-
 ### From Trace Viewer to HLO Graph
 
 When you click on an XLA op in Trace Viewer, you can click the link in the

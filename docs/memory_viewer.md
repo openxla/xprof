@@ -2,9 +2,10 @@
 
 You can use Memory Viewer to visualize memory usage over the program's lifetime.
 You can dive into the details of the contents of memory at the point of peak
-memory usage, including to debug Out Of Memory (OOM) situations. Memory Viewer
-can help you see the global memory usage and how close the computation is to
-being out of memory.
+memory usage, including to
+[debug Out Of Memory (OOM) situations](https://openxla.org/xla/oom_debugging.md).
+Memory Viewer can help you see the global memory usage and how close the
+computation is to being out of memory.
 
 All information displayed in Memory Viewer is purely static, obtained from the
 XLA compiler; dynamic runtime information is presented in the
@@ -87,6 +88,10 @@ The Memory Viewer tool consists of several key components:
     *   The width of each block is the lifetime of the allocation, in terms of
         program order.
 
+    ![Memory viewer timeline](./images/memory_viewer_timeline.png)
+    
+    The timeline can also be saved as an SVG, DOT or HTML+SVG file.
+
 6.  Hovering over a buffer in any of the three charts brings up two additional
     displays:
 
@@ -116,3 +121,26 @@ The Memory Viewer tool consists of several key components:
             providing the execution context that led to the buffer allocation.
 
         ![Memory Viewer buffer charts](images/memory_viewer_2.png)
+
+### How to interpret the Memory Viewer Buffer Charts
+
+The buffer charts at the bottom of the Memory Viewer page are helpful for
+understanding the composition of memory usage at the point of peak memory usage,
+and for identifying potential optimization opportunities. Here are some tips for
+interpreting these charts:
+
+* Look for large buffers: Buffers that are significantly larger than others may
+  be good candidates for optimization, such as by changing the algorithm to use
+  less memory, or by using a more memory-efficient data type.
+* Look for buffers with high padding overhead: Buffers that have a large
+  difference between their size with and without padding may indicate an
+  opportunity to optimize the shape of the tensor to reduce padding and improve
+  memory efficiency.
+* Look for buffers with long lifetimes: Buffers that are allocated early in the
+  program and deallocated late may be good candidates for optimization, such as
+  by changing the algorithm to reuse memory more effectively or by breaking up
+  the computation into smaller steps to reduce peak memory usage.
+
+In the image below, the chart sorted by Padding Size reveals some extra memory
+is being allocated due to padding requirements.
+![Memory Viewer buffer charts: discrepancy in the chart sorted by Padding Size.](images/buffer_charts.png)

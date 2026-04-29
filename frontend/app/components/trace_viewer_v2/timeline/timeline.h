@@ -464,6 +464,8 @@ class Timeline {
   // The width of the timeline track area in pixels. Calculated in Draw() and
   // cached for use in interaction handlers (Zoom, Pan).
   Pixel current_timeline_width_ = 0.0f;
+  // The screen Y position of the ruler, used for culling text.
+  Pixel ruler_screen_y_ = 0.0f;
 
   ImVec2 tracks_start_screen_pos_ = {0.0f, 0.0f};
   // Whether the user is currently resizing the label column.

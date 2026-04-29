@@ -289,6 +289,7 @@ void Timeline::Draw() {
 
   const ImVec2 ruler_start_pos = ImGui::GetCursorPos();
   const ImVec2 ruler_start_screen_pos = ImGui::GetCursorScreenPos();
+  ruler_screen_y_ = ruler_start_screen_pos.y;
 
   // Draw Ruler background anchored to the top (outside the scrollable child
   // window). The background starts *after* the left label area according to
@@ -1132,6 +1133,11 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
 void Timeline::DrawEventName(absl::string_view event_name,
                              const EventRect& event_rect,
                              ImDrawList* absl_nonnull draw_list) const {
+  // Cull text if the event overlaps with the ruler.
+  if (event_rect.top < ruler_screen_y_ + kRulerHeight) {
+    return;
+  }
+
   const Pixel available_width = event_rect.right - event_rect.left;
 
   if (available_width >= kMinTextWidth) {

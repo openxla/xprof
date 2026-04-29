@@ -46,6 +46,8 @@ cc_binary(
         "@org_xprof//plugin/xprof/worker:stub_factory",
         "@org_xprof//xprof/convert:tool_options",
         "@rules_python//python/cc:current_py_cc_headers",
+        "@xla//xla/pjrt:status_casters",  # buildcleaner: keep
+        "@xla//xla/tsl/platform/cloud:gcs_file_system",
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ],
 )

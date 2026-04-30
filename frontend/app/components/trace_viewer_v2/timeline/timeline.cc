@@ -795,6 +795,16 @@ void Timeline::EmitEventSelected(int event_index) {
   if (auto it = args.find(std::string(kHloOp)); it != args.end()) {
     event_data.try_emplace(kEventSelectedHloOpName, it->second);
   }
+
+  // To sever the Expensive and Error-Prone Network Roundtrips during search
+  // hits: WASM dumps ALL Dictionary Arguments directly into the emitted Event
+  // Data!
+  EventData args_map;
+  for (const auto& [key, val] : args) {
+    args_map.try_emplace(key, val);
+  }
+  event_data.try_emplace("args", args_map);
+
   event_callback_(kEventSelected, event_data);
 }
 

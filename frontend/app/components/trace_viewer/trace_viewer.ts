@@ -230,7 +230,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     // Sort keys to ensure stable query string regardless of insertion order
     const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+      a[0].localeCompare(b[0]),
     );
     entries.forEach(([key, value]) => {
       if (value) {
@@ -347,6 +347,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       properties.push({property: 'HLO Op', value: hloOpName});
     }
     this.selectedEventProperties = properties;
+
+    if (event.args) {
+      const args = event.args as {[key: string]: string};
+      this.addArgsToSelectedEvent(args);
+      // Populate cache so duplicate clicks don’t look up network bounds
+      const key = `${name}-${startUs}-${durationUs}`;
+      this.eventArgsCache.set(key, args);
+      return;
+    }
 
     if (uid) {
       this.maybeFetchEventArgs(name, startUs, durationUs, uid);

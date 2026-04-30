@@ -535,6 +535,7 @@ class Timeline {
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;
   std::vector<int> selected_event_indices_;
+  std::vector<std::pair<int, int>> selected_counter_points_;
 
   Microseconds drag_start_time_ = 0.0;
   std::optional<TimeRange> current_selected_time_range_;

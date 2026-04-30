@@ -5312,6 +5312,58 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsEmitsJson) {
   EXPECT_THAT(captured_payload, ::testing::HasSubstr("event1"));
 }
 
+TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
+  ImGuiIO& io = ImGui::GetIO();
+  bool callback_called = false;
+  std::string captured_payload;
+  timeline_.set_event_callback(
+      [&](absl::string_view event_type, const EventData& data) {
+        if (event_type == kEventsSelected) {
+          callback_called = true;
+          auto it = data.find(std::string(kEventsSelectedData));
+          if (it != data.end()) {
+            captured_payload = std::any_cast<std::string>(it->second);
+          }
+        }
+      });
+
+  FlameChartTimelineData data;
+  data.groups = {
+      {Group::Type::kCounter, "counter_group", "subtitle", 0, 0, true}};
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {1.0, 2.0, 3.0};
+  counter_data.min_value = 1.0;
+  counter_data.max_value = 3.0;
+
+  data.counter_data_by_group_index[0] = counter_data;
+
+  timeline_.SetTimelineData(std::move(data));
+
+  timeline_.SetVisibleRange(TimeRange(0.0, 100.0));
+
+  SimulateFrame();  // Warm-up frame and calculate layout
+
+  // Start drag.
+  io.MousePos = ImVec2(GetTimelineStartX() + 50.0f, 40.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag to cover points.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, 100.0f);
+  SimulateFrame();
+
+  // Release.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_FALSE(captured_payload.empty());
+  EXPECT_THAT(captured_payload, ::testing::HasSubstr("counters"));
+  EXPECT_THAT(captured_payload, ::testing::HasSubstr("counter_group"));
+}
+
 // =============================================================================
 // Fixture: TimelineImGuiFixture
 // =============================================================================

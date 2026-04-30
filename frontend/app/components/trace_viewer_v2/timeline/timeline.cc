@@ -2228,6 +2228,7 @@ void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
       is_selecting_ = true;
       selection_end_pos_ = io.MousePos;
       selected_event_indices_.clear();
+      selected_counter_points_.clear();
     } else if (mouse_mode_ != MouseMode::kSelect) {
       is_selecting_ = io.KeyShift || mouse_mode_ == MouseMode::kTiming;
       if (is_selecting_) {
@@ -2439,6 +2440,7 @@ void Timeline::NavigateToPrevSearchResult() {
 
 void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   selected_event_indices_.clear();
+  selected_counter_points_.clear();
 
   const ImRect timeline_area = GetTimelineArea();
   const Pixel screen_x_offset = timeline_area.Min.x;
@@ -2448,81 +2450,84 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   for (size_t group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
     const auto& group = timeline_data_.groups[group_index];
-    if (group.type != Group::Type::kFlame) continue;
     if (!group.expanded) continue;
 
-    const int start_level = group.start_level;
-    int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
+    if (group.type == Group::Type::kFlame) {
+      const int start_level = group.start_level;
+      int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
 
-    for (int level = start_level; level < end_level; ++level) {
-      if (level >= timeline_data_.events_by_level.size()) continue;
+      for (int level = start_level; level < end_level; ++level) {
+        if (level >= timeline_data_.events_by_level.size()) continue;
 
-      const auto& events = timeline_data_.events_by_level[level];
-      const Pixel y_top = tracks_start_screen_pos_.y +
-                          visible_level_offsets_[level] - kEventHeight * 0.5f -
-                          scroll_y;
-      const Pixel y_bottom = y_top + kEventHeight;
+        const auto& events = timeline_data_.events_by_level[level];
+        const Pixel y_top = tracks_start_screen_pos_.y +
+                            visible_level_offsets_[level] -
+                            kEventHeight * 0.5f - scroll_y;
+        const Pixel y_bottom = y_top + kEventHeight;
+
+        if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
+          continue;
+        }
+
+        for (const int event_index : events) {
+          const Microseconds start =
+              timeline_data_.entry_start_times[event_index];
+          const Microseconds end =
+              start + timeline_data_.entry_total_times[event_index];
+
+          const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time);
+          Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time);
+          right = std::max(right, left + kEventMinimumDrawWidth);
+
+          if (right < selection_rect.Min.x || left > selection_rect.Max.x) {
+            continue;
+          }
+
+          selected_event_indices_.push_back(event_index);
+        }
+      }
+    } else if (group.type == Group::Type::kCounter) {
+      Pixel y_top =
+          tracks_start_screen_pos_.y + group_offsets_[group_index] - scroll_y;
+      Pixel group_height = kCounterTrackHeight;
+      Pixel y_bottom = y_top + group_height;
 
       if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
         continue;
       }
 
-      for (const int event_index : events) {
-        const Microseconds start =
-            timeline_data_.entry_start_times[event_index];
-        const Microseconds end =
-            start + timeline_data_.entry_total_times[event_index];
+      const auto it =
+          timeline_data_.counter_data_by_group_index.find(group_index);
+      if (it == timeline_data_.counter_data_by_group_index.end()) continue;
+      const auto& counter_data = it->second;
 
-        const Pixel left = TimeToScreenX(start, screen_x_offset, px_per_time);
-        Pixel right = TimeToScreenX(end, screen_x_offset, px_per_time);
-        right = std::max(right, left + kEventMinimumDrawWidth);
+      const double value_range =
+          counter_data.max_value - counter_data.min_value;
+      const float y_ratio = value_range > 0 ? group_height / value_range : 0.0f;
 
-        if (right < selection_rect.Min.x || left > selection_rect.Max.x) {
-          continue;
+      for (size_t i = 0; i < counter_data.timestamps.size(); ++i) {
+        Microseconds ts = counter_data.timestamps[i];
+        double val = counter_data.values[i];
+
+        Pixel x = TimeToScreenX(ts, screen_x_offset, px_per_time);
+        Pixel y = (value_range > 0)
+                      ? y_top + group_height -
+                            (val - counter_data.min_value) * y_ratio
+                      : y_top + group_height / 2.0f;
+
+        if (selection_rect.Contains(ImVec2(x, y))) {
+          selected_counter_points_.push_back({group_index, i});
         }
-
-        selected_event_indices_.push_back(event_index);
       }
     }
   }
 }
 
 void Timeline::CalculateAndEmitMetrics() {
-  if (selected_event_indices_.empty()) {
+  if (selected_event_indices_.empty() && selected_counter_points_.empty()) {
     event_callback_(kEventsSelected, EventData());
     return;
   }
-
-  struct Metrics {
-    int count = 0;
-    Microseconds wall_time = 0;
-    Microseconds self_time = 0;
-  };
-
-  absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
-
-  for (const int event_index : selected_event_indices_) {
-    const std::string& name = timeline_data_.entry_names[event_index];
-    Microseconds wall = timeline_data_.entry_total_times[event_index];
-    Microseconds self = timeline_data_.entry_self_times[event_index];
-
-    Metrics& m = aggregated_metrics[name];
-    m.count++;
-    m.wall_time += wall;
-    m.self_time += self;
-  }
-
-  std::string metrics_json = "[";
-  bool first = true;
-  for (const auto& [name, metrics] : aggregated_metrics) {
-    if (!first) metrics_json += ',';
-    first = false;
-    metrics_json += absl::StrFormat(
-        R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
-        name, metrics.count, metrics.wall_time, metrics.self_time,
-        metrics.wall_time / metrics.count);
-  }
-  metrics_json += ']';
 
   Microseconds selection_start_us = 0;
   Microseconds selection_extent_us = 0;
@@ -2544,9 +2549,70 @@ void Timeline::CalculateAndEmitMetrics() {
     selection_extent_us = end_us - start_us;
   }
 
-  std::string json = absl::StrFormat(
-      R"({"selectionStartUs":%.1f,"selectionExtentUs":%.1f,"metrics":%s})",
-      selection_start_us, selection_extent_us, metrics_json);
+  std::string json =
+      absl::StrFormat(R"({"selectionStartUs":%.1f,"selectionExtentUs":%.1f)",
+                      selection_start_us, selection_extent_us);
+
+  if (!selected_event_indices_.empty()) {
+    struct Metrics {
+      int count = 0;
+      Microseconds wall_time = 0;
+      Microseconds self_time = 0;
+    };
+
+    absl::flat_hash_map<std::string, Metrics> aggregated_metrics;
+
+    for (const int event_index : selected_event_indices_) {
+      const std::string& name = timeline_data_.entry_names[event_index];
+      Microseconds wall = timeline_data_.entry_total_times[event_index];
+      Microseconds self = timeline_data_.entry_self_times[event_index];
+
+      Metrics& m = aggregated_metrics[name];
+      m.count++;
+      m.wall_time += wall;
+      m.self_time += self;
+    }
+
+    std::string metrics_json = "[";
+    bool first = true;
+    for (const auto& [name, metrics] : aggregated_metrics) {
+      if (!first) metrics_json += ',';
+      first = false;
+      metrics_json += absl::StrFormat(
+          R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
+          name, metrics.count, metrics.wall_time, metrics.self_time,
+          metrics.wall_time / metrics.count);
+    }
+    metrics_json += ']';
+
+    absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
+  }
+
+  if (!selected_counter_points_.empty()) {
+    std::string counters_json = "[";
+    bool first = true;
+    for (const auto& [group_index, point_index] : selected_counter_points_) {
+      const auto& group = timeline_data_.groups[group_index];
+      const auto it =
+          timeline_data_.counter_data_by_group_index.find(group_index);
+      if (it == timeline_data_.counter_data_by_group_index.end()) continue;
+      const auto& counter_data = it->second;
+
+      Microseconds ts = counter_data.timestamps[point_index];
+      double val = counter_data.values[point_index];
+
+      if (!first) counters_json += ',';
+      first = false;
+      counters_json += absl::StrFormat(
+          R"({"counter":"%s","series":"%s","time":%.1f,"value":%.1f})",
+          group.name, group.subtitle, ts, val);
+    }
+    counters_json += ']';
+
+    absl::StrAppend(&json, R"(,"counters":)", counters_json);
+  }
+
+  absl::StrAppend(&json, "}");
 
   EventData event_data;
   event_data.try_emplace(kEventsSelectedData, json);

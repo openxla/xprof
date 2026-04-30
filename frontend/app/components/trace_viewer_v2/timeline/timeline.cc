@@ -2469,9 +2469,28 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
           continue;
         }
 
-        for (const int event_index : events) {
+        Microseconds selection_start_time =
+            PixelToTime(selection_rect.Min.x - screen_x_offset, px_per_time);
+        Microseconds selection_end_time =
+            PixelToTime(selection_rect.Max.x - screen_x_offset, px_per_time);
+
+        auto it =
+            std::lower_bound(events.begin(), events.end(), selection_start_time,
+                             [&](int event_idx, Microseconds t) {
+                               const Microseconds end =
+                                   timeline_data_.entry_start_times[event_idx] +
+                                   timeline_data_.entry_total_times[event_idx];
+                               return end <= t;
+                             });
+
+        for (; it != events.end(); ++it) {
+          const int event_index = *it;
           const Microseconds start =
               timeline_data_.entry_start_times[event_index];
+          if (start > selection_end_time) {
+            break;
+          }
+
           const Microseconds end =
               start + timeline_data_.entry_total_times[event_index];
 
@@ -2505,11 +2524,23 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
           counter_data.max_value - counter_data.min_value;
       const float y_ratio = value_range > 0 ? group_height / value_range : 0.0f;
 
-      for (size_t i = 0; i < counter_data.timestamps.size(); ++i) {
-        Microseconds ts = counter_data.timestamps[i];
+      Microseconds selection_start_time =
+          PixelToTime(selection_rect.Min.x - screen_x_offset, px_per_time);
+      Microseconds selection_end_time =
+          PixelToTime(selection_rect.Max.x - screen_x_offset, px_per_time);
+
+      auto it_start =
+          std::lower_bound(counter_data.timestamps.begin(),
+                           counter_data.timestamps.end(), selection_start_time);
+      auto it_end =
+          std::upper_bound(counter_data.timestamps.begin(),
+                           counter_data.timestamps.end(), selection_end_time);
+
+      for (auto it = it_start; it != it_end; ++it) {
+        size_t i = std::distance(counter_data.timestamps.begin(), it);
         double val = counter_data.values[i];
 
-        Pixel x = TimeToScreenX(ts, screen_x_offset, px_per_time);
+        Pixel x = TimeToScreenX(*it, screen_x_offset, px_per_time);
         Pixel y = (value_range > 0)
                       ? y_top + group_height -
                             (val - counter_data.min_value) * y_ratio

@@ -191,12 +191,13 @@ canvas {
 .drawer {
   height: 100%;
   background-color: white;
-  padding: 10px;
   box-sizing: border-box;
   overflow: auto;
 
   .event-detail-table-container {
     width: 100%;
+    padding: 10px;
+    box-sizing: border-box;
   }
 
   table.mat-mdc-table {
@@ -224,6 +225,10 @@ canvas {
     th.mat-mdc-header-cell,
     td.mat-mdc-footer-cell {
       font-weight: bold;
+    }
+
+    th.mat-mdc-header-cell {
+      background-color: #f5f5f5;
     }
 
     tr.mat-mdc-header-row {

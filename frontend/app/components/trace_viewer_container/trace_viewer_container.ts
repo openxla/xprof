@@ -249,6 +249,14 @@ export class TraceViewerContainer
         return 'Avg Wall Duration';
       case 'occurrences':
         return 'Occurrences';
+      case 'counter':
+        return 'Counter';
+      case 'series':
+        return 'Series';
+      case 'time':
+        return 'Time';
+      case 'value':
+        return 'Value';
       default:
         return 'Name';
     }

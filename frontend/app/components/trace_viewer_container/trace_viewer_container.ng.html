@@ -132,7 +132,7 @@
 
               <tr mat-header-row *matHeaderRowDef="eventDetailColumns; sticky: true"></tr>
               <tr mat-row *matRowDef="let row; columns: eventDetailColumns;"></tr>
-              <tr mat-footer-row *matFooterRowDef="eventDetailColumns; sticky: true"></tr>
+              <tr mat-footer-row *matFooterRowDef="eventDetailColumns; sticky: true" [hidden]="eventDetailColumns.includes('counter')"></tr>
             </table>
 
             <div *ngIf="selectionStartFormat" class="selection-info" style="margin-top: 16px;">

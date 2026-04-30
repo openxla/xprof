@@ -372,13 +372,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.selectionStartFormat = result.selectionStartFormat;
       this.selectionExtentFormat = result.selectionExtentFormat;
 
-      this.eventDetailColumns = [
-        'name',
-        'occurrences',
-        'wallDuration',
-        'selfTime',
-        'avgWallDuration',
-      ];
+      if (result.isCounter) {
+        this.eventDetailColumns = ['counter', 'series', 'time', 'value'];
+      } else {
+        this.eventDetailColumns = [
+          'name',
+          'occurrences',
+          'wallDuration',
+          'selfTime',
+          'avgWallDuration',
+        ];
+      }
     } catch (e) {
       console.error('Failed to parse events selected data:', e);
       this.selectedEventProperties = [];

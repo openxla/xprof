@@ -10,18 +10,28 @@ export declare interface MetricsItem {
   avgWallDurationUs: number;
 }
 
+/** Represents an item in the counters array of events selection data. */
+export declare interface CounterSelectionItem {
+  [key: string]: string | number;
+  counter: string;
+  series: string;
+  time: number;
+  value: number;
+}
+
 /** Represents the parsed JSON data structure for events selection. */
 export declare interface EventsSelectedData {
-  [key: string]: number | MetricsItem[] | undefined;
+  [key: string]: number | MetricsItem[] | CounterSelectionItem[] | undefined;
   selectionStartUs?: number;
   selectionExtentUs?: number;
   metrics?: MetricsItem[];
+  counters?: CounterSelectionItem[];
 }
 
 /** Represents an aggregated event property with specific metrics. */
 export interface AggregatedEventProperty extends SelectedEventProperty {
-  name: string;
-  occurrences: number;
+  name?: string;
+  occurrences?: number;
   wallDuration?: number;
   selfTime?: number;
   avgWallDuration?: number;

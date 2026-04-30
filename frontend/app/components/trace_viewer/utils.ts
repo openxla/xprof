@@ -1,5 +1,6 @@
 import {
   AggregatedEventProperty,
+  CounterSelectionItem,
   EventsSelectedData,
   MetricsItem,
 } from './interfaces';
@@ -16,13 +17,26 @@ function isMetricsItem(item: unknown): item is MetricsItem {
   );
 }
 
+function isCounterSelectionItem(item: unknown): item is CounterSelectionItem {
+  if (typeof item !== 'object' || item === null) return false;
+  const record = item as Record<string, unknown>;
+  return (
+    typeof record['counter'] === 'string' &&
+    typeof record['series'] === 'string' &&
+    typeof record['time'] === 'number' &&
+    typeof record['value'] === 'number'
+  );
+}
+
 function isEventsSelectedData(data: unknown): data is EventsSelectedData {
   if (typeof data !== 'object' || data === null) return false;
   const record = data as Record<string, unknown>;
 
   const metrics = record['metrics'];
-  if (metrics !== undefined && !Array.isArray(metrics)) return false;
   if (Array.isArray(metrics) && !metrics.every(isMetricsItem)) return false;
+
+  const counters = record['counters'];
+  if (Array.isArray(counters) && !counters.every(isCounterSelectionItem)) return false;
 
   return (
     (record['selectionStartUs'] === undefined ||
@@ -45,15 +59,18 @@ export function parseEventsSelectedData(dataString: string): {
   properties: AggregatedEventProperty[];
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
+  isCounter?: boolean;
 } {
   const properties: AggregatedEventProperty[] = [];
   let selectionStartFormat: string | undefined;
   let selectionExtentFormat: string | undefined;
+  let isCounter = false;
 
   try {
     const data = JSON.parse(dataString) as unknown;
 
     let metricsData: MetricsItem[] = [];
+    let countersData: CounterSelectionItem[] = [];
     let selectionStartUs: number | undefined;
     let selectionExtentUs: number | undefined;
 
@@ -61,23 +78,38 @@ export function parseEventsSelectedData(dataString: string): {
       metricsData = data;
     } else if (isEventsSelectedData(data)) {
       metricsData = (data['metrics'] as MetricsItem[]) ?? [];
+      countersData = (data['counters'] as CounterSelectionItem[]) ?? [];
       selectionStartUs = data['selectionStartUs'] as number | undefined;
       selectionExtentUs = data['selectionExtentUs'] as number | undefined;
     } else {
       throw new Error('Invalid events selected data format');
     }
 
-    for (const item of metricsData) {
-      const name = item['name'] as string;
-      properties.push({
-        'property': name,
-        'value': '',
-        'name': name,
-        'occurrences': item['count'] as number,
-        'wallDuration': item['wallTimeUs'] as number,
-        'selfTime': item['selfTimeUs'] as number,
-        'avgWallDuration': item['avgWallDurationUs'] as number,
-      });
+    isCounter = countersData.length > 0;
+
+    if (isCounter) {
+      for (const item of countersData) {
+        properties.push({
+          'property': item['counter'],
+          'counter': item['counter'],
+          'series': item['series'],
+          'time': item['time'],
+          'value': item['value'],
+        });
+      }
+    } else {
+      for (const item of metricsData) {
+        const name = item['name'] as string;
+        properties.push({
+          'property': name,
+          'value': '',
+          'name': name,
+          'occurrences': item['count'] as number,
+          'wallDuration': item['wallTimeUs'] as number,
+          'selfTime': item['selfTimeUs'] as number,
+          'avgWallDuration': item['avgWallDurationUs'] as number,
+        });
+      }
     }
 
     selectionStartFormat =
@@ -93,5 +125,5 @@ export function parseEventsSelectedData(dataString: string): {
     throw e;
   }
 
-  return {properties, selectionStartFormat, selectionExtentFormat};
+  return {properties, selectionStartFormat, selectionExtentFormat, isCounter};
 }

@@ -38,6 +38,26 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "memory_viewer_main_test.ts",
+    ],
+    deps = [
+        ":memory_viewer_main",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:memory_viewer_preprocess_proto_defs",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "memory_viewer_main_css",
     src = "memory_viewer_main.scss",

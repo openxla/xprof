@@ -21,6 +21,21 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "max_infeed_detail_test.ts",
+    ],
+    deps = [
+        ":max_infeed_detail",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)
+
 sass_binary(
     name = "max_infeed_detail_css",
     src = "max_infeed_detail.scss",

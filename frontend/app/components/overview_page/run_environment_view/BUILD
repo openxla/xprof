@@ -21,6 +21,22 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "run_environment_view_test.ts",
+    ],
+    deps = [
+        ":run_environment_view",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+    ],
+)
+
 sass_binary(
     name = "run_environment_view_css",
     src = "run_environment_view.scss",

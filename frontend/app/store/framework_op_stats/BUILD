@@ -18,3 +18,19 @@ xprof_ng_module(
         "@org_xprof//frontend/app/store:types",
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "reducers_test.ts",
+        "selectors_test.ts",
+    ],
+    deps = [
+        ":framework_op_stats",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@ngrx/store",
+        "@npm//rxjs",
+    ],
+)

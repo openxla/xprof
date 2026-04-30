@@ -60,3 +60,21 @@ ts_library(
         "@org_xprof//frontend/app/common/interfaces:chart",
     ],
 )
+
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "chart_test.ts",
+        "table_utils_test.ts",
+    ],
+    deps = [
+        ":chart",
+        ":utils",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:chart",
+        "@org_xprof//frontend/app/common/utils:testing",
+    ],
+)

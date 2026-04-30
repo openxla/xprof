@@ -24,6 +24,23 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "performance_summary_test.ts",
+    ],
+    deps = [
+        ":performance_summary",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+    ],
+)
+
 sass_binary(
     name = "performance_summary_css",
     src = "performance_summary.scss",

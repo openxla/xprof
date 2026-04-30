@@ -1,4 +1,4 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {Component, inject, OnDestroy, ChangeDetectionStrategy, Output, EventEmitter} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -22,6 +22,9 @@ export class OpProfile implements OnDestroy {
   private tool = 'hlo_op_profile';
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  /** EventEmitter that emits when data is loaded and component is ready. */
+  @Output() readonly ready = new EventEmitter<void>();
+
   private readonly throbber = new Throbber(this.tool);
   private readonly dataService: DataServiceV2Interface =
       inject(DATA_SERVICE_INTERFACE_TOKEN);
@@ -109,6 +112,7 @@ export class OpProfile implements OnDestroy {
           if (moduleList) {
             this.moduleList = moduleList.split(',');
           }
+          this.ready.emit();
         });
   }
 

@@ -39,6 +39,30 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "trace_viewer_test.ts",
+        "utils_test.ts",
+    ],
+    deps = [
+        ":trace_viewer",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/common",
+        "@npm//@angular/router",
+        "@npm//@ngrx/store",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/components/trace_viewer_container",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "trace_viewer_css",
     src = "trace_viewer.scss",

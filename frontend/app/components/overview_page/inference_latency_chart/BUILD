@@ -21,6 +21,20 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "inference_latency_chart_test.ts",
+    ],
+    deps = [
+        ":inference_latency_chart",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+    ],
+)
+
 sass_binary(
     name = "inference_latency_chart_css",
     src = "inference_latency_chart.scss",

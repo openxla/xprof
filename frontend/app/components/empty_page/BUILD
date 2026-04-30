@@ -23,6 +23,25 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "empty_page_test.ts",
+    ],
+    deps = [
+        ":empty_page",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        # ksf,
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//rxjs",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/services/data_service_v2",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "empty_page_css",
     src = "empty_page.scss",

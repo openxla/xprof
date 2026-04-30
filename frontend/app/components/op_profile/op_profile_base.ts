@@ -48,7 +48,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   profile: OpProfileProto | null = null;
   rootNode?: Node;
   data = new OpProfileData();
-  groupBy = GROUP_BY_RULES[0];
+  @Input() groupBy = GROUP_BY_RULES[0];
   readonly GROUP_BY_RULES = GROUP_BY_RULES;
   excludeIdle = true;
   byWasted = false;
@@ -122,6 +122,9 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   ngOnChanges(changes: SimpleChanges) {
     if (changes['opProfileData'] && this.opProfileData) {
       this.parseData(this.opProfileData);
+    } else if (changes['groupBy']) {
+      this.updateRoot();
+      this.data.update(this.rootNode, this.applyScalingFactor);
     }
   }
 

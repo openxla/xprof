@@ -38,6 +38,22 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "host_side_analysis_detail_test.ts",
+    ],
+    deps = [
+        ":host_side_analysis_detail",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/components/chart:chart_options",
+    ],
+)
+
 sass_binary(
     name = "host_side_analysis_detail_css",
     src = "host_side_analysis_detail.scss",

@@ -73,6 +73,48 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "op_profile_test.ts",
+    ],
+    deps = [
+        ":op_profile",
+        ":op_profile_base",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces:op_metrics_proto_defs",
+        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
+xprof_ng_module(
+    name = "screenshot_tests",
+    testonly = True,
+    srcs = [
+        "op_profile_screenshot_test.ts",
+    ],
+    tags = ["requires-net:external"],
+    deps = [
+        ":op_profile",
+        "//javascript/angular2/testing/catalyst/async",
+        # ksf,
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
 sass_binary(
     name = "op_profile_common_css",
     src = "op_profile_common.scss",

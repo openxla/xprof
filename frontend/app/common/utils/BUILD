@@ -25,3 +25,17 @@ ts_library(
         "@org_xprof//frontend/app/store",
     ],
 )
+
+ts_library(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "utils_test.ts",
+    ],
+    deps = [
+        ":utils",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/interfaces:op_metrics_proto_defs",
+    ],
+)

@@ -285,19 +285,20 @@ std::vector<int> GetTop5FlowCategories(
 }
 
 ImU32 GetFlowColorForCategory(tsl::profiler::ContextType category,
-                              const std::vector<int>& top_5_flow_categories) {
+                              absl::Span<const int> top_5_flow_categories,
+                              const ColorPalette& palette) {
   if (category == tsl::profiler::ContextType::kGeneric) {
     return kRed80;
   }
 
-  constexpr ImU32 top_5_colors[] = {kOrange80, kYellow80, kGreen80, kBlue80,
-                                    kCyan80};
-  const size_t loop_limit =
-      std::min(top_5_flow_categories.size(), std::size(top_5_colors));
+  absl::Span<const ImU32> flow_colors = palette.GetFlowColors();
+  if (flow_colors.empty()) {
+    return kPurple80;  // Fallback if no flow colors are provided.
+  }
 
-  for (size_t i = 0; i < loop_limit; ++i) {
+  for (size_t i = 0; i < top_5_flow_categories.size(); ++i) {
     if (static_cast<int>(category) == top_5_flow_categories[i]) {
-      return top_5_colors[i];
+      return flow_colors[i % flow_colors.size()];
     }
   }
   return kPurple80;
@@ -339,8 +340,9 @@ int GetEventFlameChartLevel(
 void GenerateFlowLines(const TraceInformation& trace_info,
                        const absl::btree_map<std::pair<ProcessId, ThreadId>,
                                              ThreadLevelInfo>& thread_levels,
-                       const std::vector<int>& top_5_flow_categories,
-                       FlameChartTimelineData& data, TimeBounds& bounds) {
+                       absl::Span<const int> top_5_flow_categories,
+                       FlameChartTimelineData& data, TimeBounds& bounds,
+                       const ColorPalette& palette) {
   for (const auto& [id, flow_events] : trace_info.flow_events_by_id) {
     for (const TraceEvent* event : flow_events) {
       std::vector<std::string>& event_flow_ids =
@@ -353,8 +355,9 @@ void GenerateFlowLines(const TraceInformation& trace_info,
     for (size_t i = 0; i < flow_events.size() - 1; ++i) {
       const TraceEvent* u = flow_events[i];
       const TraceEvent* v = flow_events[i + 1];
-      const ImU32 flow_color = GetFlowColorForCategory(
-          u->category, top_5_flow_categories);  // Use flow category for color
+      const ImU32 flow_color =
+          GetFlowColorForCategory(u->category, top_5_flow_categories,
+                                  palette);  // Use flow category for color
       FlowLine flow_line{
           .source_ts = u->ts,
           .target_ts = v->ts,
@@ -764,9 +767,8 @@ void PopulateProcessTrack(
 
   // Check if any threads exist for this PID in thread_names.
   auto it_thread_names = trace_info.thread_names.lower_bound({pid, 0});
-  bool has_named_threads =
-      (it_thread_names != trace_info.thread_names.end() &&
-       it_thread_names->first.first == pid);
+  bool has_named_threads = (it_thread_names != trace_info.thread_names.end() &&
+                            it_thread_names->first.first == pid);
 
   if (!has_events && !has_counters && !has_named_threads) {
     // No events, counters, or named tracks for this process, so skip this
@@ -849,9 +851,9 @@ std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
 }
 
 FlameChartTimelineData CreateTimelineData(
-    TraceInformation& trace_info, const std::vector<int>& top_5_flow_categories,
-    TimeBounds& bounds,
-    const absl::btree_map<GroupKey, bool>& expanded_states) {
+    TraceInformation& trace_info, absl::Span<const int> top_5_flow_categories,
+    TimeBounds& bounds, const absl::btree_map<GroupKey, bool>& expanded_states,
+    const ColorPalette& palette) {
   FlameChartTimelineData data;
   int current_level = 0;
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
@@ -870,7 +872,7 @@ FlameChartTimelineData CreateTimelineData(
   }
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,
-                    bounds);
+                    bounds, palette);
   return data;
 }
 
@@ -987,7 +989,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
   timeline.SetTimelineData(CreateTimelineData(
       trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds,
-      expanded_states));
+      expanded_states, timeline.GetPalette()));
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

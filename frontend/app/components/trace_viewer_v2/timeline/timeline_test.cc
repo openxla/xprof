@@ -20,6 +20,7 @@
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
@@ -44,10 +45,16 @@ constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
 // Mock class for Timeline to mock virtual methods.
 class MockTimeline : public Timeline {
  public:
+  MockTimeline() : Timeline(color_palette_) {}
+  explicit MockTimeline(ColorPalette& palette) : Timeline(palette) {}
+
   MOCK_METHOD(ImVec2, GetTextSize, (absl::string_view text), (const, override));
   MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
+
+ private:
+  ColorPalette color_palette_ = ColorPalette::Default();
 };
 
 // =============================================================================
@@ -92,7 +99,8 @@ TEST(TimelineTest, BezierControlPointCalculation) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [80.0, 90.0].
@@ -109,7 +117,8 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideRight) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [210.0, 220.0].
@@ -126,7 +135,8 @@ TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideRight) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [110.0, 120.0].
@@ -143,7 +153,8 @@ TEST(TimelineTest, CalculateEventRect_EventFullyWithinView) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedLeft) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [90.0, 110.0].
@@ -158,7 +169,8 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedLeft) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedRight) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [190.0, 210.0].
@@ -173,7 +185,8 @@ TEST(TimelineTest, CalculateEventRect_EventPartiallyClippedRight) {
 }
 
 TEST(TimelineTest, CalculateEventRect_EventSmallerThanMinimumWidth) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 200.0});
 
   // Event time range: [110.0, 110.1].
@@ -189,7 +202,8 @@ TEST(TimelineTest, CalculateEventRect_EventSmallerThanMinimumWidth) {
 }
 
 TEST(TimelineTest, CalculateEventRect_ZeroPxPerTimeUnit) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({100.0, 100.0});  // Zero duration
 
   // With px_per_time_unit = 0, the event width is 0, so it's expanded to
@@ -300,7 +314,8 @@ TEST(TimelineTest, CalculateEventTextRect_TextWiderThanRect) {
 }
 
 TEST(TimelineTest, CalculateTickInfo) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Data range: [1000, 2000].
   timeline.set_data_time_range({1000.0, 2000.0});
   // Visible range: [1100, 1200].
@@ -321,7 +336,8 @@ TEST(TimelineTest, CalculateTickInfo) {
 }
 
 TEST(TimelineTest, CalculateTickInfoOffset) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({1000.0, 2000.0});
   // Visible range starts at 1105, but interval is 10.
   timeline.SetVisibleRange({1105.0, 1150.0});
@@ -342,7 +358,8 @@ TEST(TimelineTest, CalculateTickInfoOffset) {
 // Constants for CalculateEventRect tests
 
 TEST(TimelineTest, CalculateTickInfoZoomedIn) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({1000.0, 2000.0});
   timeline.SetVisibleRange({1105.0, 1106.0});  // Very zoomed in.
 
@@ -364,7 +381,8 @@ TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRange) {
   // Data Range: [=====================]
   // Range:                  {--------------}
   // Constrained:       (--------------)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   TimeRange range(60.0, 110.0);
 
@@ -378,7 +396,8 @@ TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRangeStartCapped) {
   // Data Range:  [====================]
   // Range:         {---------------------------}
   // Constrained: (====================)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   TimeRange range(11.0, 110.0);
 
@@ -389,7 +408,8 @@ TEST(TimelineTest, ConstrainTimeRange_EndAfterDataRangeStartCapped) {
 }
 
 TEST(TimelineTest, ConstrainTimeRange_EnforceMinDuration) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 100.0});
   TimeRange range(50.0, 50.0);
 
@@ -402,7 +422,8 @@ TEST(TimelineTest, ConstrainTimeRange_EnforceMinDuration) {
 }
 
 TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   // This range has duration kMinDurationMicros / 2, centered at 100.0.
   TimeRange range(100.0 - kMinDurationMicros / 4,
@@ -420,7 +441,8 @@ TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtEnd) {
 }
 
 TEST(TimelineTest, ConstrainTimeRange_MinDurationExpansionClampedAtStart) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   // This range has duration kMinDurationMicros / 2, centered at 10.0.
   TimeRange range(10.0 - kMinDurationMicros / 4, 10.0 + kMinDurationMicros / 4);
@@ -440,7 +462,8 @@ TEST(TimelineTest, ConstrainTimeRange_NoChange) {
   // Data Range: [===========================]
   // Range:        {----------------------}
   // Constrained:  (----------------------)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 100.0});
   TimeRange range(10.0, 90.0);
 
@@ -454,7 +477,8 @@ TEST(TimelineTest, ConstrainTimeRange_RangeCoversDataRange) {
   // Data Range:      [================]
   // Range: {------------------------------}
   // Constrained:     (================)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 120.0);
 
@@ -468,7 +492,8 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRange) {
   // Data Range:      [==========================]
   // Range:      {---------}
   // Constrained:     (---------)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 50.0);
 
@@ -482,7 +507,8 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
   // Data Range:      [========================]
   // Range:      {----------------------------}
   // Constrained:     (========================)
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({10.0, 100.0});
   TimeRange range(0.0, 99.0);
 
@@ -493,13 +519,15 @@ TEST(TimelineTest, ConstrainTimeRange_StartBeforeDataRangeEndCapped) {
 }
 
 TEST(TimelineTest, CopyNotificationTimerAndNameInitialization) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   EXPECT_EQ(timeline.get_copy_notification_timer_for_test(), 0.0f);
   EXPECT_EQ(timeline.get_copied_track_name_for_test(), "");
 }
 
 TEST(TimelineTest, GetDeleteButtonLayout_TextDoesNotFit) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   const ImVec2 text_size(50.0f, 20.0f);
   const ImVec2 text_pos(100.0f, 200.0f);
   // Visible range is smaller than text width.
@@ -523,7 +551,8 @@ TEST(TimelineTest, GetDeleteButtonLayout_TextDoesNotFit) {
 }
 
 TEST(TimelineTest, GetDeleteButtonLayout_TextFits) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   const ImVec2 text_size(50.0f, 20.0f);
   const ImVec2 text_pos(100.0f, 200.0f);
   const ImRect visible_range_rect(0.0f, 0.0f, 300.0f, 300.0f);
@@ -572,7 +601,6 @@ TEST(TimelineTest, GetTextForDisplayWhenTextFits) {
   // Text width 50.0 is smaller than 1000.0, so no truncation.
   EXPECT_EQ(timeline.GetTextForDisplay(text, 1000.0f), text);
 }
-
 
 TEST(TimelineTest, GetTextForDisplayWhenTextTruncated) {
   MockTimeline timeline;
@@ -623,7 +651,8 @@ TEST(TimelineTest, GetTextForDisplayWhenWidthTooSmallForEllipsis) {
 }
 
 TEST(TimelineTest, InitializeLastFetchRequestRange_ConstrainsRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({5500000.0, 6500000.0});  // Narrow data range
   timeline.set_fetched_data_time_range({0.0, 10000000.0});
   timeline.set_is_incremental_loading(false);
@@ -639,7 +668,8 @@ TEST(TimelineTest, InitializeLastFetchRequestRange_ConstrainsRange) {
 }
 
 TEST(TimelineTest, InitializeLastFetchRequestRange_ExpandsToMinDuration) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 10000000.0});
   timeline.set_fetched_data_time_range({0.0, 10000000.0});
   timeline.set_is_incremental_loading(false);
@@ -659,7 +689,8 @@ TEST(TimelineTest, InitializeLastFetchRequestRange_ExpandsToMinDuration) {
 }
 
 TEST(TimelineTest, InitializeLastFetchRequestRange_SetsCorrectRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 10000000.0});
   timeline.set_fetched_data_time_range({0.0, 10000000.0});
   timeline.set_is_incremental_loading(false);
@@ -673,7 +704,8 @@ TEST(TimelineTest, InitializeLastFetchRequestRange_SetsCorrectRange) {
 }
 
 TEST(TimelineTest, MaybeRequestDataDoesNotRefetchWhenZoomAtBoundary) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 100000.0});
   timeline.set_fetched_data_time_range({0.0, 24000.0});
   timeline.set_is_incremental_loading(false);
@@ -694,7 +726,8 @@ TEST(TimelineTest, MaybeRequestDataDoesNotRefetchWhenZoomAtBoundary) {
 }
 
 TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Scenario: Visible range is very small (100us).
   // Fetch calculated (Scale 3.0) would be 300us.
   // Must expand to kMinFetchDurationMicros (1000us = 1ms).
@@ -731,7 +764,8 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
 }
 
 TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Data range: [0, 10s] = 10,000,000.
   // Fetched range: [0, 2s] = 2,000,000.
   // Visible range: [9s, 10s] = [9,000,000, 10,000,000]. Duration 1s.
@@ -771,7 +805,8 @@ TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
 
 TEST(TimelineTest,
      MaybeRequestDataNoTriggerAfterInitializeLastFetchRequestRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 10000000.0});
   timeline.set_fetched_data_time_range({0.0, 10000000.0});
   timeline.set_is_incremental_loading(false);
@@ -796,7 +831,8 @@ TEST(TimelineTest,
 }
 
 TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Visible range: [100, 200]. Duration: 100. Center: 150.
   // Preserve range (Scale 2.0): [50, 250].
   // Data range: [0, 300].
@@ -821,7 +857,8 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenInsidePreserveRange) {
 }
 
 TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenLoading) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({60.0, 300.0});
   timeline.set_fetched_data_time_range({60.0, 300.0});
   // Simulate loading state
@@ -841,7 +878,8 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenLoading) {
 }
 
 TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Visible range: [100, 200]. Duration: 100. Center: 150.
   // Preserve range (Scale 2.0): [50, 250].
   // Data range: [60, 300].
@@ -869,7 +907,8 @@ TEST(TimelineTest, MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRange) {
 
 TEST(TimelineTest,
      MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRangeEnd) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Visible range: [800, 900]. Duration: 100. Center: 850.
   // Preserve range (Scale 2.0): [750, 950].
   // Data range: [700, 940].
@@ -896,7 +935,8 @@ TEST(TimelineTest,
 
 TEST(TimelineTest,
      MaybeRequestDataNotTriggeredWhenPreserveExceedsDataRangeStart) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Visible range: [100, 200]. Duration: 100. Center: 150.
   // Preserve range (Scale 2.0): [50, 250].
   // Data range: [60, 300].
@@ -921,7 +961,8 @@ TEST(TimelineTest,
 }
 
 TEST(TimelineTest, MaybeRequestDataRefetchWhenZoomedIn) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Scenario: Focus on zoom-in logic WITHOUT triggering MinFetchDuration
   // expansion.
   // We need Fetch duration > kMinFetchDurationMicros (1ms).
@@ -962,7 +1003,8 @@ TEST(TimelineTest, MaybeRequestDataRefetchWhenZoomedIn) {
 }
 
 TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Step 1: Initialize with full range fetch to set last_fetch_request_range_.
   // Data: [0, 10s].
   timeline.set_data_time_range({0.0, 10000000.0});
@@ -1007,7 +1049,8 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
 }
 
 TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.set_data_time_range({0.0, 300.0});
   timeline.set_fetched_data_time_range({60.0, 300.0});
   timeline.set_is_incremental_loading(false);
@@ -1032,7 +1075,8 @@ TEST(TimelineTest, MaybeRequestDataSetsIsLoadingToTrue) {
 }
 
 TEST(TimelineTest, MaybeRequestDataSkipsFetchIfRangeAlreadyRequested) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Scenario: We requested [0, 3000].
   // We currently have [0, 2500] (maybe partial load).
   // We pan to a place that needs [2600].
@@ -1072,7 +1116,8 @@ TEST(TimelineTest, MaybeRequestDataSkipsFetchIfRangeAlreadyRequested) {
 }
 
 TEST(TimelineTest, MaybeRequestDataSuppressesRedundantFetchWithExpandedRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Scenario: Visible 100us -> Expanded Fetch 1000us (1ms).
   // last_fetch and fetched cover this 1000us.
   // Zoom ratio is low (fetched is small).
@@ -1126,6 +1171,8 @@ TEST(TimelineTest, MaybeRequestDataSuppressesRedundantFetchWithExpandedRange) {
 template <typename TimelineT>
 class TimelineImGuiTestFixture : public Test {
  protected:
+  TimelineImGuiTestFixture() : timeline_(color_palette_) {}
+
   void SetUp() override {
     ImGui::CreateContext();
 
@@ -1135,21 +1182,22 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.SetTimelineData({{},
-                               {},
-                               {},
-                               {},
-                               {},
-                               {},
-                               {},
-                               {},
-                               {},
-                               {{.name = "group",
-                                 .start_level = 0,
-                                 .nesting_level = 0,
-                                 .expanded = true}},
-                               {},
-                               {}});
+    timeline_.SetTimelineData(
+        {{},  // Pass ColorPalette::Default() to constructor
+         {},
+         {},
+         {},
+         {},
+         {},
+         {},
+         {},
+         {},
+         {{.name = "group",
+           .start_level = 0,
+           .nesting_level = 0,
+           .expanded = true}},
+         {},
+         {}});
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -1202,13 +1250,15 @@ class TimelineImGuiTestFixture : public Test {
     SimulateFrame();
   }
 
+  ColorPalette color_palette_ = ColorPalette::Default();
   TimelineT timeline_;
 };
 
 using MockTimelineImGuiFixture = TimelineImGuiTestFixture<MockTimeline>;
 
 TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   // Visible range: [100, 200]. Duration: 100. Center: 150.
   // Preserve range (Scale 2.0): [50, 250].
   // Data range: [60, 300].
@@ -1338,7 +1388,8 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_EmptyCallback_DoesNotCrash) {
 }
 
 TEST(TimelineTest, NavigateSearchQueryResult) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1379,7 +1430,8 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
@@ -1406,7 +1458,8 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
@@ -1435,7 +1488,8 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("foo");
   data.entry_start_times.push_back(10.0);
@@ -1456,7 +1510,8 @@ TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
 }
 
 TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
@@ -1485,7 +1540,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
 }
 
 TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("foo");
   data.entry_start_times.push_back(10.0);
@@ -1506,7 +1562,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
 }
 
 TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
@@ -1534,7 +1591,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
 }
 
 TEST(TimelineTest, PixelToTime) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({0.0, 100.0});
   double px_per_unit = 10.0;  // 10 pixels per time unit
 
@@ -1551,7 +1609,8 @@ TEST(TimelineTest, PixelToTime) {
 }
 
 TEST(TimelineTest, RevealEventAlreadyInView) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1577,7 +1636,8 @@ TEST(TimelineTest, RevealEventAlreadyInView) {
 }
 
 TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Process 1",
                          .start_level = 0,
@@ -1612,7 +1672,8 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
 }
 
 TEST(TimelineTest, RevealEventInvalidIndex) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
@@ -1634,7 +1695,8 @@ TEST(TimelineTest, RevealEventInvalidIndex) {
 }
 
 TEST(TimelineTest, RevealEventInvalidIndexMismatchedSizes) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_start_times.push_back(200.0);
@@ -1660,7 +1722,8 @@ TEST(TimelineTest, RevealEventInvalidIndexMismatchedSizes) {
 }
 
 TEST(TimelineTest, RevealEventInvalidIndexNegative) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -1685,7 +1748,8 @@ TEST(TimelineTest, RevealEventInvalidIndexNegative) {
 }
 
 TEST(TimelineTest, RevealEventInvalidIndexOutOfBounds) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -1710,7 +1774,8 @@ TEST(TimelineTest, RevealEventInvalidIndexOutOfBounds) {
 }
 
 TEST(TimelineTest, RevealEventOutOfView) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1736,7 +1801,8 @@ TEST(TimelineTest, RevealEventOutOfView) {
 }
 
 TEST(TimelineTest, RevealEventOutOfViewRight) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1761,7 +1827,8 @@ TEST(TimelineTest, RevealEventOutOfViewRight) {
 }
 
 TEST(TimelineTest, RevealEventOutToRight) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1787,7 +1854,8 @@ TEST(TimelineTest, RevealEventOutToRight) {
 }
 
 TEST(TimelineTest, RevealEventOutToRightLarge) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1813,7 +1881,8 @@ TEST(TimelineTest, RevealEventOutToRightLarge) {
 }
 
 TEST(TimelineTest, RevealEventTriggersCallback) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
@@ -1839,7 +1908,8 @@ TEST(TimelineTest, RevealEventTriggersCallback) {
 }
 
 TEST(TimelineTest, RevealEventUnequalSizes) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
@@ -1860,7 +1930,8 @@ TEST(TimelineTest, RevealEventUnequalSizes) {
 }
 
 TEST(TimelineTest, RevealEventWithIndexOutOfBounds) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
   data.entry_pids.push_back(1);
@@ -1877,7 +1948,8 @@ TEST(TimelineTest, RevealEventWithIndexOutOfBounds) {
 }
 
 TEST(TimelineTest, RevealEventWithNegativeIndex) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
   data.entry_pids.push_back(1);
@@ -1894,7 +1966,8 @@ TEST(TimelineTest, RevealEventWithNegativeIndex) {
 }
 
 TEST(TimelineTest, SetSearchQuery) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -1935,7 +2008,8 @@ TEST(TimelineTest, SetSearchQuery) {
 }
 
 TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_start_times.push_back(100.0);
@@ -1954,7 +2028,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
 }
 
 TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_start_times.push_back(100.0);
@@ -1975,7 +2050,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
 }
 
 TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2004,7 +2080,8 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
 }
 
 TEST(TimelineTest, SetSearchQueryEmptyQueryCallsRedraw) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   bool redraw_called = false;
   timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
@@ -2014,7 +2091,8 @@ TEST(TimelineTest, SetSearchQueryEmptyQueryCallsRedraw) {
 }
 
 TEST(TimelineTest, SetSearchQueryFiltering) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event1");
   data.entry_names.push_back("foo");
@@ -2054,7 +2132,8 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
 }
 
 TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
@@ -2079,7 +2158,8 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
 }
 
 TEST(TimelineTest, SetTimelineData) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
@@ -2097,7 +2177,8 @@ TEST(TimelineTest, SetTimelineData) {
 }
 
 TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   bool redraw_called = false;
   timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
@@ -2107,7 +2188,8 @@ TEST(TimelineTest, SetTimelineDataTriggersRedraw) {
 }
 
 TEST(TimelineTest, SetVisibleFlowCategoriesTriggersRedraw) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   bool redraw_called = false;
   timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
@@ -2117,7 +2199,8 @@ TEST(TimelineTest, SetVisibleFlowCategoriesTriggersRedraw) {
 }
 
 TEST(TimelineTest, SetVisibleRange) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   TimeRange range(10.0, 50.0);
 
   timeline.SetVisibleRange(range);
@@ -2127,7 +2210,8 @@ TEST(TimelineTest, SetVisibleRange) {
 }
 
 TEST(TimelineTest, SetVisibleRangeTriggersRedraw) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   bool redraw_called = false;
   timeline.set_redraw_callback([&redraw_called]() { redraw_called = true; });
 
@@ -2137,7 +2221,8 @@ TEST(TimelineTest, SetVisibleRangeTriggersRedraw) {
 }
 
 TEST(TimelineTest, TimeToPixel) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({0.0, 100.0});
   double px_per_unit = 10.0;  // 10 pixels per time unit
 
@@ -2154,7 +2239,8 @@ TEST(TimelineTest, TimeToPixel) {
 }
 
 TEST(TimelineTest, TimeToScreenX) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   timeline.SetVisibleRange({0.0, 100.0});
   double px_per_unit = 10.0;  // 10 pixels per time unit
   Pixel screen_x_offset = 50.0f;
@@ -2174,7 +2260,8 @@ TEST(TimelineTest, TimeToScreenX) {
 }
 
 TEST(TimelineTest, ZoomEvent) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
@@ -2212,7 +2299,8 @@ TEST(TimelineTest, ZoomEvent) {
 }
 
 TEST(TimelineTest, ZoomEventInvalidIndex) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
@@ -2234,7 +2322,8 @@ TEST(TimelineTest, ZoomEventInvalidIndex) {
 }
 
 TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_start_times.push_back(200.0);
@@ -2250,7 +2339,8 @@ TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes) {
 }
 
 TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes_StartTimesShorter) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -2266,7 +2356,8 @@ TEST(TimelineTest, ZoomEventInvalidIndexMismatchedSizes_StartTimesShorter) {
 }
 
 TEST(TimelineTest, ZoomEventInvalidIndexNegative) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -2281,7 +2372,8 @@ TEST(TimelineTest, ZoomEventInvalidIndexNegative) {
 }
 
 TEST(TimelineTest, ZoomEventInvalidIndexOutOfBounds) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -4909,7 +5001,7 @@ class TimelineDragSelectionTest : public RealTimelineImGuiFixture {
 };
 
 TEST_F(RealTimelineImGuiFixture, ZoomEventInvalidIndexReturnsEarly) {
-  FlameChartTimelineData data;
+  FlameChartTimelineData data;  // timeline_ is RealTimelineImGuiFixture
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
   timeline_.SetTimelineData(std::move(data));

@@ -7,14 +7,23 @@ package(default_visibility = [
 
 wasm_cc_library(
     name = "colors",
-    srcs = ["color_generator.cc"],
+    srcs = [
+        "color_generator.cc",
+        "colors.cc",
+    ],
     hdrs = [
         "color_generator.h",
         "colors.h",
     ],
     deps = [
         "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:inlined_vector",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@imgui",
         "@tsl//tsl/platform:fingerprint",
     ],

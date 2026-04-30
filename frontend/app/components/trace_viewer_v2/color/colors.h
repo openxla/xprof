@@ -1,6 +1,16 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_COLOR_COLORS_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_COLOR_COLORS_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/inlined_vector.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "imgui.h"
 
 namespace traceviewer {
@@ -56,6 +66,85 @@ inline constexpr ImU32 kRed80 = 0xFFA9AEF6;
 // Yellow80: #FDE293
 inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 // go/keep-sorted end
+
+constexpr size_t kMaxColors = 7;
+
+class ColorPalette {
+ public:
+  struct Preset {
+    ImU32 background;
+    ImU32 foreground;
+    ImU32 midtone;
+    ImU32 flame_header;
+    ImU32 collapsed_header;
+    ImU32 expanded_header;
+    ImU32 subtitle;
+    ImU32 ruler_text;
+    ImU32 ruler_line;
+    ImU32 selection;
+    absl::InlinedVector<ImU32, kMaxColors> trace_colors;
+    absl::InlinedVector<ImU32, kMaxColors> flow_colors;
+  };
+  enum Key : uint16_t {
+    kUnknown = 0,
+    kBackground,
+    kForeground,
+    kMidtone,
+    kFlameHeader,
+    kCollapsedHeader,
+    kExpandedHeader,
+    kSubtitle,
+    kRulerText,
+    kRulerLine,
+    kSelection,
+  };
+
+  explicit ColorPalette(const Preset& preset_palette);
+
+  static ColorPalette Default() {
+    return ColorPalette(Preset{
+        .background = 0xFFFFFFFF,
+        .foreground = 0xFF000000,
+        .midtone = kInverseOnSurfaceColor,
+        .flame_header = kBlue70,
+        .collapsed_header = kInverseOnSurfaceColor,
+        .expanded_header = kSecondaryContainerColor,
+        .subtitle = kOnSecondaryFixedVariantColor,
+        .ruler_text = kOutlineColor,
+        .ruler_line = kOutlineVariantColor,
+        .selection = 0xFFFFC9A1,
+        .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90},
+        .flow_colors = {kCyan80, kOrange80, kPurple80, kRed80, kYellow80}});
+  }
+
+  absl::StatusOr<ImU32> GetColor(Key key) const;
+  absl::StatusOr<ImU32> GetTraceColor(int index) const;
+  absl::Span<const ImU32> GetTraceColors() const { return trace_colors_; }
+  absl::StatusOr<ImU32> GetFlowColor(int index) const;
+  absl::Span<const ImU32> GetFlowColors() const { return flow_colors_; }
+
+  absl::Status SetColor(Key key, ImU32 color);
+
+  absl::Status SetTraceColor(int index, ImU32 color);
+  absl::Status PushTraceColor(ImU32 color);
+  absl::Status PopTraceColor();
+
+  absl::Status SetFlowColor(int index, ImU32 color);
+  absl::Status PushFlowColor(ImU32 color);
+  absl::Status PopFlowColor();
+
+  uint64_t GetVersion() const { return version_; }
+  uint64_t GetTraceVersion() const { return trace_version_; }
+  uint64_t GetFlowVersion() const { return flow_version_; }
+
+ private:
+  uint64_t version_ = 0;
+  uint64_t trace_version_ = 0;
+  uint64_t flow_version_ = 0;
+  absl::flat_hash_map<Key, ImU32> colors_;
+  absl::InlinedVector<ImU32, kMaxColors> trace_colors_;
+  absl::InlinedVector<ImU32, kMaxColors> flow_colors_;
+};
 
 }  // namespace traceviewer
 

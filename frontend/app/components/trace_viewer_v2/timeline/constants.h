@@ -113,13 +113,7 @@ inline constexpr int kThreadNestingLevel = 1;
 // Time Range Selection Constants
 // go/keep-sorted start
 // A solid blue for the curtain border. #A1C9FFFF at 100% opacity.
-inline constexpr ImU32 kSelectedTimeRangeBorderColor = 0xFFFFC9A1;
-// The color for the bottom of the selected time range gradient. #a1c9ff99 at
-// 60% opacity.
-inline constexpr ImU32 kSelectedTimeRangeBottomColor = 0x99FFC9A1;
-// The color for the top half of the selected time range gradient. #a1c9ff1a
-// at 10% opacity.
-inline constexpr ImU32 kSelectedTimeRangeTopColor = 0x1AFFC9A1;
+inline constexpr ImU32 kSelectedTimeRangeColor = 0xFFFFC9A1;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
 // go/keep-sorted end

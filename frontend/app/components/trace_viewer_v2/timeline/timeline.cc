@@ -298,7 +298,7 @@ void Timeline::Draw() {
       ImVec2(ruler_start_screen_pos.x + label_width_, ruler_start_screen_pos.y),
       ImVec2(ruler_start_screen_pos.x + content_region_avail_width,
              ruler_start_screen_pos.y + kRulerHeight),
-      kWhiteColor);
+      palette_.GetColor(ColorPalette::Key::kBackground).value_or(kWhiteColor));
 
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
@@ -340,8 +340,12 @@ void Timeline::Draw() {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.nesting_level == kProcessNestingLevel) {
-      ImU32 bg_color = group.expanded ? kProcessTrackExpandedColor
-                                      : kProcessTrackCollapsedColor;
+      ImU32 bg_color =
+          group.expanded
+              ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
+                    .value_or(kProcessTrackExpandedColor)
+              : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
+                    .value_or(kProcessTrackCollapsedColor);
       draw_list->AddRectFilled(
           ImVec2(tracks_start_screen_pos.x,
                  tracks_start_screen_pos.y + group_offsets_[group_index]),
@@ -461,7 +465,9 @@ void Timeline::Draw() {
 
     if (has_subtitle) {
       ImGui::PushFont(traceviewer::fonts::label_medium);
-      ImGui::PushStyleColor(ImGuiCol_Text, kOnSecondaryFixedVariantColor);
+      ImGui::PushStyleColor(ImGuiCol_Text,
+                            palette_.GetColor(ColorPalette::Key::kSubtitle)
+                                .value_or(kOnSecondaryFixedVariantColor));
       ImGui::TextUnformatted(group.subtitle.data());
       ImGui::PopStyleColor();
       ImGui::PopFont();
@@ -1034,6 +1040,13 @@ Timeline::TickInfo Timeline::CalculateTickInfo(
 // line, major/minor tick marks, and time labels.
 void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
   const ImVec2 pos = ImGui::GetCursorScreenPos();
+  const ImU32 ruler_text_color =
+      palette_.GetColor(ColorPalette::Key::kRulerText)
+          .value_or(kRulerTextColor);
+  const ImU32 ruler_line_color =
+      palette_.GetColor(ColorPalette::Key::kRulerLine)
+          .value_or(kRulerLineColor);
+
   ImGui::SetCursorScreenPos(ImVec2(pos.x + label_width_, pos.y));
 
   ImDrawList* const draw_list = ImGui::GetWindowDrawList();
@@ -1046,7 +1059,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         ImVec2(pos.x + label_width_, line_y),
         ImVec2(pos.x + label_width_ + timeline_width + kTimelinePaddingRight,
                line_y),
-        kRulerLineColor);
+        ruler_line_color);
 
     const Microseconds tick_interval = info.tick_interval;
     const Pixel major_tick_dist_px = info.major_tick_dist_px;
@@ -1068,12 +1081,12 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
       if (x >= pos.x + label_width_ - kRulerScreenBuffer) {
         // Draw major tick marks on the ruler.
         draw_list->AddLine(ImVec2(x, pos.y), ImVec2(x, line_y),
-                           kRulerLineColor);
+                           ruler_line_color);
 
         const std::string time_label_text = FormatTime(t_relative);
         ImGui::PushFont(fonts::label_small);
         draw_list->AddText(ImVec2(x + kRulerTextPadding, pos.y),
-                           kRulerTextColor, time_label_text.c_str());
+                           ruler_text_color, time_label_text.c_str());
         ImGui::PopFont();
       }
 
@@ -1086,7 +1099,7 @@ void Timeline::DrawRulerUI(const TickInfo& info, Pixel timeline_width) {
         }
         if (minor_x >= pos.x + label_width_ - kRulerScreenBuffer) {
           draw_list->AddLine(ImVec2(minor_x, line_y - kRulerMinorTickHeight),
-                             ImVec2(minor_x, line_y), kRulerLineColor);
+                             ImVec2(minor_x, line_y), ruler_line_color);
         }
       }
     }
@@ -1125,7 +1138,8 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
     if (x >= timeline_x_start - kRulerScreenBuffer) {
       // Draw vertical line across the tracks.
       draw_list->AddLine(ImVec2(x, line_y_top), ImVec2(x, viewport_bottom),
-                         kTraceVerticalLineColor);
+                         palette_.GetColor(ColorPalette::Key::kMidtone)
+                             .value_or(kTraceVerticalLineColor));
     }
   }
 }
@@ -1151,7 +1165,10 @@ void Timeline::DrawEventName(absl::string_view event_name,
       // bounds of the event_rect. This prevents text from overflowing visually.
       draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
                               ImVec2(event_rect.right, event_rect.bottom));
-      draw_list->AddText(text_pos, kDefaultTextColor, text_display.c_str());
+      draw_list->AddText(text_pos,
+                         palette_.GetColor(ColorPalette::Key::kForeground)
+                             .value_or(kDefaultTextColor),
+                         text_display.c_str());
       draw_list->PopClipRect();
     }
   }
@@ -1172,7 +1189,8 @@ void Timeline::DrawEvent(int group_index, int event_index,
     const Pixel corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
 
-    const ImU32 event_color = GetColorForId(event_name);
+    const ImU32 event_color =
+        GetColorForId(event_name, palette_.GetTraceColors());
     draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                              ImVec2(rect.right, rect.bottom), event_color,
                              corner_rounding, kImDrawFlags);
@@ -1600,7 +1618,7 @@ void Timeline::DrawFlameGroupPreview(int start_level, int end_level,
         color = last_color;
       } else {
         last_name = name;
-        color = GetColorForId(name);
+        color = GetColorForId(name, palette_.GetTraceColors());
         // Render with reduced opacity to show density.
         color = (color & ~IM_COL32_A_MASK) |
                 (static_cast<ImU32>(kGroupPreviewOpacity * 255.0f)
@@ -1685,9 +1703,10 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
   for (size_t i = 0; i < utilization_bins_.size(); ++i) {
     if (utilization_bins_[i] > 0.0f) {
       Pixel h = (utilization_bins_[i] / max_util) * group_height;
-      draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - h),
-                               ImVec2(pos.x + i + 1, pos.y + group_height),
-                               kBlue70);
+      draw_list->AddRectFilled(
+          ImVec2(pos.x + i, pos.y + group_height - h),
+          ImVec2(pos.x + i + 1, pos.y + group_height),
+          palette_.GetColor(ColorPalette::Key::kFlameHeader).value_or(kBlue70));
     }
   }
 
@@ -1808,6 +1827,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                                      bool show_delete_button) {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const Pixel timeline_x_start = viewport->Pos.x + label_width_;
+  const ImU32 color = palette_.GetColor(ColorPalette::Key::kSelection)
+                          .value_or(kSelectedTimeRangeColor);
 
   const Pixel time_range_x_start =
       TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
@@ -1829,25 +1850,28 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     const Pixel rect_y_min = viewport->Pos.y;
     const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
 
-    draw_list->AddRectFilledMultiColor(
-        ImVec2(clipped_x_start, rect_y_min), ImVec2(clipped_x_end, rect_y_max),
-        kSelectedTimeRangeTopColor, kSelectedTimeRangeTopColor,
-        kSelectedTimeRangeBottomColor, kSelectedTimeRangeBottomColor);
+    draw_list->AddRectFilledMultiColor(ImVec2(clipped_x_start, rect_y_min),
+                                       ImVec2(clipped_x_end, rect_y_max),
+                                       (color & 0x00FFFFFF) | (0x1A << 24),
+                                       (color & 0x00FFFFFF) | (0x1A << 24),
+                                       (color & 0x00FFFFFF) | (0x99 << 24),
+                                       (color & 0x00FFFFFF) | (0x99 << 24));
 
     // Only draw the border if the edge of the time range is visible.
     if (time_range_x_start >= timeline_x_start) {
       draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
-                         ImVec2(time_range_x_start, rect_y_max),
-                         kSelectedTimeRangeBorderColor);
+                         ImVec2(time_range_x_start, rect_y_max), color);
     }
     if (time_range_x_end <= timeline_x_start + timeline_width) {
       draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
-                         ImVec2(time_range_x_end, rect_y_max),
-                         kSelectedTimeRangeBorderColor);
+                         ImVec2(time_range_x_end, rect_y_max), color);
     }
 
     const std::string text = FormatTime(range.duration());
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
+    const ImU32 kTextColor = palette_.GetColor(ColorPalette::Key::kForeground)
+                                 .value_or(kBlackColor);
+
     // Move the text up a little bit to avoid being too close to the bottom
     // edge.
     const Pixel text_y =
@@ -1866,14 +1890,14 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
           text_size, text_pos, visible_range_rect, full_range_rect);
 
       if (layout.text_fits) {
-        draw_list->AddText(text_pos, kBlackColor, text.c_str());
+        draw_list->AddText(text_pos, kTextColor, text.c_str());
       }
 
       DrawDeleteButton(draw_list, layout.button_pos, layout.hover_rect, range);
     } else {
       bool text_fits = visible_range_rect.GetWidth() > text_size.x;
       if (text_fits) {
-        draw_list->AddText(text_pos, kBlackColor, text.c_str());
+        draw_list->AddText(text_pos, kTextColor, text.c_str());
       }
     }
   }

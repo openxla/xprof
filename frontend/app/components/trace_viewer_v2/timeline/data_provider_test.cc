@@ -57,15 +57,17 @@ CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
 
 class DataProviderTest : public ::testing::Test {
  public:
-  DataProviderTest() = default;
+  DataProviderTest() : palette_(ColorPalette::Default()), timeline_(palette_) {}
 
  protected:
+  ColorPalette palette_;
   Timeline timeline_;
   DataProvider data_provider_;
 };
 
 TEST(DataProviderNoFixtureTest, SyncProcessWithNamedThreadsWithoutEvents) {
-  Timeline timeline;
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
   DataProvider data_provider;
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 10, 0, "Process_10"),
@@ -1366,7 +1368,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   // pid 1 tid 101 is level 0
   // pid 1 tid 102 is level 1
   // pid 2 tid 201 is level 2
-  ImU32 flow1_color = kOrange80;
+  ImU32 flow1_color = kCyan80;
   ImU32 flow2_color = kRed80;
   // Flow 1, part 1
   EXPECT_EQ(data.flow_lines[0].source_ts, 120.0);
@@ -1673,7 +1675,7 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
   EXPECT_EQ(data.flow_lines[0].target_level, 1);
   EXPECT_EQ(data.flow_lines[0].category,
             tsl::profiler::ContextType::kGpuLaunch);
-  EXPECT_EQ(data.flow_lines[0].color, kOrange80);
+  EXPECT_EQ(data.flow_lines[0].color, kCyan80);
   EXPECT_THAT(data_provider_.GetFlowCategories(),
               UnorderedElementsAre(
                   static_cast<int>(tsl::profiler::ContextType::kGpuLaunch)));
@@ -1788,12 +1790,12 @@ TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
   };
 
   EXPECT_EQ(get_color(tsl::profiler::ContextType::kGeneric), kRed80);
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kOrange80);
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kYellow80);
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kPjRt), kGreen80);
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfrtTpuRuntime), kBlue80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kCyan80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kOrange80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kPjRt), kPurple80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfrtTpuRuntime), kRed80);
   EXPECT_EQ(get_color(tsl::profiler::ContextType::kTpuEmbeddingEngine),
-            kCyan80);
+            kYellow80);
   EXPECT_EQ(get_color(tsl::profiler::ContextType::kSharedBatchScheduler),
             kPurple80);
   EXPECT_EQ(get_color(tsl::profiler::ContextType::kLegacy), kPurple80);
@@ -1850,9 +1852,9 @@ TEST_F(DataProviderTest, FlowLineColoringWithTieBreaker) {
   };
 
   // Since kTfExecutor (2) < kGpuLaunch (9), kTfExecutor should come first and
-  // get kOrange80!
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kOrange80);
-  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kYellow80);
+  // get kCyan80!
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kTfExecutor), kCyan80);
+  EXPECT_EQ(get_color(tsl::profiler::ContextType::kGpuLaunch), kOrange80);
 }
 
 TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
@@ -1880,7 +1882,7 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
     ASSERT_THAT(data.flow_lines, SizeIs(1));
     EXPECT_EQ(data.flow_lines[0].category,
               tsl::profiler::ContextType::kGpuLaunch);
-    EXPECT_EQ(data.flow_lines[0].color, kOrange80);
+    EXPECT_EQ(data.flow_lines[0].color, kCyan80);
   }
 
   data_provider_.ProcessTraceEvents(
@@ -1891,7 +1893,7 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
     ASSERT_THAT(data.flow_lines, SizeIs(1));
     EXPECT_EQ(data.flow_lines[0].category,
               tsl::profiler::ContextType::kTfExecutor);
-    EXPECT_EQ(data.flow_lines[0].color, kOrange80);
+    EXPECT_EQ(data.flow_lines[0].color, kCyan80);
   }
 }
 

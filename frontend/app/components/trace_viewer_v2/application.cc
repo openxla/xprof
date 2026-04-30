@@ -13,12 +13,14 @@
 #include <algorithm>
 #include <memory>
 
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
@@ -34,18 +36,6 @@ namespace {
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 10.0f;
-
-void ApplyLightTheme() {
-  ImGui::StyleColorsLight();
-  ImGuiStyle& style = ImGui::GetStyle();
-  // Set the window background color to white. #FFFFFFFF
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-
-  // Set the table border color to a medium gray. #666666
-  // We only use this color for the vertical lines between track title and
-  // framechart. Horizontal lines are rendered in timeline.
-  style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
-}
 
 EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
                  void* userData) {
@@ -69,13 +59,33 @@ void Application::Initialize() {
   // Load fonts, colors and styles.
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
   // TODO: b/450584482 - Add a dark theme for the timeline.
-  ApplyLightTheme();
-  ImGui::GetStyle().ScrollbarSize = kScrollbarSize;
+  ImGuiStyle& style = ImGui::GetStyle();
+  style.ScrollbarSize = kScrollbarSize;
+  absl::StatusOr<ImU32> color =
+      palette_.GetColor(ColorPalette::Key::kBackground);
+  style.Colors[ImGuiCol_WindowBg] =
+      color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                  : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+  style.Colors[ImGuiCol_PopupBg] =
+      color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                  : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+  color = palette_.GetColor(ColorPalette::Key::kForeground);
+  style.Colors[ImGuiCol_Text] =
+      color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                  : ImGui::ColorConvertU32ToFloat4(kBlackColor);
+  color = palette_.GetColor(ColorPalette::Key::kMidtone);
+  style.Colors[ImGuiCol_Border] =
+      color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                  : ImGui::ColorConvertU32ToFloat4(kLightGrayColor);
+  // Set the table border color to a medium gray. #666666
+  // We only use this color for the vertical lines between track title and
+  // framechart. Horizontal lines are rendered in timeline.
+  style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
 
   // Initialize the platform
   platform_ = std::make_unique<WGPURenderPlatform>();
   platform_->Init(initial_canvas_state);
-  timeline_ = std::make_unique<Timeline>();
+  timeline_ = std::make_unique<Timeline>(palette_);
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);
@@ -156,6 +166,7 @@ void Application::MainLoop() {
 }
 
 void Application::Draw() {
+  UpdateApplicationColors();
   platform_->NewFrame();
   timeline_->Draw();
   UpdateMouseCursor();
@@ -200,6 +211,33 @@ float Application::GetDeltaTime() {
   auto delta_time = absl::ToDoubleSeconds(time_now - last_frame_time_);
   last_frame_time_ = time_now;
   return std::min(0.1f, static_cast<float>(delta_time));
+}
+
+void Application::UpdateApplicationColors() {
+  if (palette_.GetVersion() != palette_version_) {
+    ImGuiStyle& style = ImGui::GetStyle();
+    absl::StatusOr<ImU32> color =
+        palette_.GetColor(ColorPalette::Key::kBackground);
+    style.Colors[ImGuiCol_WindowBg] =
+        color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                   : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+    style.Colors[ImGuiCol_PopupBg] =
+        color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                   : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+    color = palette_.GetColor(ColorPalette::Key::kForeground);
+    style.Colors[ImGuiCol_Text] =
+        color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                   : ImGui::ColorConvertU32ToFloat4(kBlackColor);
+    color = palette_.GetColor(ColorPalette::Key::kMidtone);
+    style.Colors[ImGuiCol_Border] =
+        color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
+                   : ImGui::ColorConvertU32ToFloat4(kLightGrayColor);
+    // Set the table border color to a medium gray. #666666
+    // We only use this color for the vertical line between track title and
+    // framechart. Horizontal lines are rendered in timeline.
+    style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.4f, 0.4f, 0.4f, 1.0f);
+    palette_version_ = palette_.GetVersion();
+  }
 }
 
 void Application::UpdateImGuiDisplaySize(const CanvasState& canvas_state) {

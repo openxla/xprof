@@ -2,6 +2,7 @@
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_APPLICATION_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -17,6 +18,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
 namespace traceviewer {
 
@@ -112,6 +114,10 @@ class Application {
   // The data provider for trace events.
   DataProvider data_provider_;
 
+  // Color theme for timeline.
+  ColorPalette palette_ = ColorPalette::Default();
+  uint64_t palette_version_ = 0xDEADBEEF;
+
   void MainLoop();
   // Draws a single frame. Should ONLY be called from MainLoop() to ensure
   // DeltaTime and Animations are updated correctly. Other methods should
@@ -124,6 +130,9 @@ class Application {
   void UpdateImGuiDisplaySize(const CanvasState& canvas_state);
 
   void UpdateMouseCursor();
+
+  void UpdateApplicationColors();
+
   ImGuiMouseCursor last_cursor_ = ImGuiMouseCursor_Arrow;
 };
 

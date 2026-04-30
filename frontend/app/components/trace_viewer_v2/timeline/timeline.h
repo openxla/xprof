@@ -19,6 +19,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
@@ -141,7 +142,8 @@ class Timeline {
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
   using RedrawCallback = absl::AnyInvocable<void()>;
 
-  Timeline() = default;
+
+  Timeline(ColorPalette& palette) : palette_(palette) {}
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
 
@@ -327,6 +329,8 @@ class Timeline {
                                            const ImVec2& text_pos,
                                            const ImRect& visible_range_rect,
                                            const ImRect& full_range_rect) const;
+
+  const ColorPalette& GetPalette() const { return palette_; }
 
  protected:
   // Virtual method to allow mocking in tests.
@@ -560,6 +564,8 @@ class Timeline {
   // The name of the track that was recently copied to the clipboard.
   std::string copied_track_name_ = "";
   RedrawCallback redraw_callback_;
+  // Current color palette.
+  ColorPalette& palette_;
 };
 
 }  // namespace traceviewer

@@ -84,6 +84,21 @@ class ColorPalette {
     ImU32 selection;
     absl::InlinedVector<ImU32, kMaxColors> trace_colors;
     absl::InlinedVector<ImU32, kMaxColors> flow_colors;
+    static Preset Default() {
+      return Preset{
+          .background = 0xFFFFFFFF,
+          .foreground = 0xFF000000,
+          .midtone = kInverseOnSurfaceColor,
+          .flame_header = kBlue70,
+          .collapsed_header = kInverseOnSurfaceColor,
+          .expanded_header = kSecondaryContainerColor,
+          .subtitle = kOnSecondaryFixedVariantColor,
+          .ruler_text = kOutlineColor,
+          .ruler_line = kOutlineVariantColor,
+          .selection = 0xFFFFC9A1,
+          .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90},
+          .flow_colors = {kCyan80, kOrange80, kPurple80, kRed80, kYellow80}};
+    }
   };
   enum Key : uint16_t {
     kUnknown = 0,
@@ -96,26 +111,18 @@ class ColorPalette {
     kSubtitle,
     kRulerText,
     kRulerLine,
-    kSelection,
+    kSelection
   };
 
   explicit ColorPalette(const Preset& preset_palette);
 
   static ColorPalette Default() {
-    return ColorPalette(Preset{
-        .background = 0xFFFFFFFF,
-        .foreground = 0xFF000000,
-        .midtone = kInverseOnSurfaceColor,
-        .flame_header = kBlue70,
-        .collapsed_header = kInverseOnSurfaceColor,
-        .expanded_header = kSecondaryContainerColor,
-        .subtitle = kOnSecondaryFixedVariantColor,
-        .ruler_text = kOutlineColor,
-        .ruler_line = kOutlineVariantColor,
-        .selection = 0xFFFFC9A1,
-        .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90},
-        .flow_colors = {kCyan80, kOrange80, kPurple80, kRed80, kYellow80}});
+    return ColorPalette(Preset::Default());
   }
+
+  ColorPalette& operator=(const Preset& preset);
+
+  absl::Status FromPreset(absl::string_view palette_name);
 
   absl::StatusOr<ImU32> GetColor(Key key) const;
   absl::StatusOr<ImU32> GetTraceColor(int index) const;
@@ -145,6 +152,8 @@ class ColorPalette {
   absl::InlinedVector<ImU32, kMaxColors> trace_colors_;
   absl::InlinedVector<ImU32, kMaxColors> flow_colors_;
 };
+
+
 
 }  // namespace traceviewer
 

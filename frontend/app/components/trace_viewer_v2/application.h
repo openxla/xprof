@@ -50,6 +50,8 @@ class Application {
   Timeline& timeline() { return *timeline_; };
   DataProvider& data_provider() { return data_provider_; };
 
+  ColorPalette& GetPalette() { return palette_; };
+
   bool IsInitialized() const { return timeline_ != nullptr; }
 
   void SetVisibleFlowCategory(int category_id) {

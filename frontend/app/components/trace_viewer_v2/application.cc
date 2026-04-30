@@ -12,7 +12,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
@@ -43,6 +46,26 @@ EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
   return EM_FALSE;
 }
 
+EMSCRIPTEN_KEEPALIVE void SetPalette(const std::string& palette_name) {
+  absl::Status status =
+      Application::Instance().GetPalette().FromPreset(palette_name);
+  if (!status.ok()) {
+    Application::Instance().GetPalette() = ColorPalette::Preset::Default();
+  }
+}
+EMSCRIPTEN_KEEPALIVE void SetColor(ColorPalette::Key key, ImU32 color) {
+  absl::Status status =
+      Application::Instance().GetPalette().SetColor(key, color);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to set color: " << status;
+  }
+}
+
+EMSCRIPTEN_BINDINGS(traceviewer) {
+  emscripten::function("SetPalette", &SetPalette);
+  emscripten::function("SetColor", &SetColor);
+}
+
 }  // namespace
 
 // This function initializes the application, setting up the ImGui context,
@@ -58,6 +81,18 @@ void Application::Initialize() {
 
   // Load fonts, colors and styles.
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
+
+  emscripten::val local_storage = emscripten::val::global("localStorage");
+  std::string palette_name = local_storage.as<bool>()
+          ? local_storage
+                .call<std::string>("getItem",
+                                   emscripten::val("trace_viewer_palette"))
+          : "";
+  absl::Status status = palette_.FromPreset(palette_name);
+  if (!status.ok()) {
+    palette_ = ColorPalette::Preset::Default();
+    LOG(ERROR) << "Failed to load palette name: " << palette_name;
+  }
   // TODO: b/450584482 - Add a dark theme for the timeline.
   ImGuiStyle& style = ImGui::GetStyle();
   style.ScrollbarSize = kScrollbarSize;
@@ -65,18 +100,18 @@ void Application::Initialize() {
       palette_.GetColor(ColorPalette::Key::kBackground);
   style.Colors[ImGuiCol_WindowBg] =
       color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
-                  : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+                 : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
   style.Colors[ImGuiCol_PopupBg] =
       color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
-                  : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
+                 : ImGui::ColorConvertU32ToFloat4(kWhiteColor);
   color = palette_.GetColor(ColorPalette::Key::kForeground);
   style.Colors[ImGuiCol_Text] =
       color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
-                  : ImGui::ColorConvertU32ToFloat4(kBlackColor);
+                 : ImGui::ColorConvertU32ToFloat4(kBlackColor);
   color = palette_.GetColor(ColorPalette::Key::kMidtone);
   style.Colors[ImGuiCol_Border] =
       color.ok() ? ImGui::ColorConvertU32ToFloat4(*color)
-                  : ImGui::ColorConvertU32ToFloat4(kLightGrayColor);
+                 : ImGui::ColorConvertU32ToFloat4(kLightGrayColor);
   // Set the table border color to a medium gray. #666666
   // We only use this color for the vertical lines between track title and
   // framechart. Horizontal lines are rendered in timeline.

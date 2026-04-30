@@ -1,25 +1,66 @@
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/bind.h>
+#endif  // __EMSCRIPTEN__
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "imgui.h"
+#include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 
 namespace traceviewer {
 
-ColorPalette::ColorPalette(const ColorPalette::Preset& preset_palette) {
-  colors_[Key::kBackground] = preset_palette.background;
-  colors_[Key::kForeground] = preset_palette.foreground;
-  colors_[Key::kMidtone] = preset_palette.midtone;
-  colors_[Key::kFlameHeader] = preset_palette.flame_header;
-  colors_[Key::kCollapsedHeader] = preset_palette.collapsed_header;
-  colors_[Key::kExpandedHeader] = preset_palette.expanded_header;
-  colors_[Key::kSubtitle] = preset_palette.subtitle;
-  colors_[Key::kRulerText] = preset_palette.ruler_text;
-  colors_[Key::kRulerLine] = preset_palette.ruler_line;
-  colors_[Key::kSelection] = preset_palette.selection;
-  trace_colors_ = preset_palette.trace_colors;
-  flow_colors_ = preset_palette.flow_colors;
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_BINDINGS(colors) {
+  emscripten::enum_<ColorPalette::Key>("ColorPaletteKey")
+      .value("kBackground", ColorPalette::Key::kBackground)
+      .value("kForeground", ColorPalette::Key::kForeground)
+      .value("kMidtone", ColorPalette::Key::kMidtone)
+      .value("kFlameHeader", ColorPalette::Key::kFlameHeader)
+      .value("kCollapsedHeader", ColorPalette::Key::kCollapsedHeader)
+      .value("kExpandedHeader", ColorPalette::Key::kExpandedHeader)
+      .value("kSubtitle", ColorPalette::Key::kSubtitle)
+      .value("kRulerText", ColorPalette::Key::kRulerText)
+      .value("kRulerLine", ColorPalette::Key::kRulerLine)
+      .value("kSelection", ColorPalette::Key::kSelection);
+}
+#endif  // __EMSCRIPTEN__
+
+ColorPalette& ColorPalette::operator=(const ColorPalette::Preset& preset) {
+  colors_[Key::kBackground] = preset.background;
+  colors_[Key::kForeground] = preset.foreground;
+  colors_[Key::kMidtone] = preset.midtone;
+  colors_[Key::kFlameHeader] = preset.flame_header;
+  colors_[Key::kCollapsedHeader] = preset.collapsed_header;
+  colors_[Key::kExpandedHeader] = preset.expanded_header;
+  colors_[Key::kSubtitle] = preset.subtitle;
+  colors_[Key::kRulerText] = preset.ruler_text;
+  colors_[Key::kRulerLine] = preset.ruler_line;
+  colors_[Key::kSelection] = preset.selection;
+  trace_colors_ = preset.trace_colors;
+  flow_colors_ = preset.flow_colors;
+  version_++;
+  trace_version_++;
+  flow_version_++;
+  return *this;
+}
+
+ColorPalette::ColorPalette(const ColorPalette::Preset& preset_palette)
+    : version_(0), trace_version_(0), flow_version_(0) {
+  *this = preset_palette;
+}
+
+absl::Status ColorPalette::FromPreset(absl::string_view palette_name) {
+  auto it = kPresetPalettes.find(palette_name);
+  if (it == kPresetPalettes.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Palette not found: ", palette_name));
+  }
+  *this = it->second;
+  return absl::OkStatus();
 }
 
 absl::StatusOr<ImU32> ColorPalette::GetColor(ColorPalette::Key key) const {

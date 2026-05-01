@@ -1353,19 +1353,17 @@ void Timeline::DrawCounterTooltip(int group_index, const CounterData& data,
       const double t1 = data.timestamps[index];
       const double t2 = data.timestamps[index + 1];
       const double v1 = data.values[index];
-      const double v2 = data.values[index + 1];
 
-      // Linear interpolation to match the lines drawn in DrawCounterTrack.
-      // This ensures the hover circle remains on the sloped line.
-      val = v1 + (v2 - v1) * (mouse_time - t1) / (t2 - t1);
+      // Sample-and-hold interpolation to match the bars drawn in
+      // DrawCounterTrack.
+      val = v1;
 
-      // Highlight the entire line segment under hover.
+      // Highlight the entire bar under hover.
       const Pixel x1 = TimeToScreenX(t1, pos.x, px_per_time_unit_val);
-      const Pixel y1 = y_base - (v1 - data.min_value) * y_ratio;
       const Pixel x2 = TimeToScreenX(t2, pos.x, px_per_time_unit_val);
-      const Pixel y2 = y_base - (v2 - data.min_value) * y_ratio;
-      draw_list->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), kCounterHoverColor,
-                         kCounterHoverThickness);
+      const Pixel y = y_base - (v1 - data.min_value) * y_ratio;
+      draw_list->AddRect(ImVec2(x1, y), ImVec2(x2, y_base), kCounterHoverColor,
+                         0.0f, 0, kCounterHoverThickness);
     }
 
     const Pixel x = mouse_pos.x;
@@ -1434,35 +1432,40 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     return;
   }
 
-  // If all counter values are the same, draw a single horizontal line
-  // vertically centered in the track.
-  // Also avoid division by zero.
+  const Pixel y_base = pos.y + height;
+
+  // If all counter values are the same, draw a filled rectangle filling
+  // the bottom half of the track to avoid division by zero.
   if (value_range == 0) {
     const Pixel y = pos.y + height / 2.0f;
     const Pixel x_start =
         TimeToScreenX(data.timestamps.front(), pos.x, px_per_time_unit_val);
     const Pixel x_end =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
-    draw_list->AddLine(ImVec2(x_start, y), ImVec2(x_end, y),
-                       kCounterTrackColor);
+    draw_list->AddRectFilled(ImVec2(x_start, y), ImVec2(x_end, y_base),
+                             kCounterTrackColor);
     return;
   }
 
   const float y_ratio = height / value_range;
-  const Pixel y_base = pos.y + height;
 
-  // Calculate the coordinates of the first point.
-  ImVec2 p1(TimeToScreenX(data.timestamps[0], pos.x, px_per_time_unit_val),
-            y_base - (data.values[0] - data.min_value) * y_ratio);
+  for (size_t i = 0; i < data.timestamps.size() - 1; ++i) {
+    Pixel x1 = TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val);
+    Pixel x2 =
+        TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
+    Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
 
-  for (size_t i = 1; i < data.timestamps.size(); ++i) {
-    // Calculate the coordinates of the next point.
-    ImVec2 p2(TimeToScreenX(data.timestamps[i], pos.x, px_per_time_unit_val),
-              y_base - (data.values[i] - data.min_value) * y_ratio);
+    draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
+                             kCounterTrackColor);
+  }
 
-    draw_list->AddLine(p1, p2, kCounterTrackColor);
-    // Reuse p2 as the start point for the next segment to avoid re-calculation.
-    p1 = p2;
+  // For the last point, draw a 1px wide bar to show its value.
+  if (!data.timestamps.empty()) {
+    Pixel x =
+        TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
+    Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
+    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
+                             kCounterTrackColor);
   }
 
   if (selected_group_index_ == group_index && selected_counter_index_ != -1 &&
@@ -1904,8 +1907,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
 
     const std::string text = FormatTime(range.duration());
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
-    const ImU32 kTextColor = palette_.GetColor(ColorPalette::Key::kForeground)
-                                 .value_or(kBlackColor);
+    const ImU32 kTextColor =
+        palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
 
     // Move the text up a little bit to avoid being too close to the bottom
     // edge.

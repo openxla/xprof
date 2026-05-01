@@ -40,6 +40,12 @@ enum class Phase : char {
   kAsyncEnd = 'e',
   kFlowStart = 's',
   kFlowEnd = 'f',
+  // Instant events use the 'i' phase. Historically, 'I' was also used.
+  // Since 'I' is deprecated, we use 'i' for default instant phase.
+  // See
+  // http://docs/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0#heading=h.lenwiilchoxp
+  kInstant = 'i',
+  kInstantDeprecated = 'I',
 
   // Represents an unknown or unspecified event phase.
   // This makes the default state more explicit and type-safe.

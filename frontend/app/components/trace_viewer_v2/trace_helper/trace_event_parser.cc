@@ -193,6 +193,7 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         }
         break;
       case Phase::kComplete:
+      case Phase::kInstant:
         if (!ev.id.empty()) {
           result.flow_events.push_back(ev);
         }

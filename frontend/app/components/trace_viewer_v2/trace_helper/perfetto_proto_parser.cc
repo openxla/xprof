@@ -23,6 +23,37 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_lite.pb.h"
 
 namespace traceviewer {
+namespace {
+
+// Resolves the PID and TID for a TraceEvent based on the track descriptors.
+void ResolvePidTid(
+    TraceEvent& event, uint64_t track_uuid, uint32_t seq_id,
+    const std::map<uint64_t, xprof::traceviewer::protos::TrackDescriptor>&
+        track_descriptors,
+    ProcessId fallback_pid) {
+  auto it = track_descriptors.find(track_uuid);
+  if (it != track_descriptors.end()) {
+    const auto& desc = it->second;
+    if (desc.has_thread()) {
+      event.tid = desc.thread().tid();
+      event.pid = desc.thread().pid();
+    } else if (desc.has_process()) {
+      event.pid = desc.process().pid();
+    } else if (!desc.name().empty()) {
+      event.tid = desc.uuid();
+    }
+  }
+
+  // Fallback if pid/tid are still not resolved
+  if (event.pid == 0) {
+    event.pid = fallback_pid;
+  }
+  if (event.tid == 0) {
+    event.tid = kPerfettoFallbackTidOffset + seq_id;
+  }
+}
+
+}  // namespace
 
 ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
                                            bool normalize_timestamps) {
@@ -173,26 +204,7 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
       update_min_ts(ts);
       event.category = tsl::profiler::ContextType::kGeneric;
 
-      auto it = track_descriptors.find(track_uuid);
-      if (it != track_descriptors.end()) {
-        const auto& desc = it->second;
-        if (desc.has_thread()) {
-          event.tid = desc.thread().tid();
-          event.pid = desc.thread().pid();
-        } else if (desc.has_process()) {
-          event.pid = desc.process().pid();
-        } else if (!desc.name().empty()) {
-          event.tid = desc.uuid();
-        }
-      }
-
-      // Fallback if pid/tid are still not resolved
-      if (event.pid == 0) {
-        event.pid = fallback_pid;
-      }
-      if (event.tid == 0) {
-        event.tid = kPerfettoFallbackTidOffset + seq_id;
-      }
+      ResolvePidTid(event, track_uuid, seq_id, track_descriptors, fallback_pid);
 
       slice_stacks[track_uuid].push_back(event);
     } else if (track_event.type() ==
@@ -204,6 +216,19 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
         event.dur = std::max(0.0, ts - event.ts);
         parsed_events.flame_events.push_back(event);
       }
+    } else if (track_event.type() ==
+               xprof::traceviewer::protos::TrackEvent::TYPE_INSTANT) {
+      TraceEvent event;
+      event.ph = Phase::kInstant;
+      event.name = name.empty() ? std::string(kUnknown) : name;
+      event.ts = ts;
+      update_min_ts(ts);
+      event.dur = 0;
+      event.category = tsl::profiler::ContextType::kGeneric;
+
+      ResolvePidTid(event, track_uuid, seq_id, track_descriptors, fallback_pid);
+
+      parsed_events.flame_events.push_back(event);
     }
   }
 

@@ -22,6 +22,8 @@ Phase ParsePhase(absl::string_view ph_str) {
     switch (ph_char) {
       case static_cast<char>(Phase::kComplete):
         return Phase::kComplete;
+      case static_cast<char>(Phase::kInstant):
+        return Phase::kInstant;
       case static_cast<char>(Phase::kCounter):
         return Phase::kCounter;
       case static_cast<char>(Phase::kMetadata):

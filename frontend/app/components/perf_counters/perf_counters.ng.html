@@ -19,7 +19,7 @@
       <string-filter [dataTable]="dataTable" column="Counter" (changed)="updateFilters($event)">
       </string-filter>
     <div class="flex-space"></div>
-    <export-as-csv [tool]="tool" [sessionId]="sessionId"></export-as-csv>
+    <export-as-csv [tool]="tool" [sessionId]="sessionId"[additionalParams]="getAdditionalParams()"></export-as-csv>
   </div>
 </div>
 

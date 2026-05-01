@@ -34,6 +34,19 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "perf_counters_test.ts",
+    ],
+    deps = [
+        ":perf_counters",
+        "//javascript/angular2/testing/catalyst/fake_async",
+        "//third_party/javascript/typings/jasmine",
+    ],
+)
+
 sass_binary(
     name = "perf_counters_css",
     src = "perf_counters.scss",

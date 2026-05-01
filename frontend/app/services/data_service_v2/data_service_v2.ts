@@ -518,13 +518,22 @@ export class DataServiceV2 implements DataServiceV2Interface {
     window.history.replaceState({}, '', newUrl);
   }
 
-  exportDataAsCSV(sessionId: string, tool: string, host: string, tqx = '') {
+  exportDataAsCSV(
+    sessionId: string,
+    tool: string,
+    host: string,
+    tqx = '',
+    additionalParams: Map<string, string> = new Map(),
+  ) {
     let params = this.getHttpParamsWithPath();
     params = params
       .set('run', sessionId)
       .set('tag', tool)
       .set('host', host)
       .set('tqx', 'out:csv;' + tqx);
+    for (const [key, value] of additionalParams.entries()) {
+      params = params.set(key, value);
+    }
     windowOpen(
       window,
       this.pathPrefix + DATA_CSV_API + '?' + params.toString(),

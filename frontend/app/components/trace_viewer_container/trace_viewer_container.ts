@@ -24,6 +24,7 @@ import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
+import {MatTabsModule} from '@angular/material/tabs';
 import {AngularSplitModule} from 'angular-split';
 import {
   isSearchEventsEvent,
@@ -217,6 +218,7 @@ declare interface TfTraceViewer {
     MatProgressSpinnerModule,
     MatSortModule,
     MatTableModule,
+    MatTabsModule,
   ],
 })
 export class TraceViewerContainer
@@ -288,8 +290,27 @@ export class TraceViewerContainer
 
   selectedEventPropertiesDataSource =
     new MatTableDataSource<SelectedEventProperty>();
+  metricsDataSource = new MatTableDataSource<SelectedEventProperty>();
+  countersDataSource = new MatTableDataSource<SelectedEventProperty>();
+
+  metricsColumns = [
+    'name',
+    'occurrences',
+    'wallDuration',
+    'selfTime',
+    'avgWallDuration',
+  ];
+  counterColumns = ['counter', 'series', 'time', 'value'];
+
   @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
     this.selectedEventPropertiesDataSource.data = data;
+
+    const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
+    const counters = data.filter((prop) => prop.hasOwnProperty('counter'));
+
+    this.metricsDataSource.data = metrics;
+    this.countersDataSource.data = counters;
+
     this.leftSideProperties = data.filter((prop) => {
       const p = prop['property'];
       return p !== 'Operands' && p !== 'Consumers';
@@ -307,8 +328,12 @@ export class TraceViewerContainer
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
 
-  getTotal(column: string): number {
-    return this.selectedEventPropertiesDataSource.data
+  getTotal(
+    column: string,
+    dataSource: MatTableDataSource<SelectedEventProperty> = this
+      .selectedEventPropertiesDataSource,
+  ): number {
+    return dataSource.data
       .map((t) => Number(t[column]))
       .filter((n) => !isNaN(n))
       .reduce((acc, value) => acc + value, 0);

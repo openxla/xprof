@@ -217,3 +217,11 @@ ts_library(
         "@npm//@angular/material",
     ],
 )
+
+ts_library(
+    name = "angular_material_tabs",
+    srcs = [],
+    deps = [
+        "@npm//@angular/material",
+    ],
+)

@@ -87,29 +87,27 @@ export function parseEventsSelectedData(dataString: string): {
 
     isCounter = countersData.length > 0;
 
-    if (isCounter) {
-      for (const item of countersData) {
-        properties.push({
-          'property': item['counter'],
-          'counter': item['counter'],
-          'series': item['series'],
-          'time': item['time'],
-          'value': item['value'],
-        });
-      }
-    } else {
-      for (const item of metricsData) {
-        const name = item['name'] as string;
-        properties.push({
-          'property': name,
-          'value': '',
-          'name': name,
-          'occurrences': item['count'] as number,
-          'wallDuration': item['wallTimeUs'] as number,
-          'selfTime': item['selfTimeUs'] as number,
-          'avgWallDuration': item['avgWallDurationUs'] as number,
-        });
-      }
+    for (const item of countersData) {
+      properties.push({
+        'property': item['counter'],
+        'counter': item['counter'],
+        'series': item['series'],
+        'time': item['time'],
+        'value': item['value'],
+      });
+    }
+
+    for (const item of metricsData) {
+      const name = item['name'] as string;
+      properties.push({
+        'property': name,
+        'value': '',
+        'name': name,
+        'occurrences': item['count'] as number,
+        'wallDuration': item['wallTimeUs'] as number,
+        'selfTime': item['selfTimeUs'] as number,
+        'avgWallDuration': item['avgWallDurationUs'] as number,
+      });
     }
 
     selectionStartFormat =

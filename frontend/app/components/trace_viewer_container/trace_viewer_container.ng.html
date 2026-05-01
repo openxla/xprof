@@ -113,27 +113,69 @@
               </as-split>
             </div>
 
-            <table *ngIf="!isSingleEventTable()" mat-table matSort class="event-detail-table" [dataSource]="selectedEventPropertiesDataSource">
-              <ng-container *ngFor="let col of eventDetailColumns" [matColumnDef]="col">
-                <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
-                  {{ getColumnHeader(col) }}
-                </th>
-                <td mat-cell *matCellDef="let element" style="word-break: break-word;" [style.font-weight]="isPropertyBold(col) ? 'bold' : 'normal'">
-                  {{ getCellContent(element, col) }}
-                </td>
-                <td mat-footer-cell *matFooterCellDef>
-                  <ng-container *ngIf="col === 'name'"><strong>Totals</strong></ng-container>
-                  <ng-container *ngIf="col === 'occurrences'"><strong>{{ getTotal('occurrences') }}</strong></ng-container>
-                  <ng-container *ngIf="col === 'wallDuration'"><strong>{{ getTotal('wallDuration') | number:'1.2-2' }}us</strong></ng-container>
-                  <ng-container *ngIf="col === 'selfTime'"><strong>{{ getTotal('selfTime') | number:'1.2-2' }}us</strong></ng-container>
-                  <ng-container *ngIf="col === 'avgWallDuration'"><strong>{{ (getTotal('wallDuration') / (getTotal('occurrences') || 1)) | number:'1.2-2' }}us</strong></ng-container>
-                </td>
-              </ng-container>
+            <div *ngIf="!isSingleEventTable()">
+              <mat-tab-group *ngIf="metricsDataSource.data.length > 0 && countersDataSource.data.length > 0">
+                <mat-tab label="Profile Metrics">
+                  <ng-template matTabContent>
+                    <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
+                  </ng-template>
+                </mat-tab>
+                <mat-tab label="Counters">
+                  <ng-template matTabContent>
+                    <ng-container *ngTemplateOutlet="countersTable"></ng-container>
+                  </ng-template>
+                </mat-tab>
+              </mat-tab-group>
 
-              <tr mat-header-row *matHeaderRowDef="eventDetailColumns; sticky: true"></tr>
-              <tr mat-row *matRowDef="let row; columns: eventDetailColumns;"></tr>
-              <tr mat-footer-row *matFooterRowDef="eventDetailColumns; sticky: true" [hidden]="eventDetailColumns.includes('counter')"></tr>
-            </table>
+              <div *ngIf="!(metricsDataSource.data.length > 0 && countersDataSource.data.length > 0)">
+                <ng-container *ngIf="metricsDataSource.data.length > 0">
+                  <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
+                </ng-container>
+                <ng-container *ngIf="countersDataSource.data.length > 0">
+                  <ng-container *ngTemplateOutlet="countersTable"></ng-container>
+                </ng-container>
+              </div>
+            </div>
+
+            <ng-template #metricsTable>
+              <table mat-table matSort class="event-detail-table" [dataSource]="metricsDataSource">
+                <ng-container *ngFor="let col of metricsColumns" [matColumnDef]="col">
+                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                    {{ getColumnHeader(col) }}
+                  </th>
+                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                    {{ getCellContent(element, col) }}
+                  </td>
+                  <td mat-footer-cell *matFooterCellDef>
+                    <ng-container *ngIf="col === 'name'"><strong>Totals</strong></ng-container>
+                    <ng-container *ngIf="col === 'occurrences'"><strong>{{ getTotal('occurrences', metricsDataSource) }}</strong></ng-container>
+                    <ng-container *ngIf="col === 'wallDuration'"><strong>{{ getTotal('wallDuration', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
+                    <ng-container *ngIf="col === 'selfTime'"><strong>{{ getTotal('selfTime', metricsDataSource) | number:'1.2-2' }}us</strong></ng-container>
+                    <ng-container *ngIf="col === 'avgWallDuration'"><strong>{{ (getTotal('wallDuration', metricsDataSource) / (getTotal('occurrences', metricsDataSource) || 1)) | number:'1.2-2' }}us</strong></ng-container>
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="metricsColumns; sticky: true"></tr>
+                <tr mat-row *matRowDef="let row; columns: metricsColumns;"></tr>
+                <tr mat-footer-row *matFooterRowDef="metricsColumns; sticky: true"></tr>
+              </table>
+            </ng-template>
+
+            <ng-template #countersTable>
+              <table mat-table matSort class="event-detail-table" [dataSource]="countersDataSource">
+                <ng-container *ngFor="let col of counterColumns" [matColumnDef]="col">
+                  <th mat-header-cell *matHeaderCellDef mat-sort-header style="resize: horizontal; overflow: hidden; padding-right: 16px;">
+                    {{ getColumnHeader(col) }}
+                  </th>
+                  <td mat-cell *matCellDef="let element" style="word-break: break-word;">
+                    {{ getCellContent(element, col) }}
+                  </td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="counterColumns; sticky: true"></tr>
+                <tr mat-row *matRowDef="let row; columns: counterColumns;"></tr>
+              </table>
+            </ng-template>
 
             <div *ngIf="selectionStartFormat" class="selection-info" style="margin-top: 16px;">
               Selection Start: {{ selectionStartFormat }}

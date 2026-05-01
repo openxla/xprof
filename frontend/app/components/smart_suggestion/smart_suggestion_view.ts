@@ -1,23 +1,39 @@
 import {CommonModule} from '@angular/common';
-import {Component, HostBinding, Input, OnChanges, OnInit, SimpleChanges, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostBinding,
+  inject,
+  Input,
+  OnChanges,
+  OnDestroy,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatExpansionModule} from '@angular/material/expansion';
 import {MatIconModule} from '@angular/material/icon';
+import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
+import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
-import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  type DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {Subscription} from 'rxjs';
+import {finalize} from 'rxjs/operators';
 
 // Declaration for the Google Analytics function.
 declare var gtag: Function;
 
 interface ProcessedSuggestion {
-  id: string;  // Unique identifier for the suggestion
+  id: string; // Unique identifier for the suggestion
   ruleName: string;
   htmlContent: string;
 }
 
-type FeedbackType = 'up'|'down';
+type FeedbackType = 'up' | 'down';
 
 // Structure for storing feedback state for a session.
 // Use 'declare' to prevent property renaming by JSCompiler when using localStorage.
@@ -29,7 +45,8 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
 
 /** A component for displaying smart suggestions. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,selector: 'smart-suggestion-view',
+  changeDetection: ChangeDetectionStrategy.Default,
+  selector: 'smart-suggestion-view',
   templateUrl: './smart_suggestion_view.ng.html',
   styleUrls: ['./smart_suggestion_view.scss'],
   standalone: true,
@@ -39,6 +56,7 @@ const FEEDBACK_STORAGE_KEY_PREFIX = 'smartSuggestionFeedback';
     MatCardModule,
     MatExpansionModule,
     MatIconModule,
+    MatProgressSpinnerModule,
   ],
 })
 export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
@@ -48,11 +66,15 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
   title = 'Recommendations';
   processedSuggestions: ProcessedSuggestion[] = [];
   feedbackState = new Map<string, FeedbackType>();
+  loading = true;
+  private readonly throbber = new Throbber('smart_suggestion');
   private storageKey = '';
   private subscription: Subscription | null = null;
 
-  private lastFetchedSessionId: string|null = null;
-  private readonly dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private lastFetchedSessionId: string | null = null;
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
 
   ngOnInit() {
     this.updateStorageKey();
@@ -68,6 +90,11 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  /** Whether the smart suggestion view should be shown. */
+  get shouldShow(): boolean {
+    return !!this.sessionId;
+  }
+
   private fetchSuggestions() {
     if (this.sessionId === this.lastFetchedSessionId) {
       return;
@@ -79,31 +106,42 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
     }
     if (!this.sessionId) {
       this.processedSuggestions = [];
+      this.loading = false;
       return;
     }
 
+    this.loading = true;
+    this.processedSuggestions = [];
+    this.throbber.start();
+
     this.subscription = this.dataService
-    .getSmartSuggestions(this.sessionId)
-    .subscribe((report: SmartSuggestionReport | null) => {
-      if (report && report.suggestions) {
-        this.processedSuggestions = report.suggestions.map((suggestion) => {
-          const content = suggestion.suggestionText || '';
-          return {
-            id: this.generateSuggestionKey(
-              suggestion.ruleName || 'UnknownRule',
-              content,
-            ),
-            ruleName: suggestion.ruleName || 'UnknownRule',
-            htmlContent: content,
-          };
-        });
-        // Reload feedback state in case new suggestions appeared
-        this.loadFeedbackState();
-      } else {
-        this.processedSuggestions = [];
-      }
-    });
-}
+      .getSmartSuggestions(this.sessionId)
+      .pipe(
+        finalize(() => {
+          this.loading = false;
+          this.throbber.stop();
+        }),
+      )
+      .subscribe((report: SmartSuggestionReport | null) => {
+        if (report && report.suggestions) {
+          this.processedSuggestions = report.suggestions.map((suggestion) => {
+            const content = suggestion.suggestionText || '';
+            return {
+              id: this.generateSuggestionKey(
+                suggestion.ruleName || 'UnknownRule',
+                content,
+              ),
+              ruleName: suggestion.ruleName || 'UnknownRule',
+              htmlContent: content,
+            };
+          });
+          // Reload feedback state in case new suggestions appeared
+          this.loadFeedbackState();
+        } else {
+          this.processedSuggestions = [];
+        }
+      });
+  }
 
   private updateStorageKey() {
     this.storageKey = `${FEEDBACK_STORAGE_KEY_PREFIX}_${this.sessionId}`;
@@ -147,13 +185,20 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
       this.feedbackState.forEach((value, key) => {
         stateToStore[key] = value;
       });
-      window.localStorage.setItem(this.storageKey, JSON.stringify(stateToStore));
+      window.localStorage.setItem(
+        this.storageKey,
+        JSON.stringify(stateToStore),
+      );
     } catch (e) {
       console.error('Error saving feedback state to localStorage', e);
     }
   }
 
-  toggleFeedback(suggestionId: string, ruleName: string, feedbackType: FeedbackType) {
+  toggleFeedback(
+    suggestionId: string,
+    ruleName: string,
+    feedbackType: FeedbackType,
+  ) {
     const key = suggestionId;
     const currentFeedbackState = this.feedbackState.get(key);
 
@@ -175,7 +220,7 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
     } else {
       // SELECT or SWITCH: Clicked a different button
       this.feedbackState.set(key, feedbackType);
-      newNumericValue = (feedbackType === 'up' ? 1 : -1);
+      newNumericValue = feedbackType === 'up' ? 1 : -1;
       finalFeedbackState = feedbackType;
     }
 
@@ -190,14 +235,17 @@ export class SmartSuggestionView implements OnInit, OnChanges, OnDestroy {
         'event_label': ruleName, // Key to group by
         'session_id': this.sessionId,
         'event_value': gaValue, // The change in score to be summed by GA
-        'feedback_action': this.getFeedbackAction(currentFeedbackState, finalFeedbackState),
+        'feedback_action': this.getFeedbackAction(
+          currentFeedbackState,
+          finalFeedbackState,
+        ),
       });
     }
   }
 
   private getFeedbackAction(
     oldState: FeedbackType | undefined,
-    newState: FeedbackType | null
+    newState: FeedbackType | null,
   ): string {
     const oldS = oldState || 'none';
     const newS = newState || 'none';

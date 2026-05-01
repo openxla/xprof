@@ -163,3 +163,21 @@ mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
     }
   }
 }
+
+.progress-smart-suggestion-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+
+  .loading-spinner {
+    margin-bottom: 16px;
+  }
+
+  .loading-message {
+    text-align: center;
+    font-weight: 500;
+    color: #555;
+  }
+}

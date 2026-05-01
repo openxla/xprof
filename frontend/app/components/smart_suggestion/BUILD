@@ -19,6 +19,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_card",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
+        "@org_xprof//frontend/app/common/angular:angular_material_progress_spinner",
+        "@org_xprof//frontend/app/common/classes",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
     ],

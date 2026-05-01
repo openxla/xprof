@@ -1,8 +1,12 @@
-<ng-container *ngIf="processedSuggestions.length > 0">
-  <mat-expansion-panel [expanded]="true">
-    <mat-expansion-panel-header>
-      <mat-panel-title>{{title}} <span class="experimental-badge">EXPERIMENTAL</span></mat-panel-title>
-    </mat-expansion-panel-header>
+<mat-expansion-panel [expanded]="true">
+  <mat-expansion-panel-header>
+    <mat-panel-title>{{title}} <span class="experimental-badge">EXPERIMENTAL</span></mat-panel-title>
+  </mat-expansion-panel-header>
+  <div class="progress-smart-suggestion-view" *ngIf="shouldShow && loading">
+    <mat-spinner class="loading-spinner" mode="indeterminate" diameter="40"></mat-spinner>
+    <div class="loading-message">Analyzing the trace to provide performance improvement recommendations...</div>
+  </div>
+  <div *ngIf="!loading">
     <ul class="suggestion-list">
       <li *ngFor="let suggestion of processedSuggestions">
         <div class="suggestion-item-container">
@@ -11,5 +15,6 @@
         </div>
       </li>
     </ul>
-  </mat-expansion-panel>
-</ng-container>
+  </div>
+</mat-expansion-panel>
+

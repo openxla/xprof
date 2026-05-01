@@ -55,12 +55,28 @@ inline absl::StatusOr<TraceViewOption> GetTraceViewOption(
           options, "unique_id", "0");
 
 
-  if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution) ||
-      !absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
+  if (!absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
       !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
-      !absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id) ||
       !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
     return tsl::errors::InvalidArgument("wrong arguments");
+  }
+
+  if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution)) {
+    double resolution_double;
+    if (absl::SimpleAtod(resolution_opt, &resolution_double)) {
+      trace_options.resolution = static_cast<uint64_t>(resolution_double);
+    } else {
+      return tsl::errors::InvalidArgument("resolution must be a number");
+    }
+  }
+
+  if (!absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id)) {
+    double unique_id_double;
+    if (absl::SimpleAtod(unique_id_opt, &unique_id_double)) {
+      trace_options.unique_id = static_cast<uint64_t>(unique_id_double);
+    } else {
+      return tsl::errors::InvalidArgument("unique_id must be a number");
+    }
   }
   return trace_options;
 }

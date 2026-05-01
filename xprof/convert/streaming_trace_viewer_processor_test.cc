@@ -196,12 +196,34 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionDefaults) {
   EXPECT_EQ(trace_option.unique_id, 0);
 }
 
+TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionFloatFormatted) {
+  ToolOptions options;
+  options["start_time_ms"] = "100.5";
+  options["end_time_ms"] = "200.0";
+  options["resolution"] = "1000.000000";
+  options["event_name"] = "test_event";
+  options["search_prefix"] = "prefix";
+  options["duration_ms"] = "10.0";
+  options["unique_id"] = "12345.000000";
+
+  TF_ASSERT_OK_AND_ASSIGN(TraceViewOption trace_option,
+                          GetTraceViewOption(options));
+
+  EXPECT_DOUBLE_EQ(trace_option.start_time_ms, 100.5);
+  EXPECT_DOUBLE_EQ(trace_option.end_time_ms, 200.0);
+  EXPECT_EQ(trace_option.resolution, 1000);
+  EXPECT_EQ(trace_option.event_name, "test_event");
+  EXPECT_EQ(trace_option.search_prefix, "prefix");
+  EXPECT_DOUBLE_EQ(trace_option.duration_ms, 10.0);
+  EXPECT_EQ(trace_option.unique_id, 12345);
+}
+
 TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionInvalidNumber) {
   ToolOptions options;
   options["resolution"] = "not_a_number";
   EXPECT_THAT(GetTraceViewOption(options),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("wrong arguments")));
+                       HasSubstr("resolution must be a number")));
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, MapCreatesFiles) {

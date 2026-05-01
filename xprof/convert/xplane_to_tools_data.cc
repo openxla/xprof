@@ -114,10 +114,19 @@ absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
   if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution) ||
       !absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
       !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
-      !absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id) ||
       !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
     return absl::InvalidArgumentError("wrong arguments");
   }
+
+  if (!absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id)) {
+    double unique_id_double;
+    if (absl::SimpleAtod(unique_id_opt, &unique_id_double)) {
+      trace_options.unique_id = static_cast<uint64_t>(unique_id_double);
+    } else {
+      return absl::InvalidArgumentError("unique_id must be a number");
+    }
+  }
+
   return trace_options;
 }
 

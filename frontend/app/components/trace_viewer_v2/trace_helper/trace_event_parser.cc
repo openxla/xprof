@@ -141,7 +141,7 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
         if (args_val[key].isString()) {
           ev.args[key] = args_val[key].as<std::string>();
         } else if (args_val[key].isNumber()) {
-          ev.args[key] = std::to_string(args_val[key].as<double>());
+          ev.args[key] = args_val[key].call<std::string>("toString");
         } else if (!args_val[key].isNull() && !args_val[key].isUndefined() &&
                    !(args_val[key].isTrue() || args_val[key].isFalse())) {
           // Stringify specific object/array arguments. "kernel_details" can

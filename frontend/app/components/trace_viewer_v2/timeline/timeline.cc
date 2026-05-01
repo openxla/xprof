@@ -1191,9 +1191,27 @@ void Timeline::DrawEvent(int group_index, int event_index,
 
     const ImU32 event_color =
         GetColorForId(event_name, palette_.GetTraceColors());
-    draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
-                             ImVec2(rect.right, rect.bottom), event_color,
-                             corner_rounding, kImDrawFlags);
+
+    const bool is_instant = timeline_data_.entry_total_times[event_index] == 0;
+    if (is_instant) {
+      const Pixel centerX = rect.left;
+      const Pixel chevron_half_width = 3.0f;
+      const Pixel chevron_height = 7.0f;
+      const Pixel thickness = 2.0f;
+
+      ImVec2 top(centerX, rect.top);
+      ImVec2 left_bottom(centerX - chevron_half_width,
+                         rect.top + chevron_height);
+      ImVec2 right_bottom(centerX + chevron_half_width,
+                          rect.top + chevron_height);
+
+      draw_list->AddLine(top, left_bottom, event_color, thickness);
+      draw_list->AddLine(top, right_bottom, event_color, thickness);
+    } else {
+      draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
+                               ImVec2(rect.right, rect.bottom), event_color,
+                               corner_rounding, kImDrawFlags);
+    }
     if (is_hovered) {
       // Draw a semi-transparent overlay when the event is hovered.
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
@@ -1249,11 +1267,28 @@ void Timeline::DrawEvent(int group_index, int event_index,
     }
 
     if (selected_event_index_ == event_index) {
-      // Draw a border around the selected event.
-      draw_list->AddRect(ImVec2(rect.left, rect.top),
-                         ImVec2(rect.right, rect.bottom), kSelectedBorderColor,
-                         corner_rounding, kImDrawFlags,
-                         kSelectedBorderThickness);
+      if (is_instant) {
+        const Pixel centerX = rect.left;
+        const Pixel chevron_half_width = 3.0f;
+        const Pixel chevron_height = 7.0f;
+
+        ImVec2 top(centerX, rect.top);
+        ImVec2 left_bottom(centerX - chevron_half_width,
+                           rect.top + chevron_height);
+        ImVec2 right_bottom(centerX + chevron_half_width,
+                            rect.top + chevron_height);
+
+        draw_list->AddLine(top, left_bottom, kSelectedBorderColor,
+                           kSelectedBorderThickness);
+        draw_list->AddLine(top, right_bottom, kSelectedBorderColor,
+                           kSelectedBorderThickness);
+      } else {
+        // Draw a border around the selected event.
+        draw_list->AddRect(ImVec2(rect.left, rect.top),
+                           ImVec2(rect.right, rect.bottom),
+                           kSelectedBorderColor, corner_rounding, kImDrawFlags,
+                           kSelectedBorderThickness);
+      }
     }
 
     DrawEventName(event_name, rect, draw_list);

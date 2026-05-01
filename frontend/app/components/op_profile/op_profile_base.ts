@@ -210,6 +210,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       }),
     );
     this.data.update(this.rootNode, this.applyScalingFactor);
+    this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 
   hasValidTimeScaleMultiplier(): boolean {

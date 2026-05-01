@@ -411,10 +411,10 @@ export function timeFraction(
 }
 
 /**
- * Computes the flops utilization multiplier with the time scaling factor from
- * the normalized time.
+ * Computes the DVFS time scale multiplier with the time scaling factor from
+ * the normalized time for a node.
  */
-function flopsUtilDvfsMultiplier(node: OpProfileNode): number {
+function nodeDvfsMultiplier(node: OpProfileNode): number {
   if (!node || !node.metrics || !node.metrics.rawTime) {
     return 0;
   }
@@ -445,7 +445,7 @@ export function flopsUtilization(
   // should use the uncapped raw flops instead.
   const uncappedFlops = (node.metrics.uncappedFlops || 0) / timeFractionLocal;
   return applyScalingFactor
-    ? uncappedFlops * flopsUtilDvfsMultiplier(node)
+    ? uncappedFlops * nodeDvfsMultiplier(node)
     : uncappedFlops;
 }
 
@@ -476,13 +476,16 @@ export function normalizeToBf16FlopsRate(node: OpProfileNode): number {
 export function memoryBandwidthUtilization(
   node: OpProfileNode,
   memIndex: MemBwType,
+  applyScalingFactor = false,
 ): number {
   // NaN indicates undefined memory bandwidth utilization (the profile was
   // collected from older versions of profiler).
   if (!node?.metrics?.bandwidthUtils?.[memIndex]) {
     return NaN;
   }
-  return node.metrics.bandwidthUtils[memIndex];
+  return applyScalingFactor
+    ? node.metrics.bandwidthUtils[memIndex] * nodeDvfsMultiplier(node)
+    : node.metrics.bandwidthUtils[memIndex];
 }
 
 /**

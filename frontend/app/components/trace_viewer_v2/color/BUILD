@@ -27,12 +27,7 @@ wasm_cc_library(
         "@com_google_absl//absl/types:span",
         "@imgui",
         "@tsl//tsl/platform:fingerprint",
-    ] + select({
-        "@org_xprof//frontend/app/components/trace_viewer_v2:is_emscripten": [
-            "//third_party/emscripten:embind",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 cc_test(

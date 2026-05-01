@@ -1,9 +1,5 @@
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten/bind.h>
-#endif  // __EMSCRIPTEN__
-
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -12,22 +8,6 @@
 #include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 
 namespace traceviewer {
-
-#ifdef __EMSCRIPTEN__
-EMSCRIPTEN_BINDINGS(colors) {
-  emscripten::enum_<ColorPalette::Key>("ColorPaletteKey")
-      .value("kBackground", ColorPalette::Key::kBackground)
-      .value("kForeground", ColorPalette::Key::kForeground)
-      .value("kMidtone", ColorPalette::Key::kMidtone)
-      .value("kFlameHeader", ColorPalette::Key::kFlameHeader)
-      .value("kCollapsedHeader", ColorPalette::Key::kCollapsedHeader)
-      .value("kExpandedHeader", ColorPalette::Key::kExpandedHeader)
-      .value("kSubtitle", ColorPalette::Key::kSubtitle)
-      .value("kRulerText", ColorPalette::Key::kRulerText)
-      .value("kRulerLine", ColorPalette::Key::kRulerLine)
-      .value("kSelection", ColorPalette::Key::kSelection);
-}
-#endif  // __EMSCRIPTEN__
 
 ColorPalette& ColorPalette::operator=(const ColorPalette::Preset& preset) {
   colors_[Key::kBackground] = preset.background;

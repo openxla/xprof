@@ -66,6 +66,20 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetColor", &SetColor);
 }
 
+EMSCRIPTEN_BINDINGS(colors) {
+  emscripten::enum_<ColorPalette::Key>("ColorPaletteKey")
+      .value("kBackground", ColorPalette::Key::kBackground)
+      .value("kForeground", ColorPalette::Key::kForeground)
+      .value("kMidtone", ColorPalette::Key::kMidtone)
+      .value("kFlameHeader", ColorPalette::Key::kFlameHeader)
+      .value("kCollapsedHeader", ColorPalette::Key::kCollapsedHeader)
+      .value("kExpandedHeader", ColorPalette::Key::kExpandedHeader)
+      .value("kSubtitle", ColorPalette::Key::kSubtitle)
+      .value("kRulerText", ColorPalette::Key::kRulerText)
+      .value("kRulerLine", ColorPalette::Key::kRulerLine)
+      .value("kSelection", ColorPalette::Key::kSelection);
+}
+
 }  // namespace
 
 // This function initializes the application, setting up the ImGui context,
@@ -83,11 +97,14 @@ void Application::Initialize() {
   fonts::LoadFonts(initial_canvas_state.device_pixel_ratio());
 
   emscripten::val local_storage = emscripten::val::global("localStorage");
-  std::string palette_name = local_storage.as<bool>()
-          ? local_storage
-                .call<std::string>("getItem",
-                                   emscripten::val("trace_viewer_palette"))
-          : "";
+  std::string palette_name = "";
+  if (local_storage.as<bool>()) {
+    emscripten::val item = local_storage.call<emscripten::val>(
+        "getItem", emscripten::val("trace_viewer_palette"));
+    if (!item.isNull() && !item.isUndefined()) {
+      palette_name = item.as<std::string>();
+    }
+  }
   absl::Status status = palette_.FromPreset(palette_name);
   if (!status.ok()) {
     palette_ = ColorPalette::Preset::Default();

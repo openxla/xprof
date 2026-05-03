@@ -94,6 +94,31 @@ inline const absl::flat_hash_map<std::string, ColorPalette::Preset>
              .flow_colors = {0xFF98A12A, 0xFFC4716C, 0xFF8236D3, 0xFF2F32DC,
                              0xFF164BCB, 0xFF0089B5, 0xFF009985},
          }},
+        {"Catapult",
+         {
+             .background = 0xFFFFFFFF,        // white
+             .foreground = 0xFF222222,        // dark grey
+             .midtone = 0xFFDDDDDD,           // grey #DDDDDD
+             .flame_header = 0xFFA1A1FF,      // first trace color
+             .collapsed_header = 0xFFCCCCCC,  // light grey
+             .expanded_header = 0xFFAAAAAA,   // darker grey
+             .subtitle = 0xFF555555,          // medium grey
+             .ruler_text = 0xFF222222,        // dark grey
+             .ruler_line = 0xFFCCCCCC,        // light grey
+             .selection = 0xFFDDDDDD,         // grey
+             .trace_colors = {0xFFA1A1FF, 0xFFFFC196, 0xFF84D2B1, 0xFFFF80FF,
+                              0xFFCCDD80, 0xFF86B8E4, 0xFFFF9ECC, 0xFF95DC98,
+                              0xFFC192FF, 0xFFFFD185, 0xFF80CAC3, 0xFFFF82FF,
+                              0xFFB3DF86, 0xFF94ABF9, 0xFFFFB5A7, 0xFF89D7A7,
+                              0xFFEC85FF, 0xFFDEDA80, 0xFF81C0D7, 0xFFFF91E6,
+                              0xFF9FDE91, 0xFFAC9BFF, 0xFFFFC88E},
+             .flow_colors = {0xFFA1A1FF, 0xFFFFC196, 0xFF84D2B1, 0xFFFF80FF,
+                             0xFFCCDD80, 0xFF86B8E4, 0xFFFF9ECC, 0xFF95DC98,
+                             0xFFC192FF, 0xFFFFD185, 0xFF80CAC3, 0xFFFF82FF,
+                             0xFFB3DF86, 0xFF94ABF9, 0xFFFFB5A7, 0xFF89D7A7,
+                             0xFFEC85FF, 0xFFDEDA80, 0xFF81C0D7, 0xFFFF91E6,
+                             0xFF9FDE91, 0xFFAC9BFF, 0xFFFFC88E},
+         }},
 };
 
 }  // namespace traceviewer

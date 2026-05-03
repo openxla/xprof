@@ -52,21 +52,23 @@ absl::StatusOr<ImU32> ColorPalette::GetColor(ColorPalette::Key key) const {
 }
 
 absl::StatusOr<ImU32> ColorPalette::GetTraceColor(int index) const {
-  if (index < 0 || index >= trace_colors_.size()) {
-    return absl::OutOfRangeError(
-        absl::StrCat("Trace color index out of bounds: ", index,
-                     " (size: ", trace_colors_.size(), ")"));
+  if (trace_colors_.empty()) {
+    return absl::FailedPreconditionError("No trace colors available");
   }
-  return trace_colors_[index];
+  if (index < 0) {
+    return absl::InvalidArgumentError("Trace color index cannot be negative");
+  }
+  return trace_colors_[index % trace_colors_.size()];
 }
 
 absl::StatusOr<ImU32> ColorPalette::GetFlowColor(int index) const {
-  if (index < 0 || index >= flow_colors_.size()) {
-    return absl::OutOfRangeError(
-        absl::StrCat("Flow color index out of bounds: ", index,
-                     " (size: ", flow_colors_.size(), ")"));
+  if (flow_colors_.empty()) {
+    return absl::FailedPreconditionError("No flow colors available");
   }
-  return flow_colors_[index];
+  if (index < 0) {
+    return absl::InvalidArgumentError("Flow color index cannot be negative");
+  }
+  return flow_colors_[index % flow_colors_.size()];
 }
 
 absl::Status ColorPalette::SetColor(ColorPalette::Key key, ImU32 color) {

@@ -67,7 +67,7 @@ inline constexpr ImU32 kRed80 = 0xFFA9AEF6;
 inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 // go/keep-sorted end
 
-constexpr size_t kMaxColors = 7;
+constexpr size_t kMaxColors = 24;
 
 class ColorPalette {
  public:

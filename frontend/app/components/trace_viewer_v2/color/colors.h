@@ -133,9 +133,7 @@ class ColorPalette {
 
   explicit ColorPalette(const Preset& preset_palette);
 
-  static ColorPalette Default() {
-    return ColorPalette(Preset::Default());
-  }
+  static ColorPalette Default() { return ColorPalette(Preset::Default()); }
 
   ColorPalette& operator=(const Preset& preset);
 
@@ -160,17 +158,19 @@ class ColorPalette {
   uint64_t GetVersion() const { return version_; }
   uint64_t GetTraceVersion() const { return trace_version_; }
   uint64_t GetFlowVersion() const { return flow_version_; }
+  const std::string& GetCurrentPresetName() const {
+    return current_preset_name_;
+  }
 
  private:
   uint64_t version_ = 0;
   uint64_t trace_version_ = 0;
   uint64_t flow_version_ = 0;
+  std::string current_preset_name_ = "Default";
   absl::flat_hash_map<Key, ImU32> colors_;
   absl::InlinedVector<ImU32, kMaxColors> trace_colors_;
   absl::InlinedVector<ImU32, kMaxColors> flow_colors_;
 };
-
-
 
 }  // namespace traceviewer
 

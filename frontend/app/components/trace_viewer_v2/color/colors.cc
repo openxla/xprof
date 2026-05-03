@@ -45,6 +45,7 @@ absl::Status ColorPalette::FromPreset(absl::string_view palette_name) {
         absl::StrCat("Palette not found: ", palette_name));
   }
   *this = it->second;
+  current_preset_name_ = palette_name;
   return absl::OkStatus();
 }
 

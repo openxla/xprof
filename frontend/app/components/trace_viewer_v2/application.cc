@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <emscripten/bind.h>
 #include <emscripten/em_asm.h>
+#include <emscripten/em_macros.h>
 #include <emscripten/em_types.h>
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
@@ -47,18 +48,29 @@ EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
 }
 
 EMSCRIPTEN_KEEPALIVE void SetPalette(const std::string& palette_name) {
-  absl::Status status =
-      Application::Instance().GetPalette().FromPreset(palette_name);
-  if (!status.ok()) {
-    Application::Instance().GetPalette() = ColorPalette::Preset::Default();
+  ColorPalette& palette = Application::Instance().GetPalette();
+
+  // If the new palette is the same as the current palette is, do not update it
+  // again.
+  if (palette.GetCurrentPresetName() == palette_name) {
+    return;
   }
+
+  absl::Status status = palette.FromPreset(palette_name);
+  if (!status.ok()) {
+    palette = ColorPalette::Preset::Default();
+  }
+
+  Application::Instance().RequestRedraw();
 }
+
 EMSCRIPTEN_KEEPALIVE void SetColor(ColorPalette::Key key, ImU32 color) {
   absl::Status status =
       Application::Instance().GetPalette().SetColor(key, color);
   if (!status.ok()) {
     LOG(ERROR) << "Failed to set color: " << status;
   }
+  Application::Instance().RequestRedraw();
 }
 
 EMSCRIPTEN_BINDINGS(traceviewer) {

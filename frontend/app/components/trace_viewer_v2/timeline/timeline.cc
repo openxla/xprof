@@ -1146,7 +1146,8 @@ void Timeline::DrawVerticalGridLines(const TickInfo& info, Pixel timeline_width,
 
 void Timeline::DrawEventName(absl::string_view event_name,
                              const EventRect& event_rect,
-                             ImDrawList* absl_nonnull draw_list) const {
+                             ImDrawList* absl_nonnull draw_list,
+                             ImU32 text_color) const {
   // Cull text if the event overlaps with the ruler.
   if (event_rect.top < ruler_screen_y_ + kRulerHeight) {
     return;
@@ -1165,10 +1166,7 @@ void Timeline::DrawEventName(absl::string_view event_name,
       // bounds of the event_rect. This prevents text from overflowing visually.
       draw_list->PushClipRect(ImVec2(event_rect.left, event_rect.top),
                               ImVec2(event_rect.right, event_rect.bottom));
-      draw_list->AddText(text_pos,
-                         palette_.GetColor(ColorPalette::Key::kForeground)
-                             .value_or(kDefaultTextColor),
-                         text_display.c_str());
+      draw_list->AddText(text_pos, text_color, text_display.c_str());
       draw_list->PopClipRect();
     }
   }
@@ -1291,7 +1289,15 @@ void Timeline::DrawEvent(int group_index, int event_index,
       }
     }
 
-    DrawEventName(event_name, rect, draw_list);
+    const ImU32 on_surface_color =
+        palette_.GetColor(ColorPalette::Key::kOnSurface)
+            .value_or(kOnSurfaceColor);
+    const ImU32 inverse_on_surface_color =
+        palette_.GetColor(ColorPalette::Key::kInverseOnSurface)
+            .value_or(kInverseOnSurfaceColor);
+    const ImU32 text_color = GetTextColorForContrast(
+        event_color, on_surface_color, inverse_on_surface_color);
+    DrawEventName(event_name, rect, draw_list, text_color);
   }
 }
 

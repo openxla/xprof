@@ -69,6 +69,17 @@ inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 
 constexpr size_t kMaxColors = 24;
 
+// Calculate relative luminance of a color.
+float CalculateLuminance(ImU32 color);
+
+// Calculate contrast ratio between two colors.
+float CalculateContrastRatio(ImU32 color1, ImU32 color2);
+
+// Get the best text color (dark or light) for a given background color to meet
+// contrast requirements.
+ImU32 GetTextColorForContrast(ImU32 background_color, ImU32 on_surface_color,
+                              ImU32 inverse_on_surface_color);
+
 class ColorPalette {
  public:
   struct Preset {
@@ -82,6 +93,8 @@ class ColorPalette {
     ImU32 ruler_text;
     ImU32 ruler_line;
     ImU32 selection;
+    ImU32 on_surface;
+    ImU32 inverse_on_surface;
     absl::InlinedVector<ImU32, kMaxColors> trace_colors;
     absl::InlinedVector<ImU32, kMaxColors> flow_colors;
     static Preset Default() {
@@ -96,6 +109,8 @@ class ColorPalette {
           .ruler_text = kOutlineColor,
           .ruler_line = kOutlineVariantColor,
           .selection = 0xFFFFC9A1,
+          .on_surface = kOnSurfaceColor,
+          .inverse_on_surface = kInverseOnSurfaceColor,
           .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90},
           .flow_colors = {kCyan80, kOrange80, kPurple80, kRed80, kYellow80}};
     }
@@ -111,7 +126,9 @@ class ColorPalette {
     kSubtitle,
     kRulerText,
     kRulerLine,
-    kSelection
+    kSelection,
+    kOnSurface,
+    kInverseOnSurface
   };
 
   explicit ColorPalette(const Preset& preset_palette);

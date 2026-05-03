@@ -1,5 +1,8 @@
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -20,6 +23,8 @@ ColorPalette& ColorPalette::operator=(const ColorPalette::Preset& preset) {
   colors_[Key::kRulerText] = preset.ruler_text;
   colors_[Key::kRulerLine] = preset.ruler_line;
   colors_[Key::kSelection] = preset.selection;
+  colors_[Key::kOnSurface] = preset.on_surface;
+  colors_[Key::kInverseOnSurface] = preset.inverse_on_surface;
   trace_colors_ = preset.trace_colors;
   flow_colors_ = preset.flow_colors;
   version_++;
@@ -144,6 +149,42 @@ absl::Status ColorPalette::PopFlowColor() {
   flow_colors_.pop_back();
   flow_version_++;
   return absl::OkStatus();
+}
+
+namespace {
+float GetLinearComponent(float c) {
+  if (c <= 0.03928f) {
+    return c / 12.92f;
+  } else {
+    return std::pow((c + 0.055f) / 1.055f, 2.4f);
+  }
+}
+}  // namespace
+
+float CalculateLuminance(ImU32 color) {
+  float r = (color & 0xFF) / 255.0f;
+  float g = ((color >> 8) & 0xFF) / 255.0f;
+  float b = ((color >> 16) & 0xFF) / 255.0f;
+
+  r = GetLinearComponent(r);
+  g = GetLinearComponent(g);
+  b = GetLinearComponent(b);
+
+  return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+}
+
+float CalculateContrastRatio(ImU32 color1, ImU32 color2) {
+  float l1 = CalculateLuminance(color1);
+  float l2 = CalculateLuminance(color2);
+  return (std::max(l1, l2) + 0.05f) / (std::min(l1, l2) + 0.05f);
+}
+
+ImU32 GetTextColorForContrast(ImU32 background_color, ImU32 on_surface_color,
+                              ImU32 inverse_on_surface_color) {
+  float contrast_on_surface =
+      CalculateContrastRatio(background_color, on_surface_color);
+  return contrast_on_surface >= 4.5f ? on_surface_color
+                                     : inverse_on_surface_color;
 }
 
 }  // namespace traceviewer

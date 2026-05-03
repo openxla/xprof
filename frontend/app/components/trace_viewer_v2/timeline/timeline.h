@@ -373,7 +373,8 @@ class Timeline {
                              Pixel viewport_bottom);
 
   void DrawEventName(absl::string_view event_name, const EventRect& rect,
-                     ImDrawList* absl_nonnull draw_list) const;
+                     ImDrawList* absl_nonnull draw_list,
+                     ImU32 text_color) const;
 
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);

@@ -133,10 +133,40 @@ canvas {
   display: inline-block;
   color: rgba(0, 0, 0, 0.54);
   font-size: 12px;
+  font-weight: 400;
   white-space: nowrap;
-  width: 80px;
-  text-align: right;
-  margin-right: 8px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.search-suffix {
+  display: flex;
+  align-items: center;
+}
+
+.search-divider {
+  width: 1px;
+  height: 16px;
+  background-color: #C4C7C5;
+  margin: 0 4px;
+}
+
+.search-arrow-btn,
+.search-clear-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  min-width: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.54);
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
 }
 
 .mouse-mode-container {

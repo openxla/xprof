@@ -12,18 +12,26 @@
       <div class="tutorial">{{tutorials[currentTutorialIndex]}}</div>
     </div>
   </ng-container>
-  <div #searchContainer class="search-container" (keydown)="onKeyDown($event)">
+  <div #searchContainer class="search-container">
     <mat-form-field appearance="outline" class="search-form-field">
       <mat-icon matPrefix>search</mat-icon>
       <input matInput #searchBox placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult()" />
-      <span matSuffix *ngIf="currentSearchQuery" class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
+      <div matSuffix class="search-suffix">
+        <ng-container *ngIf="currentSearchQuery">
+          <span class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
+          <div class="search-divider"></div>
+          <button mat-icon-button aria-label="Previous search result" (click)="prevSearchResult()" (keydown.enter)="prevSearchResult()" class="search-arrow-btn">
+            <mat-icon>keyboard_arrow_up</mat-icon>
+          </button>
+          <button mat-icon-button aria-label="Next search result" (click)="nextSearchResult()" (keydown.enter)="nextSearchResult()" class="search-arrow-btn">
+            <mat-icon>keyboard_arrow_down</mat-icon>
+          </button>
+          <button mat-icon-button aria-label="Clear search" (click)="clearSearch(searchBox)" (keydown.enter)="clearSearch(searchBox)" class="search-clear-btn">
+            <mat-icon>close</mat-icon>
+          </button>
+        </ng-container>
+      </div>
     </mat-form-field>
-    <button mat-icon-button aria-label="Previous search result" (click)="prevSearchResult()" [disabled]="!currentSearchQuery">
-      <mat-icon>chevron_left</mat-icon>
-    </button>
-    <button mat-icon-button aria-label="Next search result" (click)="nextSearchResult()" [disabled]="!currentSearchQuery">
-      <mat-icon>chevron_right</mat-icon>
-    </button>
     <div class="mouse-mode-container">
       <button #selectBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" title="Select Mode" aria-label="Select Mode">
         <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">

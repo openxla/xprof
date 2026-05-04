@@ -632,6 +632,12 @@ export class TraceViewerContainer
     this.searchEvents.emit({events_query: query});
   }
 
+  clearSearch(input: HTMLInputElement) {
+    input.value = '';
+    this.currentSearchQuery = '';
+    this.onSearchEvent('');
+  }
+
   blurActiveElement() {
     const el = document.activeElement;
     if (el instanceof HTMLInputElement) {
@@ -716,25 +722,5 @@ export class TraceViewerContainer
     this.searchResultCountText = `${index === -1 ? 1 : index + 1} / ${count}`;
   }
 
-  /**
-   * Handles keydown events in the search container to manage focus flow
-   * and trigger actions on Enter for buttons.
-   */
-  onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Enter') {
-      // Force Enter key to trigger click on buttons within the search container,
-      // as default behavior might be prevented by framework or parent components.
-      const currentElement = document.activeElement;
-      const container = this.searchContainer?.nativeElement;
-      if (
-        currentElement instanceof HTMLElement &&
-        container &&
-        container.contains(currentElement) &&
-        currentElement.tagName.toUpperCase() === 'BUTTON'
-      ) {
-        currentElement.click();
-        event.preventDefault();
-      }
-    }
-  }
+
 }

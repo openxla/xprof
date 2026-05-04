@@ -109,6 +109,21 @@ void ComputeTpuv7GenericTcUnitUtilization(
   AddUtilization(counters, core, "Vector ALUs", num_vpu_inst_issued,
                  cycles * kVectorALUsPerCore, kInstructions, utilization);
 
+  // VPU Utilization
+  uint64_t vpu_ops =
+      COUNTER(VPU_VALU_FADD_OPS_0) + COUNTER(VPU_VALU_FADD_OPS_1) +
+      COUNTER(VPU_VALU_FADD_OPS_2) + COUNTER(VPU_VALU_FADD_OPS_3) +
+      COUNTER(VPU_VALU_FMUL_OPS_0) + COUNTER(VPU_VALU_FMUL_OPS_1) +
+      COUNTER(VPU_VALU_FMUL_OPS_2) + COUNTER(VPU_VALU_FMUL_OPS_3) +
+      COUNTER(VPU_VALU_MISC_OPS_0) + COUNTER(VPU_VALU_MISC_OPS_1) +
+      COUNTER(VPU_VALU_MISC_OPS_2) + COUNTER(VPU_VALU_MISC_OPS_3) +
+      COUNTER(VPU_VALU_INT_OPS_0) + COUNTER(VPU_VALU_INT_OPS_1) +
+      COUNTER(VPU_VALU_INT_OPS_2) + COUNTER(VPU_VALU_INT_OPS_3) +
+      COUNTER(VPU_VALU_FMAC_OPS_0) + COUNTER(VPU_VALU_FMAC_OPS_1) +
+      COUNTER(VPU_VALU_FMAC_OPS_2) + COUNTER(VPU_VALU_FMAC_OPS_3);
+  AddUtilization(counters, core, "VPU Utilization", vpu_ops,
+                 cycles * kVectorALUsPerCore, kInstructions, utilization);
+
   // Loads and stores take one cycle.
   // TODO(b/271325351): Should we consider VMISC_VST_INSTRUCTION as well?
   AddUtilization(counters, core, "Vmem Stores", COUNTER(VST_INSTRUCTION),

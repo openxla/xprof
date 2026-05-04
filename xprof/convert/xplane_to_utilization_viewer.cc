@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -63,7 +65,12 @@ bool IsTpuV7x(absl::string_view device_type) {
 
 // Helper to determine if we should process this device.
 bool ShouldProcessDevice(absl::string_view device_type) {
-  return IsTpuV7x(device_type);
+  static const auto* const kSupportedDevices =
+      new absl::flat_hash_set<std::string>{
+          "TPU v7",
+          "TPU v7x",
+      };
+  return kSupportedDevices->contains(device_type);
 }
 
 }  // namespace

@@ -110,6 +110,14 @@ export class MegascalePerfetto implements OnDestroy {
 
   async getDataAndOpenPerfettoUI() {
     if (!this.perfettoDataUrl) return;
+    if (!this.host) {
+      this.store.dispatch(
+        setErrorMessageStateAction({
+          errorMessage: 'A host must be specified.',
+        }),
+      );
+      return;
+    }
     const response = await fetch(this.perfettoDataUrl);
     if (response.ok) {
       const blob = await response.blob();

@@ -698,7 +698,7 @@ dashboard would integrate trace viewer app using iframe.
       }.bind(this));
     },
 
-    _sessionId: string = '',
+    _sessionId: '',
     _devices: null,
     // Map cache of hlo module name, to hlo op name, to the adj nodes.
     _hloAdjNodesMap: new Map(),
@@ -865,7 +865,7 @@ dashboard would integrate trace viewer app using iframe.
           const hlo_module_name = event.args?.hlo_module;
           const hlo_module_id = event.args?.hlo_module_id || event.args?.program_id;
           if (hlo_module_name && hlo_module_id) {
-            hloModule = `${hlo_module_name}(${hlo_module_id})}`;
+            hloModule = `${hlo_module_name}(${hlo_module_id})`;
           } else if (hlo_module_name) {
             // Less ideal case to disambiguate between modules due to missing id.
             hloModule = hlo_module_name;
@@ -1268,7 +1268,7 @@ dashboard would integrate trace viewer app using iframe.
       }
       if (this._hloAdjNodesMap.get(moduleName).has(nodeName)) return this._hloAdjNodesMap.get(moduleName).get(nodeName);
 
-      let requestUrl;
+      let requestURL;
       if (this._sessionId) {
         requestURL = new URL(`/graph_viewer.json?session_id=${this._sessionId}`, window.location.origin);
         requestURL.searchParams.set('node_name', nodeName);

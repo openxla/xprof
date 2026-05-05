@@ -148,6 +148,23 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "flat_op_metrics_db_utils_test",
+    srcs = ["flat_op_metrics_db_utils_test.cc"],
+    deps = [
+        ":flat_op_metrics_db_utils",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
 cc_library(
     name = "op_utils",
     srcs = ["op_utils.cc"],

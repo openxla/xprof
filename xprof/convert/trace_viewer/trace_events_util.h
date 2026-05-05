@@ -47,9 +47,21 @@ inline absl::string_view ResourceName(const Trace& trace,
 // (descending) so nested events are sorted from outer to innermost.
 struct TraceEventsComparator {
   bool operator()(const TraceEvent* a, const TraceEvent* b) const {
-    if (a->timestamp_ps() < b->timestamp_ps()) return true;
-    if (a->timestamp_ps() > b->timestamp_ps()) return false;
-    return (a->duration_ps() > b->duration_ps());
+    if (a->timestamp_ps() != b->timestamp_ps()) {
+      return a->timestamp_ps() < b->timestamp_ps();
+    }
+    if (a->duration_ps() != b->duration_ps()) {
+      return a->duration_ps() > b->duration_ps();
+    }
+    if (a->device_id() != b->device_id()) {
+      return a->device_id() < b->device_id();
+    }
+    if (a->has_resource_id() && !b->has_resource_id()) return true;
+    if (!a->has_resource_id() && b->has_resource_id()) return false;
+    if (a->has_resource_id()) {
+      return a->resource_id() < b->resource_id();
+    }
+    return a->name() < b->name();
   }
 };
 

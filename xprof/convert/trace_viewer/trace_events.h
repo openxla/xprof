@@ -569,8 +569,18 @@ absl::Status DoReadFullEventFromLevelDbTable(
 // Reads the trace metadata from a file with given path
 absl::Status ReadFileTraceMetadata(std::string& filepath, Trace* trace);
 
+// Returns all events grouped by visibility level.
+// Events are assigned to the smallest zoom level on which they can be
+// distinguished based on resolution. Visibility of an event at level N
+// makes it visible at all higher levels (>N) as well, and can make other
+// events at those levels invisible due to occlusion/downsampling.
+// Flow events are handled specially to ensure consistency across tracks.
 std::vector<std::vector<const TraceEvent*>> GetEventsByLevel(
-    const Trace& trace, std::vector<TraceEvent*>& events);
+    const Trace& trace,
+    const std::vector<const TraceEventTrack*>& event_tracks);
+
+// Assigns serials to events with duplicate timestamps globally.
+void MaybeAddEventUniqueId(const std::vector<TraceEvent*>& all_events);
 
 // Return the minimum duration an event can have in `level`.
 uint64_t LayerResolutionPs(unsigned level);
@@ -991,8 +1001,39 @@ class TraceEventsContainerBase {
 
   // Returns all events grouped by visibility level.
   std::vector<std::vector<const TraceEvent*>> EventsByLevel() const {
-    std::vector<TraceEvent*> events = SortedEvents();
-    return GetEventsByLevel(trace_, events);
+    std::vector<const TraceEventTrack*> event_tracks;
+    event_tracks.reserve(NumTracks());
+
+    ForAllMutableTracks([&](uint32_t device_id, ResourceValue resource_id,
+                            TraceEventTrack* events) {
+      event_tracks.push_back(events);
+    });
+
+    XprofThreadPoolExecutor executor("EventsByLevelExecutor", 2);
+
+    std::vector<std::vector<const TraceEvent*>> events_by_level;
+    std::vector<TraceEvent*> all_events;
+
+    executor.Execute(
+        [&] { events_by_level = GetEventsByLevel(trace_, event_tracks); });
+
+    executor.Execute([&] {
+      std::vector<const std::vector<TraceEvent*>*> tracks_ptrs;
+      tracks_ptrs.reserve(event_tracks.size());
+      for (const auto* track : event_tracks) {
+        if (!track->empty()) {
+          tracks_ptrs.push_back(track);
+        }
+      }
+      nway_merge(tracks_ptrs, std::back_inserter(all_events),
+                 TraceEventsComparator());
+    });
+
+    executor.JoinAll();
+
+    MaybeAddEventUniqueId(all_events);
+
+    return events_by_level;
   }
 
   // Returns all events sorted using TraceEventsComparator.

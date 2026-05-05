@@ -113,6 +113,24 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "flat_op_metrics_db_utils",
+    srcs = ["flat_op_metrics_db_utils.cc"],
+    hdrs = ["flat_op_metrics_db_utils.h"],
+    deps = [
+        ":op_metrics_db_utils",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/platform:logging",
+        "@xla//xla/tsl/platform:macros",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
 cc_test(
     name = "op_metrics_db_utils_test",
     srcs = ["op_metrics_db_utils_test.cc"],

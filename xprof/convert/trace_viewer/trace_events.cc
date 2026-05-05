@@ -28,6 +28,8 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "absl/synchronization/mutex.h"
+
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -493,32 +495,155 @@ absl::Status DoStoreAsLevelDbTable(
 
   builder.Add(kTraceMetadataKey, trace.SerializeAsString());
 
-  size_t num_of_events_dropped = 0;  // Due to too many timestamp repetitions.
-  google::protobuf::Arena arena;
-  TraceEvent* reusable_event = google::protobuf::Arena::Create<TraceEvent>(&arena);
-  std::string buffer;
+  constexpr size_t kChunkSize = 10000;
+  constexpr size_t kMaxBufferedChunks = 20;
+
+  size_t total_chunks = 0;
+  std::vector<size_t> chunks_per_level(events_by_level.size());
   for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
-    // The key of level db table have to be monotonically increasing, therefore
-    // we make the timestamp repetition count as the last byte of key as tie
-    // breaker. The hidden assumption was that there are not too many identical
-    // timestamp per resolution, (if there are such duplications, we dropped
-    // them if it overflow the last byte).
-    for (const TraceEvent* event : events_by_level[zoom_level]) {
-      uint64_t timestamp = event->timestamp_ps();
-      std::string key = LevelDbTableKey(zoom_level, timestamp, event->serial());
-      if (!key.empty()) {
-        absl::Status status =
-            serialize_event_fn(*event, *reusable_event, buffer);
-        if (status.ok()) {
-          builder.Add(key, buffer);
-        } else if (!absl::IsNotFound(status)) {
-          return status;
+    size_t num_events = events_by_level[zoom_level].size();
+    chunks_per_level[zoom_level] = (num_events + kChunkSize - 1) / kChunkSize;
+    total_chunks += chunks_per_level[zoom_level];
+  }
+
+  struct SharedState {
+    // Mutex protecting the shared state and used for condition variables.
+    absl::Mutex mu;
+    // Pre-allocated vector to store serialized data for each chunk.
+    // Workers write to their assigned index without holding the lock.
+    std::vector<std::vector<std::pair<std::string, std::string>>>
+        completed_chunks;
+    // Boolean flag for each chunk indicating that the worker has finished
+    // writing data to completed_chunks.
+    std::vector<bool> chunk_ready;
+    // Stores the first error encountered by any worker thread.
+    absl::Status status;
+    // Total number of events dropped across all chunks.
+    size_t dropped_events = 0;
+  };
+
+  auto shared_state = std::make_shared<SharedState>();
+  shared_state->completed_chunks.resize(total_chunks);
+  shared_state->chunk_ready.resize(total_chunks, false);
+  absl::Status writer_status = absl::OkStatus();
+
+  struct TaskDescriptor {
+    int zoom_level;
+    size_t chunk_idx;
+    const std::vector<const TraceEvent*>* level_events;
+  };
+  std::vector<TaskDescriptor> task_descriptors;
+  task_descriptors.reserve(total_chunks);
+
+  for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
+    const auto& level_events = events_by_level[zoom_level];
+    size_t num_chunks = chunks_per_level[zoom_level];
+    for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
+      task_descriptors.push_back({zoom_level, chunk_idx, &level_events});
+    }
+  }
+
+  {
+    XprofThreadPoolExecutor executor("SerializationPool");
+
+    auto submit_task = [&](size_t idx) {
+      const auto& desc = task_descriptors[idx];
+      executor.Execute([idx, desc, shared_state, &serialize_event_fn]() {
+        {
+          absl::MutexLock lock(shared_state->mu);
+          if (!shared_state->status.ok()) return;
         }
-      } else {
-        ++num_of_events_dropped;
+
+        size_t start_idx = desc.chunk_idx * kChunkSize;
+        size_t end_idx =
+            std::min(start_idx + kChunkSize, desc.level_events->size());
+        std::vector<std::pair<std::string, std::string>> chunk_data;
+        chunk_data.reserve(end_idx - start_idx);
+
+        google::protobuf::Arena arena;
+        TraceEvent* reusable_event = google::protobuf::Arena::Create<TraceEvent>(&arena);
+        std::string buffer;
+        size_t dropped = 0;
+
+        for (size_t i = start_idx; i < end_idx; ++i) {
+          const TraceEvent* event = (*desc.level_events)[i];
+          uint64_t timestamp = event->timestamp_ps();
+          std::string key =
+              LevelDbTableKey(desc.zoom_level, timestamp, event->serial());
+          if (!key.empty()) {
+            absl::Status status =
+                serialize_event_fn(*event, *reusable_event, buffer);
+            if (status.ok()) {
+              chunk_data.push_back({std::move(key), buffer});
+            } else if (!absl::IsNotFound(status)) {
+              absl::MutexLock lock(shared_state->mu);
+              if (shared_state->status.ok()) {
+                shared_state->status = status;
+              }
+              return;
+            }
+          } else {
+            ++dropped;
+          }
+        }
+
+        // Write to vector (Outside lock!)
+        shared_state->completed_chunks[idx] = std::move(chunk_data);
+
+        // Mark as ready and update dropped count (Inside lock)
+        {
+          absl::MutexLock lock(shared_state->mu);
+          shared_state->chunk_ready[idx] = true;
+          shared_state->dropped_events += dropped;
+        }
+      });
+    };
+
+    size_t next_chunk_to_submit = 0;
+    for (size_t i = 0; i < std::min(kMaxBufferedChunks, total_chunks); ++i) {
+      submit_task(next_chunk_to_submit++);
+    }
+
+    // Writer loop in main thread
+    for (size_t i = 0; i < total_chunks; ++i) {
+      std::vector<std::pair<std::string, std::string>> chunk_data;
+      struct IsReadyArgs {
+        SharedState* state;
+        size_t idx;
+      } args{shared_state.get(), i};
+
+      {
+        absl::MutexLock lock(shared_state->mu);
+        shared_state->mu.Await(absl::Condition(
+            +[](void* arg) -> bool {
+              auto* a = static_cast<IsReadyArgs*>(arg);
+              return a->state->chunk_ready[a->idx] || !a->state->status.ok();
+            },
+            &args));
+
+        if (!shared_state->status.ok()) {
+          writer_status = shared_state->status;
+          break;
+        }
+
+        chunk_data = std::move(shared_state->completed_chunks[i]);
+      }
+
+      for (const auto& [key, value] : chunk_data) {
+        builder.Add(key, value);
+      }
+
+      // Submit next task in sliding window
+      if (next_chunk_to_submit < total_chunks) {
+        submit_task(next_chunk_to_submit++);
       }
     }
   }
+
+  TF_RETURN_IF_ERROR(writer_status);
+
+  size_t num_of_events_dropped = shared_state->dropped_events;
+
   absl::string_view filename;
   TF_RETURN_IF_ERROR(file->Name(&filename));
   LOG(INFO) << "Storing " << trace.num_events() - num_of_events_dropped

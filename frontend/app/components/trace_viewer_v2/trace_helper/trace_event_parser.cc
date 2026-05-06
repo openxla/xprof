@@ -341,7 +341,17 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
   // Bind DataProvider class
   emscripten::class_<traceviewer::DataProvider>("DataProvider")
       .function("getFlowCategories",
-                &traceviewer::DataProvider::GetFlowCategories);
+                &traceviewer::DataProvider::GetFlowCategories)
+      .function(
+          "getProcessMappings",
+          emscripten::optional_override(
+              [](const traceviewer::DataProvider& dp) {
+                emscripten::val dict = emscripten::val::object();
+                for (const auto& [pid, host_part] : dp.GetProcessMappings()) {
+                  dict.set(static_cast<double>(pid), host_part);
+                }
+                return dict;
+              }));
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);

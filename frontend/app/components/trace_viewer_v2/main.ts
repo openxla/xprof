@@ -179,7 +179,10 @@ declare global {
   application: {
     instance(): {
       shutdown(): void;
-      dataProvider(): {getFlowCategories(): TraceViewerV2Module['IntVector']};
+      dataProvider(): {
+        getFlowCategories(): TraceViewerV2Module['IntVector'];
+        getProcessMappings(): Record<number, string>;
+      };
       getCurrentSearchResultIndex(): number;
       getSearchResultsCount(): number;
       navigateToNextSearchResult(): void;

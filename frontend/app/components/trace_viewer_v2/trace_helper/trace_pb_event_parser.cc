@@ -52,7 +52,6 @@ ParsedTraceEvents ParseCompressedTraceEvents(
             .new_(emscripten::val("details_received"), event_init);
     emscripten::val::global("window").call<void>("dispatchEvent", event);
   }
-
   ProcessMetadataEvents(response, result);
   ProcessCompleteEvents(response, result);
   ProcessAsyncEvents(response, result);

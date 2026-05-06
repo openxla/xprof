@@ -40,7 +40,7 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
-import {parseEventsSelectedData} from './utils';
+import {getProcessMappingsFromWasm, parseEventsSelectedData} from './utils';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
@@ -230,7 +230,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     // Sort keys to ensure stable query string regardless of insertion order
     const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+      a[0].localeCompare(b[0]),
     );
     entries.forEach(([key, value]) => {
       if (value) {
@@ -247,7 +247,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (this.useTraceViewerV2) {
       if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
-        this.traceViewerModule.loadTraceData(traceDataUrl);
+        this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
+          this.updateWasmProcessMappings();
+        });
       }
     } else {
       this.url = `${this.pathPrefix}${API_PREFIX}${
@@ -328,6 +330,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       uid,
       startUs,
       durationUs,
+      pid,
     } = event;
 
     this.selectedEvent = {
@@ -349,7 +352,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEventProperties = properties;
 
     if (uid) {
-      this.maybeFetchEventArgs(name, startUs, durationUs, uid);
+      this.maybeFetchEventArgs(name, startUs, durationUs, uid, pid);
+    }
+  }
+
+  updateWasmProcessMappings() {
+    const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
+    for (const [pid, host] of mappings.entries()) {
+      this.pidToHostMap.set(pid, host);
     }
   }
 
@@ -405,11 +415,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
+  private readonly pidToHostMap = new Map<number, string>();
+
   private maybeFetchEventArgs(
     name: string,
     startUs: number,
     durationUs: number,
     uid: string,
+    pid?: number,
   ) {
     const key = `${name}-${startUs}-${durationUs}`;
     if (this.eventArgsCache.has(key)) {
@@ -423,13 +436,25 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     params.set('event_name', name);
     params.set('start_time_ms', (startUs / 1000).toString());
     params.set('duration_ms', (durationUs / 1000).toString());
-    params.set('unique_id', uid);
+    const sanitizedUid = uid.includes('.')
+      ? Math.floor(Number(uid)).toString()
+      : uid;
+    params.set('unique_id', sanitizedUid);
+
+    let host = '';
+    // Use precise host from pidToHostMap if available
+    if (pid !== undefined && this.pidToHostMap.has(pid)) {
+      host = this.pidToHostMap.get(pid)!;
+    }
+    if (!host) {
+      host = this.getCurrentHost();
+    }
 
     this.dataService
       .getData(
         this.navigationEvent.run || '',
         this.navigationEvent.tag || '',
-        this.getCurrentHost(),
+        host,
         params,
       )
       .pipe(takeUntil(this.destroyed))

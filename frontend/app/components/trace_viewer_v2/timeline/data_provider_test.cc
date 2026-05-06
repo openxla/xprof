@@ -133,6 +133,20 @@ TEST_F(DataProviderTest, ProcessMetadataEvents) {
   EXPECT_EQ(data.groups[1].name, "Thread_A");
 }
 
+TEST_F(DataProviderTest, GetProcessMappingsSplitsSpaceTokens) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0,
+                          "hostNameA /device:TPU:0"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "hostNameB")};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  auto map = data_provider_.GetProcessMappings();
+  EXPECT_EQ(map.size(), 2);
+  EXPECT_EQ(map[1], "hostNameA");
+  EXPECT_EQ(map[2], "hostNameB");
+}
+
 TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
   const std::vector<TraceEvent> events = {
       CreateMetadataEvent(std::string(kProcessName), 1, 0, ""),

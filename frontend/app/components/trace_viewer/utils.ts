@@ -1,3 +1,4 @@
+import {TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {
   AggregatedEventProperty,
   CounterSelectionItem,
@@ -36,7 +37,9 @@ function isEventsSelectedData(data: unknown): data is EventsSelectedData {
   if (Array.isArray(metrics) && !metrics.every(isMetricsItem)) return false;
 
   const counters = record['counters'];
-  if (Array.isArray(counters) && !counters.every(isCounterSelectionItem)) return false;
+  if (Array.isArray(counters) && !counters.every(isCounterSelectionItem)) {
+    return false;
+  }
 
   return (
     (record['selectionStartUs'] === undefined ||
@@ -124,4 +127,33 @@ export function parseEventsSelectedData(dataString: string): {
   }
 
   return {properties, selectionStartFormat, selectionExtentFormat, isCounter};
+}
+
+/**
+ * Extracts and parses process mappings from the WASM module.
+ */
+export function getProcessMappingsFromWasm(
+  traceViewerModule: TraceViewerV2Module | null,
+): Map<number, string> {
+  const result = new Map<number, string>();
+  if (!traceViewerModule || !traceViewerModule.application) {
+    return result;
+  }
+  try {
+    const dict = traceViewerModule.application
+      .instance()
+      .dataProvider()
+      .getProcessMappings();
+
+    if (dict) {
+      const keys = Object.keys(dict);
+      for (const pidStr of keys) {
+        const host = (dict as Record<string, string>)[pidStr];
+        result.set(Number(pidStr), host);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to get process mappings from WASM:', e);
+  }
+  return result;
 }

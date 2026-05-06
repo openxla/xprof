@@ -993,6 +993,9 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
       trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds,
       expanded_states, timeline.GetPalette()));
 
+  process_names_.insert(trace_info.process_names.begin(),
+                        trace_info.process_names.end());
+
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.
   if (time_bounds.min < std::numeric_limits<Microseconds>::max()) {
@@ -1033,6 +1036,18 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
 
 const std::vector<int>& DataProvider::GetFlowCategories() const {
   return present_flow_categories_;
+}
+
+absl::flat_hash_map<ProcessId, std::string> DataProvider::GetProcessMappings()
+    const {
+  absl::flat_hash_map<ProcessId, std::string> map;
+  for (const auto& [pid, process_name] : process_names_) {
+    std::string host_part = process_name.substr(0, process_name.find(' '));
+    if (!host_part.empty()) {
+      map[pid] = host_part;
+    }
+  }
+  return map;
 }
 
 }  // namespace traceviewer

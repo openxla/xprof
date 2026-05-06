@@ -2590,3 +2590,16 @@ cc_library(
         "@xla//xla/tsl/platform:logging",
     ],
 )
+
+cc_test(
+    name = "flat_op_metrics_db_combiner_test",
+    srcs = ["flat_op_metrics_db_combiner_test.cc"],
+    deps = [
+        ":flat_op_metrics_db_combiner",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+    ],
+)

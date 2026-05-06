@@ -1891,15 +1891,15 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     // Use the window draw list to render over all other timeline content.
     ImDrawList* const draw_list = ImGui::GetWindowDrawList();
 
-    const Pixel rect_y_min = viewport->Pos.y;
+    const Pixel rect_y_min = ruler_screen_y_ + kRulerHeight;
     const Pixel rect_y_max = viewport->Pos.y + viewport->Size.y;
 
     draw_list->AddRectFilledMultiColor(ImVec2(clipped_x_start, rect_y_min),
                                        ImVec2(clipped_x_end, rect_y_max),
-                                       (color & 0x00FFFFFF) | (0x1A << 24),
-                                       (color & 0x00FFFFFF) | (0x1A << 24),
                                        (color & 0x00FFFFFF) | (0x99 << 24),
-                                       (color & 0x00FFFFFF) | (0x99 << 24));
+                                       (color & 0x00FFFFFF) | (0x99 << 24),
+                                       (color & 0x00FFFFFF) | (0x1A << 24),
+                                       (color & 0x00FFFFFF) | (0x1A << 24));
 
     // Only draw the border if the edge of the time range is visible.
     if (time_range_x_start >= timeline_x_start) {
@@ -1916,10 +1916,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     const ImU32 kTextColor =
         palette_.GetColor(ColorPalette::Key::kForeground).value_or(kBlackColor);
 
-    // Move the text up a little bit to avoid being too close to the bottom
-    // edge.
-    const Pixel text_y =
-        rect_y_max - text_size.y - kSelectedTimeRangeTextBottomPadding;
+    // Move the text to the top, below the ruler.
+    const Pixel text_y = rect_y_min + kSelectedTimeRangeTextTopPadding;
     const Pixel text_x = clipped_x_start +
                          (clipped_x_end - clipped_x_start - text_size.x) / 2.0f;
     const ImVec2 text_pos(text_x, text_y);

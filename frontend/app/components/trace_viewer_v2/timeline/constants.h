@@ -85,9 +85,7 @@ inline constexpr ImU32 kCounterHoverColor = kBlue80;
 inline constexpr ImU32 kHoverMaskColor = kTransparentWhiteColor;
 inline constexpr ImU32 kSelectedBorderColor = kBlueColor;
 inline constexpr Pixel kCounterHoverThickness = 3.5f;
-// The corner rounding applied to hovered events. Set to half of `kEventHeight`
-// to create a half-circle effect on the ends of the event.
-inline constexpr Pixel kHoverCornerRounding = kEventHeight / 2.0f;
+inline constexpr Pixel kHoverCornerRounding = 4.0f;
 inline constexpr Pixel kHoverPadding = 2.0f;
 // The radius of the circle used to draw points in the counter track.
 inline constexpr Pixel kPointRadius = 3.0f;

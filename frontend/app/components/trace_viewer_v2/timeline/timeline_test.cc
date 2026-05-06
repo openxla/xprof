@@ -4226,17 +4226,13 @@ TEST_F(RealTimelineImGuiFixture, DrawSelectedTimeRangeTextAtCorrectYPosition) {
   ASSERT_TRUE(found_text) << "Text should be drawn in black";
 
   // Calculate expected Y position
-  const std::string text =
-      FormatTime(timeline_.selected_time_ranges()[0].duration());
-  const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
-  // kSelectedTimeRangeTextBottomPadding is 10.0f.
-  // The calculated text_y passed to AddText is:
-  // io.DisplaySize.y - text_size.y - 10.0f.
-  // However, ImGui's AddText with the default font seems to render glyphs
-  // with a vertical offset (ascent padding?) of about 3 pixels relative to
-  // the specified position. We observed min_y being 1060.0f while calculated
-  // expected_y was 1057.0f.
-  const float expected_y = io.DisplaySize.y - text_size.y - 10.0f + 3.0f;
+  // The calculated text_y passed to AddText is now at the top, below the ruler:
+  // ruler_screen_y_ + kRulerHeight + kSelectedTimeRangeTextTopPadding.
+  // In this test setup, ruler_screen_y_ seems to be 0.
+  // So expected text_y is 0 + 20.0f + 5.0f = 25.0f.
+  // Adding the observed 3.0f ImGui font vertical offset gives 28.0f.
+  const float expected_y =
+      kRulerHeight + kSelectedTimeRangeTextTopPadding + 3.0f;
 
   EXPECT_FLOAT_EQ(min_y, expected_y);
 
@@ -5064,11 +5060,11 @@ TEST_F(TimelineDragSelectionTest, ClickCloseButtonRemovesSelectedTimeRange) {
   // range_start_x = GetTimelineStartX() + kSelectionStartOffset
   // range_end_x = GetTimelineStartX() + 250.0f
   // text_x = range_start_x + (200 - text_size.x) / 2
-  // text_y = 1080 - text_size.y - kSelectedTimeRangeTextBottomPadding (10.0f)
+  // text_y = ruler_screen_y_ + kRulerHeight + kSelectedTimeRangeTextTopPadding
+  // In this test setup, ruler_screen_y_ seems to be 0.
   const float range_start_x = GetTimelineStartX() + kSelectionStartOffset;
   const float text_x = range_start_x + (200.0f - text_size.x) / 2.0f;
-  const float text_y =
-      io.DisplaySize.y - text_size.y - kSelectedTimeRangeTextBottomPadding;
+  const float text_y = kRulerHeight + kSelectedTimeRangeTextTopPadding;
 
   const float button_x = text_x + text_size.x + kCloseButtonPadding;
   const float button_y = text_y + (text_size.y - kCloseButtonSize) / 2.0f;

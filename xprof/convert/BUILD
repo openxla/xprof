@@ -2576,3 +2576,17 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
+
+cc_library(
+    name = "flat_op_metrics_db_combiner",
+    srcs = ["flat_op_metrics_db_combiner.cc"],
+    hdrs = ["flat_op_metrics_db_combiner.h"],
+    deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
+        "@tsl//tsl/platform:protobuf",
+        "@xla//xla/tsl/platform:logging",
+    ],
+)

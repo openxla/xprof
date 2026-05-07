@@ -13,6 +13,8 @@ xprof_ng_module(
         "trace_viewer_container.ng.html",
     ],
     deps = [
+        ":interfaces",
+        ":utils",
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@angular/forms",
@@ -41,10 +43,26 @@ xprof_ng_module(
     testonly = True,
     srcs = ["trace_viewer_container_test.ts"],
     deps = [
+        ":interfaces",
         ":trace_viewer_container",
+        ":utils",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
+    ],
+)
+
+xprof_ng_module(
+    name = "interfaces",
+    srcs = ["interfaces.ts"],
+)
+
+xprof_ng_module(
+    name = "utils",
+    srcs = ["utils.ts"],
+    deps = [
+        ":interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],
 )

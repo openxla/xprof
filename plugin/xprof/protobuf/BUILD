@@ -244,6 +244,18 @@ xprof_proto_library(
 )
 
 xprof_proto_library(
+    name = "hlo_proto",
+    srcs = ["hlo.proto"],
+    protodeps = ["@xla//xla/service:hlo_proto"],
+)
+
+xprof_proto_library(
+    name = "xplane_proto",
+    srcs = ["xplane.proto"],
+    protodeps = ["@tsl//tsl/profiler/protobuf:xplane_proto"],
+)
+
+xprof_proto_library(
     name = "protos_all",
     create_go_proto = False,
     create_java_proto = False,
@@ -284,6 +296,8 @@ xprof_proto_library(
         ":trace_events_raw_proto",
         ":smart_suggestion_proto",
         ":trace_filter_config_proto",
+        ":hlo_proto",
+        ":xplane_proto",
     ],
 )
 
@@ -295,6 +309,7 @@ exports_files(
         "event_time_fraction_analyzer.proto",
         "flat_op_metrics.proto",
         "hardware_types.proto",
+        "hlo.proto",
         "hlo_stats.proto",
         "inference_stats.proto",
         "input_pipeline.proto",
@@ -325,6 +340,7 @@ exports_files(
         "trace_events_old.proto",
         "trace_events_raw.proto",
         "trace_filter_config.proto",
+        "xplane.proto",
     ],
     visibility = [
         "@org_xprof//plugin/xprof/protobuf:__pkg__",

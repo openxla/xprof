@@ -677,6 +677,46 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, CustomCallMetricsScaling) {
   EXPECT_EQ(metric.flops(), 200);
 }
 
+// -----------------------------------------------------------------------------
+// Test Case 12: Source Information Parsing
+// -----------------------------------------------------------------------------
+TEST_F(XEventsFlatOpMetricsDbBuilderTest, SourceInformationParsing) {
+  XPlane plane = CreateTestXPlane();
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+
+  CreateXEvent(plane_builder, line_builder, "op_with_source", 1000, 500, 1, 1);
+
+  XEventMetadata* meta =
+      plane_builder.GetOrCreateEventMetadata("op_with_source");
+
+  XStatMetadata* source_meta = plane_builder.GetOrCreateStatMetadata("source");
+  auto* stat_source = meta->add_stats();
+  stat_source->set_metadata_id(source_meta->id());
+  stat_source->set_str_value("filename.cc:123");
+
+  XStatMetadata* stack_meta =
+      plane_builder.GetOrCreateStatMetadata("source_stack");
+  auto* stat_stack = meta->add_stats();
+  stat_stack->set_metadata_id(stack_meta->id());
+  stat_stack->set_str_value("stack_frame_contents");
+
+  XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+  XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
+                              &plane.lines(0).events(0));
+
+  builder_->AddOpMetric(event_visitor);
+  FlatOpMetricsDb db = builder_->Finalize();
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  const auto& metric = db.op_instances(0);
+  EXPECT_EQ(metric.hlo_name(), "op_with_source");
+  ASSERT_TRUE(metric.has_source_info());
+  EXPECT_EQ(metric.source_info().file_name(), "filename.cc");
+  EXPECT_EQ(metric.source_info().line_number(), 123);
+  EXPECT_EQ(metric.source_info().stack_frame(), "stack_frame_contents");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package tensorflow.profiler;
 
+import "plugin/xprof/protobuf/source_info.proto";
+
 message FlatOpMetrics {
   // ---------------------------------------------------------------------------
   // Hierarchy & Identification
@@ -129,6 +131,8 @@ message FlatOpMetrics {
   TpuCoreType core_type = 28;
 
   bool is_fusion_child = 29;
+
+  optional SourceInfo source_info = 30;
 }
 
 message FlatOpMetricsDb {

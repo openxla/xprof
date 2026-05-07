@@ -803,6 +803,20 @@ TEST(TimelineTest, MaybeRequestDataFetchesConstrainedRange) {
       MicrosToMillis(10000000.0));
 }
 
+TEST(TimelineTest, SetTimelineDataPreservesScrollOnIncrementalUpdate) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  EXPECT_FALSE(timeline.get_should_restore_scroll_for_test());
+
+  timeline.set_is_incremental_loading(true);
+
+  FlameChartTimelineData data;
+  timeline.SetTimelineData(std::move(data));
+
+  EXPECT_TRUE(timeline.get_should_restore_scroll_for_test());
+}
+
 TEST(TimelineTest,
      MaybeRequestDataNoTriggerAfterInitializeLastFetchRequestRange) {
   ColorPalette palette = ColorPalette::Default();
@@ -4628,6 +4642,58 @@ TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
   EXPECT_GT(tracks_window->Scroll.y, 0.0f);
 }
 
+TEST_F(RealTimelineImGuiFixture,
+       SetTimelineDataPreservesScrollOnIncrementalUpdate) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(100);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(1.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  data.events_by_level.resize(101);
+  data.events_by_level[100].push_back(0);
+
+  FlameChartTimelineData data_copy = data;
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 20000.0});
+
+  for (int i = 0; i < 3; ++i) {
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+
+  ImGuiWindow* tracks_window = nullptr;
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(std::string(w->Name), "Tracks")) {
+      tracks_window = w;
+      break;
+    }
+  }
+
+  ASSERT_NE(tracks_window, nullptr);
+
+  tracks_window->Scroll.y = 500.0f;
+
+  timeline_.set_is_incremental_loading(true);
+
+  timeline_.SetTimelineData(std::move(data_copy));
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+  ImGui::Render();
+
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, 500.0f);
+}
+
 TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event0");
@@ -4769,7 +4835,6 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   EXPECT_EQ(timeline_.selected_counter_index(), -1);
 
   // Step 2: Select Counter Event
-  timeline_.ResetScroll();
   ImGui::NewFrame();
   timeline_.Draw();
   ImGuiWindow* counter_window = nullptr;

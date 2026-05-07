@@ -253,6 +253,10 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
 
+  if (is_incremental_loading_) {
+    should_restore_scroll_ = true;
+  }
+
   if (redraw_callback_) redraw_callback_();
 }
 
@@ -315,9 +319,9 @@ void Timeline::Draw() {
   ImGui::BeginChild("Tracks", ImVec2(0, 0), 0,
                     ImGuiWindowFlags_NoScrollWithMouse);
 
-  if (reset_scroll_) {
-    ImGui::SetScrollY(0.0f);
-    reset_scroll_ = false;
+  if (should_restore_scroll_) {
+    ImGui::SetScrollY(last_scroll_y_);
+    should_restore_scroll_ = false;
   }
 
   // We set cursor to 0,0 locally
@@ -569,6 +573,7 @@ void Timeline::Draw() {
 
   ProcessPendingScroll();
 
+  last_scroll_y_ = ImGui::GetScrollY();
   ImGui::EndChild();
 
   // Draw the selected time range in a separate overlay child window.

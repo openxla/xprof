@@ -1,7 +1,6 @@
 #ifndef THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 #define THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TIMELINE_TIMELINE_H_
 
-#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -19,8 +18,8 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
-#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
@@ -142,7 +141,6 @@ class Timeline {
       absl::AnyInvocable<void(absl::string_view, const EventData&) const>;
   using RedrawCallback = absl::AnyInvocable<void()>;
 
-
   Timeline(ColorPalette& palette) : palette_(palette) {}
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
@@ -153,6 +151,9 @@ class Timeline {
   }
   const std::string& get_copied_track_name_for_test() const {
     return copied_track_name_;
+  }
+  bool get_should_restore_scroll_for_test() const {
+    return should_restore_scroll_;
   }
 
   // The provided callback is stored and invoked during the lifetime of this
@@ -244,8 +245,6 @@ class Timeline {
     flow_category_filter_ = category_id;
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
-
-  void ResetScroll() { reset_scroll_ = true; }
 
   void Draw();
 
@@ -507,7 +506,8 @@ class Timeline {
   // The index of the currently selected counter event in the counter data, or
   // -1 if no counter event is selected.
   int selected_counter_index_ = -1;
-  bool reset_scroll_ = false;
+  bool should_restore_scroll_ = false;
+  float last_scroll_y_ = 0.0f;
 
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
   // Flag to track if an event was clicked in the current frame. This is used

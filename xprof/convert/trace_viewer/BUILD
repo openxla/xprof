@@ -117,6 +117,10 @@ cc_library(
     name = "trace_events_util",
     srcs = ["trace_events_util.cc"],
     hdrs = ["trace_events_util.h"],
+    visibility = [
+        "//third_party/tensorflow/core/profiler:internal",
+        "//xprof:__subpackages__",
+    ],
     deps = [
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",

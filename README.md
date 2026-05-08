@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> XProf is hiring! Apply now at https://g.co/jobs/xprof
+
 # XProf (+ Tensorboard Profiler Plugin)
 
 XProf offers a number of tools to analyse and visualize the

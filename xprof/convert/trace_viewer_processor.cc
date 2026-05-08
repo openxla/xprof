@@ -31,6 +31,8 @@ limitations under the License.
 #include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/xplane_to_trace_container.h"
+#include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
 
 namespace xprof {
 
@@ -58,18 +60,34 @@ absl::Status TraceViewerProcessor::ProcessSession(
   LOG(INFO) << "PreprocessSingleHostXSpace done. Duration: "
             << absl::Now() - start_time << " session_id: " << session_id;
 
-  std::string trace_viewer_json;
-  absl::Time convert_start_time = absl::Now();
-  ConvertXSpaceToTraceEventsString(*xspace, &trace_viewer_json);
-  LOG(INFO) << "ConvertXSpaceToTraceEventsString done. Duration: "
-            << absl::Now() - convert_start_time
-            << " session_id: " << session_id;
+  std::string format = tensorflow::profiler::GetParamWithDefault<std::string>(
+      options, "format", "json");
+  if (format == "pb") {
+    tensorflow::profiler::TraceEventsContainer trace_container;
+    std::string hostname = session_snapshot.GetHostname(0);
+    tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(
+        hostname, *xspace, &trace_container);
+    tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
+    absl::StatusOr<std::string> compressed_result =
+        tensorflow::profiler::ConvertTraceDataToCompressedDeltaSeriesProto(
+            proto_options, trace_container);
+    if (compressed_result.ok()) {
+      SetOutput(*compressed_result, "application/octet-stream");
+    } else {
+      LOG(ERROR) << "Failed to convert trace data: "
+                 << compressed_result.status();
+      return compressed_result.status();
+    }
+  } else {
+    std::string trace_viewer_json;
+    absl::Time convert_start_time = absl::Now();
+    ConvertXSpaceToTraceEventsString(*xspace, &trace_viewer_json);
+    LOG(INFO) << "ConvertXSpaceToTraceEventsString done. Duration: "
+              << absl::Now() - convert_start_time
+              << " session_id: " << session_id;
 
-  absl::Time set_output_start_time = absl::Now();
-  SetOutput(trace_viewer_json, "application/json");
-  LOG(INFO) << "SetOutput done. Duration: "
-            << absl::Now() - set_output_start_time
-            << " session_id: " << session_id;
+    SetOutput(trace_viewer_json, "application/json");
+  }
 
   LOG(INFO) << "TraceViewerProcessor::ProcessSession done. Total Duration: "
             << absl::Now() - start_time << " session_id: " << session_id;

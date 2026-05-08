@@ -35,6 +35,8 @@
 #include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/convert/xprof_thread_pool_executor.h"
+#include "xprof/convert/trace_viewer/delta_series/trace_data_to_compressed_delta_series_proto.h"
+
 
 namespace xprof {
 
@@ -175,28 +177,8 @@ absl::Status StreamingTraceViewerProcessor::ProcessSession(
               << " session_id: " << session_id;
   }
 
-  std::string trace_viewer_json;
-  JsonTraceOptions json_trace_options;
-
-  tensorflow::profiler::TraceDeviceType device_type =
-      tensorflow::profiler::TraceDeviceType::kUnknownDevice;
-  if (IsTpuTrace(merged_trace_container.trace())) {
-    device_type = TraceDeviceType::kTpu;
-  }
-  json_trace_options.details =
-      TraceOptionsToDetails(device_type, profiler_trace_options);
-  IOBufferAdapter adapter(&trace_viewer_json);
-  absl::Time json_start_time = absl::Now();
-  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
-      json_trace_options, merged_trace_container, &adapter);
-  LOG(INFO) << "TraceEventsToJson done. Duration: "
-            << absl::Now() - json_start_time << " session_id: " << session_id;
-
-  absl::Time set_output_start_time = absl::Now();
-  SetOutput(trace_viewer_json, "application/json");
-  LOG(INFO) << "SetOutput done. Duration: "
-            << absl::Now() - set_output_start_time
-            << " session_id: " << session_id;
+  TF_RETURN_IF_ERROR(SerializeAndSetOutput(merged_trace_container, trace_option,
+                                           profiler_trace_options, session_id));
 
   LOG(INFO)
       << "StreamingTraceViewerProcessor::ProcessSession done. Total Duration: "
@@ -401,31 +383,62 @@ absl::Status StreamingTraceViewerProcessor::Reduce(
     return absl::InternalError("No hosts with valid trace data.");
   }
 
-  std::string trace_viewer_json;
-  JsonTraceOptions json_trace_options;
-
-  tensorflow::profiler::TraceDeviceType device_type =
-      tensorflow::profiler::TraceDeviceType::kUnknownDevice;
-  if (IsTpuTrace(merged_trace_container.trace())) {
-    device_type = TraceDeviceType::kTpu;
-  }
-  json_trace_options.details =
-      TraceOptionsToDetails(device_type, profiler_trace_options);
-  IOBufferAdapter adapter(&trace_viewer_json);
-  absl::Time json_start_time = absl::Now();
-  TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
-      json_trace_options, merged_trace_container, &adapter);
-  LOG(INFO) << "TraceEventsToJson done. Duration: "
-            << absl::Now() - json_start_time << " session_id: " << session_id;
-
-  absl::Time set_output_start_time = absl::Now();
-  SetOutput(trace_viewer_json, "application/json");
-  LOG(INFO) << "SetOutput done. Duration: "
-            << absl::Now() - set_output_start_time
-            << " session_id: " << session_id;
+  TF_RETURN_IF_ERROR(SerializeAndSetOutput(merged_trace_container, trace_option,
+                                           profiler_trace_options, session_id));
 
   LOG(INFO) << "StreamingTraceViewerProcessor::Reduce done. Total Duration: "
             << absl::Now() - start_time << " session_id: " << session_id;
+  return absl::OkStatus();
+}
+
+absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
+    const TraceEventsContainer& merged_trace_container,
+    const internal::TraceViewOption& trace_option,
+    const tensorflow::profiler::TraceOptions& profiler_trace_options,
+    absl::string_view session_id) {
+  if (trace_option.format == "pb") {
+    tensorflow::profiler::TraceDeviceType device_type =
+        tensorflow::profiler::TraceDeviceType::kUnknownDevice;
+    if (IsTpuTrace(merged_trace_container.trace())) {
+      device_type = TraceDeviceType::kTpu;
+    }
+    tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
+    proto_options.details =
+        TraceOptionsToDetails(device_type, profiler_trace_options);
+    absl::StatusOr<std::string> compressed_result =
+        tensorflow::profiler::ConvertTraceDataToCompressedDeltaSeriesProto(
+            proto_options, merged_trace_container);
+    if (compressed_result.ok()) {
+      SetOutput(*compressed_result, "application/octet-stream");
+    } else {
+      LOG(ERROR) << "Failed to convert trace data: "
+                 << compressed_result.status();
+      return compressed_result.status();
+    }
+  } else {
+    std::string trace_viewer_json;
+    JsonTraceOptions json_trace_options;
+
+    tensorflow::profiler::TraceDeviceType device_type =
+        tensorflow::profiler::TraceDeviceType::kUnknownDevice;
+    if (IsTpuTrace(merged_trace_container.trace())) {
+      device_type = TraceDeviceType::kTpu;
+    }
+    json_trace_options.details =
+        TraceOptionsToDetails(device_type, profiler_trace_options);
+    IOBufferAdapter adapter(&trace_viewer_json);
+    absl::Time json_start_time = absl::Now();
+    TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(
+        json_trace_options, merged_trace_container, &adapter);
+    LOG(INFO) << "TraceEventsToJson done. Duration: "
+              << absl::Now() - json_start_time << " session_id: " << session_id;
+
+    absl::Time set_output_start_time = absl::Now();
+    SetOutput(trace_viewer_json, "application/json");
+    LOG(INFO) << "SetOutput done. Duration: "
+              << absl::Now() - set_output_start_time
+              << " session_id: " << session_id;
+  }
   return absl::OkStatus();
 }
 

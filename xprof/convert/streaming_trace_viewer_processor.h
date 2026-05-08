@@ -7,6 +7,7 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/platform/errors.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/profile_processor.h"
@@ -14,6 +15,8 @@
 #include "xprof/convert/tool_options.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "absl/strings/numbers.h"
+#include "xprof/convert/xplane_to_trace_container.h"
+#include "xprof/convert/trace_viewer/trace_options.h"
 
 namespace xprof {
 
@@ -27,6 +30,7 @@ struct TraceViewOption {
   std::string search_prefix = "";
   double duration_ms = 0.0;
   uint64_t unique_id = 0;
+  std::string format = "json";
 };
 
 inline absl::StatusOr<TraceViewOption> GetTraceViewOption(
@@ -53,6 +57,9 @@ inline absl::StatusOr<TraceViewOption> GetTraceViewOption(
   auto unique_id_opt =
       tensorflow::profiler::GetParamWithDefault<std::string>(
           options, "unique_id", "0");
+  trace_options.format =
+      tensorflow::profiler::GetParamWithDefault<std::string>(
+          options, "format", "json");
 
 
   if (!absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
@@ -110,6 +117,12 @@ class StreamingTraceViewerProcessor : public ProfileProcessor {
   }
 
  private:
+  absl::Status SerializeAndSetOutput(
+      const tensorflow::profiler::TraceEventsContainer& merged_trace_container,
+      const internal::TraceViewOption& trace_option,
+      const tensorflow::profiler::TraceOptions& profiler_trace_options,
+      absl::string_view session_id);
+
   tensorflow::profiler::ToolOptions options_;
 };
 

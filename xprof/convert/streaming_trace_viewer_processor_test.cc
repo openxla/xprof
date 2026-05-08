@@ -604,5 +604,27 @@ TEST_F(StreamingTraceViewerProcessorTest, MapWithEmptyXSpace) {
   EXPECT_TRUE(nlohmann::json::parse(json_output).contains("traceEvents"));
 }
 
+TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostPbFormat) {
+  XSpace space = CreateTestXSpace(2);
+  absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};
+  TF_ASSERT_OK_AND_ASSIGN(SessionSnapshot snapshot,
+                          CreateSnapshot(host_xspaces));
+
+  ToolOptions tool_options;
+  tool_options["format"] = "pb";
+  StreamingTraceViewerProcessor processor(tool_options);
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string map_output,
+                          processor.Map(snapshot, "host1", space));
+
+  TF_EXPECT_OK(processor.Reduce(snapshot, {map_output}));
+
+  const std::string& pb_output = processor.GetData();
+  ASSERT_FALSE(pb_output.empty());
+
+  // Verify it is not valid JSON
+  EXPECT_FALSE(nlohmann::json::accept(pb_output));
+}
+
 }  // namespace
 }  // namespace xprof

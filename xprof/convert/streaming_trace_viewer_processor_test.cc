@@ -13,6 +13,7 @@
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -20,6 +21,7 @@
 #include "nlohmann/json.hpp"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
+#include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_statistics.h"
 #include "xla/tsl/platform/status.h"
@@ -29,6 +31,8 @@
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+
+#include "xprof/convert/xplane_to_trace_container.h"
 
 namespace xprof {
 using internal::GetTraceViewOption;
@@ -627,4 +631,5 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostPbFormat) {
 }
 
 }  // namespace
+
 }  // namespace xprof

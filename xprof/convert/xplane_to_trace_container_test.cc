@@ -13,8 +13,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xprof/convert/xplane_to_trace_container.h"
-
 #include <cstdint>
 #include <string>
 
@@ -28,6 +26,8 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xprof/convert/file_utils.h"
+#include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/utils/tensorflow_utils.h"
 
 namespace tensorflow {
@@ -207,5 +207,6 @@ TEST(XPlaneToTraceContainerTest, SubprocessHostTrace_ConvertsToTraceEvents) {
 }
 
 }  // namespace
+
 }  // namespace profiler
 }  // namespace tensorflow

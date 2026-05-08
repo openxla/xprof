@@ -331,15 +331,20 @@ cc_library(
 cc_test(
     name = "streaming_trace_viewer_processor_test",
     srcs = ["streaming_trace_viewer_processor_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+    ],
     deps = [
         ":file_utils",
         ":repository",
         ":streaming_trace_viewer_processor",
         ":tool_options",
+        ":xplane_to_trace_container",
         "//file/base:path",
         "//file/util:temp_path",
         "@com_github_nlohmann_json//:json",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -919,7 +924,11 @@ cc_test(
 cc_test(
     name = "xplane_to_trace_container_test",
     srcs = ["xplane_to_trace_container_test.cc"],
+    data = [
+        "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
+    ],
     deps = [
+        ":file_utils",
         ":xplane_to_trace_container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:check",

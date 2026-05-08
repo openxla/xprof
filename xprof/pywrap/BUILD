@@ -1,6 +1,7 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
 load("//plugin/xprof/build_utils:strict.default.bzl", "py_strict_test")
 
@@ -58,7 +59,7 @@ py_library(
     data = [":profiler_plugin_c_api.so"],
 )
 
-py_strict_test(
+py_test(
     name = "profiler_wrapper_test",
     srcs = ["profiler_wrapper_test.py"],
     tags = ["no_oss"],

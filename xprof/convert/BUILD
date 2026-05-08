@@ -2606,3 +2606,24 @@ cc_test(
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
     ],
 )
+
+cc_library(
+    name = "xplane_to_flat_op_metrics_db",
+    srcs = ["xplane_to_flat_op_metrics_db.cc"],
+    hdrs = ["xplane_to_flat_op_metrics_db.h"],
+    deps = [
+        ":flat_op_metrics_db_combiner",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/hash",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
+        "@org_xprof//xprof/utils:op_metrics_db_utils",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)

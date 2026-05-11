@@ -57,6 +57,8 @@ toc:
   section:
   - title: JAX
     path: /xprof/jax_profiling
+  - title: JAX on GPUs
+    path: /xprof/jax_gpu_profiling
   - title: PyTorch/XLA
     path: /xprof/pytorch_xla_profiling
   - title: Tensorflow

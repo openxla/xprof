@@ -108,6 +108,7 @@ xprof_proto_library(
         ":topology_proto",
         ":diagnostics_proto",
         ":kernel_stats_proto",
+        ":flat_op_metrics_proto",
     ],
 )
 

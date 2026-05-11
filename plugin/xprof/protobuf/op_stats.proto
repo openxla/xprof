@@ -3,6 +3,7 @@ syntax = "proto3";
 package tensorflow.profiler;
 
 import "plugin/xprof/protobuf/diagnostics.proto";
+import "plugin/xprof/protobuf/flat_op_metrics.proto";
 import "plugin/xprof/protobuf/hardware_types.proto";
 import "plugin/xprof/protobuf/kernel_stats.proto";
 import "plugin/xprof/protobuf/op_metrics.proto";
@@ -188,5 +189,8 @@ message OpStats {
   SourceStats source_stats = 14;
   // The result for the disaggregated serving latency.
   DisaggregatedServingLatency disaggregated_serving_latency = 15;
+  // The new path for device op metrics. device_op_metrics_db will be deprecated
+  // soon.
+  tensorflow.profiler.FlatOpMetricsDb flat_device_op_metrics_db = 16;
   reserved 7;
 }

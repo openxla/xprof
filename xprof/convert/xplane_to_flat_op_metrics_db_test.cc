@@ -539,6 +539,7 @@ TEST_F(XPlaneToFlatOpMetricsDbTest, ModuleEventMissingOffloadCoreIdIgnored) {
   EXPECT_TRUE(sparse_core_metrics_map.empty());
 }
 
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

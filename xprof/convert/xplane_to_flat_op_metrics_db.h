@@ -31,6 +31,11 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
     absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>&
         sparse_core_metrics_map);
 
+FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+    const XPlane& device_trace,
+    const absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>&
+        sparse_core_metrics_map);
+
 }  // namespace profiler
 }  // namespace tensorflow
 

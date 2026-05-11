@@ -25,7 +25,6 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/hash/hash.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -154,7 +153,7 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
           XEventsOpMetricsDbBuilder::OpKey key = GetOpKeyFromXEvent(event);
           auto module_id = key.program_id.has_value() ? key.program_id.value()
                                                       : module_it->tc_start_id;
-          uint64_t op_id = absl::HashOf(module_id, hlo_name);
+          uint64_t op_id = StableOpId(module_id, hlo_name);
           intermediate_op_metrics_map[{module_it->offload_core_id,
                                        module_it->tc_start_id}]
               .event_stack.Push({.event = event,
@@ -272,7 +271,7 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
       std::string hlo_name = event.Metadata().HasDisplayName()
                                  ? std::string(event.Metadata().DisplayName())
                                  : std::string(event.Metadata().Name());
-      uint64_t op_id = absl::HashOf(key.program_id.value_or(0), hlo_name);
+      uint64_t op_id = StableOpId(key.program_id.value_or(0), hlo_name);
       event_stack.Push({.event = event,
                         .device_timespan = timespan,
                         .op_id = op_id,

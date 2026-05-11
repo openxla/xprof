@@ -101,12 +101,12 @@ TEST(ConvertXPlaneToOpStats, GpuPerfEnv) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
-                                                   options, &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 options, &op_stats));
   const PerfEnv& perf_env = op_stats.perf_env();
   // Change to lower flops number that we do not use sum of the tensor core peak
   // flops and the cuda core peak flops together as peak flops. Only use the
@@ -137,10 +137,10 @@ TEST(ConvertXPlaneToOpStats, GpuRunEnvironment) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(
-      session_snapshot_or.value(), OpStatsOptions(), &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 OpStatsOptions(), &op_stats));
   const RunEnvironment& run_env = op_stats.run_environment();
 
   EXPECT_EQ("Nvidia GPU", run_env.device_type());
@@ -181,10 +181,10 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyStepDbTest) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
-                                                   options, &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 options, &op_stats));
   const StepDatabaseResult& step_db = op_stats.step_db();
 
   EXPECT_EQ(step_db.step_sequence_size(), 1);
@@ -232,10 +232,10 @@ TEST(ConvertXPlaneToOpStats, GpuStepDbTest) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
-                                                   options, &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 options, &op_stats));
   const StepDatabaseResult& step_db = op_stats.step_db();
 
   EXPECT_EQ(step_db.step_sequence_size(), 1);
@@ -318,15 +318,15 @@ TEST(ConvertXPlaneToOpStats, TestConvertMultiXSpacesToCombinedOpStats) {
 
   auto session_snapshot_or =
       SessionSnapshot::Create(std::move(xspace_paths), std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
 
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
   OpStats combined_op_stats;
 
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
-                                                   options, &combined_op_stats))
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 options, &combined_op_stats))
       << "Failed to convert multi XSpace to OpStats";
 
   // Result OpStats has 2 Host Ops, "IDLE" and "aaa:bbb".
@@ -431,10 +431,10 @@ TEST(ConvertXPlaneToOpStats, TpuPerfEnv) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
-                                                   options, &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 options, &op_stats));
   const PerfEnv& perf_env = op_stats.perf_env();
   EXPECT_NEAR(kDevCapPeakTeraflopsPerSecond,
               perf_env.peak_tera_flops_per_second(), kMaxError);
@@ -480,10 +480,10 @@ TEST(ConvertXPlaneToOpStats, TpuRunEnvironment) {
   xspaces.push_back(std::move(space));
   auto session_snapshot_or =
       SessionSnapshot::Create({"test_xspace"}, std::move(xspaces));
-  TF_CHECK_OK(session_snapshot_or.status());
+  ASSERT_OK(session_snapshot_or.status());
   OpStats op_stats;
-  TF_CHECK_OK(ConvertMultiXSpacesToCombinedOpStats(
-      session_snapshot_or.value(), OpStatsOptions(), &op_stats));
+  ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
+                                                 OpStatsOptions(), &op_stats));
   const RunEnvironment& run_env = op_stats.run_environment();
 
   EXPECT_EQ("TPU V4", run_env.device_type());

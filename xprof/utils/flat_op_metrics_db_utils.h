@@ -107,6 +107,32 @@ inline uint64_t ChildrenTimePs(const FlatOpMetrics& metrics) {
   return metrics.time_ps() - metrics.self_time_ps();
 }
 
+// A perfectly deterministic 64-bit hash function based on FNV-1a
+inline uint64_t StableHash64(absl::string_view str) {
+  uint64_t hash = 0xcbf29ce484222325ULL;
+  for (char c : str) {
+    hash ^= static_cast<uint8_t>(c);
+    hash *= 0x100000001b3ULL;
+  }
+  return hash;
+}
+
+inline uint64_t StableOpId(uint64_t hlo_module_id, absl::string_view name) {
+  uint64_t combined = StableHash64(name);  // Fingerprint 2011
+  combined ^=
+      hlo_module_id + 0x9e3779b97f4a7c15ULL + (combined << 6) + (combined >> 2);
+  return combined;
+}
+
+struct FlatOpMetricMeta {
+  uint64_t hlo_module_id;
+  std::string hlo_name;
+  uint64_t op_id;
+  uint64_t parent_op_id;
+  uint64_t num_cores;
+  uint64_t occurrences;
+};
+
 // Sets the total time for OpMetricsDb, ensuring idle time is not negative.
 inline void SetTotalTimePs(FlatOpMetricsDb& db, uint64_t total_time_ps) {
   db.set_total_time_ps(std::max(db.total_op_time_ps(), total_time_ps));

@@ -127,6 +127,8 @@ message FlatOpMetrics {
   }
   // Target TPU core type.
   TpuCoreType core_type = 28;
+
+  bool is_fusion_child = 29;
 }
 
 message FlatOpMetricsDb {

@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hlo_proto_map.h"
 
@@ -33,6 +34,10 @@ struct OpStatsOptions {
   bool generate_step_db = false;
   bool generate_kernel_stats_db = false;
 };
+
+// Converts XSpace to FlatOpMetricsDb.
+absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
+    const XSpace& space, const OpStatsOptions& options);
 
 // NOTE: call GroupTfEvents before if OpStats.step_db needs to be generated.
 absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,

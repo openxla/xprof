@@ -15,10 +15,9 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_op_stats.h"
 
-#include <sys/types.h>
-
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -36,6 +35,7 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -48,10 +48,12 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_combiner.h"
 #include "xprof/convert/duty_cycle_tracker.h"
+#include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
 #include "xprof/convert/step_events_to_steps_db.h"
+#include "xprof/convert/xplane_to_flat_op_metrics_db.h"
 #include "xprof/convert/xplane_to_kernel_stats_db.h"
 #include "xprof/convert/xplane_to_op_metrics_db.h"
 #include "xprof/convert/xplane_to_step_events.h"
@@ -65,6 +67,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "xprof/utils/device_caps_utils.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/hardware_type_utils.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
@@ -83,8 +86,6 @@ using tsl::profiler::FindPlanesWithPrefix;
 using tsl::profiler::FindTensorCorePlanes;
 using ::tsl::profiler::kGpuPlanePrefix;
 using ::tsl::profiler::kTpuPlanePrefix;
-using tsl::profiler::Timespan;
-using ::tsl::profiler::XPlaneBuilder;
 
 std::string Hostname(const XSpace& space) {
   if (space.hostnames().empty()) return "localhost";
@@ -273,11 +274,110 @@ void SetProgramIdToNameMap(const HloProtoMap& hlo_proto_map,
   }
 }
 
+// Removed SetProgramIdToNameMap for FlatOpMetricsDb as it was removed from
+// proto.
+
 void UpdateOpMetricsDbFromHloModuleMap(OpMetricsDb& op_metrics_db,
                                        const HloModuleMap& hlo_module_map) {
   for (OpMetrics& op_metrics : *op_metrics_db.mutable_metrics_db()) {
     EnterOpMetadataFromHloModuleMap(&op_metrics, hlo_module_map);
   }
+}
+
+void AddFusionChildrenToFlatOpMetrics(
+    FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
+    const HloInstructionWrapper* instr_wrapper,
+    std::vector<FlatOpMetrics>& new_children, FlatOpMetricsDb& children_db) {
+  if (instr_wrapper->FusedChildren().empty()) return;
+  for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {
+    if (child->HloOpcode() == xla::HloOpcode::kParameter ||
+        child->HloOpcode() == xla::HloOpcode::kTuple)
+      continue;
+
+    FlatOpMetrics child_metrics;
+    child_metrics.set_parent_op_id(parent_op_metrics.op_id);
+    child_metrics.set_hlo_module_id(parent_op_metrics.hlo_module_id);
+
+    child_metrics.set_hlo_name(std::string(child->Name()));
+    uint64_t op_id =
+        StableOpId(parent_op_metrics.hlo_module_id, child_metrics.hlo_name());
+    child_metrics.set_op_id(op_id);
+    child_metrics.set_category(std::string(child->Category()));
+    child_metrics.set_deduplicated_name(child->Metadata().deduplicated_name());
+    child_metrics.set_provenance(std::string(child->op_full_name()));
+    child_metrics.set_num_cores(parent_op_metrics.num_cores);
+    child_metrics.set_occurrences(parent_op_metrics.occurrences);
+    child_metrics.set_flops(child->flops());
+    child_metrics.set_flops_v2(static_cast<double>(child->flops()));
+    child_metrics.set_bytes_accessed(child->bytes_accessed());
+    child_metrics.set_long_name(child->Expression());
+    child_metrics.set_core_type(core_type);
+    child_metrics.set_is_fusion_child(true);
+
+    // children_db.add_op_instances()->Swap(&child_metrics);
+    *children_db.add_op_instances() = child_metrics;
+
+    new_children.push_back(std::move(child_metrics));
+
+    // Recursively add any sub-children of this fused child using its
+    // deterministic op_id as parent
+    AddFusionChildrenToFlatOpMetrics(
+        {.hlo_module_id = parent_op_metrics.hlo_module_id,
+         .op_id = op_id,
+         .num_cores = parent_op_metrics.num_cores,
+         .occurrences = parent_op_metrics.occurrences},
+        core_type, child, new_children, children_db);
+  }
+}
+
+void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
+                                           const HloModuleMap& hlo_module_map) {
+  // Collect new children into a separate vector to avoid container
+  // reallocation and iterator invalidation while looping over base records.
+  std::vector<FlatOpMetrics> new_children;
+  FlatOpMetricsDb children_db;
+
+  int initial_size = op_metrics_db.op_instances_size();
+  for (int i = 0; i < initial_size; ++i) {
+    FlatOpMetrics* op_metrics = op_metrics_db.mutable_op_instances(i);
+    if (op_metrics->op_id() == 0) {
+      op_metrics->set_op_id(
+          StableOpId(op_metrics->hlo_module_id(), op_metrics->hlo_name()));
+    }
+
+    const HloInstructionWrapper* instr_wrapper = GetHloInstruction(
+        hlo_module_map, op_metrics->hlo_module_id(), op_metrics->hlo_name());
+    if (instr_wrapper != nullptr) {
+      const auto* performance_info_wrapper =
+          instr_wrapper->GetPerformanceInfoWrapper();
+      if (performance_info_wrapper != nullptr) {
+        for (const auto& m :
+             performance_info_wrapper->memory_accessed_breakdown()) {
+          auto* memory_access = op_metrics->add_memory_accessed_breakdown();
+          memory_access->set_operation_type(
+              m.is_read() ? FlatOpMetrics::MemoryAccessed::READ
+                          : FlatOpMetrics::MemoryAccessed::WRITE);
+          memory_access->set_memory_space(m.memory_space());
+          memory_access->set_bytes_accessed(m.bytes_accessed() *
+                                            op_metrics->occurrences());
+        }
+      }
+
+      AddFusionChildrenToFlatOpMetrics(
+          {.hlo_module_id = op_metrics->hlo_module_id(),
+           .op_id = op_metrics->op_id(),
+           .num_cores = op_metrics->num_cores(),
+           .occurrences = op_metrics->occurrences()},
+          op_metrics->core_type(), instr_wrapper, new_children, children_db);
+    }
+  }
+
+  // Safely append all accumulated children after the loop is finished
+  // for (auto& child : new_children) {
+  //   op_metrics_db.add_op_instances()->Swap(&child);
+  // }
+  FlatOpMetricsDbCombiner combiner(&op_metrics_db);
+  combiner.Combine(children_db);
 }
 
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
@@ -701,6 +801,144 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
           std::move(disaggregated_serving_latency);
     }
   }
+  return op_stats;
+}
+
+absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
+    const XSpace& space, const OpStatsOptions& options) {
+  OpStats op_stats;
+  FlatOpMetricsDb& flat_op_metrics_db =
+      *op_stats.mutable_flat_device_op_metrics_db();
+  StepEvents step_events;
+  // TODO : PropagateXSpaceDiagnosticsToOpStats(space, &op_stats);
+  // Convert device planes.
+
+  FlatOpMetricsDbCombiner flat_op_metrics_db_combiner(&flat_op_metrics_db);
+  SetRunEnvironment(space, op_stats.mutable_run_environment());
+
+  // KernelReportMap reports;
+
+  // Handle device planes first. device_planes will contain either GPU or TPU.
+  std::vector<const XPlane*> device_planes =
+      FindPlanesWithPrefix(space, kTpuPlanePrefix);
+  const bool is_gpu = device_planes.empty();
+  if (is_gpu) {
+    device_planes = FindPlanesWithPrefix(space, kGpuPlanePrefix);
+    if (!device_planes.empty()) {
+      return absl::UnimplementedError(
+          "GPU not supported yet for FlatOpMetricsDb");
+    }
+  }
+  const bool is_tpu = !is_gpu;
+  std::string hostname = Hostname(space);
+  // TODO : See if below is required
+  // auto& core_id_to_details_map = *op_stats.mutable_core_id_to_details();
+  // if (is_gpu) {
+  //   core_id_to_details_map[kDefaultGpuLocalCoreId].set_hostname(hostname);
+  // }
+  DutyCycleCombiner duty_cycle_combiner;
+  // TODO(b/161942993) parallelize XPlane processing per thread.
+  HloModuleMap hlo_module_map;
+
+  // Generate HloModuleMap if kernel stats or op metrics for TPU are requested.
+  bool generate_hlo_module_map = options.generate_kernel_stats_db ||
+                                 (is_tpu && options.generate_op_metrics_db);
+  if (generate_hlo_module_map) {
+    tensorflow::profiler::HloCostAnalysisWrapper::Factory create_cost_analysis;
+    if (is_gpu) {
+      create_cost_analysis = []() {
+        return GetHloCostAnalysisWrapperRegistry().Get(
+            kXprofGpuCostAnalysisName)(nullptr);
+      };
+    } else {
+      // we pass nullptr for the cost analysis for TPU.
+      create_cost_analysis = []() { return nullptr; };
+    }
+    ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
+  }
+  {
+    LOG(INFO) << "ConvertXSpaceToOpStats: creating op_stats_threads "
+                 "XprofThreadPoolExecutor";
+    auto executor =
+        std::make_unique<XprofThreadPoolExecutor>("op_stats_threads");
+
+    // OpMetricDb Generation.
+    std::vector<FlatOpMetricsDb> all_flat_op_metrics_dbs;
+    // Populated sequentially on the main thread and then accessed as read-only
+    // by concurrent threads in the executor. Do not add concurrent writes
+    // without proper locking as absl::flat_hash_map is not thread-safe.
+    absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>
+        sparse_core_metrics_map;
+
+    // Ensure op_metrics threads are joined and results combined when the
+    // function exits.
+    auto op_metrics_cleanup = absl::MakeCleanup([&all_flat_op_metrics_dbs,
+                                                 &flat_op_metrics_db_combiner,
+                                                 &hlo_module_map,
+                                                 &flat_op_metrics_db]() {
+      LOG(INFO) << "ConvertXSpaceToOpStats: Combining "
+                << all_flat_op_metrics_dbs.size() << " op_metrics_dbs.";
+      for (auto& flat_op_metrics_db_here : all_flat_op_metrics_dbs) {
+        flat_op_metrics_db_combiner.Combine(flat_op_metrics_db_here);
+      }
+      LOG(INFO) << "ConvertXSpaceToOpStats: Finished combining op_metrics_dbs.";
+      UpdateFlatOpMetricsDbFromHloModuleMap(flat_op_metrics_db, hlo_module_map);
+    });
+
+    if (options.generate_op_metrics_db) {
+      all_flat_op_metrics_dbs.resize(device_planes.size());  // Resize here
+
+      // Removed assignment of perf_env and device_type as they were removed
+      // from FlatOpMetricsDb proto.
+
+      std::vector<const XPlane*> other_planes;
+      for (const auto device_plane : device_planes) {
+        if (tsl::profiler::GetSparseCoreId(device_plane->name()).has_value()) {
+          ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+              *device_plane, sparse_core_metrics_map);
+        } else {
+          other_planes.push_back(device_plane);
+        }
+      }
+
+      if (!device_planes.empty()) {
+        *op_stats.mutable_perf_env() = GetPerfEnvFromXPlane(*device_planes[0]);
+      }
+
+      for (size_t i = 0; i < other_planes.size(); ++i) {
+        const XPlane* device_plane = other_planes[i];
+        FlatOpMetricsDb& op_metrics_db = all_flat_op_metrics_dbs[i];
+        // Safe to capture sparse_core_metrics_map by reference
+        // as it is accessed as read-only in threads. All
+        // modifications were completed sequentially on the main thread.
+        executor->Execute([device_plane, &op_metrics_db,
+                           &sparse_core_metrics_map]() {
+          op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+              *device_plane, sparse_core_metrics_map);
+        });
+      }
+    }
+    LOG(INFO) << "ConvertXSpaceToOpStats: Scheduled " << device_planes.size()
+              << " OpMetricsDb generation tasks.";
+
+    executor->JoinAll();  // Wait for all scheduled tasks to complete.
+                          // The cleanup blocks will execute after this step.
+  }
+
+  // Removed assignment of program_id_to_name_map as it was removed from
+  // FlatOpMetricsDb proto.
+
+  size_t final_size = op_stats.ByteSizeLong();
+  LOG(INFO) << "ConvertXSpaceToOpStats: Final FlatOpMetricsDb size: "
+            << final_size << " bytes (" << (final_size / 1024.0 / 1024.0)
+            << " MiB).";
+  if (final_size > std::numeric_limits<int32_t>::max()) {
+    return absl::DataLossError(absl::StrCat(
+        "ConvertXSpaceToOpStats: FlatOpMetricsDb size ", final_size,
+        " bytes exceeds 2GB protobuf limit and cannot be serialized."));
+  }
+
+  LOG(INFO) << "FLAT OP METRICS PROCESSING TIME ENDED";
   return op_stats;
 }
 

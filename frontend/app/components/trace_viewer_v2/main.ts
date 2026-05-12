@@ -137,6 +137,7 @@ declare global {
 
   export declare interface TraceViewerV2Module extends EmscriptenModule {
   HEAPU8: Uint8Array;
+  getFeatureFlag?(name: string): boolean;
   SetPalette(paletteName: string): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
@@ -940,6 +941,12 @@ export async function traceViewerV2Main(
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
+    traceviewerModule.getFeatureFlag = (name: string): boolean => {
+      // TODO(b/498744795): Now only supports boolean flags (true/false).
+      // Will be extended in the future.
+      const value = window.localStorage.getItem(`xprof_ff_${name}`);
+      return value === 'true';
+    };
     activeWasmModule = traceviewerModule;
   } catch (e) {
     const error = e as Error;

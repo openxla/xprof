@@ -41,6 +41,13 @@ const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
 constexpr float kScrollbarSize = 10.0f;
 
+EM_JS(bool, GetFeatureFlagFromJS, (const char* name), {
+  if (window.getFeatureFlag) {
+    return window.getFeatureFlag(UTF8ToString(name));
+  }
+  return false;
+});
+
 EM_BOOL OnResize(int eventType, const EmscriptenUiEvent* uiEvent,
                  void* userData) {
   Application::Instance().RequestRedraw();
@@ -323,6 +330,17 @@ void Application::SetVisibleFlowCategories(
     const emscripten::val& category_ids) {
   timeline_->SetVisibleFlowCategories(
       emscripten::vecFromJSArray<int>(category_ids));
+}
+
+bool Application::IsFeatureEnabled(const std::string& name) {
+  auto it = feature_flags_cache_.find(name);
+  if (it != feature_flags_cache_.end()) {
+    return it->second;
+  }
+
+  bool enabled = GetFeatureFlagFromJS(name.c_str());
+  feature_flags_cache_[name] = enabled;
+  return enabled;
 }
 
 void Application::Resize(float dpr, int width, int height) {

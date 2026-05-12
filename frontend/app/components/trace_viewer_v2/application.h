@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "emscripten/val.h"
 #include "absl/base/no_destructor.h"
@@ -12,13 +13,13 @@
 #include "absl/time/time.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/canvas_state.h"
+#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/scheduler.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
-#include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
 namespace traceviewer {
 
@@ -51,6 +52,8 @@ class Application {
   DataProvider& data_provider() { return data_provider_; };
 
   ColorPalette& GetPalette() { return palette_; };
+
+  bool IsFeatureEnabled(const std::string& name);
 
   bool IsInitialized() const { return timeline_ != nullptr; }
 
@@ -119,6 +122,8 @@ class Application {
   // Color theme for timeline.
   ColorPalette palette_ = ColorPalette::Default();
   uint64_t palette_version_ = 0xDEADBEEF;
+
+  std::unordered_map<std::string, bool> feature_flags_cache_;
 
   void MainLoop();
   // Draws a single frame. Should ONLY be called from MainLoop() to ensure

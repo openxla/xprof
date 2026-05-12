@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/application.h"
 
 #include <emscripten/bind.h>
+#include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
 
 #include "<gtest/gtest.h>"
@@ -53,6 +54,20 @@ TEST_F(ApplicationTest, ShutdownClearsImGuiContext) {
   EXPECT_EQ(ImGui::GetCurrentContext(), nullptr);
 
   EXPECT_FALSE(app.IsInitialized());
+}
+
+TEST_F(ApplicationTest, IsFeatureEnabledReadsFromJs) {
+  EM_ASM({
+    window.getFeatureFlag = (name) => {
+      if (name === 'test_flag_true') return true;
+      if (name === 'test_flag_false') return false;
+      return false;
+    };
+  });
+  Application& app = Application::Instance();
+
+  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_true"));
+  EXPECT_FALSE(app.IsFeatureEnabled("test_flag_false"));
 }
 
 }  // namespace

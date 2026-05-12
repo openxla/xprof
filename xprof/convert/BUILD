@@ -169,6 +169,53 @@ cc_library(
 )
 
 cc_library(
+    name = "base_op_stats_processor",
+    srcs = ["base_op_stats_processor.cc"],
+    hdrs = ["base_op_stats_processor.h"],
+    deps = [
+        ":file_utils",
+        ":multi_xplanes_to_op_stats",
+        ":op_stats_combiner",
+        ":preprocess_single_host_xplane",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":xplane_to_op_stats",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//xprof/utils:hardware_type_utils",
+        "@org_xprof//xprof/utils:step_intersection",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "unified_hlo_stats_processor",
+    srcs = ["unified_hlo_stats_processor.cc"],
+    hdrs = ["unified_hlo_stats_processor.h"],
+    deps = [
+        ":base_op_stats_processor",
+        ":op_stats_to_hlo_stats",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor_factory",
+        "@com_google_absl//absl/status",
+        "@org_xprof//plugin/xprof/protobuf:hlo_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
     name = "overview_page_processor",
     srcs = ["overview_page_processor.cc"],
     hdrs = ["overview_page_processor.h"],
@@ -621,6 +668,47 @@ cc_test(
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "base_op_stats_processor_test",
+    srcs = ["base_op_stats_processor_test.cc"],
+    deps = [
+        ":base_op_stats_processor",
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        "//file/base",
+        "//file/base:options_cc",
+        "//file/base:path",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "unified_hlo_stats_processor_test",
+    srcs = ["unified_hlo_stats_processor_test.cc"],
+    deps = [
+        ":base_op_stats_processor",
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_hlo_stats_processor",
+        ":unified_profile_processor_factory",
+        "//file/base",
+        "//file/base:options_cc",
+        "//file/base:path",
+        "//third_party/jsoncpp:json_compat",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@jsoncpp_git//:jsoncpp",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
 
@@ -1581,6 +1669,7 @@ cc_library(
         ":profile_processor_factory",
         ":repository",
         ":tool_options",
+        ":unified_hlo_stats_processor",
         "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",

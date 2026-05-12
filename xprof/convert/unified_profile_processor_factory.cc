@@ -20,10 +20,14 @@
 #include "absl/base/no_destructor.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/flags/flag.h"
 #include "absl/synchronization/mutex.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
+
+ABSL_FLAG(bool, enable_unified_xprof, false, "Enable unified Xprof workflow");
 
 namespace xprof {
 
@@ -46,8 +50,17 @@ std::unique_ptr<UnifiedProfileProcessor>
 UnifiedProfileProcessorFactory::Create(
     absl::string_view tool_name,
     const tensorflow::profiler::ToolOptions& options) const {
+  absl::string_view clean_tool_name = tool_name;
+  if (absl::EndsWith(clean_tool_name, ".json")) {
+    clean_tool_name.remove_suffix(5);
+  } else if (absl::EndsWith(clean_tool_name, ".pb")) {
+    clean_tool_name.remove_suffix(3);
+  } else if (absl::EndsWith(clean_tool_name, ".pbtxt")) {
+    clean_tool_name.remove_suffix(6);
+  }
+
   absl::MutexLock lock(mu_);
-  auto it = creators_.find(tool_name);
+  auto it = creators_.find(clean_tool_name);
   if (it == creators_.end()) {
     LOG(ERROR) << "No UnifiedProfileProcessor registered for tool: "
                << tool_name;

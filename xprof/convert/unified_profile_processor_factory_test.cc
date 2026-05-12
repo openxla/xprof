@@ -66,7 +66,7 @@ class MacroRegisteredProcessor : public UnifiedProfileProcessor {
 };
 
 REGISTER_UNIFIED_PROFILE_PROCESSOR("macro_registered_tool",
-                                 MacroRegisteredProcessor);
+                                   MacroRegisteredProcessor);
 
 TEST(UnifiedProfileProcessorTest, BaseClassMethods) {
   DummyProcessor processor;

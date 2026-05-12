@@ -38,8 +38,7 @@ class UnifiedHloStatsProcessor : public BaseOpStatsProcessor {
       const tensorflow::profiler::ToolOptions& options) override;
 };
 
-REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats",
-                                   UnifiedHloStatsProcessor);
+REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats", UnifiedHloStatsProcessor);
 
 }  // namespace xprof
 

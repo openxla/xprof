@@ -26,6 +26,23 @@ import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
 import {AngularSplitModule} from 'angular-split';
+import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
+import {debounceTime, takeUntil} from 'rxjs/operators';
+
+import {
+  EntrySelectedEventDetail,
+  EVENT_SELECTED_EVENT_NAME,
+  EVENTS_SELECTED_EVENT_NAME,
+  EventsSelectedEventDetail,
+  isEntrySelectedEvent,
+  isEventsSelectedEvent,
+  isMouseModeChangedEvent,
+  MouseMode,
+  MOUSE_MODE_CHANGED_EVENT_NAME,
+  SelectedEventProperty,
+  type SelectedEvent,
+} from 'org_xprof/frontend/app/components/trace_viewer_container/interfaces';
+import {getProcessMappingsFromWasm} from 'org_xprof/frontend/app/components/trace_viewer_container/utils';
 import {
   isSearchEventsEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
@@ -35,130 +52,7 @@ import {
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
-import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
-import {debounceTime, takeUntil} from 'rxjs/operators';
 
-/**
- * The name of the event selected custom event, dispatched from WASM in Trace
- * Viewer v2.
- */
-export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
-
-/**
- * The name of the events selected custom event, dispatched from WASM in Trace
- * Viewer v2.
- */
-export const EVENTS_SELECTED_EVENT_NAME = 'events_selected';
-
-/**
- * The detail of an 'EventsSelected' custom event. The properties are quoted to
- * prevent renaming during minification.
- */
-export declare interface EventsSelectedEventDetail {
-  // tslint:disable-next-line:enforce-name-casing
-  events_selected_data: string;
-}
-
-// Type guard for the 'EventsSelected' custom event.
-function isEventsSelectedEvent(
-  event: Event,
-): event is CustomEvent<EventsSelectedEventDetail> {
-  if (!(event instanceof CustomEvent)) return false;
-  const detail = event.detail as unknown;
-  return (
-    typeof detail === 'object' &&
-    detail !== null &&
-    'events_selected_data' in detail &&
-    typeof (detail as EventsSelectedEventDetail).events_selected_data ===
-      'string'
-  );
-}
-
-
-/**
- * The detail of an 'EntrySelected' custom event. The properties are quoted to
- * prevent renaming during minification.
- */
-export declare interface EntrySelectedEventDetail {
-  eventIndex: number;
-  name: string;
-  startUs: number;
-  durationUs: number;
-  startUsFormatted: string;
-  durationUsFormatted: string;
-  pid?: number;
-  uid?: string;
-  hloModuleName?: string;
-  hloOpName?: string;
-}
-
-// Type guard for the 'EntrySelected' custom event.
-function isEntrySelectedEvent(
-  event: Event,
-): event is CustomEvent<EntrySelectedEventDetail> {
-  if (!(event instanceof CustomEvent)) return false;
-  const detail = event.detail as unknown;
-  return (
-    typeof detail === 'object' &&
-    detail !== null &&
-    'eventIndex' in detail &&
-    (detail as {eventIndex: unknown}).eventIndex !== undefined
-  );
-}
-
-
-/**
- * The interface for a selected event.
- */
-export declare interface SelectedEvent {
-  name: string;
-  startUsFormatted?: string;
-  durationUsFormatted?: string;
-  stackTraceLinkHtml?: string;
-  rooflineModelLinkHtml?: string;
-  graphViewerLinkHtml?: string;
-}
-
-/**
- * The interface for selected event property.
- */
-export declare interface SelectedEventProperty {
-  property?: string;
-  value?: string | number;
-  [key: string]: string | number | undefined;
-}
-
-/**
- * Mouse modes for trace viewer interaction.
- * Must match the values in C++ MouseMode enum.
- */
-export enum MouseMode {
-  SELECT = 1,
-  PAN = 2,
-  ZOOM = 3,
-  TIMING = 4,
-}
-
-/** Event name for mouse mode changes. */
-export const MOUSE_MODE_CHANGED_EVENT_NAME = 'mouse_mode_changed';
-
-/** Detail for mouse mode changed event. */
-export declare interface MouseModeChangedEventDetail {
-  mouseMode: number;
-}
-
-/** Type guard for MouseModeChangedEvent. */
-export function isMouseModeChangedEvent(
-  event: Event,
-): event is CustomEvent<MouseModeChangedEventDetail> {
-  return !!(
-    event instanceof CustomEvent &&
-    event.detail &&
-    typeof event.detail.mouseMode === 'number'
-  );
-}
-
-// The tutorials to display while the trace viewer is loading.
 const TUTORIALS = Object.freeze([
   'Pan: A/D or Shift+Scroll or Drag',
   'Zoom: W/S or Ctrl+Scroll',
@@ -233,6 +127,8 @@ export class TraceViewerContainer
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
+
+  readonly pidToHostMap = new Map<number, string>();
 
   isSingleEventTable(): boolean {
     return this.eventDetailColumns.length <= 2;
@@ -638,6 +534,13 @@ export class TraceViewerContainer
     this.onSearchEvent('');
   }
 
+  updateWasmProcessMappings() {
+    const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
+    for (const [pid, host] of mappings.entries()) {
+      this.pidToHostMap.set(pid, host);
+    }
+  }
+
   blurActiveElement() {
     const el = document.activeElement;
     if (el instanceof HTMLInputElement) {
@@ -721,6 +624,4 @@ export class TraceViewerContainer
     }
     this.searchResultCountText = `${index === -1 ? 1 : index + 1} / ${count}`;
   }
-
-
 }

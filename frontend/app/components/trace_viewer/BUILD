@@ -6,10 +6,8 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer",
     srcs = [
-        "interfaces.ts",
         "trace_viewer.ts",
         "trace_viewer_module.ts",
-        "utils.ts",
     ],
     assets = [
         ":trace_viewer_css",
@@ -30,6 +28,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_container",
+        "@org_xprof//frontend/app/components/trace_viewer_container:interfaces",
+        "@org_xprof//frontend/app/components/trace_viewer_container:utils",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/pipes",
         "@org_xprof//frontend/app/services/communication_service",
@@ -57,6 +57,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_container",
+        "@org_xprof//frontend/app/components/trace_viewer_container:interfaces",
+        "@org_xprof//frontend/app/components/trace_viewer_container:utils",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/services/data_service_v2",
         "@org_xprof//frontend/app/store",

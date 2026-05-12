@@ -13,6 +13,9 @@ import {
 } from '@angular/core';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {combineLatest, ReplaySubject} from 'rxjs';
+import {takeUntil} from 'rxjs/operators';
+
 import {
   API_PREFIX,
   PLUGIN_NAME,
@@ -22,10 +25,11 @@ import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigati
 import {
   EntrySelectedEventDetail,
   EventsSelectedEventDetail,
-  SelectedEvent,
+  type SelectedEvent,
   SelectedEventProperty,
-  TraceViewerContainer,
-} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
+} from 'org_xprof/frontend/app/components/trace_viewer_container/interfaces';
+import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
+import {parseEventsSelectedData} from 'org_xprof/frontend/app/components/trace_viewer_container/utils';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
   isDetailsReceivedEvent,
@@ -38,20 +42,11 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
-import {getProcessMappingsFromWasm, parseEventsSelectedData} from './utils';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
   [key: string]: unknown;
 }
-
-/**
- * The name of the event selected custom event, dispatched from WASM in Trace
- * Viewer v2.
- */
-export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 const DEFAULT_EVENT_DETAIL_COLUMNS = Object.freeze(['property', 'value']);
 
@@ -248,7 +243,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.useTraceViewerV2) {
       if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
         this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
-          this.updateWasmProcessMappings();
+          this.container?.updateWasmProcessMappings();
         });
       }
     } else {
@@ -356,13 +351,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  updateWasmProcessMappings() {
-    const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
-    for (const [pid, host] of mappings.entries()) {
-      this.pidToHostMap.set(pid, host);
-    }
-  }
-
   onEventsSelected(event: EventsSelectedEventDetail | null) {
     if (!event) {
       this.selectedEvent = null;
@@ -415,8 +403,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  private readonly pidToHostMap = new Map<number, string>();
-
   private maybeFetchEventArgs(
     name: string,
     startUs: number,
@@ -443,8 +429,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     let host = '';
     // Use precise host from pidToHostMap if available
-    if (pid !== undefined && this.pidToHostMap.has(pid)) {
-      host = this.pidToHostMap.get(pid)!;
+    if (pid !== undefined && this.container?.pidToHostMap.has(pid)) {
+      host = this.container.pidToHostMap.get(pid)!;
     }
     if (!host) {
       host = this.getCurrentHost();

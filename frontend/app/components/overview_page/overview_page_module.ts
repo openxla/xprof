@@ -1,18 +1,39 @@
 import {CommonModule} from '@angular/common';
-import {Component, EventEmitter, inject, Input, NgModule, OnDestroy, Output, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  inject,
+  Input,
+  NgModule,
+  OnDestroy,
+  Output,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {type GeneralAnalysis, type InputPipelineAnalysis, type OverviewPageDataTuple, type RunEnvironment, type SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  type GeneralAnalysis,
+  type InputPipelineAnalysis,
+  type OverviewPageDataTuple,
+  type RunEnvironment,
+  type SimpleDataTable,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
-import {parseDiagnosticsDataTable, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  parseDiagnosticsDataTable,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
 import {InferenceLatencyChartModule} from 'org_xprof/frontend/app/components/overview_page/inference_latency_chart/inference_latency_chart_module';
 import {PerformanceSummaryModule} from 'org_xprof/frontend/app/components/overview_page/performance_summary/performance_summary_module';
 import {RunEnvironmentViewModule} from 'org_xprof/frontend/app/components/overview_page/run_environment_view/run_environment_view_module';
 import {StepTimeGraphModule} from 'org_xprof/frontend/app/components/overview_page/step_time_graph/step_time_graph_module';
 import {SmartSuggestionView} from 'org_xprof/frontend/app/components/smart_suggestion/smart_suggestion_view';
-import {DATA_SERVICE_INTERFACE_TOKEN, type DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {combineLatest, ReplaySubject, BehaviorSubject} from 'rxjs';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  type DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {BehaviorSubject, combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const GENERAL_ANALYSIS_INDEX = 0;
@@ -24,10 +45,11 @@ const DISAGGREGATED_SERVING_LATENCY_INDEX = 8;
 
 /** An overview page component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'overview-page',
   templateUrl: './overview_page.ng.html',
-  styleUrls: ['./overview_page.css']
+  styleUrls: ['./overview_page.css'],
 })
 export class OverviewPage implements OnDestroy {
   @Input() darkTheme = false;
@@ -36,14 +58,15 @@ export class OverviewPage implements OnDestroy {
   @Output() readonly ready = new EventEmitter<void>();
 
   diagnostics: Diagnostics = {info: [], warnings: [], errors: []};
-  generalAnalysis: GeneralAnalysis|null = null;
-  inputPipelineAnalysis: InputPipelineAnalysis|null = null;
-  runEnvironment: RunEnvironment|null = null;
-  inferenceLatencyData: SimpleDataTable|null = null;
-  disaggregatedServingLatencyData: SimpleDataTable|null = null;
+  generalAnalysis: GeneralAnalysis | null = null;
+  inputPipelineAnalysis: InputPipelineAnalysis | null = null;
+  runEnvironment: RunEnvironment | null = null;
+  inferenceLatencyData: SimpleDataTable | null = null;
+  disaggregatedServingLatencyData: SimpleDataTable | null = null;
 
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   sessionId = '';
   tool = 'overview_page';
   host = '';
@@ -62,21 +85,24 @@ export class OverviewPage implements OnDestroy {
       this.checkReady();
     });
     combineLatest([this.route.params, this.route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          const oldSessionId = this.sessionId;
-          const oldTool = this.tool;
-          const oldHost = this.host;
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldTool = this.tool;
+        const oldHost = this.host;
 
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
 
-          // Trigger update only if the parameters actually changed.
-          if (this.sessionId !== oldSessionId || this.tool !== oldTool ||
-              this.host !== oldHost) {
-            this.update();
-          }
-        });
+        // Trigger update only if the parameters actually changed.
+        if (
+          this.sessionId !== oldSessionId ||
+          this.tool !== oldTool ||
+          this.host !== oldHost
+        ) {
+          this.update();
+        }
+      });
   }
 
   get isTrainingString(): string {
@@ -95,10 +121,6 @@ export class OverviewPage implements OnDestroy {
     return !this.isInference;
   }
 
-  get isOverviewPageLoaded(): boolean {
-    return this.isLoaded;
-  }
-
   processQueryParams(params: Params) {
     this.host = params['host'] || this.host || '';
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
@@ -110,16 +132,17 @@ export class OverviewPage implements OnDestroy {
     setLoadingState(true, this.store, 'Loading overview data');
     this.isLoaded = false;
 
-    this.dataService.getData(this.sessionId, this.tool, this.host)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          setLoadingState(false, this.store);
-          this.onDataLoaded.emit(data as OverviewPageDataTuple);
-          data = (data || []) as OverviewPageDataTuple;
-          /** Transfer data to Overview Page DataTable type */
-          this.parseOverviewPageData(data as OverviewPageDataTuple);
-          this.isLoaded = true;
-        });
+    this.dataService
+      .getData(this.sessionId, this.tool, this.host)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        setLoadingState(false, this.store);
+        this.onDataLoaded.emit(data as OverviewPageDataTuple);
+        data = (data || []) as OverviewPageDataTuple;
+        /** Transfer data to Overview Page DataTable type */
+        this.parseOverviewPageData(data as OverviewPageDataTuple);
+        this.isLoaded = true;
+      });
   }
 
   onChartReady() {
@@ -152,7 +175,7 @@ export class OverviewPage implements OnDestroy {
     }
     if (data.length > DISAGGREGATED_SERVING_LATENCY_INDEX) {
       this.disaggregatedServingLatencyData =
-          data[DISAGGREGATED_SERVING_LATENCY_INDEX];
+        data[DISAGGREGATED_SERVING_LATENCY_INDEX];
     }
     this.diagnostics = parseDiagnosticsDataTable(data[DIAGNOSTICS_INDEX]);
   }
@@ -176,7 +199,6 @@ export class OverviewPage implements OnDestroy {
     InferenceLatencyChartModule,
     SmartSuggestionView,
   ],
-  exports: [OverviewPage]
+  exports: [OverviewPage],
 })
-export class OverviewPageModule {
-}
+export class OverviewPageModule {}

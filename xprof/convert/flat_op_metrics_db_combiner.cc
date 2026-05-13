@@ -148,10 +148,14 @@ void FlatOpMetricsDbCombiner::Combine(const FlatOpMetricsDb& src,
     if (IsIdleOp(src_metrics)) {
       if (src_metrics.parent_op_id() != 0) continue;
     }
-    auto* dst_metrics = LookupOrInsertNewFlatOpMetrics(
-        src_metrics.hlo_module_id(), src_metrics.hlo_name());
-    CopyFlatOpMetricsMetadata(src_metrics, dst_metrics);
-    CombineFlatOpMetrics(src_metrics, dst_metrics, update_num_cores);
+    if (src_metrics.is_fusion_child()) {
+      *dst->add_op_instances() = src_metrics;
+    } else {
+      auto* dst_metrics = LookupOrInsertNewFlatOpMetrics(
+          src_metrics.hlo_module_id(), src_metrics.hlo_name());
+      CopyFlatOpMetricsMetadata(src_metrics, dst_metrics);
+      CombineFlatOpMetrics(src_metrics, dst_metrics, update_num_cores);
+    }
   }
 }
 

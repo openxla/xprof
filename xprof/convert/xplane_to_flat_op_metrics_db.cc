@@ -227,9 +227,9 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
             parent.event.GetStat(StatType::kTcOffloadStartId);
         if (offload_core_id_stat.has_value() &&
             offload_start_id_stat.has_value()) {
-          const std::pair<uint64_t, uint64_t> offload_start_op_key = {
+          const std::pair<uint64_t, int64_t> offload_start_op_key = {
               offload_core_id_stat->UintValue(),
-              offload_start_id_stat->UintValue()};
+              offload_start_id_stat->IntValue()};
           if (auto it = sparse_core_metrics_map.find(offload_start_op_key);
               it != sparse_core_metrics_map.end()) {
             sc_offload_to_tc_caller_id_map[offload_start_op_key] = parent.op_id;

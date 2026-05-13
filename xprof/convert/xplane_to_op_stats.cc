@@ -284,40 +284,43 @@ void UpdateOpMetricsDbFromHloModuleMap(OpMetricsDb& op_metrics_db,
   }
 }
 
+FlatOpMetrics CreateFusionChildMetrics(
+    const FlatOpMetricMeta& parent_op_metrics,
+    FlatOpMetrics::TpuCoreType core_type, const HloInstructionWrapper* child,
+    uint64_t op_id) {
+  FlatOpMetrics child_metrics;
+  child_metrics.set_parent_op_id(parent_op_metrics.op_id);
+  child_metrics.set_hlo_module_id(parent_op_metrics.hlo_module_id);
+  child_metrics.set_hlo_name(std::string(child->Name()));
+  child_metrics.set_op_id(op_id);
+  child_metrics.set_category(std::string(child->Category()));
+  child_metrics.set_deduplicated_name(child->Metadata().deduplicated_name());
+  child_metrics.set_provenance(std::string(child->op_full_name()));
+  child_metrics.set_num_cores(parent_op_metrics.num_cores);
+  child_metrics.set_occurrences(parent_op_metrics.occurrences);
+  child_metrics.set_flops(child->flops());
+  child_metrics.set_flops_v2(static_cast<double>(child->flops()));
+  child_metrics.set_bytes_accessed(child->bytes_accessed());
+  child_metrics.set_long_name(child->Expression());
+  child_metrics.set_core_type(core_type);
+  child_metrics.set_is_fusion_child(true);
+  return child_metrics;
+}
+
 void AddFusionChildrenToFlatOpMetrics(
     FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
-    const HloInstructionWrapper* instr_wrapper,
-    std::vector<FlatOpMetrics>& new_children, FlatOpMetricsDb& children_db) {
+    const HloInstructionWrapper* instr_wrapper, FlatOpMetricsDb& children_db) {
   if (instr_wrapper->FusedChildren().empty()) return;
   for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {
     if (child->HloOpcode() == xla::HloOpcode::kParameter ||
         child->HloOpcode() == xla::HloOpcode::kTuple)
       continue;
 
-    FlatOpMetrics child_metrics;
-    child_metrics.set_parent_op_id(parent_op_metrics.op_id);
-    child_metrics.set_hlo_module_id(parent_op_metrics.hlo_module_id);
+    uint64_t op_id = StableOpId(parent_op_metrics.hlo_module_id, child->Name());
+    FlatOpMetrics child_metrics =
+        CreateFusionChildMetrics(parent_op_metrics, core_type, child, op_id);
 
-    child_metrics.set_hlo_name(std::string(child->Name()));
-    uint64_t op_id =
-        StableOpId(parent_op_metrics.hlo_module_id, child_metrics.hlo_name());
-    child_metrics.set_op_id(op_id);
-    child_metrics.set_category(std::string(child->Category()));
-    child_metrics.set_deduplicated_name(child->Metadata().deduplicated_name());
-    child_metrics.set_provenance(std::string(child->op_full_name()));
-    child_metrics.set_num_cores(parent_op_metrics.num_cores);
-    child_metrics.set_occurrences(parent_op_metrics.occurrences);
-    child_metrics.set_flops(child->flops());
-    child_metrics.set_flops_v2(static_cast<double>(child->flops()));
-    child_metrics.set_bytes_accessed(child->bytes_accessed());
-    child_metrics.set_long_name(child->Expression());
-    child_metrics.set_core_type(core_type);
-    child_metrics.set_is_fusion_child(true);
-
-    // children_db.add_op_instances()->Swap(&child_metrics);
-    *children_db.add_op_instances() = child_metrics;
-
-    new_children.push_back(std::move(child_metrics));
+    children_db.add_op_instances()->Swap(&child_metrics);
 
     // Recursively add any sub-children of this fused child using its
     // deterministic op_id as parent
@@ -326,7 +329,7 @@ void AddFusionChildrenToFlatOpMetrics(
          .op_id = op_id,
          .num_cores = parent_op_metrics.num_cores,
          .occurrences = parent_op_metrics.occurrences},
-        core_type, child, new_children, children_db);
+        core_type, child, children_db);
   }
 }
 
@@ -334,7 +337,6 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
                                            const HloModuleMap& hlo_module_map) {
   // Collect new children into a separate vector to avoid container
   // reallocation and iterator invalidation while looping over base records.
-  std::vector<FlatOpMetrics> new_children;
   FlatOpMetricsDb children_db;
 
   int initial_size = op_metrics_db.op_instances_size();
@@ -368,14 +370,9 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
            .op_id = op_metrics->op_id(),
            .num_cores = op_metrics->num_cores(),
            .occurrences = op_metrics->occurrences()},
-          op_metrics->core_type(), instr_wrapper, new_children, children_db);
+          op_metrics->core_type(), instr_wrapper, children_db);
     }
   }
-
-  // Safely append all accumulated children after the loop is finished
-  // for (auto& child : new_children) {
-  //   op_metrics_db.add_op_instances()->Swap(&child);
-  // }
   FlatOpMetricsDbCombiner combiner(&op_metrics_db);
   combiner.Combine(children_db);
 }

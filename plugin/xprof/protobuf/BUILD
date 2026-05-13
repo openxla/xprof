@@ -26,6 +26,7 @@ xprof_proto_library(
 xprof_proto_library(
     name = "flat_op_metrics_proto",
     srcs = ["flat_op_metrics.proto"],
+    protodeps = [":source_info_proto"],
 )
 
 xprof_proto_library(

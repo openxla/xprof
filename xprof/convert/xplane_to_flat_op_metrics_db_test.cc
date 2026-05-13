@@ -27,7 +27,10 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/xplane_to_op_metrics_db.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -539,6 +542,119 @@ TEST_F(XPlaneToFlatOpMetricsDbTest, ModuleEventMissingOffloadCoreIdIgnored) {
   EXPECT_TRUE(sparse_core_metrics_map.empty());
 }
 
+TEST_F(XPlaneToFlatOpMetricsDbTest, GpuEquivalenceTest) {
+  XLineBuilder stream1 = plane_builder_->GetOrCreateLine(1);
+  stream1.SetName("Stream #1");
+  XLineBuilder stream2 = plane_builder_->GetOrCreateLine(2);
+  stream2.SetName("Stream #2");
+
+  // XlaOp event on stream1
+  XEventBuilder xla_op =
+      stream1.AddEvent(*plane_builder_->GetOrCreateEventMetadata("xla_op_1"));
+  xla_op.SetTimestampNs(1000);
+  xla_op.SetDurationNs(500);
+  xla_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                          GetStatTypeStr(StatType::kDeviceOffsetPs)),
+                      int64_t{1000000});
+  xla_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                          GetStatTypeStr(StatType::kDeviceDurationPs)),
+                      int64_t{500000});
+  tsl::profiler::XStatsBuilder<XEventMetadata> xla_op_meta(
+      plane_builder_->GetOrCreateEventMetadata("xla_op_1"),
+      plane_builder_.get());
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kProgramId)),
+                           uint64_t{10});
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kSymbolId)),
+                           uint64_t{20});
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kHloOp)),
+                           "hlo_op_1");
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kHloCategory)),
+                           "hlo_cat_1");
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kFlops)),
+                           int64_t{12345});
+  xla_op_meta.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kBytesAccessed)),
+                           int64_t{67890});
+
+  // Nested TfOp on stream 1
+  XEventBuilder child_tf_op = stream1.AddEvent(
+      *plane_builder_->GetOrCreateEventMetadata("child_tf_op"));
+  child_tf_op.SetTimestampNs(1100);
+  child_tf_op.SetDurationNs(100);
+  child_tf_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kDeviceOffsetPs)),
+                           int64_t{1100000});
+  child_tf_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                               GetStatTypeStr(StatType::kDeviceDurationPs)),
+                           int64_t{100000});
+  tsl::profiler::XStatsBuilder<XEventMetadata> child_tf_op_meta(
+      plane_builder_->GetOrCreateEventMetadata("child_tf_op"),
+      plane_builder_.get());
+  child_tf_op_meta.AddStatValue(
+      *plane_builder_->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kTfOp)),
+      "TfOpCategory:ChildTfOpName");
+
+  // TfOp event on stream2 (overlapping with idle gap on stream1)
+  XEventBuilder tf_op =
+      stream2.AddEvent(*plane_builder_->GetOrCreateEventMetadata("tf_op_1"));
+  tf_op.SetTimestampNs(2000);
+  tf_op.SetDurationNs(600);
+  tf_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kDeviceOffsetPs)),
+                     int64_t{2000000});
+  tf_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kDeviceDurationPs)),
+                     int64_t{600000});
+  tsl::profiler::XStatsBuilder<XEventMetadata> tf_op_meta(
+      plane_builder_->GetOrCreateEventMetadata("tf_op_1"),
+      plane_builder_.get());
+  tf_op_meta.AddStatValue(
+      *plane_builder_->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kTfOp)),
+      "TfOpCategory:TfOpName");
+  tf_op.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                         GetStatTypeStr(StatType::kIsEager)),
+                     int64_t{1});
+
+  HloModuleMap hlo_module_map;
+
+  OpMetricsDb legacy_db =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane_, hlo_module_map);
+  FlatOpMetricsDb new_db =
+      ConvertDeviceTraceXPlaneToFlatOpMetricsDb(*xplane_, hlo_module_map);
+
+  absl::flat_hash_map<std::string, const FlatOpMetrics*> new_db_map;
+  for (const auto& op : new_db.op_instances()) {
+    new_db_map[op.hlo_name()] = &op;
+  }
+
+  for (const auto& legacy_op : legacy_db.metrics_db()) {
+    auto it = new_db_map.find(legacy_op.name());
+    ASSERT_NE(it, new_db_map.end())
+        << "Missing op in flat DB: " << legacy_op.name();
+    const FlatOpMetrics* new_op = it->second;
+
+    EXPECT_EQ(legacy_op.occurrences(), new_op->occurrences())
+        << legacy_op.name();
+    EXPECT_EQ(legacy_op.time_ps(), new_op->time_ps()) << legacy_op.name();
+    EXPECT_EQ(legacy_op.self_time_ps(), new_op->self_time_ps())
+        << legacy_op.name();
+    EXPECT_EQ(legacy_op.flops(), new_op->flops()) << legacy_op.name();
+    EXPECT_EQ(legacy_op.bytes_accessed(), new_op->bytes_accessed())
+        << legacy_op.name();
+    EXPECT_EQ(legacy_op.is_eager(), new_op->is_eager()) << legacy_op.name();
+    EXPECT_EQ(legacy_op.category(), new_op->category()) << legacy_op.name();
+    EXPECT_EQ(legacy_op.provenance(), new_op->provenance()) << legacy_op.name();
+  }
+
+  EXPECT_EQ(legacy_db.metrics_db_size(), new_db.op_instances_size());
+  EXPECT_EQ(legacy_db.total_op_time_ps(), new_db.total_op_time_ps());
+  EXPECT_EQ(legacy_db.total_time_ps(), new_db.total_time_ps());
+}
 
 }  // namespace
 }  // namespace profiler

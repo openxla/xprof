@@ -7,7 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "postinstall": "ngcc",
+    "postinstall": "ngcc && python patch_keys.py",
     "build": "bazel build //...",
     "test": "ibazel test //...",
     "lint": "prettier --check 'tensorboard/**/*.'{css,html,js,ts} .github/**/*.yml",

@@ -1,26 +1,53 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 
-import {Component, ElementRef, inject, Injector, NgZone, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  inject,
+  Injector,
+  NgZone,
+  OnDestroy,
+  ViewChild,
+} from '@angular/core';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Params, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {GRAPH_CENTER_NODE_COLOR, GRAPH_OP_COLORS} from 'org_xprof/frontend/app/common/constants/colors';
-import {DIAGNOSTICS_DEFAULT, GRAPH_TYPE_DEFAULT, GRAPHVIZ_PAN_ZOOM_CONTROL} from 'org_xprof/frontend/app/common/constants/constants';
+import {
+  GRAPH_CENTER_NODE_COLOR,
+  GRAPH_OP_COLORS,
+} from 'org_xprof/frontend/app/common/constants/colors';
+import {
+  DIAGNOSTICS_DEFAULT,
+  GRAPH_TYPE_DEFAULT,
+  GRAPHVIZ_PAN_ZOOM_CONTROL,
+} from 'org_xprof/frontend/app/common/constants/constants';
 import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
-import {GraphTypeObject, GraphViewerQueryParams} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
+import {
+  GraphTypeObject,
+  GraphViewerQueryParams,
+} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {OpProfileData} from 'org_xprof/frontend/app/components/op_profile/op_profile_data';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
-import {setActiveOpProfileNodeAction, setCurrentToolStateAction, setOpProfileRootNodeAction, setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
+import {
+  setActiveOpProfileNodeAction,
+  setCurrentToolStateAction,
+  setOpProfileRootNodeAction,
+  setProfilingDeviceTypeAction,
+} from 'org_xprof/frontend/app/store/actions';
 import {Node} from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
 import {combineLatest, firstValueFrom, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 import {locationReplace} from 'safevalues/dom';
 
-const GRAPH_HTML_THRESHOLD = 1000000;  // bytes
+const GRAPH_HTML_THRESHOLD = 1000000; // bytes
 const CENTER_NODE_GROUP_KEY = 'centerNode';
 
 interface DefaultGraphOption {
@@ -31,7 +58,8 @@ interface DefaultGraphOption {
 
 /** A graph viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'graph-viewer',
   templateUrl: './graph_viewer.ng.html',
   styleUrls: ['./graph_viewer.scss'],
@@ -39,8 +67,9 @@ interface DefaultGraphOption {
 export class GraphViewer implements OnDestroy {
   readonly tool = 'graph_viewer';
   private readonly throbber = new Throbber(this.tool);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -73,12 +102,12 @@ export class GraphViewer implements OnDestroy {
   loadingOpProfile = false;
   loadingOpProfileLight = false;
   loadingGraphvizUrl = false;
-  opProfile: OpProfileProto|null = null;
+  opProfile: OpProfileProto | null = null;
   // Root node in the by program exclude idle tree
   defaultGraphOptions: DefaultGraphOption[] = [];
   rootNode?: Node;
   data = new OpProfileData();
-  selectedNode: Node|null = null;
+  selectedNode: Node | null = null;
   runtimeDataInjected = false;
 
   // ME related variables
@@ -93,40 +122,43 @@ export class GraphViewer implements OnDestroy {
   opCategoryForSourceMapper = '';
 
   constructor(
-      public zone: NgZone,
-      private readonly route: ActivatedRoute,
-      private readonly store: Store<{}>,
-      private readonly router: Router,
-      private readonly snackBar: MatSnackBar,
+    public zone: NgZone,
+    private readonly route: ActivatedRoute,
+    private readonly store: Store<{}>,
+    private readonly router: Router,
+    private readonly snackBar: MatSnackBar,
   ) {
     combineLatest([this.route.params, this.route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(async ([params, queryParams]) => {
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.resetPage();
-          this.parseQueryParams(queryParams);
-          // Don't load graph if session id / run is not populated yet.
-          // TODO(xprof) apply the same early return logic for other tools, or
-          // verify why an empty run string is send through the observable.
-          if (!this.sessionId) return;
-          this.loadDefaultGraphOptionsFromOpProfile();
-          await this.initData();
-          // Any graph viewer url query param change should trigger a potential
-          // reload
-          this.onPlot();
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(async ([params, queryParams]) => {
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.resetPage();
+        this.parseQueryParams(queryParams);
+        // Don't load graph if session id / run is not populated yet.
+        // TODO(xprof) apply the same early return logic for other tools, or
+        // verify why an empty run string is send through the observable.
+        if (!this.sessionId) return;
+        this.loadDefaultGraphOptionsFromOpProfile();
+        await this.initData();
+        // Any graph viewer url query param change should trigger a potential
+        // reload
+        this.onPlot();
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
 
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
-    const sourceCodeService =
-        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-        });
+    const sourceCodeService = this.injector.get(
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
+    );
+    sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+      });
   }
 
   // process query params from in component navigation event
@@ -143,7 +175,7 @@ export class GraphViewer implements OnDestroy {
     this.showMetadata = params['show_metadata'] === 'true';
     this.mergeFusion = params['merge_fusion'] === 'true';
     this.graphType =
-        params['graph_type'] || params['graphType'] || GRAPH_TYPE_DEFAULT;
+      params['graph_type'] || params['graphType'] || GRAPH_TYPE_DEFAULT;
     this.symbolId = params['symbol_id'] || this.symbolId || '';
     this.symbolType = params['symbol_type'] || this.symbolType || '';
     this.opProfileLimit = params['op_profile_limit'] || 300;
@@ -161,9 +193,11 @@ export class GraphViewer implements OnDestroy {
   }
 
   async loadGraphTypes() {
-    const types =
-        await firstValueFrom(this.dataService.getGraphTypes(this.sessionId)
-                                 .pipe(takeUntil(this.destroyed)));
+    const types = await firstValueFrom(
+      this.dataService
+        .getGraphTypes(this.sessionId)
+        .pipe(takeUntil(this.destroyed)),
+    );
     if (types) {
       this.graphTypes = types;
     }
@@ -175,8 +209,10 @@ export class GraphViewer implements OnDestroy {
     this.loadingModuleList = true;
     try {
       const moduleList = await firstValueFrom(
-          this.dataService.getModuleList(this.sessionId, this.graphType)
-              .pipe(takeUntil(this.destroyed)));
+        this.dataService
+          .getModuleList(this.sessionId, this.graphType)
+          .pipe(takeUntil(this.destroyed)),
+      );
       this.throbber.stop();
       if (moduleList) {
         const modules = moduleList.split(',');
@@ -186,19 +222,17 @@ export class GraphViewer implements OnDestroy {
           // again
           if (this.programId) {
             this.selectedModule =
-                this.moduleList.find(
-                    (module: string) => module.includes(this.programId),
-                    ) ||
-                this.moduleList[0];
+              this.moduleList.find((module: string) =>
+                module.includes(this.programId),
+              ) || this.moduleList[0];
           } else {
             this.selectedModule = this.moduleList[0];
           }
         } else if (!modules.includes(this.selectedModule)) {
           this.selectedModule =
-              modules.find(
-                  (module: string) => module.includes(this.selectedModule),
-                  ) ||
-              this.selectedModule;
+            modules.find((module: string) =>
+              module.includes(this.selectedModule),
+            ) || this.selectedModule;
         }
       }
       this.loadingModuleList = false;
@@ -254,7 +288,7 @@ export class GraphViewer implements OnDestroy {
   // Helper function to get the top ranking ops from the op profile data.
   // Parsing based on the assumptions that op profile proto structure is not
   // changed.
-  getDefaultGraphOptions(opProfileData: OpProfileProto|null) {
+  getDefaultGraphOptions(opProfileData: OpProfileProto | null) {
     const options: DefaultGraphOption[] = [];
     const maybeAddOp = (op: Node, program: Node) => {
       const flopFraction = utils.flopsUtilization(op, program);
@@ -264,7 +298,8 @@ export class GraphViewer implements OnDestroy {
       const flopUtils = utils.percent(utils.flopsUtilization(op, program));
       const timeFraction = utils.percent(utils.timeFraction(op, program));
       const tooltip = `Flops Utilization: ${flopUtils}; \n Time Fraction: ${
-          timeFraction} \n`;
+        timeFraction
+      } \n`;
       options.push({
         moduleName: program.name || '',
         opName: op.name || '',
@@ -302,15 +337,17 @@ export class GraphViewer implements OnDestroy {
       const params = new Map<string, string>();
       params.set('op_profile_limit', '1');
       params.set('use_xplane', '1');
-      this.dataService.getOpProfileData(this.sessionId, this.host, params)
-          .pipe(takeUntil(this.destroyed))
-          .subscribe((data) => {
-            if (data) {
-              this.defaultGraphOptions =
-                  this.getDefaultGraphOptions(data as OpProfileProto | null);
-            }
-            this.loadingOpProfileLight = false;
-          });
+      this.dataService
+        .getOpProfileData(this.sessionId, this.host, params)
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((data) => {
+          if (data) {
+            this.defaultGraphOptions = this.getDefaultGraphOptions(
+              data as OpProfileProto | null,
+            );
+          }
+          this.loadingOpProfileLight = false;
+        });
     } else {
       this.defaultGraphOptions = [];
     }
@@ -324,15 +361,17 @@ export class GraphViewer implements OnDestroy {
     params.set('use_xplane', '1');
     try {
       const data = await firstValueFrom(
-          this.dataService.getOpProfileData(this.sessionId, this.host, params)
-              .pipe(takeUntil(this.destroyed)));
+        this.dataService
+          .getOpProfileData(this.sessionId, this.host, params)
+          .pipe(takeUntil(this.destroyed)),
+      );
       if (data) {
         this.opProfile = data as OpProfileProto | null;
         if (this.opProfile) {
           this.store.dispatch(
-              setProfilingDeviceTypeAction({
-                deviceType: this.opProfile.deviceType,
-              }),
+            setProfilingDeviceTypeAction({
+              deviceType: this.opProfile.deviceType,
+            }),
           );
         }
         // The root node will be ONLY used to calculate the TimeFraction
@@ -342,7 +381,7 @@ export class GraphViewer implements OnDestroy {
         // result, use the default root node in hlo op profile.
         this.rootNode = this.opProfile!.byProgramExcludeIdle;
         this.store.dispatch(
-            setOpProfileRootNodeAction({rootNode: this.rootNode}),
+          setOpProfileRootNodeAction({rootNode: this.rootNode}),
         );
       }
       this.loadingOpProfile = false;
@@ -354,65 +393,63 @@ export class GraphViewer implements OnDestroy {
   }
 
   installEventListeners() {
-    const doc: Document|null = this.getGraphIframeDocument();
+    const doc: Document | null = this.getGraphIframeDocument();
     if (!doc) return;
 
     const nodeElements = Array.from(doc.getElementsByClassName('node'));
     for (const e of nodeElements) {
       e.addEventListener('mouseenter', this.onHoverGraphvizNode.bind(this, e));
       e.addEventListener(
-          'mouseleave',
-          this.onHoverGraphvizNode.bind(this, null),
+        'mouseleave',
+        this.onHoverGraphvizNode.bind(this, null),
       );
       e.addEventListener(
-          'dblclick', this.onDoubleClickGraphvizNode.bind(this, e));
-      e.addEventListener(
-          'click',
-          this.onClickGraphvizNode.bind(this, e),
+        'dblclick',
+        this.onDoubleClickGraphvizNode.bind(this, e),
       );
+      e.addEventListener('click', this.onClickGraphvizNode.bind(this, e));
     }
     const clusterElements = Array.from(doc.getElementsByClassName('cluster'));
     for (const e of clusterElements) {
       e.addEventListener(
-          'mouseenter',
-          this.onHoverGraphvizCluster.bind(this, e),
+        'mouseenter',
+        this.onHoverGraphvizCluster.bind(this, e),
       );
       e.addEventListener(
-          'mouseleave',
-          this.onHoverGraphvizCluster.bind(this, null),
+        'mouseleave',
+        this.onHoverGraphvizCluster.bind(this, null),
       );
       e.addEventListener(
-          'dblclick', this.onDoubleClickGraphvizCluster.bind(this, e));
-      e.addEventListener(
-          'click',
-          this.onClickGraphvizCluster.bind(this, e),
+        'dblclick',
+        this.onDoubleClickGraphvizCluster.bind(this, e),
       );
+      e.addEventListener('click', this.onClickGraphvizCluster.bind(this, e));
     }
   }
 
-  getGraphvizNodeOpName(element: HTMLElement|Element|null) {
+  getGraphvizNodeOpName(element: HTMLElement | Element | null) {
     const opNameWithAvgTime =
-        element?.getElementsByTagName('text')?.[0]?.textContent || '';
+      element?.getElementsByTagName('text')?.[0]?.textContent || '';
     // Split on space to remove the appended info (eg. avgTime)
     return opNameWithAvgTime.split(' ')[0];
   }
 
-  getGraphvizClusterOpName(element: HTMLElement|Element|null) {
+  getGraphvizClusterOpName(element: HTMLElement | Element | null) {
     const opNameWithAvgTime =
-        element?.getElementsByTagName('text')?.[1]?.textContent || '';
+      element?.getElementsByTagName('text')?.[1]?.textContent || '';
     // Split on space to remove the appended info (eg. avgTime)
     return opNameWithAvgTime.split(' ')[0];
   }
 
   // Single click pin the op detail to the selected node
-  onClickGraphvizNode(element: HTMLElement|Element, event: Event) {
+  onClickGraphvizNode(element: HTMLElement | Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
     this.updateSourceInfo(this.selectedNode);
     event.preventDefault();
   }
 
-  onClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
+  onClickGraphvizCluster(element: HTMLElement | Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.selectedNode = this.getOpNodeInGraphviz(opName) || null;
     this.updateSourceInfo(this.selectedNode);
@@ -420,12 +457,12 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Double click reload the graph centered on the selected node
-  onDoubleClickGraphvizCluster(element: HTMLElement|Element, event: Event) {
+  onDoubleClickGraphvizCluster(element: HTMLElement | Element, event: Event) {
     const opName = this.getGraphvizClusterOpName(element);
     this.onRecenterOpNode(opName);
   }
 
-  onDoubleClickGraphvizNode(element: HTMLElement|Element, event: Event) {
+  onDoubleClickGraphvizNode(element: HTMLElement | Element, event: Event) {
     const opName = this.getGraphvizNodeOpName(element);
     this.onRecenterOpNode(opName);
   }
@@ -439,16 +476,16 @@ export class GraphViewer implements OnDestroy {
     });
   }
 
-  private updateStackTrace(node: Node|null) {
+  private updateStackTrace(node: Node | null) {
     this.zone.run(() => {
-      this.sourceFileAndLineNumber =
-          `${node?.xla?.sourceInfo?.fileName || ''}:${
-              node?.xla?.sourceInfo?.lineNumber || -1}`;
+      this.sourceFileAndLineNumber = `${node?.xla?.sourceInfo?.fileName || ''}:${
+        node?.xla?.sourceInfo?.lineNumber || -1
+      }`;
       this.stackTrace = node?.xla?.sourceInfo?.stackFrame || '';
     });
   }
 
-  private updateSourceInfo(node: Node|null) {
+  private updateSourceInfo(node: Node | null) {
     this.programIdForSourceMapper = node?.xla?.programId || '';
     this.opNameForSourceMapper = node?.name || '';
     this.opCategoryForSourceMapper = node?.xla?.category || '';
@@ -456,33 +493,33 @@ export class GraphViewer implements OnDestroy {
   }
 
   // Hover display the op detail of the hovered node
-  onHoverGraphvizNode(element: HTMLElement|Element|null) {
+  onHoverGraphvizNode(element: HTMLElement | Element | null) {
     // The node will display the op name in index 0 of "text" tag.
     const opName = this.getGraphvizNodeOpName(element);
     this.handleGraphvizHover(element, opName);
   }
 
-  onHoverGraphvizCluster(element: HTMLElement|Element|null) {
+  onHoverGraphvizCluster(element: HTMLElement | Element | null) {
     // The cluster will display the op name in index 1 of "text" tag.
     const opName = this.getGraphvizClusterOpName(element);
     this.handleGraphvizHover(element, opName);
   }
 
-  updateAnchorOpNode = (node: Node|null) => {
+  updateAnchorOpNode = (node: Node | null) => {
     this.data.update(node || undefined);
     this.zone.run(() => {
       this.store.dispatch(
-          setActiveOpProfileNodeAction({
-            activeOpProfileNode: node || this.selectedNode || null,
-          }),
+        setActiveOpProfileNodeAction({
+          activeOpProfileNode: node || this.selectedNode || null,
+        }),
       );
     });
   };
 
   handleGraphvizHover = (
-      event: HTMLElement|Element|null,
-      opName: string,
-      ) => {
+    event: HTMLElement | Element | null,
+    opName: string,
+  ) => {
     if (!event) {
       this.updateAnchorOpNode(null);
       return;
@@ -493,7 +530,7 @@ export class GraphViewer implements OnDestroy {
     }
   };
 
-  getOpNodeInGraphviz(nodeName: string): Node|null|undefined {
+  getOpNodeInGraphviz(nodeName: string): Node | null | undefined {
     if (!this.opProfile || !this.rootNode) return null;
     for (const topLevelNode of this.rootNode.children!) {
       // Find the program id from HloOpProfile by the selected XLA module.
@@ -507,16 +544,17 @@ export class GraphViewer implements OnDestroy {
   }
 
   findNode(
-      children: Node[]|null|undefined,
-      name: string,
-      ): Node|null|undefined {
+    children: Node[] | null | undefined,
+    name: string,
+  ): Node | null | undefined {
     if (!children) return null;
     for (const node of children) {
       // Only looking for xla instruction node, as that is what's visualized in
       // the grpah. Assumptions: only instruction node has xla field.
-      if (node.xla &&
-          (node.name === name ||
-           node.name === `${name} and its duplicate(s)`)) {
+      if (
+        node.xla &&
+        (node.name === name || node.name === `${name} and its duplicate(s)`)
+      ) {
         return node;
       }
       const findChildren = this.findNode(node.children, name);
@@ -529,7 +567,7 @@ export class GraphViewer implements OnDestroy {
     this.snackBar.open(message, 'Close.', {duration: 5000});
   }
 
-  getOpAvgTime(node: Node|null|undefined) {
+  getOpAvgTime(node: Node | null | undefined) {
     if (node?.metrics?.avgTimePs) {
       return ` (${utils.formatDurationPs(node.metrics.avgTimePs)})`;
     }
@@ -542,8 +580,7 @@ export class GraphViewer implements OnDestroy {
     const node = this.getOpNodeInGraphviz(opName);
     if (!node) return;
     const svgEls = element.getElementsByTagName('text') || [];
-    svgEls[0].textContent =
-        `${svgEls[0].textContent} ${this.getOpAvgTime(node)}`;
+    svgEls[0].textContent = `${svgEls[0].textContent} ${this.getOpAvgTime(node)}`;
   }
 
   // Add avgTime info to the cluster svg
@@ -552,18 +589,20 @@ export class GraphViewer implements OnDestroy {
     const node = this.getOpNodeInGraphviz(opName);
     if (!node) return;
     const svgEls = element.getElementsByTagName('text') || [];
-    svgEls[1].textContent =
-        `${svgEls[1].textContent} ${this.getOpAvgTime(node)}`;
+    svgEls[1].textContent = `${svgEls[1].textContent} ${this.getOpAvgTime(node)}`;
   }
 
   // Add runtime data (eg. AvgTime) to the graph node to help with perf
   // debugging.
   injectRuntimeData() {
-    if (!this.opProfile || this.runtimeDataInjected ||
-        !this.graphIframeLoaded()) {
+    if (
+      !this.opProfile ||
+      this.runtimeDataInjected ||
+      !this.graphIframeLoaded()
+    ) {
       return;
     }
-    const doc: Document|null = this.getGraphIframeDocument();
+    const doc: Document | null = this.getGraphIframeDocument();
     if (!doc) return;
     const nodeElements = Array.from(doc.getElementsByClassName('node'));
     for (const e of nodeElements) {
@@ -581,11 +620,13 @@ export class GraphViewer implements OnDestroy {
   // Only update the url when the search graph is triggered.
   onSearchGraph() {
     history.pushState(
-        null,
-        '',
-        this.router.serializeUrl(this.router.createUrlTree([], {
+      null,
+      '',
+      this.router.serializeUrl(
+        this.router.createUrlTree([], {
           queryParams: this.getGraphSearchParams(),
-        })),
+        }),
+      ),
     );
     this.onPlot();
   }
@@ -640,8 +681,11 @@ export class GraphViewer implements OnDestroy {
   }
 
   get shouldRenderMeGraph() {
-    return this.dataService.meGraphEnabled() && this.showMeGraph &&
-        this.graphType === GRAPH_TYPE_DEFAULT;
+    return (
+      this.dataService.meGraphEnabled() &&
+      this.showMeGraph &&
+      this.graphType === GRAPH_TYPE_DEFAULT
+    );
   }
 
   onPlot() {
@@ -716,13 +760,12 @@ export class GraphViewer implements OnDestroy {
         this.tryRenderGraphvizHtml(searchParams);
       }
     }, 200);
-    this.graphvizUri =
-        this.dataService.getGraphVizUri(this.sessionId, searchParams);
+    this.graphvizUri = this.dataService.getGraphVizUri(
+      this.sessionId,
+      searchParams,
+    );
     if (iframe?.contentWindow?.location) {
-      locationReplace(
-          iframe.contentWindow?.location,
-          this.graphvizUri!,
-      );
+      locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }
 
     this.onCheckGraphHtmlLoaded();
@@ -746,15 +789,9 @@ export class GraphViewer implements OnDestroy {
   // Append diagnostic message after data loaded for each sections
   onCompleteLoad(diagnostics?: Diagnostics) {
     this.diagnostics = {
-      info: [
-        ...(diagnostics?.info || []),
-      ],
-      errors: [
-        ...(diagnostics?.errors || []),
-      ],
-      warnings: [
-        ...(diagnostics?.warnings || []),
-      ],
+      info: [...(diagnostics?.info || [])],
+      errors: [...(diagnostics?.errors || [])],
+      warnings: [...(diagnostics?.warnings || [])],
     };
   }
 
@@ -772,14 +809,14 @@ export class GraphViewer implements OnDestroy {
       return;
     } else {
       this.loadingGraph = false;
-      const htmlSize =
-          (document.getElementById('graph-html') as HTMLIFrameElement)
-              .contentDocument!.documentElement.innerHTML.length;
+      const htmlSize = (
+        document.getElementById('graph-html') as HTMLIFrameElement
+      ).contentDocument!.documentElement.innerHTML.length;
       if (htmlSize > GRAPH_HTML_THRESHOLD) {
         this.onCompleteLoad({
           warnings: [
-            'Your graph is large. If you can\'t see the graph, please lower the width and retry.'
-          ]
+            "Your graph is large. If you can't see the graph, please lower the width and retry.",
+          ],
         } as Diagnostics);
       }
       this.installEventListeners();

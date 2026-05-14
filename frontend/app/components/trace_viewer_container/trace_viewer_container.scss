@@ -419,3 +419,57 @@ canvas {
     margin: 0 8px;
   }
 }
+
+.timing-button-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.coach-mark-bubble {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 250px;
+  background: white;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  padding: 12px;
+  z-index: 1000;
+  font-family: Roboto, sans-serif;
+}
+
+.coach-mark-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #202124;
+  margin-bottom: 6px;
+}
+
+.coach-mark-content {
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.coach-mark-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.coach-mark-button {
+  font-size: 12px;
+}
+
+.coach-mark-arrow {
+  position: absolute;
+  top: -6px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-left: 1px solid #dadce0;
+  border-top: 1px solid #dadce0;
+  transform: rotate(45deg);
+}

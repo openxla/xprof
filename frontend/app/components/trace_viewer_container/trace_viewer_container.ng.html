@@ -69,7 +69,8 @@
           </defs>
         </svg>
       </button>
-      <button #timingBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
+      <div class="timing-button-wrapper">
+        <button #timingBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_467)">
             <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
@@ -81,6 +82,19 @@
           </defs>
         </svg>
       </button>
+        <!-- Coach Mark Bubble -->
+        <div *ngIf="showTimingOnboarding" class="coach-mark-bubble">
+          <div class="coach-mark-title">Measure Mode</div>
+          <div class="coach-mark-content">
+            You are now in Measure mode. Click and drag on the timeline to select a time range. <br><br>Tip: You can press '4' to quickly enter this mode.
+          </div>
+          <div class="coach-mark-actions">
+            <button mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
+          </div>
+          <!-- Arrow -->
+          <div class="coach-mark-arrow"></div>
+        </div>
+      </div>
     </div>
     <div class="spacer"></div>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">

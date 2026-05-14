@@ -357,6 +357,8 @@ export class TraceViewerContainer
   traceViewerV2ErrorMessage?: string;
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
+  showTimingOnboarding = false;
+  private readonly TIMING_PROMPTED_STORAGE_KEY = 'trace_viewer_timing_prompted';
   searchQuery = '';
   search$ = new Subject<string>();
   currentSearchQuery = '';
@@ -638,6 +640,11 @@ export class TraceViewerContainer
     this.onSearchEvent('');
   }
 
+  dismissTimingOnboarding() {
+    this.showTimingOnboarding = false;
+    window.localStorage.setItem(this.TIMING_PROMPTED_STORAGE_KEY, 'true');
+  }
+
   blurActiveElement() {
     const el = document.activeElement;
     if (el instanceof HTMLInputElement) {
@@ -649,6 +656,12 @@ export class TraceViewerContainer
     this.currentMouseMode = mode;
     if (this.traceViewerModule) {
       this.traceViewerModule.application.instance().setMouseMode(mode);
+    }
+    if (mode === MouseMode.TIMING) {
+      const prompted = window.localStorage.getItem(this.TIMING_PROMPTED_STORAGE_KEY);
+      if (!prompted) {
+        this.showTimingOnboarding = true;
+      }
     }
     // Sync focus to the corresponding button
     switch (mode) {

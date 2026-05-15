@@ -182,6 +182,7 @@ class DataTable {
   TableRow* AddRow();
   std::vector<const TableRow*> GetRows() const;
   void AddCustomProperty(std::string name, std::string value);
+  const absl::btree_map<std::string, std::string>& GetCustomProperties() const;
   std::string ToJson() const;
 
  private:

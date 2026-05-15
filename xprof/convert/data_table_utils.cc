@@ -316,6 +316,11 @@ void DataTable::AddCustomProperty(std::string name, std::string value) {
   custom_properties_[name] = value;
 }
 
+const absl::btree_map<std::string, std::string>&
+DataTable::GetCustomProperties() const {
+  return custom_properties_;
+}
+
 std::string DataTable::ToJson() const {
   nlohmann::json table;
   table["cols"] = nlohmann::json::array();

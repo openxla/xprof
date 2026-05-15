@@ -19,10 +19,19 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
 
 namespace tensorflow {
 namespace profiler {
+
+class DataTable;
+
+// Converts a single XSpace to performance counter DataTable entries.
+void ConvertXSpaceToPerfCounters(const XSpace* space,
+                                 absl::string_view hostname,
+                                 DataTable* data_table);
 
 // Converts performance counter events in XSpace to a DataTable JSON string for
 // the perf_counters tool.

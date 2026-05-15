@@ -178,12 +178,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit() {
-    if (this.useTraceViewerV2) {
-      // Use setTimeout to defer initialization to the next tick to avoid
-      // ExpressionChangedAfterItHasBeenCheckedError when setting 'loading'
-      // state.
-      this.onInitializeWasm();
-    }
+    // WASM initialization is triggered via the child component's
+    // (initializeWasm) output event once the canvas element is fully
+    // mounted in the DOM.
   }
 
   async initializeWasmApp() {

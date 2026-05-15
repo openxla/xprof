@@ -1,4 +1,4 @@
-<mat-expansion-panel [expanded]="true">
+<mat-expansion-panel [expanded]="true" *ngIf="loading || processedSuggestions.length > 0">
   <mat-expansion-panel-header>
     <mat-panel-title>{{title}} <span class="experimental-badge">EXPERIMENTAL</span></mat-panel-title>
   </mat-expansion-panel-header>

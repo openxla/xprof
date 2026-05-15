@@ -255,6 +255,9 @@ jax.profiler.stop_trace()
 
 ### Advanced configuration options
 
+> [!NOTE]
+> For a complete list of advanced profiling flags, including power monitoring and periodic counter sampling, see [Advanced Profiler Options](advanced_profiler_options.md).
+
 #### TPU options
 
 1. `tpu_trace_mode`: Specifies the mode for TPU tracing.

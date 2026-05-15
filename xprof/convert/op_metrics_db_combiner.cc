@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/op_metrics_db_combiner.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
@@ -98,6 +99,12 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
   CombineMemoryAccessedBreakdown(src.memory_accessed_breakdown(),
                                  dst->mutable_memory_accessed_breakdown());
   dst->set_dma_stall_ps(src.dma_stall_ps() + dst->dma_stall_ps());
+  dst->set_vdd_core_energy_nj(src.vdd_core_energy_nj() +
+                              dst->vdd_core_energy_nj());
+  dst->set_vdd_core_power_events(src.vdd_core_power_events() +
+                                 dst->vdd_core_power_events());
+  dst->set_hbm_energy_nj(src.hbm_energy_nj() + dst->hbm_energy_nj());
+  dst->set_hbm_power_events(src.hbm_power_events() + dst->hbm_power_events());
 }
 
 void CombineMemoryAccessedBreakdown(

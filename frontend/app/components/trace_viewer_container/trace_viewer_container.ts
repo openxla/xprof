@@ -358,7 +358,7 @@ export class TraceViewerContainer
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
   showTimingOnboarding = false;
-  private readonly TIMING_PROMPTED_STORAGE_KEY = 'trace_viewer_timing_prompted';
+  private readonly TIMING_PROMPTED_STORAGE_KEY = 'trace_viewer_timing_prompted_v2';
   searchQuery = '';
   search$ = new Subject<string>();
   currentSearchQuery = '';

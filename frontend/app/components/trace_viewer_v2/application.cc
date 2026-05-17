@@ -219,6 +219,7 @@ void Application::Shutdown() {
                                  /*use_capture=*/true, nullptr);
 
   // Clean up and release memory.
+  feature_flags_cache_.clear();
   timeline_.reset();
   platform_.reset();
 

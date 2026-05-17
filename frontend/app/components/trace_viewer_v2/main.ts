@@ -1,4 +1,6 @@
 
+import {getDefaultFeatureFlag} from './feature_flags';
+
 /**
  * The over-fetching factor for trace events.
  *
@@ -945,7 +947,11 @@ export async function traceViewerV2Main(
       // TODO(b/498744795): Now only supports boolean flags (true/false).
       // Will be extended in the future.
       const value = window.localStorage.getItem(`xprof_ff_${name}`);
-      return value === 'true';
+      if (value !== null) {
+        return value === 'true';
+      }
+      // If the flag is not in local storage, use the default value.
+      return getDefaultFeatureFlag(name);
     };
     activeWasmModule = traceviewerModule;
   } catch (e) {

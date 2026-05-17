@@ -57,6 +57,9 @@ TEST_F(ApplicationTest, ShutdownClearsImGuiContext) {
 }
 
 TEST_F(ApplicationTest, IsFeatureEnabledReadsFromJs) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
   EM_ASM({
     window.getFeatureFlag = (name) => {
       if (name === 'test_flag_true') return true;
@@ -64,10 +67,30 @@ TEST_F(ApplicationTest, IsFeatureEnabledReadsFromJs) {
       return false;
     };
   });
-  Application& app = Application::Instance();
 
   EXPECT_TRUE(app.IsFeatureEnabled("test_flag_true"));
   EXPECT_FALSE(app.IsFeatureEnabled("test_flag_false"));
+}
+
+TEST_F(ApplicationTest, IsFeatureEnabledCachesValue) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EM_ASM({
+    window.getFeatureFlagCallCount = 0;
+    window.getFeatureFlag = (name) => {
+      window.getFeatureFlagCallCount++;
+      return name === 'test_flag_cached';
+    };
+  });
+
+  // First call should call JS and cache the result.
+  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_cached"));
+  EXPECT_EQ(EM_ASM_INT({ return window.getFeatureFlagCallCount; }), 1);
+
+  // Second call should return cached result and not call JS.
+  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_cached"));
+  EXPECT_EQ(EM_ASM_INT({ return window.getFeatureFlagCallCount; }), 1);
 }
 
 }  // namespace

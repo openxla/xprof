@@ -191,7 +191,10 @@ wasm_cc_binary(
 
 ts_library(
     name = "app_bundle_ts",
-    srcs = ["main.ts"],
+    srcs = [
+        "feature_flags.ts",
+        "main.ts",
+    ],
     visibility = ["//frontend:__subpackages__"],
     deps = [
         "@npm//@types/emscripten",
@@ -202,7 +205,10 @@ ts_library(
 ts_library(
     name = "tests",
     testonly = True,
-    srcs = ["main_test.ts"],
+    srcs = [
+        "feature_flags_test.ts",
+        "main_test.ts",
+    ],
     deps = [
         ":app_bundle_ts",
         "//third_party/javascript/typings/jasmine",

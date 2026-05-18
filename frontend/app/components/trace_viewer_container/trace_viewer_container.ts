@@ -38,6 +38,14 @@ import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
 
+const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
+
+function clearDeprecatedStorageKeys(): void {
+  for (const key of DEPRECATED_STORAGE_KEYS) {
+    window.localStorage.removeItem(key);
+  }
+}
+
 /**
  * The name of the event selected custom event, dispatched from WASM in Trace
  * Viewer v2.
@@ -358,7 +366,8 @@ export class TraceViewerContainer
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
   showTimingOnboarding = false;
-  private readonly TIMING_PROMPTED_STORAGE_KEY = 'trace_viewer_timing_prompted_v2';
+  private readonly TIMING_PROMPTED_STORAGE_KEY =
+    'trace_viewer_timing_prompted_v2';
   searchQuery = '';
   search$ = new Subject<string>();
   currentSearchQuery = '';
@@ -388,6 +397,8 @@ export class TraceViewerContainer
   }
 
   ngOnInit() {
+    clearDeprecatedStorageKeys();
+
     window.addEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -658,7 +669,9 @@ export class TraceViewerContainer
       this.traceViewerModule.application.instance().setMouseMode(mode);
     }
     if (mode === MouseMode.TIMING) {
-      const prompted = window.localStorage.getItem(this.TIMING_PROMPTED_STORAGE_KEY);
+      const prompted = window.localStorage.getItem(
+        this.TIMING_PROMPTED_STORAGE_KEY,
+      );
       if (!prompted) {
         this.showTimingOnboarding = true;
       }
@@ -734,6 +747,4 @@ export class TraceViewerContainer
     }
     this.searchResultCountText = `${index === -1 ? 1 : index + 1} / ${count}`;
   }
-
-
 }

@@ -434,6 +434,7 @@ function nodeDvfsMultiplier(node: OpProfileNode): number {
 export function flopsUtilization(
   node: OpProfileNode,
   rootNode: OpProfileNode,
+  useUncappedFlops = false,
   applyScalingFactor = false,
 ): number {
   // NaN indicates undefined utilization for fused operations (we can't
@@ -441,12 +442,12 @@ export function flopsUtilization(
   // with zero time, but they currently don't appear in the profile.
   const timeFractionLocal = timeFraction(node, rootNode);
   if (!node || !node.metrics || !timeFractionLocal) return NaN;
-  // Note the metrics.flops is the capped flops due to historical reasons, we
-  // should use the uncapped raw flops instead.
-  const uncappedFlops = (node.metrics.uncappedFlops || 0) / timeFractionLocal;
+  const flops =
+    useUncappedFlops ? (node.metrics.uncappedFlops || 0) : (node.metrics.flops || 0);
+  const utilization = flops / timeFractionLocal;
   return applyScalingFactor
-    ? uncappedFlops * nodeDvfsMultiplier(node)
-    : uncappedFlops;
+    ? utilization * nodeDvfsMultiplier(node)
+    : utilization;
 }
 
 /**
@@ -542,13 +543,14 @@ export function percent(fraction: number, defaultValueIfNull = '-'): string {
 export function timeWasted(
   node: OpProfileNode,
   rootNode: OpProfileNode,
+  useUncappedFlops = false,
 ): number {
   if (!node || !node.metrics) return NaN;
   return (
     (timeFraction(node, rootNode) || 0) *
     (1 -
       Math.max(
-        flopsUtilization(node, rootNode),
+        flopsUtilization(node, rootNode, useUncappedFlops),
         memoryBandwidthUtilization(node, MemBwType.MEM_BW_TYPE_HBM_RW),
       ))
   );

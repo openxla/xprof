@@ -39,6 +39,12 @@ export const setOpAnalysisScalingFactorAction: ActionCreatorAny = createAction(
     props<{applyScalingFactor: boolean}>(),
 );
 
+/** Action to set op analysis use uncapped flops */
+export const setOpAnalysisUseUncappedFlopsAction: ActionCreatorAny = createAction(
+    '[Op Analysis] Set op analysis use uncapped flops rule',
+    props<{useUncappedFlops: boolean}>(),
+);
+
 /** Action to set active info of the pod viewer */
 export const setActivePodViewerInfoAction: ActionCreatorAny = createAction(
     '[Pod Viewer Info] Set active pod viewer info',

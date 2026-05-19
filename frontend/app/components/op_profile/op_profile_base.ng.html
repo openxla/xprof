@@ -76,6 +76,10 @@
           <div class="control-title">Exclude Idle</div>
           <mat-slide-toggle [checked]="excludeIdle" (toggleChange)="updateExcludeIdle()"></mat-slide-toggle>
         </div>
+        <div class="control">
+          <div class="control-title">Uncap FLOPS Utilization</div>
+          <mat-slide-toggle [checked]="useUncappedFlops" (toggleChange)="toggleUseUncappedFlops()"></mat-slide-toggle>
+        </div>
         <div class="control" *ngIf="sourceCodeServiceIsAvailable">
           <div class="control-title">Show Source Code
             <mat-icon

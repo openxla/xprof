@@ -1,0 +1,84 @@
+<div class="memory-analysis-container">
+  <mat-progress-bar mode="indeterminate" *ngIf="loading"></mat-progress-bar>
+
+  <div class="header-container" *ngIf="result">
+    <h2>Memory Breakdown Analysis (Module: {{result['moduleName']}})</h2>
+  </div>
+
+  <!-- 1. Peak Heap Summary Cards -->
+  <div class="summary-grid" *ngIf="result">
+    <mat-card *ngFor="let item of result['categorySummaries'] | keyvalue"
+              [class.selected]="selectedCategories.has($any(item.key))"
+              (click)="toggleCategory($any(item.key))">
+      <mat-card-header>
+        <mat-card-subtitle>{{item.key}}</mat-card-subtitle>
+        <mat-card-title>{{$any(item.value) | number:'1.2-2'}} MiB</mat-card-title>
+      </mat-card-header>
+    </mat-card>
+  </div>
+
+  <!-- 2. Filter Legend Controls -->
+  <div class="controls-container" *ngIf="result">
+    <h3>Filters</h3>
+    <mat-chip-listbox multiple>
+      <mat-chip-option *ngFor="let item of result['categorySummaries'] | keyvalue"
+                       [selected]="selectedCategories.has($any(item.key))"
+                       (click)="toggleCategory($any(item.key))">
+        {{item.key}}
+      </mat-chip-option>
+    </mat-chip-listbox>
+  </div>
+
+  <!-- 3. Detailed Buffer Table -->
+  <div class="table-container mat-elevation-z8" *ngIf="result">
+    <table mat-table [dataSource]="filteredBuffers" matSort>
+
+      <!-- Name Column -->
+      <ng-container matColumnDef="name">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Name </th>
+        <td mat-cell *matCellDef="let element" class="mono-text"> {{element['name']}} </td>
+      </ng-container>
+
+      <!-- Size Column -->
+      <ng-container matColumnDef="sizeMib">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Size (MiB) </th>
+        <td mat-cell *matCellDef="let element"> {{element['sizeMib'] | number:'1.2-2'}} </td>
+      </ng-container>
+
+      <!-- Category Column -->
+      <ng-container matColumnDef="category">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Category </th>
+        <td mat-cell *matCellDef="let element">
+          <span class="category-badge" [attr.category]="element['category']">{{element['category']}}</span>
+        </td>
+      </ng-container>
+
+      <!-- Dtype Column -->
+      <ng-container matColumnDef="dtype">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Dtype </th>
+        <td mat-cell *matCellDef="let element"> {{element['dtype']}} </td>
+      </ng-container>
+
+      <!-- Shape Column -->
+      <ng-container matColumnDef="shape">
+        <th mat-header-cell *matHeaderCellDef> Shape </th>
+        <td mat-cell *matCellDef="let element" class="mono-text"> {{element['shape']}} </td>
+      </ng-container>
+
+      <!-- TF Op Column -->
+      <ng-container matColumnDef="tfOpName">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> TF Op Name </th>
+        <td mat-cell *matCellDef="let element"> {{element['tfOpName']}} </td>
+      </ng-container>
+
+      <!-- JAX Variable Path Column -->
+      <ng-container matColumnDef="jaxVariablePath">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> JAX Path </th>
+        <td mat-cell *matCellDef="let element" class="mono-text"> {{element['jaxVariablePath']}} </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+    </table>
+  </div>
+</div>

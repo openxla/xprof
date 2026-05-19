@@ -1734,6 +1734,41 @@ cc_test(
 )
 
 cc_library(
+    name = "hlo_to_memory_analysis",
+    srcs = ["hlo_to_memory_analysis.cc"],
+    hdrs = ["hlo_to_memory_analysis.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":hlo_proto_to_memory_visualization_utils",
+        "@com_github_nlohmann_json//:json",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_googlesource_code_re2//:re2",
+        "@xla//xla:shape_util",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/service:hlo_module_config",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_test(
+    name = "hlo_to_memory_analysis_test",
+    srcs = ["hlo_to_memory_analysis_test.cc"],
+    deps = [
+        ":hlo_to_memory_analysis",
+        "@com_github_nlohmann_json//:json",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:tensorflow_utils",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "hlo_to_tools_data",
     srcs = ["hlo_to_tools_data.cc"],
     hdrs = ["hlo_to_tools_data.h"],

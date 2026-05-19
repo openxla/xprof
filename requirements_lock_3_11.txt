@@ -540,9 +540,9 @@ gviz-api==1.10.0 \
     --hash=sha256:846692dd8cc73224fc31b18e41589bd934e1cc05090c6576af4b4b26c2e71b90 \
     --hash=sha256:a05055fed8c279f34f4b496eace7648c7fe9c1b06851e8a36e748541f1adbb05
     # via -r requirements.in
-idna==3.10 \
-    --hash=sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9 \
-    --hash=sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3
+idna==3.15 \
+    --hash=sha256:048adeaf8c2d788c40fee287673ccaa74c24ffd8dcf09ffa555a2fbb59f10ac8 \
+    --hash=sha256:ca962446ea538f7092a95e057da437618e886f4d349216d2b1e294abfdb65fdc
     # via
     #   requests
     #   yarl

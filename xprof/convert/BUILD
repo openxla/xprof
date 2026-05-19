@@ -276,6 +276,25 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_test(
+    name = "memory_viewer_processor_test",
+    srcs = ["memory_viewer_processor_test.cc"],
+    deps = [
+        ":memory_viewer_processor",
+        ":repository",
+        ":tool_options",
+        "//file/base",
+        "//file/base:path",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
 cc_library(
     name = "graph_viewer_processor",
     srcs = ["graph_viewer_processor.cc"],

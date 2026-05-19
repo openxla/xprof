@@ -48,6 +48,21 @@ using ::tensorflow::profiler::kMemorySpaceOption;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 
+namespace {
+
+bool GetBoolParam(const ToolOptions& options, absl::string_view key,
+                  bool default_val) {
+  if (auto b = tensorflow::profiler::GetParam<bool>(options, key)) {
+    return *b;
+  }
+  if (auto i = tensorflow::profiler::GetParam<int>(options, key)) {
+    return *i != 0;
+  }
+  return default_val;
+}
+
+}  // namespace
+
 absl::Status MemoryViewerProcessor::ProcessSession(
     const SessionSnapshot& session_snapshot, const ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
@@ -66,20 +81,10 @@ absl::Status MemoryViewerProcessor::ProcessSession(
 
   tensorflow::profiler::MemoryViewerOption memory_viewer_option;
   memory_viewer_option.memory_color = memory_space_color;
-  auto get_bool_param = [&](absl::string_view key) {
-    if (auto value = tensorflow::profiler::GetParam<bool>(options, key)) {
-      return *value;
-    }
-    if (auto value = tensorflow::profiler::GetParam<int>(options, key)) {
-      return *value != 0;
-    }
-    return false;
-  };
-
   memory_viewer_option.timeline_option.render_timeline =
-      get_bool_param("view_memory_allocation_timeline");
+      GetBoolParam(options, "view_memory_allocation_timeline", false);
   memory_viewer_option.timeline_option.timeline_noise =
-      get_bool_param("timeline_noise");
+      GetBoolParam(options, "timeline_noise", false);
   memory_viewer_option.small_buffer_size =
       tensorflow::profiler::kSmallBufferSize;
 

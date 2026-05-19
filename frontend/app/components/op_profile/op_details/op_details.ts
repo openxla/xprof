@@ -70,6 +70,7 @@ export class OpDetails {
   showUtilizationWarning = false;
   deviceType = 'TPU';
   applyScalingFactor = false;
+  useUncappedFlops = false;
 
   constructor(
       private readonly store: Store<{}>,
@@ -85,6 +86,8 @@ export class OpDetails {
         .pipe(takeUntil(this.destroyed))
         .subscribe((opAnalysisState: OpAnalysisState) => {
           this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+          this.useUncappedFlops = opAnalysisState.useUncappedFlops;
+          this.update(this.node || null);
         });
     this.store.select(getSelectedOpNodeChainState)
         .pipe(takeUntil(this.destroyed))
@@ -220,14 +223,16 @@ export class OpDetails {
     this.showUtilizationWarning = false;
     this.color = utils.flameColor(
         utils.flopsUtilization(
-            this.node, this.rootNode, this.applyScalingFactor),
+            this.node, this.rootNode, this.useUncappedFlops,
+            this.applyScalingFactor),
         0.7, 1, Math.sqrt);
     this.name = this.node.name || '';
     this.subheader = this.getSubheader();
 
     if (utils.hasFlopsUtilization(this.node)) {
       const flopsUtilization = utils.flopsUtilization(
-          this.node, this.rootNode, this.applyScalingFactor);
+          this.node, this.rootNode, this.useUncappedFlops,
+          this.applyScalingFactor);
       if (flopsUtilization === 1) {
         this.showUtilizationWarning = true;
       }

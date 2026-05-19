@@ -31,6 +31,7 @@ export interface OpProfileState {
 /** State of op analysis settings */
 export interface OpAnalysisState {
   applyScalingFactor: boolean;
+  useUncappedFlops: boolean;
 }
 
 /** General State of the Profiling */
@@ -141,6 +142,7 @@ export const INIT_PROFILING_GENERAL_STATE: ProfilingGeneralState = {
 /** Initial state of op analysis settings */
 export const INIT_OP_ANALYSIS_STATE: OpAnalysisState = {
   applyScalingFactor: false,
+  useUncappedFlops: false,
 };
 
 /** Initial state of active pod viewer info */

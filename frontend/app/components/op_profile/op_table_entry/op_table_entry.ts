@@ -69,12 +69,14 @@ export class OpTableEntry implements OnChanges {
   hbmFlameColor = '';
   numLeftOut = 0;
   applyScalingFactor = false;
+  useUncappedFlops = false;
 
   constructor(private readonly store: Store<{}>) {
     this.store.select(getOpAnalysisState)
         .pipe(takeUntil(this.destroyed))
         .subscribe((opAnalysisState: OpAnalysisState) => {
           this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+          this.useUncappedFlops = opAnalysisState.useUncappedFlops;
         });
   }
 
@@ -99,7 +101,8 @@ export class OpTableEntry implements OnChanges {
     }
 
     const utilization = utils.flopsUtilization(
-        this.node, this.rootNode, this.applyScalingFactor);
+        this.node, this.rootNode, this.useUncappedFlops,
+        this.applyScalingFactor);
 
     this.flopsUtilization = utils.percent(utilization);
     this.flameColor = utils.flameColor(utilization, 0.7, 1, Math.sqrt);
@@ -108,7 +111,7 @@ export class OpTableEntry implements OnChanges {
     this.offset = this.level.toString() + 'em';
     this.provenance =
         this.node?.xla?.provenance?.replace(/^.*(:|\/)/, '') || '-';
-    this.timeWasted = utils.percent(utils.timeWasted(this.node, this.rootNode));
+    this.timeWasted = utils.percent(utils.timeWasted(this.node, this.rootNode, this.useUncappedFlops));
 
     if (this.node?.metrics?.rawBytesAccessedArray &&
         this.rootNode?.metrics?.rawBytesAccessedArray) {
@@ -154,15 +157,15 @@ export class OpTableEntry implements OnChanges {
     if (this.byWasted && this.rootNode) {
       children.sort(
           (a, b) => {
-            const timeWastedA = utils.timeWasted(a, this.rootNode!);
-            const timeWastedB = utils.timeWasted(b, this.rootNode!);
+            const timeWastedA = utils.timeWasted(a, this.rootNode!, this.useUncappedFlops);
+            const timeWastedB = utils.timeWasted(b, this.rootNode!, this.useUncappedFlops);
             if (isNaN(timeWastedA)) {
               return 1;
             } else if (isNaN(timeWastedB)) {
               return -1;
             }
-            return utils.timeWasted(b, this.rootNode!) -
-              utils.timeWasted(a, this.rootNode!);
+            return utils.timeWasted(b, this.rootNode!, this.useUncappedFlops) -
+              utils.timeWasted(a, this.rootNode!, this.useUncappedFlops);
           });
     }
     const k = this.get90ChildrenIndex();

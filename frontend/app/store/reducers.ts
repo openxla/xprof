@@ -73,6 +73,18 @@ export const reducer: ActionReducer<AppState, Action> = createReducer(
         },
         ),
     on(
+        actions.setOpAnalysisUseUncappedFlopsAction,
+        (state: AppState, action: ActionCreatorAny) => {
+          return {
+            ...state,
+            opAnalysisState: {
+              ...state.opAnalysisState,
+              useUncappedFlops: action.useUncappedFlops,
+            }
+          };
+        },
+        ),
+    on(
         actions.setProfilingDeviceTypeAction,
         (state: AppState, action: ActionCreatorAny) => {
           return {

@@ -20,6 +20,7 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {
   setCurrentToolStateAction,
   setOpAnalysisScalingFactorAction,
+  setOpAnalysisUseUncappedFlopsAction,
   setOpProfileRootNodeAction,
 } from 'org_xprof/frontend/app/store/actions';
 import {getActiveOpProfileNodeState} from 'org_xprof/frontend/app/store/selectors';
@@ -65,6 +66,7 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   focusedOpCategory = '';
   showStackTrace = false;
   applyScalingFactor = false;
+  useUncappedFlops = false;
 
   @Input() sessionId = '';
   @Input() opProfileData: OpProfileProto | null = null;
@@ -91,7 +93,11 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   parseData(data: OpProfileProto | null) {
     this.profile = data;
     this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    this.data.update(
+      this.rootNode,
+      this.applyScalingFactor,
+      this.useUncappedFlops,
+    );
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 
@@ -124,7 +130,11 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
       this.parseData(this.opProfileData);
     } else if (changes['groupBy']) {
       this.updateRoot();
-      this.data.update(this.rootNode, this.applyScalingFactor);
+      this.data.update(
+        this.rootNode,
+        this.applyScalingFactor,
+        this.useUncappedFlops,
+      );
     }
   }
 
@@ -187,7 +197,11 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
   updateExcludeIdle() {
     this.excludeIdle = !this.excludeIdle;
     this.updateRoot();
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    this.data.update(
+      this.rootNode,
+      this.applyScalingFactor,
+      this.useUncappedFlops,
+    );
   }
 
   updateShowStackTrace() {
@@ -209,7 +223,26 @@ export class OpProfileBase implements OnDestroy, OnInit, OnChanges {
         applyScalingFactor: this.applyScalingFactor,
       }),
     );
-    this.data.update(this.rootNode, this.applyScalingFactor);
+    this.data.update(
+      this.rootNode,
+      this.applyScalingFactor,
+      this.useUncappedFlops,
+    );
+    this.summary = this.dataService.getOpProfileSummary(this.data);
+  }
+
+  toggleUseUncappedFlops() {
+    this.useUncappedFlops = !this.useUncappedFlops;
+    this.store.dispatch(
+      setOpAnalysisUseUncappedFlopsAction({
+        useUncappedFlops: this.useUncappedFlops,
+      }),
+    );
+    this.data.update(
+      this.rootNode,
+      this.applyScalingFactor,
+      this.useUncappedFlops,
+    );
     this.summary = this.dataService.getOpProfileSummary(this.data);
   }
 

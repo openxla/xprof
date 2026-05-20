@@ -327,6 +327,34 @@ OpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
               it != sparse_core_metrics_map.end()) {
             OpMetricsDbCombiner combiner(op_metrics.mutable_children());
             combiner.Combine(it->second, /*update_num_cores=*/false);
+
+            // Subtract the SparseCore children's FLOPs from the TensorCore
+            // parent to avoid double-counting in OpProfile since the compiler
+            // attributes the entire subgraph's FLOPs to the TensorCore parent.
+            double model_flops_v2 = op_metrics.model_flops_v2();
+            double flops_v2 = op_metrics.flops_v2();
+            uint64_t model_flops = op_metrics.model_flops();
+            uint64_t flops = op_metrics.flops();
+
+            for (const auto& child : op_metrics.children().metrics_db()) {
+              model_flops_v2 -= child.model_flops_v2();
+              flops_v2 -= child.flops_v2();
+              if (model_flops >= child.model_flops()) {
+                model_flops -= child.model_flops();
+              } else {
+                model_flops = 0;
+              }
+              if (flops >= child.flops()) {
+                flops -= child.flops();
+              } else {
+                flops = 0;
+              }
+            }
+
+            op_metrics.set_model_flops_v2(std::max(0.0, model_flops_v2));
+            op_metrics.set_flops_v2(std::max(0.0, flops_v2));
+            op_metrics.set_model_flops(model_flops);
+            op_metrics.set_flops(flops);
           }
         }
         builder.AddOpMetric(op_metrics, GetOpKeyFromXEvent(parent.event));

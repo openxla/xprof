@@ -369,9 +369,9 @@ TEST(ConvertXPlaneToOpMetricsDb,
           .category = "async-start",
           .start_timestamp_ns = 0,
           .duration_ns = 10,
-          .flops = 20,
+          .flops = 100,
           .bytes_accessed = 100,
-          .occurrences = 2,
+          .occurrences = 1,
           .self_duration = 5,
           .module_id = 1,
           .program_id = 1,
@@ -414,6 +414,15 @@ TEST(ConvertXPlaneToOpMetricsDb,
 #if defined(PLATFORM_GOOGLE)
   EXPECT_THAT(op_metrics.metrics_db(0).children(),
               EqualsProto(sparse_core_op_metrics));
+
+  // The parent TensorCore op should have its flops reduced by the SparseCore
+  // child's flops (100 - 68).
+  EXPECT_EQ(op_metrics.metrics_db(0).flops(), 32);
+  EXPECT_EQ(op_metrics.metrics_db(0).flops_v2(), 32.0);
+  // model_flops defaults to flops if not explicitly set differently by tests in
+  // some cases
+  EXPECT_EQ(op_metrics.metrics_db(0).model_flops(), 32);
+  EXPECT_EQ(op_metrics.metrics_db(0).model_flops_v2(), 32.0);
 #endif
 }
 

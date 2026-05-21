@@ -17,14 +17,12 @@ toc:
   path: /xprof
 - title: Terminology
   path: /xprof/terminology
-- title: Tool Documentation
+- title: Tools Documentation
   section:
   - title: Overview Page
     path: /xprof/overview_page
   - title: Trace Viewer
     path: /xprof/trace_viewer
-  - title: Custom Call Profiling
-    path: /xprof/custom_call_profiling
   - title: Graph Viewer
     path: /xprof/graph_viewer
   - title: HLO Op Profile
@@ -47,12 +45,14 @@ toc:
     path: /xprof/utilization_viewer
   - title: Perf Counters
     path: /xprof/perf_counters
-- title: Demo Notebook
+- title: Guides
   section:
   - title: XProf Demo
     path: /xprof/xprof_demo
-- title: Capturing profiles
-  path: /xprof/capturing_profiles
+  - title: Capturing profiles
+    path: /xprof/capturing_profiles
+  - title: Custom Call Profiling
+    path: /xprof/custom_call_profiling
 - title: Framework-specific profiling
   section:
   - title: JAX

@@ -4,8 +4,9 @@ You can use Memory Profile to visualize the memory usage over time of your
 accelerators. The Memory Profile tool monitors the memory usage of your device
 during the profiling interval. You can use this tool to:
 
-*   Debug out of memory (OOM) issues by pinpointing peak memory usage and the
-    corresponding memory allocation to framework ops.
+*   Debug [out of memory (OOM) issues](https://openxla.org/xla/oom_debugging.md)
+    by pinpointing peak memory usage and the corresponding memory allocation to
+    framework ops.
 *   Debug memory fragmentation issues.
 
 ### Supported Platforms
@@ -45,9 +46,8 @@ Memory Profile has the following components:
         total memory is broken down into three categories: stack (in red), heap
         (in orange), and free (in green). Hover over a specific timestamp to
         view the details about the memory allocation/deallocation events at that
-        point like below: ![Selected timestamp in Memory Timeline Graph showing
-        an information card with details about the memory
-        allocation/deallocation events](images/memory_profile_3.png)
+        point like below:
+        ![Selected timestamp in Memory Timeline Graph showing an information card with details about the memory allocation/deallocation events](images/memory_profile_3.png)
 
 *   The **Memory Breakdown Table** provides information about framework-level
     ops that contribute the most to memory usage. There are also additional

@@ -180,4 +180,17 @@ lines may or may not appear in certain profiles.
     post-processing information it receives from different components (e.g.,
     CUPTI drivers, kernel launch IDs, TPU runtime information, etc.).
 
-    ![Trace Viewer Flow Events button](images/trace_viewer_flow.png)
+### From Trace Viewer to HLO Graph
+
+When you click on an XLA op in Trace Viewer, you can click the link in the
+details pane to view the corresponding op in the [Graph Viewer](graph_viewer.md)
+tool. This allows you to understand the context of the op within the HLO graph,
+and see how it relates to other ops in the graph.
+
+![Trace Viewer to Graph Viewer](images/trace_viewer_to_hlo_graph_1.png)
+*Clicking on an XLA operation in the Trace Viewer shows information, including a
+link to the corresponding operation in the HLO Graph Viewer tool.*
+
+![Graph Viewer](images/trace_viewer_to_hlo_graph_2.png) *Note the same XLA
+operation highlighted in the Graph Viewer, with its connections to other
+operations in the HLO graph.*

@@ -125,10 +125,8 @@ void ComputeTpuv7GenericTcUnitUtilization(
                  cycles * kVectorALUsPerCore, kInstructions, utilization);
 
   // Loads and stores take one cycle.
-  // TODO(b/271325351): Should we consider VMISC_VST_INSTRUCTION as well?
   AddUtilization(counters, core, "Vmem Stores", COUNTER(VST_INSTRUCTION),
                  cycles, kInstructions, utilization);
-  // TODO(b/271325351): Should we consider VMISC_VLD_INSTRUCTION as well?
   AddUtilization(counters, core, "Vmem Loads",
                  COUNTER(VLD_INSTRUCTION_0) + COUNTER(VLD_INSTRUCTION_1),
                  cycles * 2, kInstructions, utilization);
@@ -292,6 +290,228 @@ void ComputeTpuv7GenericTcUnitUtilization(
 
 #undef COUNTER
 }
+
+// NOLINTBEGIN
+#define TPUV6E_SCS_COUNTER(CORE, NAME)                                         \
+  CORE == 0 ? TpuCounterIdsTpu7::                                              \
+                  VF_CHIP_SC_0_SCS_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME \
+            : TpuCounterIdsTpu7::                                              \
+                  VF_CHIP_SC_1_SCS_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME
+#define TPUV6E_TEC_TAC_COUNTER(CORE, TILE, NAME)                                  \
+  CORE == 0                                                                       \
+      ? TpuCounterIdsTpu7::                                                       \
+            VF_CHIP_SC_0_SCT_##TILE##_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME \
+      : TpuCounterIdsTpu7::                                                       \
+            VF_CHIP_SC_1_SCT_##TILE##_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME
+#define DECLARE_16_TILES(CORE, NAME)          \
+  TPUV6E_TEC_TAC_COUNTER(CORE, 0, NAME),      \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 1, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 2, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 3, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 4, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 5, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 6, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 7, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 8, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 9, NAME),  \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 10, NAME), \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 11, NAME), \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 12, NAME), \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 13, NAME), \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 14, NAME), \
+      TPUV6E_TEC_TAC_COUNTER(CORE, 15, NAME)
+// NOLINTEND
+
+void ComputeTpuv6eScUnitUtilization(const TpuCounterUtil& counters, int die,
+                                    int core,
+                                    UtilizationCounters* utilization) {
+  // Each sparsecore has 16 tiles where each tile has a dedicated performance
+  // counter to count tec scalar issues.
+  const std::array<uint64_t, 16> tpuv6e_sc_tec_scalar_issue = {
+      DECLARE_16_TILES(core, TEC_SCALAR_ISSUE)};
+
+  // A finer-grain stats can be provided for scalar issue count
+  const std::array<uint64_t, 16> tpuv6e_sc_tec_s0_instruction = {
+      DECLARE_16_TILES(core, TEC_S0_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_tec_s1_instruction = {
+      DECLARE_16_TILES(core, TEC_S1_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_tec_smisc_instruction = {
+      DECLARE_16_TILES(core, TEC_SMISC_INSTRUCTION)};
+
+  const uint64_t tec_cycle =
+      counters.GetValue(TPUV6E_TEC_TAC_COUNTER(core, 0, CYCLES));
+
+  const uint64_t sc_tec_scalar_issue_count = absl::c_accumulate(
+      tpuv6e_sc_tec_scalar_issue, 0ull, [&](uint64_t sum, uint64_t counter_id) {
+        return sum + counters.GetValue(counter_id);
+      });
+
+  AddUtilization(counters, core, "TEC Scalar Issue", sc_tec_scalar_issue_count,
+                 tec_cycle * 16, kInstructions, utilization);
+
+  const uint64_t sc_tec_s0_issue_count =
+      absl::c_accumulate(tpuv6e_sc_tec_s0_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "TEC Scalar Issue: S0 slot",
+                 sc_tec_s0_issue_count, tec_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_tec_s1_issue_count =
+      absl::c_accumulate(tpuv6e_sc_tec_s1_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "TEC Scalar Issue: S1 slot",
+                 sc_tec_s1_issue_count, tec_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_tec_smisc_issue_count =
+      absl::c_accumulate(tpuv6e_sc_tec_smisc_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "TEC Scalar Issue: Smisc slot",
+                 sc_tec_smisc_issue_count, tec_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t tac_cycle =
+      counters.GetValue(TPUV6E_TEC_TAC_COUNTER(core, 0, CYCLES));
+
+  // Each sparsecore has 16 tiles where each tile has a dedicated performance
+  // counter to count vector instruction issues.
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_instruction = {
+      DECLARE_16_TILES(core, VECTOR_ISSUE)};
+  // A finer-grain stats can be provided for vector instruction count
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_v0_instruction = {
+      DECLARE_16_TILES(core, V0_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_v1_instruction = {
+      DECLARE_16_TILES(core, V1_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_v2_instruction = {
+      DECLARE_16_TILES(core, V2_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_vld_instruction = {
+      DECLARE_16_TILES(core, VLD_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_vst_instruction = {
+      DECLARE_16_TILES(core, VST_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_vres_instruction = {
+      DECLARE_16_TILES(core, VRES_INSTRUCTION)};
+
+  const std::array<uint64_t, 16> tpuv6e_sc_vector_vex_instruction = {
+      DECLARE_16_TILES(core, VEX_INSTRUCTION)};
+
+  const uint64_t sc_vector_issue_count =
+      absl::c_accumulate(tpuv6e_sc_vector_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue", sc_vector_issue_count,
+                 tac_cycle * 16, kInstructions, utilization);
+
+  const uint64_t sc_vector_v0_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_v0_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue:V0 Slot",
+                 sc_vector_v0_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_v1_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_v1_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t id) {
+                           return sum + counters.GetValue(id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue: V1 Slot",
+                 sc_vector_v1_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_v2_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_v2_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue: V2 Slot",
+                 sc_vector_v2_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_vld_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_vld_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue: VLD Slot",
+                 sc_vector_vld_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_vst_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_vst_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue: VST Slot",
+                 sc_vector_vst_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_vex_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_vex_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue:VEX Slot",
+                 sc_vector_vex_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+
+  const uint64_t sc_vector_vres_instruction =
+      absl::c_accumulate(tpuv6e_sc_vector_vres_instruction, 0ull,
+                         [&](uint64_t sum, const uint64_t counter_id) {
+                           return sum + counters.GetValue(counter_id);
+                         });
+
+  AddUtilization(counters, core, "SC Vector Issue:VRES Slot",
+                 sc_vector_vres_instruction, tac_cycle * 16, kInstructions,
+                 utilization);
+  // Sparse Core Sequencer Counters
+  AddUtilization(counters, core, "SCS Scalar Issue",
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, SCALAR_ISSUE)),
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, CYCLES)),
+                 kInstructions, utilization);
+
+  AddUtilization(counters, core, "SCS: S0 Slot",
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, S0_INSTRUCTION)),
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, CYCLES)),
+                 kInstructions, utilization);
+
+  AddUtilization(counters, core, "SCS: S1 Slot",
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, S1_INSTRUCTION)),
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, CYCLES)),
+                 kInstructions, utilization);
+
+  AddUtilization(counters, core, "SCS: Smisc Slot",
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, SMISC_INSTRUCTION)),
+                 counters.GetValue(TPUV6E_SCS_COUNTER(core, CYCLES)),
+                 kInstructions, utilization);
+}
+#undef TPUV6E_SCS_COUNTER
+#undef TPUV6E_TEC_TAC_COUNTER
+#undef DECLARE_16_TILES
 
 // NOLINTBEGIN
 #define TPUV7X_SCS_COUNTER(DIE, CORE, NAME)                                         \
@@ -527,6 +747,100 @@ void ComputeTpuv7xScUnitUtilization(const TpuCounterUtil& counters, int die,
 #undef TPUV7X_SCS_COUNTER
 #undef TPUV7X_SCT_COUNTER
 #undef DECLARE_16_TILES
+
+// Helper macros for HBM counters (TPU v6e)
+#define HBM_PREFIX(id) TpuCounterIdsTpu7::VF_CHIP_##id
+#define RD_RESP_PS0(id) \
+  HBM_PREFIX(id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS0)
+#define RD_RESP_PS1(id) \
+  HBM_PREFIX(id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS1)
+#define WR_REQ_PS0(id)                                                 \
+  HBM_PREFIX(id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS0), \
+      HBM_PREFIX(                                                      \
+          id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_PARTIAL_WRITE_REQ_PS0)
+#define WR_REQ_PS1(id)                                                 \
+  HBM_PREFIX(id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_WR_REQ_PS1), \
+      HBM_PREFIX(                                                      \
+          id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_PARTIAL_WRITE_REQ_PS1)
+std::array<uint64_t, 128> GetTpuv6eHbmReadCounters() {
+  const std::array<uint64_t, 128> tpuv6e_hbm_rd_perf_counters = {
+      RD_RESP_PS0(HBM_0_HBMC_0),  RD_RESP_PS1(HBM_0_HBMC_0),
+      RD_RESP_PS0(HBM_0_HBMC_1),  RD_RESP_PS1(HBM_0_HBMC_1),
+      RD_RESP_PS0(HBM_0_HBMC_2),  RD_RESP_PS1(HBM_0_HBMC_2),
+      RD_RESP_PS0(HBM_0_HBMC_3),  RD_RESP_PS1(HBM_0_HBMC_3),
+      RD_RESP_PS0(HBM_0_HBMC_4),  RD_RESP_PS1(HBM_0_HBMC_4),
+      RD_RESP_PS0(HBM_0_HBMC_5),  RD_RESP_PS1(HBM_0_HBMC_5),
+      RD_RESP_PS0(HBM_0_HBMC_6),  RD_RESP_PS1(HBM_0_HBMC_6),
+      RD_RESP_PS0(HBM_0_HBMC_7),  RD_RESP_PS1(HBM_0_HBMC_7),
+      RD_RESP_PS0(HBM_0_HBMC_8),  RD_RESP_PS1(HBM_0_HBMC_8),
+      RD_RESP_PS0(HBM_0_HBMC_9),  RD_RESP_PS1(HBM_0_HBMC_9),
+      RD_RESP_PS0(HBM_0_HBMC_10), RD_RESP_PS1(HBM_0_HBMC_10),
+      RD_RESP_PS0(HBM_0_HBMC_11), RD_RESP_PS1(HBM_0_HBMC_11),
+      RD_RESP_PS0(HBM_0_HBMC_12), RD_RESP_PS1(HBM_0_HBMC_12),
+      RD_RESP_PS0(HBM_0_HBMC_13), RD_RESP_PS1(HBM_0_HBMC_13),
+      RD_RESP_PS0(HBM_0_HBMC_14), RD_RESP_PS1(HBM_0_HBMC_14),
+      RD_RESP_PS0(HBM_0_HBMC_15), RD_RESP_PS1(HBM_0_HBMC_15),
+      RD_RESP_PS0(HBM_1_HBMC_0),  RD_RESP_PS1(HBM_1_HBMC_0),
+      RD_RESP_PS0(HBM_1_HBMC_1),  RD_RESP_PS1(HBM_1_HBMC_1),
+      RD_RESP_PS0(HBM_1_HBMC_2),  RD_RESP_PS1(HBM_1_HBMC_2),
+      RD_RESP_PS0(HBM_1_HBMC_3),  RD_RESP_PS1(HBM_1_HBMC_3),
+      RD_RESP_PS0(HBM_1_HBMC_4),  RD_RESP_PS1(HBM_1_HBMC_4),
+      RD_RESP_PS0(HBM_1_HBMC_5),  RD_RESP_PS1(HBM_1_HBMC_5),
+      RD_RESP_PS0(HBM_1_HBMC_6),  RD_RESP_PS1(HBM_1_HBMC_6),
+      RD_RESP_PS0(HBM_1_HBMC_7),  RD_RESP_PS1(HBM_1_HBMC_7),
+      RD_RESP_PS0(HBM_1_HBMC_8),  RD_RESP_PS1(HBM_1_HBMC_8),
+      RD_RESP_PS0(HBM_1_HBMC_9),  RD_RESP_PS1(HBM_1_HBMC_9),
+      RD_RESP_PS0(HBM_1_HBMC_10), RD_RESP_PS1(HBM_1_HBMC_10),
+      RD_RESP_PS0(HBM_1_HBMC_11), RD_RESP_PS1(HBM_1_HBMC_11),
+      RD_RESP_PS0(HBM_1_HBMC_12), RD_RESP_PS1(HBM_1_HBMC_12),
+      RD_RESP_PS0(HBM_1_HBMC_13), RD_RESP_PS1(HBM_1_HBMC_13),
+      RD_RESP_PS0(HBM_1_HBMC_14), RD_RESP_PS1(HBM_1_HBMC_14),
+      RD_RESP_PS0(HBM_1_HBMC_15), RD_RESP_PS1(HBM_1_HBMC_15),
+  };
+  return tpuv6e_hbm_rd_perf_counters;
+}
+std::array<uint64_t, 128> GetTpuv6eHbmWriteCounters() {
+  const std::array<uint64_t, 128> tpuv6e_hbm_wr_perf_counters = {
+      WR_REQ_PS0(HBM_0_HBMC_0),  WR_REQ_PS1(HBM_0_HBMC_0),
+      WR_REQ_PS0(HBM_0_HBMC_1),  WR_REQ_PS1(HBM_0_HBMC_1),
+      WR_REQ_PS0(HBM_0_HBMC_2),  WR_REQ_PS1(HBM_0_HBMC_2),
+      WR_REQ_PS0(HBM_0_HBMC_3),  WR_REQ_PS1(HBM_0_HBMC_3),
+      WR_REQ_PS0(HBM_0_HBMC_4),  WR_REQ_PS1(HBM_0_HBMC_4),
+      WR_REQ_PS0(HBM_0_HBMC_5),  WR_REQ_PS1(HBM_0_HBMC_5),
+      WR_REQ_PS0(HBM_0_HBMC_6),  WR_REQ_PS1(HBM_0_HBMC_6),
+      WR_REQ_PS0(HBM_0_HBMC_7),  WR_REQ_PS1(HBM_0_HBMC_7),
+      WR_REQ_PS0(HBM_0_HBMC_8),  WR_REQ_PS1(HBM_0_HBMC_8),
+      WR_REQ_PS0(HBM_0_HBMC_9),  WR_REQ_PS1(HBM_0_HBMC_9),
+      WR_REQ_PS0(HBM_0_HBMC_10), WR_REQ_PS1(HBM_0_HBMC_10),
+      WR_REQ_PS0(HBM_0_HBMC_11), WR_REQ_PS1(HBM_0_HBMC_11),
+      WR_REQ_PS0(HBM_0_HBMC_12), WR_REQ_PS1(HBM_0_HBMC_12),
+      WR_REQ_PS0(HBM_0_HBMC_13), WR_REQ_PS1(HBM_0_HBMC_13),
+      WR_REQ_PS0(HBM_0_HBMC_14), WR_REQ_PS1(HBM_0_HBMC_14),
+      WR_REQ_PS0(HBM_0_HBMC_15), WR_REQ_PS1(HBM_0_HBMC_15),
+      WR_REQ_PS0(HBM_1_HBMC_0),  WR_REQ_PS1(HBM_1_HBMC_0),
+      WR_REQ_PS0(HBM_1_HBMC_1),  WR_REQ_PS1(HBM_1_HBMC_1),
+      WR_REQ_PS0(HBM_1_HBMC_2),  WR_REQ_PS1(HBM_1_HBMC_2),
+      WR_REQ_PS0(HBM_1_HBMC_3),  WR_REQ_PS1(HBM_1_HBMC_3),
+      WR_REQ_PS0(HBM_1_HBMC_4),  WR_REQ_PS1(HBM_1_HBMC_4),
+      WR_REQ_PS0(HBM_1_HBMC_5),  WR_REQ_PS1(HBM_1_HBMC_5),
+      WR_REQ_PS0(HBM_1_HBMC_6),  WR_REQ_PS1(HBM_1_HBMC_6),
+      WR_REQ_PS0(HBM_1_HBMC_7),  WR_REQ_PS1(HBM_1_HBMC_7),
+      WR_REQ_PS0(HBM_1_HBMC_8),  WR_REQ_PS1(HBM_1_HBMC_8),
+      WR_REQ_PS0(HBM_1_HBMC_9),  WR_REQ_PS1(HBM_1_HBMC_9),
+      WR_REQ_PS0(HBM_1_HBMC_10), WR_REQ_PS1(HBM_1_HBMC_10),
+      WR_REQ_PS0(HBM_1_HBMC_11), WR_REQ_PS1(HBM_1_HBMC_11),
+      WR_REQ_PS0(HBM_1_HBMC_12), WR_REQ_PS1(HBM_1_HBMC_12),
+      WR_REQ_PS0(HBM_1_HBMC_13), WR_REQ_PS1(HBM_1_HBMC_13),
+      WR_REQ_PS0(HBM_1_HBMC_14), WR_REQ_PS1(HBM_1_HBMC_14),
+      WR_REQ_PS0(HBM_1_HBMC_15), WR_REQ_PS1(HBM_1_HBMC_15),
+  };
+  return tpuv6e_hbm_wr_perf_counters;
+}
+#undef RD_RESP_PS0
+#undef RD_RESP_PS1
+#undef WR_REQ_PS0
+#undef WR_REQ_PS1
+#undef HBM_PREFIX
 
 // Helper macros for HBM counters (TPU v7x)
 #define HBM_PREFIX(DIE, id) TpuCounterIdsTpu7x::VF_CHIP_DIE##DIE##_##id
@@ -835,7 +1149,12 @@ void ComputeTpuv7GenericBandwidthUtilization(
   uint64_t hbm_wr_beats = 0;
 
   if (options.is_tpu7) {
-    // TODO: Implement for TPU v7 when counter IDs are available.
+    for (uint64_t counter_id : GetTpuv6eHbmReadCounters()) {
+      hbm_rd_beats += counters.GetValue(counter_id);
+    }
+    for (uint64_t counter_id : GetTpuv6eHbmWriteCounters()) {
+      hbm_wr_beats += counters.GetValue(counter_id);
+    }
   } else {
     for (uint64_t counter_id : GetTpuv7xHbmReadCounters(core)) {
       hbm_rd_beats += counters.GetValue(counter_id);
@@ -898,10 +1217,20 @@ void ComputeTpuv7GenericIciBandwidthUtilization(
   std::vector<uint64_t> ici_rd_flits_perf_counters;
   std::vector<uint64_t> ici_wr_flits_perf_counters;
 
+  // NOLINTBEGIN
   if (options.is_tpu7) {
-    // TODO: Implement for TPU v7
+    ici_rd_flits_perf_counters = {
+        TpuCounterIdsTpu7::
+            VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7::
+            VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_1_INSERTION_COUNT};
+    ici_wr_flits_perf_counters = {
+        TpuCounterIdsTpu7::
+            VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
+        TpuCounterIdsTpu7::
+            VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_1_INSERTION_COUNT,
+    };
   } else {
-    // NOLINTBEGIN
     ici_rd_flits_perf_counters = {
         TpuCounterIdsTpu7x::
             VF_CHIP_DIE1_OCI_ICR_0_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
@@ -922,8 +1251,8 @@ void ComputeTpuv7GenericIciBandwidthUtilization(
         TpuCounterIdsTpu7x::
             VF_CHIP_DIE1_OCI_ICR_3_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
     };
-    // NOLINTEND
   }
+  // NOLINTEND
 
   uint64_t ici_rd_flits = 0;
   for (uint64_t counter_id : ici_rd_flits_perf_counters) {

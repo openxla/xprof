@@ -32,6 +32,9 @@ void ComputeTpuv7GenericIciBandwidthUtilization(
 void ComputeTpuv7xScUnitUtilization(const TpuCounterUtil& counters, int die,
                                     int core, UtilizationCounters* utilization);
 
+void ComputeTpuv6eScUnitUtilization(const TpuCounterUtil& counters, int die,
+                                    int core, UtilizationCounters* utilization);
+
 }  // namespace xprof
 
 #endif  // THIRD_PARTY_XPROF_CONVERT_TPUV7GENERIC_UTILIZATION_UTILS_H_

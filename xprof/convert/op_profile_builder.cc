@@ -468,34 +468,68 @@ void OpProfileBuilder::AddOp(const OpMetrics& op_metrics) {
     }
   }
   if (has_children && !has_sc_children) return;
+
+  OpMetrics op_metrics_to_add = op_metrics;
+  if (has_sc_children) {
+    for (const auto& child : op_metrics_to_add.children().metrics_db()) {
+      if (child.core_type() == OpMetrics_TpuCoreType_SPARSE_CORE) {
+        if (op_metrics_to_add.flops() >= child.flops()) {
+          op_metrics_to_add.set_flops(op_metrics_to_add.flops() -
+                                      child.flops());
+        } else {
+          op_metrics_to_add.set_flops(0);
+        }
+        if (op_metrics_to_add.model_flops() >= child.model_flops()) {
+          op_metrics_to_add.set_model_flops(op_metrics_to_add.model_flops() -
+                                            child.model_flops());
+        } else {
+          op_metrics_to_add.set_model_flops(0);
+        }
+        op_metrics_to_add.set_flops_v2(
+            std::max(0.0, op_metrics_to_add.flops_v2() - child.flops_v2()));
+        op_metrics_to_add.set_model_flops_v2(std::max(
+            0.0, op_metrics_to_add.model_flops_v2() - child.model_flops_v2()));
+        if (op_metrics_to_add.bytes_accessed() >= child.bytes_accessed()) {
+          op_metrics_to_add.set_bytes_accessed(
+              op_metrics_to_add.bytes_accessed() - child.bytes_accessed());
+        } else {
+          op_metrics_to_add.set_bytes_accessed(0);
+        }
+      }
+    }
+  }
+
   std::vector<Node*> nested_grouping_nodes;
-  if (IsIdleOp(op_metrics)) {
-    Node* leaf = AddOpNode(op_metrics);
+  if (IsIdleOp(op_metrics_to_add)) {
+    Node* leaf = AddOpNode(op_metrics_to_add);
     nested_grouping_nodes.push_back(leaf);
   } else {
     op_profile::Node* provenance_leaf_node = nullptr;
     if ((options_.group_by == OpProfileGrouping::kByProvenance) &&
-        !op_metrics.provenance().empty()) {
-      provenance_leaf_node = GetOrAddProvenanceParentNode(op_metrics, program);
+        !op_metrics_to_add.provenance().empty()) {
+      provenance_leaf_node =
+          GetOrAddProvenanceParentNode(op_metrics_to_add, program);
     }
 
-    Category* category =
-        LookupOrAddCategoryNode(op_metrics, program, provenance_leaf_node);
+    Category* category = LookupOrAddCategoryNode(op_metrics_to_add, program,
+                                                 provenance_leaf_node);
     nested_grouping_nodes.push_back(category->node);
 
     Node* deduplicated_node = nullptr;
     if (options_.group_by_deduplicated_name) {
-      deduplicated_node = LookupOrAddDeduplicatedNode(op_metrics, category);
+      deduplicated_node =
+          LookupOrAddDeduplicatedNode(op_metrics_to_add, category);
       nested_grouping_nodes.push_back(deduplicated_node);
     }
 
-    Node* leaf = AddOpNode(op_metrics, category, deduplicated_node);
+    Node* leaf = AddOpNode(op_metrics_to_add, category, deduplicated_node);
     nested_grouping_nodes.push_back(leaf);
   }
 
   for (auto* node : nested_grouping_nodes) {
     // Per program combiner does not need to update OpMetrics.num_cores
-    CombineOpMetrics(op_metrics, &metrics_[node], /*update_num_cores=*/false);
+    CombineOpMetrics(op_metrics_to_add, &metrics_[node],
+                     /*update_num_cores=*/false);
   }
 }
 

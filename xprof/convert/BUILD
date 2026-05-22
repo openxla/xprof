@@ -1866,6 +1866,17 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_profile_builder_test",
+    srcs = ["op_profile_builder_test.cc"],
+    deps = [
+        ":op_profile_builder",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+    ],
+)
+
 cc_library(
     name = "hlo_proto_to_graph_view",
     srcs = ["hlo_proto_to_graph_view.cc"],

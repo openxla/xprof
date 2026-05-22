@@ -1,11 +1,14 @@
 #include "xprof/convert/xplane_to_utilization_viewer.h"
 
 #include <cstdint>
+#include <limits>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/overload.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
@@ -116,6 +119,26 @@ bool ShouldProcessDevice(absl::string_view device_type) {
   return kSupportedDevices->contains(device_type);
 }
 
+uint64_t GetCounterValue(std::variant<double, uint64_t> counter_value) {
+  return std::visit(
+      absl::Overload{
+          [](double arg) -> uint64_t {
+            // Ensure arg stays in bounds.
+            if (arg <
+                static_cast<double>(std::numeric_limits<uint64_t>::min())) {
+              return 0;
+            } else if (arg >= static_cast<double>(
+                                  std::numeric_limits<uint64_t>::max())) {
+              return std::numeric_limits<uint64_t>::max();
+            } else {
+              return static_cast<uint64_t>(arg);
+            }
+          },
+          [](uint64_t arg) -> uint64_t { return arg; },
+      },
+      counter_value);
+}
+
 }  // namespace
 
 absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
@@ -179,7 +202,7 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
 
       line.ForEachEvent([&](const tsl::profiler::XEventVisitor& event) {
         uint64_t counter_id = 0;
-        double counter_value = 0.0;
+        std::variant<double, uint64_t> counter_value = 0.0;
         bool found_value = false;
 
         // 1. Extract Counter ID
@@ -204,15 +227,17 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
 
         if (val_stat) {
           // IntOrUintValue fallback added here
-          counter_value = val_stat->DoubleValue();
-          if (counter_value == 0.0) {
-            counter_value = static_cast<double>(val_stat->IntOrUintValue());
+          double double_value = val_stat->DoubleValue();
+          if (double_value == 0.0) {
+            counter_value = val_stat->IntOrUintValue();
+          } else {
+            counter_value = double_value;
           }
           found_value = true;
         }
 
         if (found_value && counter_id != 0) {
-          counters_map[counter_id] = static_cast<uint64_t>(counter_value);
+          counters_map[counter_id] = GetCounterValue(counter_value);
         }
       });
 

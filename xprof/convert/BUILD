@@ -2662,6 +2662,7 @@ cc_library(
         ":tpuv7generic_utilization_utils",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:overload",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -2677,7 +2678,6 @@ cc_test(
     deps = [
         ":xplane_to_utilization_viewer",
         "@com_google_absl//absl/strings",
-        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7x",

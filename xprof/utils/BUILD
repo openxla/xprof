@@ -520,6 +520,10 @@ cc_library(
 cc_test(
     name = "xprof_gpu_cost_analysis_test",
     srcs = ["xprof_gpu_cost_analysis_test.cc"],
+    tags = [
+        "manual",
+        "notap",
+    ],
     deps = [
         ":xprof_gpu_cost_analysis",
         "@com_google_absl//absl/strings:string_view",

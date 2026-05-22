@@ -57,6 +57,15 @@ ParsedTraceEvents ParseCompressedTraceEvents(
   ProcessAsyncEvents(response, result);
   ProcessCounterEvents(response, result);
 
+  if (response.has_full_timespan_start_ps() &&
+      response.has_full_timespan_end_ps()) {
+    const Milliseconds start_ms = response.full_timespan_start_ps() / 1e9;
+    const Milliseconds end_ms = response.full_timespan_end_ps() / 1e9;
+    if (start_ms <= end_ms) {
+      result.full_timespan = std::make_pair(start_ms, end_ms);
+    }
+  }
+
   if (!visible_range_from_url.isNull() &&
       !visible_range_from_url.isUndefined() &&
       visible_range_from_url["length"].as<int>() == 2) {

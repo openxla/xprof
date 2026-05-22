@@ -15,6 +15,7 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::testing::Eq;
 using ::testing::EqualsProto;
 using ::testing::proto::Partially;
 
@@ -414,6 +415,28 @@ TEST(DeltaSeriesProtoConverterTest, PopulatesDetails) {
                 details { name: "key1" value: true }
                 details { name: "key2" value: false }
               )pb")));
+}
+
+TEST(DeltaSeriesProtoConverterTest, PopulatesFullTimespan) {
+  Trace trace;
+  trace.set_min_timestamp_ps(12345000);
+  trace.set_max_timestamp_ps(67890000);
+  TestTraceEventsContainer container(trace);
+
+  ASSERT_OK_AND_ASSIGN(std::string compressed_result,
+                       ConvertTraceDataToCompressedDeltaSeriesProto(
+                           DeltaSeriesProtoConversionOptions{}, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  EXPECT_TRUE(response.has_full_timespan_start_ps());
+  EXPECT_THAT(response.full_timespan_start_ps(), Eq(12345000));
+  EXPECT_TRUE(response.has_full_timespan_end_ps());
+  EXPECT_THAT(response.full_timespan_end_ps(), Eq(67890000));
 }
 
 }  // namespace

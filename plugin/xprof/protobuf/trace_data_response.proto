@@ -84,4 +84,7 @@ message TraceDataResponse {
   repeated string interned_strings = 5;
   // Details for the trace (e.g., flags for the frontend).
   repeated DetailItem details = 6;
+  // The full timespan of the trace (start time and end time in picoseconds).
+  optional uint64 full_timespan_start_ps = 7;
+  optional uint64 full_timespan_end_ps = 8;
 }

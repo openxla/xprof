@@ -134,6 +134,13 @@ absl::Status DeltaSeriesProtoConverter::GenerateResponse(
     d->set_value(detail.second);
   }
 
+  if (trace_->has_min_timestamp_ps()) {
+    response->set_full_timespan_start_ps(trace_->min_timestamp_ps());
+  }
+  if (trace_->has_max_timestamp_ps()) {
+    response->set_full_timespan_end_ps(trace_->max_timestamp_ps());
+  }
+
   using TidOrName = std::variant<uint64_t, absl::string_view>;
 
   container.ForAllTracks([this, response](uint32_t pid, TidOrName tid_or_name,

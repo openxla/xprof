@@ -26,6 +26,7 @@ import {
   ProfilerConfig,
 } from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -502,6 +503,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
     host = '',
   ): Observable<string> {
     return of('');
+  }
+
+  getTraceBufferDropAnalysis(
+    sessionId: string,
+    host?: string,
+  ): Observable<Diagnostics> {
+    // Not implemented for 3P.
+    return of({info: [], warnings: [], errors: []});
   }
 
   getSearchParams(): URLSearchParams {

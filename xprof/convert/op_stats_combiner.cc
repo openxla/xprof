@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "xla/tsl/platform/types.h"
+#include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/xplane_to_tf_functions.h"
 #include "plugin/xprof/protobuf/diagnostics.pb.h"
@@ -189,6 +190,7 @@ void CombineOpStats(
     const StepIntersection& step_intersection, const OpStats& src, OpStats* dst,
     OpMetricsDbCombiner* host_op_metrics_db_combiner,
     OpMetricsDbCombiner* device_op_metrics_db_combiner,
+    FlatOpMetricsDbCombiner* flat_op_metrics_db_combiner,
     OpMetricsDbCombiner* hlo_metrics_db_complete_steps_only_combiner,
     std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners) {
   // Combine host_metrics_db.
@@ -198,6 +200,11 @@ void CombineOpStats(
                                        /*update_num_cores=*/false);
   // Combine device_metrics_db.
   device_op_metrics_db_combiner->Combine(src.device_op_metrics_db());
+
+  // Combine flat_device_op_metrics_db.
+  if (src.has_flat_device_op_metrics_db()) {
+    flat_op_metrics_db_combiner->Combine(src.flat_device_op_metrics_db());
+  }
 
   // Combine step_db.
   if (!IsCoordinator(no_accelerator_in_system, hardware_type)) {
@@ -332,6 +339,8 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
       combined_op_stats->mutable_host_op_metrics_db());
   OpMetricsDbCombiner device_op_metrics_db_combiner(
       combined_op_stats->mutable_device_op_metrics_db());
+  FlatOpMetricsDbCombiner flat_op_metrics_db_combiner(
+      combined_op_stats->mutable_flat_device_op_metrics_db());
   OpMetricsDbCombiner hlo_metrics_db_complete_steps_only_combiner(
       combined_op_stats->mutable_hlo_metrics_db_complete_steps_only());
   std::vector<OpMetricsDbCombiner> hlo_metrics_db_per_step_combiners;
@@ -350,6 +359,7 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
                    op_stats_info.hardware_type, step_intersection,
                    *op_stats_info.op_stats, combined_op_stats,
                    &host_op_metrics_db_combiner, &device_op_metrics_db_combiner,
+                   &flat_op_metrics_db_combiner,
                    &hlo_metrics_db_complete_steps_only_combiner,
                    &hlo_metrics_db_per_step_combiners);
   }

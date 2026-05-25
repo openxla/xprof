@@ -1469,6 +1469,7 @@ cc_library(
     srcs = ["op_stats_combiner.cc"],
     hdrs = ["op_stats_combiner.h"],
     deps = [
+        ":flat_op_metrics_db_combiner",
         ":op_metrics_db_combiner",
         ":xplane_to_tf_functions",
         "@com_google_absl//absl/container:flat_hash_map",

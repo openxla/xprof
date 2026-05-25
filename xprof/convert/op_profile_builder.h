@@ -23,6 +23,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
 #include "tsl/platform/protobuf.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 
@@ -88,6 +89,11 @@ class OpProfileBuilder {
   // Accumulate the op_metrics to the op_profile node tree
   void AddOp(const OpMetrics& op_metrics);
 
+  // Accumulate the flat_op_metrics to the op_profile node tree
+  void AddOp(const FlatOpMetrics& op_metrics);
+
+  void AddFusionAndSparseCoreOp(const FlatOpMetrics& op_metrics);
+
   // Finalize the op_profile proto in a few steps (inter-dependent):
   // 1. Reset time_ps for root node for more precise total time
   // 2. Loop over the node to op_metrics map, populate corresponding op_metrics
@@ -124,9 +130,16 @@ class OpProfileBuilder {
                               Category* category = nullptr,
                               op_profile::Node* deduplicated_node = nullptr);
 
+  op_profile::Node* AddOpNode(const FlatOpMetrics& op_metrics,
+                              Category* category = nullptr,
+                              op_profile::Node* deduplicated_node = nullptr);
+
   // Returns a node for op_metrics.deduplicated_name().
   // Adds a node to the tree if necessary.
   op_profile::Node* LookupOrAddDeduplicatedNode(const OpMetrics& op_metrics,
+                                                Category* category);
+
+  op_profile::Node* LookupOrAddDeduplicatedNode(const FlatOpMetrics& op_metrics,
                                                 Category* category);
 
   // Returns a node for op_metrics.category().
@@ -137,6 +150,10 @@ class OpProfileBuilder {
                                     Program* program,
                                     op_profile::Node* provenance_leaf_node);
 
+  Category* LookupOrAddCategoryNode(const FlatOpMetrics& op_metrics,
+                                    Program* program,
+                                    op_profile::Node* provenance_leaf_node);
+
   // Returns a node for op_metrics.provenance().
   // Adds a node to the tree if necessary.
   // If program is not null, the provenance node is added under program.
@@ -144,9 +161,14 @@ class OpProfileBuilder {
   op_profile::Node* GetOrAddProvenanceParentNode(const OpMetrics& op_metrics,
                                                  Program* program);
 
+  op_profile::Node* GetOrAddProvenanceParentNode(
+      const FlatOpMetrics& op_metrics, Program* program);
+
   // Returns a node for op_metrics.hlo_module_id().
   // Adds a node to the Node tree if necessary.
   Program* LookupOrAddProgramNode(const OpMetrics& op_metrics);
+
+  Program* LookupOrAddProgramNode(const FlatOpMetrics& op_metrics);
 
   OpProfileOptions options_;
   op_profile::Node* root_;
@@ -182,7 +204,10 @@ class OpProfileBuilder {
                       absl::flat_hash_map<std::string, Category>>
       provenance_category_map_;
 
+  absl::flat_hash_map<uint64_t, op_profile::Node*> id_to_node_map_;
+
   // Map to look up program names by id.
+
   const tsl::protobuf::Map<uint64_t, std::string>* program_name_map_ = nullptr;
 };
 }  // namespace profiler

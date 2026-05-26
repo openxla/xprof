@@ -22,6 +22,8 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_join.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "grpcpp/server_context.h"
 #include "grpcpp/support/status.h"
 #include "tsl/platform/host_info.h"
@@ -54,6 +56,7 @@ namespace profiler {
             << " session:" << origin_request.session_id()
             << " acquired the semaphore and is starting processing.";
   auto cleanup = absl::MakeCleanup([this]() { semaphore_.Release(1); });
+  absl::Time file_start_time = absl::Now();
 
   tensorflow::profiler::ToolOptions tool_options;
   for (const auto& [key, value] : origin_request.parameters()) {
@@ -79,7 +82,11 @@ namespace profiler {
   response->set_worker_id(tsl::port::Hostname());
 
   LOG(INFO)
-      << "ProfileWorkerServiceImpl::GetProfileData finished successfully by "
+      << "ProfileWorkerServiceImpl::GetProfileData finished successfully for "
+         "tool: "
+      << origin_request.tool_name()
+      << " session: " << origin_request.session_id() << " in "
+      << absl::Now() - file_start_time << " by "
          "worker: "
       << response->worker_id();
   return ::grpc::Status::OK;

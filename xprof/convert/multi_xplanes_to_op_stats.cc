@@ -148,7 +148,9 @@ absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
   }
   LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Overall Finished "
                "in "
-            << absl::Now() - start_time;
+            << absl::Now() - start_time
+            << " for device: "
+            << combined_op_stats->run_environment().device_type();
   return absl::OkStatus();
 }
 

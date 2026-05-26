@@ -15,7 +15,7 @@ $search-bar-height: 56px;
   position: absolute;
   width: 100%;
   height: calc(
-    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+    100% - $search-bar-height
   );
   padding: 0 16px 8px 8px;
   box-sizing: border-box;
@@ -219,10 +219,12 @@ canvas {
 }
 
 .drawer {
-  height: 100%;
+  height: calc(100% - 8px);
+  margin-top: 8px;
   background-color: white;
   box-sizing: border-box;
   overflow: auto;
+  border-radius: 16px;
 
   .event-detail-table-container {
     width: 100%;
@@ -365,7 +367,7 @@ canvas {
   position: absolute;
   width: 100%;
   height: calc(
-    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+    100% - $search-bar-height
   );
   display: flex;
   justify-content: center;
@@ -383,7 +385,7 @@ canvas {
   position: absolute;
   width: 100%;
   height: calc(
-    100% - $menu-bar-height - $filter-bar-height - $search-bar-height
+    100% - $search-bar-height
   );
   display: flex;
   flex-direction: column;

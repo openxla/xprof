@@ -24,6 +24,7 @@ limitations under the License.
 
 #include "absl/algorithm/container.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -211,6 +212,7 @@ void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
 
   plane.ForEachLine([&](const XLineVisitor& line) {
     if (line.NumEvents() == 0) return;
+    if (absl::StartsWith(line.Name(), "counters_")) return;
     // Capture a copy of XLineVisitor because it will go out of scope.
     uint32_t device_id = resource_grouper->GetDeviceId(line.DisplayId());
     ConvertXLineToTraceEventsContainer(device_id, line, container);

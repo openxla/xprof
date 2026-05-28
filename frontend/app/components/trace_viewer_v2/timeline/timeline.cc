@@ -607,35 +607,15 @@ void Timeline::Draw() {
 
   ImGui::EndChild();
 
+  DrawToast(absl::StrCat("Copied track name: ", copied_track_name_),
+            copy_notification_timer_, 32.0f);
+
+  float bounds_toast_offset = 32.0f;
   if (copy_notification_timer_ > 0.0f) {
-    copy_notification_timer_ -= ImGui::GetIO().DeltaTime;
-    if (redraw_callback_) redraw_callback_();
-
-    ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
-    std::string toast_text = "Copied track name: " + copied_track_name_;
-    ImVec2 text_size = ImGui::CalcTextSize(toast_text.c_str());
-    ImVec2 padding(16.0f, 8.0f);
-    ImVec2 toast_size(text_size.x + padding.x * 2.0f,
-                      text_size.y + padding.y * 2.0f);
-
-    ImVec2 toast_pos(
-        main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
-        main_viewport->Pos.y + main_viewport->Size.y - toast_size.y - 32.0f);
-
-    float alpha =
-        std::min(1.0f, copy_notification_timer_ * 2.0f);  // fade out at the end
-    ImU32 bg_color = IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
-    ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
-
-    draw_list->AddRectFilled(
-        toast_pos,
-        ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
-        bg_color, kToastCornerRounding);
-    draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
-                       text_color, toast_text.c_str());
+    bounds_toast_offset += 48.0f;
   }
+  DrawToast(bounds_notification_message_, bounds_notification_timer_,
+            bounds_toast_offset);
 
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
@@ -826,6 +806,12 @@ void Timeline::EmitMouseModeChanged() {
   event_callback_(kMouseModeChanged, event_data);
 }
 
+void Timeline::ShowBoundsNotification(const std::string& message) {
+  bounds_notification_message_ = message;
+  bounds_notification_timer_ = 2.0f;
+  if (redraw_callback_) redraw_callback_();
+}
+
 void Timeline::RevealEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
@@ -956,6 +942,21 @@ void Timeline::Pan(Pixel pixel_amount) {
 
   const double time_offset = pixel_amount / px_per_time_unit_val;
   TimeRange new_range = visible_range_.target() + time_offset;
+
+  const bool showing_entire_trace =
+      visible_range_.target().start() <= data_time_range_.start() &&
+      visible_range_.target().end() >= data_time_range_.end();
+
+  if (!showing_entire_trace) {
+    if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
+      ShowBoundsNotification(
+          "Cannot pan further left: reached the beginning of the trace.");
+    } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
+      ShowBoundsNotification(
+          "Cannot pan further right: reached the end of the trace.");
+    }
+  }
+
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -999,6 +1000,23 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
 
   TimeRange new_range = visible_range_.target();
   new_range.Zoom(zoom_factor, pivot);
+
+  if (zoom_factor < 1.0) {
+    if (new_range.duration() < kMinDurationMicros) {
+      ShowBoundsNotification(
+          "Cannot zoom in further: minimum zoom duration reached.");
+    }
+  } else if (zoom_factor > 1.0) {
+    TimeRange constrained_range = new_range;
+    ConstrainTimeRange(constrained_range);
+    if (constrained_range.duration() < new_range.duration() ||
+        (visible_range_.target().start() <= data_time_range_.start() &&
+         visible_range_.target().end() >= data_time_range_.end())) {
+      ShowBoundsNotification(
+          "Cannot zoom out further: showing the entire trace.");
+    }
+  }
+
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -2336,6 +2354,41 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
       Scroll(-io.MouseDelta.y);
     }
   }
+}
+
+void Timeline::DrawToast(absl::string_view message, float& timer,
+                         float base_y_offset) {
+  if (timer <= 0.0f) return;
+
+  timer -= ImGui::GetIO().DeltaTime;
+  if (redraw_callback_) redraw_callback_();
+
+  const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  const ImVec2 text_size =
+      ImGui::CalcTextSize(message.data(), message.data() + message.size());
+  const ImVec2 padding(16.0f, 8.0f);
+  const ImVec2 toast_size(text_size.x + padding.x * 2.0f,
+                          text_size.y + padding.y * 2.0f);
+
+  const ImVec2 toast_pos(
+      main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
+      main_viewport->Pos.y + main_viewport->Size.y - toast_size.y -
+          base_y_offset);
+
+  // Fade out at the end.
+  const float alpha = std::max(0.0f, std::min(1.0f, timer * 2.0f));
+  const ImU32 bg_color = IM_COL32(
+      32, 33, 36, (int)(230.0f * alpha));  // Dark grey
+  const ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
+
+  draw_list->AddRectFilled(
+      toast_pos, ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
+      bg_color, kToastCornerRounding);
+  draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+                     text_color, message.data(),
+                     message.data() + message.size());
 }
 
 void Timeline::HandleMouseRelease() {

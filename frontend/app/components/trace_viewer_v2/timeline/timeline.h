@@ -152,6 +152,12 @@ class Timeline {
   const std::string& get_copied_track_name_for_test() const {
     return copied_track_name_;
   }
+  float get_bounds_notification_timer_for_test() const {
+    return bounds_notification_timer_;
+  }
+  const std::string& get_bounds_notification_message_for_test() const {
+    return bounds_notification_message_;
+  }
   bool get_should_restore_scroll_for_test() const {
     return should_restore_scroll_;
   }
@@ -362,6 +368,7 @@ class Timeline {
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
+  void ShowBoundsNotification(const std::string& message);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
@@ -448,6 +455,9 @@ class Timeline {
   void FindSelectedEvents(const ImRect& selection_rect);
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();
+
+  // Draws a notification toast at the bottom of the timeline.
+  void DrawToast(absl::string_view message, float& timer, float base_y_offset);
 
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
@@ -558,6 +568,12 @@ class Timeline {
   // Indices into timeline_data_ entries
   std::vector<int> search_results_;
   int current_search_result_index_ = -1;
+
+  // Stores the remaining time (in seconds) to display the bounds
+  // notification toast.
+  float bounds_notification_timer_ = 0.0f;
+  // The message to show in the bounds notification toast.
+  std::string bounds_notification_message_ = "";
 
   // Stores the remaining time (in seconds) to display the "Copied!"
   // notification.

@@ -2817,7 +2817,15 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_TRUE(request_triggered);
 }
 
-using RealTimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
+class TestTimeline : public Timeline {
+ public:
+  using Timeline::Timeline;
+  using Timeline::Pan;
+  using Timeline::Zoom;
+  using Timeline::Scroll;
+};
+
+using RealTimelineImGuiFixture = TimelineImGuiTestFixture<TestTimeline>;
 
 // Add a sanity check that the window padding is set to zero.
 // This is the presumption for all the drawing logic. And all tests below assume
@@ -5753,6 +5761,103 @@ TEST_F(TimelineImGuiFixture, PanModeCursor) {
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
 }
 
+TEST_F(RealTimelineImGuiFixture, PanLeftOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({10.0, 100.0});
+  SimulateFrame();
+
+  timeline_.Pan(-2000.0f);
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot pan further left: reached the beginning of the trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({900.0, 990.0});
+  SimulateFrame();
+
+  timeline_.Pan(2000.0f);
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot pan further right: reached the end of the trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomInOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already at minimum duration kMinDurationMicros
+  timeline_.SetVisibleRange({50.0, 50.0 + kMinDurationMicros});
+  SimulateFrame();
+
+  timeline_.Zoom(0.5f, 50.0 + kMinDurationMicros / 2.0);  // zoom in
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom in further: minimum zoom duration reached.");
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomOutOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already fully zoomed out matching the entire data range
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  SimulateFrame();
+
+  timeline_.Zoom(2.0f, 500.0);  // zoom out
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already fully zoomed out matching the entire data range
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  SimulateFrame();
+
+  timeline_.Pan(-500.0f);  // Try to pan left while fully zoomed out
+
+  // Notification should NOT be triggered since we are already showing the
+  // entire trace.
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+
+  timeline_.Pan(500.0f);  // Try to pan right while fully zoomed out
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+}
+
+
+TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({10.0, 100.0});
+  SimulateFrame();
+
+  // Pan out of bounds to trigger
+  timeline_.Pan(-2000.0f);
+
+  // Verify notification is active
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+
+  // Simulate 1 second passing (io.DeltaTime = 1.0f)
+  ImGui::GetIO().DeltaTime = 1.0f;
+  SimulateFrame();
+
+  // Verify notification is still active but timer decreased
+  EXPECT_NEAR(timeline_.get_bounds_notification_timer_for_test(), 1.0f, 0.01f);
+
+  // Simulate another 1.5 second passing (io.DeltaTime = 1.5f)
+  ImGui::GetIO().DeltaTime = 1.5f;
+  SimulateFrame();
+
+  // Timer has expired
+  EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
+

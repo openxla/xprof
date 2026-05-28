@@ -276,9 +276,49 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
-
+  if (pending_navigation_event_id_.has_value()) {
+    EventId event_id = pending_navigation_event_id_.value();
+    auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      RevealEvent(std::distance(timeline_data_.entry_event_ids.begin(), it));
+      pending_navigation_event_id_.reset();
+    }
+  }
   if (is_incremental_loading_) {
     should_restore_scroll_ = true;
+  }
+
+  // Reconcile loaded_index for deep search results
+  for (auto& result : sorted_search_results_) {
+    if (result.loaded_index == -1) {
+      auto it = absl::c_find(timeline_data_.entry_event_ids, result.event_id);
+      if (it != timeline_data_.entry_event_ids.end()) {
+        result.loaded_index =
+            std::distance(timeline_data_.entry_event_ids.begin(), it);
+        if (result.loaded_index < timeline_data_.entry_levels.size()) {
+          result.level = timeline_data_.entry_levels[result.loaded_index];
+        }
+      }
+    }
+  }
+
+  if (pending_navigation_event_id_.has_value()) {
+    EventId event_id = pending_navigation_event_id_.value();
+    auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      int idx = std::distance(timeline_data_.entry_event_ids.begin(), it);
+      // Also update its loaded_index in sorted_search_results_ if present.
+      for (auto& result : sorted_search_results_) {
+        if (result.event_id == event_id) {
+          result.loaded_index = idx;
+          if (idx < timeline_data_.entry_levels.size()) {
+            result.level = timeline_data_.entry_levels[idx];
+          }
+        }
+      }
+      ZoomEvent(idx);
+      pending_navigation_event_id_.reset();
+    }
   }
 
   if (redraw_callback_) redraw_callback_();
@@ -914,6 +954,7 @@ void Timeline::ZoomEvent(int event_index) {
 
   selected_event_index_ = event_index;
   event_index_to_scroll_to_ = event_index;
+  ExpandRelatedTracks(event_index);
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   const Microseconds event_duration =
@@ -2615,53 +2656,223 @@ void Timeline::MaybeRequestData() {
 
 void Timeline::SetSearchQuery(const std::string& query) {
   search_query_lower_ = absl::AsciiStrToLower(query);
-  search_results_.clear();
+  pending_navigation_event_id_.reset();
+  RecomputeSearchResults();
+}
+
+void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
+  // If a search result is currently selected, save its event id for reference,
+  // so we can find and focus on the same event, and keep the selection view
+  // persistent while search results being updated on the background.
+  EventId selected_event_id = -1;
+  if (current_search_result_index_ >= 0 &&
+      current_search_result_index_ < sorted_search_results_.size()) {
+    selected_event_id =
+        sorted_search_results_[current_search_result_index_].event_id;
+  }
+
+  // Clear previous search results and reset the index.
+  sorted_search_results_.clear();
   current_search_result_index_ = -1;
 
-  if (query.empty()) {
+  // If the search query is empty, there are no results to process.
+  if (search_query_lower_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  // Build a map of event IDs to their levels in the timeline for quick lookup.
+  // This helps in assigning levels to search results for sorting.
+  // Level information is only available for events in timeline_data_,
+  // search results not in timeline_data_ will be assigned level -1.
+  absl::flat_hash_map<EventId, int> event_id_to_level;
+  for (int i = 0; i < timeline_data_.entry_event_ids.size(); ++i) {
+    int level = i < timeline_data_.entry_levels.size()
+                    ? timeline_data_.entry_levels[i]
+                    : -1;
+    event_id_to_level.try_emplace(timeline_data_.entry_event_ids[i], level);
+  }
+
+  // Filter for complete events from the search results and populate the
+  // sorted_search_results_ vector with relevant event data.
+  for (const auto& event : search_results.flame_events) {
+    if (event.ph != Phase::kComplete) continue;
+    int level = -1;
+    int loaded_idx = -1;
+    if (auto it = event_id_to_level.find(event.event_id);
+        it != event_id_to_level.end()) {
+      level = it->second;
+      auto it_idx =
+          absl::c_find(timeline_data_.entry_event_ids, event.event_id);
+      if (it_idx != timeline_data_.entry_event_ids.end()) {
+        loaded_idx =
+            std::distance(timeline_data_.entry_event_ids.begin(), it_idx);
+      }
+    }
+    sorted_search_results_.push_back(
+        {event.event_id, level, event.ts, event.dur, event.pid, event.tid,
+         loaded_idx});
+  }
+
+  // If no complete events were found, there's nothing more to do.
+  if (sorted_search_results_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  // Extract process sort indices from metadata events. These indices are used
+  // to sort search results in an order consistent with the timeline display.
+  absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices =
+      GetProcessSortIndices(search_results);
+  // Sort the search results. The sorting order is primarily based on
+  // process sort index, then by process ID, thread ID, level, and finally
+  // event start time. This ensures a stable and intuitive navigation order.
+
+  // PID and TID are used as a fallback sorting criteria
+  // to best maintain order by level while levels are not available.
+  absl::c_sort(sorted_search_results_, [&](const auto& a, const auto& b) {
+    auto it_a = process_sort_indices.find(a.pid);
+    uint32_t sort_index_a =
+        (it_a != process_sort_indices.end()) ? it_a->second : a.pid;
+    auto it_b = process_sort_indices.find(b.pid);
+    uint32_t sort_index_b =
+        (it_b != process_sort_indices.end()) ? it_b->second : b.pid;
+    return std::tie(sort_index_a, a.pid, a.tid, a.level, a.start_time) <
+           std::tie(sort_index_b, b.pid, b.tid, b.level, b.start_time);
+  });
+
+  // If an event was selected before the update, try to find it in the new
+  // sorted list and restore the selection index.
+  if (selected_event_id != -1) {
+    auto it = absl::c_find_if(sorted_search_results_, [&](const auto& result) {
+      return result.event_id == selected_event_id;
+    });
+    if (it != sorted_search_results_.end()) {
+      current_search_result_index_ =
+          std::distance(sorted_search_results_.begin(), it);
+    }
+  }
+  if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::RecomputeSearchResults() {
+  sorted_search_results_.clear();
+  current_search_result_index_ = -1;
+
+  if (search_query_lower_.empty()) {
     if (redraw_callback_) redraw_callback_();
     return;
   }
 
   for (int i = 0; i < timeline_data_.entry_names.size(); ++i) {
-    const auto& name = timeline_data_.entry_names[i];
-    if (absl::StartsWithIgnoreCase(name, query)) {
-      search_results_.push_back(i);
+    if (absl::StartsWithIgnoreCase(timeline_data_.entry_names[i],
+                                   search_query_lower_)) {
+      EventId event_id = i < timeline_data_.entry_event_ids.size()
+                             ? timeline_data_.entry_event_ids[i]
+                             : 0;
+      int level = i < timeline_data_.entry_levels.size()
+                      ? timeline_data_.entry_levels[i]
+                      : 0;
+      Microseconds start_time = i < timeline_data_.entry_start_times.size()
+                                    ? timeline_data_.entry_start_times[i]
+                                    : 0.0;
+      Microseconds duration = i < timeline_data_.entry_total_times.size()
+                                  ? timeline_data_.entry_total_times[i]
+                                  : 0.0;
+      ProcessId pid = i < timeline_data_.entry_pids.size()
+                          ? timeline_data_.entry_pids[i]
+                          : 0;
+      ThreadId tid = i < timeline_data_.entry_tids.size()
+                         ? timeline_data_.entry_tids[i]
+                         : 0;
+      sorted_search_results_.push_back(
+          {event_id, level, start_time, duration, pid, tid, i});
     }
   }
 
-  // Sort results by start time to make navigation natural.
-  absl::c_sort(search_results_, [&](int a, int b) {
-    return timeline_data_.entry_start_times[a] <
-           timeline_data_.entry_start_times[b];
+  // Sort shallow results by start time, to have some order.
+  absl::c_sort(sorted_search_results_, [&](const auto& a, const auto& b) {
+    return std::tie(a.pid, a.tid, a.level, a.start_time) <
+           std::tie(b.pid, b.tid, b.level, b.start_time);
   });
 
-  if (!search_results_.empty()) {
-    current_search_result_index_ = 0;
-    RevealEvent(search_results_[0]);
+  EventData event_data;
+  event_data.try_emplace(kSearchEventsQuery, search_query_lower_);
+  if (event_callback_) {
+    event_callback_(kSearchEvents, event_data);
   }
-
-  if (redraw_callback_) redraw_callback_();
+  if (!sorted_search_results_.empty()) {
+    NavigateToNextSearchResult();
+  } else {
+    if (redraw_callback_) redraw_callback_();
+  }
 }
 
 void Timeline::NavigateToNextSearchResult() {
-  if (search_results_.empty()) return;
+  if (sorted_search_results_.empty()) return;
   current_search_result_index_++;
-  if (current_search_result_index_ >= search_results_.size()) {
+  if (current_search_result_index_ >= sorted_search_results_.size()) {
     current_search_result_index_ = 0;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
-  if (redraw_callback_) redraw_callback_();
+  const auto& result = sorted_search_results_[current_search_result_index_];
+  if (result.loaded_index != -1) {
+    ZoomEvent(result.loaded_index);
+  } else {
+    EventId event_id = result.event_id;
+    auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      int idx = std::distance(timeline_data_.entry_event_ids.begin(), it);
+      ZoomEvent(idx);
+    } else {
+      pending_navigation_event_id_ = event_id;
+      // If event is not in current data, zoom to its time range to trigger
+      // load.
+      const Microseconds start = result.start_time;
+      const Microseconds event_duration = result.duration;
+      const Microseconds end = start + event_duration;
+      const Microseconds duration =
+          std::max(kEventNavigationMinDurationMicros,
+                   std::min(event_duration * kEventNavigationZoomFactor,
+                            kEventNavigationMaxDurationMicros));
+      const Microseconds center = (start + end) / 2.0;
+      TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/true);
+    }
+  }
 }
 
 void Timeline::NavigateToPrevSearchResult() {
-  if (search_results_.empty()) return;
+  if (sorted_search_results_.empty()) return;
   current_search_result_index_--;
   if (current_search_result_index_ < 0) {
-    current_search_result_index_ = search_results_.size() - 1;
+    current_search_result_index_ = sorted_search_results_.size() - 1;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
-  if (redraw_callback_) redraw_callback_();
+  const auto& result = sorted_search_results_[current_search_result_index_];
+  if (result.loaded_index != -1) {
+    ZoomEvent(result.loaded_index);
+  } else {
+    EventId event_id = result.event_id;
+    auto it = absl::c_find(timeline_data_.entry_event_ids, event_id);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      int idx = std::distance(timeline_data_.entry_event_ids.begin(), it);
+      ZoomEvent(idx);
+    } else {
+      pending_navigation_event_id_ = event_id;
+      // If event is not in current data, zoom to its time range to trigger
+      // load.
+      const Microseconds start = result.start_time;
+      const Microseconds event_duration = result.duration;
+      const Microseconds duration =
+          std::max(kEventNavigationMinDurationMicros,
+                   std::min(event_duration * kEventNavigationZoomFactor,
+                            kEventNavigationMaxDurationMicros));
+      const Microseconds center = start + event_duration / 2.0;
+      TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+      ConstrainTimeRange(new_range);
+      SetVisibleRange(new_range, /*animate=*/true);
+    }
+  }
 }
 
 void Timeline::FindSelectedEvents(const ImRect& selection_rect) {

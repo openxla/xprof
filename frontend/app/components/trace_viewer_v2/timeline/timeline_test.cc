@@ -26,6 +26,7 @@
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -6191,6 +6192,100 @@ TEST_F(MockTimelineImGuiFixture,
   // Grandchild A (2) is hidden under Child A (1), queried on it must return
   // Child A (1)
   EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
+}
+
+TEST(TimelineTest, SetSearchResultsSortsResultsByFallbackPidAndTid) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.entry_names.push_back("event1");
+  data.entry_names.push_back("event2");
+  data.entry_start_times.push_back(10.0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_levels.push_back(0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(2);
+  data.entry_pids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_args.push_back({});
+  data.entry_args.push_back({});
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetSearchQuery("event");
+
+  ParsedTraceEvents deep_search_results;
+  deep_search_results.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .event_id = 1,
+      .pid = 2,
+      .ts = 10.0,
+      .dur = 5.0,
+  });
+  deep_search_results.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .event_id = 2,
+      .pid = 1,
+      .ts = 10.0,
+      .dur = 5.0,
+  });
+
+  timeline.SetSearchResults(deep_search_results);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.get_current_search_result_index(), 1);
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, TriggersZoomWhenNavigatedEventNotPresent) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  timeline.set_data_time_range({0.0, 1000000.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  timeline.SetSearchQuery("event");
+
+  ParsedTraceEvents deep_search_results;
+  deep_search_results.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .event_id = 1002,
+      .ts = 500000.0,
+      .dur = 10.0,
+  });
+  timeline.SetSearchResults(deep_search_results);
+
+  timeline.NavigateToNextSearchResult();
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_NEAR(timeline.visible_range().center(), 500005.0, 1.0);
+}
+
+TEST(TimelineTest, TriggersZoomWhenPrevNavigatedEventNotPresent) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  timeline.set_data_time_range({0.0, 1000000.0});
+  timeline.SetVisibleRange({0.0, 100.0});
+
+  timeline.SetSearchQuery("event");
+
+  ParsedTraceEvents deep_search_results;
+  deep_search_results.flame_events.push_back({
+      .ph = Phase::kComplete,
+      .event_id = 1002,
+      .ts = 500000.0,
+      .dur = 10.0,
+  });
+  timeline.SetSearchResults(deep_search_results);
+
+  timeline.NavigateToPrevSearchResult();
+  Animation::UpdateAll(1.0f);
+
+  EXPECT_NEAR(timeline.visible_range().center(), 500005.0, 1.0);
 }
 
 }  // namespace

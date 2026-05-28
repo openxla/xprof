@@ -31,6 +31,7 @@ import {
 import {
   DETAILS_RECEIVED_EVENT_NAME,
   isDetailsReceivedEvent,
+  TraceData as MainTraceData,
   SearchEventsEventDetail,
   TraceDetailKey,
   TraceDetails,
@@ -574,11 +575,31 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   onSearchEvents(detail: SearchEventsEventDetail) {
     const query = detail.events_query;
-    if (!this.traceViewerModule) return;
-
-    const app = this.traceViewerModule.application.instance();
-    app.setSearchQuery(query || '');
-    this.container?.updateSearchResultCountText();
+    if (!query) {
+      this.traceViewerModule?.setSearchResultsInWasm({traceEvents: []});
+      this.container?.updateSearchResultCountText();
+      return;
+    }
+    this.searching = true;
+    this.dataService
+      .getData(
+        this.navigationEvent.run || '',
+        this.navigationEvent.tag || '',
+        this.getCurrentHost(),
+        new Map([['search_prefix', query]]),
+      )
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.searching = false;
+        if (this.traceViewerModule && data) {
+          const traceData = data as TraceData;
+          this.traceViewerModule.setSearchResultsInWasm({
+            ...traceData,
+            traceEvents: traceData.traceEvents || [],
+          } as MainTraceData);
+          this.container?.updateSearchResultCountText();
+        }
+      });
   }
 
   onInitializeWasm() {

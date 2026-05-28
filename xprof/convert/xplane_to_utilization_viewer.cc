@@ -17,7 +17,7 @@
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/tpu_counter_util.h"
-#include "xprof/convert/tpuv7generic_utilization_utils.h"
+#include "xprof/convert/tpu_generic_utilization_utils.h"
 
 namespace xprof {
 
@@ -51,8 +51,8 @@ double GetTensorCoreFrequencyHz(ViewerDeviceType device_type) {
   }
 }
 
-bool IsTpuV6(absl::string_view device_type) {
-  return absl::StrContains(device_type, "TPU v6");
+bool isTpuV6e(absl::string_view device_type) {
+  return absl::StrContains(device_type, "TPU v6 Lite");
 }
 
 bool IsTpuV7x(absl::string_view device_type) {
@@ -112,7 +112,6 @@ int GetNumScCoresPerDie(ViewerDeviceType device_type) { return 2; }
 bool ShouldProcessDevice(absl::string_view device_type) {
   static const auto* const kSupportedDevices =
       new absl::flat_hash_set<std::string>{
-          "TPU v7",
           "TPU v7x",
           "TPU v6 Lite",
       };
@@ -192,7 +191,7 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
     ViewerDeviceType device_type_enum = ViewerDeviceType::UNKNOWN_DEVICE;
     if (IsTpuV7x(device_type)) {
       device_type_enum = ViewerDeviceType::TPU_V7X;
-    } else if (IsTpuV6(device_type)) {
+    } else if (isTpuV6e(device_type)) {
       device_type_enum = ViewerDeviceType::TPU_V6E;
     }
 
@@ -250,10 +249,10 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
       utilization.device_id = device_id;
       utilization.correlation_id = sample_id;
 
-      xprof::Tpuv7GenericUtilizationOptions options;
+      xprof::TpuGenericUtilizationOptions options;
       options.num_mxu_per_tensor_core = GetNumMxus(device_type_enum);
       options.cycles_per_xlu_instruction = GetCyclesPerXlu(device_type_enum);
-      options.is_tpu7 = (device_type_enum != ViewerDeviceType::TPU_V7X);
+      options.is_tpu6e = (device_type_enum == ViewerDeviceType::TPU_V6E);
       options.frequency_hz = GetTensorCoreFrequencyHz(device_type_enum);
       options.peak_hbm_bw_bps = GetPeakHbmBandwidthBps(device_type_enum);
 
@@ -262,18 +261,18 @@ absl::StatusOr<std::string> ConvertXSpaceToUtilizationViewer(
 
       for (int core = 0; core < num_tc_cores; ++core) {
         // 1. Process TC Core
-        xprof::ComputeTpuv7GenericTcUnitUtilization(tpu_counters, options, core,
-                                                    &utilization);
+        xprof::ComputeTpuGenericTcUnitUtilization(tpu_counters, options, core,
+                                                  &utilization);
 
         // 2. Process Bandwidth (HBM)
-        xprof::ComputeTpuv7GenericBandwidthUtilization(tpu_counters, options,
-                                                       core, &utilization);
+        xprof::ComputeTpuGenericBandwidthUtilization(tpu_counters, options,
+                                                     core, &utilization);
 
         // 3. Process ICI Bandwidth (Per Device/Chip)
         // ExtractUtilizationCounters calls this inside the loop, so we
         // duplicate to match regression test behavior.
-        xprof::ComputeTpuv7GenericIciBandwidthUtilization(tpu_counters, options,
-                                                          &utilization);
+        xprof::ComputeTpuGenericIciBandwidthUtilization(tpu_counters, options,
+                                                        &utilization);
       }
 
       // 4. Process SC Cores (interleaved per die/core)

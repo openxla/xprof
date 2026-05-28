@@ -22,7 +22,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/utils/tpu_counter_ids_v7.h"
+#include "xprof/utils/tpu_counter_ids_v6e.h"
 #include "xprof/utils/tpu_counter_ids_v7x.h"
 
 namespace xprof {
@@ -147,7 +147,7 @@ TEST(ConvertXSpaceToUtilizationViewerTest, VpuUtilTpuV7x) {
                           HasSubstr("4000")));
 }
 
-TEST(ConvertXSpaceToUtilizationViewerTest, VpuUtilTpuV7) {
+TEST(ConvertXSpaceToUtilizationViewerTest, VpuUtilTpuV6E) {
   XSpace space;
   XPlane* plane = space.add_planes();
   plane->set_name("/device:TPU:0");
@@ -160,15 +160,15 @@ TEST(ConvertXSpaceToUtilizationViewerTest, VpuUtilTpuV7) {
       *builder.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDeviceId)), 0);
   builder.AddStatValue(*builder.GetOrCreateStatMetadata(
                            GetStatTypeStr(StatType::kDeviceTypeString)),
-                       "TPU v7");
+                       "TPU v6 Lite");
 
   auto line_builder = builder.GetOrCreateLine(0);  // Sample 0
 
-  using Tpu7 = TpuCounterIdsTpu7;
-  uint64_t cycles_id = Tpu7::
+  using Tpu6e = TpuCounterIdsTpu6e;
+  uint64_t cycles_id = Tpu6e::
       VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;  // NOLINT
 
-  uint64_t vpu_fadd_0_id = Tpu7::
+  uint64_t vpu_fadd_0_id = Tpu6e::
       VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_VPU_VALU_FADD_OPS_0;  // NOLINT
 
   {

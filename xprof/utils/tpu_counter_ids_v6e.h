@@ -1,12 +1,12 @@
-#ifndef THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V7_H_
-#define THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V7_H_
+#ifndef THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V6E_H_
+#define THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V6E_H_
 
 #include <cstdint>
 
 namespace xprof {
 
 // Enum of TPU counter IDs.
-enum TpuCounterIdsTpu7 : uint64_t {
+enum TpuCounterIdsTpu6e : uint64_t {
   // NOLINTBEGIN
   VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES =
       3257466888,
@@ -2157,4 +2157,4 @@ enum TpuCounterIdsTpu7 : uint64_t {
 
 }  // namespace xprof
 
-#endif  // THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V7_H_
+#endif  // THIRD_PARTY_XPROF_UTILS_TPU_COUNTER_IDS_V6E_H_

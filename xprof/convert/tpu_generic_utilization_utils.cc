@@ -1,4 +1,4 @@
-#include "xprof/convert/tpuv7generic_utilization_utils.h"
+#include "xprof/convert/tpu_generic_utilization_utils.h"
 
 #include <array>
 #include <cstdint>
@@ -12,14 +12,14 @@
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xprof/convert/tpu_counter_util.h"
-#include "xprof/utils/tpu_counter_ids_v7.h"
+#include "xprof/utils/tpu_counter_ids_v6e.h"
 #include "xprof/utils/tpu_counter_ids_v7x.h"
 
 namespace xprof {
 
 namespace {
 
-using Tpu7CounterName = TpuCounterIdsTpu7;
+using Tpu6eCounterName = TpuCounterIdsTpu6e;
 using Tpuv7xCounterName = TpuCounterIdsTpu7x;
 
 // String constants for units.
@@ -40,14 +40,13 @@ void AddUtilization(const TpuCounterUtil& counters, uint64_t node_id,
 
 }  // namespace
 
-void ComputeTpuv7GenericTcUnitUtilization(
-    const TpuCounterUtil& counters,
-    const Tpuv7GenericUtilizationOptions& options, int core,
-    UtilizationCounters* utilization) {
-  bool is_tpu7 = options.is_tpu7;
+void ComputeTpuGenericTcUnitUtilization(
+    const TpuCounterUtil& counters, const TpuGenericUtilizationOptions& options,
+    int core, UtilizationCounters* utilization) {
+  bool is_tpu6e = options.is_tpu6e;
   // NOLINTBEGIN
-#define TPU7_COUNTER(NAME) \
-  TpuCounterIdsTpu7::      \
+#define TPUV6E_COUNTER(NAME) \
+  TpuCounterIdsTpu6e::       \
       VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME
 #define TPUV7X_COUNTER(NAME)                                                                    \
   ((core == 0)                                                                                  \
@@ -63,13 +62,13 @@ void ComputeTpuv7GenericTcUnitUtilization(
              VF_CHIP_DIE1_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_##NAME)
 
 #define COUNTER(NAME) \
-  counters.GetValue(is_tpu7 ? (TPU7_COUNTER(NAME)) : (TPUV7X_COUNTER(NAME)))
+  counters.GetValue(is_tpu6e ? (TPUV6E_COUNTER(NAME)) : (TPUV7X_COUNTER(NAME)))
 
   // NOLINTEND
   // For TPUv7x, we can have throttled cycles in the tensor core.
   uint64_t cycles =
-      is_tpu7 ? COUNTER(CYCLES)
-              : counters.GetValue(TPUV7X_PWRMGR_COUNTER_ADDR(CYCLE_COUNT));
+      is_tpu6e ? COUNTER(CYCLES)
+               : counters.GetValue(TPUV7X_PWRMGR_COUNTER_ADDR(CYCLE_COUNT));
   if (cycles == 0) return;
 
   uint64_t clocks_skipped =
@@ -79,7 +78,7 @@ void ComputeTpuv7GenericTcUnitUtilization(
   uint64_t ldidt_droop_clocks_skipped =
       counters.GetValue(TPUV7X_PWRMGR_COUNTER_ADDR(LDIDT_DROOP_CLOCKS_SKIPPED));
 
-  if (!is_tpu7) {
+  if (!is_tpu6e) {
     AddUtilization(counters, core, "Clocks Skipped", clocks_skipped, cycles,
                    kCycles, utilization);
     AddUtilization(counters, core, "Ext Throttle Clocks Skipped",
@@ -142,7 +141,6 @@ void ComputeTpuv7GenericTcUnitUtilization(
                  0.5 * COUNTER(MXU_BUSY_1) + COUNTER(MXU_BUSY_2), cycles,
                  kCycles, utilization);
 
-  // CPI info can be found at
   constexpr uint64_t kCpiMxuLmrI4 = 2;
   constexpr uint64_t kCpiMxuLmrI8 = 2;
   constexpr uint64_t kCpiMxuLmrBf16 = 4;
@@ -154,63 +152,63 @@ void ComputeTpuv7GenericTcUnitUtilization(
   const int kNumMxuPerTC = options.num_mxu_per_tensor_core;
   DCHECK_EQ(kNumMxuPerTC, 2);
 
-  if (is_tpu7) {
-#define GET_TPU7_COUNTER(NAME) counters.GetValue(TPU7_COUNTER(NAME))
-#define COMPUTE_TPU7_MXU_BF16_CYCLES(unit_id)                             \
-  kCpiMxuLmrBf16* GET_TPU7_COUNTER(MATMUL_LMR_BF16_MXU_##unit_id) +       \
-      kCpiMxuVregF8* GET_TPU7_COUNTER(MATMUL_VREG_F8_MXU_##unit_id) +     \
-      kCpiMxuVregBf16* GET_TPU7_COUNTER(MATMUL_VREG_BF16_MXU_##unit_id) + \
-      kCpiMxuVregF32* GET_TPU7_COUNTER(MATMUL_VREG_F32_MXU_##unit_id)
-#define COMPUTE_TPU7_MXU_I8_CYCLES(unit_id)                     \
-  kCpiMxuLmrI8* GET_TPU7_COUNTER(MATMUL_LMR_I8_MXU_##unit_id) + \
-      kCpiMxuVregI8* GET_TPU7_COUNTER(MATMUL_VREG_I8_MXU_##unit_id)
-#define COMPUTE_TPU7_MXU_I4_CYCLES(unit_id)                     \
-  kCpiMxuLmrI4* GET_TPU7_COUNTER(MATMUL_LMR_I4_MXU_##unit_id) + \
-      kCpiMxuVregI4* GET_TPU7_COUNTER(MATMUL_VREG_I4_MXU_##unit_id)
-#define COMPUTE_TPU7_MXU_CYCLES(unit_id)    \
-  COMPUTE_TPU7_MXU_BF16_CYCLES(unit_id) +   \
-      COMPUTE_TPU7_MXU_I8_CYCLES(unit_id) + \
-      COMPUTE_TPU7_MXU_I4_CYCLES(unit_id)
-#define COMPUTE_TPU7_MXU_INSTRUCTIONS(unit_id)        \
-  (GET_TPU7_COUNTER(MATMUL_LMR_BF16_MXU_##unit_id) +  \
-   GET_TPU7_COUNTER(MATMUL_LMR_I8_MXU_##unit_id) +    \
-   GET_TPU7_COUNTER(MATMUL_LMR_I4_MXU_##unit_id) +    \
-   GET_TPU7_COUNTER(MATMUL_VREG_I4_MXU_##unit_id) +   \
-   GET_TPU7_COUNTER(MATMUL_VREG_I8_MXU_##unit_id) +   \
-   GET_TPU7_COUNTER(MATMUL_VREG_F8_MXU_##unit_id) +   \
-   GET_TPU7_COUNTER(MATMUL_VREG_BF16_MXU_##unit_id) + \
-   GET_TPU7_COUNTER(MATMUL_VREG_F32_MXU_##unit_id))
+  if (is_tpu6e) {
+#define GET_TPUV6E_COUNTER(NAME) counters.GetValue(TPUV6E_COUNTER(NAME))
+#define COMPUTE_TPUV6E_MXU_BF16_CYCLES(unit_id)                             \
+  kCpiMxuLmrBf16* GET_TPUV6E_COUNTER(MATMUL_LMR_BF16_MXU_##unit_id) +       \
+      kCpiMxuVregF8* GET_TPUV6E_COUNTER(MATMUL_VREG_F8_MXU_##unit_id) +     \
+      kCpiMxuVregBf16* GET_TPUV6E_COUNTER(MATMUL_VREG_BF16_MXU_##unit_id) + \
+      kCpiMxuVregF32* GET_TPUV6E_COUNTER(MATMUL_VREG_F32_MXU_##unit_id)
+#define COMPUTE_TPUV6E_MXU_I8_CYCLES(unit_id)                     \
+  kCpiMxuLmrI8* GET_TPUV6E_COUNTER(MATMUL_LMR_I8_MXU_##unit_id) + \
+      kCpiMxuVregI8* GET_TPUV6E_COUNTER(MATMUL_VREG_I8_MXU_##unit_id)
+#define COMPUTE_TPUV6E_MXU_I4_CYCLES(unit_id)                     \
+  kCpiMxuLmrI4* GET_TPUV6E_COUNTER(MATMUL_LMR_I4_MXU_##unit_id) + \
+      kCpiMxuVregI4* GET_TPUV6E_COUNTER(MATMUL_VREG_I4_MXU_##unit_id)
+#define COMPUTE_TPUV6E_MXU_CYCLES(unit_id)    \
+  COMPUTE_TPUV6E_MXU_BF16_CYCLES(unit_id) +   \
+      COMPUTE_TPUV6E_MXU_I8_CYCLES(unit_id) + \
+      COMPUTE_TPUV6E_MXU_I4_CYCLES(unit_id)
+#define COMPUTE_TPUV6E_MXU_INSTRUCTIONS(unit_id)        \
+  (GET_TPUV6E_COUNTER(MATMUL_LMR_BF16_MXU_##unit_id) +  \
+   GET_TPUV6E_COUNTER(MATMUL_LMR_I8_MXU_##unit_id) +    \
+   GET_TPUV6E_COUNTER(MATMUL_LMR_I4_MXU_##unit_id) +    \
+   GET_TPUV6E_COUNTER(MATMUL_VREG_I4_MXU_##unit_id) +   \
+   GET_TPUV6E_COUNTER(MATMUL_VREG_I8_MXU_##unit_id) +   \
+   GET_TPUV6E_COUNTER(MATMUL_VREG_F8_MXU_##unit_id) +   \
+   GET_TPUV6E_COUNTER(MATMUL_VREG_BF16_MXU_##unit_id) + \
+   GET_TPUV6E_COUNTER(MATMUL_VREG_F32_MXU_##unit_id))
 
     utilization->num_mxu_inst_issued +=
-        COMPUTE_TPU7_MXU_INSTRUCTIONS(0) + COMPUTE_TPU7_MXU_INSTRUCTIONS(1);
+        COMPUTE_TPUV6E_MXU_INSTRUCTIONS(0) + COMPUTE_TPUV6E_MXU_INSTRUCTIONS(1);
     utilization->num_mxu_busy_cycles +=
-        COMPUTE_TPU7_MXU_CYCLES(0) + COMPUTE_TPU7_MXU_CYCLES(1);
+        COMPUTE_TPUV6E_MXU_CYCLES(0) + COMPUTE_TPUV6E_MXU_CYCLES(1);
 
-    AddUtilization(counters, core, "MXU0", COMPUTE_TPU7_MXU_CYCLES(0), cycles,
+    AddUtilization(counters, core, "MXU0", COMPUTE_TPUV6E_MXU_CYCLES(0), cycles,
                    kCycles, utilization);
-    AddUtilization(counters, core, "MXU1", COMPUTE_TPU7_MXU_CYCLES(1), cycles,
+    AddUtilization(counters, core, "MXU1", COMPUTE_TPUV6E_MXU_CYCLES(1), cycles,
                    kCycles, utilization);
 
     AddUtilization(
         counters, core, "MXU BF16",
-        COMPUTE_TPU7_MXU_BF16_CYCLES(0) + COMPUTE_TPU7_MXU_BF16_CYCLES(1),
+        COMPUTE_TPUV6E_MXU_BF16_CYCLES(0) + COMPUTE_TPUV6E_MXU_BF16_CYCLES(1),
         cycles * kNumMxuPerTC, kCycles, utilization);
 
     AddUtilization(
         counters, core, "MXU I8",
-        COMPUTE_TPU7_MXU_I8_CYCLES(0) + COMPUTE_TPU7_MXU_I8_CYCLES(1),
+        COMPUTE_TPUV6E_MXU_I8_CYCLES(0) + COMPUTE_TPUV6E_MXU_I8_CYCLES(1),
         cycles * kNumMxuPerTC, kCycles, utilization);
     AddUtilization(
         counters, core, "MXU I4",
-        COMPUTE_TPU7_MXU_I4_CYCLES(0) + COMPUTE_TPU7_MXU_I4_CYCLES(1),
+        COMPUTE_TPUV6E_MXU_I4_CYCLES(0) + COMPUTE_TPUV6E_MXU_I4_CYCLES(1),
         cycles * kNumMxuPerTC, kCycles, utilization);
 
-#undef GET_TPU7_COUNTER
-#undef COMPUTE_TPU7_MXU_INSTRUCTIONS
-#undef COMPUTE_TPU7_MXU_CYCLES
-#undef COMPUTE_TPU7_MXU_BF16_CYCLES
-#undef COMPUTE_TPU7_MXU_I8_CYCLES
-#undef COMPUTE_TPU7_MXU_I4_CYCLES
+#undef GET_TPUV6E_COUNTER
+#undef COMPUTE_TPUV6E_MXU_INSTRUCTIONS
+#undef COMPUTE_TPUV6E_MXU_CYCLES
+#undef COMPUTE_TPUV6E_MXU_BF16_CYCLES
+#undef COMPUTE_TPUV6E_MXU_I8_CYCLES
+#undef COMPUTE_TPUV6E_MXU_I4_CYCLES
 
   } else {
 #define GET_TPUV7X_COUNTER(NAME) counters.GetValue(TPUV7X_COUNTER(NAME))
@@ -293,15 +291,15 @@ void ComputeTpuv7GenericTcUnitUtilization(
 
 // NOLINTBEGIN
 #define TPUV6E_SCS_COUNTER(CORE, NAME)                                         \
-  CORE == 0 ? TpuCounterIdsTpu7::                                              \
+  CORE == 0 ? TpuCounterIdsTpu6e::                                             \
                   VF_CHIP_SC_0_SCS_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME \
-            : TpuCounterIdsTpu7::                                              \
+            : TpuCounterIdsTpu6e::                                             \
                   VF_CHIP_SC_1_SCS_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME
 #define TPUV6E_TEC_TAC_COUNTER(CORE, TILE, NAME)                                  \
   CORE == 0                                                                       \
-      ? TpuCounterIdsTpu7::                                                       \
+      ? TpuCounterIdsTpu6e::                                                      \
             VF_CHIP_SC_0_SCT_##TILE##_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME \
-      : TpuCounterIdsTpu7::                                                       \
+      : TpuCounterIdsTpu6e::                                                      \
             VF_CHIP_SC_1_SCT_##TILE##_SC_STATS_COUNTERS_UNPRIVILEGED_COUNT_##NAME
 #define DECLARE_16_TILES(CORE, NAME)          \
   TPUV6E_TEC_TAC_COUNTER(CORE, 0, NAME),      \
@@ -749,7 +747,7 @@ void ComputeTpuv7xScUnitUtilization(const TpuCounterUtil& counters, int die,
 #undef DECLARE_16_TILES
 
 // Helper macros for HBM counters (TPU v6e)
-#define HBM_PREFIX(id) TpuCounterIdsTpu7::VF_CHIP_##id
+#define HBM_PREFIX(id) TpuCounterIdsTpu6e::VF_CHIP_##id
 #define RD_RESP_PS0(id) \
   HBM_PREFIX(id##_CMN_HI_FREQ_STATS_COUNTERS_UNPRIVILEGED_RD_RESP_PS0)
 #define RD_RESP_PS1(id) \
@@ -1141,14 +1139,13 @@ std::vector<uint64_t> GetTpuv7xHbmWriteCounters(int die) {
 #undef WR_REQ_PS0
 #undef WR_REQ_PS1
 
-void ComputeTpuv7GenericBandwidthUtilization(
-    const TpuCounterUtil& counters,
-    const Tpuv7GenericUtilizationOptions& options, int core,
-    UtilizationCounters* utilization) {
+void ComputeTpuGenericBandwidthUtilization(
+    const TpuCounterUtil& counters, const TpuGenericUtilizationOptions& options,
+    int core, UtilizationCounters* utilization) {
   uint64_t hbm_rd_beats = 0;
   uint64_t hbm_wr_beats = 0;
 
-  if (options.is_tpu7) {
+  if (options.is_tpu6e) {
     for (uint64_t counter_id : GetTpuv6eHbmReadCounters()) {
       hbm_rd_beats += counters.GetValue(counter_id);
     }
@@ -1170,8 +1167,8 @@ void ComputeTpuv7GenericBandwidthUtilization(
 
   uint64_t cycle_addr = 0;
   // NOLINTBEGIN
-  if (options.is_tpu7) {
-    cycle_addr = TpuCounterIdsTpu7::
+  if (options.is_tpu6e) {
+    cycle_addr = TpuCounterIdsTpu6e::
         VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
   } else {
     if (core == 0) {
@@ -1206,9 +1203,8 @@ void ComputeTpuv7GenericBandwidthUtilization(
   }
 }
 
-void ComputeTpuv7GenericIciBandwidthUtilization(
-    const TpuCounterUtil& counters,
-    const Tpuv7GenericUtilizationOptions& options,
+void ComputeTpuGenericIciBandwidthUtilization(
+    const TpuCounterUtil& counters, const TpuGenericUtilizationOptions& options,
     UtilizationCounters* utilization) {
   constexpr size_t KIciBytesPerFlit = 128;
   uint64_t ici_rd_bytes = 0;
@@ -1218,16 +1214,16 @@ void ComputeTpuv7GenericIciBandwidthUtilization(
   std::vector<uint64_t> ici_wr_flits_perf_counters;
 
   // NOLINTBEGIN
-  if (options.is_tpu7) {
+  if (options.is_tpu6e) {
     ici_rd_flits_perf_counters = {
-        TpuCounterIdsTpu7::
+        TpuCounterIdsTpu6e::
             VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_0_INSERTION_COUNT,
-        TpuCounterIdsTpu7::
+        TpuCounterIdsTpu6e::
             VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_RD_REQ_1_INSERTION_COUNT};
     ici_wr_flits_perf_counters = {
-        TpuCounterIdsTpu7::
+        TpuCounterIdsTpu6e::
             VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_0_INSERTION_COUNT,
-        TpuCounterIdsTpu7::
+        TpuCounterIdsTpu6e::
             VF_CHIP_OCI_ICR_PERF_COUNTERS_FIFO_STATS_COUNTERS_UNPRIVILEGED_BN_WR_REQ_1_INSERTION_COUNT,
     };
   } else {
@@ -1268,8 +1264,8 @@ void ComputeTpuv7GenericIciBandwidthUtilization(
 
   uint64_t cycle_counter_address = 0;
   // NOLINTBEGIN
-  if (options.is_tpu7) {
-    cycle_counter_address = TpuCounterIdsTpu7::
+  if (options.is_tpu6e) {
+    cycle_counter_address = TpuCounterIdsTpu6e::
         VF_CHIP_TC_TCS_TC_MISC_TCS_STATS_TCS_STATS_COUNTERS_UNPRIVILEGED_COUNT_CYCLES;
   } else {
     cycle_counter_address = TpuCounterIdsTpu7x::

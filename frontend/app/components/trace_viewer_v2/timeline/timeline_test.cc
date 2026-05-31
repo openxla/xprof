@@ -2500,6 +2500,54 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevel_BinarySearchCorrectlySelectsVisibleEvents) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1, 2});
+
+  // Event 0: Outside left
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1: Visible
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(25.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 2: Outside right
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(45.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  // Ignore other GetTextSize calls if any (e.g. for group names)
+  EXPECT_CALL(timeline_, GetTextSize(_)).Times(::testing::AnyNumber());
+
+  // Specific expectations (checked first due to reverse order)
+  EXPECT_CALL(timeline_, GetTextSize("event1")).Times(2);
+  EXPECT_CALL(timeline_, GetTextSize("event0")).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
+
+  SimulateFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {
   // Simulate diagonal scrolling (both horizontal and vertical wheel).
   ImGui::GetIO().AddMouseWheelEvent(1.0f, 2.0f);  // X=1, Y=2

@@ -361,6 +361,15 @@ class Timeline {
   virtual void Zoom(float zoom_factor);
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
+ protected:
+  virtual void DrawEventsForLevel(int group_index,
+                                  absl::Span<const int> event_indices,
+                                  double px_per_time_unit, int level_in_group,
+                                  const ImVec2& pos, const ImVec2& max,
+                                  Pixel event_height, Pixel padding_bottom);
+
+  virtual void DrawGroup(int group_index, double px_per_time_unit_val);
+
  private:
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
@@ -385,11 +394,6 @@ class Timeline {
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
-  void DrawEventsForLevel(int group_index, absl::Span<const int> event_indices,
-                          double px_per_time_unit, int level_in_group,
-                          const ImVec2& pos, const ImVec2& max,
-                          Pixel event_height, Pixel padding_bottom);
-
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
                           Pixel height, float y_ratio, ImDrawList* draw_list);
@@ -398,7 +402,6 @@ class Timeline {
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  void DrawGroup(int group_index, double px_per_time_unit_val);
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,

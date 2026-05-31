@@ -16,6 +16,7 @@
 #include "<gtest/gtest.h>"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -45,15 +46,55 @@ constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
 // Mock class for Timeline to mock virtual methods.
 class MockTimeline : public Timeline {
  public:
-  MockTimeline() : Timeline(color_palette_) {}
-  explicit MockTimeline(ColorPalette& palette) : Timeline(palette) {}
+  MockTimeline() : Timeline(color_palette_) { SetupDefaultMockBehavior(); }
+  explicit MockTimeline(ColorPalette& palette) : Timeline(palette) {
+    SetupDefaultMockBehavior();
+  }
 
   MOCK_METHOD(ImVec2, GetTextSize, (absl::string_view text), (const, override));
   MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
+  MOCK_METHOD(void, DrawGroup, (int group_index, double px_per_time_unit_val),
+              (override));
+  MOCK_METHOD(void, DrawEventsForLevel,
+              (int group_index, absl::Span<const int> event_indices,
+               double px_per_time_unit, int level_in_group, const ImVec2& pos,
+               const ImVec2& max, Pixel event_height, Pixel padding_bottom),
+              (override));
+
+  // Helpers to call base class protected methods from tests/lambdas.
+  void DrawGroupBase(int group_index, double px_per_time_unit_val) {
+    Timeline::DrawGroup(group_index, px_per_time_unit_val);
+  }
+  void DrawEventsForLevelBase(int group_index,
+                              absl::Span<const int> event_indices,
+                              double px_per_time_unit, int level_in_group,
+                              const ImVec2& pos, const ImVec2& max,
+                              Pixel event_height, Pixel padding_bottom) {
+    Timeline::DrawEventsForLevel(group_index, event_indices, px_per_time_unit,
+                                 level_in_group, pos, max, event_height,
+                                 padding_bottom);
+  }
 
  private:
+  void SetupDefaultMockBehavior() {
+    ON_CALL(*this, DrawGroup)
+        .WillByDefault([this](int group_index, double px_per_time_unit_val) {
+          this->DrawGroupBase(group_index, px_per_time_unit_val);
+        });
+    ON_CALL(*this, DrawEventsForLevel)
+        .WillByDefault([this](int group_index,
+                              absl::Span<const int> event_indices,
+                              double px_per_time_unit, int level_in_group,
+                              const ImVec2& pos, const ImVec2& max,
+                              Pixel event_height, Pixel padding_bottom) {
+          this->DrawEventsForLevelBase(group_index, event_indices,
+                                       px_per_time_unit, level_in_group, pos,
+                                       max, event_height, padding_bottom);
+        });
+  }
+
   ColorPalette color_palette_ = ColorPalette::Default();
 };
 
@@ -1223,6 +1264,15 @@ class TimelineImGuiTestFixture : public Test {
     timeline_.Draw();
     // Update all animations by delta time. This must be called *after* Draw()
     // to ensure animations progress towards targets set in HandleKeyboard().
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  }
+
+  void SimulateFrame(Pixel scroll_y, Pixel window_height) {
+    ImGui::NewFrame();
+    ImGui::SetScrollY(scroll_y);
+    ImGui::SetWindowSize(ImVec2(1000.0f, window_height));
+    timeline_.Draw();
     Animation::UpdateAll(ImGui::GetIO().DeltaTime);
     ImGui::EndFrame();
   }
@@ -2544,6 +2594,23 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_CALL(timeline_, GetTextSize("event1")).Times(2);
   EXPECT_CALL(timeline_, GetTextSize("event0")).Times(0);
   EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
+
+  // Vertical culling should call DrawGroup and DrawEventsForLevel.
+  EXPECT_CALL(timeline_, DrawGroup(_, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val);
+      });
+  EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, absl::Span<const int> event_indices,
+                          double px_per_time_unit, int level_in_group,
+                          const ImVec2& pos, const ImVec2& max,
+                          Pixel event_height, Pixel padding_bottom) {
+        timeline_.DrawEventsForLevelBase(group_index, event_indices,
+                                         px_per_time_unit, level_in_group, pos,
+                                         max, event_height, padding_bottom);
+      });
 
   SimulateFrame();
 }

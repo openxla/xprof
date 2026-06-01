@@ -368,7 +368,8 @@ class Timeline {
                                   const ImVec2& pos, const ImVec2& max,
                                   Pixel event_height, Pixel padding_bottom);
 
-  virtual void DrawGroup(int group_index, double px_per_time_unit_val);
+  virtual void DrawGroup(int group_index, double px_per_time_unit_val,
+                         Pixel scroll_y, Pixel window_height);
 
   // Finds the index of the first visible ancestor (or the group itself if it is
   // visible) for a given group index. Decoupled from scroll-height specific

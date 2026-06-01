@@ -562,7 +562,7 @@ void Timeline::Draw() {
         group_index++;
       }
     } else {
-      DrawGroup(group_index, px_per_time_unit_val);
+      DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
     }
     ImGui::PopID();
   }
@@ -1593,7 +1593,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   }
 }
 
-void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
+void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
+                         Pixel scroll_y, Pixel window_height) {
   const Group& group = timeline_data_.groups[group_index];
   const int start_level = group.start_level;
   int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
@@ -1653,7 +1654,28 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                                    draw_list);
         }
       }
-      for (int level = start_level; level < end_level; ++level) {
+      const Pixel level_stride = kEventHeight + kEventPaddingBottom;
+      const Pixel group_offset = group_offsets_[group_index];
+
+      int first_visible_level = start_level;
+      Pixel relative_scroll_y = scroll_y - group_offset;
+      if (relative_scroll_y > 0) {
+        first_visible_level =
+            start_level + std::floor(relative_scroll_y / level_stride);
+      }
+
+      int last_visible_level = end_level;
+      Pixel relative_scroll_end = scroll_y + window_height - group_offset;
+      if (relative_scroll_end > 0) {
+        last_visible_level =
+            start_level + std::ceil(relative_scroll_end / level_stride);
+      }
+
+      first_visible_level = std::max(start_level, first_visible_level);
+      last_visible_level = std::min(end_level, last_visible_level);
+
+      for (int level = first_visible_level; level < last_visible_level;
+           ++level) {
         // This is a sanity check to ensure the level is within the bounds of
         // events_by_level.
         if (level < timeline_data_.events_by_level.size()) {

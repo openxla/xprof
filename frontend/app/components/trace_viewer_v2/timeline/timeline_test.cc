@@ -55,7 +55,9 @@ class MockTimeline : public Timeline {
   MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
-  MOCK_METHOD(void, DrawGroup, (int group_index, double px_per_time_unit_val),
+  MOCK_METHOD(void, DrawGroup,
+              (int group_index, double px_per_time_unit_val, Pixel scroll_y,
+               Pixel window_height),
               (override));
   MOCK_METHOD(void, DrawEventsForLevel,
               (int group_index, absl::Span<const int> event_indices,
@@ -64,8 +66,10 @@ class MockTimeline : public Timeline {
               (override));
 
   // Helpers to call base class protected methods from tests/lambdas.
-  void DrawGroupBase(int group_index, double px_per_time_unit_val) {
-    Timeline::DrawGroup(group_index, px_per_time_unit_val);
+  void DrawGroupBase(int group_index, double px_per_time_unit_val,
+                     Pixel scroll_y, Pixel window_height) {
+    Timeline::DrawGroup(group_index, px_per_time_unit_val, scroll_y,
+                        window_height);
   }
   void DrawEventsForLevelBase(int group_index,
                               absl::Span<const int> event_indices,
@@ -85,8 +89,10 @@ class MockTimeline : public Timeline {
  private:
   void SetupDefaultMockBehavior() {
     ON_CALL(*this, DrawGroup)
-        .WillByDefault([this](int group_index, double px_per_time_unit_val) {
-          this->DrawGroupBase(group_index, px_per_time_unit_val);
+        .WillByDefault([this](int group_index, double px_per_time_unit_val,
+                              Pixel scroll_y, Pixel window_height) {
+          this->DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                              window_height);
         });
     ON_CALL(*this, DrawEventsForLevel)
         .WillByDefault([this](int group_index,
@@ -2601,10 +2607,12 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
 
   // Vertical culling should call DrawGroup and DrawEventsForLevel.
-  EXPECT_CALL(timeline_, DrawGroup(_, _))
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, double px_per_time_unit_val) {
-        timeline_.DrawGroupBase(group_index, px_per_time_unit_val);
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+                          Pixel scroll_y, Pixel window_height) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                                window_height);
       });
   EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
       .Times(::testing::AnyNumber())
@@ -2640,9 +2648,52 @@ TEST_F(MockTimelineImGuiFixture,
   // Based on the heights, we expect only a few groups to be visible.
   // With ThreadTrackGap=4 and kEventHeight=23, each thread is 27px.
   // Viewport at 100px with 100px height should see roughly groups 4-8.
-  EXPECT_CALL(timeline_, DrawGroup(_, _)).Times(::testing::Between(3, 7));
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _)).Times(::testing::Between(3, 7));
 
   SimulateFrame(/*scroll_y=*/100.0f, /*window_height=*/100.0f);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawGroup_LevelCalculationCullingCorrectlySelectsVisibleLevels) {
+  FlameChartTimelineData data;
+  // Create 1 group with many levels.
+  data.groups.push_back({.name = "Big Group",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  for (int i = 0; i < 100; ++i) {
+    data.events_by_level.push_back({i});  // One event per level
+    data.entry_names.push_back("event" + std::to_string(i));
+    data.entry_levels.push_back(i);
+    data.entry_start_times.push_back(0.0);
+    data.entry_total_times.push_back(100.0);
+    data.entry_pids.push_back(1);
+    data.entry_args.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set display size small to ensure culling happens.
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+
+  // Set scroll such that we are looking at levels in the middle of the group.
+  // Use a large scroll to trigger culling.
+  Pixel scroll_y = 500.0f;
+  Pixel window_height = 100.0f;  // ~4 levels
+
+  // Since we are mocking the top-level Draw(), we need to expect the DrawGroup
+  // call too.
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+                          Pixel scroll_y, Pixel window_height) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                                window_height);
+      });
+  EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
+      .Times(::testing::Between(3, 8));
+
+  SimulateFrame(scroll_y, window_height);
 }
 
 TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {

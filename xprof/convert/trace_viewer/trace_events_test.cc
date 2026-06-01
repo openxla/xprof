@@ -286,6 +286,30 @@ TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
     });
   }
 
+  // Scenario A2: Search for "target_req" with search_metadata = true (should
+  // match event AND fully load original arguments)
+  {
+    TestContainer search_container;
+    ASSERT_OK(search_container.SearchInLevelDbTable(
+        file_paths, "target_req", nullptr, {.search_metadata = true}));
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
+
+    search_container.ForAllEvents([](const TraceEvent& event) {
+      EXPECT_THAT(event.name(), Eq("ModelForward"));
+      RawData raw_data;
+      ASSERT_TRUE(raw_data.ParseFromString(event.raw_data()));
+      ASSERT_TRUE(raw_data.has_args());
+      bool found_req_id = false;
+      for (const auto& arg : raw_data.args().arg()) {
+        if (arg.name() == "request_id1") {
+          EXPECT_THAT(arg.str_value(), Eq("target_req_123"));
+          found_req_id = true;
+        }
+      }
+      EXPECT_TRUE(found_req_id);
+    });
+  }
+
   // Scenario B: Search for "req_ignored" (should NOT match Event 2 because key
   // name doesn't match regex)
   {
@@ -303,6 +327,157 @@ TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
     search_container.ForAllEvents([](const TraceEvent& event) {
       EXPECT_THAT(event.name(), Eq("ModelForward"));
     });
+  }
+
+  // Scenario D: Deduplication verification. Search for "req" which matches both
+  // "req_event" name and metadata.
+  {
+    TestContainer deduplication_container;
+    Device* dev = deduplication_container.MutableDevice(1);
+    dev->set_device_id(1);
+    Resource* res = &(*dev->mutable_resources())[2];
+    res->set_resource_id(2);
+
+    RawData raw_data3;
+    auto* arg = raw_data3.mutable_args()->add_arg();
+    arg->set_name("request_id1");
+    arg->set_str_value("req_val");
+
+    deduplication_container.AddCompleteEvent(
+        "req_event", /*resource_id=*/2, /*device_id=*/1,
+        Timespan::FromEndPoints(500, 600), &raw_data3);
+
+    std::string f1 = GetTempFilename("events_dedup.ldb");
+    std::string f2 = GetTempFilename("metadata_dedup.ldb");
+    std::string f3 = GetTempFilename("trie_dedup.ldb");
+
+    std::unique_ptr<tsl::WritableFile> wf1, wf2, wf3;
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f1, &wf1));
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f2, &wf2));
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(f3, &wf3));
+
+    ASSERT_OK(deduplication_container.StoreAsLevelDbTables(
+        std::move(wf1), std::move(wf2), std::move(wf3)));
+
+    TraceEventsLevelDbFilePaths paths = {
+        .trace_events_file_path = f1,
+        .trace_events_metadata_file_path = f2,
+        .trace_events_prefix_trie_file_path = f3,
+    };
+
+    TestContainer search_container;
+    ASSERT_OK(search_container.SearchInLevelDbTable(paths, "req"));
+    // Deduplication ensures we only get 1 unique event.
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
+    search_container.ForAllEvents([](const TraceEvent& event) {
+      EXPECT_THAT(event.name(), Eq("req_event"));
+    });
+  }
+}
+
+TEST(TraceEventsSearchTest, SearchMetadataInternedAndEdgeCases) {
+  using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
+  TestContainer input_container;
+
+  Device* device = input_container.MutableDevice(1);
+  device->set_device_id(1);
+  device->set_name("TestDevice");
+  Resource* resource = &(*device->mutable_resources())[2];
+  resource->set_resource_id(2);
+  resource->set_name("TestResource");
+
+  // 1. Short event name (not interned, so it works without event name
+  // resolution)
+  std::string event_name = "ShortEventName";
+
+  // 2. Interned metadata value (Long string > 16 chars gets interned
+  // automatically)
+  std::string long_request_id = "SuperLongRequestIdValueThatWillBeInterned";
+
+  RawData raw_data1;
+  auto* arg1 = raw_data1.mutable_args()->add_arg();
+  arg1->set_name("request_id1");
+  arg1->set_str_value(long_request_id);
+
+  input_container.AddCompleteEvent(
+      event_name, /*resource_id=*/2, /*device_id=*/1,
+      Timespan::FromEndPoints(100, 200), &raw_data1);
+
+  // 3. Non-string metadata value (should be ignored by search indexer)
+  RawData raw_data2;
+  auto* arg_int = raw_data2.mutable_args()->add_arg();
+  arg_int->set_name("request_id1");
+  arg_int->set_uint_value(99999);  // Integer instead of string
+
+  input_container.AddCompleteEvent(
+      "IntReqEvent", /*resource_id=*/2, /*device_id=*/1,
+      Timespan::FromEndPoints(300, 400), &raw_data2);
+
+  // 4. Event with no raw_data (should be indexed by name but have no metadata
+  // index)
+  input_container.AddCompleteEvent("NoRawDataEvent", /*resource_id=*/2,
+                                   /*device_id=*/1,
+                                   Timespan::FromEndPoints(500, 600), nullptr);
+
+  std::string trace_events_file = GetTempFilename("events_edge.ldb");
+  std::string trace_events_metadata_file = GetTempFilename("metadata_edge.ldb");
+  std::string trace_events_prefix_trie_file = GetTempFilename("trie_edge.ldb");
+
+  std::unique_ptr<tsl::WritableFile> file1, file2, file3;
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_file, &file1));
+  ASSERT_OK(
+      tsl::Env::Default()->NewWritableFile(trace_events_metadata_file, &file2));
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_prefix_trie_file,
+                                                 &file3));
+
+  ASSERT_OK(input_container.StoreAsLevelDbTables(
+      std::move(file1), std::move(file2), std::move(file3)));
+
+  TraceEventsLevelDbFilePaths file_paths = {
+      .trace_events_file_path = trace_events_file,
+      .trace_events_metadata_file_path = trace_events_metadata_file,
+      .trace_events_prefix_trie_file_path = trace_events_prefix_trie_file,
+  };
+
+  // Test Scenario A: Search for the event name (now short/not interned)
+  {
+    TestContainer search_container;
+    ASSERT_OK(search_container.SearchInLevelDbTable(file_paths, event_name));
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
+    search_container.ForAllEvents([&](const TraceEvent& event) {
+      EXPECT_THAT(event.name(), Eq(event_name));
+    });
+  }
+
+  // Test Scenario B: Search for the long interned metadata request_id value
+  {
+    TestContainer search_container;
+    ASSERT_OK(search_container.SearchInLevelDbTable(file_paths,
+                                                    "SuperLongRequestId"));
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
+    search_container.ForAllEvents([&](const TraceEvent& event) {
+      EXPECT_THAT(event.name(), Eq(event_name));
+    });
+  }
+
+  // Test Scenario C: Search for the integer metadata value (should be converted
+  // to string and found)
+  {
+    TestContainer search_container;
+    ASSERT_OK(search_container.SearchInLevelDbTable(file_paths, "99999"));
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
+    search_container.ForAllEvents([&](const TraceEvent& event) {
+      EXPECT_THAT(event.name(), Eq("IntReqEvent"));
+    });
+  }
+
+  // Test Scenario D: Search for the event with no raw data (should be found by
+  // name)
+  {
+    TestContainer search_container;
+    ASSERT_OK(
+        search_container.SearchInLevelDbTable(file_paths, "NoRawDataEvent"));
+    EXPECT_THAT(search_container.NumEvents(), Eq(1));
   }
 }
 

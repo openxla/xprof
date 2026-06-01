@@ -1,4 +1,4 @@
-diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/tools/toolchains/python/python_repo.bzl /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/tools/toolchains/python/python_repo.bzl
+diff -ruN a/tools/toolchains/python/python_repo.bzl b/tools/toolchains/python/python_repo.bzl
 --- a/tools/toolchains/python/python_repo.bzl	2026-02-25 03:10:41.304010192 +0000
 +++ b/tools/toolchains/python/python_repo.bzl	2026-02-25 03:11:01.034561310 +0000
 @@ -40,3 +40,5 @@
@@ -7,7 +7,7 @@ diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/tools/toolchains/python/p
  )
 +
 +USE_PYWRAP_RULES = "False"
-diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/workspace1.bzl /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/workspace1.bzl
+diff -ruN a/workspace1.bzl b/workspace1.bzl
 --- a/workspace1.bzl	2026-02-25 03:10:41.349200002 +0000
 +++ b/workspace1.bzl	2026-02-25 03:11:01.034561310 +0000
 @@ -1,7 +1,7 @@
@@ -28,7 +28,7 @@ diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/workspace1.bzl /tmp/xla_m
 
      tf_http_archive(
          name = "bazel_toolchains",
-diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/platform/cloud/BUILD /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/platform/cloud/BUILD
+diff -ruN a/xla/tsl/platform/cloud/BUILD
 --- a/xla/tsl/platform/cloud/BUILD	2026-02-25 03:10:50.179850953 +0000
 +++ b/xla/tsl/platform/cloud/BUILD	2026-02-25 03:11:01.034779770 +0000
 @@ -221,6 +221,10 @@

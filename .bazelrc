@@ -38,8 +38,8 @@ build:windows --host_copt=-DNOGDI
 build:windows --incompatible_strict_action_env=true
 
 # Windows x86 CI configs
-build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"
-build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
+# build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"
+# build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
 build:ci_windows_amd64 --color=yes
 build:ci_windows_amd64 --enable_runfiles
 

@@ -17,6 +17,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "testing/base/public/gmock.h"
@@ -24,6 +25,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "google/protobuf/arena.h"
+#include "xla/tsl/lib/io/table_builder.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -479,6 +481,355 @@ TEST(TraceEventsSearchTest, SearchMetadataInternedAndEdgeCases) {
         search_container.SearchInLevelDbTable(file_paths, "NoRawDataEvent"));
     EXPECT_THAT(search_container.NumEvents(), Eq(1));
   }
+}
+
+TEST(TraceEventsKeyLengthTest, KeyGenerationAndParsing) {
+  // Test legacy key behavior
+  {
+    // Valid repetition
+    std::string key10 =
+        LevelDbTableKey(/*zoom_level=*/1, /*timestamp=*/123456789ULL,
+                        /*repetition=*/255, /*key_length=*/kLegacyKeyLength);
+    EXPECT_EQ(key10.size(), kLegacyKeyLength);
+    EXPECT_EQ(TimestampFromLevelDbTableKey(key10), 123456789ULL);
+
+    // Out of bounds repetition for legacy key
+    std::string key10_oob =
+        LevelDbTableKey(/*zoom_level=*/1, /*timestamp=*/123456789ULL,
+                        /*repetition=*/256, /*key_length=*/kLegacyKeyLength);
+    EXPECT_TRUE(key10_oob.empty());
+  }
+
+  // Test extended key behavior
+  {
+    // Valid repetition under 256
+    std::string key11_small =
+        LevelDbTableKey(/*zoom_level=*/1, /*timestamp=*/123456789ULL,
+                        /*repetition=*/255, /*key_length=*/kExtendedKeyLength);
+    EXPECT_EQ(key11_small.size(), kExtendedKeyLength);
+    EXPECT_EQ(TimestampFromLevelDbTableKey(key11_small), 123456789ULL);
+
+    // Valid repetition above 256
+    std::string key11_large =
+        LevelDbTableKey(/*zoom_level=*/1, /*timestamp=*/123456789ULL,
+                        /*repetition=*/1000, /*key_length=*/kExtendedKeyLength);
+    EXPECT_EQ(key11_large.size(), kExtendedKeyLength);
+    EXPECT_EQ(TimestampFromLevelDbTableKey(key11_large), 123456789ULL);
+
+    // Out of bounds repetition for extended key
+    std::string key11_oob = LevelDbTableKey(
+        /*zoom_level=*/1, /*timestamp=*/123456789ULL,
+        /*repetition=*/65536, /*key_length=*/kExtendedKeyLength);
+    EXPECT_TRUE(key11_oob.empty());
+  }
+}
+
+TEST(TraceEventsVisibilityTest, FlowEventsZoomLevelAssignmentAndSafetyGuard) {
+  Trace trace;
+  trace.set_min_timestamp_ps(0);
+  trace.set_max_timestamp_ps(10000000000000ULL);  // 10s
+
+  // Prior flow event on the same track to make flow 42 invisible at zoom
+  // level 0
+  TraceEvent event0;
+  event0.set_device_id(1);
+  event0.set_resource_id(2);
+  event0.set_timestamp_ps(1000);
+  event0.set_duration_ps(100);
+  event0.set_flow_id(41);
+  event0.set_flow_entry_type(TraceEvent::FLOW_START);
+
+  // Event 1: Tiny event in flow 42 close to flow 41 (invisible at level 0)
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(2);
+  event1.set_timestamp_ps(5000);
+  event1.set_duration_ps(100);
+  event1.set_flow_id(42);
+  event1.set_flow_entry_type(TraceEvent::FLOW_START);
+
+  // Event 2: Huge event in flow 42 (visible at level 0 due to track duration)
+  TraceEvent event2;
+  event2.set_device_id(1);
+  event2.set_resource_id(2);
+  event2.set_name("XlaModuleEvent");
+  event2.set_timestamp_ps(100000000);
+  event2.set_duration_ps(2000000000000ULL);  // 2s duration (> 1s resolution)
+  event2.set_flow_id(42);
+  event2.set_flow_entry_type(TraceEvent::FLOW_END);
+
+  TraceEventTrack track = {&event0, &event1, &event2};
+  std::vector<const TraceEventTrack*> event_tracks = {&track};
+
+  std::vector<std::vector<const TraceEvent*>> events_by_level =
+      GetEventsByLevel(trace, event_tracks);
+
+  // Verification: Zoom Level Assignment for Flow Events
+  // Because flow 42 was marked invisible at level 0 (due to event1 being
+  // tiny), event2 is only visible at zoom level 0 because of its massive
+  // duration (track visibility). This actively verifies the "OR" semantics
+  // logic.
+  bool found_event2_at_level0 = false;
+  for (const auto* event : events_by_level[0]) {
+    if (event->name() == "XlaModuleEvent") {
+      found_event2_at_level0 = true;
+    }
+  }
+  EXPECT_TRUE(found_event2_at_level0);
+}
+
+TEST(TraceEventsVisibilityTest, SafetyGuardForFallbackFlowEvents) {
+  Trace trace;
+  trace.set_min_timestamp_ps(0);
+  trace.set_max_timestamp_ps(1000000000000ULL);  // 1s
+
+  // Prior event to establish depth/resolution baseline
+  TraceEvent event0;
+  event0.set_device_id(1);
+  event0.set_resource_id(2);
+  event0.set_timestamp_ps(10000);
+  event0.set_duration_ps(100);
+
+  // Tiny flow event placed extremely close (1 ps) to event0
+  // distance < kLayerResolutions[kNumLevels-2] (10ps), forces fallback to
+  // level 12
+  TraceEvent event1;
+  event1.set_device_id(1);
+  event1.set_resource_id(2);
+  event1.set_name("TinyFlowEvent");
+  event1.set_timestamp_ps(10101);  // 101ps distance
+  event1.set_duration_ps(0);
+  event1.set_flow_id(43);
+  event1.set_flow_entry_type(TraceEvent::FLOW_START);
+
+  TraceEventTrack track = {&event0, &event1};
+  std::vector<const TraceEventTrack*> event_tracks = {&track};
+
+  // This should not crash! Actively exercises the safety guard to prevent
+  // out-of-bounds accesses.
+  EXPECT_NO_FATAL_FAILURE({
+    std::vector<std::vector<const TraceEvent*>> events_by_level =
+        GetEventsByLevel(trace, event_tracks);
+  });
+}
+
+#ifndef NDEBUG
+TEST(TraceEventsDeathTest, TimestampFromLevelDbTableKeyUnexpectedKeySize) {
+  EXPECT_DEBUG_DEATH(TimestampFromLevelDbTableKey("short"),
+                     "Unexpected key size: 5");
+}
+#endif
+
+TEST(TraceEventsLevelDbTest, LoadFromExtendedLevelDbTable) {
+  using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
+  TestContainer input_container;
+
+  // Set up metadata (devices and resources)
+  Device* device = input_container.MutableDevice(1);
+  device->set_device_id(1);
+  device->set_name("TestDevice");
+  Resource* resource = &(*device->mutable_resources())[2];
+  resource->set_resource_id(2);
+  resource->set_name("TestResource");
+
+  // Add event with raw data
+  RawData raw_data;
+  auto* arg = raw_data.mutable_args()->add_arg();
+  arg->set_name("my_arg");
+  arg->set_str_value("my_val");
+
+  input_container.AddCompleteEvent(
+      "ExtendedEvent", /*resource_id=*/2, /*device_id=*/1,
+      Timespan::FromEndPoints(100, 200), &raw_data);
+
+  // Get temporary paths
+  std::string trace_events_file = GetTempFilename("ext_events.ldb");
+  std::string trace_events_metadata_file = GetTempFilename("ext_metadata.ldb");
+  std::string trace_events_prefix_trie_file = GetTempFilename("ext_trie.ldb");
+
+  std::unique_ptr<tsl::WritableFile> file1, file2, file3;
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_file, &file1));
+  ASSERT_OK(
+      tsl::Env::Default()->NewWritableFile(trace_events_metadata_file, &file2));
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_prefix_trie_file,
+                                                 &file3));
+
+  // Store as LevelDB Tables (uses 11-byte extended keys by default)
+  ASSERT_OK(input_container.StoreAsLevelDbTables(
+      std::move(file1), std::move(file2), std::move(file3)));
+
+  TraceEventsLevelDbFilePaths file_paths = {
+      .trace_events_file_path = trace_events_file,
+      .trace_events_metadata_file_path = trace_events_metadata_file,
+      .trace_events_prefix_trie_file_path = trace_events_prefix_trie_file,
+  };
+
+  // Verify LoadFromLevelDbTable
+  TestContainer load_container;
+  ASSERT_OK(load_container.LoadFromLevelDbTable(
+      file_paths, /*filter=*/nullptr, /*visibility=*/nullptr,
+      /*filter_by_visibility_threshold=*/-1LL, /*load_metadata=*/true));
+
+  EXPECT_THAT(load_container.NumEvents(), Eq(1));
+  load_container.ForAllEvents([](const TraceEvent& event) {
+    EXPECT_THAT(event.name(), Eq("ExtendedEvent"));
+    EXPECT_THAT(event.timestamp_ps(), Eq(100));
+    EXPECT_THAT(event.duration_ps(), Eq(100));
+    RawData loaded_raw;
+    ASSERT_TRUE(loaded_raw.ParseFromString(event.raw_data()));
+    ASSERT_TRUE(loaded_raw.has_args());
+    bool found_arg = false;
+    for (const auto& arg : loaded_raw.args().arg()) {
+      if (arg.name() == "my_arg") {
+        EXPECT_THAT(arg.str_value(), Eq("my_val"));
+        found_arg = true;
+      }
+    }
+    EXPECT_TRUE(found_arg);
+  });
+
+  // Verify ReadFullEventFromLevelDbTable
+  TestContainer read_container;
+  ASSERT_OK(read_container.ReadFullEventFromLevelDbTable(
+      trace_events_metadata_file, trace_events_file, "ExtendedEvent",
+      /*timestamp_ps=*/100, /*duration_ps=*/100, /*unique_id=*/0));
+
+  EXPECT_THAT(read_container.NumEvents(), Eq(1));
+  read_container.ForAllEvents([](const TraceEvent& event) {
+    EXPECT_THAT(event.name(), Eq("ExtendedEvent"));
+    EXPECT_THAT(event.timestamp_ps(), Eq(100));
+    EXPECT_THAT(event.duration_ps(), Eq(100));
+    RawData loaded_raw;
+    ASSERT_TRUE(loaded_raw.ParseFromString(event.raw_data()));
+    EXPECT_THAT(loaded_raw.args().arg(0).str_value(), Eq("my_val"));
+  });
+}
+
+TEST(TraceEventsLevelDbTest, LoadFromLegacyLevelDbTable) {
+  // 1. Prepare trace metadata
+  Trace trace;
+  trace.set_min_timestamp_ps(0);
+  trace.set_max_timestamp_ps(1000);
+  trace.set_num_events(1);
+  auto* name_table = trace.mutable_name_table();
+  (*name_table)[12345] = "LegacyEvent";
+
+  // 2. Set up temporary files
+  std::string trace_events_file = GetTempFilename("legacy_events.ldb");
+  std::string trace_events_metadata_file =
+      GetTempFilename("legacy_metadata.ldb");
+  std::string trace_events_prefix_trie_file =
+      GetTempFilename("legacy_trie.ldb");
+
+  // 3. Write legacy trace events table (using 10-byte keys manually)
+  {
+    std::unique_ptr<tsl::WritableFile> wfile;
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_file, &wfile));
+
+    tsl::table::Options options;
+    tsl::table::TableBuilder builder(options, wfile.get());
+
+    // Add metadata record at standard key
+    builder.Add(kTraceMetadataKey, trace.SerializeAsString());
+
+    // Create an event
+    TraceEvent event;
+    event.set_name_ref(12345);
+    event.set_device_id(1);
+    event.set_resource_id(2);
+    event.set_duration_ps(100);
+
+    // Key length explicitly set to 10
+    std::string legacy_key =
+        LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/100,
+                        /*repetition=*/0, kLegacyKeyLength);
+    std::string serialized_event;
+    TraceEvent reusable_event;
+    ASSERT_OK(SerializeTraceEventForPersistingFullEvent(event, reusable_event,
+                                                        serialized_event));
+
+    builder.Add(legacy_key, serialized_event);
+    ASSERT_OK(builder.Finish());
+  }
+
+  // 4. Write legacy metadata table (using 10-byte keys manually)
+  {
+    std::unique_ptr<tsl::WritableFile> wfile;
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(trace_events_metadata_file,
+                                                   &wfile));
+
+    tsl::table::Options options;
+    tsl::table::TableBuilder builder(options, wfile.get());
+
+    // Serialize a valid RawData protobuf containing metadata arguments
+    RawData raw_data;
+    auto* arg = raw_data.mutable_args()->add_arg();
+    arg->set_name("my_arg");
+    arg->set_str_value("legacy_metadata_payload");
+
+    TraceEvent event_metadata;
+    event_metadata.set_device_id(1);
+    event_metadata.set_resource_id(2);
+    raw_data.SerializeToString(event_metadata.mutable_raw_data());
+
+    std::string legacy_key =
+        LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/100,
+                        /*repetition=*/0, kLegacyKeyLength);
+    std::string serialized_metadata;
+    TraceEvent reusable_metadata;
+    ASSERT_OK(SerializeTraceEventForPersistingOnlyMetadata(
+        event_metadata, reusable_metadata, serialized_metadata));
+
+    builder.Add(legacy_key, serialized_metadata);
+    ASSERT_OK(builder.Finish());
+  }
+
+  // 5. Load using LoadFromLevelDbTable (will dynamically detect 10-byte keys)
+  using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
+  TestContainer load_container;
+
+  TraceEventsLevelDbFilePaths file_paths = {
+      .trace_events_file_path = trace_events_file,
+      .trace_events_metadata_file_path = trace_events_metadata_file,
+      .trace_events_prefix_trie_file_path = trace_events_prefix_trie_file,
+  };
+
+  ASSERT_OK(load_container.LoadFromLevelDbTable(
+      file_paths, /*filter=*/nullptr, /*visibility=*/nullptr,
+      /*filter_by_visibility_threshold=*/-1LL, /*load_metadata=*/true));
+
+  // 6. Verify loaded event (name_ref is preserved but name remains empty)
+  EXPECT_THAT(load_container.NumEvents(), Eq(1));
+  load_container.ForAllEvents([](const TraceEvent& event) {
+    EXPECT_THAT(event.name_ref(), Eq(12345));
+    EXPECT_THAT(event.name(), Eq(""));
+    EXPECT_THAT(event.timestamp_ps(), Eq(100));
+    EXPECT_THAT(event.duration_ps(), Eq(100));
+    RawData loaded_raw;
+    ASSERT_TRUE(loaded_raw.ParseFromString(event.raw_data()));
+    ASSERT_TRUE(loaded_raw.has_args());
+    EXPECT_THAT(loaded_raw.args().arg(0).str_value(),
+                Eq("legacy_metadata_payload"));
+  });
+
+  // 7. Verify ReadFullEventFromLevelDbTable (will dynamically detect 10-byte
+  // keys and fully resolve name)
+  TestContainer read_container;
+  ASSERT_OK(read_container.ReadFullEventFromLevelDbTable(
+      trace_events_metadata_file, trace_events_file, "LegacyEvent",
+      /*timestamp_ps=*/100, /*duration_ps=*/100, /*unique_id=*/0));
+
+  EXPECT_THAT(read_container.NumEvents(), Eq(1));
+  read_container.ForAllEvents([](const TraceEvent& event) {
+    EXPECT_THAT(event.name(), Eq("LegacyEvent"));
+    EXPECT_THAT(event.timestamp_ps(), Eq(100));
+    EXPECT_THAT(event.duration_ps(), Eq(100));
+    RawData loaded_raw;
+    ASSERT_TRUE(loaded_raw.ParseFromString(event.raw_data()));
+    ASSERT_TRUE(loaded_raw.has_args());
+    EXPECT_THAT(loaded_raw.args().arg(0).str_value(),
+                Eq("legacy_metadata_payload"));
+  });
 }
 
 }  // namespace

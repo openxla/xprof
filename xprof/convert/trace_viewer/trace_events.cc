@@ -167,7 +167,9 @@ bool ReadTraceMetadata(tsl::table::Iterator* iterator,
 }
 
 uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key) {
-  DCHECK_EQ(level_db_table_key.size(), kLevelDbKeyLength);
+  DCHECK(level_db_table_key.size() == kLegacyKeyLength ||
+         level_db_table_key.size() == kExtendedKeyLength)
+      << "Unexpected key size: " << level_db_table_key.size();
   uint64_t value;  // big endian representation of timestamp.
   memcpy(&value, level_db_table_key.data() + 1, sizeof(uint64_t));
   if constexpr (absl::endian::native == absl::endian::little) {
@@ -180,9 +182,13 @@ uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key) {
 // Level Db table don't allow duplicated keys, so we add a tie break at the last
 // bytes. the format is zoom[1B] + timestamp[8B] + repetition[1B]
 std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
-                            uint64_t repetition) {
-  if (repetition >= 256) return std::string();
-  std::string output(kLevelDbKeyLength, 0);
+                            uint64_t repetition, size_t key_length) {
+  if (key_length == kLegacyKeyLength) {
+    if (repetition >= 256) return std::string();
+  } else {
+    if (repetition >= 65536) return std::string();
+  }
+  std::string output(key_length, 0);
   char* ptr = output.data();
   ptr[0] = kLevelKey[zoom_level];
   // The big-endianness preserve the monotonic order of timestamp when convert
@@ -195,7 +201,18 @@ std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
   }
 
   memcpy(ptr + 1, &timestamp_bigendian, sizeof(uint64_t));
-  ptr[9] = repetition;
+  if (key_length == kLegacyKeyLength) {
+    ptr[9] = repetition;
+  } else {
+    uint16_t repetition_bigendian;
+    if constexpr (absl::endian::native == absl::endian::little) {
+      repetition_bigendian =
+          absl::byteswap<uint16_t>(static_cast<uint16_t>(repetition));
+    } else {
+      repetition_bigendian = static_cast<uint16_t>(repetition);
+    }
+    memcpy(ptr + 9, &repetition_bigendian, sizeof(uint16_t));
+  }
   return output;
 }
 
@@ -319,6 +336,7 @@ ProcessTrackEventsParallel(
           int zoom_level = 0;
 
           if (event->has_flow_id()) {
+            bool track_visible_called_and_true = false;
             for (; zoom_level < kNumLevels - 1; ++zoom_level) {
               auto it =
                   flow_visibility_by_level[zoom_level].find(event->flow_id());
@@ -326,6 +344,16 @@ ProcessTrackEventsParallel(
                   it->second) {
                 break;
               }
+              if (track_visibility_by_level[zoom_level].VisibleAtResolution(
+                      *event)) {
+                track_visible_called_and_true = true;
+                break;
+              }
+            }
+            track_events_by_level[j][zoom_level].push_back(event);
+            if (!track_visible_called_and_true && zoom_level < kNumLevels - 1) {
+              track_visibility_by_level[zoom_level].SetVisibleAtResolution(
+                  *event);
             }
           } else {
             for (; zoom_level < kNumLevels - 1; ++zoom_level) {
@@ -334,9 +362,8 @@ ProcessTrackEventsParallel(
                 break;
               }
             }
+            track_events_by_level[j][zoom_level].push_back(event);
           }
-
-          track_events_by_level[j][zoom_level].push_back(event);
 
           for (++zoom_level; zoom_level < kNumLevels - 1; ++zoom_level) {
             track_visibility_by_level[zoom_level].SetVisibleAtResolution(

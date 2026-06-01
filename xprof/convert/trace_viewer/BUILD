@@ -272,6 +272,7 @@ cc_test(
         "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
+        "@xla//xla/tsl/lib/io:block",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],

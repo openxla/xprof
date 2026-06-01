@@ -80,7 +80,16 @@ constexpr uint64_t kLayerResolutions[] = {
 };
 
 constexpr int NumLevels() { return TF_ARRAYSIZE(kLayerResolutions); }
-static constexpr size_t kLevelDbKeyLength = 10;
+
+// LevelDB Table Key Formats:
+// Legacy format: zoom[1B] + timestamp[8B] + repetition[1B] = 10B
+// Extended format (upgraded to prevent duplicate stamp overflow): zoom[1B] +
+// timestamp[8B] + repetition[2B] = 11B
+static constexpr size_t kLegacyKeyLength = 10;
+static constexpr size_t kExtendedKeyLength = 11;
+
+// Default key length used when writing new tables.
+static constexpr size_t kLevelDbKeyLength = kExtendedKeyLength;
 static constexpr int kSearchParallelizationThreshold = 100;
 
 // Merge-sorts the given event tracks. Each track must be sorted.
@@ -140,7 +149,8 @@ uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key);
 uint64_t LayerResolutionPs(unsigned level);
 
 std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
-                            uint64_t repetition);
+                            uint64_t repetition,
+                            size_t key_length = kLevelDbKeyLength);
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,
                        absl::string_view metadata_key, Trace* trace);
@@ -227,6 +237,12 @@ absl::Status DoLoadFromLevelDbTable(
         "Could not parse Trace proto to read trace metadata");
   }
 
+  size_t db_key_length = kLegacyKeyLength;  // Default fallback
+  iterator->Next();                         // Advance to first event record
+  if (iterator->Valid()) {
+    db_key_length = iterator->key().size();
+  }
+
   if (filter) filter->SetUp(trace);
 
   tsl::profiler::Timespan visible_span;
@@ -264,7 +280,8 @@ absl::Status DoLoadFromLevelDbTable(
     if (i > 0 && visible_span.begin_ps() > LayerResolutionPs(i - 1)) {
       min_timestamp_ps = visible_span.begin_ps() - LayerResolutionPs(i - 1);
     }
-    iterator->Seek(LevelDbTableKey(i, i == 0 ? 0 : min_timestamp_ps, 0));
+    iterator->Seek(
+        LevelDbTableKey(i, i == 0 ? 0 : min_timestamp_ps, 0, db_key_length));
     if (metadata_iterator && iterator->Valid()) {
       metadata_iterator->Seek(iterator->key());
     }
@@ -605,9 +622,15 @@ absl::Status DoReadFullEventFromLevelDbTable(
     return absl::UnknownError("Could not parse Trace proto");
   }
 
+  size_t db_key_length = kLegacyKeyLength;  // Default fallback
+  trace_events_iterator->Next();
+  if (trace_events_iterator->Valid()) {
+    db_key_length = trace_events_iterator->key().size();
+  }
+
   for (int zoom_level = 0; zoom_level < NumLevels(); ++zoom_level) {
     std::string level_db_table_key =
-        LevelDbTableKey(zoom_level, timestamp_ps, unique_id);
+        LevelDbTableKey(zoom_level, timestamp_ps, unique_id, db_key_length);
     trace_events_iterator->Seek(level_db_table_key);
     if (trace_events_iterator->Valid() &&
         trace_events_iterator->key() == level_db_table_key) {

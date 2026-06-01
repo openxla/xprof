@@ -77,6 +77,11 @@ class MockTimeline : public Timeline {
                                  padding_bottom);
   }
 
+  int CallFindFirstVisibleAncestorIndex(int start_idx) const {
+    return FindFirstVisibleAncestorIndex(start_idx);
+  }
+  const std::vector<bool>& CallGroupVisible() const { return group_visible(); }
+
  private:
   void SetupDefaultMockBehavior() {
     ON_CALL(*this, DrawGroup)
@@ -2613,6 +2618,31 @@ TEST_F(MockTimelineImGuiFixture,
       });
 
   SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       Draw_VerticalGroupBinarySearchCorrectlySelectsVisibleGroups) {
+  FlameChartTimelineData data;
+  // Create 20 groups to ensure we have enough to cull.
+  for (int i = 0; i < 20; ++i) {
+    data.groups.push_back({.name = "Group " + std::to_string(i),
+                           .start_level = i,
+                           .nesting_level = 1,  // Thread nesting level
+                           .expanded = true});
+    data.events_by_level.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set display size small to ensure culling happens.
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+
+  // Based on the heights, we expect only a few groups to be visible.
+  // With ThreadTrackGap=4 and kEventHeight=23, each thread is 27px.
+  // Viewport at 100px with 100px height should see roughly groups 4-8.
+  EXPECT_CALL(timeline_, DrawGroup(_, _)).Times(::testing::Between(3, 7));
+
+  SimulateFrame(/*scroll_y=*/100.0f, /*window_height=*/100.0f);
 }
 
 TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {
@@ -5970,6 +6000,146 @@ TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
 
   // Timer has expired
   EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+}
+
+TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Parent (Collapsed, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = false,
+  });
+
+  // Group 1: Child (nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Verify group visibility calculated by UpdateLevelPositions
+  // Parent: visible (true)
+  // Child: invisible (false)
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 2);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);
+  EXPECT_FALSE(timeline_.CallGroupVisible()[1]);
+
+  // If queried on Child (1) -> must backtrack and return Parent (0)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(1), 0);
+
+  // If queried on Parent (0) -> returns self (0)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(0), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Grand Parent (Expanded, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Grand Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Parent (Collapsed, nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = false,
+  });
+
+  // Group 2: Child (nesting_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child",
+      .start_level = 2,
+      .nesting_level = 2,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 3);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);   // Grand Parent
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);   // Parent
+  EXPECT_FALSE(timeline_.CallGroupVisible()[2]);  // Child (Parent is collapsed)
+
+  // Child (2) is hidden by Parent (1), queries on 2 must return 1 (Parent)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       FindFirstVisibleAncestorIndex_SiblingCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Parent (Expanded, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Child A (Collapsed, nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child A",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = false,
+  });
+
+  // Group 2: Grandchild A (nesting_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Grandchild A",
+      .start_level = 2,
+      .nesting_level = 2,
+      .expanded = true,
+  });
+
+  // Group 3: Child B (Expanded, nesting_level = 1, sibling of Child A)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child B",
+      .start_level = 3,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 4);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Parent
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Child A
+  EXPECT_FALSE(
+      timeline_.CallGroupVisible()[2]);  // Grandchild A (under Child A)
+  EXPECT_TRUE(
+      timeline_.CallGroupVisible()[3]);  // Child B (should NOT be affected by
+                                         // Child A's collapse!)
+
+  // Child B (3) is visible, queried on it must return itself (3)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(3), 3);
+
+  // Grandchild A (2) is hidden under Child A (1), queried on it must return
+  // Child A (1)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
 }
 
 }  // namespace

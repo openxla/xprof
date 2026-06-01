@@ -370,6 +370,14 @@ class Timeline {
 
   virtual void DrawGroup(int group_index, double px_per_time_unit_val);
 
+  // Finds the index of the first visible ancestor (or the group itself if it is
+  // visible) for a given group index. Decoupled from scroll-height specific
+  // terms to allow general usage.
+  int FindFirstVisibleAncestorIndex(int start_idx) const;
+
+  // Returns the cached group visibility array.
+  const std::vector<bool>& group_visible() const { return group_visible_; }
+
  private:
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
@@ -495,6 +503,9 @@ class Timeline {
   // This prevents memory access out of bounds when `group_offsets_.back()`
   // is called during rendering before timeline_data_ has been fully loaded.
   std::vector<Pixel> group_offsets_ = {0.0f};
+  // Stores whether each group is visible (not hidden by a collapsed parent).
+  // Precalculated in UpdateLevelPositions.
+  std::vector<bool> group_visible_;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.

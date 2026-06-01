@@ -139,12 +139,34 @@ int GetNextGroupStartLevel(const FlameChartTimelineData& data,
 
 }  // namespace
 
+// Finds the index of the first visible ancestor (or the group itself if it is
+// visible) for a given group index.
+//
+// During layout pre-computation (`UpdateLevelPositions`), any child group
+// nesting under a collapsed (collapsed == !expanded) parent will have its
+// visibility flag (`group_visible_[index]`) set to false. All of its
+// descendants form a contiguous range of invisible groups because of the
+// parent's collapsed state.
+//
+// If the queried group index points to an invisible group (for instance, when
+// locating groups from physical screen coordinates or user interactions), we
+// backtrack (decrement index) to find the nearest ancestor group that is
+// currently visible.
+int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
+  while (start_idx > 0 && start_idx < group_visible_.size() &&
+         !group_visible_[start_idx]) {
+    start_idx--;
+  }
+  return start_idx;
+}
+
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
 
   std::vector<Pixel> new_visible_level_offsets(level_count, 0.0f);
   std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
+  std::vector<bool> new_group_visible(group_count, true);
 
   Pixel current_offset =
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
@@ -163,6 +185,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
       for (int level = group.start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
@@ -236,6 +259,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   group_offsets_ = std::move(new_group_offsets);
   visible_level_offsets_ = std::move(new_visible_level_offsets);
+  group_visible_ = std::move(new_group_visible);
 }
 
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
@@ -332,8 +356,30 @@ void Timeline::Draw() {
   DrawVerticalGridLines(tick_info, current_timeline_width_,
                         viewport->Pos.y + viewport->Size.y);
 
-  for (int group_index = 0; group_index < timeline_data_.groups.size();
-       ++group_index) {
+  const Pixel scroll_y = ImGui::GetScrollY();
+  const Pixel window_height = ImGui::GetWindowHeight();
+
+  // Find the first group that is visible.
+  auto start_it = std::upper_bound(group_offsets_.begin() + 1,
+                                   group_offsets_.end(), scroll_y);
+  int start_idx = std::distance(group_offsets_.begin(), start_it) - 1;
+  start_idx = std::max(
+      0, std::min(start_idx, static_cast<int>(timeline_data_.groups.size())));
+
+  // If the start_idx lands on a child of a collapsed group, scan backwards
+  // to find the first visible ancestor using our pre-computed visibility map.
+  start_idx = FindFirstVisibleAncestorIndex(start_idx);
+
+  // Find the last group that is visible.
+  auto end_it = std::upper_bound(group_offsets_.begin(), group_offsets_.end(),
+                                 scroll_y + window_height);
+  int end_idx = timeline_data_.groups.size();
+  if (end_it != group_offsets_.end()) {
+    end_idx = std::distance(group_offsets_.begin(), end_it);
+  }
+
+  for (int group_index = start_idx; group_index < end_idx; ++group_index) {
+    if (!group_visible_[group_index]) continue;
     Group& group = timeline_data_.groups[group_index];
     ImGui::PushID(group_index);
 

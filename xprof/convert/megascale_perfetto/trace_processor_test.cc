@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "<gtest/gtest.h>"
+#include "absl/strings/string_view.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
 namespace xprof::megascale {
@@ -16,11 +17,13 @@ TEST(TraceProcessorTest, SortsEvents) {
   track.name = "XLA Ops";
 
   // Unsorted events
-  track.events.push_back({"op 1", /*ts=*/100, /*duration=*/50});
-  track.events.push_back({"op 2", /*ts=*/200, /*duration=*/50});
+  track.events.push_back(
+      {"op 1", /*ts=*/100,
+       /*duration=*/50});  // Below 1ns is ok (only 1 event, won't group)
+  track.events.push_back({"op 2", /*ts=*/200, /*duration=*/1500});
   // If timestamps are the same, longer duration should come first.
-  track.events.push_back({"op 3", /*ts=*/200, /*duration=*/100});
-  track.events.push_back({"op 4", /*ts=*/50, /*duration=*/100});
+  track.events.push_back({"op 3", /*ts=*/200, /*duration=*/2000});
+  track.events.push_back({"op 4", /*ts=*/50, /*duration=*/1200});
 
   TraceProcessor processor(&trace);
   processor.Process();
@@ -347,6 +350,184 @@ TEST(TraceProcessorTest, ResolvesFlows) {
   std::vector<int64_t> recv_done_end_in =
       get_flow_ids(recv_done_end_ref, FlowDirection::kSink);
   EXPECT_TRUE(has_common_element(h2d_end_out, recv_done_end_in));
+}
+
+TEST(TraceProcessorTest, GroupsTinyEvents) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "XLA Ops";
+
+  // Tiny events at the same truncated nanosecond (100ns -> 100,000ps)
+  // ts=100.0ns, dur=0.2ns, run_id=-1
+  track.events.push_back({"Fusion:op1", 100000, 200});
+  // ts=100.3ns, dur=0.1ns, run_id=-1
+  track.events.push_back({"Fusion:op2", 100300, 100});
+  // ts=100.5ns, dur=0.3ns, run_id=-1
+  track.events.push_back({"Fusion:op3", 100500, 300});
+
+  // Non-colliding tiny event at another timestamp (201ns -> 201,000ps)
+  // ts=201.0ns, dur=0.1ns, run_id=-1
+  track.events.push_back({"Fusion:op4", 201000, 100});
+
+  // Large compute event at the first timestamp (dur >= 1ns [1000ps])
+  // ts=100.8ns, dur=1.5ns, run_id=-1
+  track.events.push_back({"LargeOp", 100800, 1500});
+
+  // Isolated tiny event mapping to a different nanosecond (ts/1000 = 8)
+  // ts=800.0ns, dur=0.1ns, run_id=-1
+  track.events.push_back({"Fusion:isolated", 800000, 100});
+
+  TraceProcessor processor(&trace, /*group_tiny_events=*/true);
+  processor.Process();
+
+  // Ops 1, 2, and 3 should be grouped in-place.
+  // LargeOp has duration >= 1ns, so remains raw.
+  // Fusion:op4 is tiny but stands raw since it is alone at 201ns.
+  // Expected track layout order after processing and sorting:
+  // 1. SummaryBlock: ts=100,000ps, dur=800ps
+  // 2. LargeOp: ts=100,800ps, dur=1500ps
+  // 3. Fusion:op4: ts=201,000ps, dur=100ps
+  // 4. Fusion:isolated: ts=800,000ps, dur=100ps
+  ASSERT_EQ(track.events.size(), 4);
+
+  EXPECT_EQ(track.events[0].name, "3 events are hidden");
+  EXPECT_EQ(track.events[0].timestamp_ps, 100000);
+  EXPECT_EQ(track.events[0].duration_ps, 800);
+
+  auto get_arg_str = [&](const Event& ev,
+                         absl::string_view key) -> std::string {
+    for (const auto& arg : ev.args) {
+      if (trace.string_table.Get(arg.key) == key) {
+        return std::string(
+            trace.string_table.Get(std::get<StringId>(arg.value)));
+      }
+    }
+    return "";
+  };
+
+  // Wrapped string literals complying with 80-character maximum boundaries
+  EXPECT_EQ(get_arg_str(track.events[0], "description"),
+            "If you would like to see them, please add "
+            "&group_tiny_events=false to the URL.");
+  EXPECT_EQ(get_arg_str(track.events[0], "hidden_events"),
+            "Fusion:op1, Fusion:op2, Fusion:op3");
+
+  // Verify that redundant run_id is NOT in the args list!
+  bool has_run_id_arg = false;
+  for (const auto& arg : track.events[0].args) {
+    if (trace.string_table.Get(arg.key) == "run_id") {
+      has_run_id_arg = true;
+    }
+  }
+  EXPECT_FALSE(has_run_id_arg);
+
+  EXPECT_EQ(track.events[1].name, "LargeOp");
+  EXPECT_EQ(track.events[2].name, "Fusion:op4");
+  EXPECT_EQ(track.events[3].name, "Fusion:isolated");
+}
+
+TEST(TraceProcessorTest,
+     ExemptSyncPrimitiveBreaksGroupingAndPreservesFlatLayout) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "XLA Ops";
+
+  // Intermixed tiny compute and sync primitives at the same truncated
+  // timestamp:
+  // ts=100.0ns, dur=0.2ns (tiny)
+  track.events.push_back({"Fusion:op1", 100000, 200});
+  // ts=100.3ns, dur=0.3ns (sync, exempt)
+  track.events.push_back({"send.3", 100300, 300});
+  // ts=100.7ns, dur=0.1ns (tiny)
+  track.events.push_back({"Fusion:op2", 100700, 100});
+
+  TraceProcessor processor(&trace, /*group_tiny_events=*/true);
+  processor.Process();
+
+  // Under "In-Place Contiguous Break" strategy, the sync primitive "send.3"
+  // breaks grouping contiguity instantly. Active group [op1] is flushed
+  // immediately (size=1 -> raw), "send.3" is pushed raw, and the new group
+  // [op2] is flushed raw at the end (size=1 -> raw). Verification: Grouping is
+  // entirely bypassed because no contiguous sequences of eligible tiny events
+  // reach the trigger threshold (N >= 2). All three slices remain raw and flat
+  // on the timeline.
+  ASSERT_EQ(track.events.size(), 3);
+
+  EXPECT_EQ(track.events[0].name, "Fusion:op1");
+  EXPECT_EQ(track.events[0].timestamp_ps, 100000);
+  EXPECT_EQ(track.events[0].duration_ps, 200);
+
+  EXPECT_EQ(track.events[1].name, "send.3");
+  EXPECT_EQ(track.events[1].timestamp_ps, 100300);
+  EXPECT_EQ(track.events[1].duration_ps, 300);
+
+  EXPECT_EQ(track.events[2].name, "Fusion:op2");
+  EXPECT_EQ(track.events[2].timestamp_ps, 100700);
+  EXPECT_EQ(track.events[2].duration_ps, 100);
+}
+
+TEST(TraceProcessorTest, GroupingEnforcesRunIdMatch) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "XLA Ops";
+
+  // Adjacent tiny events under the same truncated nanosecond
+  // (100ns -> 100,000ps), but residing in completely separate execution
+  // program run boundaries (run_id 1 vs run_id 2).
+  Event e1{"Fusion:op1", 100000, 200};  // ts=100.0ns
+  e1.run_id = 1;
+  track.events.push_back(std::move(e1));
+
+  Event e2{"Fusion:op2", 100400, 200};  // ts=100.4ns
+  e2.run_id = 2;
+  track.events.push_back(std::move(e2));
+
+  TraceProcessor processor(&trace, /*group_tiny_events=*/true);
+  processor.Process();
+
+  // Folding tiny events across run boundaries must be prevented. Slices
+  // remain raw!
+  ASSERT_EQ(track.events.size(), 2);
+  EXPECT_EQ(track.events[0].name, "Fusion:op1");
+  EXPECT_EQ(track.events[1].name, "Fusion:op2");
+}
+
+TEST(TraceProcessorTest, GroupingToggleDisablesPass) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "XLA Ops";
+
+  track.events.push_back({"Fusion:op1", 100000, 200});
+  track.events.push_back({"Fusion:op2", 100300, 100});
+
+  // group_tiny_events = false -> Disables summary grouping layout
+  // optimization!
+  TraceProcessor processor(&trace, /*group_tiny_events=*/false);
+  processor.Process();
+
+  ASSERT_EQ(track.events.size(), 2);
+  EXPECT_EQ(track.events[0].name, "Fusion:op1");
+  EXPECT_EQ(track.events[1].name, "Fusion:op2");
+}
+
+TEST(TraceProcessorTest, GroupsTinyEventsOnTraceMe) {
+  XprofTrace trace;
+  Track& track = trace.tpu_fragments[0].emplace_back();
+  track.name = "XLA TraceMe";
+
+  // Tiny events at the same truncated nanosecond (100ns -> 100,000ps)
+  track.events.push_back({"TraceMe:op1", 100000, 200});
+  track.events.push_back({"TraceMe:op2", 100300, 100});
+  track.events.push_back({"TraceMe:op3", 100500, 300});
+
+  TraceProcessor processor(&trace, /*group_tiny_events=*/true);
+  processor.Process();
+
+  ASSERT_EQ(track.events.size(), 1);
+  EXPECT_EQ(track.events[0].name, "3 events are hidden");
+  EXPECT_EQ(track.events[0].timestamp_ps, 100000);
+  EXPECT_EQ(track.events[0].duration_ps, 800);
+  EXPECT_EQ(track.name, "4. XLA TraceMe");
 }
 
 }  // namespace

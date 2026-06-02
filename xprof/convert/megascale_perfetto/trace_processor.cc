@@ -10,6 +10,7 @@
 #include <variant>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
@@ -30,6 +31,15 @@ static constexpr LazyRE2 kSendDoneRe = {R"re(send-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kRecvDoneRe = {R"re(recv-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kGraphNameRe = {
     R"re((device_\d+_gid_[a-zA-Z0-9\.-]+_\d+))re"};
+
+bool IsExemptFromTinyEventGrouping(absl::string_view name) {
+  if (!absl::StartsWith(name, "send") && !absl::StartsWith(name, "recv")) {
+    return false;
+  }
+  return RE2::FullMatch(name, *kSendRe) || RE2::FullMatch(name, *kRecvRe) ||
+         RE2::FullMatch(name, *kSendDoneRe) ||
+         RE2::FullMatch(name, *kRecvDoneRe);
+}
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -186,9 +196,20 @@ class FlowQueueMap {
 // TraceProcessor Implementation
 // -----------------------------------------------------------------------------
 
+TraceProcessor::TraceProcessor(XprofTrace* absl_nonnull trace,
+                               bool group_tiny_events)
+    : trace_(*trace),
+      group_tiny_events_(group_tiny_events),
+      description_key_(trace_.string_table.Intern("description")),
+      description_val_(trace_.string_table.Intern(
+          "If you would like to see them, please add "
+          "&group_tiny_events=false to the URL.")),
+      hidden_events_key_(trace_.string_table.Intern("hidden_events")) {}
+
 void TraceProcessor::Process() {
   SortEvents();
   AssignRunIds();
+  MaybeGroupTinyEvents();
   MarkLastDmaEvents();
   ResolveFlows();
   AddGlobalCounters();
@@ -741,6 +762,104 @@ void TraceProcessor::ModifyTrackNames() {
   for (auto& [tpu_id, tracks] : trace_.megascale_fragments) {
     for (auto& track : tracks) {
       RenameTrack(track);
+    }
+  }
+}
+
+void TraceProcessor::MaybeGroupTinyEvents() {
+  if (!group_tiny_events_) return;
+  for (auto& [tpu_id, tracks] : trace_.tpu_fragments) {
+    for (Track& track : tracks) {
+      if (!absl::StrContains(track.name, "XLA Ops") &&
+          !absl::StrContains(track.name, "XLA TraceMe")) {
+        continue;
+      }
+
+      size_t read_idx = 0;
+      size_t write_idx = 0;
+
+      while (read_idx < track.events.size()) {
+        const Event& start_event = track.events[read_idx];
+        const bool is_exempt = IsExemptFromTinyEventGrouping(start_event.name);
+        const bool is_tiny = start_event.duration_ps < 1000;
+
+        // Skip non-eligible events.
+        if (!is_tiny || is_exempt) {
+          if (write_idx != read_idx) {
+            track.events[write_idx] = std::move(track.events[read_idx]);
+          }
+          write_idx++;
+          read_idx++;
+          continue;
+        }
+
+        // Group all subsequent tiny events that share the same nanosecond
+        // timestamp.
+        const int64_t truncated_ts = start_event.timestamp_ps / 1000;
+        const int64_t run_id = start_event.run_id;
+
+        size_t j = read_idx + 1;
+        int64_t max_end = start_event.timestamp_ps + start_event.duration_ps;
+        size_t total_name_len = start_event.name.size();
+
+        while (j < track.events.size()) {
+          const Event& curr = track.events[j];
+          const bool curr_exempt = IsExemptFromTinyEventGrouping(curr.name);
+          const bool curr_tiny = curr.duration_ps < 1000;
+
+          // Terminate early on step border transition or exemptions.
+          if (!curr_tiny || curr_exempt ||
+              curr.timestamp_ps / 1000 != truncated_ts ||
+              curr.run_id != run_id) {
+            break;
+          }
+
+          const int64_t curr_end = curr.timestamp_ps + curr.duration_ps;
+          if (curr_end > max_end) {
+            max_end = curr_end;
+          }
+          total_name_len += curr.name.size() + 2;  // +2 for comma + space
+          j++;
+        }
+
+        const size_t count = j - read_idx;
+        if (count >= 2) {
+          Event summary;
+          summary.name = absl::StrCat(count, " events are hidden");
+          // Timestamps are sorted. start_event is earliest.
+          summary.timestamp_ps = start_event.timestamp_ps;
+          summary.duration_ps = max_end - start_event.timestamp_ps;
+          summary.run_id = run_id;
+
+          std::string hidden_events_str;
+          hidden_events_str.reserve(total_name_len);
+          hidden_events_str = start_event.name;
+          for (size_t k = read_idx + 1; k < j; ++k) {
+            absl::StrAppend(&hidden_events_str, ", ", track.events[k].name);
+          }
+
+          summary.args.reserve(2);
+          summary.args.push_back({description_key_, description_val_});
+          summary.args.push_back(
+              {hidden_events_key_,
+               trace_.string_table.Intern(hidden_events_str)});
+
+          track.events[write_idx] = std::move(summary);
+          write_idx++;
+          read_idx = j;
+          continue;
+        }
+
+        if (write_idx != read_idx) {
+          track.events[write_idx] = std::move(track.events[read_idx]);
+        }
+        write_idx++;
+        read_idx++;
+      }
+
+      if (write_idx < track.events.size()) {
+        track.events.resize(write_idx);
+      }
     }
   }
 }

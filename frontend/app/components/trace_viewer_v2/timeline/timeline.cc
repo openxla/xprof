@@ -1264,7 +1264,6 @@ void Timeline::DrawEvent(int group_index, int event_index,
       const Pixel centerX = rect.left;
       const Pixel chevron_half_width = 3.0f;
       const Pixel chevron_height = 7.0f;
-      const Pixel thickness = 2.0f;
 
       ImVec2 top(centerX, rect.top);
       ImVec2 left_bottom(centerX - chevron_half_width,
@@ -1272,8 +1271,14 @@ void Timeline::DrawEvent(int group_index, int event_index,
       ImVec2 right_bottom(centerX + chevron_half_width,
                           rect.top + chevron_height);
 
-      draw_list->AddLine(top, left_bottom, event_color, thickness);
-      draw_list->AddLine(top, right_bottom, event_color, thickness);
+      // Add transparency (0.6 opacity) to the event color of instant events
+      // to help distinguish overlapping ones.
+      const ImU32 transparent_color =
+          (event_color & ~IM_COL32_A_MASK) |
+          (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT);
+
+      draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
+                                   transparent_color);
     } else {
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                                ImVec2(rect.right, rect.bottom), event_color,
@@ -1345,10 +1350,8 @@ void Timeline::DrawEvent(int group_index, int event_index,
         ImVec2 right_bottom(centerX + chevron_half_width,
                             rect.top + chevron_height);
 
-        draw_list->AddLine(top, left_bottom, kSelectedBorderColor,
-                           kSelectedBorderThickness);
-        draw_list->AddLine(top, right_bottom, kSelectedBorderColor,
-                           kSelectedBorderThickness);
+        draw_list->AddTriangle(top, left_bottom, right_bottom,
+                               kSelectedBorderColor, kSelectedBorderThickness);
       } else {
         // Draw a border around the selected event.
         draw_list->AddRect(ImVec2(rect.left, rect.top),

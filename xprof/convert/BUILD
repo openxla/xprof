@@ -1917,6 +1917,23 @@ cc_library(
 )
 
 cc_test(
+    name = "flat_op_stats_to_op_profile_test",
+    srcs = ["flat_op_stats_to_op_profile_test.cc"],
+    deps = [
+        ":flat_op_stats_to_op_profile",
+        ":op_profile_builder",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+    ],
+)
+
+cc_test(
     name = "hlo_proto_to_graph_view_test",
     size = "small",
     srcs = ["hlo_proto_to_graph_view_test.cc"],

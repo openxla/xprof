@@ -147,12 +147,16 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const searchParams = this.getSearchParams();
     const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
+    const baseSessionId = searchParams.get('baseSessionID');
     let params = new HttpParams();
     if (sessionPath) {
       params = params.set('session_path', sessionPath);
     }
     if (runPath) {
       params = params.set('run_path', runPath);
+    }
+    if (baseSessionId) {
+      params = params.set('baseSessionID', baseSessionId);
     }
     return params;
   }
@@ -290,11 +294,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
       const sessionPath = this.getSearchParams().get('session_path');
       const runPath = this.getSearchParams().get('run_path');
+      const baseSessionId = this.getSearchParams().get('baseSessionID');
       if (sessionPath) {
         linkParams.set('session_path', sessionPath);
       }
       if (runPath) {
         linkParams.set('run_path', runPath);
+      }
+      if (baseSessionId) {
+        linkParams.set('baseSessionID', baseSessionId);
       }
       return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
     }
@@ -332,11 +340,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const searchParams = new URLSearchParams();
     const sessionPath = this.getSearchParams().get('session_path');
     const runPath = this.getSearchParams().get('run_path');
+    const baseSessionId = this.getSearchParams().get('baseSessionID');
     if (sessionPath) {
       searchParams.set('session_path', sessionPath);
     }
     if (runPath) {
       searchParams.set('run_path', runPath);
+    }
+    if (baseSessionId) {
+      searchParams.set('baseSessionID', baseSessionId);
     }
     searchParams.set('run', sessionId);
     searchParams.set('tag', 'graph_viewer');
@@ -429,11 +441,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
       const searchParams = this.getSearchParams();
       const sessionPath = searchParams.get('session_path');
       const runPath = searchParams.get('run_path');
+      const baseSessionId = searchParams.get('baseSessionID');
       if (sessionPath) {
         linkParams.set('session_path', sessionPath);
       }
       if (runPath) {
         linkParams.set('run_path', runPath);
+      }
+      if (baseSessionId) {
+        linkParams.set('baseSessionID', baseSessionId);
       }
       return `${window.parent.location.origin}/${DATA_API}?${linkParams.toString()}#profile`;
     }
@@ -528,6 +544,20 @@ export class DataServiceV2 implements DataServiceV2Interface {
     );
     const newUrl = window.location.pathname + '?' + searchParams.toString();
     window.history.replaceState({}, '', newUrl);
+  }
+
+  getBaseSessionId(): string | null {
+    return this.getSearchParams().get('baseSessionID');
+  }
+
+  setBaseSessionId(baseSessionId: string) {
+    const searchParams = this.getSearchParams();
+    if (baseSessionId) {
+      searchParams.set('baseSessionID', baseSessionId);
+    } else {
+      searchParams.delete('baseSessionID');
+    }
+    this.setSearchParams(searchParams);
   }
 
   exportDataAsCSV(
@@ -637,11 +667,15 @@ export class DataServiceV2 implements DataServiceV2Interface {
     const sessionPath = searchParams.get('session_path');
     const runPath = searchParams.get('run_path');
     const host = searchParams.get('host');
+    const baseSessionId = searchParams.get('baseSessionID');
     if (sessionPath) {
       params.set('session_path', sessionPath);
     }
     if (runPath) {
       params.set('run_path', runPath);
+    }
+    if (baseSessionId) {
+      params.set('baseSessionID', baseSessionId);
     }
     params.set('run', sessionId);
     params.set('tag', 'roofline_model');

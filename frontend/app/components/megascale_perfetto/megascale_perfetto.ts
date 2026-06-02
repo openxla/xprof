@@ -30,6 +30,7 @@ export class MegascalePerfetto implements OnDestroy {
   protected perfettoUrl = `${this.perfettoOrigin}?hideSidebar=true`;
   sessionId = '';
   host = '';
+  groupTinyEvents = '';
   private initTimer: number | null = null;
   private pingTimer: number | null = null;
   private isLoading = false;
@@ -49,6 +50,7 @@ export class MegascalePerfetto implements OnDestroy {
         // across codebase to this.sessionId = params['sessionId'] ?? '';
         this.sessionId = (params || {})['sessionId'] || '';
         this.host = (queryParams || {})['host'] || '';
+        this.groupTinyEvents = (queryParams || {})['group_tiny_events'] || '';
         this.perfettoDataUrl = this.buildPerfettoDataURL();
         this.perfettoUrl = this.buildMegascalePerfettoUrl();
       });
@@ -104,6 +106,9 @@ export class MegascalePerfetto implements OnDestroy {
     requestURL.searchParams.set('tag', 'megascale_stats');
     if (this.host) {
       requestURL.searchParams.set('host', this.host);
+    }
+    if (this.groupTinyEvents !== '') {
+      requestURL.searchParams.set('group_tiny_events', this.groupTinyEvents);
     }
     return requestURL.toString();
   }

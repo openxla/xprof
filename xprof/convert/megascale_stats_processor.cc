@@ -71,7 +71,9 @@ absl::Status MegascaleStatsProcessor::ProcessSession(
     TF_ASSIGN_OR_RETURN(XSpace * xspace,
                         session_snapshot.GetXSpaceByName(*hostname, &arena));
     XprofTrace xprof_trace = XSpaceLoader::Load(*xspace);
-    TraceProcessor processor(&xprof_trace);
+    const bool group_tiny_events =
+        GetParam<bool>(options, "group_tiny_events").value_or(true);
+    TraceProcessor processor(&xprof_trace, group_tiny_events);
     processor.Process();
     content_type_ = "application/octet-stream";
     return PerfettoWriter::WriteToString(xprof_trace, &data_,

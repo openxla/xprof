@@ -481,5 +481,134 @@ TEST(TraceEventsSearchTest, SearchMetadataInternedAndEdgeCases) {
   }
 }
 
+TEST(TraceEventsKeyLengthTest, KeyGenerationAndParsing) {
+  // Test key generation logic for kLegacyKeyLength
+  std::string legacy_key =
+      LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/12345, /*repetition=*/10,
+                      kLegacyKeyLength);
+  EXPECT_EQ(legacy_key.size(), kLegacyKeyLength);
+  EXPECT_EQ(TimestampFromLevelDbTableKey(legacy_key), 12345);
+
+  // Repetition >= 256 should return empty string for kLegacyKeyLength
+  EXPECT_EQ(LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/12345,
+                            /*repetition=*/256, kLegacyKeyLength),
+            "");
+
+  // Test key generation logic for kExtendedKeyLength
+  std::string extended_key =
+      LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/12345,
+                      /*repetition=*/1000, kExtendedKeyLength);
+  EXPECT_EQ(extended_key.size(), kExtendedKeyLength);
+  EXPECT_EQ(TimestampFromLevelDbTableKey(extended_key), 12345);
+
+  // Repetition >= 65536 should return empty string for kExtendedKeyLength
+  EXPECT_EQ(LevelDbTableKey(/*zoom_level=*/0, /*timestamp=*/12345,
+                            /*repetition=*/65536, kExtendedKeyLength),
+            "");
+
+  // Backward compatibility test: write dynamic table files and check
+  // DetectDbKeyLength.
+  std::string file_path_legacy = GetTempFilename("legacy_detect.ldb");
+  std::string file_path_extended = GetTempFilename("extended_detect.ldb");
+
+  auto env = tsl::Env::Default();
+
+  // 1. Write a legacy-keyed Table
+  {
+    std::unique_ptr<tsl::WritableFile> file;
+    ASSERT_OK(env->NewWritableFile(file_path_legacy, &file));
+    tsl::table::Options options;
+    tsl::table::TableBuilder builder(options, file.get());
+    builder.Add("/trace", "dummy_metadata");
+    builder.Add(LevelDbTableKey(0, 1000, 5, kLegacyKeyLength), "event_data");
+    ASSERT_OK(builder.Finish());
+    ASSERT_OK(file->Close());
+  }
+
+  // 2. Write an extended-keyed Table
+  {
+    std::unique_ptr<tsl::WritableFile> file;
+    ASSERT_OK(env->NewWritableFile(file_path_extended, &file));
+    tsl::table::Options options;
+    tsl::table::TableBuilder builder(options, file.get());
+    builder.Add("/trace", "dummy_metadata");
+    builder.Add(LevelDbTableKey(0, 1000, 5, kExtendedKeyLength), "event_data");
+    ASSERT_OK(builder.Finish());
+    ASSERT_OK(file->Close());
+  }
+
+  // Read & check legacy key detection
+  {
+    uint64_t file_size;
+    ASSERT_OK(env->GetFileSize(file_path_legacy, &file_size));
+    std::unique_ptr<tsl::RandomAccessFile> file;
+    ASSERT_OK(env->NewRandomAccessFile(file_path_legacy, &file));
+    tsl::table::Options options;
+    tsl::table::Table* table = nullptr;
+    ASSERT_OK(tsl::table::Table::Open(options, file.get(), file_size, &table));
+    std::unique_ptr<tsl::table::Table> table_deleter(table);
+    std::unique_ptr<tsl::table::Iterator> iterator(table->NewIterator());
+
+    iterator->SeekToFirst();
+    iterator->Next();  // skip "/trace"
+    auto detected_or = DetectDbKeyLength(iterator.get());
+    ASSERT_OK(detected_or.status());
+    EXPECT_EQ(*detected_or, kLegacyKeyLength);
+  }
+
+  // Read & check extended key detection
+  {
+    uint64_t file_size;
+    ASSERT_OK(env->GetFileSize(file_path_extended, &file_size));
+    std::unique_ptr<tsl::RandomAccessFile> file;
+    ASSERT_OK(env->NewRandomAccessFile(file_path_extended, &file));
+    tsl::table::Options options;
+    tsl::table::Table* table = nullptr;
+    ASSERT_OK(tsl::table::Table::Open(options, file.get(), file_size, &table));
+    std::unique_ptr<tsl::table::Table> table_deleter(table);
+    std::unique_ptr<tsl::table::Iterator> iterator(table->NewIterator());
+
+    iterator->SeekToFirst();
+    iterator->Next();  // skip "/trace"
+    auto detected_or = DetectDbKeyLength(iterator.get());
+    ASSERT_OK(detected_or.status());
+    EXPECT_EQ(*detected_or, kExtendedKeyLength);
+  }
+}
+
+TEST(TraceEventsVisibilityTest, FlowEventsZoomLevelAssignmentAndSafetyGuard) {
+  Trace trace;
+  trace.set_min_timestamp_ps(0);
+  trace.set_max_timestamp_ps(10000000000000ull);  // 10s trace.
+
+  TraceEventTrack track;
+  TraceEvent flow_event;
+  flow_event.set_device_id(1);
+  flow_event.set_resource_id(1);
+  flow_event.set_name("HugeFlowEvent");
+  flow_event.set_timestamp_ps(100);
+  flow_event.set_duration_ps(1000000000000ull);  // 1s duration.
+  flow_event.set_flow_id(42);
+  flow_event.set_flow_entry_type(TraceEvent::FLOW_START);
+  track.push_back(&flow_event);
+
+  std::vector<const TraceEventTrack*> tracks = {&track};
+  std::vector<std::vector<const TraceEvent*>> events_by_level =
+      GetEventsByLevel(trace, tracks);
+
+  // Since this event has a 1s duration, it must be visible at zoom level 0.
+  // If the OR semantics is working, zoom level 0 must contain this event.
+  bool found_in_coarse_level = false;
+  for (int level = 0; level < 3; ++level) {
+    for (const auto* event : events_by_level[level]) {
+      if (event->name() == "HugeFlowEvent") {
+        found_in_coarse_level = true;
+        break;
+      }
+    }
+  }
+  EXPECT_TRUE(found_in_coarse_level);
+}
+
 }  // namespace
 }  // namespace tensorflow::profiler

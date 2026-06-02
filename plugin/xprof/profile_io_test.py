@@ -69,11 +69,12 @@ class LocalFileSystemTest(absltest.TestCase):
     self.fs = profile_io.LocalFileSystem()
 
   def test_get_xplane_basenames(self):
-    """Checks that it returns only .xplane.pb basenames."""
+    """Checks that it returns only .xplane.pb and .xplane.riegeli basenames."""
     self.temp_dir.create_file('1.xplane.pb', content='test')
     self.temp_dir.create_file('2.txt', content='test2')
+    self.temp_dir.create_file('3.xplane.riegeli', content='test3')
     basenames = self.fs.get_xplane_basenames(self.temp_dir.full_path)
-    self.assertEqual(basenames, ['1.xplane.pb'])
+    self.assertCountEqual(basenames, ['1.xplane.pb', '3.xplane.riegeli'])
 
   def test_dir_has_xplane_files(self):
     """Checks for the presence of .xplane.pb files."""
@@ -137,18 +138,20 @@ class GcsFileSystemTest(absltest.TestCase):
     self.fs = profile_io.GcsFileSystem()
 
   def test_get_xplane_basenames(self):
-    """Checks that it returns only .xplane.pb basenames from GCS."""
+    """Checks that it returns only .xplane.pb and .xplane.riegeli basenames from GCS."""
     mock_blob1 = mock.MagicMock()
     mock_blob1.name = 'path/to/1.xplane.pb'
     mock_blob2 = mock.MagicMock()
     mock_blob2.name = 'path/to/2.txt'
+    mock_blob3 = mock.MagicMock()
+    mock_blob3.name = 'path/to/3.xplane.riegeli'
 
     self.mock_client.list_blobs.return_value = MockIterator(
-        [mock_blob1, mock_blob2]
+        [mock_blob1, mock_blob2, mock_blob3]
     )
 
     basenames = self.fs.get_xplane_basenames('gs://bucket/path')
-    self.assertEqual(basenames, ['1.xplane.pb'])
+    self.assertCountEqual(basenames, ['1.xplane.pb', '3.xplane.riegeli'])
 
   def test_read_json(self):
     """Checks reading JSON from GCS."""

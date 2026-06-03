@@ -1,7 +1,7 @@
 # XProf Kernel User Guide
 
 XProf Kernel is a product suite designed for Pallas Kernel authoring and performance optimization. It enhances
-visibility and understanding of "custom-calls" runtime performance—areas that typically remain "black boxes" within
+visibility and understanding of "custom-calls" runtime performance---areas that typically remain "black boxes" within
 XProf event tracing.
 
 XProf currently offers features like [custom call profiling](./custom_call_profiling.md), which traces static TPU
@@ -10,7 +10,7 @@ it lacks visibility into the detailed runtime behavior of various TPU components
 enabling the profiling of fine-grained runtime performance counters. This guide explains how to trigger, collect, and
 visualize these counters in a time-series format within the Trace Viewer.
 
-NOTE: This advanced feature is available for Ironwood (TPU7x) and subsequent versions.
+> **Note:** This advanced feature is available for Ironwood (TPU7x) and subsequent versions.
 
 ## Enabling Fine-Grained Performance Counters
 
@@ -21,10 +21,10 @@ JAX Profiler TPU options, as shown in the example below:
 ```py
 options = jax.profiler.ProfileOptions()
 options.advanced_configuration = {
-"tpu_enable_periodic_counter_sampling" : True,
-"tpu_tc_perf_counter_sampling_options" : (
-          'interval_us:1 scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58'
-),
+    "tpu_enable_periodic_counter_sampling" : True,
+    "tpu_tc_perf_counter_sampling_options" : (
+        'interval_us:1 scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58'
+    ),
 }
 ```
 
@@ -47,18 +47,18 @@ options.advanced_configuration = {
 Use the **Perf Counters** tool to identify the specific indices for the component you wish to profile. Follow these steps:
 
 1. Navigate to perf counters in any TensorBoard trace supporting perf counters.
-2. Enable “Show Zero Values” to get a complete list of counters profiled.
+2. Enable "Show Zero Values" to get a complete list of counters profiled.
 3. Search for your target **component**. Use the **bolded** keywords from the table below as search queries to locate
    the correct counters:
 
 | Component | Keyword |
 | :---- | :---- |
-| TC | `vf_chip_die0_tc_tcs_tc_misc_tcs_stats_tcs_stats_counters` |
-| SCS | `vf_chip_die0_sc_0_scs_sc_stats_counters` |
-| SCTD | `vf_chip_die0_sc_0_sctd_0_sc_stats_counters` |
-| SCTC | `vf_chip_die0_sc_0_sctc_0_sc_stats_counters` |
-| CMN | `vf_chip_die0_cmn_cmnur_0_cmn_stats_debug_fixed_stats_counters` |
-| ICR | `vf_chip_chiplet_icr_icr_data_0_debug_domain_icr_data_stats_packet_counters` |
+| TC | `vf_chip_**die0_tc_tcs**_tc_misc_tcs_stats_tcs_stats_counters` |
+| SCS | `vf_chip_**die0_sc_0_scs**_sc_stats_counters` |
+| SCTD | `vf_chip_**die0_sc_0_sctd_0_sc**_stats_counters` |
+| SCTC | `vf_chip_**die0_sc_0_sctc_0**_sc_stats_counters` |
+| CMN | `vf_chip_**die0_cmn_cmnur_0**_cmn_stats_debug_fixed_stats_counters` |
+| ICR | `vf_chip_chiplet_**icr_icr_data_0_debug_domain_icr_data_stats_packet**_counters` |
 
 4. Identify your counter in the resulting table. Calculate the index as (**row index - 1**). Below is an example of the
    perf counters tool and the corresponding TC counters.
@@ -73,9 +73,28 @@ corresponding timestamp.
 
 ![Runtime counters](./images/kernel_2.png)
 
-## Coming Soon
+## Advanced: Event-Triggered Counter Sampling
 
-In addition to periodic performance counter collection, users will soon be able to capture counters triggered by
-external events, such as the execution of custom calls and TPU instructions. This will help attribute counter triggers
-and compare runtime versus static execution to identify bottlenecks at the bundle level and beyond. Please stay tuned
-for updates!
+In addition to periodic performance counter collection, you can configure counters to sample based on external events,
+such as the execution of custom calls or specific TPU instructions. 
+
+This event-driven approach provides sub-microsecond capture latency and highly precise attribution. By comparing runtime
+performance against static execution models, you can more effectively identify bottlenecks down to the bundle or 
+instruction level.
+
+To enable event-triggered collection, replace the `interval_us` parameter with `is_external_trigger:true` in your
+configuration. Example:
+
+```py
+options = jax.profiler.ProfileOptions()
+
+# Example request for externally triggered collection
+options.advanced_configuration = {
+    "tpu_enable_periodic_counter_sampling": True,
+    "tpu_tc_perf_counter_sampling_options": (
+        "is_external_trigger:true scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58"
+    ),
+}
+```
+
+![XProf Perf counter tool showing counter sampling](./images/counter_sampling.png)

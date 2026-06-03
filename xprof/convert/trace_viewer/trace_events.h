@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -68,11 +69,11 @@ using TraceEventTrack = std::vector<TraceEvent*>;
 
 using ResourceValue = std::variant<uint64_t, absl::string_view>;
 
-static constexpr absl::string_view kTraceMetadataKey = "/trace";
+inline constexpr absl::string_view kTraceMetadataKey = "/trace";
 // Constants used by the LevelDB Table-based efficient trace viewer storage.
-static constexpr absl::string_view kLevelKey("123456789ABCDEFGHIJKLMNOPQ");
+inline constexpr absl::string_view kLevelKey("123456789ABCDEFGHIJKLMNOPQ");
 
-constexpr uint64_t kLayerResolutions[] = {
+inline constexpr uint64_t kLayerResolutions[] = {
     1000000000000ull,  // 1 second.
     100000000000ull,  10000000000ull, 1000000000ull, 100000000ull,
     10000000ull,      1000000ull,     100000ull,     10000ull,
@@ -80,8 +81,42 @@ constexpr uint64_t kLayerResolutions[] = {
 };
 
 constexpr int NumLevels() { return TF_ARRAYSIZE(kLayerResolutions); }
-static constexpr size_t kLevelDbKeyLength = 10;
-static constexpr int kSearchParallelizationThreshold = 100;
+
+// LevelDB Table Key Formats:
+// Legacy format: zoom[1B] + timestamp[8B] + repetition[1B] = 10B
+// Extended format (upgraded to prevent duplicate stamp overflow): zoom[1B] +
+// timestamp[8B] + repetition[2B] = 11B
+inline constexpr size_t kLegacyKeyLength = 10;
+inline constexpr size_t kExtendedKeyLength = 11;
+
+// Default key length used when writing new tables.
+inline constexpr size_t kLevelDbKeyLength = kExtendedKeyLength;
+inline constexpr int kSearchParallelizationThreshold = 100;
+
+// Consolidates database key-length detection. Skips metadata keys to prevent
+// dynamic key length size pollution and validates bounds.
+inline absl::StatusOr<size_t> DetectDbKeyLength(
+    tsl::table::Iterator* iterator) {
+  if (iterator == nullptr) {
+    return kLegacyKeyLength;
+  }
+  size_t detected_key_length = kLegacyKeyLength;
+  while (iterator->Valid()) {
+    absl::string_view key = iterator->key();
+    if (!key.empty() && key[0] != '/') {
+      detected_key_length = key.size();
+      break;
+    }
+    iterator->Next();
+  }
+  if (detected_key_length != kLegacyKeyLength &&
+      detected_key_length != kExtendedKeyLength) {
+    return absl::InternalError(absl::StrCat(
+        "Invalid or corrupted database key format (detected key size: ",
+        detected_key_length, ")"));
+  }
+  return detected_key_length;
+}
 
 // Merge-sorts the given event tracks. Each track must be sorted.
 std::vector<TraceEvent*> MergeEventTracks(
@@ -140,7 +175,8 @@ uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key);
 uint64_t LayerResolutionPs(unsigned level);
 
 std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
-                            uint64_t repetition);
+                            uint64_t repetition,
+                            size_t key_length = kLevelDbKeyLength);
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,
                        absl::string_view metadata_key, Trace* trace);
@@ -227,6 +263,11 @@ absl::Status DoLoadFromLevelDbTable(
         "Could not parse Trace proto to read trace metadata");
   }
 
+  iterator->Next();  // Advance past metadata to detect the key format
+  auto db_key_length_or = DetectDbKeyLength(iterator.get());
+  if (!db_key_length_or.ok()) return db_key_length_or.status();
+  const size_t db_key_length = *db_key_length_or;
+
   if (filter) filter->SetUp(trace);
 
   tsl::profiler::Timespan visible_span;
@@ -253,7 +294,7 @@ absl::Status DoLoadFromLevelDbTable(
   TraceEvent event;  // Declared outside of the loop to avoid repeated calls to
                      // the constructor and destructor in the loop body. Cleared
                      // by every call to ParseFromCord.
-  for (int i = 0;; ++i) {
+  for (int i = 0; i < NumLevels(); ++i) {
     loaded_events_by_level.emplace_back(
         std::make_unique<std::vector<TraceEvent*>>());
     auto& loaded_events = *loaded_events_by_level.back();
@@ -264,7 +305,8 @@ absl::Status DoLoadFromLevelDbTable(
     if (i > 0 && visible_span.begin_ps() > LayerResolutionPs(i - 1)) {
       min_timestamp_ps = visible_span.begin_ps() - LayerResolutionPs(i - 1);
     }
-    iterator->Seek(LevelDbTableKey(i, i == 0 ? 0 : min_timestamp_ps, 0));
+    iterator->Seek(
+        LevelDbTableKey(i, i == 0 ? 0 : min_timestamp_ps, 0, db_key_length));
     if (metadata_iterator && iterator->Valid()) {
       metadata_iterator->Seek(iterator->key());
     }
@@ -605,9 +647,14 @@ absl::Status DoReadFullEventFromLevelDbTable(
     return absl::UnknownError("Could not parse Trace proto");
   }
 
+  trace_events_iterator->Next();
+  auto db_key_length_or = DetectDbKeyLength(trace_events_iterator.get());
+  if (!db_key_length_or.ok()) return db_key_length_or.status();
+  const size_t db_key_length = *db_key_length_or;
+
   for (int zoom_level = 0; zoom_level < NumLevels(); ++zoom_level) {
     std::string level_db_table_key =
-        LevelDbTableKey(zoom_level, timestamp_ps, unique_id);
+        LevelDbTableKey(zoom_level, timestamp_ps, unique_id, db_key_length);
     trace_events_iterator->Seek(level_db_table_key);
     if (trace_events_iterator->Valid() &&
         trace_events_iterator->key() == level_db_table_key) {
@@ -634,9 +681,9 @@ absl::Status DoReadFullEventFromLevelDbTable(
                 trace_events_metadata_iterator->value().size())) {
           return absl::UnknownError("Could not parse TraceEvent proto");
         }
+        event.set_raw_data(event_metadata.raw_data());
       }
       event.set_timestamp_ps(timestamp_ps);
-      event.set_raw_data(event_metadata.raw_data());
       auto event_references_in_trace_name_table_or =
           GetEventReferencesInTraceNameTable<RawDataType>(event);
       if (!event_references_in_trace_name_table_or.ok()) {

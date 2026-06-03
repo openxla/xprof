@@ -112,7 +112,7 @@ void ExtractMetadataKeys(const TraceEvent& event, const Trace& trace,
 
   raw_data.Clear();
   if (raw_data.ParseFromString(event.raw_data()) && raw_data.has_args()) {
-    for (const auto& arg : raw_data.args().arg()) {
+    for (const TraceEventArguments::Argument& arg : raw_data.args().arg()) {
       if (RE2::FullMatch(arg.name(), *kSearchableKeyRegex)) {
         std::string val;
         if (arg.has_str_value()) {
@@ -153,9 +153,13 @@ void MaybeAddEventUniqueId(const std::vector<TraceEvent*>& all_events) {
 }
 
 TraceEvent::EventType GetTraceEventType(const TraceEvent& event) {
-  return event.has_resource_id() ? TraceEvent::EVENT_TYPE_COMPLETE
-         : event.has_flow_id()   ? TraceEvent::EVENT_TYPE_ASYNC
-                                 : TraceEvent::EVENT_TYPE_COUNTER;
+  if (event.has_resource_id()) {
+    return TraceEvent::EVENT_TYPE_COMPLETE;
+  } else if (event.has_flow_id()) {
+    return TraceEvent::EVENT_TYPE_ASYNC;
+  } else {
+    return TraceEvent::EVENT_TYPE_COUNTER;
+  }
 }
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,
@@ -166,36 +170,65 @@ bool ReadTraceMetadata(tsl::table::Iterator* iterator,
   return trace->ParseFromString(serialized_trace);
 }
 
+template <typename T>
+T BigEndianToHost(T x) {
+  if constexpr (absl::endian::native == absl::endian::little) {
+    return absl::byteswap(x);
+  }
+  return x;
+}
+
+template <typename T>
+T HostToBigEndian(T x) {
+  if constexpr (absl::endian::native == absl::endian::little) {
+    return absl::byteswap(x);
+  }
+  return x;
+}
+
 uint64_t TimestampFromLevelDbTableKey(absl::string_view level_db_table_key) {
-  DCHECK_EQ(level_db_table_key.size(), kLevelDbKeyLength);
+  DCHECK(level_db_table_key.size() == kLegacyKeyLength ||
+         level_db_table_key.size() == kExtendedKeyLength)
+      << "Unexpected key size: " << level_db_table_key.size();
+  if (level_db_table_key.size() < kLegacyKeyLength) {
+    return 0;
+  }
   uint64_t value;  // big endian representation of timestamp.
   memcpy(&value, level_db_table_key.data() + 1, sizeof(uint64_t));
-  if constexpr (absl::endian::native == absl::endian::little) {
-    return absl::byteswap<uint64_t>(value);
-  } else {
-    return value;
-  }
+  return BigEndianToHost(value);
 }
 
 // Level Db table don't allow duplicated keys, so we add a tie break at the last
 // bytes. the format is zoom[1B] + timestamp[8B] + repetition[1B]
 std::string LevelDbTableKey(int zoom_level, uint64_t timestamp,
-                            uint64_t repetition) {
-  if (repetition >= 256) return std::string();
-  std::string output(kLevelDbKeyLength, 0);
+                            uint64_t repetition, size_t key_length) {
+  if (key_length != kLegacyKeyLength && key_length != kExtendedKeyLength) {
+    DCHECK(false) << "Invalid key length requested: " << key_length;
+    return std::string();
+  }
+  if (zoom_level < 0 || zoom_level >= NumLevels()) {
+    DCHECK(false) << "Invalid zoom level requested: " << zoom_level;
+    return std::string();
+  }
+  if (key_length == kLegacyKeyLength) {
+    if (repetition >= 256) return std::string();
+  } else {
+    if (repetition >= 65536) return std::string();
+  }
+  std::string output(key_length, 0);
   char* ptr = output.data();
   ptr[0] = kLevelKey[zoom_level];
   // The big-endianness preserve the monotonic order of timestamp when convert
   // to lexicographical order (of Sstable key namespace).
-  uint64_t timestamp_bigendian;
-  if constexpr (absl::endian::native == absl::endian::little) {
-    timestamp_bigendian = absl::byteswap<uint64_t>(timestamp);
-  } else {
-    timestamp_bigendian = timestamp;
-  }
-
+  uint64_t timestamp_bigendian = HostToBigEndian(timestamp);
   memcpy(ptr + 1, &timestamp_bigendian, sizeof(uint64_t));
-  ptr[9] = repetition;
+  if (key_length == kLegacyKeyLength) {
+    ptr[kLegacyKeyLength - 1] = repetition;
+  } else {
+    uint16_t repetition_bigendian =
+        HostToBigEndian(static_cast<uint16_t>(repetition));
+    memcpy(ptr + kLegacyKeyLength - 1, &repetition_bigendian, sizeof(uint16_t));
+  }
   return output;
 }
 
@@ -326,6 +359,14 @@ ProcessTrackEventsParallel(
                   it->second) {
                 break;
               }
+              if (event->duration_ps() >= LayerResolutionPs(zoom_level)) {
+                break;
+              }
+            }
+            track_events_by_level[j][zoom_level].push_back(event);
+            if (zoom_level < kNumLevels - 1) {
+              track_visibility_by_level[zoom_level].SetVisibleAtResolution(
+                  *event);
             }
           } else {
             for (; zoom_level < kNumLevels - 1; ++zoom_level) {
@@ -334,9 +375,8 @@ ProcessTrackEventsParallel(
                 break;
               }
             }
+            track_events_by_level[j][zoom_level].push_back(event);
           }
-
-          track_events_by_level[j][zoom_level].push_back(event);
 
           for (++zoom_level; zoom_level < kNumLevels - 1; ++zoom_level) {
             track_visibility_by_level[zoom_level].SetVisibleAtResolution(

@@ -265,6 +265,7 @@ cc_test(
     deps = [
         ":trace_events",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
@@ -272,6 +273,8 @@ cc_test(
         "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
+        "@xla//xla/tsl/lib/io:block",
+        "@xla//xla/tsl/lib/io:table_options",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/profiler/utils:timespan",
     ],

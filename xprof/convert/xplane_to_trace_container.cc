@@ -15,18 +15,23 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_trace_container.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/optimization.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "re2/re2.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
@@ -50,6 +55,144 @@ using tsl::profiler::XFlow;
 using tsl::profiler::XLineVisitor;
 using tsl::profiler::XPlaneVisitor;
 using tsl::profiler::XStatVisitor;
+
+std::string GetThreadPoolName(absl::string_view resource_name) {
+  std::string thread_name;
+  static LazyRE2 pattern = {R"((.*)\/\d+(:?-.*)?)"};
+  if (!RE2::FullMatch(resource_name, *pattern, &thread_name)) return "";
+  static LazyRE2 pattern2 = {R"((.*)[-_]\d+)"};
+  std::string pool_name;
+  if (RE2::FullMatch(thread_name, *pattern2, &pool_name)) return pool_name;
+  return thread_name;
+}
+
+class ThreadPoolGrouper : public ResourceGrouperInterface {
+ public:
+  ThreadPoolGrouper(uint32_t start_device_id, uint32_t first_pool_device_id,
+                    uint32_t max_pool_device_id,
+                    const XPlaneVisitor& plane_visitor, int pid_offset = 0)
+      : start_device_id_(start_device_id),
+        first_pool_device_id_(first_pool_device_id),
+        max_pool_device_id_(max_pool_device_id),
+        pid_offset_(pid_offset) {
+    GroupThreadsByPool(plane_visitor);
+  }
+
+  int pids_used() const { return thread_pools_.size() + pids_used_; }
+
+  std::vector<std::pair<uint32_t, absl::string_view>> Devices() const override {
+    std::vector<std::pair<uint32_t, absl::string_view>> devices;
+    devices.push_back({start_device_id_, plane_name_});
+    for (const auto& pool : thread_pools_) {
+      if (pool->num_threads == 0) continue;
+      devices.push_back({pool->device_id, pool->name});
+    }
+    return devices;
+  }
+
+  uint32_t GetDeviceId(uint32_t resource_id) const override {
+    auto it = thread_pool_map_.find(resource_id);
+    if (it == thread_pool_map_.end()) {
+      return start_device_id_;
+    }
+    return it->second.pool->device_id;
+  }
+
+ private:
+  struct ThreadPoolInfo {
+    ThreadPoolInfo(uint32_t id, absl::string_view n) : device_id(id), name(n) {}
+    uint32_t device_id;
+    std::string name;
+    uint32_t num_threads = 0;
+  };
+  struct ThreadInfo {
+    ThreadPoolInfo* pool;
+    absl::string_view name;
+  };
+
+  void GroupThreadsByPool(const XPlaneVisitor& plane_visitor) {
+    plane_name_ = plane_visitor.Name();
+    uint32_t initial_pid = start_device_id_;
+    if (pid_offset_ > 0) {
+      initial_pid = first_pool_device_id_ + pid_offset_ - 1;
+    }
+    if (initial_pid > max_pool_device_id_) {
+      initial_pid = max_pool_device_id_;
+    }
+
+    auto default_pool =
+        std::make_unique<ThreadPoolInfo>(initial_pid, plane_visitor.Name());
+    ThreadPoolInfo* default_pool_ptr = default_pool.get();
+    thread_pools_.push_back(std::move(default_pool));
+
+    plane_visitor.ForEachLine([&](const XLineVisitor& line) {
+      uint32_t tid = line.DisplayId();
+      thread_pool_map_[tid].name = line.DisplayName();
+      thread_pool_map_[tid].pool = default_pool_ptr;
+      ++default_pool_ptr->num_threads;
+    });
+
+    absl::flat_hash_map<std::string, std::vector<ThreadInfo*>> groups;
+    for (auto& [tid, info] : thread_pool_map_) {
+      std::string pool_name = GetThreadPoolName(info.name);
+      groups[pool_name].push_back(&info);
+      VLOG(1) << info.name << " assigned to '" << pool_name << "'";
+    }
+
+    if (groups.size() <= 1 || initial_pid >= max_pool_device_id_) return;
+
+    const size_t max_pools = max_pool_device_id_ - first_pool_device_id_ + 1;
+    const int available_pools = max_pools - pid_offset_;
+    if (available_pools <= 0) return;
+
+    std::vector<std::pair<absl::string_view, size_t>> pool_name_and_size;
+    for (const auto& [name, group] : groups) {
+      if (name.empty()) continue;
+      if (group.size() == 1) continue;
+      pool_name_and_size.push_back(
+          std::make_pair(absl::string_view(name), group.size()));
+    }
+
+    if (pool_name_and_size.size() > available_pools) {
+      std::partial_sort(pool_name_and_size.begin(),
+                        pool_name_and_size.begin() + available_pools,
+                        pool_name_and_size.end(),
+                        [](const std::pair<absl::string_view, size_t>& left,
+                           const std::pair<absl::string_view, size_t>& right) {
+                          return left.second > right.second;
+                        });
+      pool_name_and_size.resize(available_pools);
+    }
+
+    std::sort(pool_name_and_size.begin(), pool_name_and_size.end(),
+              [](const std::pair<absl::string_view, size_t>& left,
+                 const std::pair<absl::string_view, size_t>& right) {
+                return left.first < right.first;
+              });
+
+    for (int i = 0; i < pool_name_and_size.size(); ++i) {
+      const auto& [pool_name, num_threads] = pool_name_and_size[i];
+      uint32_t pool_device_id = first_pool_device_id_ + pid_offset_ + i;
+      if (pool_device_id > max_pool_device_id_) break;
+      thread_pools_.push_back(
+          std::make_unique<ThreadPoolInfo>(pool_device_id, pool_name));
+      for (auto* thread : groups[pool_name]) {
+        --thread->pool->num_threads;
+        thread->pool = thread_pools_.back().get();
+        ++thread->pool->num_threads;
+      }
+    }
+  }
+
+  uint32_t start_device_id_;
+  uint32_t first_pool_device_id_;
+  uint32_t max_pool_device_id_;
+  int pid_offset_;
+  std::string plane_name_;
+  int pids_used_ = 0;
+  std::vector<std::unique_ptr<ThreadPoolInfo>> thread_pools_;
+  absl::flat_hash_map<uint32_t, ThreadInfo> thread_pool_map_;
+};
 
 struct SpecialArguments {
   std::optional<int64_t> group_id;
@@ -194,13 +337,14 @@ void ConvertXLineToTraceEventsContainer(uint32_t device_id,
   });
 }
 
-void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
-                                         absl::string_view hostname,
-                                         const XPlane& xplane,
-                                         TraceEventsContainer* container) {
+void ConvertXPlaneToTraceEventsContainer(
+    uint64_t device_id, absl::string_view hostname, const XPlane& xplane,
+    TraceEventsContainer* container,
+    std::unique_ptr<ResourceGrouperInterface> resource_grouper = nullptr) {
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&xplane);
-  std::unique_ptr<ResourceGrouperInterface> resource_grouper =
-      CreateDefaultResourceGrouper(device_id, plane.Name());
+  if (resource_grouper == nullptr) {
+    resource_grouper = CreateDefaultResourceGrouper(device_id, plane.Name());
+  }
 
   if (plane.NumLines() == 0) return;
 
@@ -227,13 +371,24 @@ void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
   std::vector<const XPlane*> host_planes =
       FindPlanesWithPrefix(space, tsl::profiler::kHostThreadsPlaneName);
   if (!host_planes.empty()) {
-    int32_t host_device_id = tsl::profiler::kHostThreadsDeviceId;
+    uint32_t host_device_id = tsl::profiler::kHostThreadsDeviceId;
     absl::c_sort(host_planes, [](const XPlane* a, const XPlane* b) {
       return a->name() < b->name();
     });
+    int pid_offset = 0;
     for (const XPlane* host_plane : host_planes) {
-      ConvertXPlaneToTraceEventsContainer(host_device_id++,
-                                          hostname, *host_plane, container);
+      XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(host_plane);
+      uint32_t first_pool_device_id = tsl::profiler::kHostThreadsDeviceId + 1;
+      uint32_t max_pool_device_id = tsl::profiler::kHostThreadsDeviceId + 1000;
+      auto thread_pool_grouper = std::make_unique<ThreadPoolGrouper>(
+          host_device_id, first_pool_device_id, max_pool_device_id, plane,
+          pid_offset);
+      int used = thread_pool_grouper->pids_used();
+      ConvertXPlaneToTraceEventsContainer(host_device_id, hostname, *host_plane,
+                                          container,
+                                          std::move(thread_pool_grouper));
+      pid_offset += used;
+      host_device_id++;
     }
   }
 

@@ -34,8 +34,6 @@ These flags control the collection of power and thermal events on TPUs.
     level events.
 *   **`tpu_e2e_enable_fw_thermal_event`** (Boolean): Enables firmware thermal
     events.
-*   **`tpu_enable_fw_pcie_utilization_event`** (Boolean): Enables firmware PCIe
-    utilization events.
 
 *Note: Legacy versions without the `tpu_` prefix (e.g.,
 `e2e_enable_fw_throttle_event`) are also supported for backwards

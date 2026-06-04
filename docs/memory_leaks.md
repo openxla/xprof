@@ -56,7 +56,3 @@ Use Memory Viewer for a detailed static analysis of buffer lifetimes.
    extending to the end.
 
    ![Memory Viewer tool showing buffer charts with long-lived allocations](./images/buffer_charts_memory_leaks.png)
-
-## Use the Trace Viewer to inspect events over time
-
-The Trace Viewer tool can also be used to analyze memory events and identify potential leaks.

@@ -30,7 +30,7 @@ static constexpr LazyRE2 kRecvRe = {R"re(recv\.?(\d+)?)re"};
 static constexpr LazyRE2 kSendDoneRe = {R"re(send-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kRecvDoneRe = {R"re(recv-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kGraphNameRe = {
-    R"re((device_\d+_gid_[a-zA-Z0-9\.-]+_\d+))re"};
+    R"re(device_(\d+)_gid_([a-zA-Z0-9\.-]+_\d+))re"};
 
 bool IsExemptFromTinyEventGrouping(absl::string_view name) {
   if (!absl::StartsWith(name, "send") && !absl::StartsWith(name, "recv")) {
@@ -98,53 +98,41 @@ void SortEventsInTrack(Track& track) {
             });
 }
 
-int64_t ExtractChannelIdFromLongName(const Event& event,
-                                     const XprofTrace& trace) {
+absl::string_view ExtractRendezvousFromLongName(const Event& event,
+                                                const XprofTrace& trace) {
   absl::string_view long_name;
   if (!FindArgString(event, trace, "long_name", &long_name)) {
-    return -1;
+    return "";
   }
-  static constexpr LazyRE2 kChannelIdRe = {R"re(channel_id=(\d+))re"};
-  int64_t channel_id;
-  if (RE2::PartialMatch(long_name, *kChannelIdRe, &channel_id)) {
-    return channel_id;
-  }
-  return -1;
-}
-
-int64_t ExtractChannelId(const Event& event, const XprofTrace& trace,
-                         bool is_send) {
-  absl::string_view arg_name = is_send ? "send_channel_id" : "recv_channel_id";
-  absl::string_view channel_id_str;
-  int64_t channel_id = -1;
-
-  if (FindArgString(event, trace, arg_name, &channel_id_str)) {
-    if (!absl::SimpleAtoi(channel_id_str, &channel_id)) {
-      LOG(ERROR) << "Failed to parse channel ID: " << channel_id_str;
-    }
-    return channel_id;
-  }
-
-  // Fallback to old int arg.
-  FindArgInt(event, trace, arg_name, &channel_id);
-  return channel_id;
-}
-
-absl::string_view ExtractGraphName(absl::string_view graph_key) {
-  absl::string_view graph_name;
-  if (RE2::PartialMatch(graph_key, *kGraphNameRe, &graph_name)) {
-    return graph_name;
+  static constexpr LazyRE2 kRendezvousRe = {
+      "_xla_host_transfer_rendezvous=\"([^\"]*)\""};
+  absl::string_view rendezvous_name;
+  if (RE2::PartialMatch(long_name, *kRendezvousRe, &rendezvous_name)) {
+    return rendezvous_name;
   }
   return "";
 }
 
-absl::string_view ExtractGraphNameFromGraphKey(const Event& event,
-                                               const XprofTrace& trace) {
+absl::string_view ExtractRendezvousFromGraphKey(const Event& event,
+                                                const XprofTrace& trace) {
   absl::string_view graph_key;
   if (!FindArgString(event, trace, "graph_key", &graph_key)) {
     return "";
   }
-  return ExtractGraphName(graph_key);
+  absl::string_view rendezvous_name;
+  if (RE2::PartialMatch(graph_key, *kGraphNameRe, nullptr, &rendezvous_name)) {
+    return rendezvous_name;
+  }
+  return "";
+}
+
+int64_t ExtractHloId(absl::string_view hlo_name) {
+  static constexpr LazyRE2 kHloId = {R"re([a-zA-Z-]+\.(\d+))re"};
+  int64_t id;
+  if (RE2::FullMatch(hlo_name, *kHloId, &id)) {
+    return id;
+  }
+  return 0;
 }
 
 void RenameTrack(Track& track) {
@@ -337,11 +325,9 @@ void TraceProcessor::MarkLastDmaEvents() {
 
 void TraceProcessor::ResolveFlows() {
   int64_t next_flow_id = 1;
-
-  // map key: graph_name -> {send_channel_id, recv_channel_id}
-  absl::flat_hash_map<std::string, std::pair<int64_t, int64_t>>
-      graph_to_channels;
-  absl::flat_hash_map<int64_t, int64_t> recv_to_send_channel_id;
+  // map key: tpu_id, run_id, hlo_id
+  absl::flat_hash_map<std::string, absl::string_view> send_hlo_to_rendezvous;
+  absl::flat_hash_map<std::string, absl::string_view> recv_hlo_to_rendezvous;
 
   // Separate queues for different consumer types to ensure the right ID goes to
   // the right event type, even if counts mismatch slightly.
@@ -353,8 +339,8 @@ void TraceProcessor::ResolveFlows() {
   FlowQueueMap q_send_to_send_done;
   FlowQueueMap q_send_to_recv_done;
 
-  auto make_key = [](int64_t tpu, int64_t run, int64_t channel_id) {
-    return absl::StrCat(tpu, "_", run, "_chan_", channel_id);
+  auto make_key = [](int64_t tpu, int64_t run, absl::string_view rendezvous) {
+    return absl::StrCat(tpu, "_", run, "_", rendezvous);
   };
   auto make_hlo_key = [](int64_t tpu, int64_t run, int64_t hlo_id) {
     return absl::StrCat(tpu, "_", run, "_", hlo_id);
@@ -429,13 +415,16 @@ void TraceProcessor::ResolveFlows() {
       return;  // Skip other events.
     }
 
-    int64_t channel_id = ExtractChannelIdFromLongName(event, trace_);
-    if (channel_id == -1) {
+    absl::string_view rendezvous = ExtractRendezvousFromLongName(event, trace_);
+    if (rendezvous.empty()) {
       return;
     }
-    std::string key = make_key(tpu_id, event.run_id, channel_id);
+    std::string key = make_key(tpu_id, event.run_id, rendezvous);
+    int64_t hlo_id = ExtractHloId(event.name);
 
     if (is_send) {
+      std::string hlo_key = make_hlo_key(tpu_id, event.run_id, hlo_id);
+      send_hlo_to_rendezvous[hlo_key] = rendezvous;
       push_flow(q_send_to_send_done, key, event);
       push_flow(q_send_to_recv_done, key, event);
       push_flow(q_send_to_d2h, key, event);
@@ -448,21 +437,6 @@ void TraceProcessor::ResolveFlows() {
   // Megascale DMA events: D2H and H2D.
   // Note: We also process the consumers here since we have all necessary info.
   visit_megascale([&](int64_t tpu_id, Event& event) {
-    // If this is the "header" event, extract channel ID mappings.
-    absl::string_view graph_name = ExtractGraphName(event.name);
-    if (!graph_name.empty()) {
-      int64_t send_channel_id =
-          ExtractChannelId(event, trace_, /*is_send=*/true);
-      int64_t recv_channel_id =
-          ExtractChannelId(event, trace_, /*is_send=*/false);
-
-      if (recv_channel_id != -1 && send_channel_id != -1) {
-        graph_to_channels[graph_name] = {send_channel_id, recv_channel_id};
-        recv_to_send_channel_id[recv_channel_id] = send_channel_id;
-      }
-      return;
-    }
-
     bool is_d2h;
     bool is_start;
     if (event.name == "DeviceToHost START") {
@@ -481,21 +455,11 @@ void TraceProcessor::ResolveFlows() {
       return;  // Skip this event.
     }
 
-    graph_name = ExtractGraphNameFromGraphKey(event, trace_);
-    if (graph_name.empty()) {
+    absl::string_view rendezvous = ExtractRendezvousFromGraphKey(event, trace_);
+    if (rendezvous.empty()) {
       return;
     }
-    auto it = graph_to_channels.find(graph_name);
-    if (it == graph_to_channels.end()) {
-      return;
-    }
-    // Use the channel id of the corresponding send/recv event.
-    int64_t channel_id = is_d2h ? it->second.first : it->second.second;
-    if (channel_id == -1) {
-      return;
-    }
-
-    std::string key = make_key(tpu_id, event.run_id, channel_id);
+    std::string key = make_key(tpu_id, event.run_id, rendezvous);
 
     if (is_start) {
       // We're only interested in the first START event.
@@ -551,24 +515,20 @@ void TraceProcessor::ResolveFlows() {
       return;  // Skip other events.
     }
 
-    int64_t channel_id = ExtractChannelIdFromLongName(event, trace_);
-    if (channel_id == -1) return;
-    std::string key = make_key(tpu_id, event.run_id, channel_id);
+    int64_t hlo_id = ExtractHloId(event.name);
+    std::string hlo_key = make_hlo_key(tpu_id, event.run_id, hlo_id);
+    absl::string_view rendezvous =
+        is_send_done
+            ? tsl::gtl::FindWithDefault(send_hlo_to_rendezvous, hlo_key, "")
+            : tsl::gtl::FindWithDefault(recv_hlo_to_rendezvous, hlo_key, "");
+    if (rendezvous.empty()) return;
+    std::string key = make_key(tpu_id, event.run_id, rendezvous);
 
     if (is_send_done) {
       pop_flow(q_send_to_send_done, key, event);
       pop_flow(q_d2h_to_send_done, key, event);
     } else {
-      int64_t send_channel_id =
-          tsl::gtl::FindWithDefault(recv_to_send_channel_id, channel_id, -1);
-      if (send_channel_id == -1) {
-        LOG_EVERY_POW_2(ERROR)
-            << "Could not find send channel id for recv channel id "
-            << channel_id;
-        return;
-      }
-      std::string send_key = make_key(tpu_id, event.run_id, send_channel_id);
-      pop_flow(q_send_to_recv_done, send_key, event);
+      pop_flow(q_send_to_recv_done, key, event);
       pop_flow(q_recv_to_recv_done, key, event);
       // Instead of attaching the flows to the recv-done event, let's create an
       // instant "recv-done END" event that begins right after the recv-done

@@ -413,13 +413,19 @@ void TraceProcessor::ResolveFlows() {
   // Pass 1: Producers
   // ---------------------------------------------------------------------------
   // TPU Events: 'send' and 'recv'.
+  int recv_done_counter = 0;
   visit_tpu_ops([&](int64_t tpu_id, Track& track, Event& event) {
+    if (!absl::StartsWith(event.name, "send") &&
+        !absl::StartsWith(event.name, "recv")) {
+      return;
+    }
     bool is_send;
     if (RE2::FullMatch(event.name, *kSendRe)) {
       is_send = true;
     } else if (RE2::FullMatch(event.name, *kRecvRe)) {
       is_send = false;
     } else {
+      if (RE2::FullMatch(event.name, *kRecvDoneRe)) ++recv_done_counter;
       return;  // Skip other events.
     }
 
@@ -526,7 +532,16 @@ void TraceProcessor::ResolveFlows() {
   // ---------------------------------------------------------------------------
   // Pass 2: Consumers (send-done, recv-done)
   // ---------------------------------------------------------------------------
+  // This pass may add a new instant event (recv-done END) for each recv-done.
+  // We buffer these new events in this vector such that we can add them to
+  // their respective tracks after we finish iterating through all tracks.
+  std::vector<std::pair<Track*, Event>> pending_events;
+  pending_events.reserve(recv_done_counter);
   visit_tpu_ops([&](int64_t tpu_id, Track& track, Event& event) {
+    if (!absl::StartsWith(event.name, "send") &&
+        !absl::StartsWith(event.name, "recv")) {
+      return;
+    }
     bool is_send_done;
     if (RE2::FullMatch(event.name, *kSendDoneRe)) {
       is_send_done = true;
@@ -581,9 +596,13 @@ void TraceProcessor::ResolveFlows() {
 
       pop_flow(q_h2d_to_recv_done, key, instant_event);
 
-      track.events.push_back(std::move(instant_event));
+      pending_events.push_back({&track, std::move(instant_event)});
     }
   });
+
+  for (auto& [track_ptr, event] : pending_events) {
+    track_ptr->events.push_back(std::move(event));
+  }
 }
 
 void TraceProcessor::AddGlobalCounters() {

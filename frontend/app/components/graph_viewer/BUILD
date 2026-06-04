@@ -1,3 +1,4 @@
+# load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
@@ -80,5 +81,26 @@ sass_binary(
     sourcemap = False,
     deps = [
         "@org_xprof//frontend/app/styles:common",
+    ],
+)
+
+genrule(
+    name = "generate_legacy_graph",
+    testonly = True,
+    outs = ["testdata/legacy_graph.html"],
+    cmd = "$(location :graph_generator) > $@",
+    tools = [":graph_generator"],
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "graph_generator",
+    testonly = True,
+    srcs = ["graph_generator.cc"],
+    deps = [
+        "@com_google_absl//absl/log",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert:hlo_proto_to_graph_view",
+        "@xla//xla/service:hlo_proto_cc",
     ],
 )

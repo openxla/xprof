@@ -15,6 +15,8 @@ config_setting(
 cc_binary(
     name = "profiler_plugin_c_api.so",
     srcs = [
+        "profile_data_c_api.cc",
+        "profile_data_c_api.h",
         "profiler_plugin_c_api.cc",
         "profiler_plugin_c_api.h",
     ],
@@ -44,9 +46,11 @@ cc_binary(
         ":profiler_plugin_impl",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/worker:stub_factory",
         "@org_xprof//xprof/convert:tool_options",
         "@rules_python//python/cc:current_py_cc_headers",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/pjrt:status_casters",  # buildcleaner: keep
         "@xla//xla/tsl/platform/cloud:gcs_file_system",
         "@xla//xla/tsl/profiler/rpc/client:capture_profile",

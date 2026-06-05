@@ -16,6 +16,7 @@
 #include "<gtest/gtest.h>"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -45,15 +46,66 @@ constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
 // Mock class for Timeline to mock virtual methods.
 class MockTimeline : public Timeline {
  public:
-  MockTimeline() : Timeline(color_palette_) {}
-  explicit MockTimeline(ColorPalette& palette) : Timeline(palette) {}
+  MockTimeline() : Timeline(color_palette_) { SetupDefaultMockBehavior(); }
+  explicit MockTimeline(ColorPalette& palette) : Timeline(palette) {
+    SetupDefaultMockBehavior();
+  }
 
   MOCK_METHOD(ImVec2, GetTextSize, (absl::string_view text), (const, override));
   MOCK_METHOD(void, Pan, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
+  MOCK_METHOD(void, DrawGroup,
+              (int group_index, double px_per_time_unit_val, Pixel scroll_y,
+               Pixel window_height),
+              (override));
+  MOCK_METHOD(void, DrawEventsForLevel,
+              (int group_index, absl::Span<const int> event_indices,
+               double px_per_time_unit, int level_in_group, const ImVec2& pos,
+               const ImVec2& max, Pixel event_height, Pixel padding_bottom),
+              (override));
+
+  // Helpers to call base class protected methods from tests/lambdas.
+  void DrawGroupBase(int group_index, double px_per_time_unit_val,
+                     Pixel scroll_y, Pixel window_height) {
+    Timeline::DrawGroup(group_index, px_per_time_unit_val, scroll_y,
+                        window_height);
+  }
+  void DrawEventsForLevelBase(int group_index,
+                              absl::Span<const int> event_indices,
+                              double px_per_time_unit, int level_in_group,
+                              const ImVec2& pos, const ImVec2& max,
+                              Pixel event_height, Pixel padding_bottom) {
+    Timeline::DrawEventsForLevel(group_index, event_indices, px_per_time_unit,
+                                 level_in_group, pos, max, event_height,
+                                 padding_bottom);
+  }
+
+  int CallFindFirstVisibleAncestorIndex(int start_idx) const {
+    return FindFirstVisibleAncestorIndex(start_idx);
+  }
+  const std::vector<bool>& CallGroupVisible() const { return group_visible(); }
 
  private:
+  void SetupDefaultMockBehavior() {
+    ON_CALL(*this, DrawGroup)
+        .WillByDefault([this](int group_index, double px_per_time_unit_val,
+                              Pixel scroll_y, Pixel window_height) {
+          this->DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                              window_height);
+        });
+    ON_CALL(*this, DrawEventsForLevel)
+        .WillByDefault([this](int group_index,
+                              absl::Span<const int> event_indices,
+                              double px_per_time_unit, int level_in_group,
+                              const ImVec2& pos, const ImVec2& max,
+                              Pixel event_height, Pixel padding_bottom) {
+          this->DrawEventsForLevelBase(group_index, event_indices,
+                                       px_per_time_unit, level_in_group, pos,
+                                       max, event_height, padding_bottom);
+        });
+  }
+
   ColorPalette color_palette_ = ColorPalette::Default();
 };
 
@@ -1223,6 +1275,15 @@ class TimelineImGuiTestFixture : public Test {
     timeline_.Draw();
     // Update all animations by delta time. This must be called *after* Draw()
     // to ensure animations progress towards targets set in HandleKeyboard().
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  }
+
+  void SimulateFrame(Pixel scroll_y, Pixel window_height) {
+    ImGui::NewFrame();
+    ImGui::SetScrollY(scroll_y);
+    ImGui::SetWindowSize(ImVec2(1000.0f, window_height));
+    timeline_.Draw();
     Animation::UpdateAll(ImGui::GetIO().DeltaTime);
     ImGui::EndFrame();
   }
@@ -2500,6 +2561,141 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevel_BinarySearchCorrectlySelectsVisibleEvents) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1, 2});
+
+  // Event 0: Outside left
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1: Visible
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(25.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 2: Outside right
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(45.0);
+  data.entry_total_times.push_back(5.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  // Ignore other GetTextSize calls if any (e.g. for group names)
+  EXPECT_CALL(timeline_, GetTextSize(_)).Times(::testing::AnyNumber());
+
+  // Specific expectations (checked first due to reverse order)
+  EXPECT_CALL(timeline_, GetTextSize("event1")).Times(2);
+  EXPECT_CALL(timeline_, GetTextSize("event0")).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
+
+  // Vertical culling should call DrawGroup and DrawEventsForLevel.
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+                          Pixel scroll_y, Pixel window_height) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                                window_height);
+      });
+  EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, absl::Span<const int> event_indices,
+                          double px_per_time_unit, int level_in_group,
+                          const ImVec2& pos, const ImVec2& max,
+                          Pixel event_height, Pixel padding_bottom) {
+        timeline_.DrawEventsForLevelBase(group_index, event_indices,
+                                         px_per_time_unit, level_in_group, pos,
+                                         max, event_height, padding_bottom);
+      });
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       Draw_VerticalGroupBinarySearchCorrectlySelectsVisibleGroups) {
+  FlameChartTimelineData data;
+  // Create 20 groups to ensure we have enough to cull.
+  for (int i = 0; i < 20; ++i) {
+    data.groups.push_back({.name = "Group " + std::to_string(i),
+                           .start_level = i,
+                           .nesting_level = 1,  // Thread nesting level
+                           .expanded = true});
+    data.events_by_level.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set display size small to ensure culling happens.
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+
+  // Based on the heights, we expect only a few groups to be visible.
+  // With ThreadTrackGap=4 and kEventHeight=23, each thread is 27px.
+  // Viewport at 100px with 100px height should see roughly groups 4-8.
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _)).Times(::testing::Between(3, 7));
+
+  SimulateFrame(/*scroll_y=*/100.0f, /*window_height=*/100.0f);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawGroup_LevelCalculationCullingCorrectlySelectsVisibleLevels) {
+  FlameChartTimelineData data;
+  // Create 1 group with many levels.
+  data.groups.push_back({.name = "Big Group",
+                         .start_level = 0,
+                         .nesting_level = 1,
+                         .expanded = true});
+  for (int i = 0; i < 100; ++i) {
+    data.events_by_level.push_back({i});  // One event per level
+    data.entry_names.push_back("event" + std::to_string(i));
+    data.entry_levels.push_back(i);
+    data.entry_start_times.push_back(0.0);
+    data.entry_total_times.push_back(100.0);
+    data.entry_pids.push_back(1);
+    data.entry_args.push_back({});
+  }
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set display size small to ensure culling happens.
+  ImGui::GetIO().DisplaySize = ImVec2(1000.0f, 100.0f);
+
+  // Set scroll such that we are looking at levels in the middle of the group.
+  // Use a large scroll to trigger culling.
+  Pixel scroll_y = 500.0f;
+  Pixel window_height = 100.0f;  // ~4 levels
+
+  // Since we are mocking the top-level Draw(), we need to expect the DrawGroup
+  // call too.
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+                          Pixel scroll_y, Pixel window_height) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                                window_height);
+      });
+  EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
+      .Times(::testing::Between(3, 8));
+
+  SimulateFrame(scroll_y, window_height);
+}
+
 TEST_F(MockTimelineImGuiFixture, HandleWheel_DiagonalScroll) {
   // Simulate diagonal scrolling (both horizontal and vertical wheel).
   ImGui::GetIO().AddMouseWheelEvent(1.0f, 2.0f);  // X=1, Y=2
@@ -2817,7 +3013,15 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_TRUE(request_triggered);
 }
 
-using RealTimelineImGuiFixture = TimelineImGuiTestFixture<Timeline>;
+class TestTimeline : public Timeline {
+ public:
+  using Timeline::Timeline;
+  using Timeline::Pan;
+  using Timeline::Zoom;
+  using Timeline::Scroll;
+};
+
+using RealTimelineImGuiFixture = TimelineImGuiTestFixture<TestTimeline>;
 
 // Add a sanity check that the window padding is set to zero.
 // This is the presumption for all the drawing logic. And all tests below assume
@@ -5753,6 +5957,243 @@ TEST_F(TimelineImGuiFixture, PanModeCursor) {
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Arrow);
 }
 
+TEST_F(RealTimelineImGuiFixture, PanLeftOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({10.0, 100.0});
+  SimulateFrame();
+
+  timeline_.Pan(-2000.0f);
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot pan further left: reached the beginning of the trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({900.0, 990.0});
+  SimulateFrame();
+
+  timeline_.Pan(2000.0f);
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot pan further right: reached the end of the trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomInOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already at minimum duration kMinDurationMicros
+  timeline_.SetVisibleRange({50.0, 50.0 + kMinDurationMicros});
+  SimulateFrame();
+
+  timeline_.Zoom(0.5f, 50.0 + kMinDurationMicros / 2.0);  // zoom in
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom in further: minimum zoom duration reached.");
+}
+
+TEST_F(RealTimelineImGuiFixture, ZoomOutOutOfBounds) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already fully zoomed out matching the entire data range
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  SimulateFrame();
+
+  timeline_.Zoom(2.0f, 500.0);  // zoom out
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            "Cannot zoom out further: showing the entire trace.");
+}
+
+TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  // Visible range is already fully zoomed out matching the entire data range
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  SimulateFrame();
+
+  timeline_.Pan(-500.0f);  // Try to pan left while fully zoomed out
+
+  // Notification should NOT be triggered since we are already showing the
+  // entire trace.
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+
+  timeline_.Pan(500.0f);  // Try to pan right while fully zoomed out
+
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
+}
+
+
+TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({10.0, 100.0});
+  SimulateFrame();
+
+  // Pan out of bounds to trigger
+  timeline_.Pan(-2000.0f);
+
+  // Verify notification is active
+  EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
+
+  // Simulate 1 second passing (io.DeltaTime = 1.0f)
+  ImGui::GetIO().DeltaTime = 1.0f;
+  SimulateFrame();
+
+  // Verify notification is still active but timer decreased
+  EXPECT_NEAR(timeline_.get_bounds_notification_timer_for_test(), 1.0f, 0.01f);
+
+  // Simulate another 1.5 second passing (io.DeltaTime = 1.5f)
+  ImGui::GetIO().DeltaTime = 1.5f;
+  SimulateFrame();
+
+  // Timer has expired
+  EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+}
+
+TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Parent (Collapsed, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = false,
+  });
+
+  // Group 1: Child (nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Verify group visibility calculated by UpdateLevelPositions
+  // Parent: visible (true)
+  // Child: invisible (false)
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 2);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);
+  EXPECT_FALSE(timeline_.CallGroupVisible()[1]);
+
+  // If queried on Child (1) -> must backtrack and return Parent (0)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(1), 0);
+
+  // If queried on Parent (0) -> returns self (0)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(0), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Grand Parent (Expanded, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Grand Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Parent (Collapsed, nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = false,
+  });
+
+  // Group 2: Child (nesting_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child",
+      .start_level = 2,
+      .nesting_level = 2,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 3);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);   // Grand Parent
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);   // Parent
+  EXPECT_FALSE(timeline_.CallGroupVisible()[2]);  // Child (Parent is collapsed)
+
+  // Child (2) is hidden by Parent (1), queries on 2 must return 1 (Parent)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       FindFirstVisibleAncestorIndex_SiblingCollapse) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Parent (Expanded, nesting_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Parent",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Child A (Collapsed, nesting_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child A",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = false,
+  });
+
+  // Group 2: Grandchild A (nesting_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Grandchild A",
+      .start_level = 2,
+      .nesting_level = 2,
+      .expanded = true,
+  });
+
+  // Group 3: Child B (Expanded, nesting_level = 1, sibling of Child A)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Child B",
+      .start_level = 3,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  timeline_.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 4);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Parent
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Child A
+  EXPECT_FALSE(
+      timeline_.CallGroupVisible()[2]);  // Grandchild A (under Child A)
+  EXPECT_TRUE(
+      timeline_.CallGroupVisible()[3]);  // Child B (should NOT be affected by
+                                         // Child A's collapse!)
+
+  // Child B (3) is visible, queried on it must return itself (3)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(3), 3);
+
+  // Grandchild A (2) is hidden under Child A (1), queried on it must return
+  // Child A (1)
+  EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
+

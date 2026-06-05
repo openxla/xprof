@@ -825,9 +825,12 @@ dashboard would integrate trace viewer app using iframe.
 
     createPercaleLink: function(hloOp, host) {
       if (!this._percaleUrlPrefix || !this._sessionId || !hloOp) return;
-      const percaleLink = new URL(`${this._percaleUrlPrefix}/static?id=${this._sessionId}&hlo=${hloOp}`);
+      const percaleLink = new URL(`${this._percaleUrlPrefix}/llo?id=${this._sessionId}&name=${hloOp}`);
       if (host) {
         percaleLink.searchParams.append('host', host);
+      }
+      if (hloModule) {
+        percaleLink.searchParams.append('module', hloModule);
       }
       const percaleLinkElement = document.createElement('div');
       percaleLinkElement.innerHTML = `Percale link: <a href="${percaleLink.href}" target="_blank">see percale for low level kernel details</a>`;

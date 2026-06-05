@@ -1,0 +1,151 @@
+<div class="labs-container" *ngIf="isLabsEnabled">
+  <!-- Header Banner -->
+  <header class="labs-header">
+    <div class="header-content">
+      <div class="header-icon-container">
+        <mat-icon class="header-icon">science</mat-icon>
+      </div>
+      <div class="header-text">
+        <div class="title-row">
+          <h1>Xprof Labs</h1>
+          <span class="experimental-badge">Experimental</span>
+        </div>
+        <p>Explore incubation-stage utilities, advanced visualizations, and experimental data playgrounds.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- View Toggle Navigation Bar -->
+  <div class="view-toggle-container">
+    <mat-button-toggle-group [value]="activeView" (change)="setActiveView($event.value)" aria-label="Select view mode" class="labs-view-toggle">
+      <mat-button-toggle value="experiments">
+        <mat-icon>dashboard</mat-icon>
+        <span>Curated Experiments</span>
+      </mat-button-toggle>
+      <mat-button-toggle value="playground">
+        <mat-icon>code_blocks</mat-icon>
+        <span>Labs Playground</span>
+      </mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+
+  <!-- Toggleable Content Layout -->
+  <div class="labs-content-area">
+    <!-- Column 1: Curated Tools with Search & Filters -->
+    <section class="full-width-section curated-section" *ngIf="activeView === 'experiments'">
+      <h2 class="section-title">Curated Experiments</h2>
+      <p class="section-subtitle">High-value diagnostic tools developed by core performance teams.</p>
+
+      <!-- Sticky Toolbar: Search & Filters -->
+      <div class="curated-toolbar">
+        <mat-form-field class="search-field" appearance="outline">
+          <mat-icon matPrefix>search</mat-icon>
+          <mat-label>Search experiments...</mat-label>
+          <input matInput [value]="searchQuery" (input)="onSearchChange($event)">
+        </mat-form-field>
+
+        <mat-chip-listbox class="category-chips" aria-label="Category selection"
+                          [value]="selectedCategory" (change)="onCategoryChange($event.value)">
+          <mat-chip-option *ngFor="let category of categories" [value]="category">
+            {{category}}
+          </mat-chip-option>
+        </mat-chip-listbox>
+      </div>
+
+      <!-- Sub-section: Featured Tools (Grid layout) -->
+      <ng-container *ngIf="featuredTools.length > 0">
+        <h3 class="sub-section-title">Featured</h3>
+        <div class="tools-grid">
+          <mat-card class="tool-card" *ngFor="let tool of featuredTools; trackBy: trackByTool">
+            <mat-card-header class="card-header">
+              <mat-icon class="card-icon" mat-card-avatar>{{tool.icon}}</mat-icon>
+              <mat-card-title class="card-title">
+                {{tool.label}}
+                <span class="status-badge" [class.alpha]="tool.status === 'Alpha'" [class.beta]="tool.status === 'Beta'">
+                  {{tool.status}}
+                </span>
+              </mat-card-title>
+            </mat-card-header>
+
+            <mat-card-content class="card-content">
+              <p>{{tool.description}}</p>
+            </mat-card-content>
+
+            <mat-card-actions class="card-actions">
+              <button mat-flat-button color="primary" (click)="onLaunchTool(tool)">
+                Launch Experiment
+              </button>
+            </mat-card-actions>
+          </mat-card>
+        </div>
+      </ng-container>
+
+      <!-- Sub-section: All Experiments (Dense List Layout) -->
+      <ng-container *ngIf="regularTools.length > 0">
+        <h3 class="sub-section-title">All Experiments</h3>
+        <div class="dense-tools-list">
+          <div class="dense-tool-row" *ngFor="let tool of regularTools; trackBy: trackByTool">
+            <div class="tool-row-left">
+              <mat-icon class="tool-row-icon">{{tool.icon}}</mat-icon>
+              <div class="tool-row-meta">
+                <span class="tool-row-label">{{tool.label}}</span>
+                <span class="tool-row-description">{{tool.description}}</span>
+              </div>
+            </div>
+            <div class="tool-row-right">
+              <span class="status-badge" [class.alpha]="tool.status === 'Alpha'" [class.beta]="tool.status === 'Beta'">
+                {{tool.status}}
+              </span>
+              <button mat-stroked-button (click)="onLaunchTool(tool)">Launch</button>
+            </div>
+          </div>
+        </div>
+      </ng-container>
+
+      <div class="empty-state" *ngIf="featuredTools.length === 0 && regularTools.length === 0">
+        <mat-icon class="empty-icon">info</mat-icon>
+        <p>No experiments found matching your criteria.</p>
+      </div>
+    </section>
+
+    <!-- Column 2: Playground (Widescreen immersive) -->
+    <section class="full-width-section playground-section" *ngIf="activeView === 'playground'">
+      <h2 class="section-title">Labs Playground</h2>
+      <p class="section-subtitle">Interactive, programmatic sandbox for custom data queries.</p>
+
+      <div class="playground-overlay-container">
+        <!-- Disabled Glassmorphic Panel -->
+        <div class="playground-card disabled-state">
+          <div class="badge-row">
+            <span class="coming-soon-badge">Coming Soon</span>
+          </div>
+          <mat-icon class="playground-large-icon">code_blocks</mat-icon>
+          <h3>Ad-hoc Python & SQL Sandbox</h3>
+          <p>Write programmatic queries directly against raw XPlane, HLO compiler graphs, and trace events. Generate and plot custom charts instantly.</p>
+
+          <!-- Illustrative Mock Wireframe -->
+          <div class="playground-mock-panel">
+            <div class="mock-sidebar"></div>
+            <div class="mock-editor">
+              <div class="mock-line code-1"></div>
+              <div class="mock-line code-2"></div>
+              <div class="mock-line code-3"></div>
+            </div>
+            <div class="mock-canvas">
+              <div class="mock-bar bar-1"></div>
+              <div class="mock-bar bar-2"></div>
+              <div class="mock-bar bar-3"></div>
+            </div>
+          </div>
+
+          <div class="playground-actions">
+            <button mat-stroked-button disabled>Open Code Workspace</button>
+            <a href="https://issuetracker.google.com/issues/new?component=161330" target="_blank" class="feedback-link">
+              Submit Use Case / Request Access
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>

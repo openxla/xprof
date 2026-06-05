@@ -18,16 +18,16 @@ cc_library(
 )
 
 cc_library(
-    name = "tpuv7generic_utilization_utils",
-    srcs = ["tpuv7generic_utilization_utils.cc"],
-    hdrs = ["tpuv7generic_utilization_utils.h"],
+    name = "tpu_generic_utilization_utils",
+    srcs = ["tpu_generic_utilization_utils.cc"],
+    hdrs = ["tpu_generic_utilization_utils.h"],
     deps = [
         ":tpu_counter_util",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
-        "@org_xprof//xprof/utils:tpu_counter_ids_v7",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v6e",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
@@ -48,11 +48,24 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_session_snapshot",
+    hdrs = ["unified_session_snapshot.h"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_library(
     name = "unified_profile_processor",
     hdrs = ["unified_profile_processor.h"],
     deps = [
-        ":repository",
         ":tool_options",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -86,6 +99,7 @@ cc_test(
         ":tool_options",
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
@@ -181,6 +195,7 @@ cc_library(
         ":repository",
         ":tool_options",
         ":unified_profile_processor",
+        ":unified_session_snapshot",
         ":xplane_to_op_stats",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -1917,6 +1932,23 @@ cc_library(
 )
 
 cc_test(
+    name = "flat_op_stats_to_op_profile_test",
+    srcs = ["flat_op_stats_to_op_profile_test.cc"],
+    deps = [
+        ":flat_op_stats_to_op_profile",
+        ":op_profile_builder",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+    ],
+)
+
+cc_test(
     name = "hlo_proto_to_graph_view_test",
     size = "small",
     srcs = ["hlo_proto_to_graph_view_test.cc"],
@@ -2038,11 +2070,13 @@ cc_library(
     hdrs = ["repository.h"],
     deps = [
         ":file_utils",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/utils:hlo_cost_analysis_wrapper",
         "@org_xprof//xprof/utils:hlo_module_map",
         "@org_xprof//xprof/utils:xplane_hlo_fixer",
         "@tsl//tsl/platform:path",
@@ -2683,7 +2717,7 @@ cc_library(
     deps = [
         ":data_table_utils",
         ":tpu_counter_util",
-        ":tpuv7generic_utilization_utils",
+        ":tpu_generic_utilization_utils",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:overload",
@@ -2703,7 +2737,7 @@ cc_test(
         ":xplane_to_utilization_viewer",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//xprof/utils:tpu_counter_ids_v7",
+        "@org_xprof//xprof/utils:tpu_counter_ids_v6e",
         "@org_xprof//xprof/utils:tpu_counter_ids_v7x",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:xplane_builder",

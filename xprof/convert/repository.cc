@@ -36,6 +36,7 @@ limitations under the License.
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/utils/xplane_hlo_fixer.h"
 
 namespace tensorflow {
@@ -148,7 +149,7 @@ std::optional<std::string> SessionSnapshot::MakeHostDataFilePath(
 }
 
 absl::StatusOr<std::string> SessionSnapshot::GetHostDataFileName(
-    const StoredDataType data_type, const std::string host) const {
+    const StoredDataType data_type, absl::string_view host) const {
   for (const auto& format : *kHostDataSuffixes) {
     if (data_type == format.first) return absl::StrCat(host, format.second);
   }

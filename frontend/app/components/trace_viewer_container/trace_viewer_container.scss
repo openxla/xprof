@@ -6,17 +6,29 @@ $filter-bar-height: 50px;
 $search-bar-height: 56px;
 
 :host {
-  display: block;
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
   background: var(--md-sys-color--surface-container-low);
 }
 
+.trace-viewer-component {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+
+  &[hidden] {
+    display: none !important;
+  }
+}
+
 .main-content-area {
-  position: absolute;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: calc(
-    100% - $search-bar-height
-  );
   padding: 0 16px 8px 8px;
   box-sizing: border-box;
 }
@@ -24,7 +36,7 @@ $search-bar-height: 56px;
 iframe {
   position: absolute;
   width: 100%;
-  height: calc(100% - $menu-bar-height - $filter-bar-height);
+  height: 100%;
   box-sizing: border-box;
   border-style: unset;
   transition: height 0.05s ease-in-out;
@@ -52,7 +64,7 @@ canvas {
   border-radius: 24px;
   height: 40px;
   padding: 0 12px;
-  flex-grow: 1;
+  flex: 0 0 auto;
   margin: 8px 16px 8px 8px;
   box-sizing: border-box;
 }

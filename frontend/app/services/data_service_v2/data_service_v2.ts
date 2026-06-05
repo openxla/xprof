@@ -14,6 +14,7 @@ import {
   HOSTS_API,
   LOCAL_URL,
   PLUGIN_NAME,
+  PRIMARY_TOOL_ENDPOINTS,
   RUN_TOOLS_API,
   RUNS_API,
   USE_SAVED_RESULT,
@@ -186,7 +187,9 @@ export class DataServiceV2 implements DataServiceV2Interface {
       params = params.set(key, value);
     });
 
-    this.disableCacheRegeneration();
+    if (PRIMARY_TOOL_ENDPOINTS.has(tag)) {
+      this.disableCacheRegeneration();
+    }
     return params;
   }
 

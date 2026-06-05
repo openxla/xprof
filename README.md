@@ -14,6 +14,8 @@
 <a href="#usage">Usage</a>
 ✧
 <a href="#resources">Resources</a>
+✧
+<a href="#citing-xprof">Citing</a>
 
 </p>
 
@@ -368,3 +370,17 @@ For deploying a distributed XProf setup in a Kubernetes environment, see
     Tutorial](https://www.tensorflow.org/tensorboard/tensorboard_profiling_keras)
   * [Tensorflow
     Colab](https://www.tensorflow.org/tensorboard/tensorboard_profiling_keras)
+
+## Citing XProf
+
+To cite XProf, please use the following BibTeX entry for the MLSys 2026 paper:
+
+```
+@inproceedings{1076558,
+  title     = {XProf: An Open, Scalable and Extensible Profiling System for the Modern ML Stack},
+  author    = {Robert Hundt and Naveen Kumar and Jose Baiocchi Paredes and Scott Goodson and Clive Verghese and Prasanna Rengasamy and Kelvin Le and Jiya Zhang and Charles Alaras and Yin Zhang and Kan Cai and Jiten Thakkar and Sai Ganesh Bandiatmakuri and Yogesh SY and Ani Udipi and Vikas Aggarwal},
+  year      = {2026},
+  booktitle = {Ninth Conference on Machine Learning and Systems}
+}
+```
+

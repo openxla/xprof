@@ -28,8 +28,6 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
-#include "absl/synchronization/mutex.h"
-
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -37,11 +35,14 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/io/coded_stream.h"
+#include "re2/re2.h"
 #include "xla/tsl/lib/io/iterator.h"
 #include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/lib/io/table_builder.h"
@@ -97,6 +98,42 @@ absl::Status SerializeWithReusableEvent(const TraceEvent& event,
              : absl::InternalError("Failed to serialize trace event");
 }
 
+// Extracts metadata keys from the event's raw_data and inserts them into the
+// prefix trie. Currently, we only index keys that look like "request_id"
+// (with optional numeric suffix) because these are the most common keys used
+// for tracking requests across distributed systems and are highly valuable
+// for search.
+void ExtractMetadataKeys(const TraceEvent& event, const Trace& trace,
+                         absl::string_view event_id, PrefixTrie& prefix_trie,
+                         RawData& raw_data) {
+  if (!event.has_raw_data()) return;
+
+  static constexpr LazyRE2 kSearchableKeyRegex = {"request_id[0-9]*"};
+
+  raw_data.Clear();
+  if (raw_data.ParseFromString(event.raw_data()) && raw_data.has_args()) {
+    for (const TraceEventArguments::Argument& arg : raw_data.args().arg()) {
+      if (RE2::FullMatch(arg.name(), *kSearchableKeyRegex)) {
+        std::string val;
+        if (arg.has_str_value()) {
+          val = arg.str_value();
+        } else if (arg.has_ref_value()) {
+          auto it = trace.name_table().find(arg.ref_value());
+          if (it != trace.name_table().end()) {
+            val = it->second;
+          }
+        } else if (arg.has_int_value()) {
+          val = absl::StrCat(arg.int_value());
+        } else if (arg.has_uint_value()) {
+          val = absl::StrCat(arg.uint_value());
+        }
+        if (!val.empty()) {
+          prefix_trie.Insert(val, event_id);
+        }
+      }
+    }
+  }
+}
 }  // namespace
 
 // Mark events with duplicated timestamp with different serial. This is to
@@ -116,9 +153,13 @@ void MaybeAddEventUniqueId(const std::vector<TraceEvent*>& all_events) {
 }
 
 TraceEvent::EventType GetTraceEventType(const TraceEvent& event) {
-  return event.has_resource_id() ? TraceEvent::EVENT_TYPE_COMPLETE
-         : event.has_flow_id()   ? TraceEvent::EVENT_TYPE_ASYNC
-                                 : TraceEvent::EVENT_TYPE_COUNTER;
+  if (event.has_resource_id()) {
+    return TraceEvent::EVENT_TYPE_COMPLETE;
+  } else if (event.has_flow_id()) {
+    return TraceEvent::EVENT_TYPE_ASYNC;
+  } else {
+    return TraceEvent::EVENT_TYPE_COUNTER;
+  }
 }
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,
@@ -289,6 +330,14 @@ ProcessTrackEventsParallel(
                   it->second) {
                 break;
               }
+              if (event->duration_ps() >= LayerResolutionPs(zoom_level)) {
+                break;
+              }
+            }
+            track_events_by_level[j][zoom_level].push_back(event);
+            if (zoom_level < kNumLevels - 1) {
+              track_visibility_by_level[zoom_level].SetVisibleAtResolution(
+                  *event);
             }
           } else {
             for (; zoom_level < kNumLevels - 1; ++zoom_level) {
@@ -297,9 +346,8 @@ ProcessTrackEventsParallel(
                 break;
               }
             }
+            track_events_by_level[j][zoom_level].push_back(event);
           }
-
-          track_events_by_level[j][zoom_level].push_back(event);
 
           for (++zoom_level; zoom_level < kNumLevels - 1; ++zoom_level) {
             track_visibility_by_level[zoom_level].SetVisibleAtResolution(
@@ -380,15 +428,18 @@ absl::Status ReadFileTraceMetadata(std::string& filepath, Trace* trace) {
 
 absl::Status CreateAndSavePrefixTrie(
     tsl::WritableFile* trace_events_prefix_trie_file,
-    const std::vector<std::vector<const TraceEvent*>>& events_by_level) {
+    const std::vector<std::vector<const TraceEvent*>>& events_by_level,
+    const Trace& trace) {
   absl::Time start_time = absl::Now();
   PrefixTrie prefix_trie;
+  RawData raw_data;
   for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
     for (const TraceEvent* event : events_by_level[zoom_level]) {
       std::string event_id =
           LevelDbTableKey(zoom_level, event->timestamp_ps(), event->serial());
       if (!event_id.empty()) {
         prefix_trie.Insert(event->name(), event_id);
+        ExtractMetadataKeys(*event, trace, event_id, prefix_trie, raw_data);
       }
     }
   }
@@ -421,10 +472,10 @@ absl::Status DoStoreAsLevelDbTables(
         SerializeTraceEventForPersistingOnlyMetadata);
   });
   absl::Status trace_events_prefix_trie_status;
-  executor->Execute([&trace_events_prefix_trie_file, &events_by_level,
+  executor->Execute([&trace_events_prefix_trie_file, &events_by_level, &trace,
                      &trace_events_prefix_trie_status]() {
     trace_events_prefix_trie_status = CreateAndSavePrefixTrie(
-        trace_events_prefix_trie_file.get(), events_by_level);
+        trace_events_prefix_trie_file.get(), events_by_level, trace);
   });
   executor->JoinAll();
   trace_events_status.Update(trace_events_metadata_status);

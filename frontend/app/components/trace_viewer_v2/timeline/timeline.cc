@@ -139,12 +139,34 @@ int GetNextGroupStartLevel(const FlameChartTimelineData& data,
 
 }  // namespace
 
+// Finds the index of the first visible ancestor (or the group itself if it is
+// visible) for a given group index.
+//
+// During layout pre-computation (`UpdateLevelPositions`), any child group
+// nesting under a collapsed (collapsed == !expanded) parent will have its
+// visibility flag (`group_visible_[index]`) set to false. All of its
+// descendants form a contiguous range of invisible groups because of the
+// parent's collapsed state.
+//
+// If the queried group index points to an invisible group (for instance, when
+// locating groups from physical screen coordinates or user interactions), we
+// backtrack (decrement index) to find the nearest ancestor group that is
+// currently visible.
+int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
+  while (start_idx > 0 && start_idx < group_visible_.size() &&
+         !group_visible_[start_idx]) {
+    start_idx--;
+  }
+  return start_idx;
+}
+
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
 
   std::vector<Pixel> new_visible_level_offsets(level_count, 0.0f);
   std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
+  std::vector<bool> new_group_visible(group_count, true);
 
   Pixel current_offset =
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
@@ -163,6 +185,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
       for (int level = group.start_level; level < next_group_start_level;
            ++level) {
         if (level < level_count) {
@@ -236,6 +259,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   group_offsets_ = std::move(new_group_offsets);
   visible_level_offsets_ = std::move(new_visible_level_offsets);
+  group_visible_ = std::move(new_group_visible);
 }
 
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
@@ -332,8 +356,30 @@ void Timeline::Draw() {
   DrawVerticalGridLines(tick_info, current_timeline_width_,
                         viewport->Pos.y + viewport->Size.y);
 
-  for (int group_index = 0; group_index < timeline_data_.groups.size();
-       ++group_index) {
+  const Pixel scroll_y = ImGui::GetScrollY();
+  const Pixel window_height = ImGui::GetWindowHeight();
+
+  // Find the first group that is visible.
+  auto start_it = std::upper_bound(group_offsets_.begin() + 1,
+                                   group_offsets_.end(), scroll_y);
+  int start_idx = std::distance(group_offsets_.begin(), start_it) - 1;
+  start_idx = std::max(
+      0, std::min(start_idx, static_cast<int>(timeline_data_.groups.size())));
+
+  // If the start_idx lands on a child of a collapsed group, scan backwards
+  // to find the first visible ancestor using our pre-computed visibility map.
+  start_idx = FindFirstVisibleAncestorIndex(start_idx);
+
+  // Find the last group that is visible.
+  auto end_it = std::upper_bound(group_offsets_.begin(), group_offsets_.end(),
+                                 scroll_y + window_height);
+  int end_idx = timeline_data_.groups.size();
+  if (end_it != group_offsets_.end()) {
+    end_idx = std::distance(group_offsets_.begin(), end_it);
+  }
+
+  for (int group_index = start_idx; group_index < end_idx; ++group_index) {
+    if (!group_visible_[group_index]) continue;
     Group& group = timeline_data_.groups[group_index];
     ImGui::PushID(group_index);
 
@@ -516,7 +562,7 @@ void Timeline::Draw() {
         group_index++;
       }
     } else {
-      DrawGroup(group_index, px_per_time_unit_val);
+      DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
     }
     ImGui::PopID();
   }
@@ -607,35 +653,15 @@ void Timeline::Draw() {
 
   ImGui::EndChild();
 
+  DrawToast(absl::StrCat("Copied track name: ", copied_track_name_),
+            copy_notification_timer_, 32.0f);
+
+  float bounds_toast_offset = 32.0f;
   if (copy_notification_timer_ > 0.0f) {
-    copy_notification_timer_ -= ImGui::GetIO().DeltaTime;
-    if (redraw_callback_) redraw_callback_();
-
-    ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-
-    std::string toast_text = "Copied track name: " + copied_track_name_;
-    ImVec2 text_size = ImGui::CalcTextSize(toast_text.c_str());
-    ImVec2 padding(16.0f, 8.0f);
-    ImVec2 toast_size(text_size.x + padding.x * 2.0f,
-                      text_size.y + padding.y * 2.0f);
-
-    ImVec2 toast_pos(
-        main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
-        main_viewport->Pos.y + main_viewport->Size.y - toast_size.y - 32.0f);
-
-    float alpha =
-        std::min(1.0f, copy_notification_timer_ * 2.0f);  // fade out at the end
-    ImU32 bg_color = IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
-    ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
-
-    draw_list->AddRectFilled(
-        toast_pos,
-        ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
-        bg_color, kToastCornerRounding);
-    draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
-                       text_color, toast_text.c_str());
+    bounds_toast_offset += 48.0f;
   }
+  DrawToast(bounds_notification_message_, bounds_notification_timer_,
+            bounds_toast_offset);
 
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
@@ -826,6 +852,12 @@ void Timeline::EmitMouseModeChanged() {
   event_callback_(kMouseModeChanged, event_data);
 }
 
+void Timeline::ShowBoundsNotification(const std::string& message) {
+  bounds_notification_message_ = message;
+  bounds_notification_timer_ = 2.0f;
+  if (redraw_callback_) redraw_callback_();
+}
+
 void Timeline::RevealEvent(int event_index) {
   if (event_index < 0 ||
       event_index >= timeline_data_.entry_start_times.size() ||
@@ -956,6 +988,21 @@ void Timeline::Pan(Pixel pixel_amount) {
 
   const double time_offset = pixel_amount / px_per_time_unit_val;
   TimeRange new_range = visible_range_.target() + time_offset;
+
+  const bool showing_entire_trace =
+      visible_range_.target().start() <= data_time_range_.start() &&
+      visible_range_.target().end() >= data_time_range_.end();
+
+  if (!showing_entire_trace) {
+    if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
+      ShowBoundsNotification(
+          "Cannot pan further left: reached the beginning of the trace.");
+    } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
+      ShowBoundsNotification(
+          "Cannot pan further right: reached the end of the trace.");
+    }
+  }
+
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -999,6 +1046,23 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
 
   TimeRange new_range = visible_range_.target();
   new_range.Zoom(zoom_factor, pivot);
+
+  if (zoom_factor < 1.0) {
+    if (new_range.duration() < kMinDurationMicros) {
+      ShowBoundsNotification(
+          "Cannot zoom in further: minimum zoom duration reached.");
+    }
+  } else if (zoom_factor > 1.0) {
+    TimeRange constrained_range = new_range;
+    ConstrainTimeRange(constrained_range);
+    if (constrained_range.duration() < new_range.duration() ||
+        (visible_range_.target().start() <= data_time_range_.start() &&
+         visible_range_.target().end() >= data_time_range_.end())) {
+      ShowBoundsNotification(
+          "Cannot zoom out further: showing the entire trace.");
+    }
+  }
+
   ConstrainTimeRange(new_range);
 
   // Update the target of the animated visible range. The timeline will animate
@@ -1200,7 +1264,6 @@ void Timeline::DrawEvent(int group_index, int event_index,
       const Pixel centerX = rect.left;
       const Pixel chevron_half_width = 3.0f;
       const Pixel chevron_height = 7.0f;
-      const Pixel thickness = 2.0f;
 
       ImVec2 top(centerX, rect.top);
       ImVec2 left_bottom(centerX - chevron_half_width,
@@ -1208,8 +1271,14 @@ void Timeline::DrawEvent(int group_index, int event_index,
       ImVec2 right_bottom(centerX + chevron_half_width,
                           rect.top + chevron_height);
 
-      draw_list->AddLine(top, left_bottom, event_color, thickness);
-      draw_list->AddLine(top, right_bottom, event_color, thickness);
+      // Add transparency (0.6 opacity) to the event color of instant events
+      // to help distinguish overlapping ones.
+      const ImU32 transparent_color =
+          (event_color & ~IM_COL32_A_MASK) |
+          (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT);
+
+      draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
+                                   transparent_color);
     } else {
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                                ImVec2(rect.right, rect.bottom), event_color,
@@ -1281,10 +1350,8 @@ void Timeline::DrawEvent(int group_index, int event_index,
         ImVec2 right_bottom(centerX + chevron_half_width,
                             rect.top + chevron_height);
 
-        draw_list->AddLine(top, left_bottom, kSelectedBorderColor,
-                           kSelectedBorderThickness);
-        draw_list->AddLine(top, right_bottom, kSelectedBorderColor,
-                           kSelectedBorderThickness);
+        draw_list->AddTriangle(top, left_bottom, right_bottom,
+                               kSelectedBorderColor, kSelectedBorderThickness);
       } else {
         // Draw a border around the selected event.
         draw_list->AddRect(ImVec2(rect.left, rect.top),
@@ -1316,7 +1383,38 @@ void Timeline::DrawEventsForLevel(int group_index,
     return;
   }
 
-  for (int event_index : event_indices) {
+  const Microseconds visible_start_time = PixelToTime(0, px_per_time_unit);
+  const Microseconds visible_end_time = PixelToTime(max.x, px_per_time_unit);
+
+  auto first_visible_it = std::lower_bound(
+      event_indices.begin(), event_indices.end(), visible_start_time,
+      [&](int event_index, Microseconds time) {
+        // Defensive bounds check for event_index. While event_indices is
+        // expected to contain valid indices, this prevents crashes if an
+        // invalid index somehow gets included.
+        if (event_index < 0 ||
+            event_index >= timeline_data_.entry_start_times.size() ||
+            event_index >= timeline_data_.entry_total_times.size()) {
+          return false;  // Treat out-of-bounds as not ending before 'time'.
+        }
+        return timeline_data_.entry_start_times[event_index] +
+                   timeline_data_.entry_total_times[event_index] <
+               time;
+      });
+
+  auto last_visible_it = std::upper_bound(
+      first_visible_it, event_indices.end(), visible_end_time,
+      [&](Microseconds time, int event_index) {
+        // Defensive bounds check for event_index.
+        if (event_index < 0 ||
+            event_index >= timeline_data_.entry_start_times.size()) {
+          return false;  // Treat out-of-bounds as not starting after 'time'.
+        }
+        return time < timeline_data_.entry_start_times[event_index];
+      });
+
+  for (auto it = first_visible_it; it != last_visible_it; ++it) {
+    int event_index = *it;
     if (event_index < 0 ||
         event_index >= timeline_data_.entry_start_times.size() ||
         event_index >= timeline_data_.entry_total_times.size()) {
@@ -1498,7 +1596,8 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
   }
 }
 
-void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
+void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
+                         Pixel scroll_y, Pixel window_height) {
   const Group& group = timeline_data_.groups[group_index];
   const int start_level = group.start_level;
   int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
@@ -1558,7 +1657,28 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val) {
                                    draw_list);
         }
       }
-      for (int level = start_level; level < end_level; ++level) {
+      const Pixel level_stride = kEventHeight + kEventPaddingBottom;
+      const Pixel group_offset = group_offsets_[group_index];
+
+      int first_visible_level = start_level;
+      Pixel relative_scroll_y = scroll_y - group_offset;
+      if (relative_scroll_y > 0) {
+        first_visible_level =
+            start_level + std::floor(relative_scroll_y / level_stride);
+      }
+
+      int last_visible_level = end_level;
+      Pixel relative_scroll_end = scroll_y + window_height - group_offset;
+      if (relative_scroll_end > 0) {
+        last_visible_level =
+            start_level + std::ceil(relative_scroll_end / level_stride);
+      }
+
+      first_visible_level = std::max(start_level, first_visible_level);
+      last_visible_level = std::min(end_level, last_visible_level);
+
+      for (int level = first_visible_level; level < last_visible_level;
+           ++level) {
         // This is a sanity check to ensure the level is within the bounds of
         // events_by_level.
         if (level < timeline_data_.events_by_level.size()) {
@@ -2336,6 +2456,41 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
       Scroll(-io.MouseDelta.y);
     }
   }
+}
+
+void Timeline::DrawToast(absl::string_view message, float& timer,
+                         float base_y_offset) {
+  if (timer <= 0.0f) return;
+
+  timer -= ImGui::GetIO().DeltaTime;
+  if (redraw_callback_) redraw_callback_();
+
+  const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+  const ImVec2 text_size =
+      ImGui::CalcTextSize(message.data(), message.data() + message.size());
+  const ImVec2 padding(16.0f, 8.0f);
+  const ImVec2 toast_size(text_size.x + padding.x * 2.0f,
+                          text_size.y + padding.y * 2.0f);
+
+  const ImVec2 toast_pos(
+      main_viewport->Pos.x + (main_viewport->Size.x - toast_size.x) * 0.5f,
+      main_viewport->Pos.y + main_viewport->Size.y - toast_size.y -
+          base_y_offset);
+
+  // Fade out at the end.
+  const float alpha = std::max(0.0f, std::min(1.0f, timer * 2.0f));
+  const ImU32 bg_color = IM_COL32(
+      32, 33, 36, (int)(230.0f * alpha));  // Dark grey
+  const ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
+
+  draw_list->AddRectFilled(
+      toast_pos, ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
+      bg_color, kToastCornerRounding);
+  draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+                     text_color, message.data(),
+                     message.data() + message.size());
 }
 
 void Timeline::HandleMouseRelease() {

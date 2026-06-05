@@ -152,6 +152,12 @@ class Timeline {
   const std::string& get_copied_track_name_for_test() const {
     return copied_track_name_;
   }
+  float get_bounds_notification_timer_for_test() const {
+    return bounds_notification_timer_;
+  }
+  const std::string& get_bounds_notification_message_for_test() const {
+    return bounds_notification_message_;
+  }
   bool get_should_restore_scroll_for_test() const {
     return should_restore_scroll_;
   }
@@ -355,6 +361,24 @@ class Timeline {
   virtual void Zoom(float zoom_factor);
   virtual void Zoom(float zoom_factor, Microseconds pivot);
 
+ protected:
+  virtual void DrawEventsForLevel(int group_index,
+                                  absl::Span<const int> event_indices,
+                                  double px_per_time_unit, int level_in_group,
+                                  const ImVec2& pos, const ImVec2& max,
+                                  Pixel event_height, Pixel padding_bottom);
+
+  virtual void DrawGroup(int group_index, double px_per_time_unit_val,
+                         Pixel scroll_y, Pixel window_height);
+
+  // Finds the index of the first visible ancestor (or the group itself if it is
+  // visible) for a given group index. Decoupled from scroll-height specific
+  // terms to allow general usage.
+  int FindFirstVisibleAncestorIndex(int start_idx) const;
+
+  // Returns the cached group visibility array.
+  const std::vector<bool>& group_visible() const { return group_visible_; }
+
  private:
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
@@ -362,6 +386,7 @@ class Timeline {
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
+  void ShowBoundsNotification(const std::string& message);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
@@ -378,11 +403,6 @@ class Timeline {
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
-  void DrawEventsForLevel(int group_index, absl::Span<const int> event_indices,
-                          double px_per_time_unit, int level_in_group,
-                          const ImVec2& pos, const ImVec2& max,
-                          Pixel event_height, Pixel padding_bottom);
-
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
                           Pixel height, float y_ratio, ImDrawList* draw_list);
@@ -391,7 +411,6 @@ class Timeline {
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  void DrawGroup(int group_index, double px_per_time_unit_val);
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,
@@ -449,6 +468,9 @@ class Timeline {
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();
 
+  // Draws a notification toast at the bottom of the timeline.
+  void DrawToast(absl::string_view message, float& timer, float base_y_offset);
+
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
 
@@ -482,6 +504,9 @@ class Timeline {
   // This prevents memory access out of bounds when `group_offsets_.back()`
   // is called during rendering before timeline_data_ has been fully loaded.
   std::vector<Pixel> group_offsets_ = {0.0f};
+  // Stores whether each group is visible (not hidden by a collapsed parent).
+  // Precalculated in UpdateLevelPositions.
+  std::vector<bool> group_visible_;
 
   // The visible time range in microseconds in the timeline. It is initialized
   // to {0, 0} by the `TimeRange` default constructor.
@@ -558,6 +583,12 @@ class Timeline {
   // Indices into timeline_data_ entries
   std::vector<int> search_results_;
   int current_search_result_index_ = -1;
+
+  // Stores the remaining time (in seconds) to display the bounds
+  // notification toast.
+  float bounds_notification_timer_ = 0.0f;
+  // The message to show in the bounds notification toast.
+  std::string bounds_notification_message_ = "";
 
   // Stores the remaining time (in seconds) to display the "Copied!"
   // notification.

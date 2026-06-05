@@ -738,8 +738,8 @@ cc_library(
 )
 
 cc_library(
-    name = "tpu_counter_ids_v7",
-    hdrs = ["tpu_counter_ids_v7.h"],
+    name = "tpu_counter_ids_v6e",
+    hdrs = ["tpu_counter_ids_v6e.h"],
 )
 
 cc_library(

@@ -1,5 +1,12 @@
 /** CSS for a trace viewer component. */
 
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--md-sys-color--surface-container-low);
+}
+
 iframe {
   position: absolute;
   width: 100%;
@@ -8,9 +15,98 @@ iframe {
   border-style: unset;
 }
 
+mat-divider {
+  border-color: silver;
+  height: 28px;
+  margin: 0 10px;
+}
+
+.filter-bar {
+  display: flex;
+  justify-content: left;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  margin: 8px 16px 8px 8px;
+  background: var(--md-sys-color--surface-container);
+  border-radius: 24px;
+}
+
+.filter-input {
+  outline: none;
+  border: none;
+  text-align: left;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  width: 100%;
+  height: 28px;
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.filter-nav {
+  display: flex;
+  justify-content: left;
+  align-items: center;
+  padding-left: 16px;
+  padding-right: 8px;
+}
+
+.filter-content {
+  display: flex;
+  flex-flow: row wrap;
+  padding: 4px;
+  align-items: center;
+  flex-grow: 1;
+}
+
+.filter-content .filler-inputs-wrapper {
+  flex-grow: 1;
+}
+
+.right-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
 .details-button {
   display: inline-flex;
   flex-direction: row-reverse;
   align-items: center;
   gap: 4px;
+}
+
+:host ::ng-deep {
+  filter-chips,
+  filter-input {
+    background: transparent;
+  }
+}
+
+.filter-chip {
+  background-color: #e8f0fe;
+  margin: 4px 5px 4px 0;
+}
+
+.settings-button-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio-group label {
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.radio-group input[type='radio'] {
+  margin-right: 8px;
 }

@@ -9,8 +9,10 @@ import {
   Injector,
   OnDestroy,
   OnInit,
+  TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
@@ -40,17 +42,38 @@ import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/servic
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
-import {getProcessMappingsFromWasm, parseEventsSelectedData} from './utils';
+import {
+  COLOR_PALETTE_STORAGE_KEY,
+  COLOR_PALETTES,
+  FILTER_CONFIG,
+  FILTER_FIELD_EVENT_DURATION,
+  FILTER_FIELDS,
+  FILTER_OPERATORS,
+  FILTER_PROPERTY_SEPARATOR,
+  FILTER_SEPARATOR,
+} from './constants';
+import {
+  FilterChangeEvent,
+  FilterEntry,
+  FilterFieldCategory,
+  FilterOperatorType,
+  FilterRemoveEvent,
+  FlowCategory,
+  TraceEventFilter,
+  TraceFilters,
+} from './trace_viewer_typings';
+import {
+  getProcessMappingsFromWasm,
+  getProcessNamesFromWasm,
+  parseEventsSelectedData,
+} from './utils';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
   [key: string]: unknown;
 }
 
-/**
- * The name of the event selected custom event, dispatched from WASM in Trace
- * Viewer v2.
- */
+/** The name of the event triggered when a trace event is selected. */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
 const DEFAULT_EVENT_DETAIL_COLUMNS = Object.freeze(['property', 'value']);
@@ -74,11 +97,11 @@ function parseHostsList(hosts: unknown): string[] {
   styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
-  /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
   private navigationEvent: NavigationEvent = {};
   private readonly injector = inject(Injector);
   private readonly store = inject(Store<{}>);
+  private readonly dialog = inject(MatDialog);
 
   url = '';
   pathPrefix = '';
@@ -118,7 +141,111 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild(TraceViewerContainer, {static: false})
   container?: TraceViewerContainer;
 
+  @ViewChild('paletteDialog', {static: true})
+  paletteDialog!: TemplateRef<{}>;
+
   private readonly router = inject(Router);
+
+  selectedFilters: FilterEntry[] = [];
+  validFilterFields = FILTER_FIELDS;
+  processes: {[host: string]: string[]} = {};
+  processesListFromJson: string[] = [];
+  isUploadMode = false;
+  fileUploaded = false;
+  selectedPalette = 'Default';
+  COLOR_PALETTES = COLOR_PALETTES;
+  flowCategories: FlowCategory[] = [];
+  allFlowCategories: FlowCategory[] = [];
+  selectedFlowCategoryIds = new Set<number>();
+
+  get filterSelectedHosts(): string[] {
+    const hostFilterEntry: FilterEntry | undefined = this.selectedFilters.find(
+      (filterEntry) =>
+        filterEntry.field?.info.category === FilterFieldCategory.HOST,
+    );
+    if (hostFilterEntry?.operator.value === FilterOperatorType.EXACT) {
+      return hostFilterEntry?.value
+        .split(',')
+        .map((h) => h.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  get filterSelectedTimeRange(): [string | undefined, string | undefined] {
+    const startTimeFilterEntry: FilterEntry | undefined =
+      this.selectedFilters.find(
+        (filterEntry) =>
+          filterEntry.field?.info.category ===
+          FilterFieldCategory.START_TIME_MS,
+      );
+    const endTimeFilterEntry: FilterEntry | undefined =
+      this.selectedFilters.find(
+        (filterEntry) =>
+          filterEntry.field?.info.category === FilterFieldCategory.END_TIME_MS,
+      );
+    return [startTimeFilterEntry?.value, endTimeFilterEntry?.value];
+  }
+
+  get processesFilterValue() {
+    const processFilterEntry: FilterEntry | undefined =
+      this.selectedFilters.find(
+        (filterEntry) =>
+          filterEntry.field?.info.category === FilterFieldCategory.PROCESS,
+      );
+
+    if (processFilterEntry?.operator.value === FilterOperatorType.EXACT) {
+      return processFilterEntry?.value
+        .split(',')
+        .map(
+          (deviceString) =>
+            deviceString.match(/^([^ ]+)\s+(.*)\s+\(pid\s+(\d+)\)$/)?.[2],
+        )
+        .filter(Boolean)
+        .join(',');
+    }
+    return processFilterEntry?.value || '';
+  }
+
+  get threadsFilterValue() {
+    const threadFilterEntry: FilterEntry | undefined =
+      this.selectedFilters.find(
+        (filterEntry) =>
+          filterEntry.field?.info.category === FilterFieldCategory.THREAD,
+      );
+    return threadFilterEntry?.value || '';
+  }
+
+  get eventsFilterValue() {
+    const eventFilterEntries: FilterEntry[] | undefined =
+      this.selectedFilters.filter(
+        (filterEntry) =>
+          filterEntry.field?.info.category === FilterFieldCategory.EVENT,
+      );
+
+    let eventFilterValue = '';
+    for (const eventFilterEntry of eventFilterEntries) {
+      eventFilterValue +=
+        eventFilterEntry.value +
+        FILTER_PROPERTY_SEPARATOR +
+        eventFilterEntry.operator.opId.toString() +
+        FILTER_PROPERTY_SEPARATOR +
+        eventFilterEntry.field.info.name! +
+        FILTER_SEPARATOR;
+    }
+
+    return eventFilterValue.slice(0, -1);
+  }
+
+  get processList() {
+    const processes: string[] = [];
+    Object.values(this.processes).forEach((arr) => {
+      processes.push(...arr);
+    });
+    return this.processesListFromJson.length > 0
+      ? this.processesListFromJson
+      : processes;
+  }
 
   constructor(
     private readonly dataService: DataServiceV2,
@@ -153,18 +280,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.update(this.navigationEvent);
       });
 
+    // Event listeners are handled by TraceViewerContainer.
+    // WASM initialization is triggered via the child component's
+    // (initializeWasm) output event once the canvas element is fully
+    // mounted in the DOM.
     window.addEventListener(
       DETAILS_RECEIVED_EVENT_NAME,
       this.detailsReceivedEventListener,
     );
 
-    // We don't need the source code service to be persistently available.
-    // We temporarily use the service to check if it is available and show
-    // UI accordingly.
     const sourceCodeService = this.injector.get(
       SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
       null,
     );
+    // We don't need the source code service to be persistently available.
+    // We temporarily use the service to check if it is available and show
+    // UI accordingly.
     sourceCodeService
       ?.isAvailable()
       .pipe(takeUntil(this.destroyed))
@@ -173,18 +304,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
-  ngOnInit() {
-    // Event listeners are handled by TraceViewerContainer.
-  }
+  ngOnInit() {}
 
-  ngAfterViewInit() {
-    // WASM initialization is triggered via the child component's
-    // (initializeWasm) output event once the canvas element is fully
-    // mounted in the DOM.
-  }
+  ngAfterViewInit() {}
 
   async initializeWasmApp() {
     this.traceViewerModule = await traceViewerV2Main();
+
+    const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+    if (savedPalette && this.traceViewerModule) {
+      this.selectedPalette = savedPalette;
+      this.traceViewerModule.SetPalette(savedPalette);
+    }
+
+    if (this.traceViewerModule && this.traceViewerModule.getAllFlowCategories) {
+      this.allFlowCategories = this.traceViewerModule.getAllFlowCategories();
+      this.selectAllFlowCategories();
+    }
+
     this.update(this.navigationEvent);
   }
 
@@ -225,6 +362,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('hosts', hostsString);
     }
 
+    if (this.hasValidTraceFilters()) {
+      additionalParams.set(
+        FILTER_CONFIG,
+        JSON.stringify(this.getTraceFilters()),
+      );
+    }
+
     // Sort keys to ensure stable query string regardless of insertion order
     const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
       a[0].localeCompare(b[0]),
@@ -245,6 +389,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.useTraceViewerV2) {
       if (this.traceViewerModule && this.traceViewerModule.loadTraceData) {
         this.traceViewerModule.loadTraceData(traceDataUrl).then(() => {
+          this.updateFlowCategories();
+          this.updateWasmFlowCategories();
           this.updateWasmProcessMappings();
         });
       }
@@ -292,6 +438,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   toggleDetail(name: TraceDetailKey, checked: boolean) {
     this.traceDetails.set(name, checked);
     void this.update(this.navigationEvent);
+  }
+
+  isDetailChecked(key: TraceDetailKey): boolean {
+    return this.traceDetails.get(key) || false;
   }
 
   getCurrentHost(event: NavigationEvent = this.navigationEvent): string {
@@ -357,6 +507,31 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
     for (const [pid, host] of mappings.entries()) {
       this.pidToHostMap.set(pid, host);
+    }
+
+    const processNames = getProcessNamesFromWasm(this.traceViewerModule);
+    const uniqueHosts = new Set<string>(this.hostList);
+    const hostToProcessList: {[host: string]: Set<string>} = {};
+
+    for (const [pid, processName] of processNames.entries()) {
+      if (processName) {
+        const host = processName.split(' ')[0];
+        if (host) {
+          uniqueHosts.add(host);
+          if (!hostToProcessList[host]) {
+            hostToProcessList[host] = new Set<string>();
+          }
+          hostToProcessList[host].add(`${host} ${processName} (pid ${pid})`);
+        }
+      }
+    }
+
+    if (uniqueHosts.size > 0) {
+      this.hostList = Array.from(uniqueHosts).sort();
+    }
+
+    for (const host of Object.keys(hostToProcessList)) {
+      this.processes[host] = Array.from(hostToProcessList[host]).sort();
     }
   }
 
@@ -487,8 +662,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEventProperties = properties;
   }
 
-  // END Trace Viewer V2 WASM App Methods
-
   switchToOldFrontend(showSurvey = true) {
     this.useTraceViewerV2 = false;
     window.gtag &&
@@ -562,4 +735,161 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.switchToV2Frontend();
     }
   }
+
+  // END Trace Viewer V2 WASM App Methods
+
+  // START Support of trace event filtering
+
+  hasValidTraceFilters() {
+    return (
+      this.processesFilterValue.length > 0 ||
+      this.threadsFilterValue.length > 0 ||
+      this.eventsFilterValue.length > 0
+    );
+  }
+
+  getTraceFilters(): TraceFilters {
+    const eventFilters = [];
+    const event = this.eventsFilterValue;
+
+    const traceEventFilterStringList = event.split(FILTER_SEPARATOR);
+    for (const tef of traceEventFilterStringList) {
+      if (tef.length === 0) continue;
+      const tefProps = tef.split(FILTER_PROPERTY_SEPARATOR);
+      const opIdNumber = Number(tefProps[1]);
+      if (tefProps?.[0]?.length > 0) {
+        const filter: TraceEventFilter = {
+          field_name: tefProps[2],
+          op_id: opIdNumber,
+        };
+        if (opIdNumber === FILTER_OPERATORS[5].opId) {
+          filter.regex_value = tefProps[0];
+        } else if (tefProps[2] === FILTER_FIELD_EVENT_DURATION) {
+          filter.double_value = String(Number(tefProps[0]));
+        } else {
+          filter.str_value = tefProps[0];
+        }
+        eventFilters.push(filter);
+      }
+    }
+
+    return {
+      device_regexes: this.processesFilterValue
+        ? this.processesFilterValue.split(',')
+        : [],
+      resource_regexes: this.threadsFilterValue
+        ? this.threadsFilterValue.split(',')
+        : [],
+      trace_event_filters: eventFilters,
+    };
+  }
+
+  onFilterAdd(filter: FilterEntry) {
+    this.selectedFilters.push(filter);
+    this.refreshDataAfterFilterChange();
+  }
+
+  onFilterRemove(event: FilterRemoveEvent) {
+    const {index} = event;
+    this.selectedFilters.splice(index, 1);
+    this.refreshDataAfterFilterChange();
+  }
+
+  onFiltersReset() {
+    this.selectedFilters = [];
+    this.refreshDataAfterFilterChange();
+  }
+
+  onFilterEdit(event: FilterChangeEvent) {
+    const {value, index} = event;
+    if (!value.length || value === this.selectedFilters[index].value) {
+      return;
+    }
+    this.selectedFilters[index].value = value;
+    this.refreshDataAfterFilterChange();
+  }
+
+  refreshDataAfterFilterChange() {
+    void this.update(this.navigationEvent);
+  }
+
+  // END Support of trace event filtering
+
+  // START Support of flow categories view
+
+  selectAllFlowCategories() {
+    this.selectedFlowCategoryIds = new Set(
+      this.flowCategories.map((c) => c.id),
+    );
+    this.updateWasmFlowCategories();
+  }
+
+  selectNoneFlowCategories() {
+    this.selectedFlowCategoryIds.clear();
+    this.updateWasmFlowCategories();
+  }
+
+  toggleFlowCategory(category: FlowCategory) {
+    if (this.selectedFlowCategoryIds.has(category.id)) {
+      this.selectedFlowCategoryIds.delete(category.id);
+    } else {
+      this.selectedFlowCategoryIds.add(category.id);
+    }
+    this.updateWasmFlowCategories();
+  }
+
+  isSelectedFlowCategory(category: FlowCategory) {
+    return this.selectedFlowCategoryIds.has(category.id);
+  }
+
+  updateWasmFlowCategories() {
+    if (!this.traceViewerModule || !this.traceViewerModule.application) {
+      return;
+    }
+    const instance = this.traceViewerModule.application.instance?.();
+    if (instance && instance.setVisibleFlowCategories) {
+      const idsArray = Array.from(this.selectedFlowCategoryIds).map(Number);
+      instance.setVisibleFlowCategories(idsArray);
+    }
+  }
+
+  private updateFlowCategories() {
+    if (!this.traceViewerModule || !this.traceViewerModule.application) return;
+    const instance = this.traceViewerModule.application.instance?.();
+    if (!instance || !instance.dataProvider) return;
+    const dataProvider = instance.dataProvider();
+    if (!dataProvider || !dataProvider.getFlowCategories) return;
+    const presentCategories = dataProvider.getFlowCategories();
+    if (!presentCategories) return;
+    const presentCategoriesSet = new Set();
+    for (let i = 0; i < presentCategories.size(); i++) {
+      presentCategoriesSet.add(presentCategories.get(i));
+    }
+    this.flowCategories = this.allFlowCategories.filter(
+      (category: FlowCategory) => presentCategoriesSet.has(category.id),
+    );
+  }
+
+  // END Support of flow categories view
+
+  // START Support of color palettes selection
+
+  openColorPaletteSettings() {
+    const config: MatDialogConfig = {maxWidth: 350};
+    const dialogRef = this.dialog.open(this.paletteDialog, config);
+
+    dialogRef.afterClosed().subscribe((result: string | undefined) => {
+      if (result && this.traceViewerModule) {
+        this.selectedPalette = result;
+        this.traceViewerModule.SetPalette(result);
+        window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
+      }
+    });
+  }
+
+  onPaletteChange(palette: string) {
+    this.selectedPalette = palette;
+  }
+
+  // END Support of color palettes selection
 }

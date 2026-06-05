@@ -19,6 +19,14 @@ ts_library(
 )
 
 ts_library(
+    name = "angular_material_autocomplete",
+    srcs = [],
+    deps = [
+        "@npm//@angular/material",
+    ],
+)
+
+ts_library(
     name = "angular_material_expansion",
     srcs = [],
     deps = [

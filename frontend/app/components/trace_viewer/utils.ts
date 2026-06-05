@@ -1,10 +1,12 @@
 import {TraceViewerV2Module} from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
+import {FILTER_OPERATORS} from './constants';
 import {
   AggregatedEventProperty,
   CounterSelectionItem,
   EventsSelectedData,
   MetricsItem,
 } from './interfaces';
+import {FilterField, FilterOperator} from './trace_viewer_typings';
 
 function isMetricsItem(item: unknown): item is MetricsItem {
   if (typeof item !== 'object' || item === null) return false;
@@ -154,6 +156,57 @@ export function getProcessMappingsFromWasm(
     }
   } catch (e) {
     console.warn('Failed to get process mappings from WASM:', e);
+  }
+  return result;
+}
+
+/**
+ * Lookup FilterOperator by operator value.
+ * By default set regex operator to match string input.
+ */
+export function lookupFilterOperator(operatorValue: string): FilterOperator {
+  return (
+    FILTER_OPERATORS.find((operator) => operator.value === operatorValue) ||
+    FILTER_OPERATORS[1]
+  );
+}
+
+/**
+ * Generate unique tracking key for filter field.
+ */
+export function filterFieldKey(field: FilterField): string {
+  if (field.info?.name === undefined) {
+    return field.info?.category || '';
+  }
+  return `${field.info.category}_${field.info.name}`;
+}
+
+/**
+ * Extracts and parses process names from the WASM module.
+ */
+export function getProcessNamesFromWasm(
+  traceViewerModule: TraceViewerV2Module | null,
+): Map<number, string> {
+  const result = new Map<number, string>();
+  if (!traceViewerModule || !traceViewerModule.application) {
+    return result;
+  }
+  try {
+    const dataProvider = traceViewerModule.application
+      .instance()
+      .dataProvider();
+    if (dataProvider && dataProvider.getProcessNames) {
+      const dict = dataProvider.getProcessNames();
+      if (dict) {
+        const keys = Object.keys(dict);
+        for (const pidStr of keys) {
+          const processName = (dict as Record<string, string>)[pidStr];
+          result.set(Number(pidStr), processName);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to get process names from WASM:', e);
   }
   return result;
 }

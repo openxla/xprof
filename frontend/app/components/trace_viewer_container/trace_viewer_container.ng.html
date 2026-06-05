@@ -1,4 +1,4 @@
-<div [hidden]="!useTraceViewerV2">
+<div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
   <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
     <div class="error-overlay">
       <mat-icon>error</mat-icon>
@@ -211,6 +211,6 @@
     </as-split>
   </div>
 </div>
-<div [hidden]="useTraceViewerV2">
+<div [hidden]="useTraceViewerV2" class="trace-viewer-component">
   <iframe #tvIframe [src]="url | safe" onload="focus();"></iframe>
 </div>

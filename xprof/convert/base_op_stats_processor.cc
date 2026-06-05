@@ -1,20 +1,21 @@
-// Copyright 2026 The OpenXLA Authors. All Rights Reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// ==============================================================================
+/* Copyright 2026 The OpenXLA Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
 
 #include "xprof/convert/base_op_stats_processor.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -38,6 +39,7 @@
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_op_stats.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
@@ -62,7 +64,7 @@ using ::tensorflow::profiler::WriteBinaryProto;
 using ::tensorflow::profiler::XSpace;
 
 absl::StatusOr<std::string> GetCacheFilePath(
-    const SessionSnapshot& session_snapshot, const std::string& hostname) {
+    const XprofSessionSnapshot& session_snapshot, absl::string_view hostname) {
   StoredDataType cache_type = StoredDataType::OP_STATS;
   TF_ASSIGN_OR_RETURN(
       std::string filename,
@@ -79,8 +81,8 @@ bool GetUseSavedResult(const tensorflow::profiler::ToolOptions& options) {
   return false;
 }
 
-bool AreAllOpStatsCached(const SessionSnapshot& session_snapshot) {
-  for (int i = 0; i < session_snapshot.XSpaceSize(); ++i) {
+bool AreAllOpStatsCached(const XprofSessionSnapshot& session_snapshot) {
+  for (size_t i = 0; i < session_snapshot.XSpaceSize(); ++i) {
     std::string hostname = session_snapshot.GetHostname(i);
     auto cache_file_path = GetCacheFilePath(session_snapshot, hostname);
     if (!cache_file_path.ok() ||
@@ -107,11 +109,10 @@ absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
 }
 
 absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
-    const SessionSnapshot& session_snapshot, absl::string_view hostname,
+    const XprofSessionSnapshot& session_snapshot, absl::string_view hostname,
     const XSpace& xspace) {
-  TF_ASSIGN_OR_RETURN(
-      std::string cache_file_path,
-      GetCacheFilePath(session_snapshot, std::string(hostname)));
+  TF_ASSIGN_OR_RETURN(std::string cache_file_path,
+                      GetCacheFilePath(session_snapshot, hostname));
 
   if (tsl::Env::Default()->FileExists(cache_file_path).ok()) {
     return cache_file_path;
@@ -128,15 +129,22 @@ absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
 
   TF_ASSIGN_OR_RETURN(OpStats op_stats,
                       ConvertXSpaceToOpStats(temp_xspace, options));
-  TF_RETURN_IF_ERROR(
-      WriteBinaryProto(session_snapshot, StoredDataType::OP_STATS,
-                       std::string(hostname), op_stats));
+  TF_RETURN_IF_ERROR(WriteBinaryProto(
+      session_snapshot, StoredDataType::OP_STATS, hostname, op_stats));
   return cache_file_path;
 }
 
 absl::Status BaseOpStatsProcessor::Reduce(
-    const SessionSnapshot& session_snapshot,
+    const XprofSessionSnapshot& session_snapshot,
     const std::vector<std::string>& map_output_files) {
+  // TODO: b/514176124 - Remove this downcast once ProcessCombinedOpStats is
+  // migrated to accept XprofSessionSnapshot in the child CL (cl/907391150).
+  auto* tf_snapshot = dynamic_cast<const SessionSnapshot*>(&session_snapshot);
+  if (tf_snapshot == nullptr) {
+    return absl::InvalidArgumentError(
+        "SessionSnapshot is not a tensorflow::profiler::SessionSnapshot");
+  }
+
   if (map_output_files.empty()) {
     return absl::InvalidArgumentError("map_output_files cannot be empty");
   }
@@ -171,21 +179,31 @@ absl::Status BaseOpStatsProcessor::Reduce(
       session_snapshot, StoredDataType::OP_STATS,
       tensorflow::profiler::kAllHostsIdentifier, combined_op_stats));
 
-  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options_);
+  return ProcessCombinedOpStats(*tf_snapshot, combined_op_stats, options_);
 }
 
 absl::Status BaseOpStatsProcessor::ProcessSession(
-    const SessionSnapshot& session_snapshot,
+    const XprofSessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) {
+  // TODO: b/514176124 - Remove this downcast once
+  // ConvertMultiXSpaceToCombinedOpStatsWithCache and
+  // ProcessCombinedOpStats are migrated to accept XprofSessionSnapshot in
+  // the child CL (cl/907391150).
+  auto* tf_snapshot = dynamic_cast<const SessionSnapshot*>(&session_snapshot);
+  if (tf_snapshot == nullptr) {
+    return absl::InvalidArgumentError(
+        "SessionSnapshot is not a tensorflow::profiler::SessionSnapshot");
+  }
+
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-      session_snapshot, &combined_op_stats));
+      *tf_snapshot, &combined_op_stats));
 
-  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options);
+  return ProcessCombinedOpStats(*tf_snapshot, combined_op_stats, options);
 }
 
 bool BaseOpStatsProcessor::ShouldUseWorkerService(
-    const SessionSnapshot& session_snapshot,
+    const XprofSessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) const {
   if (session_snapshot.XSpaceSize() == 1) {
     return false;

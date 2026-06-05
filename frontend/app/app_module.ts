@@ -29,7 +29,7 @@ import {App} from './app';
     RootStoreModule,
   ],
   providers: [
-    
+    /* provideZoneChangeDetection(), */
     DataDispatcher,
     DataServiceV2,
     {provide: DATA_SERVICE_INTERFACE_TOKEN, useClass: DataServiceV2},

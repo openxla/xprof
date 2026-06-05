@@ -1,17 +1,17 @@
-// Copyright 2026 The OpenXLA Authors. All Rights Reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// ==============================================================================
+/* Copyright 2026 The OpenXLA Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
 
 #ifndef THIRD_PARTY_XPROF_CONVERT_UNIFIED_PROFILE_PROCESSOR_H_
 #define THIRD_PARTY_XPROF_CONVERT_UNIFIED_PROFILE_PROCESSOR_H_
@@ -23,8 +23,8 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 
 namespace xprof {
 
@@ -50,18 +50,18 @@ class UnifiedProfileProcessor {
   // Processes a single host's XSpace data and returns the path to the output
   // file.
   virtual absl::StatusOr<std::string> Map(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       absl::string_view hostname,
       const tensorflow::profiler::XSpace& xspace) = 0;
 
   // Combines the results from multiple Map calls.
   virtual absl::Status Reduce(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       const std::vector<std::string>& map_output_files) = 0;
 
   // Indicates whether this tool can be distributed across multiple workers.
   virtual bool ShouldUseWorkerService(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       const tensorflow::profiler::ToolOptions& options) const {
     return false;
   }
@@ -71,7 +71,7 @@ class UnifiedProfileProcessor {
   // be parallelized per host. It returns `UnimplementedError` by default;
   // subclasses that need session-at-once processing must override this method.
   virtual absl::Status ProcessSession(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       const tensorflow::profiler::ToolOptions& options) {
     return absl::UnimplementedError("ProcessSession not implemented");
   }

@@ -48,11 +48,24 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_session_snapshot",
+    hdrs = ["unified_session_snapshot.h"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_library(
     name = "unified_profile_processor",
     hdrs = ["unified_profile_processor.h"],
     deps = [
-        ":repository",
         ":tool_options",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -86,6 +99,7 @@ cc_test(
         ":tool_options",
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
@@ -181,6 +195,7 @@ cc_library(
         ":repository",
         ":tool_options",
         ":unified_profile_processor",
+        ":unified_session_snapshot",
         ":xplane_to_op_stats",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -2055,11 +2070,13 @@ cc_library(
     hdrs = ["repository.h"],
     deps = [
         ":file_utils",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/utils:hlo_cost_analysis_wrapper",
         "@org_xprof//xprof/utils:hlo_module_map",
         "@org_xprof//xprof/utils:xplane_hlo_fixer",
         "@tsl//tsl/platform:path",

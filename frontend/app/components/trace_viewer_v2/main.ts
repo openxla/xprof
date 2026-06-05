@@ -185,6 +185,7 @@ declare global {
       dataProvider(): {
         getFlowCategories(): TraceViewerV2Module['IntVector'];
         getProcessMappings(): Record<number, string>;
+        getProcessNames(): Record<number, string>;
       };
       getCurrentSearchResultIndex(): number;
       getSearchResultsCount(): number;

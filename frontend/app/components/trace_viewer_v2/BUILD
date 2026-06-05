@@ -2,6 +2,8 @@ load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
 load("@npm//@bazel/concatjs:index.bzl", "ts_library")
 load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_test")
+
+# load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":build_defs.bzl", "wasm_cc_library")
 
 package(default_visibility = [

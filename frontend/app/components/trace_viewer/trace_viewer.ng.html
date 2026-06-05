@@ -1,18 +1,64 @@
-<div style="display: flex; justify-content: flex-end; width: 100%;">
-  <div *ngIf="traceDetails && traceDetails.size > 0">
-    <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
-    <mat-menu #detailsMenu="matMenu" class="details-menu">
-      <div *ngFor="let detail of availableDetails" (click)="$event.stopPropagation()">
-        <mat-checkbox [checked]="traceDetails.get(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
-          {{detail.label}}
-        </mat-checkbox>
-      </div>
-    </mat-menu>
+<div class="filter-bar" id="filter-bar">
+  <div class="filter-nav">
+    <span>All Filters</span>
   </div>
-  <button mat-button (click)="switchVersion()">
-    Switch to {{useTraceViewerV2 ? 'V1' : 'V2'}}
-  </button>
+  <mat-divider vertical></mat-divider>
+  <span class="filter-content">
+    <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
+    <div class="filler-inputs-wrapper">
+      <filter-input #filterInput
+        [validFilterFields]="validFilterFields"
+        [hosts]="hostList"
+        [processes]="processList"
+        (filterAdded)="onFilterAdd($event)"></filter-input>
+    </div>
+  </span>
+
+  <ng-container *ngIf="useTraceViewerV2">
+    <div class="right-controls">
+      <div *ngIf="traceDetails && traceDetails.size > 0">
+        <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
+        <mat-menu #detailsMenu="matMenu" class="details-menu">
+          <div *ngFor="let detail of availableDetails" (click)="$event.stopPropagation()">
+            <mat-checkbox [checked]="isDetailChecked(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
+              {{detail.label}}
+            </mat-checkbox>
+          </div>
+        </mat-menu>
+      </div>
+      <button mat-button [matMenuTriggerFor]="flowMenu">Flow Events</button>
+      <mat-menu #flowMenu="matMenu">
+        <button mat-menu-item (click)="selectAllFlowCategories()">All</button>
+        <button mat-menu-item (click)="selectNoneFlowCategories()">None</button>
+        <mat-divider></mat-divider>
+        <button mat-menu-item *ngFor="let category of flowCategories" (click)="toggleFlowCategory(category)">
+          <mat-checkbox [checked]="isSelectedFlowCategory(category)">{{category.name}}</mat-checkbox>
+        </button>
+      </mat-menu>
+      <button mat-button (click)="switchVersion()">
+        Switch to V1
+      </button>
+      <div class="settings-button-wrapper">
+        <button mat-icon-button [matMenuTriggerFor]="settingsMenu" #settingsTrigger="matMenuTrigger" aria-label="Settings">
+          <mat-icon>settings</mat-icon>
+        </button>
+      </div>
+      <mat-menu #settingsMenu="matMenu">
+        <button mat-menu-item (click)="openColorPaletteSettings()">
+          <mat-icon>palette</mat-icon> Color Palette
+        </button>
+      </mat-menu>
+    </div>
+  </ng-container>
+  <ng-container *ngIf="!useTraceViewerV2">
+    <div class="right-controls">
+      <button mat-button (click)="switchVersion()">
+        Switch to V2
+      </button>
+    </div>
+  </ng-container>
 </div>
+
 <trace-viewer-container [url]="url"
                         [traceViewerModule]="traceViewerModule"
                         [useTraceViewerV2]="useTraceViewerV2"
@@ -26,3 +72,22 @@
                         (searchEvents)="onSearchEvents($event)"
                         (initializeWasm)="onInitializeWasm()">
 </trace-viewer-container>
+
+<ng-template #paletteDialog let-dialogRef="dialogRef">
+  <h2 mat-dialog-title style="margin: 16px 24px;">Select Color Palette</h2>
+  <mat-dialog-content style="padding: 0 24px;">
+    <div class="radio-group">
+      <label *ngFor="let palette of COLOR_PALETTES" style="display:flex; align-items:center; padding: 8px 0; cursor:pointer;">
+        <input type="radio" name="palette" [value]="palette" (change)="onPaletteChange(palette)" [checked]="selectedPalette === palette" style="margin-right: 8px;"> {{palette}}
+      </label>
+    </div>
+  </mat-dialog-content>
+  <mat-dialog-actions align="end" style="padding: 16px 24px;">
+    <button mat-button color="primary" (click)="dialogRef.close(selectedPalette)">
+      Save
+    </button>
+    <button mat-button color="primary" (click)="dialogRef.close()">
+      Close
+    </button>
+  </mat-dialog-actions>
+</ng-template>

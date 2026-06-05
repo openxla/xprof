@@ -117,3 +117,24 @@ py_test(
         "@pypi//absl-py",
     ],
 )
+
+py_library(
+    name = "profile_data",
+    srcs = ["profile_data.py"],
+    deps = [
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+        "@pypi//etils",
+    ],
+)
+
+py_test(
+    name = "profile_data_test",
+    srcs = ["profile_data_test.py"],
+    imports = [".."],
+    main = "profile_data_test.py",
+    deps = [
+        ":profile_data",
+        "@pypi//absl-py",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_py",
+    ],
+)

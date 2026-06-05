@@ -112,7 +112,7 @@ void ExtractMetadataKeys(const TraceEvent& event, const Trace& trace,
 
   raw_data.Clear();
   if (raw_data.ParseFromString(event.raw_data()) && raw_data.has_args()) {
-    for (const auto& arg : raw_data.args().arg()) {
+    for (const TraceEventArguments::Argument& arg : raw_data.args().arg()) {
       if (RE2::FullMatch(arg.name(), *kSearchableKeyRegex)) {
         std::string val;
         if (arg.has_str_value()) {
@@ -153,9 +153,13 @@ void MaybeAddEventUniqueId(const std::vector<TraceEvent*>& all_events) {
 }
 
 TraceEvent::EventType GetTraceEventType(const TraceEvent& event) {
-  return event.has_resource_id() ? TraceEvent::EVENT_TYPE_COMPLETE
-         : event.has_flow_id()   ? TraceEvent::EVENT_TYPE_ASYNC
-                                 : TraceEvent::EVENT_TYPE_COUNTER;
+  if (event.has_resource_id()) {
+    return TraceEvent::EVENT_TYPE_COMPLETE;
+  } else if (event.has_flow_id()) {
+    return TraceEvent::EVENT_TYPE_ASYNC;
+  } else {
+    return TraceEvent::EVENT_TYPE_COUNTER;
+  }
 }
 
 bool ReadTraceMetadata(tsl::table::Iterator* iterator,
@@ -326,6 +330,14 @@ ProcessTrackEventsParallel(
                   it->second) {
                 break;
               }
+              if (event->duration_ps() >= LayerResolutionPs(zoom_level)) {
+                break;
+              }
+            }
+            track_events_by_level[j][zoom_level].push_back(event);
+            if (zoom_level < kNumLevels - 1) {
+              track_visibility_by_level[zoom_level].SetVisibleAtResolution(
+                  *event);
             }
           } else {
             for (; zoom_level < kNumLevels - 1; ++zoom_level) {
@@ -334,9 +346,8 @@ ProcessTrackEventsParallel(
                 break;
               }
             }
+            track_events_by_level[j][zoom_level].push_back(event);
           }
-
-          track_events_by_level[j][zoom_level].push_back(event);
 
           for (++zoom_level; zoom_level < kNumLevels - 1; ++zoom_level) {
             track_visibility_by_level[zoom_level].SetVisibleAtResolution(

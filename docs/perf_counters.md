@@ -1,8 +1,6 @@
 # Perf Counters
 
-```{note}
-This tool is currently only available in nightly builds.
-```
+> **Note:** This tool is currently only available in nightly builds.
 
 All accelerators (TPUs and GPUs) provide HW performance counters, and the *Perf
 Counters* tool displays HW performance counters collected during a profiling

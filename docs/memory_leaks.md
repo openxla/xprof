@@ -42,7 +42,8 @@ Use Memory Viewer for a detailed static analysis of buffer lifetimes.
    boxes, one per allocation.
    * Each colored block represents one allocation;
    * The width of each block represents the lifetime in program order;
-   * The height of each block represents the size of the allocation.
+   * The height of each block represents the size of the allocation;
+   * The vertical placement of each block represents its starting memory address (offset).
 
    Look for blocks that span the entire program, which means they were never deallocated. You can hover over the blocks
    for more information about the HLO operation being represented.

@@ -16,6 +16,7 @@ import {MatSidenavModule} from '@angular/material/sidenav';
 import {MatSnackBarModule} from '@angular/material/snack-bar';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {DownloadHloModule} from 'org_xprof/frontend/app/components/controls/download_hlo/download_hlo_module';
+import {SearchableDropdown} from 'org_xprof/frontend/app/components/controls/searchable_dropdown/searchable_dropdown';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
 import {HloTextViewModule} from 'org_xprof/frontend/app/components/graph_viewer/hlo_text_view/hlo_text_view_module';
 import {OpDetailsModule} from 'org_xprof/frontend/app/components/op_profile/op_details/op_details_module';
@@ -39,6 +40,7 @@ import {GraphViewer} from './graph_viewer';
     MatSelectModule,
     MatSidenavModule,
     PipesModule,
+    SearchableDropdown,
     HloTextViewModule,
     OpDetailsModule,
     MatProgressSpinnerModule,
@@ -50,7 +52,6 @@ import {GraphViewer} from './graph_viewer';
     MatTooltipModule,
   ],
   declarations: [GraphViewer],
-  exports: [GraphViewer]
+  exports: [GraphViewer],
 })
-export class GraphViewerModule {
-}
+export class GraphViewerModule {}

@@ -42,6 +42,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/controls/download_hlo",
+        "@org_xprof//frontend/app/components/controls/searchable_dropdown",
         "@org_xprof//frontend/app/components/diagnostics_view",
         "@org_xprof//frontend/app/components/graph_viewer/hlo_text_view",
         "@org_xprof//frontend/app/components/op_profile:op_profile_data",

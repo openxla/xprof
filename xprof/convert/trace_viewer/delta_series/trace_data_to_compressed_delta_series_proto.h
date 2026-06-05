@@ -8,17 +8,20 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "re2/re2.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
+#include "plugin/xprof/protobuf/trace_filter_config.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -26,6 +29,7 @@ namespace profiler {
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
   JsonTraceOptions::Details details;
+  std::optional<tensorflow::profiler::TraceFilterConfig> trace_filter_config;
 };
 
 // Internal class handling the stateful conversion of trace events.
@@ -74,6 +78,14 @@ class DeltaSeriesProtoConverter {
   CounterExtractor counter_extractor_;
   DeltaSeriesProtoConversionOptions options_;
   absl::flat_hash_map<uint32_t, uint32_t> mpmd_sort_indices_;
+
+  bool has_filter_config_ = false;
+  absl::flat_hash_set<uint32_t> active_devices_;
+  absl::flat_hash_set<std::pair<uint32_t, uint64_t>> active_resources_;
+  bool has_process_filter_ = false;
+  bool has_event_filter_ = false;
+  std::vector<std::unique_ptr<RE2>> device_matchers_;
+  std::vector<std::unique_ptr<RE2>> resource_matchers_;
 };
 
 // Converts TraceEventsContainer trace data into the optimized, columnar
@@ -123,6 +135,31 @@ template <typename TraceEventsContainer>
 absl::Status DeltaSeriesProtoConverter::GenerateResponse(
     const TraceEventsContainer& container,
     xprof::TraceDataResponse* response) && {
+  if (options_.trace_filter_config.has_value()) {
+    const auto& config = *options_.trace_filter_config;
+    device_matchers_.reserve(config.device_regexes().size());
+    for (const auto& regex : config.device_regexes()) {
+      device_matchers_.push_back(std::make_unique<RE2>(regex));
+    }
+    resource_matchers_.reserve(config.resource_regexes().size());
+    for (const auto& regex : config.resource_regexes()) {
+      resource_matchers_.push_back(std::make_unique<RE2>(regex));
+    }
+    has_process_filter_ =
+        !device_matchers_.empty() || !resource_matchers_.empty();
+    has_event_filter_ = !config.trace_event_filters().empty();
+    has_filter_config_ = has_process_filter_ || has_event_filter_;
+  }
+
+  if (has_filter_config_) {
+    container.ForAllEvents([&](const auto& event) {
+      active_devices_.insert(event.device_id());
+      if (event.has_resource_id()) {
+        active_resources_.insert({event.device_id(), event.resource_id()});
+      }
+    });
+  }
+
   if (options_.mpmd_pipeline_view) {
     SortMpmdDevices(container, mpmd_sort_indices_);
   }

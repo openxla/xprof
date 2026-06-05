@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "re2/re2.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
@@ -39,6 +40,21 @@ uint32_t DeltaSeriesProtoConverter::MaybeInternString(absl::string_view str) {
 xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
   xprof::TraceMetadata metadata;
   for (const auto& [device_id, device] : trace_->devices()) {
+    bool keep_device = true;
+    if (has_process_filter_) {
+      bool device_match = device_matchers_.empty();
+      for (const auto& matcher : device_matchers_) {
+        if (RE2::PartialMatch(device.name(), *matcher)) {
+          device_match = true;
+          break;
+        }
+      }
+      keep_device = device_match;
+    } else if (has_event_filter_) {
+      keep_device = active_devices_.contains(device_id);
+    }
+    if (!keep_device) continue;
+
     xprof::Process* process = metadata.add_processes();
     process->set_id(device_id);
     if (device.has_name()) {
@@ -51,6 +67,28 @@ xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
     }
     process->set_sort_index(sort_index);
     for (const auto& [resource_id, resource] : device.resources()) {
+      bool keep_resource = true;
+      if (has_process_filter_) {
+        bool device_match = device_matchers_.empty();
+        for (const auto& matcher : device_matchers_) {
+          if (RE2::PartialMatch(device.name(), *matcher)) {
+            device_match = true;
+            break;
+          }
+        }
+        bool resource_match = resource_matchers_.empty();
+        for (const auto& matcher : resource_matchers_) {
+          if (RE2::PartialMatch(resource.name(), *matcher)) {
+            resource_match = true;
+            break;
+          }
+        }
+        keep_resource = device_match && resource_match;
+      } else if (has_event_filter_) {
+        keep_resource = active_resources_.contains({device_id, resource_id});
+      }
+      if (!keep_resource) continue;
+
       xprof::Thread* thread = process->add_threads();
       thread->set_id(resource_id);
       if (resource.has_name()) {

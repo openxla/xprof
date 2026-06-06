@@ -107,7 +107,7 @@ class GcsStorageClient : public StorageClientInterface {
          &contents, &mu, &status](int64_t i, int64_t end_chunk) {
           for (int64_t chunk_idx = i; chunk_idx < end_chunk; ++chunk_idx) {
             {
-              absl::MutexLock lock(&mu);
+              absl::MutexLock lock(mu);
               if (!status.ok()) return;
             }
             const std::uint64_t chunk_start = start + chunk_idx * chunk_size;
@@ -117,7 +117,7 @@ class GcsStorageClient : public StorageClientInterface {
             gcs::ObjectReadStream reader = client_.ReadObject(
                 bucket_str, object_str, gcs::ReadRange(chunk_start, chunk_end));
             if (!reader) {
-              absl::MutexLock lock(&mu);
+              absl::MutexLock lock(mu);
               status.Update(absl::InternalError(absl::StrCat(
                   "Failed to read range: ", reader.status().message())));
               return;
@@ -125,7 +125,7 @@ class GcsStorageClient : public StorageClientInterface {
             reader.read(contents.data() + (chunk_start - start),
                         chunk_end - chunk_start);
             if (!reader.status().ok()) {
-              absl::MutexLock lock(&mu);
+              absl::MutexLock lock(mu);
               status.Update(absl::DataLossError(
                   absl::StrCat("Failed to read GCS range data: ",
                                reader.status().message())));

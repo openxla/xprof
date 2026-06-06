@@ -99,7 +99,7 @@ message MemoryAccessBreakdown {
 }
 
 // Metrics for an operation (accumulated over all occurrences).
-// Next ID: 31
+// Next ID: 35
 message OpMetrics {
   // HLO module id. 0 for Framework ops.
   uint64 hlo_module_id = 13;
@@ -177,6 +177,14 @@ message OpMetrics {
     SPARSE_CORE = 2;
   }
   TpuCoreType core_type = 28;
+  // Total VDD core energy consumed in nano Joules.
+  double vdd_core_energy_nj = 31;
+  // Number of VDD core power events.
+  int64 vdd_core_power_events = 32;
+  // Total HBM energy consumed in nano Joules.
+  double hbm_energy_nj = 33;
+  // Number of HBM power events.
+  int64 hbm_power_events = 34;
   reserved 4, 8, 9;
 }
 

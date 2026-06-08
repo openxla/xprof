@@ -10,58 +10,44 @@
 .labs-header {
   background-color: var(--md-sys-color--surface-variant);
   border-radius: 16px;
-  padding: 28px 32px;
+  padding: 16px 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
   .header-content {
     display: flex;
     align-items: center;
-    gap: 24px;
-  }
-
-  .header-icon-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 64px;
-    height: 64px;
-    background-color: var(--md-sys-color--primary-container, #e8f0fe);
-    border-radius: 20px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    gap: 16px;
 
     .header-icon {
       font-size: 36px;
       width: 36px;
       height: 36px;
-      color: var(
-        --md-sys-color--on-primary-container,
-        var(--md-sys-color--primary)
-      );
+      color: var(--md-sys-color--primary);
     }
   }
 
   .header-text {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
 
     .title-row {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
 
       h1 {
         margin: 0;
-        font-size: 30px;
+        font-size: 22px;
         font-weight: 600;
         letter-spacing: -0.5px;
         color: var(--md-sys-color--on-surface);
       }
 
       .experimental-badge {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
-        padding: 4px 10px;
+        padding: 2px 8px;
         background-color: var(--md-sys-color--tertiary-container, #fce8e6);
         color: var(--md-sys-color--on-tertiary-container, #c5221f);
         border-radius: 12px;
@@ -72,7 +58,7 @@
 
     p {
       margin: 0;
-      font-size: 16px;
+      font-size: 14px;
       color: var(--md-sys-color--on-surface-variant);
       line-height: 1.5;
     }

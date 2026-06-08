@@ -31,6 +31,7 @@ limitations under the License.
 #include "absl/algorithm/container.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/flags/flag.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/numeric/bits.h"
@@ -58,6 +59,9 @@ limitations under the License.
 #include "xprof/convert/xprof_thread_pool_executor.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
+
+ABSL_FLAG(bool, xprof_enable_metadata_indexing, false,
+          "Enable metadata indexing for trace viewer prefix search.");
 
 namespace tensorflow {
 namespace profiler {
@@ -433,13 +437,17 @@ absl::Status CreateAndSavePrefixTrie(
   absl::Time start_time = absl::Now();
   PrefixTrie prefix_trie;
   RawData raw_data;
+  bool enable_metadata_indexing =
+      absl::GetFlag(FLAGS_xprof_enable_metadata_indexing);
   for (int zoom_level = 0; zoom_level < events_by_level.size(); ++zoom_level) {
     for (const TraceEvent* event : events_by_level[zoom_level]) {
       std::string event_id =
           LevelDbTableKey(zoom_level, event->timestamp_ps(), event->serial());
       if (!event_id.empty()) {
         prefix_trie.Insert(event->name(), event_id);
-        ExtractMetadataKeys(*event, trace, event_id, prefix_trie, raw_data);
+        if (enable_metadata_indexing) {
+          ExtractMetadataKeys(*event, trace, event_id, prefix_trie, raw_data);
+        }
       }
     }
   }

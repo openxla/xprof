@@ -32,6 +32,7 @@ limitations under the License.
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/flags/declare.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/functional/bind_front.h"
 #include "absl/log/check.h"
@@ -59,6 +60,8 @@ limitations under the License.
 #include "xprof/convert/xprof_thread_pool_executor.h"
 #include "plugin/xprof/protobuf/task.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
+
+ABSL_DECLARE_FLAG(bool, xprof_enable_metadata_indexing);
 
 namespace tensorflow {
 namespace profiler {

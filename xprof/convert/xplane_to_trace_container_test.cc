@@ -206,6 +206,86 @@ TEST(XPlaneToTraceContainerTest, SubprocessHostTrace_ConvertsToTraceEvents) {
   EXPECT_TRUE(event2_found);
 }
 
+TEST(XPlaneToTraceContainerTest, ThreadPoolGrouping_ConvertsToTraceEvents) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(
+      R"pb(
+        planes {
+          name: "/host:CPU"
+          lines {
+            id: 1
+            name: "PJRT/1"
+            timestamp_ns: 1000
+            events { metadata_id: 1 offset_ps: 0 duration_ps: 100 }
+          }
+          lines {
+            id: 2
+            name: "PJRT/2"
+            timestamp_ns: 1000
+            events { metadata_id: 1 offset_ps: 0 duration_ps: 100 }
+          }
+          lines {
+            id: 3
+            name: "gpu_private_pool_0/1"
+            timestamp_ns: 1000
+            events { metadata_id: 2 offset_ps: 0 duration_ps: 100 }
+          }
+          lines {
+            id: 4
+            name: "gpu_private_pool_0/2"
+            timestamp_ns: 1000
+            events { metadata_id: 2 offset_ps: 0 duration_ps: 100 }
+          }
+          lines {
+            id: 5
+            name: "single_thread"
+            timestamp_ns: 1000
+            events { metadata_id: 3 offset_ps: 0 duration_ps: 100 }
+          }
+          event_metadata {
+            key: 1
+            value: { id: 1 name: "PJRT Event" }
+          }
+          event_metadata {
+            key: 2
+            value: { id: 2 name: "GPU Event" }
+          }
+          event_metadata {
+            key: 3
+            value: { id: 3 name: "Single Event" }
+          }
+        }
+      )pb",
+      &xspace));
+
+  TraceEventsContainer container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &container);
+
+  bool pjrt_event_found = false;
+  bool gpu_event_found = false;
+  bool single_event_found = false;
+
+  container.ForAllEvents([&](const TraceEvent& event) {
+    if (event.name() == "PJRT Event") {
+      pjrt_event_found = true;
+      EXPECT_EQ(container.trace().devices().at(event.device_id()).name(),
+                "localhost PJRT");
+    } else if (event.name() == "GPU Event") {
+      gpu_event_found = true;
+      EXPECT_EQ(container.trace().devices().at(event.device_id()).name(),
+                "localhost gpu_private_pool");
+    } else if (event.name() == "Single Event") {
+      single_event_found = true;
+      EXPECT_EQ(container.trace().devices().at(event.device_id()).name(),
+                "localhost /host:CPU");
+    }
+  });
+
+  EXPECT_TRUE(pjrt_event_found);
+  EXPECT_TRUE(gpu_event_found);
+  EXPECT_TRUE(single_event_found);
+}
+
 }  // namespace
 
 }  // namespace profiler

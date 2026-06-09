@@ -23,6 +23,7 @@ limitations under the License.
 #include "google/protobuf/util/message_differencer.h"
 #include "xla/tsl/platform/types.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/power_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
@@ -232,6 +233,85 @@ TEST(CombineAllOpStatsTest, CombineDisaggregatedServingStats) {
   // (10 * 100 + 20 * 200) / 30 = 5000 / 30 = 166.666...
   EXPECT_NEAR(166.666666666, dst_serving_stats.decode_step_time_us().avg(),
               1e-6);
+}
+
+TEST(CombineAllOpStatsTest, CombineDeviceOpMetricsDbWithChildren) {
+  OpStats dst_op_stats, op_stats_1, op_stats_2;
+
+  // Set up op_stats_1 with one device op that has children.
+  {
+    auto* db = op_stats_1.mutable_device_op_metrics_db();
+    auto* op = db->add_metrics_db();
+    op->set_name("parent_op");
+    op->set_hlo_module_id(123);
+    op->set_occurrences(1);
+    op->set_time_ps(100);
+
+    auto* child_db = op->mutable_children();
+    auto* child_op = child_db->add_metrics_db();
+    child_op->set_name("child_op_1");
+    child_op->set_hlo_module_id(123);
+    child_op->set_occurrences(2);
+    child_op->set_time_ps(50);
+  }
+
+  // Set up op_stats_2 with the same device op that has other children.
+  {
+    auto* db = op_stats_2.mutable_device_op_metrics_db();
+    auto* op = db->add_metrics_db();
+    op->set_name("parent_op");
+    op->set_hlo_module_id(123);
+    op->set_occurrences(2);
+    op->set_time_ps(200);
+
+    auto* child_db = op->mutable_children();
+    auto* child_op = child_db->add_metrics_db();
+    child_op->set_name("child_op_2");
+    child_op->set_hlo_module_id(123);
+    child_op->set_occurrences(3);
+    child_op->set_time_ps(80);
+  }
+
+  OpStatsInfo op_stats_info_1(&op_stats_1, TPU, 0);
+  OpStatsInfo op_stats_info_2(&op_stats_2, TPU, 1);
+
+  std::vector<OpStatsInfo> all_op_stats_info = {op_stats_info_1,
+                                                op_stats_info_2};
+
+  StepDatabaseResult dummy_step_db_result;
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
+  result.insert({0, &dummy_step_db_result});
+  StepIntersection dummy_step_intersection = StepIntersection(1, result);
+
+  CombineAllOpStats(all_op_stats_info, dummy_step_intersection, &dst_op_stats);
+
+  // Verify that the combined op metrics has the parent_op.
+  const auto& combined_db = dst_op_stats.device_op_metrics_db();
+  ASSERT_EQ(combined_db.metrics_db_size(), 1);
+  const auto& combined_op = combined_db.metrics_db(0);
+  EXPECT_EQ(combined_op.name(), "parent_op");
+  EXPECT_EQ(combined_op.occurrences(), 3);
+  EXPECT_EQ(combined_op.time_ps(), 300);
+
+  // Verify that both child_op_1 and child_op_2 are present in the children db
+  // of parent_op.
+  const auto& combined_children_db = combined_op.children();
+  ASSERT_EQ(combined_children_db.metrics_db_size(), 2);
+
+  // We should look up the children to verify their values since their order in
+  // the repeated field might vary.
+  absl::flat_hash_map<std::string, const OpMetrics*> children_map;
+  for (const auto& child : combined_children_db.metrics_db()) {
+    children_map[child.name()] = &child;
+  }
+
+  ASSERT_TRUE(children_map.contains("child_op_1"));
+  EXPECT_EQ(children_map["child_op_1"]->occurrences(), 2);
+  EXPECT_EQ(children_map["child_op_1"]->time_ps(), 50);
+
+  ASSERT_TRUE(children_map.contains("child_op_2"));
+  EXPECT_EQ(children_map["child_op_2"]->occurrences(), 3);
+  EXPECT_EQ(children_map["child_op_2"]->time_ps(), 80);
 }
 
 }  // namespace

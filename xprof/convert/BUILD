@@ -1518,6 +1518,7 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:power_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",

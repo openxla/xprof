@@ -61,9 +61,6 @@ void CopyOpMetricsMetadata(const OpMetrics& src, OpMetrics* dst) {
   if (!dst->has_layout() && src.has_layout()) {
     *dst->mutable_layout() = src.layout();
   }
-  if (!dst->has_children() && src.has_children()) {
-    *dst->mutable_children() = src.children();
-  }
   if (!dst->has_source_info() && src.has_source_info()) {
     *dst->mutable_source_info() = src.source_info();
   }
@@ -100,6 +97,10 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
   dst->set_dma_stall_ps(src.dma_stall_ps() + dst->dma_stall_ps());
   if (src.has_vdd_energy_j() || dst->has_vdd_energy_j()) {
     dst->set_vdd_energy_j(src.vdd_energy_j() + dst->vdd_energy_j());
+  }
+  if (src.has_children()) {
+    OpMetricsDbCombiner combiner(dst->mutable_children());
+    combiner.Combine(src.children(), update_num_cores);
   }
 }
 
@@ -146,7 +147,10 @@ void OpMetricsDbCombiner::Combine(const OpMetricsDb& src,
   dst->set_busy_time_ps(src.busy_time_ps() + dst->busy_time_ps());
   dst->set_normalized_total_op_time_ps(src.normalized_total_op_time_ps() +
                                        dst->normalized_total_op_time_ps());
-  CombinePrecisionStats(src.precision_stats(), dst->mutable_precision_stats());
+  if (src.has_precision_stats() || dst->has_precision_stats()) {
+    CombinePrecisionStats(src.precision_stats(),
+                          dst->mutable_precision_stats());
+  }
 
   for (const auto& src_metrics : src.metrics_db()) {
     auto* dst_metrics = LookupOrInsertNewOpMetrics(src_metrics.hlo_module_id(),

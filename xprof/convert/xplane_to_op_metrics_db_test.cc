@@ -570,7 +570,6 @@ TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithXlaOps) {
                                            }
                                            total_time_ps: 20000000
                                            total_op_time_ps: 18000000
-                                           precision_stats {}
               )pb"));
 #endif
 }
@@ -643,7 +642,6 @@ TEST(ConvertXPlaneToOpMetricsDb, HostXPlaneWithInputPipelineTracemeOps) {
                                                }
                                                total_time_ps: 30000000
                                                total_op_time_ps: 20000000
-                                               precision_stats {}
                               )pb")));
 #endif
 }

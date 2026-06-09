@@ -1386,20 +1386,25 @@ void Timeline::DrawEventsForLevel(int group_index,
   const Microseconds visible_start_time = PixelToTime(0, px_per_time_unit);
   const Microseconds visible_end_time = PixelToTime(max.x, px_per_time_unit);
 
+  int level = level_in_group;
+  if (group_index >= 0 && group_index < timeline_data_.groups.size()) {
+    level += timeline_data_.groups[group_index].start_level;
+  }
+  Microseconds max_duration = 0.0;
+  if (level >= 0 && level < timeline_data_.level_max_durations.size()) {
+    max_duration = timeline_data_.level_max_durations[level];
+  }
+  const Microseconds search_key = visible_start_time - max_duration;
+
   auto first_visible_it = std::lower_bound(
-      event_indices.begin(), event_indices.end(), visible_start_time,
+      event_indices.begin(), event_indices.end(), search_key,
       [&](int event_index, Microseconds time) {
-        // Defensive bounds check for event_index. While event_indices is
-        // expected to contain valid indices, this prevents crashes if an
-        // invalid index somehow gets included.
+        // Defensive bounds check for event_index.
         if (event_index < 0 ||
-            event_index >= timeline_data_.entry_start_times.size() ||
-            event_index >= timeline_data_.entry_total_times.size()) {
-          return false;  // Treat out-of-bounds as not ending before 'time'.
+            event_index >= timeline_data_.entry_start_times.size()) {
+          return false;
         }
-        return timeline_data_.entry_start_times[event_index] +
-                   timeline_data_.entry_total_times[event_index] <
-               time;
+        return timeline_data_.entry_start_times[event_index] < time;
       });
 
   auto last_visible_it = std::upper_bound(
@@ -1424,6 +1429,10 @@ void Timeline::DrawEventsForLevel(int group_index,
     const Microseconds start = timeline_data_.entry_start_times[event_index];
     const Microseconds end =
         start + timeline_data_.entry_total_times[event_index];
+
+    if (end < visible_start_time) {
+      continue;
+    }
 
     const EventRect rect =
         CalculateEventRect(start, end, pos.x, pos.y, px_per_time_unit,

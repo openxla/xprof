@@ -116,6 +116,7 @@ struct FlameChartTimelineData {
   // are the same. But given there might be tens of thousands events, this
   // optimization is worth it.
   std::vector<std::vector<int>> events_by_level;
+  std::vector<Microseconds> level_max_durations;
   std::vector<FlowLine> flow_lines;
   // Map from event_id to list of flow ids that connect to this event.
   absl::flat_hash_map<EventId, std::vector<std::string>> flow_ids_by_event_id;

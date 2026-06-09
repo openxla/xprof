@@ -867,8 +867,12 @@ FlameChartTimelineData CreateTimelineData(
   }
 
   data.events_by_level.resize(current_level);
+  data.level_max_durations.assign(current_level, Microseconds(0));
   for (int i = 0; i < data.entry_levels.size(); ++i) {
-    data.events_by_level[data.entry_levels[i]].push_back(i);
+    int lvl = data.entry_levels[i];
+    data.events_by_level[lvl].push_back(i);
+    data.level_max_durations[lvl] =
+        std::max(data.level_max_durations[lvl], data.entry_total_times[i]);
   }
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,

@@ -26,6 +26,7 @@
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -2604,6 +2605,77 @@ TEST_F(MockTimelineImGuiFixture,
   // Specific expectations (checked first due to reverse order)
   EXPECT_CALL(timeline_, GetTextSize("event1")).Times(2);
   EXPECT_CALL(timeline_, GetTextSize("event0")).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
+
+  // Vertical culling should call DrawGroup and DrawEventsForLevel.
+  EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+                          Pixel scroll_y, Pixel window_height) {
+        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+                                window_height);
+      });
+  EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
+      .Times(::testing::AnyNumber())
+      .WillRepeatedly([&](int group_index, absl::Span<const int> event_indices,
+                          double px_per_time_unit, int level_in_group,
+                          const ImVec2& pos, const ImVec2& max,
+                          Pixel event_height, Pixel padding_bottom) {
+        timeline_.DrawEventsForLevelBase(group_index, event_indices,
+                                         px_per_time_unit, level_in_group, pos,
+                                         max, event_height, padding_bottom);
+      });
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevel_BinarySearchCorrectlyHandlesLongEarlyEvents) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1, 2});
+
+  // Event 0: Long early event
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(50.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 1: Short event
+  data.entry_names.push_back("event1");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(20.0);
+  data.entry_total_times.push_back(2.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event 2: Late event
+  data.entry_names.push_back("event2");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(30.0);
+  data.entry_total_times.push_back(2.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Manually compute level_max_durations like CreateTimelineData would:
+  data.level_max_durations.assign(1, Microseconds(50.0));
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({25.0, 28.0});
+
+  // Ignore other GetTextSize calls if any
+  EXPECT_CALL(timeline_, GetTextSize(_)).Times(::testing::AnyNumber());
+
+  // Specific expectations: event0 is visible and drawn.
+  // event1 and event2 are not drawn.
+  EXPECT_CALL(timeline_, GetTextSize("event0")).Times(2);
+  EXPECT_CALL(timeline_, GetTextSize("event1")).Times(0);
   EXPECT_CALL(timeline_, GetTextSize("event2")).Times(0);
 
   // Vertical culling should call DrawGroup and DrawEventsForLevel.

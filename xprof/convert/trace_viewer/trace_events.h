@@ -711,6 +711,15 @@ class TraceEventsContainerBase {
 
   void Merge(TraceEventsContainerBase&& other, int host_id);
 
+  uint64_t MaybeInternString(absl::string_view name) {
+    uint64_t fp = hash_(name);
+    auto& it = (*trace_.mutable_name_table())[fp];
+    if (it.empty()) {
+      it = name;
+    }
+    return fp;
+  }
+
   // Creates a TraceEvent prefilled with the given values.
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,
                         uint32_t device_id, tsl::profiler::Timespan timespan,
@@ -1141,15 +1150,6 @@ class TraceEventsContainerBase {
       event_tracks.push_back(events);
     });
     return MergeEventTracks(event_tracks);
-  }
-
-  uint64_t MaybeInternString(absl::string_view name) {
-    uint64_t fp = hash_(name);
-    auto& it = (*trace_.mutable_name_table())[fp];
-    if (it.empty()) {
-      it = name;
-    }
-    return fp;
   }
 
   void MaybeInternEventName(TraceEvent* event, absl::string_view name) {

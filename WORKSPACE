@@ -86,10 +86,10 @@ http_archive(
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "2a5591ec7543c8b37aead3cb681eb2b93c9616ce94abdf3aedcf391b372d4007",
-    strip_prefix = "rules_ml_toolchain-b2b08356ac30353c49587b0e8dfe65aabb35e78d",
+    sha256 = "9285d90601757838d064a12f51f14374d40064ddc2fa198979908b6bd0f89348",
+    strip_prefix = "rules_ml_toolchain-7f40603f574b95746152332ef3ad5fce63f1768d",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/b2b08356ac30353c49587b0e8dfe65aabb35e78d.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/7f40603f574b95746152332ef3ad5fce63f1768d.tar.gz",
     ],
 )
 
@@ -119,10 +119,10 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "48a2131b0281352d1066dfece943097cb243c74b6ac4d31aa1b4c7946612d048",
-    strip_prefix = "xla-c0963d33c5a43c777b306d867c988867bf2bc69e",
+    sha256 = "746c39893225231930d2317aa327357b627dd697f6612cfa71ad94e578dada32",
+    strip_prefix = "xla-ce74dc2a654c442654d5b60537f0d2b85e52e7c3",
     urls = [
-        "https://github.com/openxla/xla/archive/c0963d33c5a43c777b306d867c988867bf2bc69e.zip",
+        "https://github.com/openxla/xla/archive/ce74dc2a654c442654d5b60537f0d2b85e52e7c3.zip",
     ],
 )
 
@@ -197,7 +197,7 @@ load(
 python_wheel_version_suffix_repository(name = "tf_wheel_version_suffix")
 
 load(
-    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_json_init_repository.bzl",
+    "@rules_ml_toolchain//gpu/cuda:cuda_json_init_repository.bzl",
     "cuda_json_init_repository",
 )
 
@@ -209,7 +209,7 @@ load(
     "CUDNN_REDISTRIBUTIONS",
 )
 load(
-    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_redist_init_repositories.bzl",
+    "@rules_ml_toolchain//gpu/cuda:cuda_redist_init_repositories.bzl",
     "cuda_redist_init_repositories",
     "cudnn_redist_init_repository",
 )
@@ -223,21 +223,21 @@ cudnn_redist_init_repository(
 )
 
 load(
-    "@rules_ml_toolchain//third_party/gpus/cuda/hermetic:cuda_configure.bzl",
+    "@rules_ml_toolchain//gpu/cuda:cuda_configure.bzl",
     "cuda_configure",
 )
 
 cuda_configure(name = "local_config_cuda")
 
 load(
-    "@xla//third_party/nccl/hermetic:nccl_redist_init_repository.bzl",
+    "@rules_ml_toolchain//gpu/nccl:nccl_redist_init_repository.bzl",
     "nccl_redist_init_repository",
 )
 
 nccl_redist_init_repository()
 
 load(
-    "@xla//third_party/nccl/hermetic:nccl_configure.bzl",
+    "@rules_ml_toolchain//gpu/nccl:nccl_configure.bzl",
     "nccl_configure",
 )
 

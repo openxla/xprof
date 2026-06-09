@@ -80,7 +80,7 @@ find xprof/protobuf -name \*.py -exec sed -i.bak -e '
     s/^from plugin.xprof/from xprof/
   ' {} +
 
-find . -name "*.bak" -exec rm {} \;
+find . -name "*.bak" -exec rm -f {} \;
 
 cp ${build_workspace}/bazel-bin/xprof/pywrap/profiler_plugin_c_api.so xprof/convert/
 cp ${ROOT_RUNFILE_DIR}/xprof/pywrap/_pywrap_profiler_plugin.py xprof/convert/

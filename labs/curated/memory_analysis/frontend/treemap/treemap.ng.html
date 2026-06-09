@@ -1,0 +1,58 @@
+<div class="treemap-container">
+  <div class="toolbar-row">
+    <button mat-icon-button [disabled]="zoomStack.length <= 1" (click)="zoomOut()" matTooltip="Zoom Out">
+      <mat-icon>arrow_upward</mat-icon>
+    </button>
+    <button mat-icon-button [disabled]="zoomStack.length <= 1" (click)="resetZoom()" matTooltip="Reset Zoom">
+      <mat-icon>home</mat-icon>
+    </button>
+    <span class="breadcrumbs" *ngIf="zoomStack.length > 1">
+      <span *ngFor="let node of zoomStack; let last = last">
+        {{node.name}} <span *ngIf="!last"> &gt; </span>
+      </span>
+    </span>
+    <span class="spacer"></span>
+    <span class="active-scope-size-badge" *ngIf="currentRoot">
+      Active Scope Size: <strong>{{humanReadableTotalSize}}</strong>
+    </span>
+  </div>
+
+  <svg [attr.width]="viewWidth" [attr.height]="viewHeight" class="treemap-svg">
+    <defs>
+      <pattern id="padding-hatch-tree" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="2" height="8" fill="rgba(0,0,0,0.12)"></rect>
+      </pattern>
+    </defs>
+
+    <g *ngFor="let rect of rects"
+       [attr.transform]="'translate(' + rect.x + ',' + rect.y + ')'"
+       class="rect-group"
+       [class.dimmed]="rect.dimmed"
+       [matTooltip]="rect.node.path + '\nSize: ' + (rect.node.totalValue | number:'1.1-2') + ' MiB\nPadding: ' + (rect.node.paddingValue | number:'1.1-2') + ' MiB (' + ((rect.node.totalValue > 0 ? rect.node.paddingValue / rect.node.totalValue * 100 : 0) | number:'1.1-1') + '%)'"
+       matTooltipClass="rich-multiline-tooltip"
+       (click)="selectNode(rect.node)"
+       (mouseenter)="onHover(rect.node)"
+       (mouseleave)="onHover(null)">
+
+      <!-- Base Rect -->
+      <rect [attr.width]="rect.width"
+            [attr.height]="rect.height"
+            [attr.fill]="rect.color"
+            class="base-rect"></rect>
+
+      <!-- Shaded Padding Overlay -->
+      <rect *ngIf="rect.paddingWidth > 0.5"
+            [attr.width]="rect.paddingWidth"
+            [attr.height]="rect.paddingHeight"
+            fill="url(#padding-hatch-tree)"
+            class="padding-rect"></rect>
+
+      <!-- Label Text -->
+      <text [attr.x]="6"
+            [attr.y]="16"
+            class="rect-label">
+        {{rect.label}}
+      </text>
+    </g>
+  </svg>
+</div>

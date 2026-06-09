@@ -1,0 +1,72 @@
+.treemap-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 12px;
+
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #666;
+
+    .breadcrumbs {
+      font-family: monospace;
+      font-weight: bold;
+    }
+    .spacer {
+      flex: 1;
+    }
+
+    .active-scope-size-badge {
+      background: #e8f0fe;
+      color: #1a73e8;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #d2e3fc;
+    }
+  }
+
+  .treemap-svg {
+    user-select: none;
+    font-family: Roboto, sans-serif;
+  }
+
+  .rect-group {
+    cursor: pointer;
+    transition:
+      opacity 0.2s ease,
+      filter 0.2s ease;
+
+    &:hover {
+      filter: brightness(0.95);
+      .base-rect {
+        stroke: #111;
+        stroke-width: 1.5px;
+      }
+    }
+
+    &.dimmed {
+      opacity: 0.25;
+      filter: grayscale(0.6);
+    }
+
+    .base-rect {
+      stroke: #fff;
+      stroke-width: 1px;
+    }
+
+    .rect-label {
+      fill: #222;
+      font-size: 14px;
+      font-weight: bold;
+      pointer-events: none;
+    }
+  }
+}

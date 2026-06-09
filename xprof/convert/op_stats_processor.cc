@@ -30,7 +30,6 @@ limitations under the License.
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/op_stats_combiner.h"
@@ -56,15 +55,15 @@ using ::tensorflow::profiler::PreprocessSingleHostXSpace;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::StepIntersection;
 using ::tensorflow::profiler::StoredDataType;
+using ::tensorflow::profiler::GetHostDataFilePath;
 using ::tensorflow::profiler::WriteBinaryProto;
 using ::tensorflow::profiler::XSpace;
 
 std::string GetCacheFilePath(const SessionSnapshot& session_snapshot,
                              const std::string& hostname) {
   StoredDataType cache_type = StoredDataType::OP_STATS;
-  std::string filename =
-      session_snapshot.GetHostDataFileName(cache_type, hostname).value_or("");
-  return tsl::io::JoinPath(session_snapshot.GetSessionRunDir(), filename);
+  return GetHostDataFilePath(session_snapshot, cache_type, hostname)
+      .value_or("");
 }
 
 bool GetUseSavedResult(const tensorflow::profiler::ToolOptions& options) {

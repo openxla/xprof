@@ -137,14 +137,6 @@ absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
 absl::Status BaseOpStatsProcessor::Reduce(
     const XprofSessionSnapshot& session_snapshot,
     const std::vector<std::string>& map_output_files) {
-  // TODO: b/514176124 - Remove this downcast once ProcessCombinedOpStats is
-  // migrated to accept XprofSessionSnapshot in the child CL (cl/907391150).
-  auto* tf_snapshot = dynamic_cast<const SessionSnapshot*>(&session_snapshot);
-  if (tf_snapshot == nullptr) {
-    return absl::InvalidArgumentError(
-        "SessionSnapshot is not a tensorflow::profiler::SessionSnapshot");
-  }
-
   if (map_output_files.empty()) {
     return absl::InvalidArgumentError("map_output_files cannot be empty");
   }
@@ -179,27 +171,17 @@ absl::Status BaseOpStatsProcessor::Reduce(
       session_snapshot, StoredDataType::OP_STATS,
       tensorflow::profiler::kAllHostsIdentifier, combined_op_stats));
 
-  return ProcessCombinedOpStats(*tf_snapshot, combined_op_stats, options_);
+  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options_);
 }
 
 absl::Status BaseOpStatsProcessor::ProcessSession(
     const XprofSessionSnapshot& session_snapshot,
     const tensorflow::profiler::ToolOptions& options) {
-  // TODO: b/514176124 - Remove this downcast once
-  // ConvertMultiXSpaceToCombinedOpStatsWithCache and
-  // ProcessCombinedOpStats are migrated to accept XprofSessionSnapshot in
-  // the child CL (cl/907391150).
-  auto* tf_snapshot = dynamic_cast<const SessionSnapshot*>(&session_snapshot);
-  if (tf_snapshot == nullptr) {
-    return absl::InvalidArgumentError(
-        "SessionSnapshot is not a tensorflow::profiler::SessionSnapshot");
-  }
-
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
-      *tf_snapshot, &combined_op_stats));
+      session_snapshot, &combined_op_stats));
 
-  return ProcessCombinedOpStats(*tf_snapshot, combined_op_stats, options);
+  return ProcessCombinedOpStats(session_snapshot, combined_op_stats, options);
 }
 
 bool BaseOpStatsProcessor::ShouldUseWorkerService(

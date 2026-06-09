@@ -29,6 +29,7 @@ limitations under the License.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "google/protobuf/arena.h"
+#include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/utils/file_system_utils.h"
 #include "tsl/platform/path.h"
@@ -155,32 +156,47 @@ class SessionSnapshot : public xprof::XprofSessionSnapshot {
   mutable std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces_;
 };
 
+// Returns the path of the host data file for a given data type and host.
+inline absl::StatusOr<std::string> GetHostDataFilePath(
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const StoredDataType data_type, absl::string_view host) {
+  TF_ASSIGN_OR_RETURN(std::string filename,
+                      session_snapshot.GetHostDataFileName(data_type, host));
+  return tsl::profiler::ProfilerJoinPath(session_snapshot.GetSessionRunDir(),
+                                         filename);
+}
+
+// Returns true if the host data file exists.
+inline absl::StatusOr<bool> HostDataFileExists(
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const StoredDataType data_type, absl::string_view host) {
+  TF_ASSIGN_OR_RETURN(std::string filepath,
+                      GetHostDataFilePath(session_snapshot, data_type, host));
+  return tsl::Env::Default()->FileExists(filepath).ok();
+}
+
 // Writes binary proto format T for a host and data_type to a session.
 template <typename T>
 absl::Status WriteBinaryProto(
     const xprof::XprofSessionSnapshot& session_snapshot,
     const StoredDataType data_type, absl::string_view host, T& proto) {
-  // Gets name for host data file.
-  TF_ASSIGN_OR_RETURN(std::string filename,
-                      session_snapshot.GetHostDataFileName(data_type, host));
-  std::string filepath = tsl::profiler::ProfilerJoinPath(
-      session_snapshot.GetSessionRunDir(), filename);
+  TF_ASSIGN_OR_RETURN(std::string filepath,
+                      GetHostDataFilePath(session_snapshot, data_type, host));
   return xprof::WriteBinaryProto(filepath, proto);
 }
 
 // Reads binary proto format T for a host and data_type to a session.
 template <typename T>
-absl::Status ReadBinaryProto(const SessionSnapshot& session_snapshot,
-                             const StoredDataType data_type,
-                             const std::string& host, T* proto) {
-  // Gets file path for host data.
-  TF_ASSIGN_OR_RETURN(std::optional<std::string> filepath,
-                      session_snapshot.GetHostDataFilePath(data_type, host));
-  if (!filepath.has_value()) {
+absl::Status ReadBinaryProto(
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const StoredDataType data_type, absl::string_view host, T* proto) {
+  TF_ASSIGN_OR_RETURN(std::string filepath,
+                      GetHostDataFilePath(session_snapshot, data_type, host));
+  if (!tsl::Env::Default()->FileExists(filepath).ok()) {
     return absl::NotFoundError(
         absl::StrCat("No binary proto found for ", host, " and ", data_type));
   }
-  return xprof::ReadBinaryProto(filepath.value(), proto);
+  return xprof::ReadBinaryProto(filepath, proto);
 }
 
 // TODO(b/408280338) Remove this function as 0 reference is found.
@@ -193,7 +209,7 @@ inline absl::StatusOr<HloModuleMap> ProcessHloModuleMap(
       []() { return nullptr; };
   for (int i = 0; i < session_snapshot.XSpaceSize(); i++) {
     google::protobuf::Arena arena;
-    TF_ASSIGN_OR_RETURN(XSpace* xspace, session_snapshot.GetXSpace(i, &arena));
+    TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(i, &arena));
     ProcessHloModuleMapFromXSpace(hlo_module_map, xspace, create_cost_analysis);
   }
   return hlo_module_map;

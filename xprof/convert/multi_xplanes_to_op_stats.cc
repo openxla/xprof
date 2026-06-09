@@ -30,6 +30,7 @@ limitations under the License.
 #include "xprof/convert/op_stats_combiner.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_op_stats.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "xprof/utils/hardware_type_utils.h"
@@ -39,8 +40,8 @@ namespace tensorflow {
 namespace profiler {
 
 absl::Status ConvertMultiXSpacesToCombinedOpStats(
-    const SessionSnapshot& session_snapshot, const OpStatsOptions& options,
-    OpStats* combined_op_stats) {
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const OpStatsOptions& options, OpStats* combined_op_stats) {
   absl::Time start_time = absl::Now();
   LOG(INFO) << "ConvertMultiXSpacesToCombinedOpStats: Started. Number of "
                "XSpaces: "
@@ -113,16 +114,19 @@ absl::Status ConvertMultiXSpacesToCombinedOpStats(
 }
 
 absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
-    const SessionSnapshot& session_snapshot, OpStats* combined_op_stats) {
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    OpStats* combined_op_stats) {
   absl::Time start_time = absl::Now();
   LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Started";
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
   options.generate_step_db = true;
   options.generate_kernel_stats_db = true;
-  TF_ASSIGN_OR_RETURN(auto has_cache,
-                      session_snapshot.HasCacheFile(StoredDataType::OP_STATS));
-  if (has_cache.first) {
+  TF_ASSIGN_OR_RETURN(
+      bool has_cache,
+      HostDataFileExists(session_snapshot, StoredDataType::OP_STATS,
+                         kAllHostsIdentifier));
+  if (has_cache) {
     LOG(INFO) << "ConvertMultiXSpaceToCombinedOpStatsWithCache: Cache hit, "
                  "reading binary proto";
     TF_RETURN_IF_ERROR(ReadBinaryProto(session_snapshot,

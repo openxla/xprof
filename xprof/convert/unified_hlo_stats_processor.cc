@@ -20,8 +20,8 @@
 #include "absl/status/status.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/op_stats_to_hlo_stats.h"
-#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/hlo_stats.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
@@ -30,11 +30,11 @@ namespace xprof {
 using tensorflow::profiler::ConvertOpStatsToHloStats;
 using tensorflow::profiler::HloStatsToDataTableJson;
 using tensorflow::profiler::OpStats;
-using tensorflow::profiler::SessionSnapshot;
 using tensorflow::profiler::hlo_stats::HloStatsDatabase;
 
 absl::Status UnifiedHloStatsProcessor::ProcessCombinedOpStats(
-    const SessionSnapshot& session_snapshot, const OpStats& combined_op_stats,
+    const XprofSessionSnapshot& session_snapshot,
+    const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
   HloStatsDatabase hlo_stats_db = ConvertOpStatsToHloStats(combined_op_stats);
   std::string hlo_stats_json = HloStatsToDataTableJson(hlo_stats_db);

@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "absl/status/status.h"
 #include "xprof/convert/repository.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_op_stats.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
@@ -29,12 +30,13 @@ namespace profiler {
 // Return the first error status during conversion, or return OkStatus() if
 // there is no error.
 absl::Status ConvertMultiXSpacesToCombinedOpStats(
-    const SessionSnapshot& session_snapshot, const OpStatsOptions& options,
-    OpStats* combined_op_stats);
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    const OpStatsOptions& options, OpStats* combined_op_stats);
 
 // Converts multiple XSpaces to a combined OpStats, using cache if available.
 absl::Status ConvertMultiXSpaceToCombinedOpStatsWithCache(
-    const SessionSnapshot& session_snapshot, OpStats* combined_op_stats);
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    OpStats* combined_op_stats);
 
 }  // namespace profiler
 }  // namespace tensorflow

@@ -220,9 +220,9 @@ cc_library(
     deps = [
         ":base_op_stats_processor",
         ":op_stats_to_hlo_stats",
-        ":repository",
         ":tool_options",
         ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
         "@com_google_absl//absl/status",
         "@org_xprof//plugin/xprof/protobuf:hlo_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -695,6 +695,7 @@ cc_test(
         ":file_utils",
         ":repository",
         ":tool_options",
+        ":unified_session_snapshot",
         "//file/base",
         "//file/base:options_cc",
         "//file/base:path",
@@ -1251,6 +1252,7 @@ cc_library(
         ":op_stats_combiner",
         ":preprocess_single_host_xplane",
         ":repository",
+        ":unified_session_snapshot",
         ":xplane_to_op_stats",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
@@ -1259,10 +1261,10 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@org_xprof//xprof/utils:step_intersection",
+        "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
-        "@xla//xla/tsl/platform:types",
     ],
 )
 

@@ -67,8 +67,8 @@ TEST_F(UnifiedHloStatsProcessorTest, MinimalTest) {
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
-  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
-                       (SessionSnapshot::Create({xspace_path}, std::nullopt)));
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
 
   EXPECT_EQ(processor->GetData(), "");  // Initially empty
 }
@@ -85,8 +85,8 @@ TEST_F(UnifiedHloStatsProcessorTest, ProcessCombinedOpStatsTest) {
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
-  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
-                       (SessionSnapshot::Create({xspace_path}, std::nullopt)));
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
 
   tensorflow::profiler::OpStats combined_op_stats;
   combined_op_stats.mutable_run_environment()->set_device_type("TPU");

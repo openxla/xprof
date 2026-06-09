@@ -189,6 +189,7 @@ cc_library(
 
 cc_test(
     name = "op_utils_test",
+    size = "small",
     srcs = ["op_utils_test.cc"],
     deps = [
         ":op_utils",

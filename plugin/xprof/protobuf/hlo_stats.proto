@@ -13,7 +13,7 @@ message HloStatsDatabase {
 }
 
 // There is one HloStatsRecord for each HLO operation profiled.
-// Next ID: 43
+// Next ID: 44
 message HloStatsRecord {
   // The rank by self time
   optional uint64 rank = 1;
@@ -134,6 +134,9 @@ message HloStatsRecord {
   // The op name of the parent op if this op is a child op. Ops without a parent
   // op are assumed to be at the top level.
   optional string parent_op_name = 42;
+
+  // VDD energy in Joules.
+  optional double vdd_energy_j = 43;
 
   reserved 11, 12, 18, 19;
 }

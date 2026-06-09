@@ -137,6 +137,8 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
         memory_accessed_breakdown;
     // The number of floating-point operations computed by the model.
     int64_t model_flops = 0;
+    // The total VDD energy tracked in Joules.
+    double vdd_energy_j = 0.0;
   };
 
   explicit DeviceOpMetricsDbBuilder(OpMetricsDb* db) : OpMetricsDbBuilder(db) {}

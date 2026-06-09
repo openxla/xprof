@@ -369,6 +369,78 @@ TEST(DeviceOpMetricsDbBuilderTest,
   EXPECT_EQ(metrics.provenance(), "initial_prov");
 }
 
+TEST(DeviceOpMetricsDbBuilderTest, EnterOpAccumulatesVddEnergy) {
+  OpMetricsDb db;
+  DeviceOpMetricsDbBuilder builder(&db);
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "test_cat",
+      .provenance = "test_prov",
+      .deduplicated_name = "test_dedup",
+  };
+
+  DeviceOpMetricsDbBuilder::OpData metrics_data1 = {
+      .is_eager = false,
+      .occurrences = 2,
+      .time_ps = 1000,
+      .children_time_ps = 100,
+      .flops = 10,
+      .bytes_accessed = 20,
+      .vdd_energy_j = 1.5,
+  };
+
+  // Let's call EnterOp with some energy.
+  builder.EnterOp(op_id, metrics_data1);
+
+  ASSERT_EQ(db.metrics_db_size(), 1);
+  const OpMetrics& metrics = db.metrics_db(0);
+  EXPECT_EQ(metrics.name(), "test_op");
+  EXPECT_DOUBLE_EQ(metrics.vdd_energy_j(), 1.5);
+
+  DeviceOpMetricsDbBuilder::OpData metrics_data2 = {
+      .is_eager = false,
+      .occurrences = 1,
+      .time_ps = 500,
+      .children_time_ps = 50,
+      .flops = 5,
+      .bytes_accessed = 10,
+      .vdd_energy_j = 2.2,
+  };
+
+  // Call EnterOp again on same op to check accumulation.
+  builder.EnterOp(op_id, metrics_data2);
+
+  EXPECT_DOUBLE_EQ(metrics.vdd_energy_j(), 3.7);
+
+  DeviceOpMetricsDbBuilder::OpIdentifier other_op_id = {
+      .program_id = 123,
+      .name = "other_op",
+      .category = "test_cat",
+      .provenance = "test_prov",
+      .deduplicated_name = "test_dedup",
+  };
+
+  DeviceOpMetricsDbBuilder::OpData metrics_data3 = {
+      .is_eager = false,
+      .occurrences = 1,
+      .time_ps = 500,
+      .children_time_ps = 50,
+      .flops = 5,
+      .bytes_accessed = 10,
+      .vdd_energy_j = 0.0,
+  };
+
+  // Call EnterOp with zero vdd_energy_j, it shouldn't change or set it if
+  // started from 0.
+  builder.EnterOp(other_op_id, metrics_data3);
+
+  ASSERT_EQ(db.metrics_db_size(), 2);
+  const OpMetrics& other_metrics = db.metrics_db(1);
+  EXPECT_EQ(other_metrics.name(), "other_op");
+  EXPECT_FALSE(other_metrics.has_vdd_energy_j());
+}
 TEST(HostOpMetricsDbBuilderTest, EnterOpAccumulatesTimings) {
   OpMetricsDb db;
   HostOpMetricsDbBuilder builder(&db);

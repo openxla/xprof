@@ -175,6 +175,10 @@ void DeviceOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
   DCHECK_GE(event_data.time_ps, self_time_ps);
   OpMetrics* op_metrics =
       LookupOrInsertNewOpMetrics(op_id.program_id, op_id.name);
+  if (event_data.vdd_energy_j != 0.0) {
+    op_metrics->set_vdd_energy_j(op_metrics->vdd_energy_j() +
+                                 event_data.vdd_energy_j);
+  }
   op_metrics->set_num_cores(1);
   op_metrics->set_occurrences(op_metrics->occurrences() +
                               event_data.occurrences);

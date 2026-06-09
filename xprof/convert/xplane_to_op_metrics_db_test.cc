@@ -20,6 +20,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "testing/base/public/gmock.h"
@@ -350,6 +351,43 @@ TEST(ConvertXPlaneToOpMetricsDb, TensorCoreDeviceOpMetricsDb) {
                                normalized_total_op_time_ps: 20000
               )pb"));
 #endif
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, TensorCoreDeviceOpMetricsDbExtractsVddEnergy) {
+  XSpace xspace;
+  XPlane* xplane = tsl::profiler::GetOrCreateTpuXPlane(
+      &xspace, /*device_ordinal=*/0, "TPU V4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+  stream1.SetName(tsl::profiler::kXlaOpLineName);
+
+  TpuEvent event_data;
+  event_data.name = "MatMul";
+  event_data.long_name = "while:MatMul";
+  event_data.category = "MatMul";
+  event_data.start_timestamp_ns = 0;
+  event_data.duration_ns = 10;
+  event_data.occurrences = 1;
+  event_data.program_id = 1;
+  event_data.symbol_id = 1;
+  event_data.type = TpuEvent::EventType::kHloOp;
+
+  std::vector<std::pair<absl::string_view, double>> stats = {
+      {"vdd_energy_j", 42.0}};
+
+  AddXlaTpuEvent<double>(event_data, absl::MakeSpan(stats), &device_plane,
+                         &stream1);
+
+  absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
+      sparse_core_metrics_map;
+
+  OpMetricsDb op_metrics = ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
+      *xplane, sparse_core_metrics_map);
+
+  ASSERT_GE(op_metrics.metrics_db_size(), 1);
+  EXPECT_DOUBLE_EQ(op_metrics.metrics_db(0).vdd_energy_j(), 42.0);
 }
 
 TEST(ConvertXPlaneToOpMetricsDb,

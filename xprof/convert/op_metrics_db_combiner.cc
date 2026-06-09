@@ -98,6 +98,9 @@ void CombineOpMetrics(const OpMetrics& src, OpMetrics* dst,
   CombineMemoryAccessedBreakdown(src.memory_accessed_breakdown(),
                                  dst->mutable_memory_accessed_breakdown());
   dst->set_dma_stall_ps(src.dma_stall_ps() + dst->dma_stall_ps());
+  if (src.has_vdd_energy_j() || dst->has_vdd_energy_j()) {
+    dst->set_vdd_energy_j(src.vdd_energy_j() + dst->vdd_energy_j());
+  }
 }
 
 void CombineMemoryAccessedBreakdown(

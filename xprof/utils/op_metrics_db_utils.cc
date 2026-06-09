@@ -207,6 +207,11 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
   uint64_t normalized_duration_ps = 0;
   uint64_t dma_stall_ps = 0;
   hlo_event.ForEachStat([&](const XStatVisitor& stat) {
+    if (stat.Name() == "vdd_energy_j") {
+      op_metrics->set_vdd_energy_j(op_metrics->vdd_energy_j() +
+                                   stat.DoubleValue());
+      return;
+    }
     if (!stat.Type()) return;
     switch (static_cast<StatType>(*stat.Type())) {
       case StatType::kMinDurationPs:
@@ -291,6 +296,9 @@ void MergeOpMetrics(const OpMetrics& src, OpMetrics& dst) {
     dst.set_normalized_time_ps(src.normalized_time_ps() +
                                dst.normalized_time_ps());
     dst.set_core_type(src.core_type());
+    if (src.has_vdd_energy_j() || dst.has_vdd_energy_j()) {
+      dst.set_vdd_energy_j(src.vdd_energy_j() + dst.vdd_energy_j());
+    }
     if (dst.category() == xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
       dst.set_flops(dst.flops() + src.flops());
       dst.set_model_flops(dst.model_flops() + src.model_flops());

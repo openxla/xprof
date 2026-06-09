@@ -58,6 +58,7 @@ using ::tsl::profiler::GetDeviceEventTimespan;
 
 struct HLOTracker {
   uint64_t duration = 0;
+  double vdd_energy_j = 0.0;
   uint64_t program_id = 0;
   uint64_t group_id = 0;
   bool is_eager;
@@ -66,6 +67,7 @@ struct HLOTracker {
 
   void Reset() {
     duration = program_id = group_id = 0;
+    vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
   }
@@ -492,6 +494,7 @@ void AggregateHloFunc(HLOTracker& current, DeviceOpMetricsDbBuilder& metricDb) {
       .time_ps = current.duration,
       .children_time_ps = 0,
       .perf_info = current.hlo_instruction->GetPerformanceInfoWrapper(),
+      .vdd_energy_j = current.vdd_energy_j,
   };
 
   metricDb.EnterOp(op_id, event_data);
@@ -528,6 +531,12 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
           current.hlo_instruction = hlo_instruction;
           current.hlo_op_name = stats.hlo_op_names.back();
           current.duration += event.DurationPs();
+          event.ForEachStat(
+              [&current](const tsl::profiler::XStatVisitor& stat) {
+                if (stat.Name() == "vdd_energy_j") {
+                  current.vdd_energy_j += stat.DoubleValue();
+                }
+              });
           current.is_eager = stats.is_eager;
           current.program_id = *stats.program_id;
           if (stats.group_id.has_value()) {

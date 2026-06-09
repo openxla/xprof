@@ -26,8 +26,8 @@ py_binary(
     # strict_deps = False,
     deps = [
         "//:expect_tensorflow_installed",
-        "//net/proto2/python/public",
         "//third_party/py/absl:app",
+        "//third_party/py/google/protobuf",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
         "@org_xprof//plugin/xprof:profile_plugin",

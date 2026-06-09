@@ -20,9 +20,9 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+from google.protobuf import text_format
 import tensorflow as tf
 
-from google.protobuf import text_format
 from xprof.convert import trace_events_json
 from xprof.protobuf import trace_events_old_pb2
 

@@ -140,40 +140,37 @@ void DeviceOpMetricsDbBuilder::EnterOpMetadataFromHloModuleMap(
                                                         hlo_module_map);
 }
 
-void DeviceOpMetricsDbBuilder::EnterOpMetadata(
-    uint64_t program_id, absl::string_view name, absl::string_view category,
-    absl::string_view provenance, absl::string_view deduplicated_name,
-    bool is_eager, absl::string_view long_name,
-    const tsl::profiler::OpSourceInfo& op_source_info) {
+void DeviceOpMetricsDbBuilder::EnterOpMetadata(const OpIdentifier& op_id,
+                                               bool is_eager) {
   // We only need to add xla metadata once to each new op, as they are the
   // same across occurrences.
-  OpMetrics* op_metrics = LookupOrInsertNewOpMetrics(program_id, name);
+  OpMetrics* op_metrics =
+      LookupOrInsertNewOpMetrics(op_id.program_id, op_id.name);
   if (op_metrics->occurrences() > 0 || !op_metrics->category().empty() ||
       !op_metrics->provenance().empty())
     return;
-  op_metrics->set_category(category == tsl::profiler::kUnknownOp
+  op_metrics->set_category(op_id.category == tsl::profiler::kUnknownOp
                                ? "unknown"
-                               : std::string(category));
-  op_metrics->set_provenance(std::string(provenance));
-  if (!deduplicated_name.empty()) {
-    op_metrics->set_deduplicated_name(std::string(deduplicated_name));
+                               : std::string(op_id.category));
+  op_metrics->set_provenance(std::string(op_id.provenance));
+  if (!op_id.deduplicated_name.empty()) {
+    op_metrics->set_deduplicated_name(std::string(op_id.deduplicated_name));
   }
-  if (!long_name.empty()) {
-    op_metrics->set_long_name(std::string(long_name));
+  if (!op_id.long_name.empty()) {
+    op_metrics->set_long_name(std::string(op_id.long_name));
   }
   op_metrics->set_is_eager(op_metrics->is_eager() || is_eager);
-  op_metrics->mutable_source_info()->set_file_name(op_source_info.source_file);
+  op_metrics->mutable_source_info()->set_file_name(
+      op_id.op_source_info.source_file);
   op_metrics->mutable_source_info()->set_line_number(
-      op_source_info.source_line);
+      op_id.op_source_info.source_line);
   op_metrics->mutable_source_info()->set_stack_frame(
-      op_source_info.stack_frame);
+      op_id.op_source_info.stack_frame);
 }
 
 void DeviceOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
                                        const OpData& event_data) {
-  EnterOpMetadata(op_id.program_id, op_id.name, op_id.category,
-                  op_id.provenance, op_id.deduplicated_name,
-                  event_data.is_eager, op_id.long_name, op_id.op_source_info);
+  EnterOpMetadata(op_id, event_data.is_eager);
   uint64_t self_time_ps = event_data.time_ps - event_data.children_time_ps;
   DCHECK_GE(event_data.time_ps, self_time_ps);
   OpMetrics* op_metrics =

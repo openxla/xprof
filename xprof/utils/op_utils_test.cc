@@ -299,6 +299,76 @@ TEST(DeviceOpMetricsDbBuilderTest, EnterOpHandlesGPUFields) {
             100);  // 50 * 2
 }
 
+TEST(DeviceOpMetricsDbBuilderTest, EnterOpMetadataPopulatesMetadata) {
+  OpMetricsDb db;
+  DeviceOpMetricsDbBuilder builder(&db);
+
+  tsl::profiler::OpSourceInfo source_info = {
+      .source_file = "file.py",
+      .source_line = 42,
+      .stack_frame = "stack_frame_info",
+  };
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "test_cat",
+      .provenance = "test_prov",
+      .deduplicated_name = "test_dedup",
+      .long_name = "long_test_op",
+      .op_source_info = source_info,
+  };
+
+  builder.EnterOpMetadata(op_id, /*is_eager=*/true);
+
+  ASSERT_EQ(db.metrics_db_size(), 1);
+  const OpMetrics& metrics = db.metrics_db(0);
+  EXPECT_EQ(metrics.name(), "test_op");
+  EXPECT_EQ(metrics.category(), "test_cat");
+  EXPECT_EQ(metrics.provenance(), "test_prov");
+  EXPECT_EQ(metrics.deduplicated_name(), "test_dedup");
+  EXPECT_EQ(metrics.long_name(), "long_test_op");
+  EXPECT_TRUE(metrics.is_eager());
+  EXPECT_EQ(metrics.source_info().file_name(), "file.py");
+  EXPECT_EQ(metrics.source_info().line_number(), 42);
+  EXPECT_EQ(metrics.source_info().stack_frame(), "stack_frame_info");
+}
+
+TEST(DeviceOpMetricsDbBuilderTest,
+     EnterOpMetadataDoesNotOverwriteIfOccurrencesExist) {
+  OpMetricsDb db;
+  DeviceOpMetricsDbBuilder builder(&db);
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id1 = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "initial_cat",
+      .provenance = "initial_prov",
+  };
+
+  DeviceOpMetricsDbBuilder::OpData event_data = {
+      .occurrences = 1,
+  };
+
+  // Enters OP and sets occurrences to 1, metadata populated
+  builder.EnterOp(op_id1, event_data);
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id2 = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "new_cat",
+      .provenance = "new_prov",
+  };
+
+  // Should not overwrite because occurrences > 0
+  builder.EnterOpMetadata(op_id2, /*is_eager=*/true);
+
+  ASSERT_EQ(db.metrics_db_size(), 1);
+  const OpMetrics& metrics = db.metrics_db(0);
+  EXPECT_EQ(metrics.category(), "initial_cat");
+  EXPECT_EQ(metrics.provenance(), "initial_prov");
+}
+
 TEST(HostOpMetricsDbBuilderTest, EnterOpAccumulatesTimings) {
   OpMetricsDb db;
   HostOpMetricsDbBuilder builder(&db);

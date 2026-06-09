@@ -145,11 +145,8 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
   // when an end-of-OP event is observed.
   void EnterOp(const OpIdentifier& op_id, const OpData& event_data);
 
-  void EnterOpMetadata(uint64_t program_id, absl::string_view name,
-                       absl::string_view category, absl::string_view provenance,
-                       absl::string_view deduplicated_name, bool is_eager,
-                       absl::string_view long_name = "",
-                       const tsl::profiler::OpSourceInfo& op_source_info = {});
+  // Updates the metadata of the OP in the database.
+  void EnterOpMetadata(const OpIdentifier& op_id, bool is_eager);
 
   void EnterOpMetadataFromHloModuleMap(uint64_t program_id,
                                        absl::string_view op_name,

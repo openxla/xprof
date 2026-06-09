@@ -1383,38 +1383,7 @@ void Timeline::DrawEventsForLevel(int group_index,
     return;
   }
 
-  const Microseconds visible_start_time = PixelToTime(0, px_per_time_unit);
-  const Microseconds visible_end_time = PixelToTime(max.x, px_per_time_unit);
-
-  auto first_visible_it = std::lower_bound(
-      event_indices.begin(), event_indices.end(), visible_start_time,
-      [&](int event_index, Microseconds time) {
-        // Defensive bounds check for event_index. While event_indices is
-        // expected to contain valid indices, this prevents crashes if an
-        // invalid index somehow gets included.
-        if (event_index < 0 ||
-            event_index >= timeline_data_.entry_start_times.size() ||
-            event_index >= timeline_data_.entry_total_times.size()) {
-          return false;  // Treat out-of-bounds as not ending before 'time'.
-        }
-        return timeline_data_.entry_start_times[event_index] +
-                   timeline_data_.entry_total_times[event_index] <
-               time;
-      });
-
-  auto last_visible_it = std::upper_bound(
-      first_visible_it, event_indices.end(), visible_end_time,
-      [&](Microseconds time, int event_index) {
-        // Defensive bounds check for event_index.
-        if (event_index < 0 ||
-            event_index >= timeline_data_.entry_start_times.size()) {
-          return false;  // Treat out-of-bounds as not starting after 'time'.
-        }
-        return time < timeline_data_.entry_start_times[event_index];
-      });
-
-  for (auto it = first_visible_it; it != last_visible_it; ++it) {
-    int event_index = *it;
+  for (int event_index : event_indices) {
     if (event_index < 0 ||
         event_index >= timeline_data_.entry_start_times.size() ||
         event_index >= timeline_data_.entry_total_times.size()) {

@@ -187,6 +187,19 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_utils_test",
+    srcs = ["op_utils_test.cc"],
+    deps = [
+        ":op_utils",
+        ":performance_info_wrapper",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
+    ],
+)
+
 cc_library(
     name = "cost_utils",
     hdrs = ["cost_utils.h"],

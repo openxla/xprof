@@ -37,6 +37,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
@@ -123,8 +124,7 @@ XEventBuilder AddXlaTpuEvent(
 void AddTensorFlowTpuOpEvent(std::string&& name, std::string&& tf_op_fullname,
                              int64_t start_timestamp_ns, int64_t duration_ns,
                              std::string&& hlo_category, uint64_t flops,
-                             uint64_t bytes_accessed, int64_t occurrences,
-                             int64_t self_duration, int64_t program_id,
+                             int64_t occurrences, int64_t program_id,
                              int64_t symbol_id, double time_scale_multiplier,
                              XPlaneBuilder* plane, XLineBuilder* line) {
   XEventBuilder event = line->AddEvent(*plane->GetOrCreateEventMetadata(name));
@@ -319,8 +319,8 @@ TEST(ConvertXPlaneToOpMetricsDb, TensorCoreDeviceOpMetricsDb) {
   XPlaneBuilder device_plane(xplane);
   XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
   stream1.SetName(tsl::profiler::kTensorFlowOpLineName);
-  AddTensorFlowTpuOpEvent("MatMul", "while:MatMul", 0, 10, "MatMul", 34, 45, 2,
-                          5, 1, 1, 2.0, &device_plane, &stream1);
+  AddTensorFlowTpuOpEvent("MatMul", "while:MatMul", 0, 10, "MatMul", 34, 2, 1,
+                          1, 2.0, &device_plane, &stream1);
   absl::flat_hash_map<std::pair<uint64_t, uint64_t>, OpMetricsDb>
       sparse_core_metrics_map;
   OpMetricsDb op_metrics = ConvertTensorCoreDeviceTraceXPlaneToOpMetricsDb(
@@ -658,6 +658,61 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithNullPerformanceInfo) {
   OpMetrics idle = op_metrics.metrics_db().at(1);
   EXPECT_EQ(idle.name(), "IDLE");
   EXPECT_EQ(idle.category(), "IDLE");
+}
+
+TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithSourceInfo) {
+  std::string hlo_string = R"(
+    HloModule TestModule
+
+    ENTRY test {
+      input0 = f32[3,3]{1,0} parameter(0)
+      input1 = f32[3,3]{1,0} parameter(1)
+      ROOT add.1 = f32[3,3]{1,0} add(input0, input1), metadata={op_type="Add" op_name="add" source_file="models/mnist.py" source_line=42}
+    }
+  )";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+  HloModuleMap hlo_module_map;
+  hlo_module_map.try_emplace(
+      /*program_id=*/1,
+      HloModuleWrapper(std::move(hlo_module), /*cost_analysis=*/nullptr));
+  XSpace xspace;
+  XPlane* xplane =
+      tsl::profiler::GetOrCreateGpuXPlane(&xspace, /*device_ordinal=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/100,
+      /*duration_ps=*/10,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 1}});
+
+  OpMetricsDb op_metrics =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane, hlo_module_map);
+
+#if defined(PLATFORM_GOOGLE)
+  using ::testing::_;
+  using ::testing::ElementsAre;
+  using ::testing::proto::Partially;
+  EXPECT_THAT(
+      op_metrics.metrics_db(),
+      ElementsAre(
+          Partially(EqualsProto(R"pb(
+            name: "add.1"
+            occurrences: 1
+            time_ps: 10
+            source_info { file_name: "models/mnist.py" line_number: 42 })pb")),
+          _));
+#else
+  ASSERT_EQ(2, op_metrics.metrics_db_size());
+  OpMetrics op = op_metrics.metrics_db().at(0);
+  EXPECT_EQ(op.name(), "add.1");
+  EXPECT_EQ(op.occurrences(), 1);
+  EXPECT_EQ(op.time_ps(), 10);
+
+  // Verify source info is populated.
+  EXPECT_EQ(op.source_info().file_name(), "models/mnist.py");
+  EXPECT_EQ(op.source_info().line_number(), 42);
+#endif
 }
 
 }  // namespace

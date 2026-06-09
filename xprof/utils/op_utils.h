@@ -26,6 +26,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -79,35 +80,72 @@ class HostOpMetricsDbBuilder : public OpMetricsDbBuilder {
 
 class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
  public:
+  // Structure to hold identifying information and metadata about an Operation.
+  //
+  // This struct groups parameters that describe the static properties of the
+  // operation itself, such as its name, category, origin, and source code
+  // location information. It serves as the single source of truth for
+  // identifying operations across both 1P and 3P profiling paths.
+  struct OpIdentifier {
+    // ID of the program (e.g., HLO module) containing the OP.
+    uint64_t program_id;
+    // The specific OP name.
+    absl::string_view name;
+    // The OP category (e.g., "Convolution", "MatMul").
+    absl::string_view category;
+    // Origin info, like the corresponding TensorFlow OP name.
+    absl::string_view provenance;
+    // Deduplicated HLO name for this OP.
+    absl::string_view deduplicated_name;
+    // Optional longer descriptive name for the OP.
+    absl::string_view long_name = "";
+    // Detailed source information (e.g., file, line).
+    tsl::profiler::OpSourceInfo op_source_info;
+  };
+
+  // Structure to hold data specific to the traced event of an Operation.
+  //
+  // This struct groups parameters related to a specific instance or observation
+  // of the operation within a trace, including timing, execution context, and
+  // performance counters. It serves as the single source of truth for metrics
+  // accumulation across both 1P and 3P profiling paths.
+  struct OpData {
+    // Flag indicating if the OP was eagerly executed.
+    bool is_eager = false;
+    // The number of occurrences of this OP.
+    uint64_t occurrences = 1;
+    // Total execution time (inclusive of children) in picoseconds.
+    uint64_t time_ps = 0;
+    // Execution time solely of children OPs in picoseconds.
+    uint64_t children_time_ps = 0;
+
+    // GPU-specific: Time spent stalled on DMA in picoseconds.
+    uint64_t dma_stall_ps = 0;
+
+    // GPU-specific / Symbol-specific: Optional pointer to detailed performance
+    // analysis info. If provided, flops, bytes_accessed, etc. will be populated
+    // from it.
+    const tensorflow::profiler::PerformanceInfoWrapper* perf_info = nullptr;
+
+    // TPU-specific / General performance counters:
+    // The number of floating-point operations computed.
+    int64_t flops = 0;
+    // The sum of bytes read and bytes written by this OP.
+    int64_t bytes_accessed = 0;
+    // The breakdown of memory accessed by operation type and memory space.
+    tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>
+        memory_accessed_breakdown;
+    // The number of floating-point operations computed by the model.
+    int64_t model_flops = 0;
+  };
+
   explicit DeviceOpMetricsDbBuilder(OpMetricsDb* db) : OpMetricsDbBuilder(db) {}
 
-  // A function that will be called when the end of an OP is
-  // observed on a trace, where:
-  //   program_id = the ID of the program that contains this OP.
-  //   name = the OP name.
-  //   category = the OP category.
-  //   provenance = the provenance of this OP (e.g. original TF OP).
-  //   is_eager = whether this OP is eagerly executed.
-  //   occurrences = the number of occurrences of this OP.
-  //   time_ps = the total execution time of the OP in picoseconds, including
-  //             the execution time of its children.
-  //   children_time_ps = the execution time of the children of this OP in
-  //                      picoseconds.
-  //   flops = the number of floating-point operations computed.
-  //   bytes_accessed = the sum of bytes read and bytes written by this OP.
-  //   memory_accessed_breakdown = the breakdown of memory accessed by operation
-  //                               type and memory space.
-  void EnterOp(uint64_t program_id, absl::string_view name,
-               absl::string_view category, absl::string_view provenance,
-               absl::string_view deduplicated_name, bool is_eager,
-               uint64_t occurrences, uint64_t time_ps,
-               uint64_t children_time_ps, int64_t flops, int64_t bytes_accessed,
-               const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
-                   memory_accessed_breakdown = {},
-               int64_t model_flops = 0, absl::string_view long_name = "",
-               const tsl::profiler::OpSourceInfo& op_source_info = {});
+  // Updates the metrics database with the provided `op_id` and `event_data`
+  // when an end-of-OP event is observed.
+  void EnterOp(const OpIdentifier& op_id, const OpData& event_data);
 
-  void EnterOpMetadata(uint64_t program_id, absl::string_view program_name,
+  void EnterOpMetadata(uint64_t program_id, absl::string_view name,
                        absl::string_view category, absl::string_view provenance,
                        absl::string_view deduplicated_name, bool is_eager,
                        absl::string_view long_name = "",

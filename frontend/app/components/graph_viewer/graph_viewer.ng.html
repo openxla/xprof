@@ -16,19 +16,15 @@
               </mat-option>
             </mat-select>
           </mat-form-field>
-          <mat-form-field class="full-width" id="xla-module-list-selector" appearance="outline">
-            <mat-label> XLA Modules ({{ loadingModuleList ? 'loading...' : moduleList.length }})</mat-label>
-            <mat-select
-              name="selectedModule"
-              panelClass="panel-override"
-              [(ngModel)]="selectedModule"
-              (selectionChange)="onModuleSelectionChange($event.value)"
-            >
-              <mat-option *ngFor="let module of moduleListOptions" [value]="module">
-                {{ module }}
-              </mat-option>
-            </mat-select>
-          </mat-form-field>
+          <app-searchable-dropdown
+            id="xla-module-list-selector"
+            class="full-width"
+            [itemList]="moduleListOptions"
+            [selectedItem]="selectedModule"
+            (selectionChange)="onModuleSelectionChange($event)"
+            [label]="'XLA Modules (' + (loadingModuleList ? 'loading...' : moduleList.length) + ')'"
+          >
+          </app-searchable-dropdown>
           <mat-form-field class="full-width">
             <mat-label>XLA Op Name</mat-label>
             <input

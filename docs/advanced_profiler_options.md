@@ -78,6 +78,7 @@ TPU.
     buffers.
 *   **`tpu_circular_buffer_tracing`** (Boolean): Enables circular buffer
     tracing.
+*   **`enable_continuous_profiling`** (Boolean): Enables continuous profiling.
 *   **`tpu_watched_sync_flag_number`** (Integer): Watched sync flag number.
 *   **`tpu_watched_sync_flag_mask`** (Integer): Watched sync flag mask.
 *   **`tpu_sc_dma`** (Boolean): Controls TPU SC DMA tracing.

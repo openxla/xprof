@@ -3067,5 +3067,89 @@ TEST_F(DataProviderTest, ProcessLargeIds) {
   EXPECT_THAT(data.entry_tids, ElementsAre(tid1, tid2));
 }
 
+TEST_F(DataProviderTest, VerifyEventsByLevelSorting) {
+  // We want to construct a tree structure that results in out-of-order sibling
+  // processing.
+  // A (ts=100, dur=100) -> E (ts=250, dur=50) [roots, level 0]
+  // B (ts=110, dur=10) and C (ts=130, dur=50) are children of A.
+  // F (ts=260, dur=10) is child of E.
+  // D (ts=140, dur=10) is child of C.
+  // Due to DFS tree traversal in AppendNodesAtLevel:
+  // - A is processed (Timeline Index 0)
+  // - E is processed (Timeline Index 1)
+  // - E's children (F) are processed (Timeline Index 2)
+  // - A's children (B, C) are processed (Timeline Indices 3, 4)
+  // - C's children (D) are processed (Timeline Index 5)
+  // Initially, level 1 has {F (2), B (3), C (4)}, which is NOT sorted by start
+  // time.
+  // The sorting step should sort level 1 to {B (3), C (4), F (2)}.
+
+  const std::vector<TraceEvent> events = {
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "A",
+       .ts = 100.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "B",
+       .ts = 110.0,
+       .dur = 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "C",
+       .ts = 130.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "D",
+       .ts = 140.0,
+       .dur = 10.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "E",
+       .ts = 250.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "F",
+       .ts = 260.0,
+       .dur = 10.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  // Verify the levels of each entry.
+  // A (0), B (1), C (1), D (2), E (0), F (1).
+  // The entries are appended in the order A, E, F, B, C, D.
+  // Let's verify mapping:
+  // Index 0: A -> ts=100, level=0
+  // Index 1: E -> ts=250, level=0
+  // Index 2: F -> ts=260, level=1
+  // Index 3: B -> ts=110, level=1
+  // Index 4: C -> ts=130, level=1
+  // Index 5: D -> ts=140, level=2
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 0, 1, 1, 1, 2));
+
+  ASSERT_THAT(data.events_by_level, SizeIs(3));
+
+  // Level 0 should contain A (0) and E (1).
+  EXPECT_THAT(data.events_by_level[0], ElementsAre(0, 1));
+
+  // Level 1 should contain B (3), C (4), and F (2), sorted by start time.
+  EXPECT_THAT(data.events_by_level[1], ElementsAre(3, 4, 2));
+
+  // Level 2 should contain D (5).
+  EXPECT_THAT(data.events_by_level[2], ElementsAre(5));
+}
+
 }  // namespace
 }  // namespace traceviewer

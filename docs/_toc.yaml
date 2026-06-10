@@ -55,6 +55,8 @@ toc:
     path: /xprof/custom_call_profiling
   - title: XProf Kernel User Guide
     path: /xprof/kernel-profiling
+  - title: Auditing XLA Operation Fusion with Graph Viewer
+    path: /xprof/fusion_verification
 - title: Framework-specific profiling
   section:
   - title: JAX

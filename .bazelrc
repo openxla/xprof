@@ -105,6 +105,8 @@ build:rbe_linux --linkopt=-lrt
 build:rbe_linux --host_linkopt=-lrt
 build:rbe_linux --linkopt=-lm
 build:rbe_linux --host_linkopt=-lm
+build:rbe_linux --cxxopt=-fsized-deallocation
+build:rbe_linux --host_cxxopt=-fsized-deallocation
 
 build:rbe_linux_cpu --config=rbe_linux
 build:rbe_linux_cpu --config=ci_linux_x86_64

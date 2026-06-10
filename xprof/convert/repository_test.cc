@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,11 +25,14 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/status/status.h"
 #include "google/protobuf/arena.h"
+#include "riegeli/bytes/string_writer.h"  // from @com_google_riegeli
+#include "riegeli/records/record_writer.h"  // from @com_google_riegeli
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/status.h"
 #include "tsl/platform/path.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
@@ -181,6 +185,52 @@ TEST(Repository, ClearCacheFiles) {
       StoredDataType::OP_STATS, "hostname0");
   EXPECT_FALSE(opt_statsfile_path.value().has_value());
   EXPECT_TRUE(tsl::Env::Default()->FileExists(xplane_path).ok());
+}
+
+TEST(Repository, GetXSpaceFromRiegeli) {
+  auto temp_dir = ::testing::TempDir();
+  auto profile_dir = tsl::io::JoinPath(temp_dir, "log/plugins/profile");
+  TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(profile_dir));
+  auto xplane_path = tsl::io::JoinPath(profile_dir, "hostname0.xplane.riegeli");
+
+  XSpace space1;
+  space1.add_hostnames("hostname0");
+  XPlane* plane1 = space1.add_planes();
+  plane1->set_name("plane1");
+
+  XSpace space2;
+  space2.add_hostnames("hostname0");
+  XPlane* plane2 = space2.add_planes();
+  plane2->set_name("plane2");
+
+  std::string contents;
+  {
+    riegeli::RecordWriter<riegeli::StringWriter<>> writer{
+        riegeli::StringWriter<>(&contents)};
+    writer.WriteRecord(space1);
+    writer.WriteRecord(space2);
+    writer.Close();
+  }
+
+  std::unique_ptr<tsl::WritableFile> file;
+  TF_CHECK_OK(tsl::Env::Default()->NewWritableFile(xplane_path, &file));
+  TF_CHECK_OK(file->Append(contents));
+  TF_CHECK_OK(file->Close());
+
+  auto session_snapshot_or =
+      SessionSnapshot::Create({xplane_path}, /*xspaces=*/std::nullopt);
+  TF_CHECK_OK(session_snapshot_or.status());
+
+  google::protobuf::Arena arena;
+  auto xspace_or = session_snapshot_or.value().GetXSpace(0, &arena);
+  TF_CHECK_OK(xspace_or.status());
+
+  EXPECT_THAT(xspace_or.value()->hostnames(0), Eq("hostname0"));
+  EXPECT_EQ(xspace_or.value()->planes_size(), 2);
+  EXPECT_THAT(xspace_or.value()->planes(0).name(), Eq("plane1"));
+  EXPECT_THAT(xspace_or.value()->planes(1).name(), Eq("plane2"));
+
+  TF_CHECK_OK(tsl::Env::Default()->DeleteFile(xplane_path));
 }
 
 }  // namespace

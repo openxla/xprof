@@ -33,6 +33,13 @@ cc_library(
 )
 
 http_archive(
+    name = "com_google_riegeli",
+    sha256 = "0ca5be90a2e184fc2a9590e804c476a004f04b48c40ca488a6b608fcd224b32f",
+    strip_prefix = "riegeli-c4d1f275ed44db839385e494c3a969ae232d6e10",
+    urls = ["https://github.com/google/riegeli/archive/c4d1f275ed44db839385e494c3a969ae232d6e10.tar.gz"],
+)
+
+http_archive(
     name = "opentelemetry-cpp",
     build_file_content = """
 cc_library(

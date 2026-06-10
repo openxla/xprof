@@ -56,41 +56,20 @@ TEST_F(ApplicationTest, ShutdownClearsImGuiContext) {
   EXPECT_FALSE(app.IsInitialized());
 }
 
-TEST_F(ApplicationTest, IsFeatureEnabledReadsFromJs) {
+TEST_F(ApplicationTest, SetFeatureFlagUpdatesCache) {
   Application& app = Application::Instance();
   app.Shutdown();
 
-  EM_ASM({
-    window.getFeatureFlag = (name) => {
-      if (name === 'test_flag_true') return true;
-      if (name === 'test_flag_false') return false;
-      return false;
-    };
-  });
-
+  app.SetFeatureFlag("test_flag_true", true);
   EXPECT_TRUE(app.IsFeatureEnabled("test_flag_true"));
+
+  app.SetFeatureFlag("test_flag_false", false);
   EXPECT_FALSE(app.IsFeatureEnabled("test_flag_false"));
-}
 
-TEST_F(ApplicationTest, IsFeatureEnabledCachesValue) {
-  Application& app = Application::Instance();
-  app.Shutdown();
-
-  EM_ASM({
-    window.getFeatureFlagCallCount = 0;
-    window.getFeatureFlag = (name) => {
-      window.getFeatureFlagCallCount++;
-      return name === 'test_flag_cached';
-    };
-  });
-
-  // First call should call JS and cache the result.
-  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_cached"));
-  EXPECT_EQ(EM_ASM_INT({ return window.getFeatureFlagCallCount; }), 1);
-
-  // Second call should return cached result and not call JS.
-  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_cached"));
-  EXPECT_EQ(EM_ASM_INT({ return window.getFeatureFlagCallCount; }), 1);
+  // Also verify that setting a non-existent flag works without crashing,
+  // even if timeline is not fully initialized in the test.
+  app.SetFeatureFlag("test_flag_non_existent", true);
+  EXPECT_TRUE(app.IsFeatureEnabled("test_flag_non_existent"));
 }
 
 }  // namespace

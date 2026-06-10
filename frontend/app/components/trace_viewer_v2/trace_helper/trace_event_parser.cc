@@ -364,6 +364,7 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .class_function("instance", &traceviewer::Application::Instance,
                       emscripten::return_value_policy::reference())
       .function("shutdown", &traceviewer::Application::Shutdown)
+      .function("setFeatureFlag", &traceviewer::Application::SetFeatureFlag)
       .function("dataProvider", &traceviewer::Application::data_provider,
                 emscripten::return_value_policy::reference())
       .function("getCurrentSearchResultIndex",

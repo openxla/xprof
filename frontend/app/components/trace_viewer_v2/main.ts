@@ -1,5 +1,5 @@
 
-import {getDefaultFeatureFlag} from './feature_flags';
+import {getDefaultFeatureFlag, getFeatureFlags} from './feature_flags';
 
 /**
  * The over-fetching factor for trace events.
@@ -182,6 +182,7 @@ declare global {
   application: {
     instance(): {
       shutdown(): void;
+      setFeatureFlag(name: string, enabled: boolean): void;
       dataProvider(): {
         getFlowCategories(): TraceViewerV2Module['IntVector'];
         getProcessMappings(): Record<number, string>;
@@ -943,8 +944,7 @@ export async function traceViewerV2Main(
   let currentLoadingPromise: Promise<void> | null = null;
 
   try {
-    traceviewerModule = await initGpuAndStartWasmApp();
-    traceviewerModule.getFeatureFlag = (name: string): boolean => {
+    const getFeatureFlag = (name: string): boolean => {
       // TODO(b/498744795): Now only supports boolean flags (true/false).
       // Will be extended in the future.
       const value = window.localStorage.getItem(`xprof_ff_${name}`);
@@ -954,6 +954,14 @@ export async function traceViewerV2Main(
       // If the flag is not in local storage, use the default value.
       return getDefaultFeatureFlag(name);
     };
+
+    traceviewerModule = await initGpuAndStartWasmApp();
+
+    // Push all feature flags to C++ application instance.
+    for (const flag of getFeatureFlags()) {
+      traceviewerModule.application.instance().setFeatureFlag(flag.id, getFeatureFlag(flag.id));
+    }
+
     activeWasmModule = traceviewerModule;
   } catch (e) {
     const error = e as Error;

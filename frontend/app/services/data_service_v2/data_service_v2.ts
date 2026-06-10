@@ -516,6 +516,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return of({info: [], warnings: [], errors: []});
   }
 
+  getXPlaneDiagnostics(sessionId: string): Observable<Diagnostics> {
+    // Not implemented for 3P.
+    return of({info: [], warnings: [], errors: []});
+  }
+
   getSearchParams(): URLSearchParams {
     return new URLSearchParams(
       window.sessionStorage.getItem('searchParams') || '',

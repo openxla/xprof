@@ -92,6 +92,9 @@ export interface DataServiceV2Interface {
     sessionId: string,
     host?: string,
   ): Observable<Diagnostics>;
+
+  getXPlaneDiagnostics(sessionId: string): Observable<Diagnostics>;
+
   getOpProfileSummary(data: OpProfileData): OpProfileSummary[];
   // TODO(b/429042977): Do not include Custom Call text for provenance nodes.
   getCustomCallTextLink(

@@ -46,9 +46,7 @@ py_test(
 
 py_library(
     name = "raw_to_tool_data",
-    srcs = [
-        "raw_to_tool_data.py",
-    ],
+    srcs = ["raw_to_tool_data.py"],
     # strict_deps = False,
     visibility = visibility,
     deps = [

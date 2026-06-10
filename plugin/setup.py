@@ -40,7 +40,6 @@ except ImportError:
 PROJECT_NAME = 'xprof'
 VERSION = version.__version__
 REQUIRED_PACKAGES = [
-    'absl-py >= 2.1.0',
     'gviz_api >= 1.9.0',
     'protobuf >= 3.19.6',
     'setuptools >= 41.0.0',
@@ -51,7 +50,6 @@ REQUIRED_PACKAGES = [
     'fsspec >= 2024.3.1',
     'gcsfs >= 2024.3.1',
     'pyOpenSSL >= 26.1.0',
-    'fire >= 0.4.0',
 ]
 
 
@@ -93,7 +91,7 @@ setuptools.setup(
             'profile = xprof.profile_plugin_loader:ProfilePluginLoader',
         ],
         'console_scripts': [
-            'xprof = xprof.cli.xprof_cli:main',
+            'xprof = xprof.server:main',
         ],
     },
     has_ext_modules=lambda: True,

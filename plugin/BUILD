@@ -29,7 +29,6 @@ sh_binary(
         "@org_xprof//plugin/xprof:server",
         "@org_xprof//plugin/xprof:version",
         "@org_xprof//plugin/xprof/api:continuous_profiling_snapshot",
-        "@org_xprof//plugin/xprof/cli:xprof_cli_lib",
         "@org_xprof//plugin/xprof/convert:all_libs",
         "@org_xprof//plugin/xprof/integration_tests/tpu/tensorflow:tpu_tf2_keras_xla",
         "@org_xprof//plugin/xprof/protobuf:protos_all",

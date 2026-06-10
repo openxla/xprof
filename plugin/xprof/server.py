@@ -14,6 +14,7 @@
 # ==============================================================================
 """Utilities to start up a standalone webserver."""
 
+import argparse
 import collections
 import dataclasses
 import logging
@@ -170,50 +171,6 @@ def _launch_server(
   run_server(plugin, _get_wildcard_address(config.port), config.port)
 
 
-def start_server(
-    logdir: str | None = None,
-    port: int = 8791,
-    hide_capture_profile_button: bool = False,
-    enable_tab_name_label: bool = False,
-    worker_service_address: str | None = None,
-    grpc_port: int = 50051,
-    src_prefix: str | None = None,
-    max_concurrent_worker_requests: int = 1,
-    default_logdir: str | None = None,
-):
-  """Starts the XProf web server."""
-  target_logdir = logdir if logdir is not None else default_logdir
-  resolved_logdir = get_abs_path(target_logdir) if target_logdir else None
-
-  if worker_service_address is None:
-    worker_service_address = f"0.0.0.0:{grpc_port}"
-
-  config = ServerConfig(
-      logdir=resolved_logdir,
-      port=port,
-      grpc_port=grpc_port,
-      worker_service_address=worker_service_address,
-      hide_capture_profile_button=hide_capture_profile_button,
-      enable_tab_name_label=enable_tab_name_label,
-      src_prefix=src_prefix,
-      max_concurrent_worker_requests=max_concurrent_worker_requests,
-  )
-
-  if resolved_logdir and not epath.Path(resolved_logdir).exists():
-    raise ValueError(
-        f"Log directory '{resolved_logdir}' does not exist or is not a"
-        " directory."
-    )
-
-  if config.port == config.grpc_port:
-    raise ValueError(
-        "The main server port (--port) and the gRPC port (--grpc_port)"
-        " must be different."
-    )
-
-  _launch_server(config)
-
-
 def get_abs_path(logdir: str) -> str:
   """Gets the absolute path for a given log directory string.
 
@@ -233,3 +190,180 @@ def get_abs_path(logdir: str) -> str:
     return logdir
 
   return str(epath.Path(logdir).expanduser().resolve())
+
+
+def _create_argument_parser() -> argparse.ArgumentParser:
+  """Creates and configures the argument parser for the XProf server CLI.
+
+  This function sets up argparse to handle command-line flags for specifying
+  the log directory, server port, and other operational modes.
+
+  Returns:
+    The configured argument parser.
+  """
+  parser = argparse.ArgumentParser(
+      prog="xprof",
+      description="Launch the XProf profiling server.",
+      formatter_class=argparse.RawDescriptionHelpFormatter,
+      epilog=(
+          "Examples:\n"
+          "\txprof ~/jax/profile-logs -p 8080\n"
+          "\txprof --logdir ~/jax/profile-logs -p 8080"
+      ),
+  )
+
+  logdir_group = parser.add_mutually_exclusive_group(required=False)
+
+  logdir_group.add_argument(
+      "-l",
+      "--logdir",
+      dest="logdir_opt",
+      metavar="<logdir>",
+      type=str,
+      help="The directory where profile files will be stored.",
+  )
+
+  logdir_group.add_argument(
+      "logdir_pos",
+      nargs="?",
+      metavar="logdir",
+      type=str,
+      default=None,
+      help="Positional argument for the profile log directory.",
+  )
+
+  parser.add_argument(
+      "-p",
+      "--port",
+      metavar="<port>",
+      type=int,
+      default=8791,
+      help="The port number for the server (default: %(default)s).",
+  )
+
+  parser.add_argument(
+      "-hcpb",
+      "--hide_capture_profile_button",
+      action="store_true",
+      default=False,
+      help="Hides the 'Capture Profile' button in the UI.",
+  )
+
+  parser.add_argument(
+      "--enable_tab_name_label",
+      action="store_true",
+      default=False,
+      help="Enables dynamic browser tab title updates.",
+  )
+
+  parser.add_argument(
+      "-wsa",
+      "--worker_service_address",
+      type=str,
+      default=None,
+      help=(
+          "A comma-separated list of worker service addresses (IPs or FQDNs)"
+          " with their gRPC ports, used in distributed profiling. Example:"
+          " 'worker-a.project.internal:50051,worker-b.project.internal:50051'."
+          " If not provided, it will use 0.0.0.0 with the gRPC port."
+      ),
+  )
+
+  parser.add_argument(
+      "-gp",
+      "--grpc_port",
+      type=int,
+      default=_DEFAULT_GRPC_PORT,
+      help=(
+          "The port for the gRPC server, which runs alongside the main HTTP"
+          " server for distributed profiling. This must be different from the"
+          " main server port (--port)."
+      ),
+  )
+
+  parser.add_argument(
+      "-spp",
+      "--src_prefix",
+      type=str,
+      default=None,
+      help="The path prefix for the source code being profiled.",
+  )
+
+  parser.add_argument(
+      "--max_concurrent_worker_requests",
+      type=int,
+      default=1,
+      help="The maximum number of concurrent requests the worker can process.",
+  )
+  return parser
+
+
+def main() -> int:
+  """Parses command-line arguments and launches the XProf server.
+
+  This is the main entry point for the XProf server application. It parses
+  command-line arguments, creates a ServerConfig, and then launches the
+  server.
+
+  Returns:
+    An exit code, 0 for success and non-zero for errors.
+  """
+  parser = _create_argument_parser()
+  try:
+    args = parser.parse_args()
+  except SystemExit as e:
+    return e.code
+
+  logdir = (
+      get_abs_path(args.logdir_opt or args.logdir_pos)
+      if args.logdir_opt or args.logdir_pos
+      else None
+  )
+
+  worker_service_address = args.worker_service_address
+  if worker_service_address is None:
+    worker_service_address = f"0.0.0.0:{args.grpc_port}"
+
+  config = ServerConfig(
+      logdir=logdir,
+      port=args.port,
+      grpc_port=args.grpc_port,
+      worker_service_address=worker_service_address,
+      hide_capture_profile_button=args.hide_capture_profile_button,
+      enable_tab_name_label=args.enable_tab_name_label,
+      src_prefix=args.src_prefix,
+      max_concurrent_worker_requests=args.max_concurrent_worker_requests,
+  )
+
+  logger.info(
+      "Attempting to start XProf server:\n"
+      "  Log Directory: %s\n"
+      "  Port: %d\n"
+      "  Worker Service Address: %s\n"
+      "  Hide Capture Button: %s",
+      logdir,
+      config.port,
+      config.worker_service_address,
+      config.hide_capture_profile_button,
+  )
+
+  if logdir and not epath.Path(logdir).exists():
+    print(
+        f"Error: Log directory '{logdir}' does not exist or is not a"
+        " directory.",
+        file=sys.stderr,
+    )
+    return 1
+
+  if config.port == config.grpc_port:
+    print(
+        "Error: The main server port (--port) and the gRPC port (--grpc_port)"
+        " must be different.",
+        file=sys.stderr,
+    )
+    return 1
+
+  _launch_server(
+      config,
+  )
+  return 0

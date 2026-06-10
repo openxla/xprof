@@ -13,82 +13,15 @@
 #include "xprof/convert/profile_processor.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
-#include "plugin/xprof/protobuf/op_stats.pb.h"
-#include "absl/strings/numbers.h"
-#include "xprof/convert/xplane_to_trace_container.h"
+#include "xprof/convert/trace_view_options.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
+#include "xprof/convert/xplane_to_trace_container.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
 
-namespace internal {
-// Options for trace viewer used for testing.
-struct TraceViewOption {
-  uint64_t resolution = 0;
-  double start_time_ms = 0.0;
-  double end_time_ms = 0.0;
-  std::string event_name = "";
-  std::string search_prefix = "";
-  double duration_ms = 0.0;
-  uint64_t unique_id = 0;
-  std::string format = "json";
-};
-
-inline absl::StatusOr<TraceViewOption> GetTraceViewOption(
-    const tensorflow::profiler::ToolOptions& options) {
-  TraceViewOption trace_options;
-  auto start_time_ms_opt =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "start_time_ms", "0.0");
-  auto end_time_ms_opt =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "end_time_ms", "0.0");
-  auto resolution_opt =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "resolution", "0");
-  trace_options.event_name =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "event_name", "");
-  trace_options.search_prefix =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "search_prefix", "");
-  auto duration_ms_opt =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "duration_ms", "0.0");
-  auto unique_id_opt =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "unique_id", "0");
-  trace_options.format =
-      tensorflow::profiler::GetParamWithDefault<std::string>(
-          options, "format", "json");
-
-
-  if (!absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
-      !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
-      !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
-    return tsl::errors::InvalidArgument("wrong arguments");
-  }
-
-  if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution)) {
-    double resolution_double;
-    if (absl::SimpleAtod(resolution_opt, &resolution_double)) {
-      trace_options.resolution = static_cast<uint64_t>(resolution_double);
-    } else {
-      return tsl::errors::InvalidArgument("resolution must be a number");
-    }
-  }
-
-  if (!absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id)) {
-    double unique_id_double;
-    if (absl::SimpleAtod(unique_id_opt, &unique_id_double)) {
-      trace_options.unique_id = static_cast<uint64_t>(unique_id_double);
-    } else {
-      return tsl::errors::InvalidArgument("unique_id must be a number");
-    }
-  }
-  return trace_options;
-}
-}  // namespace internal
-
+// A profile processor that generates trace viewer events from XSpace data
+// and supports streaming them (e.g., via LevelDB tables).
 class StreamingTraceViewerProcessor : public ProfileProcessor {
  public:
   explicit StreamingTraceViewerProcessor(
@@ -119,7 +52,7 @@ class StreamingTraceViewerProcessor : public ProfileProcessor {
  private:
   absl::Status SerializeAndSetOutput(
       const tensorflow::profiler::TraceEventsContainer& merged_trace_container,
-      const internal::TraceViewOption& trace_option,
+      const tensorflow::profiler::TraceViewOption& trace_option,
       const tensorflow::profiler::TraceOptions& profiler_trace_options,
       absl::string_view session_id);
 

@@ -21,9 +21,9 @@
 #include "nlohmann/json.hpp"
 #include "xla/tsl/lib/core/status_test_util.h"
 #include "xla/tsl/platform/env.h"
-#include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_statistics.h"
+#include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
@@ -31,14 +31,16 @@
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/trace_view_options.h"
 
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 
 namespace xprof {
-using internal::GetTraceViewOption;
-using internal::TraceViewOption;
+using ::tensorflow::profiler::GetTraceViewOption;
 using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
+using ::tensorflow::profiler::TraceViewOption;
 using ::tensorflow::profiler::XEvent;
 using ::tensorflow::profiler::XEventMetadata;
 using ::tensorflow::profiler::XLine;
@@ -173,6 +175,7 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionValid) {
   options["search_prefix"] = "prefix";
   options["duration_ms"] = "10.0";
   options["unique_id"] = "12345";
+  options["search_metadata"] = false;
 
   TF_ASSERT_OK_AND_ASSIGN(TraceViewOption trace_option,
                           GetTraceViewOption(options));
@@ -184,6 +187,30 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionValid) {
   EXPECT_EQ(trace_option.search_prefix, "prefix");
   EXPECT_DOUBLE_EQ(trace_option.duration_ms, 10.0);
   EXPECT_EQ(trace_option.unique_id, 12345);
+  EXPECT_FALSE(trace_option.search_metadata);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest,
+       GetTraceViewOptionSearchMetadataTrue) {
+  ToolOptions options;
+  options["search_metadata"] = true;
+
+  TF_ASSERT_OK_AND_ASSIGN(TraceViewOption trace_option,
+                          GetTraceViewOption(options));
+
+  EXPECT_TRUE(trace_option.search_metadata);
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionSearchMetadata) {
+  ToolOptions options;
+  options["search_prefix"] = "prefix";
+  options["search_metadata"] = true;
+
+  TF_ASSERT_OK_AND_ASSIGN(TraceViewOption trace_option,
+                          GetTraceViewOption(options));
+
+  EXPECT_EQ(trace_option.search_prefix, "prefix");
+  EXPECT_TRUE(trace_option.search_metadata);
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionDefaults) {
@@ -198,6 +225,7 @@ TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionDefaults) {
   EXPECT_EQ(trace_option.search_prefix, "");
   EXPECT_DOUBLE_EQ(trace_option.duration_ms, 0.0);
   EXPECT_EQ(trace_option.unique_id, 0);
+  EXPECT_FALSE(trace_option.search_metadata);
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, GetTraceViewOptionFloatFormatted) {
@@ -280,8 +308,9 @@ TEST_F(StreamingTraceViewerProcessorTest, MapWithPath) {
   TF_ASSERT_OK_AND_ASSIGN(
       SessionSnapshot snapshot_for_paths,
       SessionSnapshot::Create({xspace_path}, /*xspaces=*/std::nullopt));
-  auto trace_events_sstable_path = snapshot_for_paths.MakeHostDataFilePath(
-      tensorflow::profiler::StoredDataType::TRACE_LEVELDB, host_name);
+  std::optional<std::string> trace_events_sstable_path =
+      snapshot_for_paths.MakeHostDataFilePath(
+          tensorflow::profiler::StoredDataType::TRACE_LEVELDB, host_name);
   ASSERT_TRUE(trace_events_sstable_path.has_value());
   EXPECT_TRUE(absl::IsNotFound(
       tsl::Env::Default()->FileExists(*trace_events_sstable_path)));
@@ -381,9 +410,11 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceMultiHostStressTest) {
     host_names.push_back(host_name);
 
     XSpace space = CreateSingleEventXSpace();
-    auto& metadata = (*space.mutable_planes(0)->mutable_event_metadata())
-    [static_cast<int64_t>(tsl::profiler::HostEventType::kSessionRun)];
-metadata.set_name(absl::StrCat("EventFrom", host_name));
+    XEventMetadata& metadata =
+        (*space.mutable_planes(0)
+              ->mutable_event_metadata())[static_cast<int64_t>(
+            tsl::profiler::HostEventType::kSessionRun)];
+    metadata.set_name(absl::StrCat("EventFrom", host_name));
 
     host_xspaces[host_name] = std::move(space);
   }
@@ -437,7 +468,7 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceWithMissingFiles) {
   TF_ASSERT_OK_AND_ASSIGN(std::string map_output,
                           processor.Map(snapshot, "host1", space));
 
-  auto metadata_path = snapshot.MakeHostDataFilePath(
+  std::optional<std::string> metadata_path = snapshot.MakeHostDataFilePath(
       tensorflow::profiler::StoredDataType::TRACE_EVENTS_METADATA_LEVELDB,
       "host1");
   if (metadata_path.has_value()) {
@@ -448,6 +479,26 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceWithMissingFiles) {
       processor.Reduce(snapshot, {map_output}),
       StatusIs(absl::StatusCode::kInternal,
                HasSubstr("No hosts with valid trace data")));
+}
+
+TEST_F(StreamingTraceViewerProcessorTest, ReduceWithSearchMetadata) {
+  XSpace space = CreateTestXSpace(2);
+  absl::flat_hash_map<std::string, XSpace> host_xspaces = {{"host1", space}};
+  TF_ASSERT_OK_AND_ASSIGN(SessionSnapshot snapshot,
+                          CreateSnapshot(host_xspaces));
+
+  ToolOptions tool_options;
+  tool_options["search_prefix"] = "Sess";
+  tool_options["search_metadata"] = true;
+  StreamingTraceViewerProcessor processor(tool_options);
+
+  TF_ASSERT_OK_AND_ASSIGN(std::string map_output,
+                          processor.Map(snapshot, "host1", space));
+  TF_EXPECT_OK(processor.Reduce(snapshot, {map_output}));
+
+  const std::string& json_output = processor.GetData();
+  ASSERT_FALSE(json_output.empty());
+  EXPECT_TRUE(nlohmann::json::parse(json_output).contains("traceEvents"));
 }
 
 TEST_F(StreamingTraceViewerProcessorTest, ReduceWithSearchPrefix) {

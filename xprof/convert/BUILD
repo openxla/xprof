@@ -365,6 +365,8 @@ cc_library(
         ":profile_processor_factory",
         ":repository",
         ":tool_options",
+        ":trace_view_options",
+        ":unified_session_snapshot",
         ":xplane_to_trace_container",
         ":xprof_thread_pool_executor",
         "@com_google_absl//absl/log",
@@ -402,6 +404,8 @@ cc_test(
         ":repository",
         ":streaming_trace_viewer_processor",
         ":tool_options",
+        ":trace_view_options",
+        ":unified_session_snapshot",
         ":xplane_to_trace_container",
         "//file/base:path",
         "//file/util:temp_path",
@@ -1634,12 +1638,13 @@ cc_library(
         ":smart_suggestion_processor",
         ":streaming_trace_viewer_processor",
         ":tool_options",
+        ":trace_view_options",
         ":trace_viewer_processor",
+        ":unified_session_snapshot",
         ":xplane_to_dcn_collective_stats",
         ":xplane_to_hlo",
         ":xplane_to_memory_profile",
         ":xplane_to_perf_counters",
-        ":xplane_to_tf_data_stats",
         ":xplane_to_tool_names",
         ":xplane_to_trace_container",
         ":xplane_to_utilization_viewer",
@@ -1664,7 +1669,6 @@ cc_library(
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@org_xprof//xprof/convert/trace_viewer:trace_options",
-        "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -1673,9 +1677,24 @@ cc_library(
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/profiler/convert:xplane_to_trace_events",
-        "@xla//xla/tsl/profiler/utils:timespan",
+    ],
+)
+
+cc_test(
+    name = "xplane_to_tools_data_test",
+    srcs = ["xplane_to_tools_data_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":xplane_to_tools_data",
+        "//file/base",
+        "//file/base:options_cc",
+        "//file/base:path",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
-        "@xla//xla/tsl/profiler/utils:xplane_utils",
     ],
 )
 
@@ -1988,6 +2007,36 @@ cc_library(
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "trace_view_options",
+    srcs = ["trace_view_options.cc"],
+    hdrs = ["trace_view_options.h"],
+    deps = [
+        ":tool_options",
+        ":xplane_to_trace_container",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events_filter_interface",
+        "@org_xprof//xprof/convert/trace_viewer:trace_options",
+        "@org_xprof//xprof/convert/trace_viewer:trace_viewer_visibility",
+        "@xla//xla/tsl/platform:env",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/profiler/utils:timespan",
+    ],
+)
+
+cc_test(
+    name = "trace_view_options_test",
+    srcs = ["trace_view_options_test.cc"],
+    deps = [
+        ":tool_options",
+        ":trace_view_options",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 

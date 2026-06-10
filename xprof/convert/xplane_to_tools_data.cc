@@ -15,8 +15,6 @@ limitations under the License.
 
 #include "xprof/convert/xplane_to_tools_data.h"
 
-#include <cmath>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,7 +23,7 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -37,7 +35,6 @@ limitations under the License.
 #include "xla/tsl/platform/file_system.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/profiler/convert/xplane_to_trace_events.h"
-#include "xla/tsl/profiler/utils/timespan.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/framework_op_stats_processor.h"
 #include "xprof/convert/hlo_stats_processor.h"
@@ -55,10 +52,11 @@ limitations under the License.
 #include "xprof/convert/roofline_model_processor.h"
 #include "xprof/convert/smart_suggestion_processor.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/trace_view_options.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_to_json.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
-#include "xprof/convert/trace_viewer/trace_viewer_visibility.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_dcn_collective_stats.h"
 #include "xprof/convert/xplane_to_hlo.h"
 #include "xprof/convert/xplane_to_memory_profile.h"
@@ -84,52 +82,6 @@ namespace profiler {
 
 namespace {
 
-struct TraceViewOption {
-  uint64_t resolution = 0;
-  double start_time_ms = 0.0;
-  double end_time_ms = 0.0;
-  std::string event_name = "";
-  std::string search_prefix = "";
-  double duration_ms = 0.0;
-  uint64_t unique_id = 0;
-};
-
-absl::StatusOr<TraceViewOption> GetTraceViewOption(const ToolOptions& options) {
-  TraceViewOption trace_options;
-  auto start_time_ms_opt =
-      GetParamWithDefault<std::string>(options, "start_time_ms", "0.0");
-  auto end_time_ms_opt =
-      GetParamWithDefault<std::string>(options, "end_time_ms", "0.0");
-  auto resolution_opt =
-      GetParamWithDefault<std::string>(options, "resolution", "0");
-  trace_options.event_name =
-      GetParamWithDefault<std::string>(options, "event_name", "");
-  trace_options.search_prefix =
-      GetParamWithDefault<std::string>(options, "search_prefix", "");
-  auto duration_ms_opt =
-      GetParamWithDefault<std::string>(options, "duration_ms", "0.0");
-  auto unique_id_opt =
-      GetParamWithDefault<std::string>(options, "unique_id", "0");
-
-  if (!absl::SimpleAtoi(resolution_opt, &trace_options.resolution) ||
-      !absl::SimpleAtod(start_time_ms_opt, &trace_options.start_time_ms) ||
-      !absl::SimpleAtod(end_time_ms_opt, &trace_options.end_time_ms) ||
-      !absl::SimpleAtod(duration_ms_opt, &trace_options.duration_ms)) {
-    return absl::InvalidArgumentError("wrong arguments");
-  }
-
-  if (!absl::SimpleAtoi(unique_id_opt, &trace_options.unique_id)) {
-    double unique_id_double;
-    if (absl::SimpleAtod(unique_id_opt, &unique_id_double)) {
-      trace_options.unique_id = static_cast<uint64_t>(unique_id_double);
-    } else {
-      return absl::InvalidArgumentError("unique_id must be a number");
-    }
-  }
-
-  return trace_options;
-}
-
 absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     const SessionSnapshot& session_snapshot, const absl::string_view tool_name,
     const ToolOptions& options) {
@@ -153,12 +105,13 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     tensorflow::profiler::TraceOptions profiler_trace_options =
         TraceOptionsFromToolOptions(options);
     std::string host_name = session_snapshot.GetHostname(0);
-    auto trace_events_sstable_path = session_snapshot.MakeHostDataFilePath(
-        StoredDataType::TRACE_LEVELDB, host_name);
-    auto trace_events_metadata_sstable_path =
+    std::optional<std::string> trace_events_sstable_path =
+        session_snapshot.MakeHostDataFilePath(StoredDataType::TRACE_LEVELDB,
+                                              host_name);
+    std::optional<std::string> trace_events_metadata_sstable_path =
         session_snapshot.MakeHostDataFilePath(
             StoredDataType::TRACE_EVENTS_METADATA_LEVELDB, host_name);
-    auto trace_events_prefix_trie_sstable_path =
+    std::optional<std::string> trace_events_prefix_trie_sstable_path =
         session_snapshot.MakeHostDataFilePath(
             StoredDataType::TRACE_EVENTS_PREFIX_TRIE_LEVELDB, host_name);
     if (!trace_events_sstable_path || !trace_events_metadata_sstable_path ||
@@ -197,36 +150,8 @@ absl::StatusOr<std::string> ConvertXSpaceToTraceEvents(
     file_paths.trace_events_prefix_trie_file_path =
         *trace_events_prefix_trie_sstable_path;
     TraceEventsContainer trace_container;
-    // Fetch Args Request.
-    if (!trace_option.event_name.empty()) {
-      TF_RETURN_IF_ERROR(trace_container.ReadFullEventFromLevelDbTable(
-          *trace_events_metadata_sstable_path, *trace_events_sstable_path,
-          trace_option.event_name,
-          static_cast<uint64_t>(std::round(trace_option.start_time_ms * 1E9)),
-          static_cast<uint64_t>(std::round(trace_option.duration_ms * 1E9)),
-          trace_option.unique_id));
-    } else if (!trace_option.search_prefix.empty()) {  // Search Events Request
-      if (tsl::Env::Default()
-              ->FileExists(*trace_events_prefix_trie_sstable_path).ok()) {
-        auto trace_events_filter =
-            CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);
-        TF_RETURN_IF_ERROR(trace_container.SearchInLevelDbTable(
-            file_paths,
-            trace_option.search_prefix, std::move(trace_events_filter)));
-      }
-    } else {
-      auto visibility_filter = std::make_unique<TraceVisibilityFilter>(
-          tsl::profiler::MilliSpan(trace_option.start_time_ms,
-                                   trace_option.end_time_ms),
-          trace_option.resolution, profiler_trace_options);
-      // Trace smaller than threshold will be disabled from streaming.
-      constexpr int64_t kDisableStreamingThreshold = 500000;
-      auto trace_events_filter =
-          CreateTraceEventsFilterFromTraceOptions(profiler_trace_options);
-      TF_RETURN_IF_ERROR(trace_container.LoadFromLevelDbTable(
-          file_paths, std::move(trace_events_filter),
-          std::move(visibility_filter), kDisableStreamingThreshold));
-    }
+    TF_RETURN_IF_ERROR(LoadTraceEventsContainer(
+        file_paths, trace_option, profiler_trace_options, &trace_container));
     JsonTraceOptions json_trace_options;
 
     tensorflow::profiler::TraceDeviceType device_type =

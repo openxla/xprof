@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_computation.h"
@@ -42,6 +43,30 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+namespace {
+
+bool IsMatMulOrEinsumOpType(absl::string_view op_type,
+                            std::string* target_category) {
+  if (absl::EqualsIgnoreCase(op_type, "matmul") ||
+      absl::EqualsIgnoreCase(op_type, "batchmatmul") ||
+      absl::EqualsIgnoreCase(op_type, "batchmatmulv2") ||
+      absl::EqualsIgnoreCase(op_type, "dot_general") ||
+      absl::EqualsIgnoreCase(op_type, "dot")) {
+    if (target_category != nullptr) {
+      *target_category = "matmul";
+    }
+    return true;
+  }
+  if (absl::EqualsIgnoreCase(op_type, "einsum")) {
+    if (target_category != nullptr) {
+      *target_category = "einsum";
+    }
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
 
 HloInstructionWrapper::HloInstructionWrapper(
     const xla::HloInstruction* instr,
@@ -54,6 +79,13 @@ HloInstructionWrapper::HloInstructionWrapper(
       category_(instr_->ToCategory()),
       expression_(UncachedExpression(*instr_, false, kMaxHlolNameSize)),
       deduplicated_name_(instr_->metadata().deduplicated_name()) {
+  if (instr_->opcode() == xla::HloOpcode::kConvolution) {
+    std::string target_category;
+    if (IsMatMulOrEinsumOpType(instr_->metadata().op_type(),
+                               &target_category)) {
+      category_ = target_category;
+    }
+  }
   if (cost_analysis != nullptr) {
     performance_info_wrapper_ =
         tensorflow::profiler::PerformanceInfoWrapper::Create(cost_analysis,

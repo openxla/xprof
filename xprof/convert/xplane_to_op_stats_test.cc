@@ -687,6 +687,48 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromXlaOps) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 30);
 }
 
+TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCalls) {
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+
+  // 1. `custom-call` with no `model_flops` -> off-duty (inactive)
+  CreateXEventMetadata(&device_plane_builder, "op.1",
+                       {{StatType::kHloCategory, "custom-call"}});
+  CreateXEvent(&device_plane_builder, &op_line, "op.1", /*offset_ps=*/10,
+               /*duration_ps=*/10);
+
+  // 2. `custom-call` with `model_flops = 0` -> off-duty (inactive)
+  CreateXEventMetadata(&device_plane_builder, "op.2",
+                       {{StatType::kHloCategory, "custom-call"},
+                        {StatType::kModelFlops, int64_t{0}}});
+  CreateXEvent(&device_plane_builder, &op_line, "op.2", /*offset_ps=*/20,
+               /*duration_ps=*/10);
+
+  // 3. `custom-call` with `model_flops > 0` -> on-duty (active)
+  CreateXEventMetadata(&device_plane_builder, "op.3",
+                       {{StatType::kHloCategory, "custom-call"},
+                        {StatType::kModelFlops, int64_t{100}}});
+  CreateXEvent(&device_plane_builder, &op_line, "op.3", /*offset_ps=*/30,
+               /*duration_ps=*/10);
+
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/5,
+               /*duration_ps=*/40);
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor);
+  EXPECT_EQ(tracker.GetActiveTimePs(), 10);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 30);
+}
+
 TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromSparseCore) {
   XSpace space;
   XPlane* sc_plane = GetOrCreateTpuXPlane(

@@ -18,6 +18,7 @@ import abc
 from collections.abc import Mapping
 from collections.abc import Sequence
 import functools
+import itertools
 import json
 import logging
 import os
@@ -130,7 +131,10 @@ class GcsFileSystem(ProfileFileSystem):
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
       for blob in blobs:
-        if not blob.name.endswith('.xplane.pb'):
+        if not (
+            blob.name.endswith('.xplane.pb')
+            or blob.name.endswith('.xplane.riegeli')
+        ):
           continue
         md5_hash = blob.md5_hash
         if not isinstance(md5_hash, str):
@@ -153,6 +157,7 @@ class GcsFileSystem(ProfileFileSystem):
           os.path.basename(blob.name)
           for blob in blobs
           if blob.name.endswith('.xplane.pb')
+          or blob.name.endswith('.xplane.riegeli')
       ]
     except RuntimeError:
       return []
@@ -160,7 +165,11 @@ class GcsFileSystem(ProfileFileSystem):
   def dir_has_xplane_files(self, dir_path: str) -> bool:
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
-      return any(blob.name.endswith('.xplane.pb') for blob in blobs)
+      return any(
+          blob.name.endswith('.xplane.pb')
+          or blob.name.endswith('.xplane.riegeli')
+          for blob in blobs
+      )
     except RuntimeError:
       return False
 
@@ -279,7 +288,9 @@ class LocalFileSystem(ProfileFileSystem):
     path = self._epath.Path(dir_path)
     file_identifiers = {}
     try:
-      for xplane_file in path.glob('*.xplane.pb'):
+      for xplane_file in itertools.chain(
+          path.glob('*.xplane.pb'), path.glob('*.xplane.riegeli')
+      ):
         file_id = _get_local_file_identifier(str(xplane_file))
         if file_id is None:
           logger.warning(
@@ -301,7 +312,12 @@ class LocalFileSystem(ProfileFileSystem):
   def get_xplane_basenames(self, dir_path: str) -> list[str]:
     path = self._epath.Path(dir_path)
     try:
-      return [f.name for f in path.glob('*.xplane.pb')]
+      return [
+          f.name
+          for f in itertools.chain(
+              path.glob('*.xplane.pb'), path.glob('*.xplane.riegeli')
+          )
+      ]
     except OSError as e:
       logger.warning(
           'Cannot read asset directory: %s, OpError %s',
@@ -314,7 +330,7 @@ class LocalFileSystem(ProfileFileSystem):
   def dir_has_xplane_files(self, dir_path: str) -> bool:
     path = self._epath.Path(dir_path)
     try:
-      return any(path.glob('*.xplane.pb'))
+      return any(path.glob('*.xplane.pb')) or any(path.glob('*.xplane.riegeli'))
     except OSError:
       return False
 

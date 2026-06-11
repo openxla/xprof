@@ -108,6 +108,7 @@ ALL_HOSTS = 'ALL_HOSTS'
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
 _EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
+_EXTENSION_TO_TOOL['xplane.riegeli'] = 'xplane'
 
 _FILENAME_RE = re.compile(
     r"""
@@ -117,7 +118,7 @@ _FILENAME_RE = re.compile(
     )?             # End optional non-capturing group.
     (              # Start capture group 2: The tool extension.
     """
-    + '|'.join(re.escape(v) for v in TOOLS.values())
+    + '|'.join(re.escape(v) for v in _EXTENSION_TO_TOOL.keys())
     + r"""
     )              # End capture group 2.
     """,

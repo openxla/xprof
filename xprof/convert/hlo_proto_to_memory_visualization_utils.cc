@@ -187,6 +187,9 @@ struct LogicalBufferStruct {
   LogicalBufferStruct* get_canonical_buffer() {
     return canonical_buffer ? canonical_buffer->get_canonical_buffer() : this;
   }
+  const LogicalBufferStruct* get_canonical_buffer() const {
+    return canonical_buffer ? canonical_buffer->get_canonical_buffer() : this;
+  }
 
   // Get the instruction name with shape index for a logical buffer.
   std::string GetInstructionNameWithShapeIndex() const {
@@ -723,6 +726,11 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         auto& canonical_buffer = *logical_buffer->get_canonical_buffer();
         TF_RETURN_IF_ERROR(stats->DecreaseMemoryUsage(&canonical_buffer));
       }
+      // Narrow the sharer's span end when it is freed.
+      if (logical_buffer->span && logical_buffer->canonical_buffer) {
+        logical_buffer->span->second =
+            stats->heap_size_bytes_timeline.size() - 1;
+      }
     } else if (event.kind() == HeapSimulatorTrace::Event::SHARE_WITH) {
       int64_t canonical_buffer_id = event.share_with_canonical_id();
       LogicalBufferStruct* canonical_buffer =
@@ -732,13 +740,17 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
       }
       auto ref_count = logical_buffer->share_with(canonical_buffer);
 
+      auto* root_canonical = canonical_buffer->get_canonical_buffer();
       if (ref_count == 1) {
-        // SHARE_WITH happens after the FREE of a canonical buffer.
-        // SHARE_WITH event does not initialize buffer lifetime span, it was
-        // initialized by ALLOC event using the canonical logical buffer.
-        stats->IncreaseMemoryUsage(canonical_buffer,
+        // SHARE_WITH after FREE: the canonical's physical memory is being
+        // reused. Use get_canonical_buffer() to resolve the root of the
+        // canonical chain, matching DecreaseMemoryUsage which also uses the
+        // root.
+        stats->IncreaseMemoryUsage(root_canonical,
                                    /*init_buffer_span=*/false);
       }
+      logical_buffer->span.emplace(stats->heap_size_bytes_timeline.size() - 1,
+                                   stats->simulator_trace_event_size - 1);
     } else {
       return absl::InvalidArgumentError(
           absl::StrCat("Unhandled event kind: ", event.kind()));
@@ -775,8 +787,24 @@ struct PeakUsageSnapshot {
     // Buffers from HeapSimulatorTrace.
     for (const int64_t logical_buffer_id :
          simulator_stats.peak_logical_buffers) {
+      int64_t display_id = logical_buffer_id;
+      for (const auto* seen_buffer : simulator_stats.seen_logical_buffers) {
+        const LogicalBufferStruct* root_canonical =
+            seen_buffer->get_canonical_buffer();
+        if (root_canonical != nullptr &&
+            root_canonical->proto.id() == logical_buffer_id &&
+            seen_buffer->span.has_value()) {
+          if (seen_buffer->span->first <=
+                  simulator_stats.peak_heap_size_position &&
+              seen_buffer->span->second >=
+                  simulator_stats.peak_heap_size_position) {
+            display_id = seen_buffer->proto.id();
+            break;
+          }
+        }
+      }
       const LogicalBufferStruct* logical_buffer =
-          wrapper.GetLogicalBuffer(logical_buffer_id);
+          wrapper.GetLogicalBuffer(display_id);
       if (logical_buffer == nullptr) return;
       AddHeapObject(*logical_buffer);
     }

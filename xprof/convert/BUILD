@@ -1827,6 +1827,8 @@ cc_test(
     srcs = ["hlo_proto_to_memory_visualization_utils_test.cc"],
     deps = [
         ":hlo_proto_to_memory_visualization_utils",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",

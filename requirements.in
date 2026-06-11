@@ -9,4 +9,4 @@ protobuf >= 3.19.6
 six >= 1.10.0
 google-cloud-storage >= 3.9.0
 pyOpenSSL >= 26.1.0
-
+fire >= 0.4.0

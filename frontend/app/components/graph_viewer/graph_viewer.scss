@@ -2,6 +2,11 @@
 
 @import 'frontend/app/styles/common';
 
+:host {
+  display: block;
+  height: 100%;
+}
+
 .item-container {
   display: flex;
   padding: 20px 20px 0;

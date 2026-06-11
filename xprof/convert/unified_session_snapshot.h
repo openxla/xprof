@@ -36,6 +36,7 @@ enum StoredDataType {
   TRACE_EVENTS_METADATA_LEVELDB,
   TRACE_EVENTS_PREFIX_TRIE_LEVELDB,
   SMART_SUGGESTION,
+  RIEGELI_XSPACE,
 };
 
 }  // namespace profiler

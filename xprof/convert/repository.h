@@ -72,6 +72,8 @@ class SessionSnapshot : public xprof::XprofSessionSnapshot {
   // Gets host name.
   std::string GetHostname(size_t index) const override;
 
+  static std::string GetHostnameByPath(absl::string_view xspace_path);
+
   // Gets the run directory of the profile session.
   absl::string_view GetSessionRunDir() const override {
     return session_run_dir_;
@@ -125,6 +127,9 @@ class SessionSnapshot : public xprof::XprofSessionSnapshot {
   }
 
  private:
+  absl::StatusOr<XSpace*> GetXSpaceFromRiegeli(absl::string_view path,
+                                               google::protobuf::Arena* arena) const;
+
   SessionSnapshot(std::vector<std::string> xspace_paths,
                   std::optional<std::vector<std::unique_ptr<XSpace>>> xspaces)
       : xspace_paths_(std::move(xspace_paths)),
@@ -135,7 +140,7 @@ class SessionSnapshot : public xprof::XprofSessionSnapshot {
         xspaces_(std::move(xspaces)) {
     session_run_dir_ = tsl::io::Dirname(xspace_paths_.at(0));
     for (size_t i = 0; i < xspace_paths_.size(); ++i) {
-      std::string host_name = GetHostname(i);
+      std::string host_name = GetHostnameByPath(xspace_paths_.at(i));
       hostname_map_[host_name] = i;
     }
   }

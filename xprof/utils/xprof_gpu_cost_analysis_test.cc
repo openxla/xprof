@@ -184,6 +184,18 @@ ENTRY e {
   // dividing by 2 as all inputs are 8 bits
   EXPECT_EQ(analysis_.GetDeviceFlopsAdjustment(*fp8_gemm), gold_flops / 2);
 }
+TEST_F(XprofGpuHloCostAnalysisTest, CustomCallWithZeroOperands) {
+  absl::string_view hlo_string = R"(
+HloModule r
+
+ENTRY e {
+  ROOT custom = f32[2,32,256]{2,1,0} custom-call(), custom_call_target="AllocateBuffer"
+}
+)";
+  TF_ASSERT_OK_AND_ASSIGN(auto module,
+                          ParseAndReturnVerifiedModule(hlo_string));
+  ASSERT_IS_OK(module->entry_computation()->Accept(&analysis_));
+}
 
 }  // namespace profiler
 }  // namespace tensorflow

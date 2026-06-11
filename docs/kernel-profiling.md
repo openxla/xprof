@@ -19,6 +19,13 @@ time-series format within the Trace Viewer.
 
 ## Enabling Fine-Grained Performance Counters
 
+Enable performance counters by configuring the profiler options for your
+framework.
+
+<devsite-selector>
+<section>
+<h3>JAX</h3>
+
 Enable performance counters through the
 [Advanced Configuration Options](https://docs.jax.dev/en/latest/profiling.html#advanced-configuration-options) in your
 JAX Profiler TPU options, as shown in the example below:
@@ -31,7 +38,42 @@ options.advanced_configuration = {
         'interval_us:1 scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58'
     ),
 }
+# Start profiling
+jax.profiler.start_trace(log_dir, profiler_options=options)
 ```
+
+</section>
+<section>
+<h3>PyTorch (TorchTPU)</h3>
+
+Enable performance counters by passing experimental options to `TpuProfilerConfig` and using it with standard `torch.profiler.profile`:
+
+```py
+import torch
+from torch_tpu._internal.profiler import TpuProfilerConfig
+
+experimental_options = {
+    "tpu_enable_periodic_counter_sampling": True,
+    "tpu_tc_perf_counter_sampling_options": (
+        "interval_us:1 scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58"
+    ),
+}
+config = TpuProfilerConfig(experimental_options=experimental_options)
+
+with torch.profiler.profile(
+    activities=[
+        torch.profiler.ProfilerActivity.CPU,
+        torch.profiler.ProfilerActivity.PrivateUse1, # TPU
+    ],
+    on_trace_ready=torch.profiler.tensorboard_trace_handler(log_dir),
+    experimental_config=config,
+):
+    # Run workload
+    ...
+```
+
+</section>
+</devsite-selector>
 
 * `tpu_enable_periodic_counter_sampling`: Set this flag to signal that
   fine-grained performance counters should be collected.
@@ -95,7 +137,11 @@ execution models, you can more effectively identify bottlenecks down to the
 bundle or instruction level.
 
 To enable event-triggered collection, replace the `interval_us` parameter
-with `is_external_trigger:true` in your configuration. Example:
+with `is_external_trigger:true` in your configuration.
+
+<devsite-selector>
+<section>
+<h3>JAX</h3>
 
 ```py
 options = jax.profiler.ProfileOptions()
@@ -108,5 +154,22 @@ options.advanced_configuration = {
     ),
 }
 ```
+
+</section>
+<section>
+<h3>PyTorch (TorchTPU)</h3>
+
+```py
+experimental_options = {
+    "tpu_enable_periodic_counter_sampling": True,
+    "tpu_tc_perf_counter_sampling_options": (
+        "is_external_trigger:true scaling:0 counter_size_bits:1 indices:10 indices:11 indices:56 indices:57 indices:58"
+    ),
+}
+config = TpuProfilerConfig(experimental_options=experimental_options)
+```
+
+</section>
+</devsite-selector>
 
 ![XProf Perf counter tool showing counter sampling](./images/counter_sampling.png)

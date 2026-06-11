@@ -1473,6 +1473,10 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
   data.entry_names.push_back("apricot");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
   data.entry_levels.push_back(0);
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -1510,6 +1514,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(50.0);
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
@@ -1538,6 +1546,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(50.0);
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
@@ -1567,6 +1579,8 @@ TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("foo");
+  data.entry_event_ids.push_back(1);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
@@ -1590,6 +1604,10 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(50.0);
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
@@ -1619,6 +1637,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("foo");
+  data.entry_event_ids.push_back(1);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
@@ -1642,6 +1662,10 @@ TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_start_times.push_back(20.0);
   data.entry_levels.push_back(0);
@@ -2051,6 +2075,10 @@ TEST(TimelineTest, SetSearchQuery) {
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
   data.entry_names.push_back("banana");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
   data.entry_levels.push_back(0);
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -2087,6 +2115,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
@@ -2107,6 +2137,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
@@ -2134,6 +2166,8 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("apple");
+  data.entry_event_ids.push_back(1);
+  data.entry_tids.push_back(1);
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -2173,6 +2207,14 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
   data.entry_names.push_back("foo");
   data.entry_names.push_back("event2");
   data.entry_names.push_back("long_non_match");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_event_ids.push_back(3);
+  data.entry_event_ids.push_back(4);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_start_times.push_back(20.0);
   data.entry_start_times.push_back(30.0);
@@ -2212,6 +2254,10 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
   FlameChartTimelineData data;
   data.entry_names.push_back("event");
   data.entry_names.push_back("event");
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_start_times.push_back(50.0);
   data.entry_levels.push_back(0);

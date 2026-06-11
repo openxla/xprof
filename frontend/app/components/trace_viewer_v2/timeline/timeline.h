@@ -132,6 +132,15 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  struct SearchResult {
+    EventId event_id = 0;
+    Microseconds start_time = 0.0;
+    Microseconds duration = 0.0;
+    ProcessId pid = 0;
+    ThreadId tid = 0;
+    int level = 0;
+  };
+
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -175,6 +184,9 @@ class Timeline {
   // Sets the search query to highlight events matching the query.
   // The search is case-insensitive.
   void SetSearchQuery(const std::string& query);
+
+  void SetSearchResults(const ParsedTraceEvents& search_results);
+  void NavigateToCurrentSearchResult();
 
   int get_search_results_count() const { return search_results_.size(); }
   int get_current_search_result_index() const {
@@ -580,9 +592,10 @@ class Timeline {
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
   std::string search_query_lower_;
-  // Indices into timeline_data_ entries
-  std::vector<int> search_results_;
+  std::vector<SearchResult> search_results_;
   int current_search_result_index_ = -1;
+  EventId pending_navigation_event_id_ = 0;
+  EventId selected_event_id_ = 0;
 
   // Stores the remaining time (in seconds) to display the bounds
   // notification toast.

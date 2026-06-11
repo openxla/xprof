@@ -75,6 +75,12 @@ class Application {
     }
   }
 
+  void SetSearchResults(const ParsedTraceEvents& search_results) {
+    if (timeline_) {
+      timeline_->SetSearchResults(search_results);
+    }
+  }
+
   void SetMouseMode(int mode) {
     if (timeline_) {
       timeline_->set_mouse_mode(static_cast<MouseMode>(mode));

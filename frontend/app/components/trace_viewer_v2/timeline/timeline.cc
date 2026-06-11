@@ -277,6 +277,39 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
 
+  if (pending_navigation_event_id_ != 0) {
+    std::vector<EventId>::const_iterator it = absl::c_find(
+        timeline_data_.entry_event_ids, pending_navigation_event_id_);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      int event_index = static_cast<int>(
+          std::distance(timeline_data_.entry_event_ids.cbegin(), it));
+      pending_navigation_event_id_ = 0;
+      RevealEvent(event_index);
+    }
+  }
+
+  if (selected_event_id_ != 0) {
+    std::vector<EventId>::const_iterator it =
+        absl::c_find(timeline_data_.entry_event_ids, selected_event_id_);
+    if (it != timeline_data_.entry_event_ids.end()) {
+      selected_event_index_ = static_cast<int>(
+          std::distance(timeline_data_.entry_event_ids.cbegin(), it));
+      int level = timeline_data_.entry_levels[selected_event_index_];
+      for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+        int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
+        if (level >= timeline_data_.groups[i].start_level &&
+            level < next_group_start_level) {
+          selected_group_index_ = static_cast<int>(i);
+          break;
+        }
+      }
+    } else {
+      selected_event_index_ = -1;
+    }
+  } else {
+    selected_event_index_ = -1;
+  }
+
   if (is_incremental_loading_) {
     should_restore_scroll_ = true;
   }
@@ -867,6 +900,9 @@ void Timeline::RevealEvent(int event_index) {
   }
 
   selected_event_index_ = event_index;
+  selected_event_id_ = event_index < timeline_data_.entry_event_ids.size()
+                           ? timeline_data_.entry_event_ids[event_index]
+                           : 0;
   event_index_to_scroll_to_ = event_index;
   ExpandRelatedTracks(event_index);
 
@@ -913,6 +949,9 @@ void Timeline::ZoomEvent(int event_index) {
   }
 
   selected_event_index_ = event_index;
+  selected_event_id_ = event_index < timeline_data_.entry_event_ids.size()
+                           ? timeline_data_.entry_event_ids[event_index]
+                           : 0;
   event_index_to_scroll_to_ = event_index;
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
@@ -1329,6 +1368,10 @@ void Timeline::DrawEvent(int group_index, int event_index,
           if (selected_event_index_ != event_index) {
             selected_group_index_ = group_index;
             selected_event_index_ = event_index;
+            selected_event_id_ =
+                event_index < timeline_data_.entry_event_ids.size()
+                    ? timeline_data_.entry_event_ids[event_index]
+                    : 0;
             // Deselect any selected counter event.
             selected_counter_index_ = -1;
 
@@ -2346,6 +2389,7 @@ void Timeline::HandleEventDeselection() {
     }
     if (is_click) {
       selected_event_index_ = -1;
+      selected_event_id_ = 0;
       selected_group_index_ = -1;
       selected_counter_index_ = -1;
 
@@ -2613,55 +2657,173 @@ void Timeline::MaybeRequestData() {
   is_incremental_loading_ = true;
 }
 
+void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
+  EventId selected_event_id = 0;
+  if (current_search_result_index_ >= 0 &&
+      current_search_result_index_ < search_results_.size()) {
+    selected_event_id = search_results_[current_search_result_index_].event_id;
+  }
+
+  search_results_.clear();
+  current_search_result_index_ = -1;
+
+  if (search_query_lower_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  absl::flat_hash_map<EventId, int> event_id_to_level;
+  for (size_t i = 0; i < timeline_data_.entry_event_ids.size(); ++i) {
+    event_id_to_level.try_emplace(timeline_data_.entry_event_ids[i],
+                                  timeline_data_.entry_levels[i]);
+  }
+
+  for (const TraceEvent& event : search_results.flame_events) {
+    if (event.ph != Phase::kComplete && event.ph != Phase::kInstant &&
+        event.ph != Phase::kInstantDeprecated) {
+      continue;
+    }
+    int level = 0;
+    absl::flat_hash_map<EventId, int>::const_iterator it =
+        event_id_to_level.find(event.event_id);
+    if (it != event_id_to_level.end()) {
+      level = it->second;
+    } else if (std::map<std::string, std::string>::const_iterator arg_it =
+                   event.args.find("level");
+               arg_it != event.args.end()) {
+      if (!absl::SimpleAtoi(arg_it->second, &level)) {
+        level = 0;
+      }
+    }
+    SearchResult result;
+    result.event_id = event.event_id;
+    result.start_time = event.ts;
+    result.duration = event.dur;
+    result.pid = event.pid;
+    result.tid = event.tid;
+    result.level = level;
+    search_results_.push_back(result);
+  }
+
+  absl::c_stable_sort(search_results_,
+                      [](const SearchResult& a, const SearchResult& b) {
+                        return a.start_time < b.start_time;
+                      });
+
+  if (selected_event_id != 0) {
+    std::vector<SearchResult>::const_iterator it =
+        absl::c_find_if(search_results_, [&](const SearchResult& res) {
+          return res.event_id == selected_event_id;
+        });
+    if (it != search_results_.end()) {
+      current_search_result_index_ =
+          static_cast<int>(std::distance(search_results_.cbegin(), it));
+    }
+  }
+
+  if (current_search_result_index_ == -1 && !search_results_.empty()) {
+    current_search_result_index_ = 0;
+    NavigateToCurrentSearchResult();
+  } else {
+    if (redraw_callback_) redraw_callback_();
+  }
+}
+
+void Timeline::NavigateToCurrentSearchResult() {
+  if (current_search_result_index_ < 0 ||
+      current_search_result_index_ >= search_results_.size()) {
+    return;
+  }
+
+  const SearchResult& target = search_results_[current_search_result_index_];
+
+  std::vector<EventId>::const_iterator it =
+      absl::c_find(timeline_data_.entry_event_ids, target.event_id);
+  if (it != timeline_data_.entry_event_ids.end()) {
+    int event_index = static_cast<int>(
+        std::distance(timeline_data_.entry_event_ids.cbegin(), it));
+    RevealEvent(event_index);
+  } else {
+    pending_navigation_event_id_ = target.event_id;
+
+    Microseconds event_duration = target.duration;
+    if (std::isnan(event_duration) || event_duration <= 0) {
+      event_duration = kMinVisibleEventDuration;
+    }
+    const Microseconds duration =
+        std::max(kEventNavigationMinDurationMicros,
+                 std::min(event_duration * kEventNavigationZoomFactor,
+                          kEventNavigationMaxDurationMicros));
+    const Microseconds center = target.start_time + event_duration / 2.0;
+    TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+    ConstrainTimeRange(new_range);
+
+    SetVisibleRange(new_range, /*animate=*/true);
+  }
+
+  if (redraw_callback_) redraw_callback_();
+}
+
 void Timeline::SetSearchQuery(const std::string& query) {
   search_query_lower_ = absl::AsciiStrToLower(query);
   search_results_.clear();
   current_search_result_index_ = -1;
+  pending_navigation_event_id_ = 0;
 
   if (query.empty()) {
     if (redraw_callback_) redraw_callback_();
     return;
   }
 
-  for (int i = 0; i < timeline_data_.entry_names.size(); ++i) {
-    const auto& name = timeline_data_.entry_names[i];
+  EventData event_data;
+  event_data.try_emplace(std::string(kSearchEventsQuery), query);
+  if (event_callback_) {
+    event_callback_(kSearchEvents, event_data);
+  }
+
+  for (size_t i = 0; i < timeline_data_.entry_names.size(); ++i) {
+    const std::string& name = timeline_data_.entry_names[i];
     if (absl::StartsWithIgnoreCase(name, query)) {
-      search_results_.push_back(i);
+      SearchResult result;
+      result.event_id = timeline_data_.entry_event_ids[i];
+      result.start_time = timeline_data_.entry_start_times[i];
+      result.duration = timeline_data_.entry_total_times[i];
+      result.pid = timeline_data_.entry_pids[i];
+      result.tid = timeline_data_.entry_tids[i];
+      result.level = timeline_data_.entry_levels[i];
+      search_results_.push_back(result);
     }
   }
 
-  // Sort results by start time to make navigation natural.
-  absl::c_sort(search_results_, [&](int a, int b) {
-    return timeline_data_.entry_start_times[a] <
-           timeline_data_.entry_start_times[b];
-  });
+  absl::c_stable_sort(search_results_,
+                      [](const SearchResult& a, const SearchResult& b) {
+                        return a.start_time < b.start_time;
+                      });
 
   if (!search_results_.empty()) {
     current_search_result_index_ = 0;
-    RevealEvent(search_results_[0]);
+    NavigateToCurrentSearchResult();
+  } else {
+    if (redraw_callback_) redraw_callback_();
   }
-
-  if (redraw_callback_) redraw_callback_();
 }
 
 void Timeline::NavigateToNextSearchResult() {
   if (search_results_.empty()) return;
-  current_search_result_index_++;
+  ++current_search_result_index_;
   if (current_search_result_index_ >= search_results_.size()) {
     current_search_result_index_ = 0;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
-  if (redraw_callback_) redraw_callback_();
+  NavigateToCurrentSearchResult();
 }
 
 void Timeline::NavigateToPrevSearchResult() {
   if (search_results_.empty()) return;
-  current_search_result_index_--;
+  --current_search_result_index_;
   if (current_search_result_index_ < 0) {
-    current_search_result_index_ = search_results_.size() - 1;
+    current_search_result_index_ = static_cast<int>(search_results_.size()) - 1;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
-  if (redraw_callback_) redraw_callback_();
+  NavigateToCurrentSearchResult();
 }
 
 void Timeline::FindSelectedEvents(const ImRect& selection_rect) {

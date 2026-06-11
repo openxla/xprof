@@ -40,8 +40,8 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {combineLatest, of, ReplaySubject, Subject} from 'rxjs';
+import {catchError, switchMap, takeUntil} from 'rxjs/operators';
 import {
   COLOR_PALETTE_STORAGE_KEY,
   COLOR_PALETTES,
@@ -98,6 +98,7 @@ function parseHostsList(hosts: unknown): string[] {
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly searchQuery$ = new Subject<string>();
   private navigationEvent: NavigationEvent = {};
   private readonly injector = inject(Injector);
   private readonly store = inject(Store<{}>);
@@ -304,7 +305,39 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
-  ngOnInit() {}
+  ngOnInit() {
+    this.searchQuery$
+      .pipe(
+        takeUntil(this.destroyed),
+        switchMap((query) => {
+          if (!query) {
+            return of({traceEvents: []} as unknown as TraceData);
+          }
+          this.searching = true;
+          return this.dataService
+            .getData(
+              this.navigationEvent.run || '',
+              this.navigationEvent.tag || '',
+              this.getCurrentHost(),
+              new Map([['search_prefix', query]]),
+            )
+            .pipe(
+              catchError(() => of({traceEvents: []} as unknown as TraceData)),
+            );
+        }),
+      )
+      .subscribe((data) => {
+        this.searching = false;
+        if (!this.traceViewerModule) return;
+        const traceData = data as TraceData;
+        const traceEvents = traceData?.traceEvents || [];
+        this.traceViewerModule.setSearchResultsInWasm({
+          ...(traceData || {}),
+          traceEvents,
+        });
+        this.container?.updateSearchResultCountText();
+      });
+  }
 
   ngAfterViewInit() {}
 
@@ -578,7 +611,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     const app = this.traceViewerModule.application.instance();
     app.setSearchQuery(query || '');
-    this.container?.updateSearchResultCountText();
+
+    this.searchQuery$.next(query || '');
   }
 
   onInitializeWasm() {

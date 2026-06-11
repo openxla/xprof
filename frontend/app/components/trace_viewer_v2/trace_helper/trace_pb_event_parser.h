@@ -13,6 +13,10 @@ void ParseAndProcessCompressedTraceEvents(
     const std::string& buffer_data,
     const emscripten::val& visible_range_from_url);
 
+// Parses compressed trace data containing search results and updates the
+// timeline.
+void SetCompressedSearchResultsInWasm(const std::string& buffer_data);
+
 }  // namespace traceviewer
 
 #endif  // THIRD_PARTY_XPROF_FRONTEND_APP_COMPONENTS_TRACE_VIEWER_V2_TRACE_HELPER_TRACE_PB_EVENT_PARSER_H_

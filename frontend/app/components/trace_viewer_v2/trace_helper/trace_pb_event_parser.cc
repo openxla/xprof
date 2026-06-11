@@ -103,9 +103,20 @@ void ParseAndProcessCompressedTraceEvents(
   Application::Instance().RequestRedraw();
 }
 
+void SetCompressedSearchResultsInWasm(const std::string& buffer_data) {
+  if (Application::Instance().IsInitialized()) {
+    const ParsedTraceEvents parsed_events =
+        ParseCompressedTraceEvents(buffer_data, emscripten::val::null());
+    Application::Instance().timeline().SetSearchResults(parsed_events);
+    Application::Instance().RequestRedraw();
+  }
+}
+
 EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
   emscripten::function("processCompressedTraceEvents",
                        &traceviewer::ParseAndProcessCompressedTraceEvents);
+  emscripten::function("setCompressedSearchResultsInWasm",
+                       &traceviewer::SetCompressedSearchResultsInWasm);
 }
 
 }  // namespace traceviewer

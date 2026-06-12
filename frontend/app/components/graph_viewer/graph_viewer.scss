@@ -3,7 +3,8 @@
 @import 'frontend/app/styles/common';
 
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
@@ -20,7 +21,7 @@ mat-sidenav {
 }
 
 mat-sidenav-container {
-  display: inline;
+  flex: 1;
 }
 
 iframe {

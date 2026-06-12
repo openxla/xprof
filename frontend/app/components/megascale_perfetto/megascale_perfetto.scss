@@ -1,5 +1,11 @@
-.perfetto-frame {
-  width: 100%;
+:host {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+}
+
+.perfetto-frame {
+  flex: 1;
+  width: 100%;
   border: none;
 }

@@ -1281,6 +1281,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['unique_id'] = request.args.get('unique_id')
       if request.args.get('search_prefix') is not None:
         options['search_prefix'] = request.args.get('search_prefix')
+      if request.args.get('search_metadata') is not None:
+        # Retrigger presubmits (second attempt).
+        options['search_metadata'] = _get_bool_arg(
+            request.args, 'search_metadata', False
+        )
       params['trace_viewer_options'] = options
 
     _, content_encoding = None, None

@@ -503,6 +503,7 @@ class ProfilePluginTest(absltest.TestCase):
             'enable_legacy_dcn': False,
             'start_time_ms': '100',
             'end_time_ms': '200',
+            'search_metadata': False,
         },
         'hosts': ['host1'],
     }
@@ -517,6 +518,7 @@ class ProfilePluginTest(absltest.TestCase):
                 resolution='10000',
                 start_time_ms='100',
                 end_time_ms='200',
+                search_metadata='false',
             )
         )
     )

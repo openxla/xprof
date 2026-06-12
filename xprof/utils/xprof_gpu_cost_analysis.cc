@@ -82,6 +82,10 @@ absl::Status XProfGpuCostAnalysis::HandleCustomCall(
     const xla::HloInstruction* hlo) {
   TF_RETURN_IF_ERROR(xla::gpu::GpuHloCostAnalysis::HandleCustomCall(hlo));
 
+  if (!xla::gpu::IsCublasLtGemm(*hlo)) {
+    return absl::OkStatus();
+  }
+
   // The naming conventions and meanings of gemm parameters are documented at:
   // https://docs.nvidia.com/cuda/cublas/index.html#using-the-cublaslt-api
   // as inherited from GpuHloCostAnalysis, we only normalize the flops based

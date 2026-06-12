@@ -2124,6 +2124,7 @@ cc_library(
     deps = [
         ":file_utils",
         ":unified_session_snapshot",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",

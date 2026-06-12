@@ -23,6 +23,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -194,7 +195,8 @@ absl::Status WriteBinaryProto(
 template <typename T>
 absl::Status ReadBinaryProto(
     const xprof::XprofSessionSnapshot& session_snapshot,
-    const StoredDataType data_type, absl::string_view host, T* proto) {
+    const StoredDataType data_type, absl::string_view host,
+    T* proto) {
   TF_ASSIGN_OR_RETURN(std::string filepath,
                       GetHostDataFilePath(session_snapshot, data_type, host));
   if (!tsl::Env::Default()->FileExists(filepath).ok()) {

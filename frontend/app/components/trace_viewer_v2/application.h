@@ -53,7 +53,8 @@ class Application {
 
   ColorPalette& GetPalette() { return palette_; };
 
-  bool IsFeatureEnabled(const std::string& name);
+  bool IsFeatureEnabled(const std::string& name) const;
+  void SetFeatureFlag(const std::string& name, bool enabled);
 
   bool IsInitialized() const { return timeline_ != nullptr; }
 

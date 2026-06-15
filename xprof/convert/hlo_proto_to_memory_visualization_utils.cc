@@ -735,7 +735,9 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         // SHARE_WITH happens after the FREE of a canonical buffer.
         // SHARE_WITH event does not initialize buffer lifetime span, it was
         // initialized by ALLOC event using the canonical logical buffer.
-        stats->IncreaseMemoryUsage(canonical_buffer,
+        // Use get_canonical_buffer() to resolve the root of the canonical
+        // chain, matching DecreaseMemoryUsage which also uses the root.
+        stats->IncreaseMemoryUsage(canonical_buffer->get_canonical_buffer(),
                                    /*init_buffer_span=*/false);
       }
     } else {

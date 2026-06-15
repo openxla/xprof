@@ -114,6 +114,99 @@ TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWith_2) {
   EXPECT_FALSE(preprocess_result.allocation_timeline().empty());
 }
 
+// 1 buffer allocation of 1.5MB
+// 3 logical buffers, each is 0.5MB, forming a SHARE_WITH chain: C→B→A.
+static constexpr char kHLOChain[] = R"pb(
+  hlo_module {
+    name: "test_module"
+    entry_computation_name: "test_computation"
+    computations {
+      name: "test_computation"
+      instructions {
+        name: "fusion.1"
+        id: 0
+        shape { tuple_shapes { element_type: U64 } }
+      }
+      instructions {
+        name: "fusion.2"
+        id: 1
+        shape { tuple_shapes { element_type: U64 } }
+      }
+      instructions {
+        name: "fusion.3"
+        id: 2
+        shape { tuple_shapes { element_type: U64 } }
+      }
+    }
+  }
+  buffer_assignment {
+    buffer_allocations {
+      index: 0
+      size: 1572864
+      color: 0
+      assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+      assigned { logical_buffer_id: 2 offset: 0 size: 524288 }
+      assigned { logical_buffer_id: 3 offset: 0 size: 524288 }
+    }
+    logical_buffers {
+      id: 1
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 0 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 2
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 1 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 3
+      size: 524288
+      color: 0
+      defined_at { instruction_id: 2 shape_index: 0 }
+    }
+    heap_simulator_traces { %s }
+  }
+)pb";
+
+TEST(MemoryViewerTest, TestHeapSimulatorTraceShareWithChain) {
+  // Regression test for canonical chain ID mismatch bug.
+  //
+  // Creates a SHARE_WITH chain: C(3) shares with B(2), B(2) shares with A(1).
+  //   1. ALLOC A        → A.ref_count=1, logical_buffers=[A]
+  //   2. SHARE_WITH B→A → A.ref_count=2
+  //   3. FREE A         → A.ref_count=1
+  //   4. FREE B         → A.ref_count=0, logical_buffers=[]
+  //   5. SHARE_WITH C→B → chain C→B→A, A.ref_count=1
+  //                        IncreaseMemoryUsage should use A (root), not B
+  //   6. FREE C         → A.ref_count=0, logical_buffers=[]
+  //
+  // Before the fix, step 5 pushed B's ID to logical_buffers, but step 6
+  // tried to remove A's ID (via get_canonical_buffer). B's ID leaked into
+  // peak_logical_buffers, creating a phantom entry in the bar chart.
+  static constexpr char kHeapSimulatorTrace[] = R"pb(
+    events { kind: ALLOC buffer_id: 1 }
+    events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+    events { kind: FREE buffer_id: 1 }
+    events { kind: FREE buffer_id: 2 }
+    events { kind: SHARE_WITH buffer_id: 3 share_with_canonical_id: 2 }
+    events { kind: FREE buffer_id: 3 }
+  )pb";
+  std::string hlo_string = absl::StrFormat(kHLOChain, kHeapSimulatorTrace);
+  xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  // Peak should be 0.5 MiB (one buffer), not 1.0 MiB (leaked phantom).
+  EXPECT_EQ(preprocess_result.peak_heap_mib(), 0.5);
+  // max_heap should contain exactly 1 entry (the root canonical A).
+  // Before the fix, it would contain 2 entries (A from ALLOC + leaked B).
+  EXPECT_EQ(preprocess_result.max_heap_size(), 1);
+}
+
 struct DoubleRectInfo {
   std::string tooltip;
   double pos_x = 0.0;

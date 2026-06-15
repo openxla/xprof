@@ -586,6 +586,7 @@ struct HeapSimulatorStats {
       VLOG(1) << absl::StrFormat("New peak heap size on %d :: %d bytes",
                                  peak_heap_size_position, peak_heap_size_bytes);
       peak_logical_buffers = logical_buffers;
+      peak_canonical_to_display_id = canonical_to_display_id;
     }
     // Initialize the buffer lifespan if needed.
     if (init_buffer_span) {
@@ -668,6 +669,12 @@ struct HeapSimulatorStats {
   absl::flat_hash_set<const LogicalBufferStruct*> seen_logical_buffers;
   absl::flat_hash_set<const BufferAllocationProto*> seen_buffer_allocations;
 
+  // Maps root canonical buffer ID to the ID of the buffer currently using
+  // that physical memory (the most recent SHARE_WITH buffer). Snapshotted
+  // at peak time into peak_canonical_to_display_id.
+  absl::flat_hash_map<int64_t, int64_t> canonical_to_display_id;
+  absl::flat_hash_map<int64_t, int64_t> peak_canonical_to_display_id;
+
   // Constants while iterating through heap simulator trace.
   const HloProtoBufferWrapper& wrapper;
   int64_t simulator_trace_event_size;
@@ -722,6 +729,11 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         auto& canonical_buffer = *logical_buffer->get_canonical_buffer();
         TF_RETURN_IF_ERROR(stats->DecreaseMemoryUsage(&canonical_buffer));
       }
+      // Narrow the sharer's span end when it is freed.
+      if (logical_buffer->span && logical_buffer->canonical_buffer) {
+        logical_buffer->span->second =
+            stats->heap_size_bytes_timeline.size() - 1;
+      }
     } else if (event.kind() == HeapSimulatorTrace::Event::SHARE_WITH) {
       int64_t canonical_buffer_id = event.share_with_canonical_id();
       LogicalBufferStruct* canonical_buffer =
@@ -732,12 +744,18 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
       auto ref_count = logical_buffer->share_with(canonical_buffer);
 
       if (ref_count == 1) {
-        // SHARE_WITH happens after the FREE of a canonical buffer.
-        // SHARE_WITH event does not initialize buffer lifetime span, it was
-        // initialized by ALLOC event using the canonical logical buffer.
-        // Use get_canonical_buffer() to resolve the root of the canonical
-        // chain, matching DecreaseMemoryUsage which also uses the root.
-        stats->IncreaseMemoryUsage(canonical_buffer->get_canonical_buffer(),
+        // SHARE_WITH after FREE: the canonical's physical memory is being
+        // reused. Use get_canonical_buffer() to resolve the root of the
+        // canonical chain, matching DecreaseMemoryUsage which also uses the
+        // root. Track the sharer as the display buffer for the bar chart,
+        // and give it its own span starting from this event.
+        auto* root_canonical = canonical_buffer->get_canonical_buffer();
+        stats->canonical_to_display_id[root_canonical->proto.id()] =
+            logical_buffer->proto.id();
+        logical_buffer->span.emplace(
+            stats->heap_size_bytes_timeline.size() - 1,
+            stats->simulator_trace_event_size - 1);
+        stats->IncreaseMemoryUsage(root_canonical,
                                    /*init_buffer_span=*/false);
       }
     } else {
@@ -776,8 +794,16 @@ struct PeakUsageSnapshot {
     // Buffers from HeapSimulatorTrace.
     for (const int64_t logical_buffer_id :
          simulator_stats.peak_logical_buffers) {
+      // Use the current sharer's metadata if this canonical buffer is being
+      // shared, so the bar chart shows the correct instruction name.
+      auto it =
+          simulator_stats.peak_canonical_to_display_id.find(logical_buffer_id);
+      int64_t display_id =
+          (it != simulator_stats.peak_canonical_to_display_id.end())
+              ? it->second
+              : logical_buffer_id;
       const LogicalBufferStruct* logical_buffer =
-          wrapper.GetLogicalBuffer(logical_buffer_id);
+          wrapper.GetLogicalBuffer(display_id);
       if (logical_buffer == nullptr) return;
       AddHeapObject(*logical_buffer);
     }

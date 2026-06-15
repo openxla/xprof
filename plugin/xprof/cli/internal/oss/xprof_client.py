@@ -20,13 +20,15 @@ class LocalXprofClient:
     """
     self._logdir = pathlib.Path(logdir).expanduser() if logdir else None
 
-  def set_logdir(self, logdir: str):
+  def set_logdir(self, logdir: str | None):
     """Sets the log directory for the client.
 
     Args:
       logdir: The base directory where profile runs are stored.
     """
-    self._logdir = pathlib.Path(logdir).expanduser()
+    self._logdir = (
+        pathlib.Path(logdir).expanduser() if logdir is not None else None
+    )
 
   @property
   def logdir(self) -> pathlib.Path | None:

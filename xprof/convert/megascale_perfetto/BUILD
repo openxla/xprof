@@ -91,6 +91,7 @@ cc_test(
     deps = [
         ":trace_processor",
         ":xprof_trace",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],

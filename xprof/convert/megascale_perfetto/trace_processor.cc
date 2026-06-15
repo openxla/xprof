@@ -14,9 +14,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "re2/re2.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -30,7 +28,7 @@ static constexpr LazyRE2 kRecvRe = {R"re(recv\.?(\d+)?)re"};
 static constexpr LazyRE2 kSendDoneRe = {R"re(send-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kRecvDoneRe = {R"re(recv-done\.?(\d+)?)re"};
 static constexpr LazyRE2 kGraphNameRe = {
-    R"re(device_(\d+)_gid_([a-zA-Z0-9\.-]+_\d+))re"};
+    R"re(device_(\d+)_gid_([a-zA-Z0-9_\.-]+_\d+))re"};
 
 bool IsExemptFromTinyEventGrouping(absl::string_view name) {
   if (!absl::StartsWith(name, "send") && !absl::StartsWith(name, "recv")) {

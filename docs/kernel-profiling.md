@@ -61,12 +61,12 @@ component you wish to profile. Follow these steps:
 
 | Component | Keyword |
 | :---- | :---- |
-| TC | <code>vf_chip_<b>die0_tc_tcs</b>_tc_misc_tcs_stats_tcs_stats_counters</code> |
-| SCS | <code>vf_chip_<b>die0_sc_0_scs</b>_sc_stats_counters</code> |
-| SCTD | <code>vf_chip_<b>die0_sc_0_sctd_0_sc</b>_stats_counters</code> |
-| SCTC | <code>vf_chip_<b>die0_sc_0_sctc_0</b>_sc_stats_counters</code> |
-| CMN | <code>vf_chip_<b>die0_cmn_cmnur_0</b>_cmn_stats_debug_fixed_stats_counters</code> |
-| ICR | <code>vf_chip_chiplet_<b>icr_icr_data_0_debug_domain_icr_data_stats_packet</b>_counters</code> |
+| TC | <pre><code>vf_chip_<b>die0_tc_tcs</b>_tc_misc_tcs_stats_tcs_stats_counters</code></pre> |
+| SCS | <pre><code>vf_chip_<b>die0_sc_0_scs</b>_sc_stats_counters</code></pre> |
+| SCTD | <pre><code>vf_chip_<b>die0_sc_0_sctd_0_sc</b>_stats_counters</code></pre> |
+| SCTC | <pre><code>vf_chip_<b>die0_sc_0_sctc_0</b>_sc_stats_counters</code></pre> |
+| CMN | <pre><code>vf_chip_<b>die0_cmn_cmnur_0</b>_cmn_stats_debug_fixed_stats_counters</code></pre> |
+| ICR | <pre><code>vf_chip_chiplet_<b>icr_icr_data_0_debug_domain_icr_data_stats_packet</b>_counters</code></pre> |
 
 4. Identify your counter in the resulting table. Calculate the index as
    (**row index - 1**). Below is an example of the perf counters tool and

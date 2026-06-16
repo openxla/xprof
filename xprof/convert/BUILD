@@ -201,7 +201,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//xprof/utils:hardware_type_utils",
         "@org_xprof//xprof/utils:step_intersection",
@@ -227,6 +226,51 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:hlo_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "unified_op_profile_processor",
+    srcs = ["unified_op_profile_processor.cc"],
+    hdrs = ["unified_op_profile_processor.h"],
+    deps = [
+        ":base_op_stats_processor",
+        ":op_stats_to_op_profile",
+        ":tool_options",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//xprof/utils:hardware_type_utils",
+        "@tsl//tsl/platform:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "unified_overview_page_processor",
+    srcs = ["unified_overview_page_processor.cc"],
+    hdrs = ["unified_overview_page_processor.h"],
+    deps = [
+        ":base_op_stats_processor",
+        ":compute_inference_latency",
+        ":multi_xspace_to_inference_stats",
+        ":op_stats_to_overview_page",
+        ":tool_options",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/time",
+        "@org_xprof//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:overview_page_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:errors",
     ],
     alwayslink = 1,
 )
@@ -730,6 +774,45 @@ cc_test(
         "@jsoncpp_git//:jsoncpp",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "unified_overview_page_processor_test",
+    srcs = ["unified_overview_page_processor_test.cc"],
+    deps = [
+        ":base_op_stats_processor",
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_overview_page_processor",
+        ":unified_profile_processor_factory",
+        "//file/base",
+        "//file/base:options_cc",
+        "//file/base:path",
+        "//third_party/jsoncpp:json_compat",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@jsoncpp_git//:jsoncpp",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "unified_op_profile_processor_test",
+    srcs = ["unified_op_profile_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_op_profile_processor",
+        ":unified_profile_processor_factory",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
     ],
 )
 
@@ -1708,6 +1791,8 @@ cc_library(
         ":repository",
         ":tool_options",
         ":unified_hlo_stats_processor",
+        ":unified_op_profile_processor",
+        ":unified_overview_page_processor",
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
         "@com_github_grpc_grpc//:grpc++",
@@ -2476,7 +2561,7 @@ cc_library(
         ":inference_stats_grouping",
         ":inference_stats_sampler",
         ":preprocess_single_host_xplane",
-        ":repository",
+        ":unified_session_snapshot",
         ":url_utils",
         ":xplane_to_step_events",
         ":xprof_thread_pool_executor",

@@ -46,9 +46,6 @@ class BaseOpStatsProcessor : public virtual UnifiedProfileProcessor {
       const XprofSessionSnapshot& session_snapshot,
       absl::string_view hostname,
       const tensorflow::profiler::XSpace& xspace) override;
-
-  absl::StatusOr<std::string> Map(absl::string_view xspace_path) override;
-
   // Deserializes map_outputs, combines OpStats, and delegates to
   // ProcessCombinedOpStats.
   absl::Status Reduce(

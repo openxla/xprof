@@ -22,7 +22,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/data_table_utils.h"
-#include "xprof/convert/repository.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/inference_stats.pb.h"
 #include "xprof/utils/event_span.h"
 
@@ -31,8 +31,9 @@ namespace tensorflow::profiler {
 StepEvents GetNonOverlappedStepEvents(XSpace* xspace);
 
 absl::Status ConvertMultiXSpaceToInferenceStats(
-    const SessionSnapshot& session_snapshot, absl::string_view request_column,
-    absl::string_view batch_column, InferenceStats* inference_stats);
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    absl::string_view request_column, absl::string_view batch_column,
+    InferenceStats* inference_stats);
 
 void SortModelIds(const InferenceStats& inference_stats,
                   std::vector<std::string>& sorted_model_ids);

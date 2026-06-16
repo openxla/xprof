@@ -134,6 +134,7 @@ declare function loadWasmTraceViewerModule(
 declare global {
   interface Window {
     wasmMemoryBytes: number;
+    getFeatureFlag?: (name: string) => boolean;
   }
 }
 
@@ -938,22 +939,31 @@ export async function traceViewerV2Main(
   // events.
   shutdownTraceViewerV2();
 
+  // Define getFeatureFlag on window so C++ can access it during initialization
+  // before the WASM module fully loads.
+  window.getFeatureFlag = (name: string): boolean => {
+    // TODO(b/498744795): Now only supports boolean flags (true/false).
+    // Will be extended in the future.
+    try {
+      const value = window.localStorage.getItem(`xprof_ff_${name}`);
+      if (value !== null) {
+        return value === 'true';
+      }
+    } catch (e) {
+      // Handle potential SecurityError when accessing localStorage.
+      console.warn(`Failed to read feature flag ${name} from localStorage:`, e);
+    }
+    // If the flag is not in local storage, use the default value.
+    return getDefaultFeatureFlag(name);
+  };
+
   let traceviewerModule: TraceViewerV2Module | null = null;
   let currentDataUrl: string | null = null;
   let currentLoadingPromise: Promise<void> | null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
-    traceviewerModule.getFeatureFlag = (name: string): boolean => {
-      // TODO(b/498744795): Now only supports boolean flags (true/false).
-      // Will be extended in the future.
-      const value = window.localStorage.getItem(`xprof_ff_${name}`);
-      if (value !== null) {
-        return value === 'true';
-      }
-      // If the flag is not in local storage, use the default value.
-      return getDefaultFeatureFlag(name);
-    };
+    traceviewerModule.getFeatureFlag = window.getFeatureFlag;
     activeWasmModule = traceviewerModule;
   } catch (e) {
     const error = e as Error;

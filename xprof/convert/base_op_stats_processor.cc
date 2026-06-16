@@ -18,7 +18,6 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -27,7 +26,6 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
-#include "google/protobuf/arena.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/statusor.h"
@@ -95,18 +93,7 @@ bool AreAllOpStatsCached(const XprofSessionSnapshot& session_snapshot) {
 
 }  // namespace
 
-absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
-    absl::string_view xspace_path) {
-  std::vector<std::string> xspace_paths = {std::string(xspace_path)};
-  TF_ASSIGN_OR_RETURN(
-      SessionSnapshot session_snapshot,
-      SessionSnapshot::Create(xspace_paths, /*xspaces=*/std::nullopt));
-  std::string hostname = session_snapshot.GetHostname(0);
-  google::protobuf::Arena arena;
-  TF_ASSIGN_OR_RETURN(XSpace * xspace, session_snapshot.GetXSpace(0, &arena));
 
-  return Map(session_snapshot, hostname, *xspace);
-}
 
 absl::StatusOr<std::string> BaseOpStatsProcessor::Map(
     const XprofSessionSnapshot& session_snapshot, absl::string_view hostname,

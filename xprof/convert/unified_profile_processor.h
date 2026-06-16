@@ -38,15 +38,6 @@ namespace xprof {
 class UnifiedProfileProcessor {
  public:
   virtual ~UnifiedProfileProcessor() = default;
-
-  // Processes a single host's XSpace data and returns the path to the output
-  // file.
-  // TODO(subhamsoni): Remove this overload once all processors are migrated to
-  // the new Map overload.
-  virtual absl::StatusOr<std::string> Map(absl::string_view xspace_path) {
-    return absl::UnimplementedError("Map not implemented");
-  }
-
   // Processes a single host's XSpace data and returns the path to the output
   // file.
   virtual absl::StatusOr<std::string> Map(

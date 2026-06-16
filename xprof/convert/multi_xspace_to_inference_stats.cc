@@ -45,7 +45,7 @@ limitations under the License.
 #include "xprof/convert/inference_stats_grouping.h"
 #include "xprof/convert/inference_stats_sampler.h"
 #include "xprof/convert/preprocess_single_host_xplane.h"
-#include "xprof/convert/repository.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/url_utils.h"
 #include "xprof/convert/xplane_to_step_events.h"
 #include "xprof/convert/xprof_thread_pool_executor.h"
@@ -115,8 +115,9 @@ StepEvents GetNonOverlappedStepEvents(XSpace* xspace) {
 }
 
 absl::Status ConvertMultiXSpaceToInferenceStats(
-    const SessionSnapshot& session_snapshot, absl::string_view request_column,
-    absl::string_view batch_column, InferenceStats* inference_stats) {
+    const xprof::XprofSessionSnapshot& session_snapshot,
+    absl::string_view request_column, absl::string_view batch_column,
+    InferenceStats* inference_stats) {
   int xspaces_size = session_snapshot.XSpaceSize();
   std::vector<InferenceStats> per_host_inference_stats(xspaces_size);
   std::vector<absl::Status> statuses(xspaces_size);
@@ -127,6 +128,11 @@ absl::Status ConvertMultiXSpaceToInferenceStats(
 
   for (int i = 0; i < xspaces_size; ++i) {
     executor->Execute([&, i]() {
+      // Note on Thread-Safety: Because each parallel execution thread processes
+      // a unique host index `i` and writes to distinct elements of the
+      // pre-allocated vectors (per_host_inference_stats, statuses), there are
+      // no data races or concurrent writes to the same XSpace or pre-processing
+      // structures.
       google::protobuf::Arena arena;
       absl::StatusOr<XSpace*> xspace_status =
           session_snapshot.GetXSpace(i, &arena);

@@ -176,7 +176,12 @@ class Timeline {
   // The search is case-insensitive.
   void SetSearchQuery(const std::string& query);
 
-  int get_search_results_count() const { return search_results_.size(); }
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
+
+  int get_search_results_count() const {
+    return sorted_search_results_.size();
+  }
   int get_current_search_result_index() const {
     return current_search_result_index_;
   }
@@ -579,10 +584,26 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
+  // Updates the search results based on the current search query
+  void RecomputeSearchResults();
+
+  struct SearchResult {
+    EventId event_id;
+    int level;
+    Microseconds start_time;
+    Microseconds duration;
+    ProcessId pid;
+    ThreadId tid;
+    int loaded_index = -1;
+  };
+
   std::string search_query_lower_;
-  // Indices into timeline_data_ entries
-  std::vector<int> search_results_;
+  std::vector<SearchResult> sorted_search_results_;
   int current_search_result_index_ = -1;
+  // If we try to navigate to a search result that is not loaded, we set this
+  // to its event ID, zoom to its time range to trigger loading, and navigate
+  // to it in SetTimelineData once it's loaded.
+  std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the bounds
   // notification toast.

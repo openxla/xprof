@@ -29,11 +29,17 @@ import {
   TraceViewerContainer,
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
+  FeatureFlag,
+  getFeatureFlags,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
+import {
   DETAILS_RECEIVED_EVENT_NAME,
   isDetailsReceivedEvent,
+  LOADING_STATUS_UPDATE_EVENT_NAME,
   SearchEventsEventDetail,
   TraceDetailKey,
   TraceDetails,
+  TraceViewerV2LoadingStatus,
   traceViewerV2Main,
   TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
@@ -43,8 +49,10 @@ import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 import {
+  COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
   COLOR_PALETTES,
+  FEATURE_FLAG_STORAGE_PREFIX,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
@@ -71,6 +79,16 @@ import {
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
   [key: string]: unknown;
+}
+
+/**
+ * An interface extending `FeatureFlag` to include the current boolean value
+ * of the feature flag. This is used within the TraceViewer component to manage
+ * and display feature flags, allowing users to toggle them and persist their
+ * state in local storage.
+ */
+export declare interface FeatureFlagWithValue extends FeatureFlag {
+  value: boolean;
 }
 
 /** The name of the event triggered when a trace event is selected. */
@@ -102,6 +120,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly injector = inject(Injector);
   private readonly store = inject(Store<{}>);
   private readonly dialog = inject(MatDialog);
+  private readonly router = inject(Router);
+  private readonly dataService = inject(DataServiceV2);
+  private readonly platformLocation = inject(PlatformLocation);
+  private readonly route = inject(ActivatedRoute);
 
   url = '';
   pathPrefix = '';
@@ -144,7 +166,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('paletteDialog', {static: true})
   paletteDialog!: TemplateRef<{}>;
 
-  private readonly router = inject(Router);
+  @ViewChild('featureFlagsDialog', {static: true})
+  featureFlagsDialog!: TemplateRef<{}>;
 
   selectedFilters: FilterEntry[] = [];
   validFilterFields = FILTER_FIELDS;
@@ -157,6 +180,94 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   flowCategories: FlowCategory[] = [];
   allFlowCategories: FlowCategory[] = [];
   selectedFlowCategoryIds = new Set<number>();
+  showColorOnboarding = false;
+
+  featureFlags: FeatureFlagWithValue[] = this.loadFeatureFlagsFromStorage();
+
+  /**
+   * Initial state of feature flags to detect changes.
+   */
+  private initialFeatureFlags = new Map<string, boolean>();
+
+  /**
+   * Returns true if any feature flag has been modified.
+   */
+  get hasFeatureFlagChanges(): boolean {
+    return this.featureFlags.some((f): boolean => {
+      const initialValue = this.initialFeatureFlags.get(f.id);
+      return initialValue !== undefined && initialValue !== f.value;
+    });
+  }
+
+  /**
+   * Updates the local value of a feature flag.
+   */
+  onFeatureFlagChange(id: string, value: boolean): void {
+    const flag = this.featureFlags.find((f) => f.id === id);
+    if (flag) {
+      flag.value = value;
+    }
+  }
+
+  /**
+   * Loads feature flags from local storage.
+   */
+  private loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
+    try {
+      return getFeatureFlags().map((flag): FeatureFlagWithValue => {
+        const storedValue = window.localStorage.getItem(
+          FEATURE_FLAG_STORAGE_PREFIX + flag.id,
+        );
+        return {
+          ...flag,
+          value: storedValue === null ? flag.default : storedValue === 'true',
+        };
+      });
+    } catch {
+      return getFeatureFlags().map(
+        (flag): FeatureFlagWithValue => ({
+          ...flag,
+          value: flag.default,
+        }),
+      );
+    }
+  }
+
+  /**
+   * Saves the current feature flag values to local storage and reloads the page.
+   */
+  saveFeatureFlags(): void {
+    for (const f of this.featureFlags) {
+      const key = FEATURE_FLAG_STORAGE_PREFIX + f.id;
+      if (f.value === f.default) {
+        window.localStorage.removeItem(key);
+      } else {
+        window.localStorage.setItem(key, f.value ? 'true' : 'false');
+      }
+    }
+    this.dialog.closeAll();
+    window.location.reload();
+  }
+
+  /**
+   * Opens the feature flags settings dialog and captures initial state.
+   */
+  openFeatureFlagsSettings(): void {
+    // Reset this.featureFlags to the values currently in local storage.
+    // This ensures that if a user made changes and canceled previously,
+    // the dialog reopens with the persisted state.
+    this.featureFlags = this.loadFeatureFlagsFromStorage();
+
+    // Capture the initial state after resetting from local storage.
+    const newInitialFeatureFlags = new Map<string, boolean>();
+    for (const f of this.featureFlags) {
+      newInitialFeatureFlags.set(f.id, f.value);
+    }
+    this.initialFeatureFlags = newInitialFeatureFlags;
+    this.dialog.open(this.featureFlagsDialog, {
+      width: '400px',
+    });
+  }
 
   get filterSelectedHosts(): string[] {
     const hostFilterEntry: FilterEntry | undefined = this.selectedFilters.find(
@@ -247,19 +358,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       : processes;
   }
 
-  constructor(
-    private readonly dataService: DataServiceV2,
-    platformLocation: PlatformLocation,
-    route: ActivatedRoute,
-  ) {
-    if (String(platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)) {
-      this.pathPrefix = String(platformLocation.pathname).split(
+  constructor() {
+    if (
+      String(this.platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)
+    ) {
+      this.pathPrefix = String(this.platformLocation.pathname).split(
         API_PREFIX + PLUGIN_NAME,
       )[0];
     }
     combineLatest([
-      route.params,
-      route.queryParams,
+      this.route.params,
+      this.route.queryParams,
       this.store.select(getHostsState),
     ])
       .pipe(takeUntil(this.destroyed))
@@ -311,7 +420,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   async initializeWasmApp() {
     this.traceViewerModule = await traceViewerV2Main();
 
-    const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+    let savedPalette: string | null = null;
+    try {
+      savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+    } catch {}
     if (savedPalette && this.traceViewerModule) {
       this.selectedPalette = savedPalette;
       this.traceViewerModule.SetPalette(savedPalette);
@@ -323,6 +435,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
 
     this.update(this.navigationEvent);
+    this.setupColorOnboarding();
   }
 
   update(event: NavigationEvent) {
@@ -892,4 +1005,44 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   // END Support of color palettes selection
+
+  setupColorOnboarding() {
+    // Show onboarding coach mark for new color palette if not prompted yet
+    let prompted: string | null = null;
+    try {
+      prompted = window.localStorage.getItem(
+        COLOR_PALETTE_PROMPTED_STORAGE_KEY,
+      );
+    } catch {}
+    if (!prompted) {
+      const loadingStatusListener = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        if (
+          customEvent.detail &&
+          customEvent.detail.status === TraceViewerV2LoadingStatus.IDLE
+        ) {
+          setTimeout(() => {
+            if (!this.destroyed.isStopped) {
+              this.showColorOnboarding = true;
+            }
+          }, 2000); // Delay 2 seconds after load complete
+          window.removeEventListener(
+            LOADING_STATUS_UPDATE_EVENT_NAME,
+            loadingStatusListener,
+          );
+        }
+      };
+      window.addEventListener(
+        LOADING_STATUS_UPDATE_EVENT_NAME,
+        loadingStatusListener,
+      );
+    }
+  }
+
+  dismissColorOnboarding() {
+    this.showColorOnboarding = false;
+    try {
+      window.localStorage.setItem(COLOR_PALETTE_PROMPTED_STORAGE_KEY, 'true');
+    } catch {}
+  }
 }

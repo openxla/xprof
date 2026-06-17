@@ -205,20 +205,33 @@ void PopulateOpMetricsNode(
     std::vector<double> peak_mem_gibibytes_per_second_per_core,
     uint64_t total_time_ps, Node* node) {
   Metrics* metrics = node->mutable_metrics();
+
+  bool is_sc_call_start = false;
+  if (op_metrics.has_children()) {
+    for (const auto& child : op_metrics.children().metrics_db()) {
+      if (child.core_type() == OpMetrics_TpuCoreType_SPARSE_CORE) {
+        is_sc_call_start = true;
+        break;
+      }
+    }
+  }
+
   // The UI computes flops_rate = raw_flops / raw_time
   // and memory_bandwidth = raw_bytes_accessed / raw_time. See:
   // https://github.com/tensorflow/profiler/blob/master/frontend/app/common/utils/utils.ts
   metrics->set_raw_time(op_metrics.time_ps());
   // TODO(b/483381236): Remove in favor of total_flops.
-  metrics->set_raw_flops(op_metrics.model_flops_v2());
-  metrics->set_bf16_flops(op_metrics.flops_v2());
+  metrics->set_raw_flops(is_sc_call_start ? 0 : op_metrics.model_flops_v2());
+  metrics->set_bf16_flops(is_sc_call_start ? 0 : op_metrics.flops_v2());
   metrics->set_occurrences(op_metrics.occurrences());
   metrics->set_avg_time_ps(tsl::profiler::SafeDivide(op_metrics.time_ps(),
                                                      op_metrics.occurrences()));
 
   double uncapped_flops_utilization =
-      tsl::profiler::SafeDivide(GigaFlopsPerSecondPerCore(op_metrics),
-                                peak_gigaflops_per_second_per_core);
+      is_sc_call_start
+          ? 0.0
+          : tsl::profiler::SafeDivide(GigaFlopsPerSecondPerCore(op_metrics),
+                                      peak_gigaflops_per_second_per_core);
 
   double flops_utilization = CapUtilization(uncapped_flops_utilization);
   // The UI expects flops_utilization = flop_util / time_fraction. See:

@@ -238,6 +238,13 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
+  void set_snap_to_time_range_enabled(bool enabled) {
+    snap_to_time_range_enabled_ = enabled;
+  }
+  bool snap_to_time_range_enabled() const {
+    return snap_to_time_range_enabled_;
+  }
+
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
@@ -380,6 +387,14 @@ class Timeline {
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
  private:
+  // Applies snapping to selected time ranges for the given range.
+  void ApplySnapping(TimeRange& range);
+
+  // Finds the nearest event edge to a given time across all tracks.
+  void FindNearestEventEdge(Microseconds time, Microseconds threshold,
+                            Microseconds& best_diff, Microseconds& snapped_time,
+                            bool& snapped) const;
+
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
   // Emits viewport changed event to JS side.
@@ -554,6 +569,9 @@ class Timeline {
   bool is_selecting_ = false;
 
   MouseMode mouse_mode_ = MouseMode::kPan;
+
+  int hovered_event_index_ = -1;
+  bool snap_to_time_range_enabled_ = false;
 
   bool mpmd_pipeline_view_enabled_ = false;
 

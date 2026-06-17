@@ -37,6 +37,21 @@
 namespace traceviewer {
 namespace {
 
+void ApplySnappingToEdge(Microseconds time, Microseconds threshold,
+                         const std::vector<Microseconds>& candidates,
+                         Microseconds& best_diff, Microseconds& snapped_edge,
+                         bool& snapped) {
+  auto it =
+      std::lower_bound(candidates.begin(), candidates.end(), time - threshold);
+  for (; it != candidates.end() && *it <= time + threshold; ++it) {
+    Microseconds diff = std::abs(time - *it);
+    if (diff < best_diff) {
+      best_diff = diff;
+      snapped_edge = *it;
+      snapped = true;
+    }
+  }
+}
 // Calculates a speed multiplier based on how long a key has been held down.
 // Provides acceleration for continuous actions like panning and zooming.
 float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
@@ -285,6 +300,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 }
 
 void Timeline::Draw() {
+  hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1071,6 +1087,147 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   EmitViewportChanged(new_range);
 }
 
+void Timeline::ApplySnapping(TimeRange& range) {
+  // Global flag to enable or disable the snapping feature.
+  if (!snap_to_time_range_enabled_) {
+    return;
+  }
+  // Snapping only applies when in measuring mode (kTiming) or when Shift+Drag
+  // is used to select a time range.
+  if (mouse_mode_ != MouseMode::kTiming && !ImGui::GetIO().KeyShift) {
+    return;
+  }
+  const double px_per_time = px_per_time_unit();
+  if (px_per_time <= 0) return;
+
+  const Microseconds threshold = 16.0 / px_per_time;
+  const Microseconds original_duration = visible_range_.target().duration();
+  const bool is_pan = std::abs(range.duration() - original_duration) < 1e-6;
+
+  Microseconds best_diff_start = threshold;
+  Microseconds best_diff_end = threshold;
+  Microseconds snapped_start_time = range.start();
+  Microseconds snapped_end_time = range.end();
+  bool snapped_start = false;
+  bool snapped_end = false;
+
+  // 1. Check selected time ranges
+  for (const auto& sel_range : selected_time_ranges_) {
+    ApplySnappingToEdge(range.start(), threshold,
+                        {sel_range.start(), sel_range.end()}, best_diff_start,
+                        snapped_start_time, snapped_start);
+    ApplySnappingToEdge(range.end(), threshold,
+                        {sel_range.start(), sel_range.end()}, best_diff_end,
+                        snapped_end_time, snapped_end);
+  }
+
+  // 2. Check all visible events
+  FindNearestEventEdge(range.start(), threshold, best_diff_start,
+                       snapped_start_time, snapped_start);
+  FindNearestEventEdge(range.end(), threshold, best_diff_end, snapped_end_time,
+                       snapped_end);
+
+  if (is_pan) {
+    if (snapped_start) {
+      range = {snapped_start_time, snapped_start_time + original_duration};
+    } else if (snapped_end) {
+      range = {snapped_end_time - original_duration, snapped_end_time};
+    }
+  } else {
+    Microseconds final_start =
+        snapped_start ? snapped_start_time : range.start();
+    Microseconds final_end = snapped_end ? snapped_end_time : range.end();
+    range = TimeRange(std::min(final_start, final_end),
+                      std::max(final_start, final_end));
+  }
+}
+
+void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
+                                    Microseconds& best_diff,
+                                    Microseconds& snapped_time,
+                                    bool& snapped) const {
+  const double px_per_time = px_per_time_unit();
+  if (px_per_time <= 0) return;
+
+  Pixel current_scroll_y = ImGui::GetScrollY();
+  Pixel window_height = ImGui::GetWindowHeight();
+
+  for (int group_index = 0; group_index < timeline_data_.groups.size();
+       ++group_index) {
+    if (group_index >= group_visible_.size() || !group_visible_[group_index]) {
+      continue;
+    }
+
+    const Group& group = timeline_data_.groups[group_index];
+    int next_group_start_level =
+        GetNextGroupStartLevel(timeline_data_, group_index);
+
+    const bool has_children =
+        group_index + 1 < timeline_data_.groups.size() &&
+        timeline_data_.groups[group_index + 1].nesting_level >
+            group.nesting_level;
+    const bool has_multiple_levels =
+        next_group_start_level - group.start_level > 1;
+    const bool expandable = group.type == Group::Type::kFlame &&
+                            (has_children || has_multiple_levels);
+    const bool is_collapsed = expandable && !group.expanded;
+
+    if (is_collapsed) {
+      continue;
+    }
+
+    for (int level = group.start_level; level < next_group_start_level;
+         ++level) {
+      if (level < 0 || level >= timeline_data_.events_by_level.size() ||
+          level >= visible_level_offsets_.size()) {
+        continue;
+      }
+
+      Pixel y_center = visible_level_offsets_[level];
+      Pixel y_top = y_center - kEventHeight * 0.5f;
+      Pixel y_bottom = y_center + kEventHeight * 0.5f;
+
+      if (y_bottom < current_scroll_y ||
+          y_top > current_scroll_y + window_height) {
+        continue;
+      }
+
+      const auto& indices = timeline_data_.events_by_level[level];
+      if (indices.empty()) continue;
+
+      auto it = std::lower_bound(
+          indices.begin(), indices.end(), time - threshold,
+          [this](int event_index, Microseconds t) {
+            return timeline_data_.entry_start_times[event_index] +
+                       timeline_data_.entry_total_times[event_index] <
+                   t;
+          });
+
+      for (; it != indices.end(); ++it) {
+        const int event_index = *it;
+        if (event_index < 0 ||
+            event_index >= timeline_data_.entry_start_times.size() ||
+            event_index >= timeline_data_.entry_total_times.size()) {
+          continue;
+        }
+
+        const Microseconds start =
+            timeline_data_.entry_start_times[event_index];
+        if (start > time + threshold) {
+          break;
+        }
+
+        const Microseconds duration =
+            timeline_data_.entry_total_times[event_index];
+        if (duration * px_per_time >= 2.0) {
+          ApplySnappingToEdge(time, threshold, {start, start + duration},
+                              best_diff, snapped_time, snapped);
+        }
+      }
+    }
+  }
+}
+
 double Timeline::px_per_time_unit() const {
   return px_per_time_unit(current_timeline_width_);
 }
@@ -1285,6 +1442,7 @@ void Timeline::DrawEvent(int group_index, int event_index,
                                corner_rounding, kImDrawFlags);
     }
     if (is_hovered) {
+      hovered_event_index_ = event_index;
       // Draw a semi-transparent overlay when the event is hovered.
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                                ImVec2(rect.right, rect.bottom), kHoverMaskColor,
@@ -2002,7 +2160,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
   const Pixel time_range_x_start =
       TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
   const Pixel time_range_x_end =
-      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val);
+      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val) -
+      kEventPaddingRight;
   // Clip the selection rectangle to the visible timeline bounds.
   // If the selection starts before the timeline's visible area,
   // clipped_x_start ensures we only start drawing from timeline_x_start.
@@ -2448,6 +2607,7 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
         current_selected_time_range_ =
             TimeRange(std::min(drag_start_time_, current_time),
                       std::max(drag_start_time_, current_time));
+        ApplySnapping(*current_selected_time_range_);
       }
     } else if (mouse_mode_ == MouseMode::kZoom) {
       Zoom(1.0f + io.MouseDelta.y * 0.01f);

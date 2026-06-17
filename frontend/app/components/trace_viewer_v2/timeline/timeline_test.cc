@@ -26,6 +26,7 @@
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -3662,6 +3663,59 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
             "event1");
 }
 
+TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event_with_args");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(0.0);
+  data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+
+  std::map<std::string, std::string> args;
+  args["uid"] = "12345";
+  args[std::string(kHloModule)] = "test_module";
+  args[std::string(kHloOp)] = "test_op";
+  data.entry_args.push_back(args);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  bool callback_called = false;
+  EventData event_detail;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        callback_called = true;
+        event_detail = detail;
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_TRUE(callback_called);
+  ASSERT_TRUE(event_detail.contains(kEventSelectedUid));
+  ASSERT_TRUE(event_detail.contains(kEventSelectedHloModuleName));
+  ASSERT_TRUE(event_detail.contains(kEventSelectedHloOpName));
+
+  EXPECT_EQ(std::any_cast<std::string>(event_detail.at(kEventSelectedUid)),
+            "12345");
+  EXPECT_EQ(
+      std::any_cast<std::string>(event_detail.at(kEventSelectedHloModuleName)),
+      "test_module");
+  EXPECT_EQ(
+      std::any_cast<std::string>(event_detail.at(kEventSelectedHloOpName)),
+      "test_op");
+}
+
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
@@ -5557,6 +5611,155 @@ TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
   EXPECT_DOUBLE_EQ(range.end(), (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
+TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, DoesNotSnapWhenDisabled) {
+  timeline_.set_snap_to_time_range_enabled(false);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create first selection 50.0us to 100.0us (500px to 1000px)
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1000.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second drag near 100.0us (990px -> 99.0 us) to 150.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 150.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapsDuringTimingMode) {
+  // Disable shift
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  SimulateFrame();
+
+  timeline_.set_snap_to_time_range_enabled(true);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create first selection 50.0us to 100.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1000.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second drag near 100.0us to 150.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 150.0);
+}
+
 TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
   ImGuiIO& io = ImGui::GetIO();
   timeline_.set_mouse_mode(MouseMode::kTiming);
@@ -5593,6 +5796,545 @@ TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
   EXPECT_EQ(timeline_.selected_time_ranges().size(), 2);
+}
+
+TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag from 50.0us (500px) to 98.0us (980px).
+  // Distance from 98.0us to 100.0us is 2.0us (20px), which is > 16px threshold.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 980.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 98.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 0};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  // Two events: [100.0 - 110.0] and [102.0 - 112.0]
+  data.entry_start_times = {100.0, 102.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0, 1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag at 50.0us (500px).
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag to 101.2us (1012px).
+  // Distance to 100.0 is 1.2us (12px).
+  // Distance to 102.0 is 0.8us (8px).
+  // Should snap to 102.0us.
+  io.MousePos = ImVec2(GetTimelineStartX() + 1012.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 102.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {60.0};  // Event from 60.0 to 70.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Set visible range with duration 50.0us
+  timeline_.SetVisibleRange({0.0, 50.0});
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create a selected range [10.0, 60.0] whose duration matches visible range
+  // exactly (50.0). 10.0us -> GetTimelineStartX() + 10.0 * 10 (Wait, px_per_us
+  // depends on window size. We set visible range to 50.0, and timeline width is
+  // 1655px. So px_per_us is 1655/50 = 33.1 Let's just create the selection
+  // programmatically instead of dragging, or drag accurately. Actually, we can
+  // just call ApplySnapping manually if it were public, but it's private.
+  // Dragging: start at 10.0us (10 * 33.1 = 331px).
+  io.MousePos = ImVec2(GetTimelineStartX() + 331.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End at 59.8us to snap to 60.0us (event start).
+  // 59.8 * 33.1 = 1979.38px
+  io.MousePos = ImVec2(GetTimelineStartX() + 1979.38f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Expected to snap end to 60.0. Since is_pan is true (duration 50.0 matches
+  // visible range), start should snap to 60.0 - 50.0 = 10.0.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 60.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, and has multiple levels so it is expandable.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should not snap because group is collapsed
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest,
+       SnapDoesNotIgnoreEventsForNonFlameGroupsEvenWhenCollapsed) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, and has multiple levels so it is expandable.
+  // But it is NOT kFlame!
+  data.groups = {{Group::Type::kCounter, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It SHOULD snap because non-kFlame groups are never considered collapsed for
+  // snapping
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest,
+       SnapIgnoresHasChildrenIfNestingLevelIsSameOrLower) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {100.0, 100.0};
+  data.entry_self_times = {100.0, 100.0};
+  data.entry_start_times = {100.0, 500.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 2};
+  data.entry_tids = {1, 2};
+  data.entry_args = {{}, {}};
+
+  // Group 0 has another group after it, but it's not a child (nesting level is
+  // not >). Thus, it should NOT be considered as having children, so it should
+  // not be considered expandable/collapsed even if `expanded` is false.
+  data.groups = {{Group::Type::kFlame, "group1", "", 0, 0, false},
+                 {Group::Type::kFlame, "group2", "", 1, 0, false}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Try snapping to event1 in group1
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap because group1 is not considered collapsed since it's not
+  // expandable
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is expanded.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Use a window height of 20.0f and a scroll of 0 so that the top edge of the
+  // event (which is at 20.0f) is exactly at the bottom visible edge of the
+  // window. This verifies the strict > comparison for skipping events outside
+  // view.
+  SimulateFrame(0.0f, 20.0f);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame(0.0f, 20.0f);
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame(0.0f, 20.0f);
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame(0.0f, 20.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is expanded.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Use a scroll of 43.0f (which equals y_bottom) so that the bottom edge of
+  // the event (which is at 43.0f) is exactly at the top visible edge of the
+  // window. This verifies the strict < comparison for skipping events outside
+  // view.
+  SimulateFrame(43.0f, 1000.0f);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame(43.0f, 1000.0f);
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame(43.0f, 1000.0f);
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame(43.0f, 1000.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+
+  // Verify strict viewport culling logic at the lower boundary.
+  // Manipulate ImGui style padding to precisely position the event
+  // such that its top edge is exactly 0.5 pixels below the visible window area.
+  // The culling logic must strictly evaluate `y_top > window_height` and skip
+  // the event, preventing it from being considered for snapping.
+  float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = 200.5f;
+
+  timeline_.SetTimelineData(data);
+
+  float window_height = 200.0f;
+
+  auto draw_frame = [&](float height) {
+    ImGui::GetIO().DisplaySize = ImVec2(1920.0f, height);
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  };
+
+  draw_frame(window_height);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  draw_frame(window_height);
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  draw_frame(window_height);
+
+  io.AddMouseButtonEvent(0, false);
+  draw_frame(window_height);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Verify no snapping occurred because the event was culled.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+
+  // Verify strict viewport culling logic at the upper boundary.
+  // Manipulate ImGui style padding to precisely position the event
+  // such that its bottom edge is exactly 0.5 pixels above the current scroll
+  // position. The culling logic must strictly evaluate `y_bottom <
+  // current_scroll_y` and skip the event, preventing it from being considered
+  // for snapping. This exact positioning is achieved by setting a negative
+  // CellPadding.y.
+  float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = -23.5f;
+
+  timeline_.SetTimelineData(data);
+
+  float window_height = 200.0f;
+
+  auto draw_frame = [&](float height) {
+    ImGui::GetIO().DisplaySize = ImVec2(1920.0f, height);
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  };
+
+  draw_frame(window_height);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  draw_frame(window_height);
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  draw_frame(window_height);
+
+  io.AddMouseButtonEvent(0, false);
+  draw_frame(window_height);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Verify no snapping occurred because the event was culled.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {100.0, 100.0};
+  data.entry_self_times = {100.0, 100.0};
+  data.entry_start_times = {100.0, 100.0};  // Events at 100.0
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  // Group is expanded and has multiple levels.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event at 100.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, but it is NOT expandable (only 1 level, no children)
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
 }
 
 // =============================================================================
@@ -6051,6 +6793,91 @@ TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
 
   // Timer has expired
   EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Move mouse over the track label. The label column is 250px wide.
+  // We indent by some amount, so X=100 should be on the text.
+  // Y should be around 50px (first track).
+  io.MousePos = ImVec2(100.0f, 50.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(100.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  const char* clipboard_text = ImGui::GetClipboardText();
+  ASSERT_NE(clipboard_text, nullptr);
+  EXPECT_STREQ(clipboard_text, "Test Group Name");
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickExpandCollapseButtonTogglesExpandedState) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  // Needs to test an expandable group, so has_multiple_levels or has_children.
+  // Let's set start_level=0 and next_group_start_level=2 to simulate multiple
+  // levels.
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}, {}};  // 2 levels, second level empty
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Button is at X = (nesting_level + 1) * kIndentSize.
+  // We don't have kIndentSize exposed directly in tests, but it's probably ~16.
+  // So X=15 is a safe bet for the invisible button.
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(15.0f, 50.0f);
+  SimulateFrame();
+
+  // It should be a Hand cursor over the button
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
 }
 
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {

@@ -36,7 +36,7 @@
         </button>
       </mat-menu>
       <button mat-button (click)="switchVersion()">
-        Switch to old frontend
+        Switch to the old frontend
       </button>
       <div class="settings-button-wrapper">
         <button mat-icon-button [matMenuTriggerFor]="settingsMenu" #settingsTrigger="matMenuTrigger" aria-label="Settings">
@@ -71,7 +71,7 @@
   <ng-container *ngIf="!useTraceViewerV2">
     <div class="right-controls">
       <button mat-button (click)="switchVersion()">
-        Switch to Trace Viewer v2
+        Switch to the new frontend (experimental)
       </button>
     </div>
   </ng-container>

@@ -39,7 +39,9 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/trace_viewer/trace_event_arguments_builder.h"
+#include "xprof/convert/trace_viewer/trace_events.h"
 #include "xprof/convert/trace_viewer/trace_events_util.h"
+#include "xprof/convert/xprof_thread_pool_executor.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
 
@@ -199,6 +201,17 @@ void ConvertXLineToTraceEventsContainer(uint32_t device_id,
   });
 }
 
+void SortTracks(TraceEventsContainer* container) {
+  XprofThreadPoolExecutor sort_executor("SortTracksExecutor", 24);
+  container->ForAllMutableTracks([&](uint32_t device_id,
+                                     ResourceValue resource_id,
+                                     TraceEventTrack* events) {
+    sort_executor.Execute(
+        [events] { absl::c_sort(*events, TraceEventsComparator()); });
+  });
+  sort_executor.JoinAll();
+}
+
 void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
                                          absl::string_view hostname,
                                          const XPlane& xplane,
@@ -222,6 +235,7 @@ void ConvertXPlaneToTraceEventsContainer(uint64_t device_id,
     uint32_t device_id = resource_grouper->GetDeviceId(line.DisplayId());
     ConvertXLineToTraceEventsContainer(device_id, line, container);
   });
+  SortTracks(container);
 }
 
 void ConvertXPlaneToLiteTraceEventsContainer(

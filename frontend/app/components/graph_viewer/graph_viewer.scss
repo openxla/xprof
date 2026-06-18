@@ -15,7 +15,6 @@
 
 mat-sidenav {
   background: transparent;
-  height: max-content;
   // set fixed width to avoid weird behavior of mat-sidenav-content width change when collapsing the xprof sidenav.
   width: 350px;
 }

@@ -3,6 +3,7 @@
 from collections.abc import Callable
 import json
 import logging
+import re
 
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.tools import get_top_hlo_ops_tool
@@ -67,6 +68,10 @@ def detect_unfused_reshapes(
     # 3. Analyze Graph Context
     inefficient_ops = []
 
+    # Cache modules list to avoid redundant RPC calls
+    modules_str_cache = None
+    module_names_cache = []
+
     for candidate in candidates:
       raw_name = candidate.get("name", "")
       # Extract instruction name (e.g., 'copy.27' from '.../copy.27')
@@ -79,16 +84,45 @@ def detect_unfused_reshapes(
       # (e.g., 'by_program/jit_pallas_mla_rpa_v3(1247801404187289782)')
       parts = raw_name.split("/")
       mod_name_str = None
-      if len(parts) > 1 and "jit_" in parts[1]:
+      if len(parts) > 1:
         mod_name_str = parts[1]
 
-      # Fetch neighborhood via string parsing to simplify traversing
-      neighborhood_str = get_hlo_neighborhood_fn(
-          session_id,
-          instruction_name=instr_name,
-          radius=2,
-          module_name=mod_name_str,
-      )
+      neighborhood_str = ""
+      found_neighborhood = False
+      if mod_name_str:
+        neighborhood_str = get_hlo_neighborhood_fn(
+            session_id,
+            instruction_name=instr_name,
+            radius=2,
+            module_name=mod_name_str,
+        )
+        if "not found" not in neighborhood_str.lower():
+          found_neighborhood = True
+
+      if not found_neighborhood:
+        # Try to find the module that contains the instruction
+        if modules_str_cache is None:
+          modules_str_cache = hlo_tools.list_hlo_modules(session_id)
+          module_names_cache = re.findall(
+              r"^\d+\.\s+([a-zA-Z0-9._-]+)\(", modules_str_cache, re.MULTILINE
+          )
+
+        for mod_name in module_names_cache:
+          candidate_neighborhood = get_hlo_neighborhood_fn(
+              session_id,
+              instruction_name=instr_name,
+              radius=2,
+              module_name=mod_name,
+          )
+          if "not found" not in candidate_neighborhood.lower():
+            neighborhood_str = candidate_neighborhood
+            found_neighborhood = True
+            break
+
+        if not found_neighborhood:
+          neighborhood_str = (
+              f"Instruction '{instr_name}' not found in any module."
+          )
 
       if "not found" in neighborhood_str.lower():
         continue

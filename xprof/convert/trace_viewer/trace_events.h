@@ -29,6 +29,7 @@ limitations under the License.
 #include <variant>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -1106,10 +1107,18 @@ class TraceEventsContainerBase {
     std::vector<const TraceEventTrack*> event_tracks;
     event_tracks.reserve(NumTracks());
 
-    ForAllMutableTracks([&](uint32_t device_id, ResourceValue resource_id,
-                            TraceEventTrack* events) {
+    // Parallelize track sorting before subsequent nway_merge for LevelDB key
+    // monotonicity.
+    XprofThreadPoolExecutor sort_executor("SortTracksExecutor", 24);
+    auto* mutable_this = const_cast<TraceEventsContainerBase*>(this);
+    mutable_this->ForAllMutableTracks([&](uint32_t device_id,
+                                          ResourceValue resource_id,
+                                          TraceEventTrack* events) {
+      sort_executor.Execute(
+          [events] { absl::c_sort(*events, TraceEventsComparator()); });
       event_tracks.push_back(events);
     });
+    sort_executor.JoinAll();
 
     XprofThreadPoolExecutor executor("EventsByLevelExecutor", 2);
 
@@ -1138,20 +1147,7 @@ class TraceEventsContainerBase {
     return events_by_level;
   }
 
-  // Returns all events sorted using TraceEventsComparator.
-  // Helper for EventsByLevel().
-  // REQUIRED: All events have been added and SortTracks() has been called.
-  std::vector<TraceEvent*> SortedEvents() const {
-    std::vector<const TraceEventTrack*> event_tracks;
-    event_tracks.reserve(NumTracks());
-    ForAllMutableTracks([&event_tracks](uint32_t device_id,
-                                        ResourceValue resource_id,
-                                        TraceEventTrack* events) {
-      event_tracks.push_back(events);
-    });
-    return MergeEventTracks(event_tracks);
-  }
-
+ protected:
   void MaybeInternEventName(TraceEvent* event, absl::string_view name) {
     static constexpr size_t kNameInternThreshold = 32;
     if (name.size() > kNameInternThreshold) {

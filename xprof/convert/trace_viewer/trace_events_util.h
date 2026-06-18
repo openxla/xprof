@@ -59,7 +59,9 @@ struct TraceEventsComparator {
     if (a->has_resource_id() && !b->has_resource_id()) return true;
     if (!a->has_resource_id() && b->has_resource_id()) return false;
     if (a->has_resource_id()) {
-      return a->resource_id() < b->resource_id();
+      if (a->resource_id() != b->resource_id()) {
+        return a->resource_id() < b->resource_id();
+      }
     }
     return a->name() < b->name();
   }

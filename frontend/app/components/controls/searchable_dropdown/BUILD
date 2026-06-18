@@ -2,7 +2,8 @@ load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
 load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = [
-    "@org_xprof//frontend:__subpackages__",
+    "//frontend:internal",
+    "@org_xprof//labs:__subpackages__",
 ])
 
 xprof_ng_module(

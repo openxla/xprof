@@ -1,0 +1,71 @@
+<div class="flame-graph-container">
+  <div class="toolbar-row">
+    <button mat-icon-button [disabled]="zoomStack.length <= 1" (click)="zoomOut()" matTooltip="Zoom Out">
+      <mat-icon>arrow_upward</mat-icon>
+    </button>
+    <button mat-icon-button [disabled]="zoomStack.length <= 1" (click)="resetZoom()" matTooltip="Reset Zoom">
+      <mat-icon>home</mat-icon>
+    </button>
+    <span class="breadcrumbs" *ngIf="zoomStack.length > 1">
+      <span *ngFor="let node of zoomStack; let last = last">
+        {{node.name}} <span *ngIf="!last"> &gt; </span>
+      </span>
+    </span>
+  </div>
+
+  <svg [attr.width]="viewWidth" height="35" class="ruler-svg">
+    <!-- Base Line -->
+    <line x1="0" y1="22" [attr.x2]="viewWidth" y2="22" class="ruler-base-line"></line>
+    <!-- Ticks -->
+    <g *ngFor="let tick of rulerTicks">
+      <!-- Tick line projection -->
+      <line [attr.x1]="tick.x" y1="22" [attr.x2]="tick.x" y2="27" class="ruler-tick-line"></line>
+      <!-- Tick text -->
+      <text [attr.x]="tick.x" y="15" [attr.text-anchor]="tick.anchor" class="ruler-tick-label">
+        {{tick.label}}
+      </text>
+    </g>
+  </svg>
+
+  <svg [attr.width]="viewWidth" [attr.height]="svgHeight" class="flame-svg">
+    <defs>
+      <!-- Shading pattern for padding overlay -->
+      <pattern id="padding-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="2" height="8" fill="rgba(0,0,0,0.15)"></rect>
+      </pattern>
+    </defs>
+
+    <g *ngFor="let bar of bars"
+       [attr.transform]="'translate(' + bar.x + ',' + bar.y + ')'"
+       class="bar-group"
+       [class.dimmed]="bar.dimmed"
+       [matTooltip]="bar.node.path + '\nSize: ' + (bar.node.totalValue | number:'1.1-2') + ' MiB\nPadding: ' + (bar.node.paddingValue | number:'1.1-2') + ' MiB (' + ((bar.node.totalValue > 0 ? bar.node.paddingValue / bar.node.totalValue * 100 : 0) | number:'1.1-1') + '%)'"
+       matTooltipClass="rich-multiline-tooltip"
+       (click)="selectNode(bar.node)"
+       (mouseenter)="onHover(bar.node)"
+       (mouseleave)="onHover(null)">
+
+      <!-- Total Base Rect -->
+      <rect [attr.width]="bar.width"
+            [attr.height]="bar.height"
+            [attr.fill]="bar.color"
+            class="base-rect"></rect>
+
+      <!-- Padding Shaded Overlay Rect -->
+      <rect *ngIf="bar.paddingWidth > 0.5"
+            [attr.width]="bar.paddingWidth"
+            [attr.height]="bar.height"
+            fill="url(#padding-hatch)"
+            class="padding-rect"
+            matTooltip="Padding Overhead"></rect>
+
+      <!-- Label Text -->
+      <text [attr.x]="bar.width / 2"
+            [attr.y]="bar.height / 2"
+            dy=".35em"
+            class="bar-label">
+        {{bar.label}}
+      </text>
+    </g>
+  </svg>
+</div>

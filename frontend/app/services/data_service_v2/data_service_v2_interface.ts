@@ -164,6 +164,10 @@ export interface DataServiceV2Interface {
   getRooflineModelLink(sessionId: string): string;
   getPluginVersion(): Observable<string | null>;
   isSmartSuggestionEnabled(): boolean;
+  getMemoryAnalysisModuleList(
+    sessionId: string,
+    host: string,
+  ): Observable<string>;
 }
 
 /** Injection token for the data service interface. */

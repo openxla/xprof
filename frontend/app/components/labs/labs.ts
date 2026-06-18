@@ -22,6 +22,7 @@ interface CuratedTool {
   description: string;
   icon: string;
   url?: string;
+  route?: string;
   tags: string[];
   isFeatured: boolean;
 }
@@ -68,6 +69,7 @@ export class LabsComponent implements OnInit {
       description:
         'Parse HLO memory profiles, model parameter weights, and analyze memory consumption breakdowns.',
       icon: 'overview_key',
+      route: '/memory_analysis',
       tags: ['Memory'],
       isFeatured: true,
     },
@@ -190,7 +192,11 @@ export class LabsComponent implements OnInit {
   }
 
   onLaunchTool(tool: CuratedTool) {
-    if (tool.url) {
+    if (tool.route) {
+      this.router.navigate([tool.route, this.sessionId], {
+        queryParams: this.route.snapshot.queryParams,
+      });
+    } else if (tool.url) {
       const sanitizedUrl = trySanitizeUrl(tool.url);
       if (sanitizedUrl) {
         windowOpen(window, sanitizedUrl, '_blank');

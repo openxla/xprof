@@ -1,0 +1,249 @@
+<div class="memory-analysis-container">
+  <mat-progress-bar mode="indeterminate" *ngIf="loading"></mat-progress-bar>
+
+  <div class="toolbar-container" *ngIf="moduleList && moduleList.length > 0">
+    <app-searchable-dropdown
+        [itemList]="moduleList"
+        [selectedItem]="selectedModule"
+        label="Selected XLA Module"
+        (selectionChange)="onModuleSelected($event)">
+    </app-searchable-dropdown>
+  </div>
+
+  <div class="header-container" *ngIf="result">
+    <h2>Memory Breakdown Analysis (Module: {{result.moduleName}})</h2>
+  </div>
+
+  <!-- Dashboard Flex Grid Layout -->
+  <div class="dashboard-layout" *ngIf="result">
+
+    <!-- Left Collapsible Sidebar Legend (Issue 8) -->
+    <div class="sidebar-panel" [class.collapsed]="!sidebarExpanded">
+      <div class="sidebar-header">
+        <span class="sidebar-title" *ngIf="sidebarExpanded">Hardware breakdown</span>
+        <button mat-icon-button (click)="toggleSidebar()" [matTooltip]="sidebarExpanded ? 'Collapse Sidebar' : 'Expand Sidebar'">
+          <mat-icon>{{sidebarExpanded ? 'chevron_left' : 'chevron_right'}}</mat-icon>
+        </button>
+      </div>
+
+      <!-- Compact Stacked cards in the sidebar -->
+      <div class="sidebar-content" *ngIf="sidebarExpanded">
+        <!-- Physical Memory Space cards (e.g., HBM, VMem) -->
+        <div class="sidebar-section-title">Memory Space Breakdown</div>
+        <mat-card *ngFor="let item of result.memorySpaceBreakdown | keyvalue : compareSpacesDesc"
+                  [class.selected]="selectedSpace === item.key"
+                  (click)="onSpaceSelected(item.key)"
+                  class="compact-summary-card space-card">
+          <div class="card-content-wrapper">
+            <div class="card-left">
+              <span class="category-title" title="{{item.key}}">{{item.key}}</span>
+            </div>
+            <div class="card-right">
+              <span class="memory-val">{{item.value | number:'1.2-2'}} MiB</span>
+            </div>
+          </div>
+        </mat-card>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="sidebar-section-title">Category Legend</div>
+        <mat-card *ngFor="let item of activeCategorySummaries | keyvalue : compareCategoriesDesc"
+                  [class.selected]="selectedCategories.has($any(item.key))"
+                  (click)="toggleCategory($any(item.key))"
+                  class="compact-summary-card">
+          <div class="card-content-wrapper">
+            <div class="card-left">
+              <span class="category-title" title="{{item.key}}">{{item.key}}</span>
+              <span class="percentage-badge" *ngIf="totalMemoryMib > 0">
+                {{((item.value) / totalMemoryMib * 100) | number:'1.1-1'}}%
+              </span>
+            </div>
+            <div class="card-right">
+              <span class="memory-val">{{$any(item.value) | number:'1.2-2'}} MiB</span>
+            </div>
+          </div>
+        </mat-card>
+      </div>
+    </div>
+
+    <!-- Right Main Analysis Panel -->
+    <div class="main-panel">
+
+      <!-- Modern Visualizations Panel -->
+      <mat-card class="visualization-card" *ngIf="rootNode">
+        <mat-card-content>
+          <div class="vis-toolbar">
+            <span class="vis-title">Interactive Memory Visualizer</span>
+            <div class="vis-controls">
+              <!-- Memory Space Selector Dropdown -->
+              <mat-form-field appearance="outline" class="vis-dropdown">
+                <mat-label>Memory Space</mat-label>
+                <mat-select [value]="selectedSpace" (selectionChange)="onSpaceSelected($event.value)">
+                  <mat-option value="all">All Memory Spaces</mat-option>
+                  <mat-option *ngFor="let space of spaceList" [value]="space">{{space}}</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <!-- Color Mode Toggle -->
+              <mat-button-toggle-group [value]="colorMode" (change)="onColorModeChange($event.value)" aria-label="Color Mode">
+                <mat-button-toggle value="category">Color by Category</mat-button-toggle>
+                <mat-button-toggle value="padding">Color by Padding %</mat-button-toggle>
+                <mat-button-toggle value="classic">Classic Flame</mat-button-toggle>
+              </mat-button-toggle-group>
+
+              <!-- Hierarchy Toggle -->
+              <mat-button-toggle-group [value]="hierarchyType" (change)="onHierarchyTypeChange($event.value)" aria-label="Hierarchy Type">
+                <mat-button-toggle value="jax">JAX Path</mat-button-toggle>
+                <mat-button-toggle value="category">Category</mat-button-toggle>
+              </mat-button-toggle-group>
+
+              <!-- Metric Toggle -->
+              <mat-button-toggle-group [value]="sizeMetric" (change)="onSizeMetricChange($event.value)" aria-label="Metric Type">
+                <mat-button-toggle value="total">Total Size</mat-button-toggle>
+                <mat-button-toggle value="padding">Padding Overhead</mat-button-toggle>
+              </mat-button-toggle-group>
+            </div>
+          </div>
+
+          <mat-tab-group class="vis-tabs" [(selectedIndex)]="activeTab">
+            <mat-tab label="Flame Graph">
+              <ng-template matTabContent>
+                <memory-flame-graph
+                    [rootNode]="rootNode"
+                    [sizeMetric]="sizeMetric"
+                    [colorMode]="colorMode"
+                    [selectedNode]="selectedVisualNode"
+                    [hoveredBuffer]="hoveredVisualNode?.buffer || null"
+                    [hoveredPath]="hoveredVisualNode?.path || ''"
+                    [searchTerm]="searchTerm"
+                    (nodeSelected)="onVisualNodeSelected($event)"
+                    (nodeHovered)="onVisualNodeHovered($event)">
+                </memory-flame-graph>
+              </ng-template>
+            </mat-tab>
+            <mat-tab label="Treemap">
+              <ng-template matTabContent>
+                <memory-treemap
+                    [rootNode]="rootNode"
+                    [sizeMetric]="sizeMetric"
+                    [colorMode]="colorMode"
+                    [selectedNode]="selectedVisualNode"
+                    [hoveredBuffer]="hoveredVisualNode?.buffer || null"
+                    [hoveredPath]="hoveredVisualNode?.path || ''"
+                    [searchTerm]="searchTerm"
+                    (nodeSelected)="onVisualNodeSelected($event)"
+                    (nodeHovered)="onVisualNodeHovered($event)">
+                </memory-treemap>
+              </ng-template>
+            </mat-tab>
+          </mat-tab-group>
+        </mat-card-content>
+      </mat-card>
+
+      <!-- 2. Consolidated Table Controls Bar (Search + Dtype) -->
+      <div class="table-controls-bar">
+        <mat-form-field appearance="outline" class="search-field">
+          <mat-label>Search Buffers</mat-label>
+          <input matInput placeholder="Search name or JAX path..." [value]="searchTerm" (input)="onSearchChanged($event)">
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+
+        <!-- Relocated Dtype Filter (Issue 8) -->
+        <mat-form-field appearance="outline" class="dtype-field">
+          <mat-label>Data Type (Dtype)</mat-label>
+          <mat-select [value]="selectedDtype" (selectionChange)="onDtypeSelected($event.value)">
+            <mat-option *ngFor="let dt of dtypeList" [value]="dt">{{dt}}</mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+
+      <!-- Detailed Buffer Table -->
+      <div class="table-container mat-elevation-z8">
+        <table mat-table [dataSource]="filteredBuffers" matSort>
+
+          <!-- Name Column -->
+          <ng-container matColumnDef="name">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Name </th>
+            <td mat-cell *matCellDef="let element" class="mono-text"> {{element.name}} </td>
+          </ng-container>
+
+          <!-- Memory Space Column -->
+          <ng-container matColumnDef="memorySpace">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Memory Space </th>
+            <td mat-cell *matCellDef="let element" class="mono-text"> {{element.memorySpace}} </td>
+          </ng-container>
+
+          <!-- Size Column -->
+          <ng-container matColumnDef="sizeMib">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Size (MiB) </th>
+            <td mat-cell *matCellDef="let element"> {{element.sizeMib | number:'1.2-2'}} </td>
+          </ng-container>
+
+          <!-- Category Column -->
+          <ng-container matColumnDef="category">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Category </th>
+            <td mat-cell *matCellDef="let element">
+              <span class="category-badge" [attr.category]="element.category">{{element.category}}</span>
+            </td>
+          </ng-container>
+
+          <!-- Sub-category Column -->
+          <ng-container matColumnDef="subCategory">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Sub-category </th>
+            <td mat-cell *matCellDef="let element"> {{element.subCategory}} </td>
+          </ng-container>
+
+          <!-- Type (Group) Column -->
+          <ng-container matColumnDef="group">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Type (Group) </th>
+            <td mat-cell *matCellDef="let element"> {{element.group}} </td>
+          </ng-container>
+
+          <!-- Padding Overhead Column -->
+          <ng-container matColumnDef="paddingOverhead">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Padding Overhead </th>
+            <td mat-cell *matCellDef="let element">
+              {{element.paddingMib | number:'1.2-2'}} MiB
+              <span class="padding-percentage" *ngIf="element.paddingPercentage > 0">
+                ({{element.paddingPercentage | number:'1.2-2'}}%)
+              </span>
+            </td>
+          </ng-container>
+
+          <!-- Dtype Column -->
+          <ng-container matColumnDef="dtype">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> Dtype </th>
+            <td mat-cell *matCellDef="let element"> {{element.dtype}} </td>
+          </ng-container>
+
+          <!-- Shape Column -->
+          <ng-container matColumnDef="shape">
+            <th mat-header-cell *matHeaderCellDef> Shape </th>
+            <td mat-cell *matCellDef="let element" class="mono-text"> {{element.shape}} </td>
+          </ng-container>
+
+          <!-- TF Op Column -->
+          <ng-container matColumnDef="tfOpName">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> TF Op Name </th>
+            <td mat-cell *matCellDef="let element"> {{element.tfOpName}} </td>
+          </ng-container>
+
+          <!-- JAX Variable Path Column -->
+          <ng-container matColumnDef="jaxVariablePath">
+            <th mat-header-cell *matHeaderCellDef mat-sort-header> JAX Path </th>
+            <td mat-cell *matCellDef="let element" class="mono-text"> {{element.jaxVariablePath}} </td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns;"
+              class="buffer-row"
+              [class.highlighted]="isRowHovered(row)"
+              (mouseenter)="onRowHover(row)"
+              (mouseleave)="onRowHover(null)"></tr>
+
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>

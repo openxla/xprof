@@ -382,12 +382,34 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   visitor.ForEachLine([&](const XLineVisitor& line) {
     if (line.Name() == tsl::profiler::kXlaOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
-        auto hlo_category_stat =
-            event.Metadata().GetStat(StatType::kHloCategory);
-        duty_cycle_tracker.AddInterval(
-            event.GetTimespan(),
-            !(hlo_category_stat &&
-              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+        auto hlo_category_stat = event.GetStat(StatType::kHloCategory);
+        if (!hlo_category_stat) {
+          hlo_category_stat = event.Metadata().GetStat(StatType::kHloCategory);
+        }
+        bool is_active = true;
+        if (hlo_category_stat) {
+          absl::string_view category = hlo_category_stat->StrOrRefValue();
+          if (category == "custom-call") {
+            auto model_flops_stat = event.GetStat(StatType::kModelFlops);
+            if (!model_flops_stat) {
+              model_flops_stat =
+                  event.Metadata().GetStat(StatType::kModelFlops);
+            }
+            double flops_val = 0;
+            if (model_flops_stat) {
+              if (model_flops_stat->ValueCase() == XStat::kDoubleValue) {
+                flops_val = model_flops_stat->DoubleValue();
+              } else {
+                flops_val =
+                    static_cast<double>(model_flops_stat->IntOrUintValue());
+              }
+            }
+            is_active = (flops_val > 0.0);
+          } else {
+            is_active = !tsl::profiler::IsOffDutyOp(category);
+          }
+        }
+        duty_cycle_tracker.AddInterval(event.GetTimespan(), is_active);
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {

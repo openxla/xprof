@@ -1,10 +1,20 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy, Output, EventEmitter} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  inject,
+  OnDestroy,
+  Output,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {OpProfileProto} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {setProfilingDeviceTypeAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
 import {combineLatestWith, map, takeUntil} from 'rxjs/operators';
@@ -13,10 +23,11 @@ const GROUP_BY_RULES = ['program', 'category', 'provenance'];
 
 /** An op profile component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'op-profile',
   templateUrl: './op_profile.ng.html',
-  styleUrls: ['./op_profile_common.scss']
+  styleUrls: ['./op_profile_common.scss'],
 })
 export class OpProfile implements OnDestroy {
   private tool = 'hlo_op_profile';
@@ -26,36 +37,39 @@ export class OpProfile implements OnDestroy {
   @Output() readonly ready = new EventEmitter<void>();
 
   private readonly throbber = new Throbber(this.tool);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   private readonly opProfileDataCache = new Map<string, OpProfileProto>();
 
   sessionId = '';
   host = '';
   moduleList: string[] = [];
-  opProfileData: OpProfileProto|null = null;
+  opProfileData: OpProfileProto | null = null;
   groupBy = GROUP_BY_RULES[0]; // Default value
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          const oldSessionId = this.sessionId;
-          const oldTool = this.tool;
-          const oldHost = this.host;
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldTool = this.tool;
+        const oldHost = this.host;
 
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          // Trigger update only if the parameters actually changed.
-          const hasChanged = this.sessionId !== oldSessionId ||
-              this.tool !== oldTool || this.host !== oldHost;
-          if (hasChanged) {
-            this.update();
-          }
-        });
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        // Trigger update only if the parameters actually changed.
+        const hasChanged =
+          this.sessionId !== oldSessionId ||
+          this.tool !== oldTool ||
+          this.host !== oldHost;
+        if (hasChanged) {
+          this.update();
+        }
+      });
   }
 
   processQueryParams(params: Params) {
@@ -64,7 +78,7 @@ export class OpProfile implements OnDestroy {
     this.host = params['host'] || this.host;
   }
 
-  private fetchData(groupBy: string): Observable<OpProfileProto|null> {
+  private fetchData(groupBy: string): Observable<OpProfileProto | null> {
     const cachedData = this.opProfileDataCache.get(groupBy);
     if (cachedData) {
       return of(cachedData);
@@ -76,19 +90,19 @@ export class OpProfile implements OnDestroy {
     const params = new Map<string, string>();
     params.set('group_by', groupBy);
     return this.dataService
-        .getData(this.sessionId, this.tool, this.host, params)
-        .pipe(
-            map((data) => {
-              this.throbber.stop();
-              setLoadingState(false, this.store);
-              if (data) {
-                const opProfileData = data as OpProfileProto;
-                this.opProfileDataCache.set(groupBy, opProfileData);
-                return opProfileData;
-              }
-              return null;
-            }),
-        );
+      .getData(this.sessionId, this.tool, this.host, params)
+      .pipe(
+        map((data) => {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          if (data) {
+            const opProfileData = data as OpProfileProto;
+            this.opProfileDataCache.set(groupBy, opProfileData);
+            return opProfileData;
+          }
+          return null;
+        }),
+      );
   }
 
   update() {
@@ -96,34 +110,33 @@ export class OpProfile implements OnDestroy {
       return;
     }
     const $data = this.fetchData(this.groupBy);
-    const $moduleList = this.dataService.getModuleList(
-        this.sessionId,
-    );
-    $data.pipe(combineLatestWith($moduleList), takeUntil(this.destroyed))
-        .subscribe(([data, moduleList]) => {
-          if (data) {
-            this.opProfileData = data;
-            this.store.dispatch(
-                setProfilingDeviceTypeAction({
-                  deviceType: this.opProfileData.deviceType,
-                }),
-            );
-          }
-          if (moduleList) {
-            this.moduleList = moduleList.split(',');
-          }
-          this.ready.emit();
-        });
+    const $moduleList = this.dataService.getModuleList(this.sessionId);
+    $data
+      .pipe(combineLatestWith($moduleList), takeUntil(this.destroyed))
+      .subscribe(([data, moduleList]) => {
+        if (data) {
+          this.opProfileData = data;
+          this.store.dispatch(
+            setProfilingDeviceTypeAction({
+              deviceType: this.opProfileData.deviceType,
+            }),
+          );
+        }
+        if (moduleList) {
+          this.moduleList = moduleList.split(',');
+        }
+        this.ready.emit();
+      });
   }
 
   updateTable() {
     this.fetchData(this.groupBy)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          if (data) {
-            this.opProfileData = data;
-          }
-        });
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        if (data) {
+          this.opProfileData = data;
+        }
+      });
   }
 
   onGroupByChange(newGroupBy: string) {

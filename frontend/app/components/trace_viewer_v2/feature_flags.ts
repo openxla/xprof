@@ -14,28 +14,41 @@ export declare interface FeatureFlag {
 
 /**
  * The list of all available feature flags.
+ * Enforced to be unique by design using object keys.
  */
-const FEATURE_FLAGS: FeatureFlag[] = [
-  {
-    id: 'use_pb',
+const FEATURE_FLAGS = {
+  'use_pb': {
     name: 'Use Protobuf Pipeline in Trace Viewer',
     description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
     default: false,
   },
-  {
-    id: 'snap_to_time_range',
+  'snap_to_time_range': {
     name: 'Snap to Time Range',
     description: 'Enable snapping to event boundaries and selected ranges.',
     default: false,
   },
-];
+} as const;
+
+/**
+ * Represents the union of all valid feature flag identifiers.
+ * Derived dynamically from the keys of the static FEATURE_FLAGS configuration.
+ */
+export type FeatureFlagId = keyof typeof FEATURE_FLAGS;
+
+/** Pre-computed array of feature flags to avoid GC allocation on every call. */
+const FEATURE_FLAGS_ARRAY: FeatureFlag[] = Object.entries(FEATURE_FLAGS).map(
+  ([id, flag]) => ({
+    id,
+    ...flag,
+  }),
+);
 
 /**
  * Wrapper around feature flags to allow spying in tests.
  */
 export const featureFlagsInternal = {
   getFeatureFlags: (): FeatureFlag[] => {
-    return FEATURE_FLAGS;
+    return FEATURE_FLAGS_ARRAY;
   },
 };
 
@@ -50,6 +63,21 @@ export function getFeatureFlags(): FeatureFlag[] {
  * Gets the default value for a feature flag.
  */
 export function getDefaultFeatureFlag(id: string): boolean {
-  const flag = featureFlagsInternal.getFeatureFlags().find((f) => f.id === id);
+  const flags = featureFlagsInternal.getFeatureFlags();
+  // Fast path for production: avoid iterating or allocating when using static flags.
+  if (flags === FEATURE_FLAGS_ARRAY) {
+    const flag = FEATURE_FLAGS[id as FeatureFlagId];
+    return flag?.default ?? false;
+  }
+  // Fallback path for unit tests to support spies/mocks.
+  const flag = flags.find((f) => f.id === id);
   return flag?.default ?? false;
+}
+
+/**
+ * Gets all feature flags as an array.
+ * Useful for UI components that need to list flags.
+ */
+export function getAllFeatureFlags(): FeatureFlag[] {
+  return FEATURE_FLAGS_ARRAY;
 }

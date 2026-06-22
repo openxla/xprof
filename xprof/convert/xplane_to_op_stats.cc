@@ -308,7 +308,8 @@ FlatOpMetrics CreateFusionChildMetrics(
 }
 
 void AddFusionChildrenToFlatOpMetrics(
-    FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
+    const FlatOpMetricMeta& parent_op_metrics,
+    FlatOpMetrics::TpuCoreType core_type,
     const HloInstructionWrapper* instr_wrapper, FlatOpMetricsDb& children_db) {
   if (instr_wrapper->FusedChildren().empty()) return;
   for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {
@@ -854,10 +855,6 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
   const bool is_gpu = device_planes.empty();
   if (is_gpu) {
     device_planes = FindPlanesWithPrefix(space, kGpuPlanePrefix);
-    if (!device_planes.empty()) {
-      return absl::UnimplementedError(
-          "GPU not supported yet for FlatOpMetricsDb");
-    }
   }
   const bool is_tpu = !is_gpu;
   std::string hostname = Hostname(space);
@@ -942,9 +939,15 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
         // as it is accessed as read-only in threads. All
         // modifications were completed sequentially on the main thread.
         executor->Execute([device_plane, &op_metrics_db,
-                           &sparse_core_metrics_map]() {
-          op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
-              *device_plane, sparse_core_metrics_map);
+                           &sparse_core_metrics_map, is_tpu,
+                           &hlo_module_map]() {
+          if (is_tpu) {
+            op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+                *device_plane, sparse_core_metrics_map);
+          } else {
+            op_metrics_db = ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
+                *device_plane, hlo_module_map);
+          }
         });
       }
     }

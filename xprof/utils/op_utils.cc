@@ -232,5 +232,118 @@ void DeviceOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
   db()->set_total_op_time_ps(db()->total_op_time_ps() + self_time_ps);
 }
 
+void DeviceFlatOpMetricsDbBuilder::EnterOpMetadata(const OpIdentifier& op_id,
+                                                   bool is_eager) {
+  // We only need to add metadata once to each new op, as they are the
+  // same across occurrences.
+  FlatOpMetrics* op_metrics =
+      LookupOrInsertNewFlatOpMetrics(op_id.program_id, op_id.name);
+  if (op_metrics->occurrences() > 0 || !op_metrics->category().empty() ||
+      !op_metrics->provenance().empty())
+    return;
+  op_metrics->set_category(op_id.category == tsl::profiler::kUnknownOp
+                               ? "unknown"
+                               : std::string(op_id.category));
+  op_metrics->set_provenance(std::string(op_id.provenance));
+  if (!op_id.deduplicated_name.empty()) {
+    op_metrics->set_deduplicated_name(std::string(op_id.deduplicated_name));
+  }
+  if (!op_id.long_name.empty()) {
+    op_metrics->set_long_name(std::string(op_id.long_name));
+  }
+  op_metrics->set_is_eager(op_metrics->is_eager() || is_eager);
+
+  op_metrics->mutable_source_info()->set_file_name(
+      std::string(op_id.op_source_info.source_file));
+  op_metrics->mutable_source_info()->set_line_number(
+      op_id.op_source_info.source_line);
+  op_metrics->mutable_source_info()->set_stack_frame(
+      std::string(op_id.op_source_info.stack_frame));
+}
+
+void DeviceFlatOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
+                                           const OpData& event_data) {
+  EnterOpMetadata(op_id, event_data.is_eager);
+  uint64_t self_time_ps = event_data.time_ps - event_data.children_time_ps;
+  DCHECK_GE(event_data.time_ps, self_time_ps);
+  FlatOpMetrics* op_metrics =
+      LookupOrInsertNewFlatOpMetrics(op_id.program_id, op_id.name);
+
+  op_metrics->set_occurrences(op_metrics->occurrences() +
+                              event_data.occurrences);
+  op_metrics->set_time_ps(op_metrics->time_ps() + event_data.time_ps);
+  op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_time_ps);
+
+  // Populate metrics from PerformanceInfoWrapper if available (GPU/Symbol path)
+  const auto* perf_info = event_data.perf_info;
+  const int64_t flops =
+      perf_info != nullptr ? perf_info->DeviceFlops() : event_data.flops;
+  const int64_t bytes_accessed = perf_info != nullptr
+                                     ? perf_info->bytes_accessed()
+                                     : event_data.bytes_accessed;
+  const int64_t model_flops =
+      perf_info != nullptr ? perf_info->ModelFlops() : event_data.model_flops;
+
+  const tsl::protobuf::RepeatedPtrField<OpMetrics::MemoryAccessed>&
+      memory_accessed_breakdown =
+          perf_info != nullptr
+              ? ConvertPerformanceInfo(perf_info->memory_accessed_breakdown(),
+                                       event_data.occurrences)
+              : event_data.memory_accessed_breakdown;
+
+  op_metrics->set_flops(op_metrics->flops() + flops * event_data.occurrences);
+  op_metrics->set_flops_v2(op_metrics->flops_v2() +
+                           static_cast<double>(flops) * event_data.occurrences);
+  if (model_flops == 0) {
+    op_metrics->set_model_flops(op_metrics->flops());
+    op_metrics->set_model_flops_v2(op_metrics->flops_v2());
+  } else {
+    op_metrics->set_model_flops(op_metrics->model_flops() +
+                                model_flops * event_data.occurrences);
+    op_metrics->set_model_flops_v2(
+        op_metrics->model_flops_v2() +
+        static_cast<double>(model_flops) *
+            static_cast<double>(event_data.occurrences));
+  }
+  op_metrics->set_bytes_accessed(op_metrics->bytes_accessed() +
+                                 bytes_accessed * event_data.occurrences);
+
+  for (const auto& src_memory_accessed : memory_accessed_breakdown) {
+    uint64_t memory_space = src_memory_accessed.memory_space();
+    FlatOpMetrics::MemoryAccessed::OperationType operation_type =
+        src_memory_accessed.operation_type() == OpMetrics::MemoryAccessed::READ
+            ? FlatOpMetrics::MemoryAccessed::READ
+            : FlatOpMetrics::MemoryAccessed::WRITE;
+
+    FlatOpMetrics::MemoryAccessed* dst_memory_accessed = nullptr;
+    for (auto& dst_m : *op_metrics->mutable_memory_accessed_breakdown()) {
+      if (dst_m.memory_space() == memory_space &&
+          dst_m.operation_type() == operation_type) {
+        dst_memory_accessed = &dst_m;
+        break;
+      }
+    }
+    if (dst_memory_accessed == nullptr) {
+      dst_memory_accessed =
+          op_metrics->mutable_memory_accessed_breakdown()->Add();
+      dst_memory_accessed->set_memory_space(memory_space);
+      dst_memory_accessed->set_operation_type(operation_type);
+    }
+    dst_memory_accessed->set_bytes_accessed(
+        src_memory_accessed.bytes_accessed() +
+        dst_memory_accessed->bytes_accessed());
+  }
+
+  op_metrics->set_num_cores(1);
+
+  if (event_data.dma_stall_ps > 0) {
+    op_metrics->set_dma_stall_ps(op_metrics->dma_stall_ps() +
+                                 event_data.dma_stall_ps *
+                                     event_data.occurrences);
+  }
+
+  db()->set_total_op_time_ps(db()->total_op_time_ps() + self_time_ps);
+}
+
 }  // namespace profiler
 }  // namespace tensorflow

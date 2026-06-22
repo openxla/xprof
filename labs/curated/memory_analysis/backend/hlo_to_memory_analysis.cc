@@ -23,6 +23,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -54,13 +55,13 @@ struct TraceState {
 
 bool IsDerivedFromWeight(
     const xla::HloInstruction* inst,
-    absl::flat_hash_set<const xla::HloInstruction*>& visited) {
+    absl::flat_hash_map<const xla::HloInstruction*, bool>& memo) {
   if (inst->opcode() == xla::HloOpcode::kParameter ||
       inst->opcode() == xla::HloOpcode::kConstant) {
     return true;
   }
-  if (!visited.insert(inst).second) {
-    return true;
+  if (auto it = memo.find(inst); it != memo.end()) {
+    return it->second;
   }
 
   bool is_allowed = inst->IsElementwise() ||
@@ -69,13 +70,16 @@ bool IsDerivedFromWeight(
                     inst->opcode() == xla::HloOpcode::kBitcast;
 
   if (!is_allowed) {
+    memo[inst] = false;
     return false;
   }
 
-  return absl::c_all_of(
-      inst->operands(), [&visited](const xla::HloInstruction* operand) {
-        return IsDerivedFromWeight(operand, visited);
-      });
+  bool res = absl::c_all_of(inst->operands(),
+                            [&memo](const xla::HloInstruction* operand) {
+                              return IsDerivedFromWeight(operand, memo);
+                            });
+  memo[inst] = res;
+  return res;
 }
 
 // Extracts clean JAX path from TF Op Name
@@ -147,17 +151,19 @@ std::pair<std::string, std::string> CategorizeTensor(
     rest = std::string(tf_op);
   }
 
-  if (absl::StrContains(rest, "embedding_activations")) {
-    category = "SparseCore";
-    sub_cat = "Activation";
-  } else if (absl::StrContains(rest, "embedding_gradients")) {
-    category = "SparseCore";
-    sub_cat = "Gradient";
-  } else if (absl::StrContains(rest, "embedding") ||
-             absl::StrContains(rest, "sparsecore")) {
-    category = "SparseCore";
-    if (sub_cat.empty()) {
-      sub_cat = "Other";
+  if (category == "Other") {
+    if (absl::StrContains(rest, "embedding_activations")) {
+      category = "SparseCore";
+      sub_cat = "Activation";
+    } else if (absl::StrContains(rest, "embedding_gradients")) {
+      category = "SparseCore";
+      sub_cat = "Gradient";
+    } else if (absl::StrContains(rest, "embedding") ||
+               absl::StrContains(rest, "sparsecore")) {
+      category = "SparseCore";
+      if (sub_cat.empty()) {
+        sub_cat = "Other";
+      }
     }
   }
 
@@ -267,11 +273,11 @@ absl::StatusOr<absl::flat_hash_set<std::string>> TraceGatheredWeights(
   absl::flat_hash_set<const xla::HloInstruction*> visited;
   std::queue<TraceState> q;
 
+  absl::flat_hash_map<const xla::HloInstruction*, bool> is_weight_memo;
   for (const xla::HloComputation* computation : module->computations()) {
     for (const xla::HloInstruction* inst : computation->instructions()) {
       if (inst->opcode() == xla::HloOpcode::kAllGather) {
-        absl::flat_hash_set<const xla::HloInstruction*> backward_visited;
-        if (IsDerivedFromWeight(inst->operand(0), backward_visited)) {
+        if (IsDerivedFromWeight(inst->operand(0), is_weight_memo)) {
           q.push({inst, nullptr});
           visited.insert(inst);
         }

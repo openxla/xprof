@@ -30,7 +30,7 @@ logger = logging.getLogger('tensorboard.plugins.profile')
 
 try:
   # pylint: disable=g-import-not-at-top
-  from google.cloud import exceptions as gcs_exceptions  # type: ignore
+  from google.api_core import exceptions as gcs_exceptions  # type: ignore
   from google.cloud import storage  # type: ignore
 except ImportError:
   logger.warning(
@@ -48,6 +48,7 @@ def get_storage_client():
         'Google Cloud Storage libraries not found. gs:// paths are not'
         ' supported.'
     )
+
   return storage.Client()
 
 

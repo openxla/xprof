@@ -50,7 +50,8 @@ REQUIRED_PACKAGES = [
     'cheroot >= 10.0.1',
     'fsspec >= 2024.3.1',
     'gcsfs >= 2024.3.1',
-    'pyOpenSSL >= 26.1.0',
+    'google-cloud-storage >= 3.12.0',
+    'urllib3 >= 2.7.0',
     'fire >= 0.4.0',
 ]
 

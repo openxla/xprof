@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -150,6 +151,11 @@ uint64_t IdleTimePs(const FlatOpMetricsDb& db);
 // Populates an FlatOpMetrics record representing idle time, i.e., the amount of
 // time spent without any op execution.
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op);
+
+
+// Converts from the device flat op metrics to Tf-op metrics.
+FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
+    const FlatOpMetricsDb& device_op_metrics_db, bool with_idle = true);
 
 }  // namespace profiler
 }  // namespace tensorflow

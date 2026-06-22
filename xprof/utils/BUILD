@@ -48,11 +48,23 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:timespan",
+    ],
+)
+
+cc_test(
+    name = "event_span_test",
+    srcs = ["event_span_test.cc"],
+    deps = [
+        ":event_span",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
     ],
 )
 
@@ -120,12 +132,17 @@ cc_library(
     deps = [
         ":op_metrics_db_utils",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/platform:macros",
         "@xla//xla/tsl/profiler/utils:math_utils",
+        "@xla//xla/tsl/profiler/utils:tf_op_utils",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
@@ -170,11 +187,13 @@ cc_library(
     srcs = ["op_utils.cc"],
     hdrs = ["op_utils.h"],
     deps = [
+        ":flat_op_metrics_db_utils",
         ":hlo_module_map",
         ":op_metrics_db_utils",
         ":performance_info_wrapper",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//xprof/convert:op_metrics_db_combiner",

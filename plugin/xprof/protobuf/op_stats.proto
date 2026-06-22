@@ -13,7 +13,7 @@ import "plugin/xprof/protobuf/steps_db.proto";
 import "plugin/xprof/protobuf/tf_function.proto";
 import "plugin/xprof/protobuf/topology.proto";
 
-// Performance environment, e.g the peak performance capabilities of the device.
+// Performance environment, e.g. the peak performance capabilities of the device.
 message PerfEnv {
   // Peak performance of a TPU core or a GPU in TFLOP/s.
   double peak_tera_flops_per_second = 1;
@@ -192,5 +192,9 @@ message OpStats {
   // The new path for device op metrics. device_op_metrics_db will be deprecated
   // soon.
   tensorflow.profiler.FlatOpMetricsDb flat_device_op_metrics_db = 16;
+  // The new path for hlo metrics. hlo_metrics_db_complete_steps_only will be
+  // deprecated soon.
+  tensorflow.profiler.FlatOpMetricsDb flat_hlo_metrics_db_complete_steps_only =
+      17;
   reserved 7;
 }

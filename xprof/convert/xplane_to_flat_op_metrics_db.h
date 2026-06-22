@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -35,6 +36,9 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
     const XPlane& device_trace,
     const absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>&
         sparse_core_metrics_map);
+
+FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
+    const XPlane& device_trace, const HloModuleMap& hlo_module_map);
 
 }  // namespace profiler
 }  // namespace tensorflow

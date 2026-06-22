@@ -78,7 +78,8 @@ StepIntersection ComputeStepIntersectionToMergeOpStats(
 // <step_intersection>. The result is stored in <combined_op_stats>.
 void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
                        const StepIntersection& step_intersection,
-                       OpStats* combined_op_stats);
+                       OpStats* combined_op_stats,
+                       bool combine_flat_op_metrics_db = false);
 
 }  // namespace profiler
 }  // namespace tensorflow

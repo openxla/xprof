@@ -259,6 +259,9 @@ class Timeline {
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
+  void UnhideAllTracks();
+  void HideTrack(const std::string& name);
+
   void Draw();
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
@@ -403,6 +406,9 @@ class Timeline {
   void EmitMouseModeChanged();
   void ShowBoundsNotification(const std::string& message);
 
+  void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                    Pixel kArrowSize, ImU32 icon_col, bool is_unhide = false);
+
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
   // Draws vertical grid lines across the background of the tracks.
@@ -425,6 +431,8 @@ class Timeline {
   void DrawCounterTrack(int group_index, const CounterData& counter_data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
+
+  void DrawHideButton(int group_index, Pixel height, bool is_unhide);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -497,6 +505,22 @@ class Timeline {
   static constexpr ImGuiWindowFlags kTrackFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
+  struct RenderItem {
+    enum class Type { kHeaderProcesses, kHeaderHidden, kGroup };
+    Type type;
+    int group_index = -1;
+    int nesting_depth = 0;
+  };
+
+  std::vector<RenderItem> render_items_;
+  Pixel GetItemTop(const RenderItem& item) const;
+  Pixel GetItemBottom(const RenderItem& item) const;
+  Pixel total_tracks_height_ = 0.0f;
+  Pixel header_processes_offset_ = 0.0f;
+  Pixel header_hidden_offset_ = 0.0f;
+  bool hidden_expanded_ = false;
+  bool processes_expanded_ = true;
+
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;
 
@@ -516,9 +540,8 @@ class Timeline {
   // the top of the track area. Precalculated upon updates to the tree state.
   std::vector<Pixel> visible_level_offsets_;
   // Initialized to {0.0f} to represent the total height of 0 groups.
-  // This prevents memory access out of bounds when `group_offsets_.back()`
-  // is called during rendering before timeline_data_ has been fully loaded.
-  std::vector<Pixel> group_offsets_ = {0.0f};
+  std::vector<Pixel> group_tops_ = {0.0f};
+  std::vector<Pixel> group_bottoms_ = {0.0f};
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;
@@ -616,6 +639,7 @@ class Timeline {
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
+  absl::flat_hash_set<std::string> hidden_track_names_;
 };
 
 }  // namespace traceviewer

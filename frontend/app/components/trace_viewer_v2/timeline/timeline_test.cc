@@ -39,10 +39,8 @@ using ::testing::FloatEq;
 using ::testing::Return;
 using ::testing::Test;
 
-// Calculated vertical center of the first event.
-// The first event starts after the ruler (kRulerHeight=20.0f).
-// Y = kRulerHeight + kEventHeight / 2.
-constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
+// Y = kRulerHeight + 31.0f (processes header + gap) + kEventHeight / 2.
+constexpr float kFirstEventY = kRulerHeight + 31.0f + kEventHeight / 2.0f;
 
 // Mock class for Timeline to mock virtual methods.
 class MockTimeline : public Timeline {
@@ -4723,7 +4721,7 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   // With dummy event at level 50, the content is tall enough to avoid clamp
   // limit. Target scroll is calculated exactly to 565.0f based on level 30.
   // Reduced tolerance to 0.1f to kill mutant at line 2067.
-  EXPECT_NEAR(tracks_window->Scroll.y, 565.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 593.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
@@ -4785,7 +4783,7 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   }
 
   // Expect scroll to go to y_top of level 5.
-  EXPECT_NEAR(tracks_window->Scroll.y, 122.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 150.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
@@ -6359,12 +6357,12 @@ TEST_F(TimelineMouseModeSelectTestSuite,
 
   SimulateFrame();
 
-  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 100.0f);
+  io.AddMousePosEvent(GetTimelineStartX() + 200.0f, 150.0f);
   SimulateFrame();
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
-  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, 150.0f);
+  io.AddMousePosEvent(GetTimelineStartX() + 250.0f, 200.0f);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);

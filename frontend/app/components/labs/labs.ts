@@ -1,10 +1,13 @@
 import {
   ChangeDetectionStrategy,
-  ChangeDetectorRef,
   Component,
+  computed,
+  DestroyRef,
   inject,
   OnInit,
+  signal,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {MatSnackBar} from '@angular/material/snack-bar';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -14,17 +17,27 @@ import {
 } from 'org_xprof/frontend/app/store/actions';
 import {trySanitizeUrl} from 'safevalues';
 import {windowOpen} from 'safevalues/dom';
+import {CuratedTool} from './curated_tool';
+import {CuratedToolsService} from './curated_tools.service';
 
-interface CuratedTool {
-  key: string;
-  label: string;
-  status: 'Alpha' | 'Beta';
-  description: string;
-  icon: string;
-  url?: string;
-  tags: string[];
-  isFeatured: boolean;
+function matchesSearch(tool: CuratedTool, query: string): boolean {
+  if (!query) return true;
+  return (
+    tool.label.toLowerCase().includes(query) ||
+    tool.description.toLowerCase().includes(query)
+  );
 }
+
+const CATEGORIES = [
+  'All',
+  'Favorite',
+  'Featured',
+  'Memory',
+  'Compiler',
+  'Network',
+] as const;
+
+type Category = (typeof CATEGORIES)[number];
 
 /**
  * Component representing the XProf Labs view, featuring experimental tools
@@ -41,92 +54,107 @@ export class LabsComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly snackBar = inject(MatSnackBar);
-  private readonly cdr = inject(ChangeDetectorRef);
   private readonly store = inject(Store);
+  private readonly curatedToolsService = inject(CuratedToolsService);
+  private readonly destroyRef = inject(DestroyRef);
 
-  sessionId = '';
-  searchQuery = '';
-  selectedCategory = 'All';
-  isLabsEnabled = false;
-  activeView: 'experiments' | 'playground' = 'experiments';
+  private sessionId = '';
+  readonly searchQuery = signal('');
+  readonly selectedCategory = signal<Category>('All');
+  readonly isLabsEnabled = signal(false);
+  readonly activeView = signal<'experiments' | 'playground'>('experiments');
+  readonly activeTab = signal<'curated' | 'my-tools'>('curated');
+  readonly displayMode = signal<'grid' | 'list'>('grid');
 
-  featuredTools: CuratedTool[] = [];
-  regularTools: CuratedTool[] = [];
+  private readonly favoriteToolKeys = signal(new Set<string>());
+  private readonly curatedTools = signal<readonly CuratedTool[]>([]);
 
-  setActiveView(view: 'experiments' | 'playground') {
-    this.activeView = view;
-    this.cdr.markForCheck();
+  readonly filteredCuratedTools = computed<readonly CuratedTool[]>(() => {
+    const query = this.searchQuery().trim().toLowerCase();
+    const category = this.selectedCategory();
+    const isAll = category === 'All';
+    const isFeatured = category === 'Featured';
+    const isFavorite = category === 'Favorite';
+    const favorites = this.favoriteToolKeys();
+
+    return this.curatedTools()
+      .filter((tool) => {
+        if (!matchesSearch(tool, query)) return false;
+        if (isAll) return true;
+        if (isFeatured) return tool.isFeatured;
+        if (isFavorite) return favorites.has(tool.key);
+        return tool.tags.includes(category);
+      })
+      .map((tool) => ({
+        ...tool,
+        isFavorite: favorites.has(tool.key),
+        lifecycleClass: tool.lifecycle?.toLowerCase() ?? '',
+        statusTextClass: tool.statusText?.toLowerCase() ?? '',
+      }));
+  });
+
+  readonly myTools = computed<readonly CuratedTool[]>(() => []);
+
+  readonly searchResultsCount = computed<number>(() => {
+    return this.activeTab() === 'curated'
+      ? this.filteredCuratedTools().length
+      : this.myTools().length;
+  });
+
+  readonly isPlaygroundRunDisabled = computed<boolean>(() => {
+    return !this.playgroundCodeContent().trim() || this.isPlaygroundRunning();
+  });
+
+  readonly isAskAiDisabled = computed<boolean>(() => {
+    return this.isAiGenerating() || !this.playgroundAiPrompt().trim();
+  });
+
+  readonly playgroundCodeContent = signal('');
+  readonly playgroundAiPrompt = signal('');
+  readonly isAiGenerating = signal(false);
+  readonly isPlaygroundRunning = signal(false);
+  readonly playgroundStatusText = signal('');
+  readonly hasPlaygroundChart = signal(false);
+
+  setActiveView(view: 'experiments' | 'playground'): void {
+    this.activeView.set(view);
   }
 
-  readonly categories = ['All', 'Featured', 'Memory', 'Compiler', 'Network'];
+  setActiveTab(tab: 'curated' | 'my-tools'): void {
+    this.activeTab.set(tab);
+  }
 
-  readonly curatedTools: CuratedTool[] = [
-    {
-      key: 'memory_analysis',
-      label: 'Memory Analysis Tool',
-      status: 'Beta',
-      description:
-        'Parse HLO memory profiles, model parameter weights, and analyze memory consumption breakdowns.',
-      icon: 'overview_key',
-      tags: ['Memory'],
-      isFeatured: true,
-    },
-    {
-      key: 'tpu_viz',
-      label: 'TPU-viz (Pod Topology)',
-      status: 'Alpha',
-      description:
-        'Visualize TPU network nodes, link activities, and network routing pathways in interactive 3D.',
-      icon: 'hive',
-      tags: ['Network'],
-      isFeatured: true,
-    },
-    {
-      key: 'lunc_explorer',
-      label: 'Lunc Compiler Explorer',
-      status: 'Alpha',
-      description:
-        'Interactive visualization showing compiler pass transformations and instruction-level TPU scheduling.',
-      icon: 'graph_2',
-      tags: ['Compiler'],
-      isFeatured: false,
-    },
-    {
-      key: 'megascale_plugin',
-      label: 'Megascale GRPC Plugin',
-      status: 'Alpha',
-      description:
-        'Diagnose inter-slice network bottlenecks and RPC latencies across multi-node TPU slices.',
-      icon: 'network_check',
-      tags: ['Network'],
-      isFeatured: false,
-    },
-  ];
+  setDisplayMode(mode: 'grid' | 'list'): void {
+    this.displayMode.set(mode);
+  }
 
-  ngOnInit() {
-    this.sessionId = this.route.snapshot.paramMap.get('sessionId') || '';
+  readonly categories = CATEGORIES;
 
-    // Check URL query param first, then fallback to localStorage
+  ngOnInit(): void {
+    this.sessionId = this.route.snapshot.paramMap.get('sessionId') ?? '';
+
     const labsQueryParam = this.route.snapshot.queryParamMap.get('labs');
-    if (labsQueryParam === 'true' || labsQueryParam === '1') {
-      window.localStorage.setItem('xprof_labs_enabled', 'true');
-    } else if (labsQueryParam === 'false' || labsQueryParam === '0') {
-      window.localStorage.removeItem('xprof_labs_enabled');
+    const isEnabled =
+      labsQueryParam !== null
+        ? labsQueryParam === 'true' || labsQueryParam === '1'
+        : window.localStorage.getItem('xprof_labs_enabled') === 'true';
+
+    if (labsQueryParam !== null) {
+      if (labsQueryParam === 'true' || labsQueryParam === '1') {
+        window.localStorage.setItem('xprof_labs_enabled', 'true');
+      } else if (labsQueryParam === 'false' || labsQueryParam === '0') {
+        window.localStorage.removeItem('xprof_labs_enabled');
+      }
     }
 
-    // Route redirection guard: check if Labs feature flag is persistent in localStorage
-    this.isLabsEnabled =
-      window.localStorage.getItem('xprof_labs_enabled') === 'true';
-    if (!this.isLabsEnabled) {
-      // Redirect manual URL direct bypasses back to Overview Page
+    this.isLabsEnabled.set(isEnabled);
+
+    if (!this.isLabsEnabled()) {
       const queryParams = this.route.snapshot.queryParams;
-      // Wrap in setTimeout to schedule navigation after current routing activation completes
-      setTimeout(() => {
-        this.router.navigate(['/overview_page', this.sessionId], {
-          queryParams,
-          replaceUrl: true,
-        });
-      }, 0);
+      this.router.navigate(['/overview_page', this.sessionId], {
+        queryParams,
+        replaceUrl: true,
+      });
       return;
     }
 
@@ -137,79 +165,94 @@ export class LabsComponent implements OnInit {
       }),
     );
 
-    this.updateFilteredTools();
+    this.curatedToolsService
+      .getCuratedTools()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((tools) => {
+        this.curatedTools.set(tools);
+      });
   }
 
-  onSearchChange(event: Event) {
-    const input = event.target as HTMLInputElement;
-    this.searchQuery = input.value;
-    this.updateFilteredTools();
+  onSearchChange(event: Event): void {
+    if (event.target instanceof HTMLInputElement) {
+      this.searchQuery.set(event.target.value);
+    }
   }
 
-  onCategoryChange(category: string) {
-    this.selectedCategory = category;
-    this.updateFilteredTools();
+  onCategoryChange(category: Category): void {
+    this.selectedCategory.set(category);
   }
 
-  private updateFilteredTools() {
-    const query = this.searchQuery.trim().toLowerCase();
-
-    this.featuredTools = this.curatedTools.filter(
-      (tool) =>
-        tool.isFeatured &&
-        this.matchesSearch(tool, query) &&
-        this.matchesCategory(tool),
-    );
-
-    this.regularTools = this.curatedTools.filter(
-      (tool) =>
-        !tool.isFeatured &&
-        this.matchesSearch(tool, query) &&
-        this.matchesCategory(tool),
-    );
-
-    this.cdr.markForCheck();
+  clearSearch(): void {
+    this.searchQuery.set('');
   }
 
-  private matchesSearch(tool: CuratedTool, query: string): boolean {
-    if (!query) return true;
-    return (
-      tool.label.toLowerCase().includes(query) ||
-      tool.description.toLowerCase().includes(query)
-    );
-  }
-
-  private matchesCategory(tool: CuratedTool): boolean {
-    if (this.selectedCategory === 'All') return true;
-    if (this.selectedCategory === 'Featured') return tool.isFeatured;
-    return tool.tags.includes(this.selectedCategory);
-  }
-
-  trackByTool(index: number, tool: CuratedTool): string {
-    return tool.key;
-  }
-
-  onLaunchTool(tool: CuratedTool) {
-    if (tool.url) {
-      const sanitizedUrl = trySanitizeUrl(tool.url);
-      if (sanitizedUrl) {
-        windowOpen(window, sanitizedUrl, '_blank');
+  toggleFavorite(tool: CuratedTool): void {
+    this.favoriteToolKeys.update((keys) => {
+      const newKeys = new Set(keys);
+      if (newKeys.has(tool.key)) {
+        newKeys.delete(tool.key);
       } else {
-        console.error('Blocked navigation to untrusted URL: ', tool.url);
-        this.snackBar.open(
-          'Navigation blocked: unsafe link detected.',
-          'Close',
-          {
-            duration: 4000,
-          },
-        );
+        newKeys.add(tool.key);
       }
-    } else {
+      return newKeys;
+    });
+  }
+
+  onLaunchTool(tool: CuratedTool): void {
+    if (!tool.url) {
       this.snackBar.open(
         `${tool.label} is an upcoming curated experiment. Check back soon!`,
         'Close',
         {duration: 4000},
       );
+      return;
+    }
+
+    const sanitizedUrl = trySanitizeUrl(tool.url);
+    if (!sanitizedUrl) {
+      console.error('Blocked navigation to untrusted URL: ', tool.url);
+      this.snackBar.open('Navigation blocked: unsafe link detected.', 'Close', {
+        duration: 4000,
+      });
+      return;
+    }
+
+    windowOpen(window, sanitizedUrl, '_blank');
+  }
+
+  runPlayground(): void {
+    if (this.isPlaygroundRunning()) return;
+    this.isPlaygroundRunning.set(true);
+    this.playgroundStatusText.set('Running...');
+    setTimeout(() => {
+      this.isPlaygroundRunning.set(false);
+      this.playgroundStatusText.set('Completed (0.42s)');
+      this.hasPlaygroundChart.set(true);
+    }, 1000);
+  }
+
+  askAi(): void {
+    if (this.isAiGenerating() || !this.playgroundAiPrompt().trim()) return;
+    this.isAiGenerating.set(true);
+    setTimeout(() => {
+      this.isAiGenerating.set(false);
+      this.playgroundCodeContent.set(
+        `# AI Generated Visualization\nimport xprof\nimport matplotlib.pyplot as plt\n\n# Fetch profile session data\nsession = xprof.get_session('${this.sessionId}')\ntpu_metrics = session.get_tpu_compilation_metrics()\n\nplt.figure(figsize=(10, 6))\nplt.plot(tpu_metrics['timestamps'], tpu_metrics['overhead'], color='#0b57d0')\nplt.title('TPU 0 Instruction Compilation Overhead')\nplt.xlabel('Time (s)')\nplt.ylabel('Overhead (ms)')\nplt.grid(True)\nplt.show()`,
+      );
+      this.playgroundAiPrompt.set('');
+    }, 1500);
+  }
+
+  onCodeChange(event: Event): void {
+    if (event.target instanceof HTMLTextAreaElement) {
+      this.playgroundCodeContent.set(event.target.value);
+    }
+  }
+
+  onAiPromptChange(event: Event): void {
+    if (event.target instanceof HTMLInputElement) {
+      this.playgroundAiPrompt.set(event.target.value);
     }
   }
 }

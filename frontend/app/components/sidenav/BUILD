@@ -48,6 +48,8 @@ xprof_ng_module(
         "@npm//@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@npm//@angular/router",
+        "//third_party/javascript/angular_components:cdk_testing_catalyst",
+        "@org_xprof//frontend/app/common/angular:angular_material_select_testing",
         "@npm//@ngrx/store",
         "@npm//rxjs",
         "//third_party/javascript/typings/jasmine",

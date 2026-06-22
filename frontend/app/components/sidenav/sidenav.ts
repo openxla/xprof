@@ -171,6 +171,7 @@ export class SideNav implements OnInit, OnDestroy {
         : params.get('hosts');
     const sessionPath = params.get('session_path') ?? '';
     const runPath = params.get('run_path') ?? '';
+    const baseSessionId = params.get('base_session_id') ?? '';
     const label = params.get('label') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';
     const moduleName = params.get('module_name') ?? '';
@@ -184,6 +185,7 @@ export class SideNav implements OnInit, OnDestroy {
     this.runPathInternal = runPath;
     this.sessionPathInternal = sessionPath;
     this.labelInternal = label;
+    this.dataService.setBaseSessionId(baseSessionId);
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
@@ -236,6 +238,10 @@ export class SideNav implements OnInit, OnDestroy {
     }
     if (this.sessionPathInternal) {
       navigationEvent.session_path = this.sessionPathInternal;
+    }
+    const baseSessionId = this.dataService.getBaseSessionId();
+    if (baseSessionId) {
+      navigationEvent.base_session_id = baseSessionId;
     }
     return navigationEvent;
   }

@@ -137,6 +137,9 @@ export interface DataServiceV2Interface {
   getSearchParams(): URLSearchParams;
   setSearchParams(searchParams: URLSearchParams): void;
 
+  getBaseSessionId(): string | null;
+  setBaseSessionId(sessionId: string): void;
+
   // Export tool data for the given session as a CSV.
   // tqx: additional query parameters to pass to the server. The format should
   // be a semicolon-separated list of key-value pairs, for example,

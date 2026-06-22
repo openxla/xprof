@@ -25,6 +25,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
@@ -715,6 +716,54 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromSparseCore) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 10);
 }
 
+TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCall) {
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+
+  // CustomCall with flops = 0 -> off duty
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_0_flops",
+               /*offset_ps=*/10,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kFlops, int64_t{0}}});
+
+  // CustomCall with flops > 0 -> on duty
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_flops",
+               /*offset_ps=*/20,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kFlops, int64_t{5}}});
+
+  // CustomCall without flops stat -> off duty
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_flops",
+               /*offset_ps=*/30,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)}});
+
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/5,
+               /*duration_ps=*/50);
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor);
+
+  // active time is op 2 (10ps)
+  EXPECT_EQ(tracker.GetActiveTimePs(), 10);
+  // idle time is 50ps (module) - 10ps (active) = 40ps
+  EXPECT_EQ(tracker.GetIdleTimePs(), 40);
+}
+
 TEST(ConvertXPlaneToOpStats, MultiCoreChipBusyAndIdleTimeTest) {
   XSpace space;
   CoreDetails tc_core_details;
@@ -1305,8 +1354,7 @@ TEST(ConvertXPlaneToOpStats, PopulateDisaggregatedServingLatency) {
                        ConvertXSpaceToOpStats(space, OpStatsOptions()));
   ASSERT_TRUE(op_stats.has_disaggregated_serving_latency());
   ASSERT_EQ(op_stats.disaggregated_serving_latency().num_decode_steps(), 1);
-  double expected_avg_duration_us =
-      tsl::profiler::PicoToMicro(duration_ps);
+  double expected_avg_duration_us = tsl::profiler::PicoToMicro(duration_ps);
   ASSERT_EQ(
       op_stats.disaggregated_serving_latency().decode_step_time_us().avg(),
       expected_avg_duration_us);

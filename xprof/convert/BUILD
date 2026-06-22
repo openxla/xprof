@@ -1333,6 +1333,7 @@ cc_test(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",

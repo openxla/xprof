@@ -379,15 +379,48 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
 
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   DutyCycleTracker duty_cycle_tracker;
+  auto is_custom_call_event_off_duty_op =
+      [](const std::optional<XStatVisitor>& hlo_category_stat,
+         const std::optional<XStatVisitor>& flops_stat,
+         const std::optional<XStatVisitor>& model_flops_stat) {
+    // Custom-call check.
+    if (!hlo_category_stat.has_value() ||
+        hlo_category_stat->StrOrRefValue() !=
+            xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+      return false;
+    }
+    // If metadata contains flop count (user-provided cost for Pallas),
+    // a count of 0 implies off-duty.
+    // If no flops stat is available, consider it as an off-duty op.
+    int64_t flops = flops_stat.has_value() ? flops_stat->IntOrUintValue() : 0;
+    int64_t model_flops =
+        model_flops_stat.has_value() ? model_flops_stat->IntOrUintValue() : 0;
+    return flops == 0 && model_flops == 0;
+  };
   visitor.ForEachLine([&](const XLineVisitor& line) {
     if (line.Name() == tsl::profiler::kXlaOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
         auto hlo_category_stat =
             event.Metadata().GetStat(StatType::kHloCategory);
+        if (!hlo_category_stat) {
+          hlo_category_stat = event.GetStat(StatType::kHloCategory);
+        }
+        std::optional<XStatVisitor> flops_stat =
+            event.Metadata().GetStat(StatType::kFlops);
+        if (!flops_stat) {
+          flops_stat = event.GetStat(StatType::kFlops);
+        }
+        std::optional<XStatVisitor> model_flops_stat =
+            event.Metadata().GetStat(StatType::kModelFlops);
+        if (!model_flops_stat) {
+          model_flops_stat = event.GetStat(StatType::kModelFlops);
+        }
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&
-              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+              (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
+               is_custom_call_event_off_duty_op(hlo_category_stat, flops_stat,
+                                                model_flops_stat))));
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {

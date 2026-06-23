@@ -3,6 +3,8 @@
 MODULE.bazel
 MODULE.bazel.lock
 .bazelrc.user
+# Local fast-build caches/output (see --config=fast / scripts/xprof_fast_build.sh)
+.bazel/
 
 # Python
 __pycache__/

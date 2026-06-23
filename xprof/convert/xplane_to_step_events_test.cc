@@ -18,7 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/group_events.h"

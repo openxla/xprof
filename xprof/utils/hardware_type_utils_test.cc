@@ -15,7 +15,7 @@ limitations under the License.
 
 #include "xprof/utils/hardware_type_utils.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 
 namespace tensorflow {

@@ -3,7 +3,7 @@
 #include <vector>
 
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/types/span.h"
 
 namespace traceviewer {

@@ -20,8 +20,8 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 

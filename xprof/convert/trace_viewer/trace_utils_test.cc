@@ -1,6 +1,6 @@
 #include "xprof/convert/trace_viewer/trace_utils.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 
 namespace tensorflow {
 namespace profiler {

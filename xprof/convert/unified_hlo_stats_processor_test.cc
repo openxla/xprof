@@ -20,9 +20,8 @@
 
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
-#include "file/base/path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "third_party/jsoncpp/include/json/reader.h"
 #include "third_party/jsoncpp/include/json/value.h"
@@ -45,7 +44,7 @@ class UnifiedHloStatsProcessorTest : public ::testing::Test {
  protected:
   void SetUp() override {
     session_dir_ =
-        file::JoinPath(testing::TempDir(), "unified_hlo_stats_processor_test");
+        tsl::io::JoinPath(testing::TempDir(), "unified_hlo_stats_processor_test");
     file::RecursivelyDelete(session_dir_, file::Defaults()).IgnoreError();
     ASSERT_OK(file::CreateDir(session_dir_, file::Defaults()));
   }
@@ -63,7 +62,7 @@ TEST_F(UnifiedHloStatsProcessorTest, MinimalTest) {
       "hlo_stats", options_);
   ASSERT_NE(processor, nullptr);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
@@ -81,7 +80,7 @@ TEST_F(UnifiedHloStatsProcessorTest, ProcessCombinedOpStatsTest) {
   auto* hlo_processor = dynamic_cast<BaseOpStatsProcessor*>(processor.get());
   ASSERT_NE(hlo_processor, nullptr);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 

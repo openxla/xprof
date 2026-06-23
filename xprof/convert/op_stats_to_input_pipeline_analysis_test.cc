@@ -18,7 +18,7 @@ limitations under the License.
 #include <string>
 
 #include "google/protobuf/any.pb.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tsl/platform/protobuf.h"

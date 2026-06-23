@@ -16,7 +16,7 @@ limitations under the License.
 #include <cstdint>
 #include <string>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xprof/convert/flat_op_stats_to_op_profile.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"

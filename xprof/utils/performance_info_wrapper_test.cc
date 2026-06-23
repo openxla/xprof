@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/utils/performance_info_wrapper.h"
 
+#include "xprof/utils/proto_matchers.h"
 #include <memory>
 #include <utility>
 
@@ -32,11 +33,8 @@ namespace profiler {
 namespace {
 
 using ::testing::UnorderedElementsAre;
-#if defined(PLATFORM_GOOGLE)
-using ::testing::EqualsProto;
-using ::testing::proto::IgnoringRepeatedFieldOrdering;
-#endif  // PLATFORM_GOOGLE
-
+using ::xprof::testing::EqualsProto;
+using ::xprof::testing::IgnoringRepeatedFieldOrdering;
 TEST(PerformanceInfoWrapper, Test16BitPricision) {
   absl::string_view hlo_text = R"hlo(
 HloModule test_module

@@ -26,7 +26,7 @@
 
 #include <string>
 
-#include "testing/base/public/benchmark.h"
+#include "benchmark/benchmark.h"
 #include "absl/flags/flag.h"
 #include "absl/log/check.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"

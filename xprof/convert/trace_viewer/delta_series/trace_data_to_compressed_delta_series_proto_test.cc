@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <string>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "xprof/convert/trace_viewer/trace_events.h"

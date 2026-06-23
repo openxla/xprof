@@ -17,7 +17,7 @@ limitations under the License.
 
 #include "google/protobuf/any.pb.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "plugin/xprof/protobuf/diagnostics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/pod_stats.pb.h"

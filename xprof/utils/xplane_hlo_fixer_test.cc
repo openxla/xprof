@@ -18,7 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <string>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"

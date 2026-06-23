@@ -19,7 +19,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"

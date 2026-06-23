@@ -5,9 +5,10 @@
 #include <utility>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -15,7 +16,7 @@ namespace {
 
 using ::testing::IsEmpty;
 using ::testing::UnorderedElementsAre;
-using ::testing::status::StatusIs;
+using ::absl_testing::StatusIs;
 
 TEST(HloProtoMapTest, GetOriginalModuleList) {
   HloProtoMap hlo_proto_map;

@@ -16,7 +16,7 @@ limitations under the License.
 
 #include <cstdint>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/trace_viewer/trace_options.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"

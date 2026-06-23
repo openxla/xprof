@@ -21,9 +21,8 @@
 
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
-#include "file/base/path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -63,7 +62,7 @@ class BaseOpStatsProcessorTest : public ::testing::Test {
  protected:
   void SetUp() override {
     session_dir_ =
-        file::JoinPath(testing::TempDir(), "base_op_stats_processor_test");
+        tsl::io::JoinPath(testing::TempDir(), "base_op_stats_processor_test");
     file::RecursivelyDelete(session_dir_, file::Defaults()).IgnoreError();
     ASSERT_OK(file::CreateDir(session_dir_, file::Defaults()));
   }
@@ -79,7 +78,7 @@ class BaseOpStatsProcessorTest : public ::testing::Test {
 TEST_F(BaseOpStatsProcessorTest, MinimalTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
@@ -92,7 +91,7 @@ TEST_F(BaseOpStatsProcessorTest, MinimalTest) {
 TEST_F(BaseOpStatsProcessorTest, MapTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   dummy_space.add_planes()->set_name("test_plane");
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
@@ -110,14 +109,14 @@ TEST_F(BaseOpStatsProcessorTest, MapTest) {
 TEST_F(BaseOpStatsProcessorTest, ReduceTest) {
   MockOpStatsProcessor processor(options_);
 
-  std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
 
   std::string op_stats_path =
-      file::JoinPath(session_dir_, "test_host.op_stats.pb");
+      tsl::io::JoinPath(session_dir_, "test_host.op_stats.pb");
   OpStats dummy_op_stats;
   dummy_op_stats.mutable_run_environment()->set_device_type("TPU");
   ASSERT_OK(xprof::WriteBinaryProto(op_stats_path, dummy_op_stats));

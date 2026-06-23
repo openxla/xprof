@@ -18,13 +18,13 @@ limitations under the License.
 
 #include <string>
 
-#include "testing/base/public/gmock.h"
+#include "gmock/gmock.h"
 #include "absl/status/statusor.h"
 #include "xprof/convert/smart_suggestion/tool_data_provider.h"
 #include "plugin/xprof/protobuf/event_time_fraction_analyzer.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
-#include "tensorflow/core/profiler/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace tensorflow {
 namespace profiler {

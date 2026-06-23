@@ -18,7 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "xla/tsl/platform/types.h"

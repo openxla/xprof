@@ -1,30 +1,66 @@
 # Bazel
-## Ignore all bazel-* symlinks. There is no full list since this can change
-## based on the name of the directory bazel is cloned into.
 /bazel-*
 MODULE.bazel
 MODULE.bazel.lock
-
-*.pyc
-*.so
-*.egg-info
-*.whl
-*_pb2.py
-
-.ipynb_checkpoints
-.DS_Store
-.mypy_cache/
-.pytype/
-
-.idea
-.vscode
-.envrc
 .bazelrc.user
 
-# virtualenv/venv directories
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*_pb2.py
+.ipynb_checkpoints
+.mypy_cache/
+.pytype/
 /venv/
 /bin/
 /include/
 /lib/
 /share/
 
+# Node / JS / TS
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.yarn/sdks
+/dist/
+/out/
+*.tsbuildinfo
+
+# IDE / Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Misc
+.env
+.envrc

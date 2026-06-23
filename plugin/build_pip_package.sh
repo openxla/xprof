@@ -15,7 +15,7 @@
 
 set -x
 set -e
-copy="cp"
+copy="cp --parents"
 
 OUTPUT_DIR="${XPROF_OUTPUT_DIR:-/tmp/profile-pip}"
 POSITIONAL_ARGS=()
@@ -57,7 +57,7 @@ if [ -z "${RUNFILES}" ]; then
 fi
 
 if [ "$(uname)" = "Darwin" ]; then
-  copy="gcp"
+  copy="rsync -R"
 fi
 
 
@@ -71,7 +71,7 @@ cp "$ROOT_RUNFILE_DIR/README.md" README.md
 
 # Copy plugin python files.
 cd ${PLUGIN_RUNFILE_DIR}
-find . -name '*.py' -exec ${copy} --parents -Lrpv {} $dest \;
+find . -name '*.py' -exec ${copy} -Lrpv {} $dest \;
 cd $dest
 chmod -R 755 .
 cp ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py xprof/protobuf/ || echo "Files already exist"

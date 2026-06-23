@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"

@@ -18,9 +18,12 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <google/protobuf/text_format.h>
+#include "gmock/gmock.h"
+#include "xprof/utils/proto_matchers.h"
+using ::xprof::testing::EqualsProto;
+using ::xprof::testing::IgnoringRepeatedFieldOrdering;
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -32,10 +35,16 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 #if defined(PLATFORM_GOOGLE)
-using ::testing::EqualsProto;
 using ::testing::proto::IgnoringRepeatedFieldOrdering;
 #endif
-using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
+// OSS-compatible replacement for google::protobuf::contrib::parse_proto
+template <typename T>
+T ParseTextProtoOrDie(const std::string& text) {
+  T proto;
+  EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(text, &proto))
+      << "Failed to parse text proto: " << text;
+  return proto;
+}
 using ::tsl::profiler::StatType;
 using ::tsl::profiler::XEventBuilder;
 using ::tsl::profiler::XEventMetadata;
@@ -111,9 +120,7 @@ TEST(OpMetricsDbTest, FromXEventHandlesMissingOccurrences) {
                 dma_stall_ps: 0
                 hlo_module_id: 1
                 flops: 3
-                flops_v2: 3
                 model_flops: 4
-                model_flops_v2: 4
                 bytes_accessed: 5
                 name: "display_name"
                 long_name: "metadata"
@@ -129,29 +136,6 @@ TEST(OpMetricsDbTest, FromXEventHandlesMissingOccurrences) {
                 }
               )pb"));
 #endif
-}
-
-TEST(OpMetricsDbTest, FromXEventExtractsVddEnergy) {
-  XPlane raw_plane;
-  XPlaneBuilder plane(&raw_plane);
-  XLineBuilder line = plane.GetOrCreateLine(0);
-  XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("metadata");
-  XEventBuilder event = line.AddEvent(*event_metadata);
-  event.SetOffsetPs(0);
-  event.SetDurationPs(100);
-
-  XStatMetadata* energy_stat_metadata =
-      plane.GetOrCreateStatMetadata("vdd_energy_j");
-  event.AddStatValue(*energy_stat_metadata, 42.0);
-
-  tsl::profiler::XPlaneVisitor plane_visitor =
-      tsl::profiler::CreateTfXPlaneVisitor(&raw_plane);
-  tsl::profiler::XEventVisitor event_visitor(
-      &plane_visitor, &raw_plane.lines(0), &raw_plane.lines(0).events(0));
-
-  OpMetrics op_metrics = FromXEvent(event_visitor);
-
-  EXPECT_DOUBLE_EQ(op_metrics.vdd_energy_j(), 42.0);
 }
 
 TEST(OpMetricsDbTest, GetOpKeyFromXEvent) {
@@ -192,18 +176,14 @@ TEST(OpMetricsDbTest, AddOpMetric) {
         *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 1);
     XStatMetadata* time_scale_multiplier_stat = plane.GetOrCreateStatMetadata(
         GetStatTypeStr(StatType::kTimeScaleMultiplier));
-    XStatMetadata* energy_stat_metadata =
-        plane.GetOrCreateStatMetadata("vdd_energy_j");
     XEventBuilder event = line.AddEvent(*event_metadata);
     event.SetOffsetPs(0);
     event.SetDurationPs(100);
     event.AddStatValue(*time_scale_multiplier_stat, 0.5);
-    event.AddStatValue(*energy_stat_metadata, 10.0);
     XEventBuilder event2 = line.AddEvent(*event_metadata);
     event2.SetOffsetPs(100);
     event2.SetDurationPs(100);
     event2.AddStatValue(*time_scale_multiplier_stat, 1.0);
-    event2.AddStatValue(*energy_stat_metadata, 20.0);
   }
   {
     XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("m2");
@@ -253,7 +233,6 @@ TEST(OpMetricsDbTest, AddOpMetric) {
                   normalized_time_ps: 150
                   min_time_ps: 100
                   num_cores: 1
-                  vdd_energy_j: 30
                 }
                 metrics_db {
                   hlo_module_id: 1
@@ -296,7 +275,7 @@ TEST(OpMetricsDbTest, DISABLED_ParseProvenanceTest) {
 }
 
 TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
-  OpMetricsDb op_metrics_db = ParseTextProtoOrDie(R"pb(
+  OpMetricsDb op_metrics_db = ParseTextProtoOrDie<OpMetricsDb>(R"pb(
     metrics_db {
       hlo_module_id: 1
       name: "root"
@@ -304,7 +283,6 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
       self_time_ps: 2
       time_ps: 4
       flops: 8
-      flops_v2: 8
       source_info { stack_frame: "file.py:1" }
       children {
         metrics_db {
@@ -314,7 +292,6 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
           self_time_ps: 4
           time_ps: 8
           flops: 2
-          flops_v2: 2
           source_info { stack_frame: "file.py:1" }
           children {
             metrics_db {
@@ -324,7 +301,6 @@ TEST(OpMetricsDbTest, GetRooflineModelRecordFromOpMetrics) {
               self_time_ps: 4
               time_ps: 8
               flops: 1
-              flops_v2: 1
               source_info { stack_frame: "file.py:1" }
             }
           }

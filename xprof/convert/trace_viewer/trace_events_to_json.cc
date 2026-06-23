@@ -78,13 +78,13 @@ std::string JsonEscape(absl::string_view raw) {
                               static_cast<unsigned int>(c));
         continue;
       }
-      case '\xe2': {
-        if ((i + 2 < length) && (raw[i + 1] == '\x80')) {
-          if (raw[i + 2] == '\xa8') {
+      case 0xe2: {
+        if (i + 2 < length && static_cast<unsigned char>(raw[i + 1]) == 0x80) {
+          if (static_cast<unsigned char>(raw[i + 2]) == 0xa8) {
             escaped_string.append("\\u2028");
             i += 2;
             continue;
-          } else if (raw[i + 2] == '\xa9') {
+          } else if (static_cast<unsigned char>(raw[i + 2]) == 0xa9) {
             escaped_string.append("\\u2029");
             i += 2;
             continue;

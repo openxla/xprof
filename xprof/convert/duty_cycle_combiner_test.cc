@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/duty_cycle_combiner.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 

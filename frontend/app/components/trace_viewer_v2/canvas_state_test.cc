@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "imgui.h"
 
 namespace traceviewer {

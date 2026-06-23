@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
 
 namespace traceviewer {

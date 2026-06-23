@@ -1,6 +1,6 @@
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/strings/string_view.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"

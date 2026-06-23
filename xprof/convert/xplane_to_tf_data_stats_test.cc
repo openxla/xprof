@@ -17,11 +17,11 @@ limitations under the License.
 
 #include <cstdint>
 
-#include "testing/base/public/gmock.h"
+#include "gmock/gmock.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/tf_data_stats.pb.h"
 

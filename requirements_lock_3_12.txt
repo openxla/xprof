@@ -1116,7 +1116,7 @@ proto-plus==1.28.0 \
     # via
     #   google-api-core
     #   google-cloud-storage-control
-protobuf==6.33.5 \
+protobuf==7.35.1 \
     --hash=sha256:11d6b0ec246892d85215b0a13ca6e0233cf5284b68f0ac02646427f4ff88a799 \
     --hash=sha256:230a75ddfc2de4806e56696ce9640c1cdfdb6543b7cfce98d42a4c0a0e7bdb87 \
     --hash=sha256:24f857477359a85c0c235261b8ba905fd51b2562f4a64ca1df5473f29850cbf6 \

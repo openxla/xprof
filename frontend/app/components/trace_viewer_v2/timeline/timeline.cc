@@ -1722,6 +1722,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
         TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
     Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
 
+    // Add a minimum 1px height so that a value equal to min_value is still
+    // visible as a thin line instead of completely disappearing.
+    y = std::min(y, y_base - 1.0f);
+
     draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
                              kCounterTrackColor);
   }

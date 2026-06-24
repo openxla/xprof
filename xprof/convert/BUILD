@@ -437,6 +437,7 @@ cc_library(
 
 cc_test(
     name = "streaming_trace_viewer_processor_test",
+    size = "large",
     srcs = ["streaming_trace_viewer_processor_test.cc"],
     data = [
         "@org_xprof//xprof/convert/test_xplanes:gpu_training_2.xplane.pb",
@@ -449,17 +450,24 @@ cc_test(
         ":trace_view_options",
         ":unified_session_snapshot",
         ":xplane_to_trace_container",
+        ":xprof_thread_pool_executor",
         "//file/base:path",
         "//file/util:temp_path",
+        "//third_party/protobuf/util:differencer",
         "@com_github_nlohmann_json//:json",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@xla//xla/tsl/lib/core:status_test_util",
+        "@xla//xla/tsl/lib/io:iterator",
+        "@xla//xla/tsl/lib/io:table",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:file_statistics",
@@ -467,6 +475,7 @@ cc_test(
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/platform:test",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
 
@@ -2299,7 +2308,9 @@ cc_library(
     deps = [
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:trace_events_raw_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer:trace_event_arguments_builder",

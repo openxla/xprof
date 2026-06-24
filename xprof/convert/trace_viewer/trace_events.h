@@ -95,7 +95,7 @@ struct SearchOptions {
 };
 
 using SerializeEventFn = absl::AnyInvocable<absl::Status(
-    const TraceEvent&, TraceEvent&, std::string&)>;
+    const TraceEvent&, TraceEvent&, std::string&) const>;
 
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
@@ -226,8 +226,11 @@ absl::Status DoLoadFromLevelDbTable(
   // Read the metadata.
   iterator->SeekToFirst();
   if (!ReadTraceMetadata(iterator.get(), kTraceMetadataKey, &trace)) {
-    return absl::UnknownError(
-        "Could not parse Trace proto to read trace metadata");
+    iterator->Seek("trace");
+    if (!ReadTraceMetadata(iterator.get(), "trace", &trace)) {
+      return absl::UnknownError(
+          "Could not parse Trace proto to read trace metadata");
+    }
   }
 
   if (filter) filter->SetUp(trace);
@@ -424,8 +427,11 @@ absl::Status DoSearchInLevelDbTable(
   trace_events_iterator->SeekToFirst();
   if (!ReadTraceMetadata(trace_events_iterator.get(), kTraceMetadataKey,
                          &trace)) {
-    return absl::UnknownError(
-        "Could not parse Trace proto to read trace metadata");
+    trace_events_iterator->Seek("trace");
+    if (!ReadTraceMetadata(trace_events_iterator.get(), "trace", &trace)) {
+      return absl::UnknownError(
+          "Could not parse Trace proto to read trace metadata");
+    }
   }
   if (filter) filter->SetUp(trace);
 
@@ -605,7 +611,10 @@ absl::Status DoReadFullEventFromLevelDbTable(
   trace_events_iterator->SeekToFirst();
   if (!ReadTraceMetadata(trace_events_iterator.get(), kTraceMetadataKey,
                          &trace)) {
-    return absl::UnknownError("Could not parse Trace proto");
+    trace_events_iterator->Seek("trace");
+    if (!ReadTraceMetadata(trace_events_iterator.get(), "trace", &trace)) {
+      return absl::UnknownError("Could not parse Trace proto");
+    }
   }
 
   for (int zoom_level = 0; zoom_level < NumLevels(); ++zoom_level) {
@@ -882,6 +891,8 @@ class TraceEventsContainerBase {
   }
 
   // Stores the contents of this container in a level-db sstable file.
+  // TODO(b/522205373): Cleanup legacy trace_events implementation once lite
+  // trace events is fully enabled.
   absl::Status StoreAsLevelDbTable(
       std::unique_ptr<tsl::WritableFile> file) const {
     Trace trace = trace_;
@@ -896,6 +907,8 @@ class TraceEventsContainerBase {
   // file contains only the metadata and the third file contains the prefix
   // trie index over trace event names that would be used for fast prefix
   // search of events.
+  // TODO(b/522205373): Cleanup legacy trace_events implementation once lite
+  // trace events is fully enabled.
   absl::Status StoreAsLevelDbTables(
       std::unique_ptr<tsl::WritableFile> trace_events_file,
       std::unique_ptr<tsl::WritableFile> trace_events_metadata_file,

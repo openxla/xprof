@@ -138,8 +138,15 @@ cc_test(
 
 cc_library(
     name = "trace_events",
-    srcs = ["trace_events.cc"],
-    hdrs = ["trace_events.h"],
+    srcs = [
+        "lite_trace_events.cc",
+        "trace_events.cc",
+    ],
+    hdrs = [
+        "lite_trace_events.h",
+        "lite_trace_events_visibility.h",
+        "trace_events.h",
+    ],
     deps = [
         ":prefix_trie",
         ":trace_events_filter_interface",
@@ -168,6 +175,7 @@ cc_library(
         "@org_xprof//xprof/convert:xprof_thread_pool_executor",
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/lib/io:block",
         "@xla//xla/tsl/lib/io:iterator",
         "@xla//xla/tsl/lib/io:table",
@@ -176,6 +184,8 @@ cc_library(
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:macros",
         "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
 

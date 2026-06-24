@@ -1,7 +1,9 @@
 #include "xprof/convert/streaming_trace_viewer_processor.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -14,12 +16,17 @@
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "nlohmann/json.hpp"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/util/message_differencer.h"
 #include "xla/tsl/lib/core/status_test_util.h"
+#include "xla/tsl/lib/io/iterator.h"
+#include "xla/tsl/lib/io/table.h"
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/file_statistics.h"
@@ -28,13 +35,16 @@
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/trace_view_options.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
 
 #include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_trace_container.h"
+#include "xprof/convert/xprof_thread_pool_executor.h"
 
 namespace xprof {
 using ::tensorflow::profiler::GetTraceViewOption;
@@ -681,6 +691,294 @@ TEST_F(StreamingTraceViewerProcessorTest, ReduceSingleHostPbFormat) {
   EXPECT_FALSE(nlohmann::json::accept(pb_output));
 }
 
+class StringBackedWritableFile : public tsl::WritableFile {
+ public:
+  explicit StringBackedWritableFile(std::string* external_buffer)
+      : buffer_(external_buffer) {}
+  ~StringBackedWritableFile() override = default;
+
+  absl::Status Append(absl::string_view data) override {
+    buffer_->append(data.data(), data.size());
+    return absl::OkStatus();
+  }
+  absl::Status Close() override { return absl::OkStatus(); }
+  absl::Status Flush() override { return absl::OkStatus(); }
+  absl::Status Name(absl::string_view* result) const override {
+    return absl::OkStatus();
+  }
+  absl::Status Sync() override { return absl::OkStatus(); }
+  absl::Status Tell(int64_t* position) override {
+    *position = buffer_->size();
+    return absl::OkStatus();
+  }
+
+ private:
+  std::string* buffer_;
+};
+
+std::optional<tensorflow::profiler::Trace> ExtractTraceFromTable(
+    tsl::table::Table* table) {
+  std::unique_ptr<tsl::table::Iterator> it(table->NewIterator());
+
+  it->Seek("/trace");
+  if (it->Valid() && it->key() == "/trace") {
+    tensorflow::profiler::Trace trace;
+    if (trace.ParseFromString(std::string(it->value()))) {
+      return trace;
+    }
+  }
+
+  it->Seek("trace");
+  if (it->Valid() && it->key() == "trace") {
+    tensorflow::profiler::Trace trace;
+    if (trace.ParseFromString(std::string(it->value()))) {
+      return trace;
+    }
+  }
+
+  return std::nullopt;
+}
+
+// Helper to compare two LevelDB tables logically using Iterators
+void CompareLevelDbTables(
+    const std::string& legacy_file, const std::string& lite_file,
+    bool compare_trace,
+    const std::function<void(absl::string_view key,
+                             absl::string_view legacy_val,
+                             absl::string_view lite_val)>& val_assert_fn) {
+  tsl::Env* env = tsl::Env::Default();
+
+  // Open Legacy Table
+  tsl::table::Table* legacy_table = nullptr;
+  std::unique_ptr<tsl::RandomAccessFile> legacy_raf;
+  uint64_t legacy_size;
+  TF_CHECK_OK(env->GetFileSize(legacy_file, &legacy_size));
+  TF_CHECK_OK(env->NewRandomAccessFile(legacy_file, &legacy_raf));
+  TF_CHECK_OK(tsl::table::Table::Open(tsl::table::Options(), legacy_raf.get(),
+                                      legacy_size, &legacy_table));
+  std::unique_ptr<tsl::table::Table> legacy_table_deleter(legacy_table);
+
+  // Open Lite Table
+  tsl::table::Table* lite_table = nullptr;
+  std::unique_ptr<tsl::RandomAccessFile> lite_raf;
+  uint64_t lite_size;
+  TF_CHECK_OK(env->GetFileSize(lite_file, &lite_size));
+  TF_CHECK_OK(env->NewRandomAccessFile(lite_file, &lite_raf));
+  TF_CHECK_OK(tsl::table::Table::Open(tsl::table::Options(), lite_raf.get(),
+                                      lite_size, &lite_table));
+  std::unique_ptr<tsl::table::Table> lite_table_deleter(lite_table);
+
+  // Instantiate Iterators
+  std::unique_ptr<tsl::table::Iterator> legacy_it(legacy_table->NewIterator());
+  std::unique_ptr<tsl::table::Iterator> lite_it(lite_table->NewIterator());
+
+  legacy_it->SeekToFirst();
+  lite_it->SeekToFirst();
+
+  // Side-by-side record traversal
+  while (legacy_it->Valid() && lite_it->Valid()) {
+    // Skip the "trace" metadata key during the loop to avoid block layout
+    // differences
+    if (legacy_it->key() == "/trace") {
+      legacy_it->Next();
+      continue;
+    }
+    if (lite_it->key() == "trace") {
+      lite_it->Next();
+      continue;
+    }
+
+    // Assert that keys match lexicographically
+    ASSERT_EQ(legacy_it->key(), lite_it->key());
+    // Perform logical value comparisons
+    val_assert_fn(legacy_it->key(), legacy_it->value(), lite_it->value());
+
+    legacy_it->Next();
+    lite_it->Next();
+  }
+
+  if (lite_it->Valid() && lite_it->key() == "trace") {
+    lite_it->Next();
+  }
+
+  // Verify both iterators reached the end symmetrically
+  EXPECT_FALSE(legacy_it->Valid());
+  EXPECT_FALSE(lite_it->Valid());
+
+  // Deep logical Protobuf Comparison
+  if (compare_trace) {
+    auto legacy_trace_opt = ExtractTraceFromTable(legacy_table);
+    auto lite_trace_opt = ExtractTraceFromTable(lite_table);
+
+    ASSERT_TRUE(legacy_trace_opt.has_value())
+        << "Legacy table missing Trace metadata!";
+    ASSERT_TRUE(lite_trace_opt.has_value())
+        << "Lite table missing Trace metadata!";
+
+    EXPECT_TRUE(google::protobuf::util::MessageDifferencer::Equals(*lite_trace_opt,
+                                                         *legacy_trace_opt))
+        << "Logical unified Trace metadata mismatch!";
+  }
+}
+
+class LiteTraceEventsParityTest : public ::testing::TestWithParam<std::string> {
+};
+
+TEST_P(LiteTraceEventsParityTest, TestLiteTraceEventsByLevel) {
+  std::string xplane_path =
+      devtools_build::GetDataDependencyFilepath(GetParam());
+  XSpace space;
+  TF_CHECK_OK(xprof::ReadBinaryProto(xplane_path, &space));
+
+  std::vector<std::vector<const tensorflow::profiler::TraceEvent*>>
+      legacy_events_by_level;
+  std::vector<std::vector<const tensorflow::profiler::TraceEventLite*>>
+      lite_events_by_level;
+  tensorflow::profiler::TraceEventsContainer legacy_container;
+  tensorflow::profiler::TraceEventLiteContainer lite_container;
+
+  tensorflow::profiler::XprofThreadPoolExecutor executor("ParityTestPool", 2);
+  executor.Execute([&]() {
+    tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(
+        "localhost", space, &legacy_container);
+    legacy_events_by_level = legacy_container.GetTraceEventsByLevel();
+  });
+  executor.Execute([&]() {
+    tensorflow::profiler::ConvertXSpaceToLiteTraceEventsContainer(
+        "localhost", space, &lite_container);
+    lite_events_by_level =
+        tensorflow::profiler::LiteTraceEventsByLevel(&lite_container);
+  });
+  executor.JoinAll();
+
+  // 1. Verify total number of events matches perfectly using NumEvents()
+  EXPECT_EQ(legacy_container.NumEvents(),
+            tensorflow::profiler::NumEvents(lite_container));
+
+  // 2. Verify number of visibility zoom levels matches
+  EXPECT_EQ(legacy_events_by_level.size(), lite_events_by_level.size());
+
+  // 3. Verify number of events at each level matches
+  for (size_t i = 0;
+       i < std::min(legacy_events_by_level.size(), lite_events_by_level.size());
+       ++i) {
+    if (legacy_events_by_level[i].size() != lite_events_by_level[i].size()) {
+      LOG(ERROR) << "Level " << i << " MISMATCH DETAILS:";
+      LOG(ERROR) << "Legacy size: " << legacy_events_by_level[i].size()
+                 << ", Lite size: " << lite_events_by_level[i].size();
+    }
+
+    EXPECT_EQ(legacy_events_by_level[i].size(), lite_events_by_level[i].size())
+        << "Mismatch at level " << i;
+  }
+}
+
+TEST_P(LiteTraceEventsParityTest, TestEndToEndTableParity) {
+  std::string xplane_path =
+      devtools_build::GetDataDependencyFilepath(GetParam());
+  tensorflow::profiler::XSpace space;
+  TF_CHECK_OK(xprof::ReadBinaryProto(xplane_path, &space));
+
+  // 1. Generate local temporary file paths on disk
+  std::string legacy_fast_file, legacy_metadata_file, legacy_trie_file;
+  std::string lite_fast_file, lite_metadata_file, lite_trie_file;
+
+  tsl::Env* env = tsl::Env::Default();
+  CHECK(env->LocalTempFilename(&legacy_fast_file));
+  CHECK(env->LocalTempFilename(&legacy_metadata_file));
+  CHECK(env->LocalTempFilename(&legacy_trie_file));
+  CHECK(env->LocalTempFilename(&lite_fast_file));
+  CHECK(env->LocalTempFilename(&lite_metadata_file));
+  CHECK(env->LocalTempFilename(&lite_trie_file));
+
+  // 2. Instantiate standard production WritableFile instances directly on disk!
+  std::unique_ptr<tsl::WritableFile> legacy_fast;
+  std::unique_ptr<tsl::WritableFile> legacy_metadata;
+  std::unique_ptr<tsl::WritableFile> legacy_trie;
+  TF_CHECK_OK(env->NewWritableFile(legacy_fast_file, &legacy_fast));
+  TF_CHECK_OK(env->NewWritableFile(legacy_metadata_file, &legacy_metadata));
+  TF_CHECK_OK(env->NewWritableFile(legacy_trie_file, &legacy_trie));
+
+  std::unique_ptr<tsl::WritableFile> lite_fast;
+  std::unique_ptr<tsl::WritableFile> lite_metadata;
+  std::unique_ptr<tsl::WritableFile> lite_trie;
+  TF_CHECK_OK(env->NewWritableFile(lite_fast_file, &lite_fast));
+  TF_CHECK_OK(env->NewWritableFile(lite_metadata_file, &lite_metadata));
+  TF_CHECK_OK(env->NewWritableFile(lite_trie_file, &lite_trie));
+
+  // 3. Serialize Legacy sequentially directly to disk
+  {
+    tensorflow::profiler::TraceEventsContainer legacy_container;
+    tensorflow::profiler::ConvertXSpaceToTraceEventsContainer(
+        "localhost", space, &legacy_container);
+    TF_CHECK_OK(legacy_container.StoreAsLevelDbTables(
+        std::move(legacy_fast), std::move(legacy_metadata),
+        std::move(legacy_trie)));
+  }
+
+  // 4. Serialize Lite sequentially directly to disk
+  {
+    tensorflow::profiler::TraceEventLiteContainer lite_container;
+    tensorflow::profiler::ConvertXSpaceToLiteTraceEventsContainer(
+        "localhost", space, &lite_container);
+
+    auto converter_fn =
+        [&](const tsl::profiler::XEventVisitor& event_visitor,
+            const tensorflow::profiler::TraceEventLite& lite_event,
+            absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+            tensorflow::profiler::TraceEvent* full_event,
+            google::protobuf::Arena* arena) -> absl::Status {
+      tensorflow::profiler::ConvertLiteTraceEventToFullTraceEvent(
+          event_visitor, lite_event, lite_container, local_name_table,
+          full_event, arena);
+      return absl::OkStatus();
+    };
+
+    TF_CHECK_OK(tensorflow::profiler::StoreLiteEventsAsLevelDbTables(
+        &lite_container, converter_fn, lite_fast, lite_metadata,
+        lite_trie));
+  }
+
+  // 5. Verify the Fast Event Tables logically (comparing serialized events and
+  // Trace metadata)
+  CompareLevelDbTables(legacy_fast_file, lite_fast_file, /*compare_trace=*/true,
+                       [](absl::string_view key, absl::string_view legacy_val,
+                          absl::string_view lite_val) {
+                         // Symmetrical event record assertion
+                         EXPECT_EQ(legacy_val, lite_val);
+                       });
+
+  // 6. Verify the Metadata Tables logically (comparing stat arguments)
+  CompareLevelDbTables(
+      legacy_metadata_file, lite_metadata_file, /*compare_trace=*/false,
+      [](absl::string_view key, absl::string_view legacy_val,
+         absl::string_view lite_val) { EXPECT_EQ(legacy_val, lite_val); });
+
+  // 7. Verify the Prefix Trie Indexes logically
+  CompareLevelDbTables(legacy_trie_file, lite_trie_file,
+                       /*compare_trace=*/false,
+                       [](absl::string_view key, absl::string_view legacy_val,
+                          absl::string_view lite_val) {
+                         // Symmetrical prefix trie index assertion
+                         EXPECT_EQ(legacy_val, lite_val);
+                       });
+
+  // 8. Cleanup temp files on disk
+  env->DeleteFile(legacy_fast_file).IgnoreError();
+  env->DeleteFile(legacy_metadata_file).IgnoreError();
+  env->DeleteFile(legacy_trie_file).IgnoreError();
+  env->DeleteFile(lite_fast_file).IgnoreError();
+  env->DeleteFile(lite_metadata_file).IgnoreError();
+  env->DeleteFile(lite_trie_file).IgnoreError();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TraceViewerParity, LiteTraceEventsParityTest,
+    ::testing::Values("google3/third_party/xprof/convert/test_xplanes/"
+                      "gpu_training_2.xplane.pb"));
+
 }  // namespace
+
+
 
 }  // namespace xprof

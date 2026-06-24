@@ -39,6 +39,8 @@ namespace profiler {
 // tsl::profiler::Timespan at a certain resolution.
 // Events must be evaluated in order by timestamp, because when an event is
 // determined to be visible, the internal state of this class is updated.
+// TODO(b/522205373): Cleanup legacy trace_events implementation once lite trace
+// events is fully enabled.
 class TraceViewerVisibility {
  public:
   // Create with visible timespan and resolution (in picoseconds).

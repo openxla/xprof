@@ -1,3 +1,4 @@
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 /* Copyright 2023 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +21,8 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/trace_viewer/trace_events.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
+#include "google/protobuf/arena.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -30,6 +33,18 @@ using TraceEventsContainer = TraceEventsContainerBase<EventFactory, RawData>;
 void ConvertXSpaceToTraceEventsContainer(absl::string_view hostname,
                                          const XSpace& xspace,
                                          TraceEventsContainer* container);
+
+void ConvertXSpaceToLiteTraceEventsContainer(
+    absl::string_view hostname, const XSpace& space,
+    TraceEventLiteContainer* container);
+
+void ConvertLiteTraceEventToFullTraceEvent(
+    const tsl::profiler::XEventVisitor& event_visitor,
+    const TraceEventLite& lite_event,
+    const TraceEventLiteContainer& container,
+    absl::flat_hash_map<uint64_t, std::string>* local_name_table,
+    TraceEvent* full_event,
+    google::protobuf::Arena* arena);
 
 }  // namespace profiler
 }  // namespace tensorflow

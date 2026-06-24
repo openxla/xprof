@@ -425,7 +425,10 @@ absl::Status ReadFileTraceMetadata(std::string& filepath, Trace* trace) {
   // 2. Read the metadata.
   iterator->SeekToFirst();
   if (!ReadTraceMetadata(iterator.get(), kTraceMetadataKey, trace)) {
-    return absl::UnknownError("Could not parse Trace proto");
+    iterator->Seek("trace");
+    if (!ReadTraceMetadata(iterator.get(), "trace", trace)) {
+      return absl::UnknownError("Could not parse Trace proto");
+    }
   }
   return absl::OkStatus();
 }
@@ -444,7 +447,16 @@ absl::Status CreateAndSavePrefixTrie(
       std::string event_id =
           LevelDbTableKey(zoom_level, event->timestamp_ps(), event->serial());
       if (!event_id.empty()) {
-        prefix_trie.Insert(event->name(), event_id);
+        absl::string_view event_name = event->name();
+        if (event->has_name_ref()) {
+          auto it = trace.name_table().find(event->name_ref());
+          if (it != trace.name_table().end()) {
+            event_name = it->second;
+          }
+        }
+        if (!event_name.empty()) {
+          prefix_trie.Insert(event_name, event_id);
+        }
         if (enable_metadata_indexing) {
           ExtractMetadataKeys(*event, trace, event_id, prefix_trie, raw_data);
         }

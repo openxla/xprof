@@ -61,6 +61,8 @@ EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests);
 
 EXPORT_C void InitializeStubs(const char* worker_service_addresses);
 
+EXPORT_C bool BuiltWithEmbedded();
+
 #ifdef __cplusplus
 }
 #endif

@@ -1324,6 +1324,7 @@ cc_library(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:kernel_stats_utils",
         "@org_xprof//xprof/utils:op_utils",
+        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_registration",
         "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_types",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/hlo/ir:hlo",
@@ -1336,7 +1337,6 @@ cc_library(
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_utils",
         "@xla//xla/tsl/util:stats_calculator_portable",
-        "@org_xprof//xprof/utils:xprof_gpu_cost_analysis_registration",
     ],
 )
 

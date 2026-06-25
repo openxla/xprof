@@ -483,3 +483,98 @@ def initialize_stubs(worker_service_addresses: str) -> None:
   _lib.InitializeStubs(
       worker_service_addresses.encode() if worker_service_addresses else None
   )
+
+_lib.BuiltWithEmbedded.argtypes = []
+_lib.BuiltWithEmbedded.restype = ctypes.c_bool
+
+
+def built_with_embedded() -> bool:
+  return _lib.BuiltWithEmbedded()
+
+
+if built_with_embedded():
+  _lib.CreateLloAnalysis.argtypes = [ctypes.c_char_p]
+  _lib.CreateLloAnalysis.restype = ctypes.c_void_p
+
+  _lib.GetTotalInstructions.argtypes = [ctypes.c_void_p]
+  _lib.GetTotalInstructions.restype = ctypes.c_int
+
+  _lib.GetUniqueRegisters.argtypes = [ctypes.c_void_p]
+  _lib.GetUniqueRegisters.restype = ctypes.c_int
+
+  _lib.GetNumUniqueOpcodes.argtypes = [ctypes.c_void_p]
+  _lib.GetNumUniqueOpcodes.restype = ctypes.c_int
+
+  _lib.GetOpcodeAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetOpcodeAtIndex.restype = ctypes.c_int
+
+  _lib.GetOpcodeCountAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  _lib.GetOpcodeCountAtIndex.restype = ctypes.c_int
+
+  _lib.GetLloDebugString.argtypes = [ctypes.c_void_p]
+  _lib.GetLloDebugString.restype = ctypes.c_char_p
+
+  _lib.FreeLloAnalysis.argtypes = [ctypes.c_void_p]
+  _lib.FreeLloAnalysis.restype = None
+
+  def analyze_llo(xspace_filename: str) -> dict[str, Any]:
+    """Analyzes an LLO file."""
+    handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
+    if not handle:
+      return {"success": False}
+
+    try:
+      total_instructions = _lib.GetTotalInstructions(handle)
+      unique_registers = _lib.GetUniqueRegisters(handle)
+      num_opcodes = _lib.GetNumUniqueOpcodes(handle)
+
+      if (
+          total_instructions == -1
+          or unique_registers == -1
+          or num_opcodes == -1
+      ):
+        return {"success": False}
+
+      opcodes = {}
+      for i in range(num_opcodes):
+        opcode = _lib.GetOpcodeAtIndex(handle, i)
+        count = _lib.GetOpcodeCountAtIndex(handle, i)
+        if opcode == -1 or count == -1:
+          return {"success": False}
+        opcodes[opcode] = count
+
+      return {
+          "success": True,
+          "total_instructions": total_instructions,
+          "unique_registers": unique_registers,
+          "opcode_histogram": opcodes,
+      }
+    finally:
+      _lib.FreeLloAnalysis(handle)
+
+  def get_llo_debug_string(xspace_filename: str) -> str:
+    """Gets the debug string of an LLO file."""
+    handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
+    if not handle:
+      return ""
+
+    try:
+      debug_str = _lib.GetLloDebugString(handle)
+      if debug_str:
+        return debug_str.decode("utf-8")
+      return ""
+    finally:
+      _lib.FreeLloAnalysis(handle)
+
+
+else:
+
+  def analyze_llo(xspace_filename: str) -> dict[str, Any]:
+    del xspace_filename
+    raise NotImplementedError("analyze_llo is not supported in this build")
+
+  def get_llo_debug_string(xspace_filename: str) -> str:
+    del xspace_filename
+    raise NotImplementedError(
+        "get_llo_debug_string is not supported in this build"
+    )

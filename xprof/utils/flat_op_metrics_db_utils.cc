@@ -28,13 +28,19 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -48,6 +54,47 @@ namespace {
 
 const int64_t kSingleOccurrence = 1;
 constexpr uint64_t kRootSymbolId = 0;
+
+// Extracts the source filename and line from the input `source_top_line`, which
+// is in the format of `<source_filename>:<source_line_number>`.
+absl::StatusOr<std::pair<std::string, int32_t>>
+ExtractSourceFileNameAndLineNumber(absl::string_view source_top_line) {
+  const auto delimiterPos = source_top_line.find(':');
+  if (delimiterPos == std::string_view::npos) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source info expression: '",
+                     std::string(source_top_line), "'"));
+  }
+  const auto source_file = source_top_line.substr(0, delimiterPos);
+  const auto line_str = source_top_line.substr(delimiterPos + 1);
+  int32_t source_line;
+  if (!absl::SimpleAtoi(line_str, &source_line)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source line: '", std::string(line_str), "'"));
+  }
+  return std::make_pair(std::string(source_file), source_line);
+}
+
+// Populates the source filename and line number in the `source_info` from the
+// input `source_top_line`, which is expected to be in the format of
+// `<source_filename>:<source_line_number>`. If the `source_top_line` is not in
+// the expected format, then `source_info` will not be populated.`
+void PopulateSourceInfo(absl::string_view source_top_line,
+                        SourceInfo& source_info) {
+  auto file_and_line =
+      ExtractSourceFileNameAndLineNumber(source_top_line);
+  if (file_and_line.ok()) {
+    source_info.set_file_name(std::move(file_and_line->first));
+    source_info.set_line_number(file_and_line->second);
+  } else {
+    LOG(ERROR) << "Failed to extract source filename and line from the input "
+                  "source_top_line: '"
+               << source_top_line
+               << "' with status: " << file_and_line.status();
+  }
+}
+
+
 
 // Extracts metadata from an XEventMetadataVisitor and populates the
 // corresponding fields in a FlatOpMetrics protobuf message.
@@ -134,6 +181,16 @@ void SetOpMetadataFromHloEventMetadata(
           }
           break;
         }
+
+        case StatType::kSourceInfo:
+          PopulateSourceInfo(stat.StrOrRefValue(),
+                             *op_metrics->mutable_source_info());
+          break;
+
+        case StatType::kSourceStack:
+          op_metrics->mutable_source_info()->set_stack_frame(
+              std::string(stat.StrOrRefValue()));
+          break;
 
         default:
           break;
@@ -366,15 +423,34 @@ FlatOpMetrics XEventsFlatOpMetricsDbBuilder::FromXEvent(
   return op_metrics;
 }
 
+XEventsFlatOpMetricsDbBuilder::OpKey
+XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(
+    const tsl::profiler::XEventVisitor& event) {
+  XEventsFlatOpMetricsDbBuilder::OpKey op_key;
+  if (event.metadata() == nullptr) return op_key;
+  event.Metadata().ForEachStat([&](const XStatVisitor& stat) {
+    if (stat.Type().has_value()) {
+      switch (static_cast<StatType>(*stat.Type())) {
+        case StatType::kProgramId:
+          op_key.program_id = stat.IntOrUintValue();
+          break;
+        case StatType::kSymbolId:
+          op_key.symbol_id = stat.IntOrUintValue();
+          break;
+        default:
+          break;
+      }
+    }
+  });
+  return op_key;
+}
+
 // Adds an operation metric from a tsl::profiler::XEventVisitor to the builder.
 // It extracts the key and aggregates the metrics.
 void XEventsFlatOpMetricsDbBuilder::AddOpMetric(
     const tsl::profiler::XEventVisitor& event) {
-  auto key = GetOpKeyFromXEvent(event);
-  XEventsFlatOpMetricsDbBuilder::OpKey flat_key;
-  flat_key.program_id = key.program_id;
-  flat_key.symbol_id = key.symbol_id;
-  AddOpMetric(XEventsFlatOpMetricsDbBuilder::FromXEvent(event), flat_key);
+  AddOpMetric(XEventsFlatOpMetricsDbBuilder::FromXEvent(event),
+              GetFlatOpKeyFromXEvent(event));
 }
 
 // Adds a FlatOpMetrics message with a specific OpKey to the builder.
@@ -510,6 +586,77 @@ void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op) {
   idle_op.set_occurrences(0);
   idle_op.set_time_ps(idle_time_ps);
   idle_op.set_self_time_ps(idle_time_ps);
+}
+
+class DeviceTfFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
+ public:
+  explicit DeviceTfFlatOpMetricsDbBuilder(FlatOpMetricsDb* db)
+      : FlatOpMetricsDbBuilder(db) {}
+
+  void UpdateTfOpMetricsWithDeviceOpMetrics(
+      absl::string_view tf_op_name, absl::string_view tf_op_type,
+      const FlatOpMetrics& device_op_metrics) {
+    FlatOpMetrics* tf_op_metrics =
+        FlatOpMetricsDbBuilder::LookupOrInsertNewFlatOpMetrics(
+        /*hlo_module_id=*/0, tf_op_name);
+    if (tf_op_metrics->category().empty()) {
+      tf_op_metrics->set_category(tf_op_type == tsl::profiler::kUnknownOp
+                                      ? "Unknown"
+                                      : std::string(tf_op_type));
+    }
+    tf_op_metrics->set_is_eager(device_op_metrics.is_eager());
+    // The occurrences of a TF-op is the maximum among the occurrences of all
+    // device ops that it contains.
+    tf_op_metrics->set_occurrences(
+        std::max<uint64_t>(tf_op_metrics->occurrences(),
+                           device_op_metrics.occurrences()));
+    tf_op_metrics->set_time_ps(tf_op_metrics->time_ps() +
+                               device_op_metrics.time_ps());
+    tf_op_metrics->set_self_time_ps(tf_op_metrics->self_time_ps() +
+                                    device_op_metrics.self_time_ps());
+    tf_op_metrics->set_flops(tf_op_metrics->flops() +
+                             device_op_metrics.flops());
+    tf_op_metrics->set_flops_v2(tf_op_metrics->flops_v2() +
+                                device_op_metrics.flops_v2());
+    tf_op_metrics->set_model_flops(tf_op_metrics->model_flops() +
+                                   device_op_metrics.model_flops());
+    tf_op_metrics->set_model_flops_v2(tf_op_metrics->model_flops_v2() +
+                                      device_op_metrics.model_flops_v2());
+    tf_op_metrics->set_bytes_accessed(tf_op_metrics->bytes_accessed() +
+                                      device_op_metrics.bytes_accessed());
+    tf_op_metrics->set_core_type(device_op_metrics.core_type());
+  }
+};
+
+FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
+    const FlatOpMetricsDb& device_op_metrics_db, bool with_idle) {
+  FlatOpMetricsDb tf_op_metrics_db;
+  DeviceTfFlatOpMetricsDbBuilder builder(&tf_op_metrics_db);
+  for (const auto& device_op_metrics : device_op_metrics_db.op_instances()) {
+    if (device_op_metrics.category() == kIdle) {
+      if (with_idle) {
+        builder.UpdateTfOpMetricsWithDeviceOpMetrics(kIdle, kIdle,
+                                                     device_op_metrics);
+      }
+    } else if (device_op_metrics.provenance().empty()) {
+      builder.UpdateTfOpMetricsWithDeviceOpMetrics(device_op_metrics.hlo_name(),
+                                                   tsl::profiler::kUnknownOp,
+                                                   device_op_metrics);
+    } else {
+      tsl::profiler::TfOp tf_op =
+          tsl::profiler::ParseTfOpFullname(device_op_metrics.provenance());
+      builder.UpdateTfOpMetricsWithDeviceOpMetrics(tf_op.name, tf_op.type,
+                                                   device_op_metrics);
+    }
+  }
+  tf_op_metrics_db.set_total_op_time_ps(
+      device_op_metrics_db.total_op_time_ps());
+
+  tf_op_metrics_db.set_total_time_ps(
+      with_idle ? device_op_metrics_db.total_time_ps()
+                : device_op_metrics_db.total_op_time_ps());
+
+  return tf_op_metrics_db;
 }
 
 }  // namespace profiler

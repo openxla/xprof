@@ -78,6 +78,8 @@ cp ${build_workspace}/bazel-bin/plugin/xprof/protobuf/*_pb2.py xprof/protobuf/ |
 
 find xprof/protobuf -name \*.py -exec sed -i.bak -e '
     s/^from plugin.xprof/from xprof/
+    /from google.protobuf import runtime_version/d
+    /_runtime_version.ValidateProtobufRuntimeVersion(/,/^[[:space:]]*)/d
   ' {} +
 
 find . -name "*.bak" -exec rm -f {} \;

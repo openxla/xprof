@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -49,14 +50,14 @@ class FlatOpMetricsDbBuilder {
 
   FlatOpMetricsDb* db() { return db_; }
 
+  using ModuleMap =
+      absl::flat_hash_map<std::string /*hlo_name*/, FlatOpMetrics*>;
+
  private:
   FlatOpMetricsDb* db_;
   // Maps op (hlo_module_id, hlo_name) to the corresponding metrics in the flat
   // op database.
-  absl::flat_hash_map<
-      uint64_t /*hlo_module_id*/,
-      absl::flat_hash_map<std::string /*hlo_name*/, FlatOpMetrics*>>
-      op_metrics_map_;
+  absl::flat_hash_map<uint64_t /*hlo_module_id*/, ModuleMap> op_metrics_map_;
 };
 
 // Helps build a flat op metrics database (borrowed) from XEvents.
@@ -69,6 +70,12 @@ class XEventsFlatOpMetricsDbBuilder {
 
   // Constructs a FlatOpMetrics from the provided XEventVisitor.
   static FlatOpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent);
+
+  // Returns the OpKey (Program ID and Symbol ID) for the provided
+  // XEventVisitor.
+  // This key is used to group and aggregate FlatOpMetrics in the database.
+  static OpKey GetFlatOpKeyFromXEvent(
+      const tsl::profiler::XEventVisitor& event);
 
   // Add FlatOpMetrics from XEventVisitor.
   void AddOpMetric(const tsl::profiler::XEventVisitor& xevent);
@@ -133,12 +140,12 @@ struct FlatOpMetricMeta {
   uint64_t occurrences;
 };
 
-// Sets the total time for OpMetricsDb, ensuring idle time is not negative.
+// Sets the total time for FlatOpMetricsDb, ensuring idle time is not negative.
 inline void SetTotalTimePs(FlatOpMetricsDb& db, uint64_t total_time_ps) {
   db.set_total_time_ps(std::max(db.total_op_time_ps(), total_time_ps));
 }
 
-// Adds an FlatOpMetrics record representing idle time, i.e., the amount of time
+// Adds a FlatOpMetrics record representing idle time, i.e., the amount of time
 // spent without any op execution.
 // REQUIRED: All ops must have been added to the database and the total time
 // must have been set.
@@ -147,9 +154,13 @@ void AddIdleOp(FlatOpMetricsDb& db);
 // Returns the idle time in picoseconds.
 uint64_t IdleTimePs(const FlatOpMetricsDb& db);
 
-// Populates an FlatOpMetrics record representing idle time, i.e., the amount of
+// Populates a FlatOpMetrics record representing idle time, i.e., the amount of
 // time spent without any op execution.
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op);
+
+// Converts from the device flat op metrics to Tf-op metrics.
+FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
+    const FlatOpMetricsDb& device_op_metrics_db, bool with_idle = true);
 
 }  // namespace profiler
 }  // namespace tensorflow

@@ -78,6 +78,11 @@ class XProfCliTest(unittest.TestCase):
     self.cli.get_hosts('session_123')
     mock_get_hosts.assert_called_with('session_123')
 
+  @mock.patch.object(xprof_cli.XProfCli, 'detect_layout_mismatch_copies')
+  def test_detect_layout_mismatch_copies(self, mock_detect):
+    self.cli.detect_layout_mismatch_copies('session_123')
+    mock_detect.assert_called_with('session_123')
+
   @mock.patch.object(xprof_cli.fire, 'Fire')
   def test_main(self, mock_fire):
     xprof_cli.main([])

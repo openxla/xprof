@@ -113,6 +113,18 @@ pytype_strict_contrib_test(
     ],
 )
 
+pytype_strict_contrib_test(
+    name = "detect_layout_mismatch_copies_tool_test",
+    srcs = ["detect_layout_mismatch_copies_tool_test.py"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "@org_xprof//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
+        "@xla//xla:xla_data_proto_py_pb2",
+    ],
+)
+
 py_test(
     name = "get_utilization_viewer_tool_test",
     srcs = ["get_utilization_viewer_tool_test.py"],

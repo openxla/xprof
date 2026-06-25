@@ -12,6 +12,7 @@ pytype_strict_library(
         "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
         "@org_xprof//plugin/xprof/cli/internal/oss:xplane_tools",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "@org_xprof//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
         "@org_xprof//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_graph_viewer_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_kpi_metrics_tool",

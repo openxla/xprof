@@ -280,9 +280,12 @@ class Timeline {
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
+  void HideTrack(const absl::string_view name);
+
   void Draw();
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
+  void BuildRenderItems(const FlameChartTimelineData& data);
 
   // Expands the minimum necessary tracks to make the event visible.
   void ExpandRelatedTracks(int event_index);
@@ -407,6 +410,10 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
+  void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                    Pixel kIconDrawSize, ImU32 icon_col,
+                    bool is_track_hidden = false);
+
  private:
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -423,10 +430,6 @@ class Timeline {
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
   void ShowBoundsNotification(const std::string& message);
-
-  void DrawHideIcon(
-      ImDrawList* draw_list, Pixel center_x, Pixel center_y,
-      Pixel kIconDrawSize, ImU32 icon_col, bool is_track_hidden = false);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
@@ -452,6 +455,9 @@ class Timeline {
                         Pixel height);
 
   void DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
+  void DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                   Pixel kIconDrawSize, ImU32 icon_col, bool is_pinned);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -537,6 +543,34 @@ class Timeline {
       ImGuiWindowFlags_NoMove;
   static constexpr ImGuiWindowFlags kTrackFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+
+  struct RenderItem {
+    enum class Type { kHeaderProcesses, kHeaderHidden, kHeaderPinned, kGroup };
+    Type type;
+    int group_index = -1;
+  };
+
+  // Returns the y-coordinate of the top of the given item in the track area.
+  Pixel GetItemTop(const RenderItem& item) const;
+  // Returns the y-coordinate of the bottom of the given item in the track
+  // area.
+  Pixel GetItemBottom(const RenderItem& item) const;
+
+  // Flattened sequence of virtual headers and group tracks.
+  // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  std::vector<RenderItem> render_items_;
+  // Y coordinate offsets of section headers cached from layout computation.
+  Pixel header_processes_offset_ = 0.0f;
+  Pixel header_hidden_offset_ = 0.0f;
+  Pixel header_pinned_offset_ = 0.0f;
+  // Persistent expansion/collapse states of section headers.
+  bool hidden_expanded_ = false;
+  bool processes_expanded_ = true;
+  bool pinned_expanded_ = true;
+  // Caching counts of unhidden, hidden, and pinned process tracks.
+  int all_processes_count_ = 0;
+  int hidden_processes_count_ = 0;
+  int pinned_processes_count_ = 0;
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;
@@ -661,6 +695,8 @@ class Timeline {
   // Current color palette.
   ColorPalette& palette_;
   absl::flat_hash_set<std::string> hidden_track_names_;
+  absl::flat_hash_set<std::string> pinned_track_names_;
+  bool layout_dirty_ = false;
 };
 
 }  // namespace traceviewer

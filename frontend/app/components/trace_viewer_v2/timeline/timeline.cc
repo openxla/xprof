@@ -2835,7 +2835,6 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   const ImRect timeline_area = GetTimelineArea();
   const Pixel screen_x_offset = timeline_area.Min.x;
   const double px_per_time = px_per_time_unit();
-  const Pixel scroll_y = ImGui::GetScrollY();
 
   for (size_t group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
@@ -2852,7 +2851,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         const auto& events = timeline_data_.events_by_level[level];
         const Pixel y_top = tracks_start_screen_pos_.y +
                             visible_level_offsets_[level] -
-                            kEventHeight * 0.5f - scroll_y;
+                            kEventHeight * 0.5f;
         const Pixel y_bottom = y_top + kEventHeight;
 
         if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
@@ -2897,7 +2896,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
       }
     } else if (group.type == Group::Type::kCounter) {
       Pixel y_top =
-          tracks_start_screen_pos_.y + group_offsets_[group_index] - scroll_y;
+          tracks_start_screen_pos_.y + group_offsets_[group_index];
       Pixel group_height = kCounterTrackHeight;
       Pixel y_bottom = y_top + group_height;
 
@@ -2959,13 +2958,11 @@ void Timeline::CalculateAndEmitMetrics() {
     Microseconds start_us =
         PixelToTime(std::min(selection_start_pos_->x, selection_end_pos_->x) -
                         timeline_area.Min.x,
-                    px_per_time) +
-        visible_range_->start();
+                    px_per_time);
     Microseconds end_us =
         PixelToTime(std::max(selection_start_pos_->x, selection_end_pos_->x) -
                         timeline_area.Min.x,
-                    px_per_time) +
-        visible_range_->start();
+                    px_per_time);
     selection_start_us = start_us;
     selection_extent_us = end_us - start_us;
   }

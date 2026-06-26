@@ -15,9 +15,9 @@ limitations under the License.
 #include "xprof/convert/step_events_to_steps_db.h"
 
 #include <cstdint>
+#include <memory>
 #include <ostream>
 #include <sstream>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -29,9 +29,11 @@ limitations under the License.
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "xprof/convert/op_metrics_db_combiner.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -46,7 +48,8 @@ namespace {
 void StepEventsToPerCoreStepInfo(uint32_t step_num, StepDetails& step_details,
                                  PerCoreStepInfo& per_core_step_info) {
   per_core_step_info.set_step_num(step_num);
-  OpMetricsDbCombiner combiner(per_core_step_info.mutable_hlo_metrics_db());
+  std::unique_ptr<OpMetricsDbCombiner> combiner;
+  std::unique_ptr<FlatOpMetricsDbCombiner> flat_combiner;
   auto step_time = step_details.StepTime();
   if (step_time.duration_ps() == 0) {
     // In case no step markers are observed for the particular step, Skip the
@@ -64,7 +67,13 @@ void StepEventsToPerCoreStepInfo(uint32_t step_num, StepDetails& step_details,
     AddIdleOp(metrics_db);
     // TODO(b/397774568): Remove this once the SparseCore OpMetricsDb is
     // implemented.
-    if (core_id < kSparseCoreIndexStart) combiner.Combine(metrics_db);
+    if (core_id < kSparseCoreIndexStart) {
+      if (!combiner) {
+        combiner = std::make_unique<OpMetricsDbCombiner>(
+            per_core_step_info.mutable_hlo_metrics_db());
+      }
+      combiner->Combine(metrics_db);
+    }
 
     GenericStepBreakdown step_breakdown;
     auto& category_ps = *(step_breakdown.mutable_category_ps());
@@ -80,6 +89,38 @@ void StepEventsToPerCoreStepInfo(uint32_t step_num, StepDetails& step_details,
     step_info.mutable_step_breakdown()->PackFrom(step_breakdown);
     (*per_core_step_info.mutable_step_info_per_core())[core_id] =
         std::move(step_info);
+  }
+  for (auto& [core_id, flat_metrics_db] :
+       step_details.PerCoreFlatOpMetricsDb()) {
+    tsl::profiler::Timespan step_time_on_core =
+        core_id >= kSparseCoreIndexStart ? step_details.StepTimeOnCore(core_id)
+                                         : step_time;
+    SetTotalTimePs(flat_metrics_db, step_time_on_core.duration_ps());
+    AddIdleOp(flat_metrics_db);
+    if (core_id < kSparseCoreIndexStart) {
+      if (!flat_combiner) {
+        flat_combiner = std::make_unique<FlatOpMetricsDbCombiner>(
+            per_core_step_info.mutable_flat_hlo_metrics_db());
+      }
+      flat_combiner->Combine(flat_metrics_db);
+    }
+
+    auto [it, inserted] =
+        per_core_step_info.mutable_step_info_per_core()->try_emplace(core_id);
+    if (inserted) {
+      StepInfoResult& step_info = it->second;
+      GenericStepBreakdown step_breakdown;
+      auto& category_ps = *(step_breakdown.mutable_category_ps());
+      for (auto& metric : flat_metrics_db.op_instances()) {
+        category_ps[metric.category()] += metric.self_time_ps();
+      }
+
+      step_info.set_step_num(step_num);
+      step_info.set_step_name(step_details.StepName());
+      step_info.set_begin_ps(step_time_on_core.begin_ps());
+      step_info.set_duration_ps(step_time_on_core.duration_ps());
+      step_info.mutable_step_breakdown()->PackFrom(step_breakdown);
+    }
   }
   auto& all_reduce_db_per_core_map =
       *per_core_step_info.mutable_all_reduce_db_per_core();
@@ -177,7 +218,8 @@ StepDatabaseResult ConvertStepEventsToStepDb(
     if (step_details == nullptr) continue;
     PerCoreStepInfo per_core_step_info;
     per_core_step_info.set_step_num(step);
-    if (!step_details->PerCoreOpMetricsDb().empty()) {
+    if (!step_details->PerCoreOpMetricsDb().empty() ||
+        !step_details->PerCoreFlatOpMetricsDb().empty()) {
       StepEventsToPerCoreStepInfo(step, *step_details, per_core_step_info);
     } else {
       StepInfoResult step_info =

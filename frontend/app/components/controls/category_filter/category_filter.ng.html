@@ -1,6 +1,6 @@
 <mat-form-field class="control" *ngIf="columnLabel" appearance="outline">
   <mat-label>{{columnLabel}}</mat-label>
   <mat-select (selectionChange)="updateFilter()" [(value)]="value">
-    <mat-option *ngFor="let option of options" [value]="option">{{option}}</mat-option>
+    <mat-option *ngFor="let option of options" [value]="option" [title]="option">{{option}}</mat-option>
   </mat-select>
 </mat-form-field>

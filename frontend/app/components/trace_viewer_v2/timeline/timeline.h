@@ -62,6 +62,7 @@ struct CounterData {
   std::vector<double> values;
   double min_value = std::numeric_limits<double>::max();
   double max_value = std::numeric_limits<double>::lowest();
+  std::string event_stats;
 };
 
 // Represents a grouping of timeline tracks, such as processes, threads, or

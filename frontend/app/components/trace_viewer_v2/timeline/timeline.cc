@@ -2997,14 +2997,15 @@ void Timeline::CalculateAndEmitMetrics() {
     std::string metrics_json = "[";
     bool first = true;
     for (const auto& [name, metrics] : aggregated_metrics) {
-      if (!first) metrics_json += ',';
+      if (!first) absl::StrAppend(&metrics_json, ",");
       first = false;
-      metrics_json += absl::StrFormat(
+      absl::StrAppendFormat(
+          &metrics_json,
           R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
           name, metrics.count, metrics.wall_time, metrics.self_time,
           metrics.wall_time / metrics.count);
     }
-    metrics_json += ']';
+    absl::StrAppend(&metrics_json, "]");
 
     absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
   }
@@ -3022,13 +3023,14 @@ void Timeline::CalculateAndEmitMetrics() {
       Microseconds ts = counter_data.timestamps[point_index];
       double val = counter_data.values[point_index];
 
-      if (!first) counters_json += ',';
+      if (!first) absl::StrAppend(&counters_json, ",");
       first = false;
-      counters_json += absl::StrFormat(
+      absl::StrAppendFormat(
+          &counters_json,
           R"({"counter":"%s","series":"%s","time":%.1f,"value":%.1f})",
-          group.name, group.subtitle, ts, val);
+          group.name, counter_data.event_stats, ts, val);
     }
-    counters_json += ']';
+    absl::StrAppend(&counters_json, "]");
 
     absl::StrAppend(&json, R"(,"counters":)", counters_json);
   }

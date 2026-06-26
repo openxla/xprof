@@ -76,6 +76,7 @@ struct TraceEvent {
 struct CounterEvent {
   ProcessId pid = 0;
   std::string name;
+  std::string event_stats;
   std::vector<Microseconds> timestamps;
   std::vector<double> values;
   double min_value = std::numeric_limits<double>::infinity();

@@ -172,6 +172,11 @@ class Timeline {
   void set_redraw_callback(RedrawCallback callback) {
     redraw_callback_ = std::move(callback);
   }
+  void RequestRedraw() {
+    if (redraw_callback_) {
+      redraw_callback_();
+    }
+  }
 
   // Sets the search query to highlight events matching the query.
   // The search is case-insensitive.

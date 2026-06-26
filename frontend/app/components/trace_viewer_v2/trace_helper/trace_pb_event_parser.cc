@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "xprof/convert/trace_viewer/delta_series/zstd_compression.h"
 #include "frontend/app/components/trace_viewer_v2/application.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
@@ -21,8 +22,10 @@ namespace traceviewer {
 namespace {
 
 ParsedTraceEvents ParseCompressedTraceEvents(
-    const std::string& buffer_data,
+    uintptr_t data_ptr, size_t data_size,
     const emscripten::val& visible_range_from_url) {
+  absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
+                                data_size);
   ParsedTraceEvents result;
   absl::StatusOr<std::string> decompressed_proto =
       tensorflow::profiler::ZstdCompression::Decompress(buffer_data);
@@ -34,6 +37,8 @@ ParsedTraceEvents ParseCompressedTraceEvents(
   if (!response.ParseFromString(*decompressed_proto)) {
     return result;
   }
+  // Free decompressed proto memory early to reduce peak memory usage.
+  std::string().swap(*decompressed_proto);
 
   if (response.details_size() > 0) {
     emscripten::val details_map = emscripten::val::global("Map").new_();
@@ -79,14 +84,13 @@ ParsedTraceEvents ParseCompressedTraceEvents(
 }  // namespace
 
 void ParseAndProcessCompressedTraceEvents(
-    const std::string& buffer_data,
-    const emscripten::val& visible_range_from_url) {
+    uintptr_t data_ptr, size_t data_size,
+    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
+    Timeline& timeline) {
   const ParsedTraceEvents parsed_events =
-      ParseCompressedTraceEvents(buffer_data, visible_range_from_url);
-  Application::Instance().data_provider().ProcessTraceEvents(
-      parsed_events, Application::Instance().timeline());
+      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
+  data_provider.ProcessTraceEvents(parsed_events, timeline);
 
-  Timeline& timeline = Application::Instance().timeline();
   if (!visible_range_from_url.isNull() &&
       !visible_range_from_url.isUndefined() &&
       visible_range_from_url["length"].as<int>() == 2) {
@@ -100,12 +104,23 @@ void ParseAndProcessCompressedTraceEvents(
   }
 
   timeline.set_is_incremental_loading(false);
-  Application::Instance().RequestRedraw();
+  timeline.RequestRedraw();
+}
+
+void ParseAndProcessCompressedTraceEvents(
+    uintptr_t data_ptr, size_t data_size,
+    const emscripten::val& visible_range_from_url) {
+  ParseAndProcessCompressedTraceEvents(data_ptr, data_size,
+                                       visible_range_from_url,
+                                       Application::Instance().data_provider(),
+                                       Application::Instance().timeline());
 }
 
 EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
-  emscripten::function("processCompressedTraceEvents",
-                       &traceviewer::ParseAndProcessCompressedTraceEvents);
+  emscripten::function(
+      "processCompressedTraceEvents",
+      static_cast<void (*)(uintptr_t, size_t, const emscripten::val&)>(
+          &traceviewer::ParseAndProcessCompressedTraceEvents));
 }
 
 }  // namespace traceviewer

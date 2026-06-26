@@ -37,6 +37,7 @@ import {
   isDetailsReceivedEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
   SearchEventsEventDetail,
+  shutdownTraceViewerV2,
   TraceDetailKey,
   TraceDetails,
   TraceViewerV2LoadingStatus,
@@ -106,6 +107,30 @@ function parseHostsList(hosts: unknown): string[] {
   return Array.isArray(hosts) ? hosts : [];
 }
 
+/**
+ * Loads feature flags from local storage.
+ */
+function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
+  try {
+    return getFeatureFlags().map((flag): FeatureFlagWithValue => {
+      const storedValue = window.localStorage.getItem(
+        FEATURE_FLAG_STORAGE_PREFIX + flag.id,
+      );
+      return {
+        ...flag,
+        value: storedValue === null ? flag.default : storedValue === 'true',
+      };
+    });
+  } catch {
+    return getFeatureFlags().map(
+      (flag): FeatureFlagWithValue => ({
+        ...flag,
+        value: flag.default,
+      }),
+    );
+  }
+}
+
 /** A trace viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -116,6 +141,8 @@ function parseHostsList(hosts: unknown): string[] {
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
+  private isDestroyed = false;
+  private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
   private readonly injector = inject(Injector);
   private readonly store = inject(Store<{}>);
@@ -182,7 +209,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   selectedFlowCategoryIds = new Set<number>();
   showColorOnboarding = false;
 
-  featureFlags: FeatureFlagWithValue[] = this.loadFeatureFlagsFromStorage();
+  featureFlags: FeatureFlagWithValue[] = loadFeatureFlagsFromStorage();
 
   /**
    * Initial state of feature flags to detect changes.
@@ -210,30 +237,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * Loads feature flags from local storage.
-   */
-  private loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
-    try {
-      return getFeatureFlags().map((flag): FeatureFlagWithValue => {
-        const storedValue = window.localStorage.getItem(
-          FEATURE_FLAG_STORAGE_PREFIX + flag.id,
-        );
-        return {
-          ...flag,
-          value: storedValue === null ? flag.default : storedValue === 'true',
-        };
-      });
-    } catch {
-      return getFeatureFlags().map(
-        (flag): FeatureFlagWithValue => ({
-          ...flag,
-          value: flag.default,
-        }),
-      );
-    }
-  }
-
-  /**
    * Saves the current feature flag values to local storage and reloads the page.
    */
   saveFeatureFlags(): void {
@@ -256,7 +259,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // Reset this.featureFlags to the values currently in local storage.
     // This ensures that if a user made changes and canceled previously,
     // the dialog reopens with the persisted state.
-    this.featureFlags = this.loadFeatureFlagsFromStorage();
+    this.featureFlags = loadFeatureFlagsFromStorage();
 
     // Capture the initial state after resetting from local storage.
     const newInitialFeatureFlags = new Map<string, boolean>();
@@ -350,9 +353,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   get processList() {
     const processes: string[] = [];
-    Object.values(this.processes).forEach((arr) => {
+    for (const arr of Object.values(this.processes)) {
       processes.push(...arr);
-    });
+    }
     return this.processesListFromJson.length > 0
       ? this.processesListFromJson
       : processes;
@@ -413,32 +416,49 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
-  ngOnInit() {}
+  ngOnInit(): void {}
 
-  ngAfterViewInit() {}
+  ngAfterViewInit(): void {}
 
-  async initializeWasmApp() {
-    this.traceViewerModule = await traceViewerV2Main();
-
-    let savedPalette: string | null = null;
+  async initializeWasmApp(): Promise<void> {
+    if (this.isInitializing || this.traceViewerModule !== null) {
+      return;
+    }
+    this.isInitializing = true;
     try {
-      savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
-    } catch {}
-    if (savedPalette && this.traceViewerModule) {
-      this.selectedPalette = savedPalette;
-      this.traceViewerModule.SetPalette(savedPalette);
-    }
+      this.traceViewerModule = await traceViewerV2Main();
+      if (this.isDestroyed) {
+        if (this.traceViewerModule !== null) {
+          shutdownTraceViewerV2();
+          this.traceViewerModule = null;
+        }
+        return;
+      }
 
-    if (this.traceViewerModule && this.traceViewerModule.getAllFlowCategories) {
-      this.allFlowCategories = this.traceViewerModule.getAllFlowCategories();
-      this.selectAllFlowCategories();
-    }
+      let savedPalette: string | null = null;
+      try {
+        savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+      } catch {}
+      if (savedPalette && this.traceViewerModule) {
+        this.selectedPalette = savedPalette;
+        this.traceViewerModule.SetPalette(savedPalette);
+      }
 
-    this.update(this.navigationEvent);
-    this.setupColorOnboarding();
+      if (
+        this.traceViewerModule &&
+        this.traceViewerModule.getAllFlowCategories
+      ) {
+        this.allFlowCategories = this.traceViewerModule.getAllFlowCategories();
+        this.selectAllFlowCategories();
+      }
+      this.update(this.navigationEvent);
+      this.setupColorOnboarding();
+    } finally {
+      this.isInitializing = false;
+    }
   }
 
-  update(event: NavigationEvent) {
+  update(event: NavigationEvent): void {
     const isStreaming = event.tag === 'trace_viewer@';
     const run = event.run || '';
     const tag = event.tag || '';
@@ -486,11 +506,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const entries = Array.from(this.traceDetails.entries()).sort((a, b) =>
       a[0].localeCompare(b[0]),
     );
-    entries.forEach(([key, value]) => {
+    for (const [key, value] of entries) {
       if (value) {
         additionalParams.set(key, 'true');
       }
-    });
+    }
 
     const traceDataUrl = this.dataService.getDataUrl(
       run,
@@ -518,14 +538,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  ngOnDestroy() {
-    // Unsubscribes all pending subscriptions.
-    this.destroyed.next();
-    this.destroyed.complete();
-    window.removeEventListener(
-      DETAILS_RECEIVED_EVENT_NAME,
-      this.detailsReceivedEventListener,
-    );
+  ngOnDestroy(): void {
+    this.isDestroyed = true;
+    try {
+      if (this.useTraceViewerV2 || this.traceViewerModule !== null) {
+        shutdownTraceViewerV2();
+        this.traceViewerModule = null;
+      }
+    } finally {
+      // Unsubscribes all pending subscriptions.
+      this.destroyed.next();
+      this.destroyed.complete();
+      window.removeEventListener(
+        DETAILS_RECEIVED_EVENT_NAME,
+        this.detailsReceivedEventListener,
+      );
+    }
   }
 
   private readonly detailsReceivedEventListener = (event: Event) => {
@@ -710,9 +738,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     pid?: number,
   ) {
     const key = `${name}-${startUs}-${durationUs}`;
-    if (this.eventArgsCache.has(key)) {
+    const cachedArgs = this.eventArgsCache.get(key);
+    if (cachedArgs !== undefined) {
       if (this.selectedEvent) {
-        this.addArgsToSelectedEvent(this.eventArgsCache.get(key)!);
+        this.addArgsToSelectedEvent(cachedArgs);
       }
       return;
     }
@@ -728,8 +757,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     let host = '';
     // Use precise host from pidToHostMap if available
-    if (pid !== undefined && this.pidToHostMap.has(pid)) {
-      host = this.pidToHostMap.get(pid)!;
+    if (pid !== undefined) {
+      const pidHost = this.pidToHostMap.get(pid);
+      if (pidHost !== undefined) {
+        host = pidHost;
+      }
     }
     if (!host) {
       host = this.getCurrentHost();
@@ -775,8 +807,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEventProperties = properties;
   }
 
-  switchToOldFrontend(showSurvey = true) {
+  // END Trace Viewer V2 WASM App Methods
+
+  switchToOldFrontend(showSurvey = true): void {
     this.useTraceViewerV2 = false;
+    if (this.traceViewerModule) {
+      shutdownTraceViewerV2();
+      this.traceViewerModule = null;
+    }
     window.gtag &&
       window.gtag('event', 'switch-frontend', {
         'event_category': 'user_interaction',
@@ -810,7 +848,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  switchToV2Frontend() {
+  switchToV2Frontend(): void {
     this.useTraceViewerV2 = true;
     window.gtag &&
       window.gtag('event', 'switch-frontend', {

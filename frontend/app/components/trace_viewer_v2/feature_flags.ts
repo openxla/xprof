@@ -27,6 +27,11 @@ const FEATURE_FLAGS = {
     description: 'Enable snapping to event boundaries and selected ranges.',
     default: false,
   },
+  'bookmarks': {
+    name: 'Enable Bookmarks',
+    description: 'Enable adding bookmarks with Ctrl/Meta + Click.',
+    default: false,
+  },
 } as const;
 
 /**

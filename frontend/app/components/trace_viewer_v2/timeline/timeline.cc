@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -656,6 +657,7 @@ void Timeline::Draw() {
   // elements like tooltips.
   DrawFlows(current_timeline_width_, tracks_start_screen_pos.y);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
+  DrawBookmarks(current_timeline_width_, px_per_time_unit_val);
   DrawSelectionRectangle();
 
   // Draw vertical split line between sidebar and tracks
@@ -2281,33 +2283,33 @@ DeleteButtonLayout Timeline::GetDeleteButtonLayout(
 void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                                 const ImRect& hover_rect,
                                 const TimeRange& range) {
+  if (DrawCloseButton(draw_list, button_pos, hover_rect)) {
+    auto it = absl::c_find(selected_time_ranges_, range);
+    if (it != selected_time_ranges_.end()) {
+      selected_time_ranges_.erase(it);
+    }
+    if (current_selected_time_range_ &&
+        *current_selected_time_range_ == range) {
+      current_selected_time_range_.reset();
+    }
+  }
+}
+
+bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                               const ImRect& hover_rect) {
   const Pixel button_size = kCloseButtonSize;
   const ImVec2 button_min = button_pos;
   const ImVec2 button_max(button_pos.x + button_size,
                           button_pos.y + button_size);
 
-  // If the mouse is hovering over the designated area, draw the button.
+  bool clicked = false;
   if (ImGui::IsMouseHoveringRect(hover_rect.Min, hover_rect.Max)) {
     ImU32 button_color = kCloseButtonColor;
-
-    // If the mouse is hovering over the button, change the color to the
-    // hover color. Also, if the mouse is clicked on the button, remove the
-    // range from the list of selected time ranges.
     if (ImGui::IsMouseHoveringRect(button_min, button_max)) {
       button_color = kCloseButtonHoverColor;
       ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-      // ImGui uses 0 to represent the left mouse button.
-      // If the mouse is clicked on the button, remove the range from the list
-      // of selected time ranges.
       if (ImGui::IsMouseClicked(0)) {
-        auto it = absl::c_find(selected_time_ranges_, range);
-        if (it != selected_time_ranges_.end()) {
-          selected_time_ranges_.erase(it);
-        }
-        if (current_selected_time_range_ &&
-            *current_selected_time_range_ == range) {
-          current_selected_time_range_.reset();
-        }
+        clicked = true;
       }
     }
 
@@ -2323,6 +2325,7 @@ void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                        ImVec2(center.x + x_radius, center.y - x_radius),
                        kWhiteColor);
   }
+  return clicked;
 }
 
 void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
@@ -2645,8 +2648,8 @@ void Timeline::DrawToast(absl::string_view message, float& timer,
 
   // Fade out at the end.
   const float alpha = std::max(0.0f, std::min(1.0f, timer * 2.0f));
-  const ImU32 bg_color = IM_COL32(
-      32, 33, 36, (int)(230.0f * alpha));  // Dark grey
+  const ImU32 bg_color =
+      IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
   const ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
 
   draw_list->AddRectFilled(
@@ -2661,29 +2664,67 @@ void Timeline::HandleMouseRelease() {
   if (ImGui::IsMouseReleased(0)) {
     is_dragging_ = false;
     is_selecting_ = false;
-    if (mouse_mode_ == MouseMode::kSelect && selection_start_pos_ &&
-        selection_end_pos_) {
-      const float dx = selection_end_pos_->x - selection_start_pos_->x;
-      const float dy = selection_end_pos_->y - selection_start_pos_->y;
+
+    bool is_click = false;
+    if (selection_start_pos_) {
+      const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+      const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
       const float distance_squared = dx * dx + dy * dy;
-      if (distance_squared > kClickDistanceThresholdSquared) {
-        ImRect selection_rect =
-            ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
-                   std::min(selection_start_pos_->y, selection_end_pos_->y),
-                   std::max(selection_start_pos_->x, selection_end_pos_->x),
-                   std::max(selection_start_pos_->y, selection_end_pos_->y));
-        FindSelectedEvents(selection_rect);
-        CalculateAndEmitMetrics();
+      if (distance_squared <= kClickDistanceThresholdSquared) {
+        is_click = true;
       }
-    } else if (current_selected_time_range_ &&
-               current_selected_time_range_->duration() > 0) {
-      selected_time_ranges_.push_back(*current_selected_time_range_);
     }
+
+    // If a bookmark was handled (e.g., added via Ctrl+Click), bypass
+    // selection or time range additions. This prevents accidentally adding
+    // tiny time ranges if the user slightly moved the mouse (within
+    // threshold) during the click.
+    if (!HandleBookmarkAddition(is_click)) {
+      HandleSelectionOrTimeRangeAddition();
+    }
+
     selection_start_pos_.reset();
     selection_end_pos_.reset();
     current_selected_time_range_.reset();
-    selection_start_pos_ = std::nullopt;
   }
+}
+
+bool Timeline::HandleBookmarkAddition(bool is_click) {
+  if (bookmarks_enabled_ && is_click &&
+      (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper)) {
+    const ImRect timeline_area = GetTimelineArea();
+    if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
+      const Microseconds time = PixelToTime(
+          ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time_unit());
+      AddBookmark(time);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Timeline::HandleSelectionOrTimeRangeAddition() {
+  if (mouse_mode_ == MouseMode::kSelect && selection_start_pos_ &&
+      selection_end_pos_) {
+    const float dx = selection_end_pos_->x - selection_start_pos_->x;
+    const float dy = selection_end_pos_->y - selection_start_pos_->y;
+    const float distance_squared = dx * dx + dy * dy;
+    if (distance_squared > kClickDistanceThresholdSquared) {
+      ImRect selection_rect =
+          ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
+                 std::min(selection_start_pos_->y, selection_end_pos_->y),
+                 std::max(selection_start_pos_->x, selection_end_pos_->x),
+                 std::max(selection_start_pos_->y, selection_end_pos_->y));
+      FindSelectedEvents(selection_rect);
+      CalculateAndEmitMetrics();
+      return true;
+    }
+  } else if (current_selected_time_range_ &&
+             current_selected_time_range_->duration() > 0) {
+    selected_time_ranges_.push_back(*current_selected_time_range_);
+    return true;
+  }
+  return false;
 }
 
 ImRect Timeline::GetTimelineArea() const {
@@ -3057,6 +3098,81 @@ void Timeline::DrawSelectionRectangle() {
 
   draw_list->AddRectFilled(rect.Min, rect.Max, color);
   draw_list->AddRect(rect.Min, rect.Max, border_color, 0.0f, 0, 2.0f);
+}
+
+void Timeline::DrawBookmarks(Pixel timeline_width,
+                             double px_per_time_unit_val) {
+  if (!bookmarks_enabled_ || bookmarks_.empty() || px_per_time_unit_val <= 0)
+    return;
+
+  const ImRect timeline_area = GetTimelineArea();
+  const Pixel screen_x_offset = timeline_area.Min.x;
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  std::optional<Microseconds> bookmark_to_delete;
+
+  for (const Microseconds time : bookmarks_) {
+    const Pixel x = TimeToScreenX(time, screen_x_offset, px_per_time_unit_val);
+
+    if (x < timeline_area.Min.x || x > timeline_area.Max.x) continue;
+
+    // Draw vertical line
+    draw_list->AddLine(ImVec2(x, timeline_area.Min.y),
+                       ImVec2(x, timeline_area.Max.y), kBookmarkColor,
+                       kBookmarkThickness);
+
+    // Draw label (timestamp)
+    const std::string label = FormatTime(time);
+    ImGui::PushFont(fonts::label_small);
+    const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
+    const ImVec2 label_pos = ImVec2(
+        x + kBookmarkLabelPadding, timeline_area.Min.y + kBookmarkLabelPadding);
+    draw_list->AddText(label_pos, kBookmarkColor, label.c_str());
+
+    // Unified Delete Button logic (matches TimeRange selection behavior)
+    const ImVec2 button_pos =
+        ImVec2(label_pos.x + label_size.x + kBookmarkLabelPadding, label_pos.y);
+    const ImRect button_rect(button_pos,
+                             ImVec2(button_pos.x + kCloseButtonSize,
+                                    button_pos.y + kCloseButtonSize));
+
+    // Hover area includes label and button
+    const ImRect hover_rect(label_pos, button_rect.Max);
+
+    if (DrawCloseButton(draw_list, button_pos, hover_rect)) {
+      bookmark_to_delete = time;
+    }
+
+    ImGui::PopFont();
+  }
+
+  if (bookmark_to_delete) {
+    RemoveBookmark(*bookmark_to_delete);
+  }
+}
+
+void Timeline::AddBookmark(Microseconds time) {
+  if (!bookmarks_enabled_) return;
+  const double px_per_time = px_per_time_unit();
+  const Microseconds threshold = px_per_time > 0 ? 5.0 / px_per_time : 1e-9;
+
+  auto it = absl::c_find_if(bookmarks_, [time, threshold](Microseconds b) {
+    return std::abs(b - time) < threshold;
+  });
+
+  if (it == bookmarks_.end()) {
+    bookmarks_.push_back(time);
+    absl::c_sort(bookmarks_);
+    if (redraw_callback_) redraw_callback_();
+  }
+}
+
+void Timeline::RemoveBookmark(Microseconds time) {
+  if (!bookmarks_enabled_) return;
+  auto it = absl::c_find(bookmarks_, time);
+  if (it != bookmarks_.end()) {
+    bookmarks_.erase(it);
+    if (redraw_callback_) redraw_callback_();
+  }
 }
 
 }  // namespace traceviewer

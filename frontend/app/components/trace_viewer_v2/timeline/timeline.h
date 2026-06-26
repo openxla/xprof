@@ -251,6 +251,17 @@ class Timeline {
     return snap_to_time_range_enabled_;
   }
 
+  void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
+  bool bookmarks_enabled() const { return bookmarks_enabled_; }
+
+  // Adds a bookmark at the specified time if one doesn't already exist nearby.
+  void AddBookmark(Microseconds time);
+
+  // Removes the specified bookmark.
+  void RemoveBookmark(Microseconds time);
+
+  const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
+
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
@@ -485,12 +496,26 @@ class Timeline {
   void HandleMouseDrag(Pixel timeline_origin_x);
   void HandleMouseRelease();
 
+  // Helper to handle bookmark addition upon mouse release.
+  // Returns true if a bookmark was successfully added.
+  bool HandleBookmarkAddition(bool is_click);
+  // Helper to handle selection or time range addition upon mouse release.
+  // Returns true if a selection was made or a time range was added.
+  bool HandleSelectionOrTimeRangeAddition();
+
   void FindSelectedEvents(const ImRect& selection_rect);
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();
 
   // Draws a notification toast at the bottom of the timeline.
   void DrawToast(absl::string_view message, float& timer, float base_y_offset);
+
+  // Draws all the bookmarks as vertical lines.
+  void DrawBookmarks(Pixel timeline_width, double px_per_time_unit_val);
+
+  // Draws a generic close (x) button. Returns true if the button was clicked.
+  bool DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                       const ImRect& hover_rect);
 
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
@@ -578,6 +603,7 @@ class Timeline {
 
   int hovered_event_index_ = -1;
   bool snap_to_time_range_enabled_ = false;
+  bool bookmarks_enabled_ = false;
 
   bool mpmd_pipeline_view_enabled_ = false;
 
@@ -585,6 +611,7 @@ class Timeline {
   int event_index_to_scroll_to_ = -1;
 
   std::vector<TimeRange> selected_time_ranges_;
+  std::vector<Microseconds> bookmarks_;
 
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;

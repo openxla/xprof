@@ -116,6 +116,13 @@ inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
 // go/keep-sorted end
 
+// Bookmark Constants
+// go/keep-sorted start
+inline constexpr ImU32 kBookmarkColor = kPink80;
+inline constexpr Pixel kBookmarkLabelPadding = 4.0f;
+inline constexpr Pixel kBookmarkThickness = 2.0f;
+// go/keep-sorted end
+
 // Close Button Constants
 // go/keep-sorted start
 inline constexpr ImU32 kCloseButtonColor = IM_COL32(128, 128, 128, 255);

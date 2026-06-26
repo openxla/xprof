@@ -59,6 +59,8 @@ inline constexpr ImU32 kSecondaryContainerColor = 0xFFFFE7C2;
 inline constexpr ImU32 kCyan80 = 0xFFF2E4A1;
 // Orange80: #FDC69C
 inline constexpr ImU32 kOrange80 = 0xFF9CC6FD;
+// Pink 80: #FFAEE4
+inline constexpr ImU32 kPink80 = 0xFFE4AEFF;
 // Purple80: #D7AEFB
 inline constexpr ImU32 kPurple80 = 0xFFFBAED7;
 // Red80: #F6AEA9

@@ -2463,6 +2463,124 @@ TEST(TimelineTest, ZoomEventInvalidIndexOutOfBounds) {
   EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
 }
 
+TEST(TimelineTest, AddBookmark_AddsBookmark) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline.bookmarks(), ElementsAre(100.0));
+}
+
+TEST(TimelineTest, RemoveBookmark_RemovesBookmark) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+  timeline.RemoveBookmark(100.0);
+
+  EXPECT_TRUE(timeline.bookmarks().empty());
+}
+
+TEST(TimelineTest, AddBookmark_Disabled) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(false);
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  EXPECT_TRUE(timeline.bookmarks().empty());
+}
+
+TEST(TimelineTest, AddBookmark_DoesNotAddDuplicates) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+  timeline.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline.bookmarks(), ElementsAre(100.0));
+}
+
+TEST(TimelineTest, AddBookmark_TriggersRedraw) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  int redraw_calls = 0;
+  timeline.set_redraw_callback([&] { redraw_calls++; });
+
+  timeline.AddBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+
+  // Adding a duplicate should not trigger redraw.
+  timeline.AddBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+}
+
+TEST(TimelineTest, RemoveBookmark_TriggersRedraw) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  int redraw_calls = 0;
+  timeline.set_redraw_callback([&] { redraw_calls++; });
+
+  timeline.RemoveBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+
+  // Removing a non-existent bookmark should not trigger redraw.
+  timeline.RemoveBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_Disabled) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(100.0);
+  timeline_.set_bookmarks_enabled(false);
+
+  // Calls internal DrawBookmarks through public Draw()
+  SimulateFrame();
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_Empty) {
+  timeline_.set_bookmarks_enabled(true);
+
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_InvalidPxPerTimeUnit) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(100.0);
+
+  // Setting window width to 0 or negative should result in invalid
+  // px_per_time_unit
+  ImGui::GetIO().DisplaySize = ImVec2(0, 0);
+  SimulateFrame();
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+}
+
 // =============================================================================
 // Fixture: MockTimelineImGuiFixture
 // =============================================================================
@@ -3139,6 +3257,258 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   // Release mouse button.
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleMouseRelease_WithoutMouseDown) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Ensure no crash and no side effects after a frame where button was already
+  // released.
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleMouseRelease_SmallDragThreshold) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Case 1: Exact threshold (5px -> distance_squared 25)
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag by exactly 5px
+  io.AddMousePosEvent(GetTimelineStartX() + 105.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Distance is 5, threshold is <= 25, so this is a click.
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+  timeline_.RemoveBookmark(timeline_.bookmarks()[0]);
+
+  // Case 2: Just above threshold
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(GetTimelineStartX() + 110.0f,
+                      60.0f);  // 10px drag each way
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Distance > 5, not a click.
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+}
+
+TEST_F(MockTimelineImGuiFixture, AddBookmark_CtrlClick) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click at some X in timeline area.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, AddBookmark_MetaClick) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click at some X in timeline area.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Super, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_OutsideTimeline) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click OUTSIDE timeline area (e.g., in the label column).
+  float click_x = GetTimelineStartX() - 10.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_NoModifier) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click without Ctrl or Meta.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_Disabled) {
+  timeline_.set_bookmarks_enabled(false);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Ctrl + Click while disabled.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_BypassesTinyTimeRange) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  ImGuiIO& io = ImGui::GetIO();
+
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag slightly by 2 pixels (within kClickDistanceThresholdSquared = 25.0f)
+  io.AddMousePosEvent(click_x + 2.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_DeletesBookmark) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+
+  // The bookmark is at 100ms.
+  // visible range is 0-1000ms.
+  // timeline width is roughly 1920 - GetTimelineStartX().
+  // But SimulateFrame sets WindowSize to 1000 in some overloads.
+  // Default SimulateFrame() uses DisplaySize (1920x1080).
+
+  // Let's use SimulateFrame(scroll_y, window_height) to be consistent.
+  SimulateFrame(0.0f, 1000.0f);
+
+  float x = 100.0f * timeline_.px_per_time_unit() + GetTimelineStartX();
+  // Bookmark label is "100.0ms".
+  // label_pos = (x + 4, timeline_area.Min.y + 4)
+  // button_pos = (label_pos.x + label_size.x + 4, label_pos.y)
+  // kCloseButtonSize = 14
+
+  // We'll try clicking in a range that likely hits the button.
+  // We start from offset 0 to be safe in case label_size is 0.
+  // We try a few Y values because GetTimelineArea() might return different
+  // coordinates depending on whether it's called from the Tracks child or
+  // the SelectionOverlay child.
+  ImGuiIO& io = ImGui::GetIO();
+  bool deleted = false;
+  for (float offset = 0.0f; offset < 120.0f; offset += 2.0f) {
+    for (float y_val : {10.0f, 30.0f, 50.0f}) {
+      io.MousePos = ImVec2(x + offset, y_val);
+      io.AddMouseButtonEvent(0, true);
+      SimulateFrame();
+      io.AddMouseButtonEvent(0, false);
+      SimulateFrame();
+      if (timeline_.bookmarks().empty()) {
+        deleted = true;
+        break;
+      }
+    }
+    if (deleted) break;
+  }
+
+  EXPECT_TRUE(deleted);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_MultipleBookmarks) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.AddBookmark(100.0);
+  timeline_.AddBookmark(200.0);
+  timeline_.AddBookmark(300.0);
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0, 200.0, 300.0));
+
+  // Delete the middle one.
+  SimulateFrame(0.0f, 1000.0f);
+  float x = 200.0f * timeline_.px_per_time_unit() + GetTimelineStartX();
+  ImGuiIO& io = ImGui::GetIO();
+  bool deleted = false;
+  for (float offset = 0.0f; offset < 120.0f; offset += 2.0f) {
+    for (float y_val : {10.0f, 30.0f, 50.0f}) {
+      io.MousePos = ImVec2(x + offset, y_val);
+      io.AddMouseButtonEvent(0, true);
+      SimulateFrame();
+      io.AddMouseButtonEvent(0, false);
+      SimulateFrame();
+      if (timeline_.bookmarks().size() == 2) {
+        deleted = true;
+        break;
+      }
+    }
+    if (deleted) break;
+  }
+
+  EXPECT_TRUE(deleted);
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0, 300.0));
 }
 
 TEST_F(MockTimelineImGuiFixture, PanningDisabledDuringLabelColumnResizing) {

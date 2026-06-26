@@ -159,6 +159,7 @@ void Application::Initialize() {
   timeline_ = std::make_unique<Timeline>(palette_);
   timeline_->set_snap_to_time_range_enabled(
       IsFeatureEnabled("snap_to_time_range"));
+  timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);

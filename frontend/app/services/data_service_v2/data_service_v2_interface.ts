@@ -45,11 +45,12 @@ export interface DataServiceV2Interface {
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
 
   /** Creates a tool URL for cross tool linking. */
-  createToolUrl(
-    toolName: string,
-    sessionId: string,
-    params: {[key: string]: string},
-  ): string;
+  createToolUrl(options: {
+    toolName: string;
+    sessionId: string;
+    params: Record<string, string>;
+  }): string;
+
 
   getGraphViewerLink(
     sessionId: string,

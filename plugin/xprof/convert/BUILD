@@ -53,7 +53,7 @@ py_library(
     visibility = visibility,
     deps = [
         ":csv_writer",
-        ":trace_events_json",
+        ":trace_events_json",  # build_cleaner: keep
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
@@ -66,6 +66,8 @@ py_test(
     deps = [
         ":raw_to_tool_data",
         "//:expect_tensorflow_installed",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 

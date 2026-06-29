@@ -799,7 +799,10 @@ async function fetchAndProcessTraceData({
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
   try {
-    if (urlObj.pathname.endsWith('.pb')) {
+    if (
+      urlObj.pathname.endsWith('.pb') ||
+      urlObj.searchParams.get('format') === 'pb'
+    ) {
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -1104,7 +1107,10 @@ export async function traceViewerV2Main(
         return;
       }
 
-      if (urlObj.pathname.endsWith('.pb')) {
+      if (
+        urlObj.pathname.endsWith('.pb') ||
+        urlObj.searchParams.get('format') === 'pb'
+      ) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

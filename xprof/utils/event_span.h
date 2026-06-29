@@ -19,12 +19,14 @@ limitations under the License.
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/timespan.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 
@@ -170,6 +172,10 @@ class StepDetails {
     return device_memory_transfers_;
   }
 
+  const absl::flat_hash_map<uint32_t, OpMetricsDb>& PerCoreOpMetricsDb() const {
+    return per_core_op_metrics_db_;
+  }
+
   absl::flat_hash_map<uint32_t, OpMetricsDb>& PerCoreOpMetricsDb() {
     return per_core_op_metrics_db_;
   }
@@ -191,7 +197,7 @@ class StepDetails {
   // Returns the step name.
   std::string StepName() const { return step_name_; }
   // Sets the name of this step.
-  void SetStepName(std::string step_name) { step_name_ = step_name; }
+  void SetStepName(std::string step_name) { step_name_ = std::move(step_name); }
 
   // Converts from overlapped events to non-overlapped events.
   StepDetails ToNonOverlapped() const;
@@ -208,7 +214,20 @@ class StepDetails {
   std::string DebugString() const;
 
   void SetPerCoreOpMetricsDb(OpMetricsDb db, uint32_t core_id) {
-    per_core_op_metrics_db_[core_id] = db;
+    per_core_op_metrics_db_[core_id] = std::move(db);
+  }
+
+  const absl::flat_hash_map<uint32_t, FlatOpMetricsDb>& PerCoreFlatOpMetricsDb()
+      const {
+    return per_core_flat_op_metrics_db_;
+  }
+
+  absl::flat_hash_map<uint32_t, FlatOpMetricsDb>& PerCoreFlatOpMetricsDb() {
+    return per_core_flat_op_metrics_db_;
+  }
+
+  void SetPerCoreFlatOpMetricsDb(FlatOpMetricsDb db, uint32_t core_id) {
+    per_core_flat_op_metrics_db_[core_id] = std::move(db);
   }
 
  private:
@@ -233,6 +252,7 @@ class StepDetails {
   std::string step_name_;
 
   absl::flat_hash_map<uint32_t, OpMetricsDb> per_core_op_metrics_db_;
+  absl::flat_hash_map<uint32_t, FlatOpMetricsDb> per_core_flat_op_metrics_db_;
 };
 
 // Map from step_id to the events happened in that step.

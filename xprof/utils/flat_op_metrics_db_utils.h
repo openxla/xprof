@@ -26,6 +26,7 @@ limitations under the License.
 #include "xla/tsl/platform/macros.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/op_metrics.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -69,6 +70,12 @@ class XEventsFlatOpMetricsDbBuilder {
 
   // Constructs a FlatOpMetrics from the provided XEventVisitor.
   static FlatOpMetrics FromXEvent(const tsl::profiler::XEventVisitor& xevent);
+
+  // Returns the OpKey (Program ID and Symbol ID) for the provided
+  // XEventVisitor.
+  // This key is used to group and aggregate FlatOpMetrics in the database.
+  static OpKey GetFlatOpKeyFromXEvent(
+      const tsl::profiler::XEventVisitor& event);
 
   // Add FlatOpMetrics from XEventVisitor.
   void AddOpMetric(const tsl::profiler::XEventVisitor& xevent);
@@ -150,6 +157,15 @@ uint64_t IdleTimePs(const FlatOpMetricsDb& db);
 // Populates an FlatOpMetrics record representing idle time, i.e., the amount of
 // time spent without any op execution.
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op);
+
+
+// Returns the ratio of time spent sending data from the host to the device
+// relative to the total time the host was active.
+std::optional<double> HostInfeedEnqueueRatio(const FlatOpMetricsDb& db);
+
+// Converts from the device flat op metrics to Tf-op metrics.
+FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
+    const FlatOpMetricsDb& device_op_metrics_db, bool with_idle = true);
 
 }  // namespace profiler
 }  // namespace tensorflow

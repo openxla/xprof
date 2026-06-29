@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "xprof/convert/xplane_to_flat_op_metrics_db.h"
+#include "xprof/convert/xplane_to_op_metrics_db.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -25,6 +26,7 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -68,12 +70,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
   };
 
   struct OpMetricsInProgress {
-    std::shared_ptr<XEventsFlatOpMetricsDbBuilder> builder;
+    std::unique_ptr<XEventsFlatOpMetricsDbBuilder> builder;
     tsl::profiler::AncestorStack<ParentReference> event_stack;
     OpMetricsInProgress()
-        : builder(std::make_shared<XEventsFlatOpMetricsDbBuilder>()),
+        : builder(std::make_unique<XEventsFlatOpMetricsDbBuilder>()),
           event_stack(
-              [builder = builder](const ParentReference& parent) {
+              [builder_ptr = builder.get()](const ParentReference& parent) {
                 FlatOpMetrics op_metrics =
                     XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
                 op_metrics.set_time_ps(parent.device_timespan.duration_ps());
@@ -90,11 +92,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
                                     : 1.0;
                 op_metrics.set_normalized_time_ps(op_metrics.time_ps() *
                                                   factor);
-                auto key = GetOpKeyFromXEvent(parent.event);
+                XEventsOpMetricsDbBuilder::OpKey key =
+                    GetOpKeyFromXEvent(parent.event);
                 XEventsFlatOpMetricsDbBuilder::OpKey flat_key;
                 flat_key.program_id = key.program_id;
                 flat_key.symbol_id = key.symbol_id;
-                builder->AddOpMetric(op_metrics, flat_key);
+                builder_ptr->AddOpMetric(op_metrics, flat_key);
               },
               [](const ParentReference& parent, const ParentReference& child) {
                 return parent.device_timespan.Includes(child.device_timespan);
@@ -152,10 +155,9 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
         // Check if the current module_it encapsulates the event.
         if (module_it->timespan.Includes(timespan)) {
           // Insert that event into the stack for that module.
-          std::string hlo_name =
-              event.Metadata().HasDisplayName()
-                  ? std::string(event.Metadata().DisplayName())
-                  : std::string(event.Metadata().Name());
+          absl::string_view hlo_name = event.Metadata().HasDisplayName()
+                                           ? event.Metadata().DisplayName()
+                                           : event.Metadata().Name();
           XEventsOpMetricsDbBuilder::OpKey key = GetOpKeyFromXEvent(event);
           auto module_id = key.program_id.has_value() ? key.program_id.value()
                                                       : module_it->tc_start_id;
@@ -442,6 +444,98 @@ FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
   SetTotalTimePs(db, total_time_ps);
   AddIdleOp(db);
   return db;
+}
+
+FlatOpMetricsDb ConvertHostThreadsXPlaneToFlatOpMetricsDb(
+    const XPlane& host_trace) {
+  FlatOpMetricsDb result;
+  FlatOpMetricsDbCombiner combiner(&result);
+  absl::flat_hash_map<int64_t, tsl::profiler::TfOp> tf_ops =
+      CollectTfOpsFromHostThreadsXPlane(host_trace);
+  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&host_trace);
+
+  struct ParentReference {
+    tsl::profiler::Timespan timespan;
+    uint64_t children_duration_ps = 0;
+    tsl::profiler::TfOp tf_op;
+    bool is_eager = false;
+  };
+
+  FlatOpMetricsDb line_db;
+  plane.ForEachLine([&](const XLineVisitor& line) {
+    if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
+
+    line_db.Clear();
+    HostFlatOpMetricsDbBuilder builder(&line_db);
+    uint64_t first_op_timestamp_ps = std::numeric_limits<uint64_t>::max();
+    uint64_t last_op_timestamp_ps = 0;
+
+    tsl::profiler::AncestorStack<ParentReference> event_stack(
+        [&](const ParentReference& parent) {
+          builder.EnterOp(parent.tf_op.name, parent.tf_op.type, parent.is_eager,
+                           parent.timespan.duration_ps(),
+                           parent.children_duration_ps, parent.tf_op.id);
+          if (tsl::profiler::IsInfeedEnqueueOp(parent.tf_op.type)) {
+            builder.EnterHostInfeedEnqueue(parent.timespan);
+          }
+        },
+        [](const ParentReference& parent, const ParentReference& child) {
+          return parent.timespan.Includes(child.timespan);
+        },
+        [](ParentReference& parent, ParentReference& child) {
+          parent.children_duration_ps += child.timespan.duration_ps();
+        });
+
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      if (event.Name().empty()) return;
+
+      tsl::profiler::Timespan span = event.GetTimespan();
+      first_op_timestamp_ps = std::min(first_op_timestamp_ps, span.begin_ps());
+      last_op_timestamp_ps = std::max(last_op_timestamp_ps, span.end_ps());
+
+      auto id = event.Id();
+      if (const auto& stat = event.GetStat(StatType::kInputPipelineStageId);
+          stat.has_value()) {
+        id = stat->IntValue();
+      }
+      auto it = tf_ops.find(id);
+      const tsl::profiler::TfOp* tf_op =
+          (it != tf_ops.end()) ? &it->second : nullptr;
+
+      tsl::profiler::TfOp parsed_tf_op;
+      bool is_eager = false;
+
+      if (tf_op != nullptr) {
+        parsed_tf_op = *tf_op;
+        if (std::optional<XStatVisitor> stat =
+                event.GetStat(StatType::kIsEager)) {
+          is_eager = stat->IntValue();
+        }
+      } else if (auto tf_op_stat = event.GetStat(StatType::kTfOp);
+                 tf_op_stat.has_value()) {
+        absl::string_view tf_op_fullname = tf_op_stat->StrOrRefValue();
+        if (tf_op_fullname.empty()) return;
+        parsed_tf_op = tsl::profiler::ParseTfOpFullname(tf_op_fullname);
+      } else {
+        return;
+      }
+
+      event_stack.Push({.timespan = span,
+                        .tf_op = parsed_tf_op,
+                        .is_eager = is_eager});
+    });
+    event_stack.Flush();
+
+    uint64_t total_time_ps = last_op_timestamp_ps > first_op_timestamp_ps
+                                 ? last_op_timestamp_ps - first_op_timestamp_ps
+                                 : 0;
+    SetTotalTimePs(line_db, total_time_ps);
+    AddIdleOp(line_db);
+
+    combiner.Combine(line_db, /*update_num_cores=*/false);
+  });
+
+  return result;
 }
 
 }  // namespace profiler

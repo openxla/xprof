@@ -110,9 +110,15 @@ def xspace_to_tool_data(
   options = {}
   options['use_saved_result'] = params.get('use_saved_result', True)
   if tool == 'trace_viewer':
+    options = params.get('trace_viewer_options', {})
+    options['use_saved_result'] = params.get('use_saved_result', True)
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      data = process_raw_trace(raw_data)
+      if options.get('format') == 'pb':
+        data = raw_data
+        content_type = 'application/octet-stream'
+      else:
+        data = process_raw_trace(raw_data)
   elif tool == 'trace_viewer@':
     options = params.get('trace_viewer_options', {})
     options['use_saved_result'] = params.get('use_saved_result', True)
@@ -120,6 +126,8 @@ def xspace_to_tool_data(
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
+      if options.get('format') == 'pb':
+        content_type = 'application/octet-stream'
   elif tool == 'overview_page':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:

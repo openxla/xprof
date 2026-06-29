@@ -183,26 +183,44 @@ class LocalXprofClient:
       return [{"hostname": h} for h in hosts]
     return hosts
 
-  def get_serialized_xspace(self, session_id: str) -> bytes:
+  def get_serialized_xspace(
+      self, session_id: str, host: str = "", **kwargs
+  ) -> bytes:
     """Returns the raw serialized XSpace data for the session.
 
     Args:
       session_id: The run name (directory name under logdir/plugins/profile/).
+      host: The specific host to fetch data for.
+      **kwargs: Additional parameters (ignored in OSS).
 
     Returns:
       The raw bytes of the serialized XSpace.
 
     Raises:
       ValueError: If the logdir has not been set (from `get_run_dir`).
-      FileNotFoundError: If the run directory or trace files are not found
-        (from `get_run_dir` or `get_xspace_paths`).
-      NotImplementedError: If multiple XSpace files are found, as multi-host
-        serialization is not supported.
+      FileNotFoundError: If the run directory or trace files are not found.
+      NotImplementedError: If multiple XSpace files are found for the host.
     """
+    del kwargs
     run_dir = self.get_run_dir(session_id)
     xspace_paths = self.get_xspace_paths(run_dir)
     if not xspace_paths:
       raise FileNotFoundError(f"No traces found for session {session_id!r}")
+
+    if host:
+      filtered_paths = []
+      for path in xspace_paths:
+        p = pathlib.Path(path)
+        stem = p.name.removesuffix(".xplane.pb")
+        parts = stem.split(".")
+        hostname = parts[-1] if parts else stem
+        if hostname == host:
+          filtered_paths.append(path)
+      xspace_paths = filtered_paths
+      if not xspace_paths:
+        raise FileNotFoundError(
+            f"No traces found for host {host!r} in session {session_id!r}"
+        )
 
     # For single-host, just return the raw file bytes directly.
     if len(xspace_paths) == 1:

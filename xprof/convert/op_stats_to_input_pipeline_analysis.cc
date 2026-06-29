@@ -57,6 +57,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/diagnostics.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/html_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 #include "xprof/utils/tpu_step_breakdown_utils.h"
@@ -692,16 +693,6 @@ InputPipelineAnalysisResult ComputeTpuInputPipelineAnalysisResult(
   return result;
 }
 
-// Returns true if device_op_metrics_db contains an infeed op.
-bool HasTpuInfeedOp(const OpMetricsDb& device_op_metrics_db) {
-  for (const OpMetrics& metrics : device_op_metrics_db.metrics_db()) {
-    if (tsl::profiler::IsHostOrSparseCoreV0Infeed(metrics.category())) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // Returns the time spent waiting for input for generic hardware.
 uint64_t TotalInputPs(const StepDetails& step_details) {
   uint64_t total_input_ps = 0;
@@ -884,6 +875,70 @@ class MinMap {
  private:
   absl::flat_hash_map<uint64_t /*id*/, uint64_t /*min*/> min_map_;
 };
+
+void MayFixTpuStepAnalysisInternal(
+    const StepEvents& host_step_events, StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+        core_details_map) {
+  for (PerCoreStepInfo& per_core_step_info :
+       *(step_db.mutable_step_sequence())) {
+    uint32_t step_num = per_core_step_info.step_num();
+    // TODO(ckluk): step_num is obtained from tf_op_stats, which is based on the
+    // step-tracking mechanism with the on-device training loop. However, this
+    // step_num is different from the group_id. So, what we are doing here is
+    // only an approximation, assuming that all steps exhibit similar
+    // breakdown. Once grouping works on TPU device, we need to replace step_num
+    // by the group_id from TPU device.
+    const StepDetails* step_details =
+        tsl::gtl::FindOrNull(host_step_events, step_num);
+    if (step_details == nullptr) {
+      continue;  // step_num not in host_step_events, we don't know how to fix.
+    }
+    uint64_t total_input_ps = TotalInputPs(*step_details);
+    if (total_input_ps == 0) {
+      continue;  // no host input events.
+    }
+    PerTpuStepDetails tpu_step_data =
+        ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+    double tc_idle_ms = tpu_step_data.tc_idle_time_ms();
+    double adjusted_input_ratio =
+        std::min(tsl::profiler::SafeDivide(
+                     tsl::profiler::PicoToMilli(total_input_ps), tc_idle_ms),
+                 1.0);
+    static const std::string& kInfeedString =
+        *new std::string(xla::HloOpcodeString(xla::HloOpcode::kInfeed));
+    for (auto& [core_id, step_info] :
+         *per_core_step_info.mutable_step_info_per_core()) {
+      // skip sparse cores for this.
+      if (core_id >= kSparseCoreIndexStart) continue;
+      if (TpuStepBreakdown tpu; step_info.step_breakdown().UnpackTo(&tpu)) {
+        DCHECK_EQ(tpu.infeed_duration_ps(), 0);
+        if (tpu.tc_idle_ps() > 0) {
+          // Extract the infeed fraction of idle time.
+          tpu.set_infeed_duration_ps(tpu.tc_idle_ps() * adjusted_input_ratio);
+          tpu.set_tc_idle_ps(tpu.tc_idle_ps() - tpu.infeed_duration_ps());
+          step_info.mutable_step_breakdown()->PackFrom(tpu);
+        }
+      } else if (tensorflow::profiler::GenericStepBreakdown generic;
+                 step_info.step_breakdown().UnpackTo(&generic)) {
+        uint64_t& infeed_time_ps =
+            (*generic.mutable_category_ps())[kInfeedString];
+        uint64_t& idle_time_ps =
+            (*generic.mutable_category_ps())[tensorflow::profiler::kIdle];
+        DCHECK_EQ(infeed_time_ps, 0);
+        if (idle_time_ps > 0) {
+          infeed_time_ps = idle_time_ps * adjusted_input_ratio;
+          idle_time_ps -= infeed_time_ps;
+          step_info.mutable_step_breakdown()->PackFrom(generic);
+        }
+      } else {
+        // Likely encountered an ScStepBreakdown instance which can be skipped
+        // as we only care about attributing TC idle time to host.
+        VLOG(1) << "Unable to unpack step_breakdown.";
+      }
+    }
+  }
+}
 
 }  // namespace
 
@@ -1145,6 +1200,20 @@ PerCoreAllReduceBreakdown ComputePerStepAllReduceBreakdownAcrossCores(
   return result;
 }
 
+bool HasTpuInfeedOp(const OpMetricsDb& device_op_metrics_db) {
+  return absl::c_any_of(
+      device_op_metrics_db.metrics_db(), [](const OpMetrics& metrics) {
+        return tsl::profiler::IsHostOrSparseCoreV0Infeed(metrics.category());
+      });
+}
+
+bool HasTpuInfeedOp(const FlatOpMetricsDb& flat_op_metrics_db) {
+  return absl::c_any_of(
+      flat_op_metrics_db.op_instances(), [](const FlatOpMetrics& metrics) {
+        return tsl::profiler::IsHostOrSparseCoreV0Infeed(metrics.category());
+      });
+}
+
 void MayFixTpuStepAnalysis(
     const StepEvents& host_step_events, const OpMetricsDb& device_op_metrics_db,
     StepDatabaseResult& step_db,
@@ -1155,63 +1224,17 @@ void MayFixTpuStepAnalysis(
   // input via host infeed or via sparsecorev0 infeed, there's nothing to do.
   if (HasTpuInfeedOp(device_op_metrics_db)) return;
 
-  for (PerCoreStepInfo& per_core_step_info :
-       *(step_db.mutable_step_sequence())) {
-    uint32_t step_num = per_core_step_info.step_num();
-    // TODO(ckluk): step_num is obtained from tf_op_stats, which is based on the
-    // step-tracking mechanism with the on-device training loop. However, this
-    // step_num is different from the group_id. So, what we are doing here is
-    // only an approximation, assuming that all steps exhibit similar
-    // breakdown. Once grouping works on TPU device, we need to replace step_num
-    // by the group_id from TPU device.
-    const StepDetails* step_details =
-        tsl::gtl::FindOrNull(host_step_events, step_num);
-    if (step_details == nullptr) {
-      continue;  // step_num not in host_step_events, we don't know how to fix.
-    }
-    uint64_t total_input_ps = TotalInputPs(*step_details);
-    if (total_input_ps == 0) {
-      continue;  // no host input events.
-    }
-    PerTpuStepDetails tpu_step_data =
-        ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
-    double tc_idle_ms = tpu_step_data.tc_idle_time_ms();
-    double adjusted_input_ratio =
-        std::min(tsl::profiler::SafeDivide(
-                     tsl::profiler::PicoToMilli(total_input_ps), tc_idle_ms),
-                 1.0);
-    for (auto& [core_id, step_info] :
-         *per_core_step_info.mutable_step_info_per_core()) {
-      // skip sparse cores for this.
-      if (core_id >= kSparseCoreIndexStart) continue;
-      if (TpuStepBreakdown tpu; step_info.step_breakdown().UnpackTo(&tpu)) {
-        DCHECK_EQ(tpu.infeed_duration_ps(), 0);
-        if (tpu.tc_idle_ps() > 0) {
-          // Extract the infeed fraction of idle time.
-          tpu.set_infeed_duration_ps(tpu.tc_idle_ps() * adjusted_input_ratio);
-          tpu.set_tc_idle_ps(tpu.tc_idle_ps() - tpu.infeed_duration_ps());
-          step_info.mutable_step_breakdown()->PackFrom(tpu);
-        }
-      } else if (tensorflow::profiler::GenericStepBreakdown generic;
-                 step_info.step_breakdown().UnpackTo(&generic)) {
-        uint64_t& infeed_time_ps =
-            (*generic.mutable_category_ps())[xla::HloOpcodeString(
-                xla::HloOpcode::kInfeed)];
-        uint64_t& idle_time_ps =
-            (*generic.mutable_category_ps())[tensorflow::profiler::kIdle];
-        DCHECK_EQ(infeed_time_ps, 0);
-        if (idle_time_ps > 0) {
-          infeed_time_ps = idle_time_ps * adjusted_input_ratio;
-          idle_time_ps -= infeed_time_ps;
-          step_info.mutable_step_breakdown()->PackFrom(generic);
-        }
-      } else {
-        // Likely encountered an ScStepBreakdown instance which can be skipped
-        // as we only care about attributing TC idle time to host.
-        LOG(INFO) << "Unable to unpack step_breakdown.";
-      }
-    }
-  }
+  MayFixTpuStepAnalysisInternal(host_step_events, step_db, core_details_map);
+}
+
+void MayFixTpuStepAnalysis(
+    const StepEvents& host_step_events,
+    const FlatOpMetricsDb& flat_op_metrics_db, StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+        core_details_map) {
+  if (HasTpuInfeedOp(flat_op_metrics_db)) return;
+
+  MayFixTpuStepAnalysisInternal(host_step_events, step_db, core_details_map);
 }
 
 TpuBottleneckAnalysis ComputeTpuBottleneckAnalysis(

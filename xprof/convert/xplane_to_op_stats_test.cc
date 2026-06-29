@@ -1186,6 +1186,7 @@ TEST(ConvertXPlaneToOpStats, ConvertXSpaceToFlatOpMetricsDbTest) {
 
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
+  options.generate_step_db = true;
   auto flat_op_metrics_db_or = ConvertXSpaceToFlatOpMetricsDb(space, options);
 
   ASSERT_TRUE(flat_op_metrics_db_or.ok());
@@ -1202,6 +1203,7 @@ TEST(ConvertXPlaneToOpStats, ConvertXSpaceToFlatOpMetricsDbTest) {
 
   // We expect at least 5 instances
   EXPECT_GE(flat_op_metrics_db.op_instances_size(), 5);
+  EXPECT_TRUE(flat_op_metrics_db.has_precision_stats());
 
   // Verify specific instances
   bool found_tc_op_1 = false;

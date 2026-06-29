@@ -36,6 +36,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
@@ -58,7 +59,7 @@ constexpr uint64_t kRootSymbolId = 0;
 // is in the format of `<source_filename>:<source_line_number>`.
 absl::StatusOr<std::pair<std::string, int32_t>>
 ExtractSourceFileNameAndLineNumber(absl::string_view source_top_line) {
-  const auto delimiterPos = source_top_line.find(':');
+  const auto delimiterPos = source_top_line.rfind(':');
   if (delimiterPos == std::string_view::npos) {
     return absl::InvalidArgumentError(
         absl::StrCat("Invalid source info expression: '",
@@ -79,15 +80,15 @@ ExtractSourceFileNameAndLineNumber(absl::string_view source_top_line) {
 // `<source_filename>:<source_line_number>`. If the `source_top_line` is not in
 // the expected format, then `source_info` will not be populated.`
 void PopulateSourceInfo(absl::string_view source_top_line,
-                        tensorflow::profiler::SourceInfo& source_info) {
-  const auto file_and_line =
-      ExtractSourceFileNameAndLineNumber(source_top_line);
+                        SourceInfo& source_info) {
+  auto file_and_line = ExtractSourceFileNameAndLineNumber(source_top_line);
   if (file_and_line.ok()) {
     source_info.set_file_name(std::move(file_and_line->first));
     source_info.set_line_number(file_and_line->second);
   } else {
     LOG(ERROR) << "Failed to extract source filename and line from the input "
                   "source_top_line: '"
+               << source_top_line
                << "' with status: " << file_and_line.status();
   }
 }
@@ -400,13 +401,15 @@ FlatOpMetricsDbBuilder::FlatOpMetricsDbBuilder(FlatOpMetricsDb* db) : db_(db) {
 // and name.
 FlatOpMetrics* FlatOpMetricsDbBuilder::LookupOrInsertNewFlatOpMetrics(
     uint64_t hlo_module_id, absl::string_view hlo_name) {
-  FlatOpMetrics*& op_metrics =
-      op_metrics_map_[hlo_module_id][std::string(hlo_name)];
-  if (op_metrics == nullptr) {
-    op_metrics = db_->add_op_instances();
-    op_metrics->set_hlo_module_id(hlo_module_id);
-    op_metrics->set_hlo_name(std::string(hlo_name));
+  auto& module_map = op_metrics_map_[hlo_module_id];
+  auto it = module_map.find(hlo_name);
+  if (it != module_map.end()) {
+    return it->second;
   }
+  FlatOpMetrics* op_metrics = db_->add_op_instances();
+  op_metrics->set_hlo_module_id(hlo_module_id);
+  op_metrics->set_hlo_name(std::string(hlo_name));
+  module_map.emplace(hlo_name, op_metrics);
   return op_metrics;
 }
 
@@ -419,15 +422,34 @@ FlatOpMetrics XEventsFlatOpMetricsDbBuilder::FromXEvent(
   return op_metrics;
 }
 
+XEventsFlatOpMetricsDbBuilder::OpKey
+XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(
+    const tsl::profiler::XEventVisitor& event) {
+  XEventsFlatOpMetricsDbBuilder::OpKey op_key;
+  if (event.metadata() == nullptr) return op_key;
+  event.Metadata().ForEachStat([&](const XStatVisitor& stat) {
+    if (stat.Type().has_value()) {
+      switch (static_cast<StatType>(*stat.Type())) {
+        case StatType::kProgramId:
+          op_key.program_id = stat.IntOrUintValue();
+          break;
+        case StatType::kSymbolId:
+          op_key.symbol_id = stat.IntOrUintValue();
+          break;
+        default:
+          break;
+      }
+    }
+  });
+  return op_key;
+}
+
 // Adds an operation metric from a tsl::profiler::XEventVisitor to the builder.
 // It extracts the key and aggregates the metrics.
 void XEventsFlatOpMetricsDbBuilder::AddOpMetric(
     const tsl::profiler::XEventVisitor& event) {
-  auto key = GetOpKeyFromXEvent(event);
-  XEventsFlatOpMetricsDbBuilder::OpKey flat_key;
-  flat_key.program_id = key.program_id;
-  flat_key.symbol_id = key.symbol_id;
-  AddOpMetric(XEventsFlatOpMetricsDbBuilder::FromXEvent(event), flat_key);
+  AddOpMetric(XEventsFlatOpMetricsDbBuilder::FromXEvent(event),
+              GetFlatOpKeyFromXEvent(event));
 }
 
 // Adds a FlatOpMetrics message with a specific OpKey to the builder.
@@ -507,6 +529,7 @@ FlatOpMetricsDb XEventsFlatOpMetricsDbBuilder::FinalizeSorted() {
       }
     }
   }
+  db.mutable_op_instances()->Reserve(metrics_map.size());
 
   while (!roots_queue.empty()) {
     uint64_t curr_id = roots_queue.front();
@@ -529,6 +552,16 @@ FlatOpMetricsDb XEventsFlatOpMetricsDbBuilder::FinalizeSorted() {
         roots_queue.push(child_id);
       }
     }
+  }
+
+  // Preserve orphan nodes (nodes whose parent_op_id was missing/filtered out).
+  for (auto& [op_id, op_metrics] : metrics_map) {
+    total_op_time_ps += op_metrics.self_time_ps();
+    normalized_total_op_time_ps +=
+        op_metrics.self_time_ps() *
+        tsl::profiler::SafeDivide(op_metrics.normalized_time_ps() * 1.0,
+                                  op_metrics.time_ps());
+    *db.add_op_instances() = std::move(op_metrics);
   }
 
   db.set_total_op_time_ps(total_op_time_ps);
@@ -554,7 +587,9 @@ void AddIdleOp(FlatOpMetricsDb& db) {
 
 uint64_t IdleTimePs(const FlatOpMetricsDb& db) {
   DCHECK_GE(db.total_time_ps(), db.total_op_time_ps());
-  return db.total_time_ps() - db.total_op_time_ps();
+  return db.total_time_ps() > db.total_op_time_ps()
+             ? db.total_time_ps() - db.total_op_time_ps()
+             : 0;
 }
 
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op) {
@@ -563,6 +598,76 @@ void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op) {
   idle_op.set_occurrences(0);
   idle_op.set_time_ps(idle_time_ps);
   idle_op.set_self_time_ps(idle_time_ps);
+}
+
+class DeviceTfFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
+ public:
+  explicit DeviceTfFlatOpMetricsDbBuilder(FlatOpMetricsDb* db)
+      : FlatOpMetricsDbBuilder(db) {}
+
+  void UpdateTfOpMetricsWithDeviceOpMetrics(
+      absl::string_view tf_op_name, absl::string_view tf_op_type,
+      const FlatOpMetrics& device_op_metrics) {
+    FlatOpMetrics* tf_op_metrics =
+        FlatOpMetricsDbBuilder::LookupOrInsertNewFlatOpMetrics(
+            /*hlo_module_id=*/0, tf_op_name);
+    if (tf_op_metrics->category().empty()) {
+      tf_op_metrics->set_category(tf_op_type == tsl::profiler::kUnknownOp
+                                      ? "Unknown"
+                                      : std::string(tf_op_type));
+    }
+    tf_op_metrics->set_is_eager(device_op_metrics.is_eager());
+    // The occurrences of a TF-op is the maximum among the occurrences of all
+    // device ops that it contains.
+    tf_op_metrics->set_occurrences(std::max<uint64_t>(
+        tf_op_metrics->occurrences(), device_op_metrics.occurrences()));
+    tf_op_metrics->set_time_ps(tf_op_metrics->time_ps() +
+                               device_op_metrics.time_ps());
+    tf_op_metrics->set_self_time_ps(tf_op_metrics->self_time_ps() +
+                                    device_op_metrics.self_time_ps());
+    tf_op_metrics->set_flops(tf_op_metrics->flops() +
+                             device_op_metrics.flops());
+    tf_op_metrics->set_flops_v2(tf_op_metrics->flops_v2() +
+                                device_op_metrics.flops_v2());
+    tf_op_metrics->set_model_flops(tf_op_metrics->model_flops() +
+                                   device_op_metrics.model_flops());
+    tf_op_metrics->set_model_flops_v2(tf_op_metrics->model_flops_v2() +
+                                      device_op_metrics.model_flops_v2());
+    tf_op_metrics->set_bytes_accessed(tf_op_metrics->bytes_accessed() +
+                                      device_op_metrics.bytes_accessed());
+    tf_op_metrics->set_core_type(device_op_metrics.core_type());
+  }
+};
+
+FlatOpMetricsDb CreateTfMetricsDbFromDeviceOpMetricsDb(
+    const FlatOpMetricsDb& device_op_metrics_db, bool with_idle) {
+  FlatOpMetricsDb tf_op_metrics_db;
+  DeviceTfFlatOpMetricsDbBuilder builder(&tf_op_metrics_db);
+  for (const auto& device_op_metrics : device_op_metrics_db.op_instances()) {
+    if (device_op_metrics.category() == kIdle) {
+      if (with_idle) {
+        builder.UpdateTfOpMetricsWithDeviceOpMetrics(kIdle, kIdle,
+                                                     device_op_metrics);
+      }
+    } else if (device_op_metrics.provenance().empty()) {
+      builder.UpdateTfOpMetricsWithDeviceOpMetrics(device_op_metrics.hlo_name(),
+                                                   tsl::profiler::kUnknownOp,
+                                                   device_op_metrics);
+    } else {
+      tsl::profiler::TfOp tf_op =
+          tsl::profiler::ParseTfOpFullname(device_op_metrics.provenance());
+      builder.UpdateTfOpMetricsWithDeviceOpMetrics(tf_op.name, tf_op.type,
+                                                   device_op_metrics);
+    }
+  }
+  tf_op_metrics_db.set_total_op_time_ps(
+      device_op_metrics_db.total_op_time_ps());
+
+  tf_op_metrics_db.set_total_time_ps(
+      with_idle ? device_op_metrics_db.total_time_ps()
+                : device_op_metrics_db.total_op_time_ps());
+
+  return tf_op_metrics_db;
 }
 
 }  // namespace profiler

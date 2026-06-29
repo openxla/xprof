@@ -44,6 +44,34 @@ class RawToToolDataTest(tf.test.TestCase):
     self.assertEqual(data, b"trace_viewer@")
     self.assertEqual(content_type, "application/json")
 
+  def test_trace_viewer_format_pb(self):
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="trace_viewer",
+        params={"trace_viewer_options": {"format": "pb"}},
+        xspace_wrapper_func=lambda paths, tool, options: (
+            b"compressed_pb",
+            True,
+        ),
+    )
+
+    self.assertEqual(data, b"compressed_pb")
+    self.assertEqual(content_type, "application/octet-stream")
+
+  def test_trace_viewer_streaming_format_pb(self):
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="trace_viewer@",
+        params={"trace_viewer_options": {"format": "pb"}},
+        xspace_wrapper_func=lambda paths, tool, options: (
+            b"compressed_pb",
+            True,
+        ),
+    )
+
+    self.assertEqual(data, b"compressed_pb")
+    self.assertEqual(content_type, "application/octet-stream")
+
 
 if __name__ == "__main__":
   tf.test.main()

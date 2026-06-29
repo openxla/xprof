@@ -310,7 +310,25 @@ export class DataServiceV2 implements DataServiceV2Interface {
     sessionId: string,
     params: {[key: string]: string},
   ): string {
-    return '';
+    if (!sessionId) return '';
+    const linkParams = new URLSearchParams();
+    linkParams.set('tool', toolName);
+    linkParams.set('run', sessionId);
+    for (const [key, value] of Object.entries(params)) {
+      if (value) {
+        linkParams.set(key, value);
+      }
+    }
+    const searchParams = this.getSearchParams();
+    const sessionPath = searchParams.get('session_path');
+    const runPath = searchParams.get('run_path');
+    if (sessionPath) {
+      linkParams.set('session_path', sessionPath);
+    }
+    if (runPath) {
+      linkParams.set('run_path', runPath);
+    }
+    return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
   }
 
   getGraphTypes(sessionId: string) {

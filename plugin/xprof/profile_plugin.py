@@ -1264,7 +1264,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     params['memory_space'] = request.args.get('memory_space', '0')
 
-    if tool == 'trace_viewer@':
+    if tool in ('trace_viewer', 'trace_viewer@'):
       options = {}
       options['resolution'] = request.args.get('resolution', 8000)
       options['full_dma'] = full_dma
@@ -1273,8 +1273,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['start_time_ms'] = request.args.get('start_time_ms')
       if request.args.get('end_time_ms') is not None:
         options['end_time_ms'] = request.args.get('end_time_ms')
-      if request.args.get('event_name') is not None:
-        options['event_name'] = request.args.get('event_name')
+      event_name = request.args.get('event_name')
+      if event_name is not None:
+        options['event_name'] = event_name
       if request.args.get('duration_ms') is not None:
         options['duration_ms'] = request.args.get('duration_ms')
       if request.args.get('unique_id') is not None:
@@ -1286,6 +1287,12 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['search_metadata'] = _get_bool_arg(
             request.args, 'search_metadata', False
         )
+      if request.args.get('format') is not None:
+        options['format'] = request.args.get('format')
+      # For event selection (fetching event details), do not use the compressed
+      # protobuf path; use the regular JSON path instead.
+      if event_name is not None:
+        options['format'] = 'json'
       params['trace_viewer_options'] = options
 
     _, content_encoding = None, None
@@ -1853,7 +1860,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       self,
       *,
       asset_paths: Sequence[str],
-      tool_list: Iterable[str],
+      tool_list: Sequence[str],
       params: Mapping[str, Any],
       session_path: str,
   ) -> None:

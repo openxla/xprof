@@ -30,6 +30,7 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   FeatureFlag,
+  getDefaultFeatureFlag,
   getFeatureFlags,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -48,7 +49,7 @@ import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/dat
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
 import {combineLatest, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {finalize, takeUntil} from 'rxjs/operators';
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
@@ -61,6 +62,7 @@ import {
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
 } from './constants';
+import {AdjNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
   FilterEntry,
@@ -80,6 +82,29 @@ import {
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;
   [key: string]: unknown;
+}
+
+interface RawJsonData {
+  [key: string]: object | string | number | boolean | null | undefined;
+}
+
+function isAdjNodesResponse(data: object | null): data is AdjNodesResponse {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+  const dict = data as RawJsonData;
+  return (
+    Array.isArray(dict['operand_names']) &&
+    Array.isArray(dict['consumer_names'])
+  );
+}
+
+interface TraceViewerSelectedEvent extends SelectedEvent {
+  pid?: number;
+  uid?: string;
+  hloModule?: string;
+  hloOpName?: string;
+  args?: {[key: string]: string};
 }
 
 /**
@@ -172,9 +197,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     }
   })();
+  get usePb(): boolean {
+    const flag = this.featureFlags?.find((f) => f.id === 'use_pb');
+    return flag ? flag.value : getDefaultFeatureFlag('use_pb');
+  }
   traceViewerModule: TraceViewerV2Module | null = null;
-  selectedEvent: SelectedEvent | null = null;
+  selectedEvent: TraceViewerSelectedEvent | null = null;
   selectedEventProperties: SelectedEventProperty[] = [];
+  private readonly hloAdjNodesCache = new Map<string, AdjNodesResponse>();
+  private readonly pendingAdjNodesFetches = new Set<string>();
   eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
 
   selectionStartFormat?: string;
@@ -495,6 +526,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       additionalParams.set('hosts', hostsString);
     }
 
+    if (this.useTraceViewerV2 && this.usePb) {
+      additionalParams.set('format', 'pb');
+    }
+
     if (this.hasValidTraceFilters()) {
       additionalParams.set(
         FILTER_CONFIG,
@@ -625,13 +660,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       name,
       startUsFormatted,
       durationUsFormatted,
+      pid: pid || 0,
+      uid,
+      hloModule: hloModuleName,
+      hloOpName,
+      stackTraceLinkHtml: '',
+      rooflineModelLinkHtml: '',
+      graphViewerLinkHtml: '',
     };
 
     const properties: SelectedEventProperty[] = [];
     properties.push({property: 'Name', value: name});
     properties.push({property: 'Start Time', value: startUsFormatted});
     properties.push({property: 'Duration', value: durationUsFormatted});
-    if (hloModuleName) {
+    if (hloModuleName && hloModuleName !== 'default') {
       properties.push({property: 'HLO Module', value: hloModuleName});
     }
     if (hloOpName) {
@@ -642,6 +684,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (uid) {
       this.maybeFetchEventArgs(name, startUs, durationUs, uid, pid);
     }
+    this.maybeFetchAdjacentNodes();
   }
 
   updateWasmProcessMappings() {
@@ -741,7 +784,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const cachedArgs = this.eventArgsCache.get(key);
     if (cachedArgs !== undefined) {
       if (this.selectedEvent) {
-        this.addArgsToSelectedEvent(cachedArgs);
+        const operands = this.selectedEvent.args?.['Operands'];
+        const consumers = this.selectedEvent.args?.['Consumers'];
+        const newArgs = {...cachedArgs};
+        if (operands !== undefined) newArgs['Operands'] = operands;
+        if (consumers !== undefined) newArgs['Consumers'] = consumers;
+
+        this.selectedEvent.args = newArgs;
+        this.selectedEvent = {...this.selectedEvent};
+
+        this.addArgsToSelectedEvent(newArgs);
+        this.createCrossToolLinks();
+        this.maybeFetchAdjacentNodes();
       }
       return;
     }
@@ -754,6 +808,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       ? Math.floor(Number(uid)).toString()
       : uid;
     params.set('unique_id', sanitizedUid);
+    params.set('format', 'json');
 
     let host = '';
     // Use precise host from pidToHostMap if available
@@ -793,18 +848,268 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         ) {
           const args = lastEvent['args'] as {[key: string]: string};
           this.eventArgsCache.set(key, args);
-          this.addArgsToSelectedEvent(args);
+
+          if (this.selectedEvent && this.selectedEvent.uid === uid) {
+            const operands = this.selectedEvent.args?.['Operands'];
+            const consumers = this.selectedEvent.args?.['Consumers'];
+            const newArgs = {...args};
+            if (operands !== undefined) newArgs['Operands'] = operands;
+            if (consumers !== undefined) newArgs['Consumers'] = consumers;
+
+            this.selectedEvent.args = newArgs;
+            this.selectedEvent = {...this.selectedEvent};
+
+            this.addArgsToSelectedEvent(newArgs);
+            this.createCrossToolLinks();
+            this.maybeFetchAdjacentNodes();
+          }
         }
       });
   }
 
   private addArgsToSelectedEvent(args: {[key: string]: string}) {
     if (!this.selectedEvent) return;
-    const properties = [...this.selectedEventProperties];
+    const properties: SelectedEventProperty[] = [];
+    properties.push({property: 'Name', value: this.selectedEvent.name});
+    if (this.selectedEvent.startUsFormatted) {
+      properties.push({
+        property: 'Start Time',
+        value: this.selectedEvent.startUsFormatted,
+      });
+    }
+    if (this.selectedEvent.durationUsFormatted) {
+      properties.push({
+        property: 'Duration',
+        value: this.selectedEvent.durationUsFormatted,
+      });
+    }
+    if (
+      this.selectedEvent.hloModule &&
+      this.selectedEvent.hloModule !== 'default'
+    ) {
+      properties.push({
+        property: 'HLO Module',
+        value: this.selectedEvent.hloModule,
+      });
+    }
+    if (this.selectedEvent.hloOpName) {
+      properties.push({
+        property: 'HLO Op',
+        value: this.selectedEvent.hloOpName,
+      });
+    }
     for (const key of Object.keys(args)) {
+      if (key === 'hlo_module') continue;
       properties.push({property: key, value: args[key]});
     }
     this.selectedEventProperties = properties;
+  }
+
+  private maybeFetchAdjacentNodes() {
+    if (!this.selectedEvent) return;
+
+    const name = this.selectedEvent.hloOpName || this.selectedEvent.name;
+    const module =
+      this.selectedEvent.hloModule ||
+      (this.selectedEvent.args
+        ? this.selectedEvent.args['hlo_module']
+        : undefined);
+
+    if (!name || !module || module === 'default') {
+      return;
+    }
+
+    if (
+      this.selectedEvent.args &&
+      this.selectedEvent.args['Operands'] !== undefined
+    ) {
+      return;
+    }
+
+    const key = `${module}-${name}`;
+    if (this.hloAdjNodesCache.has(key)) {
+      const adjNodes = this.hloAdjNodesCache.get(key)!;
+      this.injectAdjacentNodes(adjNodes, name, module);
+      return;
+    }
+
+    if (this.pendingAdjNodesFetches.has(key)) {
+      return;
+    }
+
+    this.pendingAdjNodesFetches.add(key);
+
+    const params = new Map<string, string | boolean>();
+    params.set('type', 'adj_nodes');
+    params.set('node_name', name);
+    params.set('module_name', module);
+
+    this.dataService
+      .getData(
+        this.navigationEvent.run || '',
+        'graph_viewer',
+        this.getCurrentHost(),
+        params,
+      )
+      .pipe(
+        takeUntil(this.destroyed),
+        finalize(() => {
+          this.pendingAdjNodesFetches.delete(key);
+        }),
+      )
+      .subscribe(
+        (data) => {
+          if (isAdjNodesResponse(data)) {
+            this.hloAdjNodesCache.set(key, data);
+            this.injectAdjacentNodes(data, name, module);
+          }
+        },
+        () => {
+          // Error is handled by finalize clearing pending state.
+        },
+      );
+  }
+
+  private injectAdjacentNodes(
+    adjNodes: AdjNodesResponse,
+    targetNodeName: string,
+    targetModuleName: string,
+  ) {
+    if (!this.selectedEvent) return;
+    const currentNodeName =
+      this.selectedEvent.hloOpName || this.selectedEvent.name;
+    const currentModuleName =
+      this.selectedEvent.hloModule ||
+      (this.selectedEvent.args
+        ? this.selectedEvent.args['hlo_module']
+        : undefined);
+    if (
+      currentNodeName !== targetNodeName ||
+      currentModuleName !== targetModuleName
+    ) {
+      return;
+    }
+
+    if (!this.selectedEvent.args) {
+      this.selectedEvent.args = {};
+    }
+
+    const newArgs = {...this.selectedEvent.args};
+    newArgs['Operands'] = adjNodes['operand_names'].join(', ');
+    newArgs['Consumers'] = adjNodes['consumer_names'].join(', ');
+    this.selectedEvent.args = newArgs;
+
+    this.selectedEvent = {...this.selectedEvent};
+    this.addArgsToSelectedEvent(newArgs);
+  }
+
+  private createCrossToolLink(
+    toolName: string,
+    toolLabel: string,
+    params: {[key: string]: string},
+    text: string,
+  ): string {
+    const toolLinkHref = this.dataService.createToolUrl(
+      toolName,
+      this.navigationEvent.run || '',
+      params,
+    );
+    if (!toolLinkHref) {
+      return `<div>${toolLabel}: Error creating link</div>`;
+    }
+    return `<div>${toolLabel}: <a href="${toolLinkHref}" target="_blank" rel="noopener noreferrer">${text}</a></div>`;
+  }
+
+  private createCrossToolLinks() {
+    if (!this.selectedEvent || !this.selectedEvent.args) return;
+    this.createStackTraceSnippetLink();
+    this.createRooflineModelLink();
+    this.createGraphViewerLink();
+  }
+
+  private createStackTraceSnippetLink() {
+    if (!this.sourceCodeServiceIsAvailable || !this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args;
+    const sourceFileAndLineNumber = args['source'];
+    const stackTrace = args['source_stack'];
+    if (!sourceFileAndLineNumber && !stackTrace) {
+      return;
+    }
+
+    let hloModule =
+      args['hlo_module'] ?? this.selectedEvent?.hloModule ?? 'default';
+    const hloModuleId = args['hlo_module_id'] ?? args['program_id'];
+    if (hloModule !== 'default' && hloModuleId) {
+      hloModule = `${hloModule}(${hloModuleId})`;
+    }
+    const hloOp = args['hlo_op'] || this.selectedEvent.name;
+    const opCategory = args['hlo_category'];
+
+    const hloModuleKey = 'hlo_module';
+    const hloOpKey = 'hlo_op';
+    const sourceKey = 'source';
+    const stackTraceKey = 'stack_trace';
+    const sessionIdKey = 'session_id';
+    const opCategoryKey = 'op_category';
+
+    this.selectedEvent.stackTraceLinkHtml = this.createCrossToolLink(
+      'stack_trace_page',
+      'Source Code Snippet with IR Text',
+      {
+        [hloModuleKey]: hloModule,
+        [hloOpKey]: hloOp,
+        [sourceKey]: sourceFileAndLineNumber || '',
+        [stackTraceKey]: stackTrace || '',
+        [sessionIdKey]: this.navigationEvent.run || '',
+        [opCategoryKey]: opCategory || '',
+      },
+      'Open in a new page',
+    );
+  }
+
+  private createRooflineModelLink() {
+    if (!this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args;
+    const hloOp = args['hlo_op'] || this.selectedEvent.name;
+
+    if (!hloOp) {
+      return;
+    }
+
+    this.selectedEvent.rooflineModelLinkHtml = this.createCrossToolLink(
+      'roofline_model',
+      'Roofline Model',
+      {'roofline_op_name': hloOp},
+      `See op level analysis for ${hloOp}`,
+    );
+  }
+
+  private createGraphViewerLink() {
+    if (!this.selectedEvent?.args) {
+      return;
+    }
+    const args = this.selectedEvent.args;
+    const hloOp = args['hlo_op'] || this.selectedEvent.name;
+    const hloModule =
+      this.selectedEvent.hloModule || args['hlo_module'] || 'default';
+    if (!args['hlo_op'] && hloModule === 'default') {
+      return;
+    }
+    const graphViewParams: {[key: string]: string} = {'node_name': hloOp};
+    if (hloModule !== 'default') {
+      graphViewParams['module_name'] = hloModule;
+    }
+    const graphViewText = `See HLO graph for ${hloOp} @ ${hloModule}`;
+    this.selectedEvent.graphViewerLinkHtml = this.createCrossToolLink(
+      'graph_viewer',
+      'Graph Viewer',
+      graphViewParams,
+      graphViewText,
+    );
   }
 
   // END Trace Viewer V2 WASM App Methods

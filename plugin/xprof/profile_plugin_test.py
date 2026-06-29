@@ -137,7 +137,7 @@ def write_empty_event_file(logdir):
 class ProfilePluginTest(absltest.TestCase):
 
   def setUp(self):
-    super(ProfilePluginTest, self).setUp()
+    super().setUp()
     self._temp_dir = None
     self.logdir = self.get_temp_dir()
     self.multiplexer = plugin_event_multiplexer.EventMultiplexer()
@@ -530,6 +530,102 @@ class ProfilePluginTest(absltest.TestCase):
     actual_path_list = args[0]
     self.assertLen(actual_path_list, 1)
     self.assertEqual(str(actual_path_list[0]), expected_asset_path)
+
+  @mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+  def testDataImplTraceViewerFormatPb(self, mock_xspace_to_tool_data):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = (
+        'mocked_data',
+        'application/octet-stream',
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    _, content_type, _ = plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='foo',
+                tool='trace_viewer',
+                host='host1',
+                format='pb',
+            )
+        )
+    )
+
+    self.assertEqual(content_type, 'application/octet-stream')
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertEqual(args[2]['trace_viewer_options']['format'], 'pb')
+
+  @mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+  def testDataImplTraceViewerStreamingFormatPb(self, mock_xspace_to_tool_data):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = (
+        'mocked_data',
+        'application/octet-stream',
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    _, content_type, _ = plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                run='foo',
+                tool='trace_viewer@',
+                host='host1',
+                format='pb',
+            )
+        )
+    )
+
+    self.assertEqual(content_type, 'application/octet-stream')
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertEqual(args[2]['trace_viewer_options']['format'], 'pb')
+
+  @mock.patch.object(convert, 'xspace_to_tool_data', autospec=True)
+  def testDataImplTraceViewerEventNameFallbackToJson(
+      self, mock_xspace_to_tool_data
+  ):
+    generate_testdata(self.logdir)
+    self.multiplexer.AddRunsFromDirectory(self.logdir)
+    self.multiplexer.Reload()
+    mock_xspace_to_tool_data.return_value = (
+        'mocked_data',
+        'application/json',
+    )
+    plugin = utils.create_profile_plugin(
+        self.logdir,
+        self.multiplexer,
+        xspace_to_tool_data_fn=mock_xspace_to_tool_data,
+    )
+
+    req = utils.make_data_request(
+        utils.DataRequestOptions(
+            run='foo',
+            tool='trace_viewer',
+            host='host1',
+            format='pb',
+            event_name='mock_event',
+        )
+    )
+
+    _, content_type, _ = plugin.data_impl(req)
+
+    self.assertEqual(content_type, 'application/json')
+    mock_xspace_to_tool_data.assert_called_once()
+    args, _ = mock_xspace_to_tool_data.call_args
+    self.assertEqual(args[2]['trace_viewer_options']['format'], 'json')
 
   def testActive(self):
 

@@ -53,7 +53,8 @@ StepEvents ConvertHostThreadsXPlaneToStepEvents(
 StepEvents ConvertDeviceTraceXLineToStepEvents(const XLineVisitor& line);
 
 // Convert the device trace in XPlane format to StepEvents.
-StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace);
+StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace,
+                                                bool for_flat_profile = false);
 
 }  // namespace profiler
 }  // namespace tensorflow

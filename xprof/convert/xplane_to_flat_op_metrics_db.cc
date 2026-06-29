@@ -25,6 +25,7 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -68,12 +69,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
   };
 
   struct OpMetricsInProgress {
-    std::shared_ptr<XEventsFlatOpMetricsDbBuilder> builder;
+    std::unique_ptr<XEventsFlatOpMetricsDbBuilder> builder;
     tsl::profiler::AncestorStack<ParentReference> event_stack;
     OpMetricsInProgress()
-        : builder(std::make_shared<XEventsFlatOpMetricsDbBuilder>()),
+        : builder(std::make_unique<XEventsFlatOpMetricsDbBuilder>()),
           event_stack(
-              [builder = builder](const ParentReference& parent) {
+              [builder_ptr = builder.get()](const ParentReference& parent) {
                 FlatOpMetrics op_metrics =
                     XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
                 op_metrics.set_time_ps(parent.device_timespan.duration_ps());
@@ -90,11 +91,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
                                     : 1.0;
                 op_metrics.set_normalized_time_ps(op_metrics.time_ps() *
                                                   factor);
-                auto key = GetOpKeyFromXEvent(parent.event);
+                XEventsOpMetricsDbBuilder::OpKey key =
+                    GetOpKeyFromXEvent(parent.event);
                 XEventsFlatOpMetricsDbBuilder::OpKey flat_key;
                 flat_key.program_id = key.program_id;
                 flat_key.symbol_id = key.symbol_id;
-                builder->AddOpMetric(op_metrics, flat_key);
+                builder_ptr->AddOpMetric(op_metrics, flat_key);
               },
               [](const ParentReference& parent, const ParentReference& child) {
                 return parent.device_timespan.Includes(child.device_timespan);
@@ -152,10 +154,9 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
         // Check if the current module_it encapsulates the event.
         if (module_it->timespan.Includes(timespan)) {
           // Insert that event into the stack for that module.
-          std::string hlo_name =
-              event.Metadata().HasDisplayName()
-                  ? std::string(event.Metadata().DisplayName())
-                  : std::string(event.Metadata().Name());
+          absl::string_view hlo_name = event.Metadata().HasDisplayName()
+                                           ? event.Metadata().DisplayName()
+                                           : event.Metadata().Name();
           XEventsOpMetricsDbBuilder::OpKey key = GetOpKeyFromXEvent(event);
           auto module_id = key.program_id.has_value() ? key.program_id.value()
                                                       : module_it->tc_start_id;

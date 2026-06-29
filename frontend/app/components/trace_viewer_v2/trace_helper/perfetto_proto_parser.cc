@@ -245,13 +245,10 @@ ParsedTraceEvents ParsePerfettoTraceEvents(const void* data, size_t size,
         event.ts -= min_ts;
       }
     }
-    // `flow_events` and `counter_events` are not currently populated by this
+    // `counter_events` are not currently populated by this
     // parser, which only handles slice events. The loops below are included
     // for future compatibility but will not modify any timestamps in the
     // current implementation.
-    for (auto& event : parsed_events.flow_events) {
-      event.ts -= min_ts;
-    }
     for (auto& event : parsed_events.counter_events) {
       for (auto& ts : event.timestamps) {
         ts -= min_ts;

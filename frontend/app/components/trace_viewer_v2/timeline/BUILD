@@ -110,8 +110,11 @@ wasm_cc_library(
         "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:proto_event_ref",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_parser_core",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )

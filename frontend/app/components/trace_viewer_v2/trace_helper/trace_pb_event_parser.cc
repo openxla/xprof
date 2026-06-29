@@ -3,6 +3,9 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -19,23 +22,24 @@
 
 namespace traceviewer {
 
-namespace {
-
-ParsedTraceEvents ParseCompressedTraceEvents(
+void ParseAndProcessCompressedTraceEvents(
     uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url) {
+    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
+    Timeline& timeline) {
+  if (data_ptr == 0 || data_size == 0) {
+    return;
+  }
   absl::string_view buffer_data(reinterpret_cast<const char*>(data_ptr),
                                 data_size);
-  ParsedTraceEvents result;
   absl::StatusOr<std::string> decompressed_proto =
       tensorflow::profiler::ZstdCompression::Decompress(buffer_data);
   if (!decompressed_proto.ok()) {
-    return result;
+    return;
   }
 
   xprof::TraceDataResponse response;
   if (!response.ParseFromString(*decompressed_proto)) {
-    return result;
+    return;
   }
   // Free decompressed proto memory early to reduce peak memory usage.
   std::string().swap(*decompressed_proto);
@@ -57,48 +61,22 @@ ParsedTraceEvents ParseCompressedTraceEvents(
             .new_(emscripten::val("details_received"), event_init);
     emscripten::val::global("window").call<void>("dispatchEvent", event);
   }
-  ProcessMetadataEvents(response, result);
-  ProcessCompleteEvents(response, result);
-  ProcessAsyncEvents(response, result);
-  ProcessCounterEvents(response, result);
 
-  if (response.has_full_timespan_start_ps() &&
-      response.has_full_timespan_end_ps()) {
-    const Milliseconds start_ms = response.full_timespan_start_ps() / 1e9;
-    const Milliseconds end_ms = response.full_timespan_end_ps() / 1e9;
-    if (start_ms <= end_ms) {
-      result.full_timespan = std::make_pair(start_ms, end_ms);
-    }
-  }
-
+  std::optional<std::pair<Milliseconds, Milliseconds>> parsed_visible_range;
   if (!visible_range_from_url.isNull() &&
       !visible_range_from_url.isUndefined() &&
       visible_range_from_url["length"].as<int>() == 2) {
     Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
     Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
-    result.visible_range_from_url = std::make_pair(start, end);
+    parsed_visible_range = std::make_pair(start, end);
   }
 
-  return result;
-}
-}  // namespace
+  data_provider.ProcessTraceEvents(response, timeline, parsed_visible_range);
 
-void ParseAndProcessCompressedTraceEvents(
-    uintptr_t data_ptr, size_t data_size,
-    const emscripten::val& visible_range_from_url, DataProvider& data_provider,
-    Timeline& timeline) {
-  const ParsedTraceEvents parsed_events =
-      ParseCompressedTraceEvents(data_ptr, data_size, visible_range_from_url);
-  data_provider.ProcessTraceEvents(parsed_events, timeline);
-
-  if (!visible_range_from_url.isNull() &&
-      !visible_range_from_url.isUndefined() &&
-      visible_range_from_url["length"].as<int>() == 2) {
-    Milliseconds start = visible_range_from_url[0].as<Milliseconds>();
-    Milliseconds end = visible_range_from_url[1].as<Milliseconds>();
-
+  if (parsed_visible_range.has_value()) {
     timeline.InitializeLastFetchRequestRange(
-        {MillisToMicros(start), MillisToMicros(end)});
+        {MillisToMicros(parsed_visible_range->first),
+         MillisToMicros(parsed_visible_range->second)});
   } else {
     timeline.InitializeLastFetchRequestRange(timeline.data_time_range());
   }

@@ -37,6 +37,7 @@ from werkzeug import wrappers
 
 from xprof import profile_io
 from xprof import version
+from xprof.convert import counter_extractor
 from xprof.convert import raw_to_tool_data as convert
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
@@ -1211,6 +1212,19 @@ class ProfilePlugin(base_plugin.TBPlugin):
     """
     run = request.args.get('run')
     tool = request.args.get('tag')
+
+    if tool == 'perf_counters' and request.args.get('names_only') == '1':
+      device_type = request.args.get('device_type')
+      if not device_type:
+        raise ValueError(
+            'device_type is required for perf_counters with names_only'
+        )
+      try:
+        names = counter_extractor.get_all_counters(device_type)
+      except FileNotFoundError:
+        names = []
+      return json.dumps(names), 'application/json', None
+
     hosts_param = request.args.get('hosts')
     host = request.args.get('host')
     module_name = request.args.get('module_name')

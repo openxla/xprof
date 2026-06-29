@@ -6,6 +6,13 @@ package(
     licenses = ["notice"],
 )
 
+exports_files(glob(["tpu_counter_ids_*.h"]))
+
+filegroup(
+    name = "tpu_counter_ids_headers",
+    srcs = glob(["tpu_counter_ids_*.h"]),
+)
+
 package_group(
     name = "friends",
     includes = [

@@ -216,9 +216,9 @@ void PopulateOpMetricsNode(
   metrics->set_avg_time_ps(tsl::profiler::SafeDivide(op_metrics.time_ps(),
                                                      op_metrics.occurrences()));
 
-  double uncapped_flops_utilization =
-      tsl::profiler::SafeDivide(GigaFlopsPerSecondPerCore(op_metrics),
-                                peak_gigaflops_per_second_per_core);
+  double uncapped_flops_utilization = tsl::profiler::SafeDivide(
+      GigaFlopsPerSecondPerCoreNormalizedOnDvfs(op_metrics),
+      peak_gigaflops_per_second_per_core);
 
   double flops_utilization = CapUtilization(uncapped_flops_utilization);
   // The UI expects flops_utilization = flop_util / time_fraction. See:

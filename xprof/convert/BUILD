@@ -916,6 +916,16 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_metrics_to_record_test",
+    srcs = ["op_metrics_to_record_test.cc"],
+    deps = [
+        ":op_metrics_to_record",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+    ],
+)
+
 cc_library(
     name = "op_stack",
     hdrs = ["op_stack.h"],

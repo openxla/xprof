@@ -24,6 +24,17 @@ wasm_cc_library(
 )
 
 wasm_cc_library(
+    name = "proto_event_ref",
+    hdrs = ["proto_event_ref.h"],
+    deps = [
+        ":trace_event",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@tsl//tsl/profiler/lib:context_types",
+    ],
+)
+
+wasm_cc_library(
     name = "trace_event_parser",
     srcs = ["trace_event_parser.cc"],
     hdrs = ["trace_event_parser.h"],
@@ -140,9 +151,11 @@ wasm_cc_library(
     srcs = ["trace_event_tree.cc"],
     hdrs = ["trace_event_tree.h"],
     deps = [
+        ":proto_event_ref",
         ":trace_event",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/types:span",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
     ],
 )
 
@@ -154,6 +167,7 @@ cc_test(
         ":trace_event_tree",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
     ],
 )
 

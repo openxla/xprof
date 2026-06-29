@@ -87,12 +87,9 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 3.0);
   EXPECT_DOUBLE_EQ(result.flame_events[1].dur, 3.0);
   EXPECT_EQ(result.flame_events[1].args.at("uid"), "124");
-  EXPECT_EQ(result.flame_events[1].id, "999");
+  EXPECT_EQ(result.flame_events[1].flow_id, 999);
   EXPECT_EQ(result.flame_events[1].category,
             tsl::profiler::ContextType::kTpuLaunch);
-
-  ASSERT_EQ(result.flow_events.size(), 1);
-  EXPECT_EQ(result.flow_events[0].id, "999");
 }
 
 TEST(TraceEventParserCoreTest, ProcessCounterEvents) {

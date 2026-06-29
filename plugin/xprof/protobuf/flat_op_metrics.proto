@@ -160,6 +160,9 @@ message FlatOpMetricsDb {
 
   // Weighted average total op time if running on default pstate.
   uint64 normalized_total_op_time_ps = 7;
+
+  int64 total_host_infeed_enq_duration_ps = 8;
+  int64 total_host_infeed_enq_start_timestamp_ps_diff = 9;
 }
 
 message FlatOpMetricsDbMap {

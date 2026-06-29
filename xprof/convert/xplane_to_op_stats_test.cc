@@ -37,6 +37,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "xprof/convert/multi_xplanes_to_op_stats.h"
+#include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "plugin/xprof/protobuf/diagnostics.pb.h"
@@ -186,6 +187,45 @@ TEST(ConvertXPlaneToOpStats, CpuOnlyStepDbTest) {
   OpStats op_stats;
   ASSERT_OK(ConvertMultiXSpacesToCombinedOpStats(session_snapshot_or.value(),
                                                  options, &op_stats));
+  const StepDatabaseResult& step_db = op_stats.step_db();
+
+  EXPECT_EQ(step_db.step_sequence_size(), 1);
+}
+
+TEST(ConvertXPlaneToOpStats, CpuOnlyFlatOpMetricsDbStepDbTest) {
+  constexpr int64_t kStepNum = 123;
+  constexpr int64_t kStepId = 0;
+
+  XSpace space;
+  XPlaneBuilder host_plane_builder(GetOrCreateHostXPlane(&space));
+  host_plane_builder.ReserveLines(2);
+
+  auto main_thread = host_plane_builder.GetOrCreateLine(0);
+  CreateXEvent(&host_plane_builder, &main_thread, HostEventType::kTraceContext,
+               0, 100, {{StatType::kStepNum, kStepNum}});
+  CreateXEvent(&host_plane_builder, &main_thread, HostEventType::kFunctionRun,
+               10, 90,
+               {{StatType::kStepId, kStepId},
+                {StatType::kProducerType, int64_t{1}},
+                {StatType::kProducerId, kStepId}});
+
+  auto tf_executor_thread = host_plane_builder.GetOrCreateLine(1);
+  CreateXEvent(&host_plane_builder, &tf_executor_thread,
+               HostEventType::kExecutorStateProcess, 20, 80,
+               {{StatType::kStepId, kStepId},
+                {StatType::kConsumerType, int64_t{1}},
+                {StatType::kConsumerId, kStepId}});
+  CreateXEvent(&host_plane_builder, &tf_executor_thread, "matmul", 30, 70);
+
+  OpStatsOptions options;
+  options.generate_op_metrics_db = true;
+  options.generate_step_db = true;
+
+  PreprocessSingleHostXSpace(&space, /*step_grouping=*/true,
+                             /*derived_timeline=*/true);
+
+  ASSERT_OK_AND_ASSIGN(OpStats op_stats,
+                       ConvertXSpaceToFlatOpMetricsDb(space, options));
   const StepDatabaseResult& step_db = op_stats.step_db();
 
   EXPECT_EQ(step_db.step_sequence_size(), 1);
@@ -1097,6 +1137,10 @@ TEST(ConvertXPlaneToOpStats, ConvertXSpaceToFlatOpMetricsDbTest) {
 
   // Verify field on OpStats instead of FlatOpMetricsDb
   EXPECT_EQ(op_stats.run_environment().device_type(), "TPU V4");
+
+  // Verify Duty Cycle on FlatOpMetricsDb
+  EXPECT_GT(flat_op_metrics_db.idle_time_ps(), 0);
+  EXPECT_GT(flat_op_metrics_db.busy_time_ps(), 0);
 
   // Verify PerfEnv on OpStats instead of FlatOpMetricsDb
   EXPECT_EQ(op_stats.perf_env().peak_tera_flops_per_second(), 1000.0);

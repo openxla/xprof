@@ -5,30 +5,32 @@
 #include <utility>
 #include <vector>
 
-#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "absl/log/log.h"
 #include "absl/types/span.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/proto_event_ref.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 
-TraceEventTree BuildTree(absl::Span<const TraceEvent* const> events) {
-  TraceEventTree tree;
-  std::vector<TraceEventNode*> stack;
+template <typename EventT>
+TraceEventTreeT<EventT> BuildTree(absl::Span<const EventT* const> events) {
+  TraceEventTreeT<EventT> tree;
+  std::vector<TraceEventNodeT<EventT>*> stack;
 
   // Events are expected to be sorted by timestamp (ascending), then by
   // duration (descending).
-  for (const TraceEvent* event : events) {
+  for (const EventT* event : events) {
     const Microseconds start_time = event->ts;
     const Microseconds duration = event->dur;
     const Microseconds end_time = start_time + duration;
 
-    auto node = std::make_unique<TraceEventNode>(event);
+    auto node = std::make_unique<TraceEventNodeT<EventT>>(event);
     node->self_time = duration;
     bool node_processed = false;
 
     while (!stack.empty()) {
-      TraceEventNode* parent_node = stack.back();
-      const TraceEvent* parent_event = parent_node->event;
+      TraceEventNodeT<EventT>* parent_node = stack.back();
+      const EventT* parent_event = parent_node->event;
       const Microseconds parent_start_time = parent_event->ts;
       const Microseconds parent_duration = parent_event->dur;
       const Microseconds parent_end_time = parent_start_time + parent_duration;
@@ -79,5 +81,10 @@ TraceEventTree BuildTree(absl::Span<const TraceEvent* const> events) {
   }
   return tree;
 }
+
+template TraceEventTreeT<TraceEvent> BuildTree<TraceEvent>(
+    absl::Span<const TraceEvent* const> events);
+template TraceEventTreeT<ProtoEventRef> BuildTree<ProtoEventRef>(
+    absl::Span<const ProtoEventRef* const> events);
 
 }  // namespace traceviewer

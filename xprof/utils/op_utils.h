@@ -156,6 +156,21 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
                                        const HloModuleMap& hlo_module_map);
 };
 
+class HostFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
+ public:
+  explicit HostFlatOpMetricsDbBuilder(FlatOpMetricsDb* db)
+      : FlatOpMetricsDbBuilder(db) {}
+
+  void EnterOp(absl::string_view name, absl::string_view category,
+               bool is_eager, uint64_t time_ps, uint64_t children_time_ps,
+               int64_t id = 0);
+
+  void EnterHostInfeedEnqueue(tsl::profiler::Timespan host_infeed_enqueue);
+
+ private:
+  tsl::profiler::Timespan last_host_infeed_enqueue_;
+};
+
 class DeviceFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
  public:
   using OpIdentifier = DeviceOpMetricsDbBuilder::OpIdentifier;

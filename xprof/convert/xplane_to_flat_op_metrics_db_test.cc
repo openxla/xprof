@@ -656,6 +656,31 @@ TEST_F(XPlaneToFlatOpMetricsDbTest, GpuEquivalenceTest) {
   EXPECT_EQ(legacy_db.total_time_ps(), new_db.total_time_ps());
 }
 
+TEST_F(XPlaneToFlatOpMetricsDbTest, HostInfeedEnqueueMetrics) {
+  XLineBuilder host_line = plane_builder_->GetOrCreateLine(1);
+  host_line.SetName("Host Threads");
+
+  auto add_infeed = [&](int64_t start_ns, int64_t duration_ns) {
+    XEventBuilder builder = host_line.AddEvent(
+        *plane_builder_->GetOrCreateEventMetadata("InfeedEnqueueTuple"));
+    builder.SetTimestampNs(start_ns);
+    builder.SetDurationNs(duration_ns);
+    builder.AddStatValue(
+        *plane_builder_->GetOrCreateStatMetadata(
+            GetStatTypeStr(StatType::kTfOp)),
+        "InfeedEnqueueTuple:InfeedEnqueueTuple");
+  };
+
+  add_infeed(1000, 1000);
+  add_infeed(3000, 1000);
+  add_infeed(6000, 1000);
+
+  FlatOpMetricsDb db = ConvertHostThreadsXPlaneToFlatOpMetricsDb(*xplane_);
+
+  EXPECT_EQ(db.total_host_infeed_enq_duration_ps(), 2000000);
+  EXPECT_EQ(db.total_host_infeed_enq_start_timestamp_ps_diff(), 5000000);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

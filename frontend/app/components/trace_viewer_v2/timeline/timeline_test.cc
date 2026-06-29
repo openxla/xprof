@@ -1983,6 +1983,39 @@ TEST(TimelineTest, RevealEventTriggersCallback) {
   EXPECT_TRUE(callback_called);
 }
 
+TEST(TimelineTest, RevealEventEmitsArgs) {
+  Timeline timeline;
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.name = "Group 1", .start_level = 0, .expanded = true});
+  data.entry_names.push_back("event0");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({{"key1", "val1"}, {"key2", "val2"}});
+  timeline.SetTimelineData(std::move(data));
+
+  bool callback_called = false;
+  EventData received_data;
+  timeline.set_event_callback(
+      [&callback_called, &received_data](absl::string_view event_type,
+                                         const EventData& data) {
+        if (event_type == kEventSelected) {
+          callback_called = true;
+          received_data = data;
+        }
+      });
+
+  timeline.RevealEvent(0);
+
+  EXPECT_TRUE(callback_called);
+  ASSERT_TRUE(received_data.contains("args"));
+  auto args_map = std::any_cast<EventData>(received_data.at("args"));
+  EXPECT_EQ(std::any_cast<std::string>(args_map.at("key1")), "val1");
+  EXPECT_EQ(std::any_cast<std::string>(args_map.at("key2")), "val2");
+}
+
 TEST(TimelineTest, RevealEventUnequalSizes) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

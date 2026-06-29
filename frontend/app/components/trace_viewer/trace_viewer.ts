@@ -639,6 +639,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.selectedEventProperties = properties;
 
+    if (event.args) {
+      const args = event.args as {[key: string]: string};
+      this.addArgsToSelectedEvent(args);
+      // Populate cache so duplicate clicks don’t look up network bounds
+      const key = `${name}-${startUs}-${durationUs}`;
+      this.eventArgsCache.set(key, args);
+      return;
+    }
+
     if (uid) {
       this.maybeFetchEventArgs(name, startUs, durationUs, uid, pid);
     }

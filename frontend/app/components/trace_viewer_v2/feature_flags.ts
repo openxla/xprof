@@ -32,6 +32,11 @@ const FEATURE_FLAGS = {
     description: 'Enable adding bookmarks with Ctrl/Meta + Click.',
     default: false,
   },
+  'enable_track_management': {
+    name: 'Enable Track Management',
+    description: 'Enable the track management feature in Trace Viewer.',
+    default: false,
+  },
 } as const;
 
 /**

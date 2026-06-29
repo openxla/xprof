@@ -99,7 +99,7 @@ bool DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
   // Always show the expand/collapse button.
   ImGui::PushID(group_index);
   // Draw a smaller arrow button.
-  const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonHeight = height;
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
@@ -456,7 +456,7 @@ void Timeline::Draw() {
       }
     }
 
-    const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+    const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
     // We add 1 to the nesting level because ImGui::Indent(0) results in a
     // default, potentially large indentation. By adding 1, even top-level
     // groups (nesting_level 0) receive a base indentation of `kIndentSize`,
@@ -565,6 +565,18 @@ void Timeline::Draw() {
     ImGui::Unindent(indent_amount);
     ImGui::SetCursorPosY(label_start_y);
     ImGui::PopClipRect();
+
+    if (track_management_enabled_) {
+      if (group.nesting_level == kProcessNestingLevel) {
+        ImGui::SameLine();
+        const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+        ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
+                            kSplitterOffset - kArrowSize);
+        const bool is_track_hidden = hidden_track_names_.contains(group.name);
+        DrawHideButton(
+            group_index, centereable_height, is_track_hidden);
+      }
+    }
 
     ImGui::SetCursorPos(
         ImVec2(tracks_start_pos.x + label_width_,
@@ -2326,6 +2338,101 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
                        kWhiteColor);
   }
   return clicked;
+}
+
+void Timeline::DrawHideButton(int group_index,
+                                Pixel height, bool is_track_hidden) {
+  const Group& group = timeline_data_.groups[group_index];
+
+  // Base size to determine the icon's drawing area and the button's width.
+  // The button size (especially width) directly relates to the icon draw size
+  // so that the hit target matches the visual boundary of the hide icon.
+  const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
+  const Pixel kButtonVisibleHeight = height;
+
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  // The icon will be drawn within a kIconDrawSize * kIconDrawSize area.
+  // The button width matches the icon draw width.
+  const ImVec2 buttonSize(kIconDrawSize, kButtonVisibleHeight);
+
+  if (ImGui::InvisibleButton("##hide", buttonSize)) {
+    auto it = hidden_track_names_.find(group.name);
+    if (it != hidden_track_names_.end()) {
+      hidden_track_names_.erase(it);
+    } else {
+      hidden_track_names_.insert(group.name);
+    }
+    UpdateLevelPositions(timeline_data_);
+    if (redraw_callback_) redraw_callback_();
+  }
+
+  // Calculate the center point for drawing the icon.
+  Pixel center_x = p.x + kIconDrawSize * 0.5f;
+  Pixel center_y = p.y + kButtonVisibleHeight * 0.5f;
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 icon_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    icon_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+    ImGui::SetTooltip(is_track_hidden ? kUnhideTrackTooltip
+                                      : kHideTrackTooltip);
+  }
+
+  const Pixel content_region_avail_width =
+      ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const bool is_row_hovered = ImGui::IsMouseHoveringRect(
+      ImVec2(tracks_start_screen_pos_.x,
+             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+      ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
+             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+
+  if (is_row_hovered) {
+    DrawHideIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
+                 is_track_hidden);
+  }
+}
+
+// Draws the hide/unhide icon in a kIconDrawSize * kIconDrawSize square area.
+// The icon's drawing coordinates are relative to the center and will not
+// exceed the boundaries defined by kIconDrawSize.
+void Timeline::DrawHideIcon(ImDrawList* draw_list, Pixel center_x,
+                            Pixel center_y, Pixel kIconDrawSize, ImU32 icon_col,
+                            bool is_track_hidden) {
+  float r = kIconDrawSize * 0.5f;
+
+  // Curve approximation using segments
+  ImVec2 p0(center_x - r, center_y);
+  ImVec2 p1(center_x - r * 0.5f, center_y - r * 0.45f);
+  ImVec2 p2(center_x, center_y - r * 0.6f);
+  ImVec2 p3(center_x + r * 0.5f, center_y - r * 0.45f);
+  ImVec2 p4(center_x + r, center_y);
+
+  // Top eye curve
+  draw_list->AddLine(p0, p1, icon_col, 1.0f);
+  draw_list->AddLine(p1, p2, icon_col, 1.0f);
+  draw_list->AddLine(p2, p3, icon_col, 1.0f);
+  draw_list->AddLine(p3, p4, icon_col, 1.0f);
+
+  // Bottom eye curve
+  ImVec2 p5(center_x - r * 0.5f, center_y + r * 0.45f);
+  ImVec2 p6(center_x, center_y + r * 0.6f);
+  ImVec2 p7(center_x + r * 0.5f, center_y + r * 0.45f);
+
+  draw_list->AddLine(p0, p5, icon_col, 1.0f);
+  draw_list->AddLine(p5, p6, icon_col, 1.0f);
+  draw_list->AddLine(p6, p7, icon_col, 1.0f);
+  draw_list->AddLine(p7, p4, icon_col, 1.0f);
+
+  // Pupil (center)
+  draw_list->AddCircleFilled(ImVec2(center_x, center_y), r * 0.25f, icon_col);
+
+  // Slashed line for crossed eye
+  if (is_track_hidden) {
+    draw_list->AddLine(ImVec2(center_x - r * 0.9f, center_y - r * 0.6f),
+                       ImVec2(center_x + r * 0.9f, center_y + r * 0.6f),
+                       icon_col, 1.0f);
+  }
 }
 
 void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,

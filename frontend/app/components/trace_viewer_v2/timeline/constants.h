@@ -77,6 +77,8 @@ inline constexpr Pixel kThreadTrackGap = 4.0f;
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
 inline constexpr double kEpsilon = 0.001;
+// The scale factor applied to the font size to determine the arrow / icon size.
+inline constexpr float kIconSizeScale = 0.7f;
 // go/keep-sorted end
 
 // Highlighting Constants
@@ -197,6 +199,8 @@ inline constexpr double kEventNavigationZoomFactor = 20.0;
 // UI Strings Constants
 // go/keep-sorted start
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
+inline constexpr char kHideTrackTooltip[] = "Hide track";
+inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 // go/keep-sorted end
 }  // namespace traceviewer
 

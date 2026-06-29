@@ -261,6 +261,10 @@ class Timeline {
   void RemoveBookmark(Microseconds time);
 
   const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
+  void set_track_management_enabled(bool enabled) {
+    track_management_enabled_ = enabled;
+  }
+  bool track_management_enabled() const { return track_management_enabled_; }
 
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
@@ -420,6 +424,10 @@ class Timeline {
   void EmitMouseModeChanged();
   void ShowBoundsNotification(const std::string& message);
 
+  void DrawHideIcon(
+      ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+      Pixel kIconDrawSize, ImU32 icon_col, bool is_track_hidden = false);
+
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
   // Draws vertical grid lines across the background of the tracks.
@@ -442,6 +450,8 @@ class Timeline {
   void DrawCounterTrack(int group_index, const CounterData& counter_data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
+
+  void DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -604,6 +614,7 @@ class Timeline {
   int hovered_event_index_ = -1;
   bool snap_to_time_range_enabled_ = false;
   bool bookmarks_enabled_ = false;
+  bool track_management_enabled_ = false;
 
   bool mpmd_pipeline_view_enabled_ = false;
 
@@ -649,6 +660,7 @@ class Timeline {
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
+  absl::flat_hash_set<std::string> hidden_track_names_;
 };
 
 }  // namespace traceviewer

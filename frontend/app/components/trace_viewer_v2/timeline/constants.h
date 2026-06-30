@@ -200,7 +200,9 @@ inline constexpr double kEventNavigationZoomFactor = 20.0;
 // go/keep-sorted start
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
+inline constexpr char kPinTrackTooltip[] = "Pin track";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
+inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 // go/keep-sorted end
 }  // namespace traceviewer
 

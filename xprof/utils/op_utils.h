@@ -24,6 +24,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 #include "xprof/utils/performance_info_wrapper.h"
@@ -153,6 +154,18 @@ class DeviceOpMetricsDbBuilder : public OpMetricsDbBuilder {
   void EnterOpMetadataFromHloModuleMap(uint64_t program_id,
                                        absl::string_view op_name,
                                        const HloModuleMap& hlo_module_map);
+};
+
+class DeviceFlatOpMetricsDbBuilder : public FlatOpMetricsDbBuilder {
+ public:
+  using OpIdentifier = DeviceOpMetricsDbBuilder::OpIdentifier;
+  using OpData = DeviceOpMetricsDbBuilder::OpData;
+
+  explicit DeviceFlatOpMetricsDbBuilder(FlatOpMetricsDb* db)
+      : FlatOpMetricsDbBuilder(db) {}
+
+  void EnterOp(const OpIdentifier& op_id, const OpData& event_data);
+  void EnterOpMetadata(const OpIdentifier& op_id, bool is_eager);
 };
 
 }  // namespace profiler

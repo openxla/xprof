@@ -120,6 +120,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@xla//xla/tsl/profiler/utils:timespan",

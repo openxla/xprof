@@ -36,6 +36,7 @@ import {
   DETAILS_RECEIVED_EVENT_NAME,
   isDetailsReceivedEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
+  TraceData as MainTraceData,
   SearchEventsEventDetail,
   shutdownTraceViewerV2,
   TraceDetailKey,
@@ -47,8 +48,16 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs/operators';
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
@@ -61,6 +70,7 @@ import {
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
 } from './constants';
+import {AdjacentNodesResponse} from './interfaces';
 import {
   FilterChangeEvent,
   FilterEntry,
@@ -92,6 +102,16 @@ export declare interface FeatureFlagWithValue extends FeatureFlag {
   value: boolean;
 }
 
+function isAdjacentNodesResponse(data: unknown): data is AdjacentNodesResponse {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+  const dict = data as Record<string, unknown>;
+  return (
+    Array.isArray(dict['operand_names']) &&
+    Array.isArray(dict['consumer_names'])
+  );
+}
 /** The name of the event triggered when a trace event is selected. */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
 
@@ -179,9 +199,19 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
-  private readonly eventArgsCache = new Map<string, {[key: string]: string}>();
+  private readonly eventArgsCache = new Map<string, Record<string, string>>();
+  private readonly hloAdjacentNodesCache = new Map<
+    string,
+    AdjacentNodesResponse
+  >();
+  private readonly pendingAdjacentNodesFetches = new Set<string>();
   private queryString = '';
   searching = false;
+  private readonly searchQuery = new ReplaySubject<string>(1);
+  /** @export */
+  get searchQueryForTesting(): Observable<string> {
+    return this.searchQuery;
+  }
   readonly availableDetails: Array<{key: TraceDetailKey; label: string}> = [
     {key: 'full_dma', label: 'Full DMA'},
   ];
@@ -416,7 +446,54 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    this.searchQuery
+      .pipe(
+        takeUntil(this.destroyed),
+        debounceTime(300),
+        distinctUntilChanged(),
+        tap<string>(() => {
+          this.searching = true;
+        }),
+        switchMap((query: string) => {
+          if (!query) {
+            return of(null);
+          }
+          const host = this.getCurrentHost();
+          if (!host) {
+            return of(null);
+          }
+          return this.dataService
+            .getData(
+              this.navigationEvent.run ?? '',
+              this.navigationEvent.tag ?? '',
+              host,
+              new Map<string, string>([['search_prefix', query]]),
+            )
+            .pipe(
+              catchError((error: unknown) => {
+                console.error(
+                  'Failed to fetch trace data for search query:',
+                  error,
+                );
+                return of(null);
+              }),
+            );
+        }),
+      )
+      .subscribe((data) => {
+        this.searching = false;
+        if (this.traceViewerModule && data) {
+          // Type contract is guaranteed by the backend response structure.
+          const traceData = data as TraceData;
+          this.traceViewerModule.setSearchResultsInWasm({
+            ...traceData,
+            traceEvents: traceData.traceEvents ?? [],
+          } as MainTraceData);
+          this.container?.updateSearchResultCountText();
+        }
+      });
+  }
 
   ngAfterViewInit(): void {}
 
@@ -605,6 +682,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.selectionExtentFormat = undefined;
       return;
     }
+    this.updateWasmProcessMappings();
     this.selectionStartFormat = undefined;
     this.selectionExtentFormat = undefined;
     this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
@@ -640,8 +718,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.selectedEventProperties = properties;
 
     if (uid) {
-      this.maybeFetchEventArgs(name, startUs, durationUs, uid, pid);
+      this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
     }
+    this.maybeFetchAdjacentNodes();
   }
 
   updateWasmProcessMappings() {
@@ -713,13 +792,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  onSearchEvents(detail: SearchEventsEventDetail) {
-    const query = detail.events_query;
+  onSearchEvents(detail: SearchEventsEventDetail): void {
+    const query = detail.events_query ?? '';
     if (!this.traceViewerModule) return;
 
     const app = this.traceViewerModule.application.instance();
-    app.setSearchQuery(query || '');
+    app.setSearchQuery(query);
     this.container?.updateSearchResultCountText();
+    this.searchQuery.next(query);
   }
 
   onInitializeWasm() {
@@ -730,21 +810,39 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   private readonly pidToHostMap = new Map<number, string>();
 
-  private maybeFetchEventArgs(
-    name: string,
-    startUs: number,
-    durationUs: number,
-    uid: string,
-    pid?: number,
-  ) {
-    const key = `${name}-${startUs}-${durationUs}`;
-    const cachedArgs = this.eventArgsCache.get(key);
-    if (cachedArgs !== undefined) {
+  private maybeFetchEventArgs({
+    name,
+    startUs,
+    durationUs,
+    uid,
+    pid,
+  }: {
+    name: string;
+    startUs: number;
+    durationUs: number;
+    uid: string;
+    pid?: number;
+  }): void {
+    let cachedArgs: Record<string, string> | undefined;
+    for (const [k, args] of this.eventArgsCache.entries()) {
+      const lastColon = k.lastIndexOf(':');
+      if (lastColon !== -1 && k.substring(0, lastColon) === name) {
+        const cachedStartUs = Number(k.substring(lastColon + 1));
+        if (Math.abs(cachedStartUs - startUs) < 50000) {
+          cachedArgs = args;
+          break;
+        }
+      }
+    }
+
+    if (cachedArgs) {
       if (this.selectedEvent) {
         this.addArgsToSelectedEvent(cachedArgs);
       }
       return;
     }
+
+    const cacheKey = `${name}:${startUs}`;
 
     const params = new Map<string, string>();
     params.set('event_name', name);
@@ -769,8 +867,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     this.dataService
       .getData(
-        this.navigationEvent.run || '',
-        this.navigationEvent.tag || '',
+        this.navigationEvent.run ?? '',
+        this.navigationEvent.tag ?? '',
         host,
         params,
       )
@@ -791,19 +889,104 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.selectedEvent &&
           lastEvent['args']
         ) {
-          const args = lastEvent['args'] as {[key: string]: string};
-          this.eventArgsCache.set(key, args);
+          const args = lastEvent['args'] as Record<string, string>;
+          this.eventArgsCache.set(cacheKey, args);
           this.addArgsToSelectedEvent(args);
         }
       });
   }
 
-  private addArgsToSelectedEvent(args: {[key: string]: string}) {
+  private addArgsToSelectedEvent(args: Record<string, string>): void {
     if (!this.selectedEvent) return;
     const properties = [...this.selectedEventProperties];
     for (const key of Object.keys(args)) {
       properties.push({property: key, value: args[key]});
     }
+    this.selectedEventProperties = properties;
+    this.maybeFetchAdjacentNodes();
+  }
+
+  private maybeFetchAdjacentNodes(): void {
+    if (
+      this.selectedEventProperties.some(
+        (prop) => prop.property === 'Operands' || prop.property === 'Consumers',
+      )
+    ) {
+      return;
+    }
+    const {name, module} = getHloNameAndModule(this.selectedEventProperties);
+    if (!name || !module) return;
+
+    const key = `${name}-${module}`;
+    const cachedAdjNodes = this.hloAdjacentNodesCache.get(key);
+    if (cachedAdjNodes) {
+      this.injectAdjacentNodes({
+        adjacentNodes: cachedAdjNodes,
+        targetNodeName: name,
+        targetModuleName: module,
+      });
+      return;
+    }
+    if (this.pendingAdjacentNodesFetches.has(key)) return;
+
+    this.pendingAdjacentNodesFetches.add(key);
+
+    const params = new Map<string, string | boolean>();
+    params.set('type', 'adj_nodes');
+    params.set('node_name', name);
+    params.set('module_name', module);
+
+    this.dataService
+      .getData(
+        this.navigationEvent.run ?? '',
+        'graph_viewer',
+        this.getCurrentHost(),
+        params,
+      )
+      .pipe(
+        takeUntil(this.destroyed),
+        finalize(() => {
+          this.pendingAdjacentNodesFetches.delete(key);
+        }),
+      )
+      .subscribe((data) => {
+        if (isAdjacentNodesResponse(data)) {
+          this.hloAdjacentNodesCache.set(key, data);
+          this.injectAdjacentNodes({
+            adjacentNodes: data,
+            targetNodeName: name,
+            targetModuleName: module,
+          });
+        }
+      });
+  }
+
+  private injectAdjacentNodes({
+    adjacentNodes,
+    targetNodeName,
+    targetModuleName,
+  }: {
+    adjacentNodes: AdjacentNodesResponse;
+    targetNodeName: string;
+    targetModuleName: string;
+  }): void {
+    if (!this.selectedEvent) return;
+    const {name: currentName, module: currentModule} = getHloNameAndModule(
+      this.selectedEventProperties,
+    );
+    if (currentName !== targetNodeName || currentModule !== targetModuleName) {
+      return;
+    }
+
+    const properties = [...this.selectedEventProperties];
+    properties.push({
+      property: 'Operands',
+      value: adjacentNodes['operand_names'].join(', '),
+    });
+    properties.push({
+      property: 'Consumers',
+      value: adjacentNodes['consumer_names'].join(', '),
+    });
     this.selectedEventProperties = properties;
   }
 
@@ -1083,4 +1266,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       window.localStorage.setItem(COLOR_PALETTE_PROMPTED_STORAGE_KEY, 'true');
     } catch {}
   }
+}
+function getHloNameAndModule(properties: SelectedEventProperty[]): {
+  name: string;
+  module: string;
+} {
+  let name = '';
+  let module = '';
+  for (const prop of properties) {
+    if (prop.property === 'HLO Op' && prop.value) {
+      name = prop.value.toString();
+    } else if (!name && prop.property === 'Name' && prop.value) {
+      name = prop.value.toString();
+    }
+    if (prop.property === 'HLO Module' && prop.value) {
+      module = prop.value.toString();
+    } else if (!module && prop.property === 'hlo_module' && prop.value) {
+      module = prop.value.toString();
+    }
+  }
+  return {name, module};
 }

@@ -40,7 +40,7 @@ export interface AggregatedEventProperty extends SelectedEventProperty {
 /**
  * Response type for graph_viewer.json?type=adj_nodes.
  */
-export declare interface AdjNodesResponse {
+export declare interface AdjacentNodesResponse {
   operand_names: string[];
   consumer_names: string[];
   [key: string]: string[];

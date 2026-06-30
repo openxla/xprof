@@ -82,6 +82,7 @@ void PopulateSymbolNode(const FlatOpMetrics& op_metrics, Node* node) {
       tensorflow::profiler::ExtractXprofKernelMetadata(op_metrics.long_name()));
   xla.set_category(op_metrics.category());
   xla.set_provenance(op_metrics.provenance());
+  *xla.mutable_source_info() = op_metrics.source_info();
 }
 
 // Sort the children and only keep the top K children.

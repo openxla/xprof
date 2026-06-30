@@ -182,6 +182,9 @@ class Timeline {
   // The search is case-insensitive.
   void SetSearchQuery(const std::string& query);
 
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
+
   int get_search_results_count() const { return search_results_.size(); }
   int get_current_search_result_index() const {
     return current_search_result_index_;
@@ -193,6 +196,9 @@ class Timeline {
   // like zooming to a selection.
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
+  const TimeRange& visible_range_target() const {
+    return visible_range_.target();
+  }
 
   const std::vector<TimeRange>& selected_time_ranges() const {
     return selected_time_ranges_;
@@ -498,6 +504,9 @@ class Timeline {
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
 
+  // Updates the search results based on the current search query.
+  void RecomputeSearchResults();
+
   // Handles mouse input for creating curtains.
   // Returns true if any interaction occurred.
   bool HandleMouse();
@@ -641,10 +650,21 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
+  struct SearchResult {
+    EventId event_id;
+    int level;
+    Microseconds start_time;
+    Microseconds duration;
+    ProcessId pid;
+    ThreadId tid;
+    std::string name;
+    int loaded_index = -1;
+  };
+
   std::string search_query_lower_;
-  // Indices into timeline_data_ entries
-  std::vector<int> search_results_;
+  std::vector<SearchResult> search_results_;
   int current_search_result_index_ = -1;
+  std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the bounds
   // notification toast.

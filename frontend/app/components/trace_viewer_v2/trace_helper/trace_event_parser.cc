@@ -161,8 +161,7 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     // We use Fingerprint64 for a stable event ID because absl::HashOf
     // does not guarantee stability across different executions or binaries,
     // and we need consistency for event associations.
-    ev.event_id =
-        tsl::Fingerprint64(absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+    ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
     switch (ev.ph) {
       case Phase::kAsyncBegin:
         if (!ev.id.empty()) {
@@ -183,6 +182,8 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
             if (!ev.args.empty()) {
               begin_ev.args.insert(ev.args.begin(), ev.args.end());
             }
+            begin_ev.event_id =
+                GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }
@@ -299,6 +300,13 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   Application::Instance().RequestRedraw();
 }
 
+void SetSearchResultsInWasm(const emscripten::val& trace_data) {
+  const ParsedTraceEvents parsed_events =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+  Application::Instance().timeline().SetSearchResults(parsed_events);
+  Application::Instance().RequestRedraw();
+}
+
 emscripten::val GetAllFlowCategories() {
   emscripten::val categories = emscripten::val::array();
   for (int i = 0;
@@ -357,6 +365,9 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+
+  emscripten::function("setSearchResultsInWasm",
+                       &traceviewer::SetSearchResultsInWasm);
 
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);

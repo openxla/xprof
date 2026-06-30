@@ -386,6 +386,9 @@ export class TraceViewerContainer
     this.search$
       .pipe(debounceTime(300), takeUntil(this.destroyed))
       .subscribe((query) => {
+        if (query === this.currentSearchQuery) {
+          return;
+        }
         this.currentSearchQuery = query;
         this.searchEvents.emit({events_query: query});
         if (this.traceViewerModule) {
@@ -643,12 +646,17 @@ export class TraceViewerContainer
   }
 
   onSearchEvent(query: string) {
+    this.searchQuery = query;
     this.search$.next(query);
   }
 
   clearSearch(input: HTMLInputElement) {
     input.value = '';
+    this.searchQuery = '';
     this.currentSearchQuery = '';
+    if (this.traceViewerModule) {
+      this.traceViewerModule.application.instance().setSearchQuery('');
+    }
     this.onSearchEvent('');
   }
 
@@ -716,22 +724,34 @@ export class TraceViewerContainer
     }
   }
 
-  nextSearchResult() {
-    if (this.traceViewerModule) {
+  nextSearchResult(query?: string) {
+    if (!this.traceViewerModule) return;
+    const effectiveQuery = (query || this.currentSearchQuery) ?? '';
+    if (effectiveQuery !== this.currentSearchQuery) {
+      this.currentSearchQuery = effectiveQuery;
+      this.searchQuery = effectiveQuery;
+      this.searchEvents.emit({events_query: effectiveQuery});
       this.traceViewerModule.application
         .instance()
-        .navigateToNextSearchResult();
-      this.updateSearchResultCountText();
+        .setSearchQuery(effectiveQuery);
     }
+    this.traceViewerModule.application.instance().navigateToNextSearchResult();
+    this.updateSearchResultCountText();
   }
 
-  prevSearchResult() {
-    if (this.traceViewerModule) {
+  prevSearchResult(query?: string) {
+    if (!this.traceViewerModule) return;
+    const effectiveQuery = (query || this.currentSearchQuery) ?? '';
+    if (effectiveQuery !== this.currentSearchQuery) {
+      this.currentSearchQuery = effectiveQuery;
+      this.searchQuery = effectiveQuery;
+      this.searchEvents.emit({events_query: effectiveQuery});
       this.traceViewerModule.application
         .instance()
-        .navigateToPrevSearchResult();
-      this.updateSearchResultCountText();
+        .setSearchQuery(effectiveQuery);
     }
+    this.traceViewerModule.application.instance().navigateToPrevSearchResult();
+    this.updateSearchResultCountText();
   }
 
   updateSearchResultCountText() {

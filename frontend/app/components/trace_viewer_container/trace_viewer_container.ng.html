@@ -15,25 +15,25 @@
   <div #searchContainer class="search-container">
     <mat-form-field appearance="outline" class="search-form-field">
       <mat-icon matPrefix>search</mat-icon>
-      <input matInput #searchBox placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult()" />
+      <input matInput #searchBox [value]="searchQuery" placeholder="Search events" aria-label="Search trace events" (input)="onSearchEvent(searchBox.value)" (keydown.enter)="nextSearchResult(searchBox.value)" />
       <div matSuffix class="search-suffix">
         <ng-container *ngIf="currentSearchQuery">
           <span class="search-result-count" role="status" aria-live="polite">{{searchResultCountText}}</span>
           <div class="search-divider"></div>
-          <button mat-icon-button aria-label="Previous search result" (click)="prevSearchResult()" (keydown.enter)="prevSearchResult()" class="search-arrow-btn">
+          <button type="button" mat-icon-button aria-label="Previous search result" (click)="prevSearchResult(searchBox.value); $event.stopPropagation()" (keydown.enter)="prevSearchResult(searchBox.value)" class="search-arrow-btn">
             <mat-icon>keyboard_arrow_up</mat-icon>
           </button>
-          <button mat-icon-button aria-label="Next search result" (click)="nextSearchResult()" (keydown.enter)="nextSearchResult()" class="search-arrow-btn">
+          <button type="button" mat-icon-button aria-label="Next search result" (click)="nextSearchResult(searchBox.value); $event.stopPropagation()" (keydown.enter)="nextSearchResult(searchBox.value)" class="search-arrow-btn">
             <mat-icon>keyboard_arrow_down</mat-icon>
           </button>
-          <button mat-icon-button aria-label="Clear search" (click)="clearSearch(searchBox)" (keydown.enter)="clearSearch(searchBox)" class="search-clear-btn">
+          <button type="button" mat-icon-button aria-label="Clear search" (click)="clearSearch(searchBox); $event.stopPropagation()" (keydown.enter)="clearSearch(searchBox)" class="search-clear-btn">
             <mat-icon>close</mat-icon>
           </button>
         </ng-container>
       </div>
     </mat-form-field>
     <div class="mouse-mode-container">
-      <button #selectBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" title="Select Mode" aria-label="Select Mode">
+      <button #selectBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.SELECT" (click)="setMouseMode(MouseMode.SELECT)" title="Select Mode" aria-label="Select Mode">
         <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_476)">
             <path d="M15.1875 22L12.3125 15.8542L9 20V6L20 15H14.125L17 21.1458L15.1875 22Z" fill="#444746"/>
@@ -45,7 +45,7 @@
           </defs>
         </svg>
       </button>
-      <button #panBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.PAN" (click)="setMouseMode(MouseMode.PAN)" title="Pan Mode" aria-label="Pan Mode">
+      <button #panBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.PAN" (click)="setMouseMode(MouseMode.PAN)" title="Pan Mode" aria-label="Pan Mode">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_473)">
             <path d="M10 18L6.5 14.5L7.5625 13.4375L9.25 15.125V10.75H4.875L6.5625 12.4375L5.5 13.5L2 10L5.5 6.5L6.5625 7.5625L4.875 9.25H9.25V4.875L7.5625 6.5625L6.5 5.5L10 2L13.5 5.5L12.4375 6.5625L10.75 4.875V9.25H15.125L13.4375 7.5625L14.5 6.5L18 10L14.5 13.5L13.4375 12.4375L15.125 10.75H10.75V15.125L12.4375 13.4375L13.5 14.5L10 18Z" fill="#444746"/>
@@ -57,7 +57,7 @@
           </defs>
         </svg>
       </button>
-      <button #zoomBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.ZOOM" (click)="setMouseMode(MouseMode.ZOOM)" title="Zoom Mode" aria-label="Zoom Mode">
+      <button #zoomBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.ZOOM" (click)="setMouseMode(MouseMode.ZOOM)" title="Zoom Mode" aria-label="Zoom Mode">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_470)">
             <path d="M10 17L7 14L8.0625 12.9375L9.25 14.125V5.875L8.0625 7.0625L7 6L10 3L13 6L11.9375 7.0625L10.75 5.875V14.125L11.9375 12.9375L13 14L10 17Z" fill="#444746"/>
@@ -70,7 +70,7 @@
         </svg>
       </button>
       <div class="timing-button-wrapper">
-        <button #timingBtn mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
+        <button #timingBtn type="button" mat-icon-button [class.active]="currentMouseMode === MouseMode.TIMING" (click)="setMouseMode(MouseMode.TIMING)" title="Measure Mode" aria-label="Measure Mode">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_71_467)">
             <path d="M18 16H16.5V4H18V16ZM15 10L12 13L10.9375 11.9375L12.125 10.75H7.875L9.0625 11.9375L8 13L5 10L8 7L9.0625 8.0625L7.875 9.25H12.125L10.9375 8.0625L12 7L15 10ZM3.5 16H2L2 4H3.5L3.5 16Z" fill="#444746"/>
@@ -89,7 +89,7 @@
             You are now in Measure mode. Click and drag on the timeline to select a time range. You can also use <b>Shift + Drag</b> or <b>Shift + Click</b> in other modes to measure. <br><br>Tip: You can press '4' to quickly enter this mode.
           </div>
           <div class="coach-mark-actions">
-            <button mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
+            <button type="button" mat-button class="coach-mark-button" (click)="dismissTimingOnboarding()">Got it</button>
           </div>
           <!-- Arrow -->
           <div class="coach-mark-arrow"></div>

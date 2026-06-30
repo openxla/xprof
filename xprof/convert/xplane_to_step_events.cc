@@ -28,7 +28,6 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -41,6 +40,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -356,26 +356,51 @@ StepEvents ConvertDeviceTraceXLineToStepEvents(const uint64_t device_id,
   return result;
 }
 
-StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
-                                                  const XLineVisitor& line) {
+StepEvents ConvertTpuDeviceTraceXLineToStepEvents(
+    const uint64_t device_id, const XLineVisitor& line,
+    bool for_flat_profile = false) {
   StepEvents result;
   absl::flat_hash_map</*group_id=*/int64_t, XEventsOpMetricsDbBuilder>
       op_metrics_builder;
+  absl::flat_hash_map</*group_id=*/int64_t, XEventsFlatOpMetricsDbBuilder>
+      flat_op_metrics_builder;
   struct ParentRef {
     const XEventVisitor event;
     tsl::profiler::Timespan device_timespan;
     uint64_t children_duration_ps = 0;
     int64_t group_id = -1;
   };
+  FlatOpMetrics flat_op_metrics;
+  OpMetrics op_metrics;
   tsl::profiler::AncestorStack<ParentRef> event_stack(
       // Adds an OpMetric to the builder based on the provided parent reference.
       [&](const ParentRef& parent) {
-        OpMetrics op_metrics = FromXEvent(parent.event);
-        op_metrics.set_time_ps(parent.device_timespan.duration_ps());
-        op_metrics.set_self_time_ps(op_metrics.time_ps() -
-                                    parent.children_duration_ps);
-        op_metrics_builder[parent.group_id].AddOpMetric(
-            op_metrics, GetOpKeyFromXEvent(parent.event));
+        if (for_flat_profile) {
+          flat_op_metrics =
+              XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
+          flat_op_metrics.set_time_ps(parent.device_timespan.duration_ps());
+          flat_op_metrics.set_self_time_ps(flat_op_metrics.time_ps() -
+                                           parent.children_duration_ps);
+          std::optional<tsl::profiler::XStatVisitor>
+              time_scale_multiplier_stat =
+                  parent.event.GetStat(StatType::kTimeScaleMultiplier);
+          double factor = time_scale_multiplier_stat.has_value()
+                              ? time_scale_multiplier_stat->DoubleValue()
+                              : 1.0;
+          flat_op_metrics.set_normalized_time_ps(flat_op_metrics.time_ps() *
+                                                 factor);
+          flat_op_metrics_builder[parent.group_id].AddOpMetric(
+              flat_op_metrics,
+              XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(
+                  parent.event));
+        } else {
+          op_metrics = FromXEvent(parent.event);
+          op_metrics.set_time_ps(parent.device_timespan.duration_ps());
+          op_metrics.set_self_time_ps(op_metrics.time_ps() -
+                                      parent.children_duration_ps);
+          op_metrics_builder[parent.group_id].AddOpMetric(
+              op_metrics, GetOpKeyFromXEvent(parent.event));
+        }
       },
       // Checks if the child event is a child of the parent event.
       [](const ParentRef& parent, const ParentRef& child) {
@@ -403,14 +428,20 @@ StepEvents ConvertTpuDeviceTraceXLineToStepEvents(const uint64_t device_id,
     }
   });
   event_stack.Flush();
-  for (auto& [group_id, builder] : op_metrics_builder) {
-    // Finalize Without the step time now.
-    result[group_id].SetPerCoreOpMetricsDb(builder.Finalize(), device_id);
+  if (for_flat_profile) {
+    for (auto& [group_id, builder] : flat_op_metrics_builder) {
+      result[group_id].SetPerCoreFlatOpMetricsDb(builder.Finalize(), device_id);
+    }
+  } else {
+    for (auto& [group_id, builder] : op_metrics_builder) {
+      result[group_id].SetPerCoreOpMetricsDb(builder.Finalize(), device_id);
+    }
   }
   return result;
 }
 
-StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
+StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace,
+                                                bool for_flat_profile) {
   XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
   std::optional<int> tpu_core_id = tsl::profiler::GetTensorCoreId(plane.Name());
   std::optional<int> sc_core_id = tsl::profiler::GetSparseCoreId(plane.Name());
@@ -437,13 +468,14 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
         if (!tsl::profiler::IsOpLineName(line.Name())) return;
         // There should only be a single OpLine per TPU core.
         DCHECK(step_events.empty());
-        step_events = ConvertTpuDeviceTraceXLineToStepEvents(plane.Id(), line);
+        step_events = ConvertTpuDeviceTraceXLineToStepEvents(
+            plane.Id(), line, for_flat_profile);
       } else if (sc_core_id.has_value()) {
         if (line.Name() != tsl::profiler::kSparseCoreOpLineName) return;
         // There should only be a single SparseCore StepLine per SparseCore.
         DCHECK(step_events.empty());
         step_events = ConvertTpuDeviceTraceXLineToStepEvents(
-            kSparseCoreIndexStart + plane.Id(), line);
+            kSparseCoreIndexStart + plane.Id(), line, for_flat_profile);
       } else {
         // There may be multiple streams per GPU device so union the results.
         StepEvents stream_step_events =

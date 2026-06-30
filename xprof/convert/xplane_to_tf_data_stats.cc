@@ -22,6 +22,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
@@ -40,7 +41,7 @@ namespace tensorflow {
 namespace profiler {
 
 // 50 us from https://www.tensorflow.org/guide/data_performance_analysis
-const int64_t kSlowCallThresholdPs = 50 * 1000000;
+ABSL_CONST_INIT const int64_t kSlowCallThresholdPs = 50 * 1000000;
 
 namespace {
 

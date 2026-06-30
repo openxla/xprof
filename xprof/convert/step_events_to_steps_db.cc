@@ -23,6 +23,7 @@ limitations under the License.
 
 #include "google/protobuf/any.pb.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -39,7 +40,7 @@ namespace profiler {
 using tsl::string;
 
 // Local core id should start from 1.
-const uint32_t kDefaultGpuLocalCoreId = 1;
+ABSL_CONST_INIT const uint32_t kDefaultGpuLocalCoreId = 1;
 
 namespace {
 

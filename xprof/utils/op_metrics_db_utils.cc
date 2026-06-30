@@ -23,6 +23,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -44,8 +45,8 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-const absl::string_view kIdle = "IDLE";
-const uint32_t kSparseCoreIndexStart = 1000000;
+ABSL_CONST_INIT const absl::string_view kIdle = "IDLE";
+ABSL_CONST_INIT const uint32_t kSparseCoreIndexStart = 1000000;
 const int64_t kSingleOccurrence = 1;
 
 namespace {

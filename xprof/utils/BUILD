@@ -31,6 +31,7 @@ cc_library(
     hdrs = ["diagnostics.h"],
     deps = [
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:diagnostics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -93,6 +94,7 @@ cc_library(
     srcs = ["op_metrics_db_utils.cc"],
     hdrs = ["op_metrics_db_utils.h"],
     deps = [
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",

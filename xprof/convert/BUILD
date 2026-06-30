@@ -1248,6 +1248,7 @@ cc_library(
     deps = [
         ":op_metrics_db_combiner",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
@@ -1827,6 +1828,7 @@ cc_library(
     hdrs = ["xplane_to_tf_data_stats.h"],
     deps = [
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
@@ -2679,6 +2681,7 @@ cc_library(
     hdrs = ["tpu_input_pipeline_analysis_constants.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:string_view",
         "@xla//xla/tsl/platform:macros",
     ],

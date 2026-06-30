@@ -191,5 +191,29 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
   EXPECT_EQ(result.flame_events[0].args.at("uid"), "101");
 }
 
+TEST(TraceEventParserCoreTest, GenerateEventIdTest) {
+  // Stable hashing: Identical inputs produce the same ID
+  EventId id1 = GenerateEventId("event_a", 10.123456, 5.654321);
+  EventId id2 = GenerateEventId("event_a", 10.123456, 5.654321);
+  EXPECT_EQ(id1, id2);
+
+  // Floating point precision normalization:
+  // e.g. 10.123456 vs 10.123456000000001 (very close floats)
+  // They should round to the same picosecond and yield the same ID.
+  EventId id_approx =
+      GenerateEventId("event_a", 10.123456000000001, 5.6543210000000004);
+  EXPECT_EQ(id1, id_approx);
+
+  // Different inputs produce different IDs
+  EventId id_diff_name = GenerateEventId("event_b", 10.123456, 5.654321);
+  EXPECT_NE(id1, id_diff_name);
+
+  EventId id_diff_ts = GenerateEventId("event_a", 10.123457, 5.654321);
+  EXPECT_NE(id1, id_diff_ts);
+
+  EventId id_diff_dur = GenerateEventId("event_a", 10.123456, 5.654322);
+  EXPECT_NE(id1, id_diff_dur);
+}
+
 }  // namespace
 }  // namespace traceviewer

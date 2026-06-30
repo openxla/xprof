@@ -3134,10 +3134,12 @@ TEST_F(MockTimelineImGuiFixture,
 
 class TestTimeline : public Timeline {
  public:
-  using Timeline::Timeline;
+  using Timeline::DrawHideIcon;
+  using Timeline::group_visible;
   using Timeline::Pan;
-  using Timeline::Zoom;
   using Timeline::Scroll;
+  using Timeline::Timeline;
+  using Timeline::Zoom;
 };
 
 using RealTimelineImGuiFixture = TimelineImGuiTestFixture<TestTimeline>;
@@ -7388,6 +7390,238 @@ TEST_F(MockTimelineImGuiFixture,
   // Grandchild A (2) is hidden under Child A (1), queried on it must return
   // Child A (1)
   EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Process A (nesting_level = 0, name = "Process A", start_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Thread A1 (nesting_level = 1, name = "Thread A1", start_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread A1",
+      .start_level = 0,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Group 2: Thread A2 (nesting_level = 1, name = "Thread A2", start_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread A2",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Group 3: Process B (nesting_level = 0, name = "Process B", start_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 2,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 4: Thread B1 (nesting_level = 1, name = "Thread B1", start_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread B1",
+      .start_level = 2,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Set the data on timeline.
+  timeline_.SetTimelineData(data);
+
+  // 1. Hide "Process A". First, test with feature flag ENABLED.
+  timeline_.set_track_management_enabled(true);
+  const float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = 10.0f;
+  timeline_.HideTrack("Process A");
+
+  // Verify group visibility for this state.
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 5);
+  EXPECT_FALSE(timeline_.CallGroupVisible()[0]);  // Process A hidden
+  // Thread A1 hidden (child of hidden Process A)
+  EXPECT_FALSE(timeline_.CallGroupVisible()[1]);
+  // Thread A2 hidden (child of hidden Process A)
+  EXPECT_FALSE(timeline_.CallGroupVisible()[2]);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+
+  // Verify visible level offsets for levels in hidden track.
+  ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 10.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 10.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 75.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 99.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 123.5f);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  // 2. Now disable the feature flag. Hiding should be ignored and
+  // all tracks should reappear.
+  timeline_.set_track_management_enabled(false);
+  timeline_.UpdateLevelPositions(timeline_.timeline_data());
+
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Process A visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Thread A1 visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[2]);  // Thread A2 visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  // Process A is collapsed, but has children.
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, 1, true}
+  };
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 45.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became hidden
+  EXPECT_FALSE(timeline_.group_visible()[0]);
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
+  ImGui::NewFrame();
+  ImGui::Begin("TestWindow");
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ASSERT_NE(draw_list, nullptr);
+
+  // Call DrawHideIcon with is_track_hidden = true to cover the slashing line
+  // logic (line 2451)
+  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+                         /*is_track_hidden=*/true);
+
+  // Also call with is_track_hidden = false to cover the other branch
+  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+                         /*is_track_hidden=*/false);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawTrackManagementHiddenTrackPopIDCovered) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Set track management to false so "Process A" isn't marked invisible in
+  // group_visible_ when HideTrack is called.
+  timeline_.set_track_management_enabled(false);
+  timeline_.HideTrack("Process A");
+
+  // Re-enable track management without calling UpdateLevelPositions, leaving
+  // group_visible_[0] as true
+  timeline_.set_track_management_enabled(true);
+
+  // Simulate Frame (calls Draw()). It will reach the hidden track check inside
+  // the rendering loop (line 432), pop the ID, and continue.
+  SimulateFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  // Process A is expanded, Thread A1 is expanded.
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      {Group::Type::kFlame, "Thread A1", "", 1, 1, true}
+  };
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+
+  SimulateFrame();
+
+  const float label_width = timeline_.GetLabelWidth();
+  const float font_size = ImGui::GetFontSize();
+  // Math check: kArrowSize = font_size * 0.7f.
+  const float arrow_size = font_size * 0.7f;
+  const float splitter_offset = 4.0f;  // kSplitterOffset is 4.0f
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Test 1: Verify that hovering over a process track's hide button
+  // sets the cursor to Hand.
+  // The correct button horizontal range is:
+  // [label_width - splitter_offset - arrow_size,
+  //  label_width - splitter_offset].
+  // Set position to the center of the range.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size * 0.5f, 45.0f);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Test 2: Hovering just outside (to the left) of the correct range.
+  // Under correct code, this is outside. Cursor should NOT be Hand.
+  // Under mutated code (Mutant 612), arrow_size is increased by 1px,
+  // making the range wider to the left, so it would be Hand.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size - 0.5f, 45.0f);
+  SimulateFrame();
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Test 3: Verify that Thread A1 (nesting_level = 1 !=
+  // kProcessNestingLevel) does NOT render a hide button.
+  // Under correct code, it has no button, so cursor at its label's
+  // right-end position is NOT Hand.
+  // Under mutated code (Mutant 610), it renders a button here,
+  // so cursor would be Hand.
+  // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
+  // Y = 20.0f). Its center Y is 20.0f + 54.0f + 23.0f * 0.5f = 85.5f.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
+  SimulateFrame();
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }
 
 }  // namespace

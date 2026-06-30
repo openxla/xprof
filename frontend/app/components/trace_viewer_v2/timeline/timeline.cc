@@ -188,16 +188,35 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
   int hidden_nesting_level = std::numeric_limits<int>::max();
   Pixel hidden_group_center_y = 0.0f;
+  bool in_hidden_process = false;
+  bool has_visible_group = false;
 
   for (int group_index = 0; group_index < group_count; ++group_index) {
     const Group& group = data.groups[group_index];
 
-    if (group.nesting_level <= hidden_nesting_level) {
-      hidden_nesting_level = std::numeric_limits<int>::max();
+    if (group.nesting_level == kProcessNestingLevel) {
+      in_hidden_process = track_management_enabled_ &&
+                          hidden_track_names_.contains(group.name);
     }
 
     const int next_group_start_level =
         GetNextGroupStartLevel(data, group_index);
+
+    if (in_hidden_process) {
+      new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
+      for (int level = group.start_level; level < next_group_start_level;
+           ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] = current_offset;
+        }
+      }
+      continue;
+    }
+
+    if (group.nesting_level <= hidden_nesting_level) {
+      hidden_nesting_level = std::numeric_limits<int>::max();
+    }
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
@@ -211,13 +230,14 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       continue;
     }
 
-    if (group_index > 0) {
+    if (has_visible_group) {
       current_offset += (group.nesting_level == kProcessNestingLevel)
                             ? kProcessTrackGap
                             : kThreadTrackGap;
     }
 
     new_group_offsets[group_index] = current_offset;
+    has_visible_group = true;
 
     const bool has_children =
         group_index + 1 < data.groups.size() &&
@@ -407,6 +427,11 @@ void Timeline::Draw() {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.nesting_level == kProcessNestingLevel) {
+      if (track_management_enabled_ &&
+          hidden_track_names_.contains(group.name)) {
+        ImGui::PopID();
+        continue;
+      }
       ImU32 bg_color =
           group.expanded
               ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
@@ -999,6 +1024,13 @@ void Timeline::ExpandRelatedTracks(int event_index) {
     }
   }
 }
+
+void Timeline::HideTrack(absl::string_view name) {
+  hidden_track_names_.insert(std::string(name));
+  UpdateLevelPositions(timeline_data_);
+  if (redraw_callback_) redraw_callback_();
+}
+
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,

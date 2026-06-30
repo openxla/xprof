@@ -280,6 +280,8 @@ class Timeline {
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
+  void HideTrack(const absl::string_view name);
+
   void Draw();
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
@@ -407,6 +409,10 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
+  void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                    Pixel kIconDrawSize, ImU32 icon_col,
+                    bool is_track_hidden = false);
+
  private:
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -423,10 +429,6 @@ class Timeline {
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
   void ShowBoundsNotification(const std::string& message);
-
-  void DrawHideIcon(
-      ImDrawList* draw_list, Pixel center_x, Pixel center_y,
-      Pixel kIconDrawSize, ImU32 icon_col, bool is_track_hidden = false);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);

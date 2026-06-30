@@ -128,14 +128,26 @@ export enum TraceViewerV2LoadingStatus {
 }
 
 declare function loadWasmTraceViewerModule(
-  options?: object,
+  options?: Record<string, unknown>,
 ): Promise<TraceViewerV2Module>;
 
 declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
+    loadWasmTraceViewerModule?: typeof loadWasmTraceViewerModule;
   }
+}
+
+interface RawJsonData {
+  traceEvents?: unknown;
+  details?: unknown;
+  fullTimespan?: unknown;
+  [key: string]: unknown;
+}
+
+interface GPUDeviceWithLost extends GPUDevice {
+  lost: Promise<GPUDeviceLostInfo>;
 }
 
   export declare interface TraceViewerV2Module extends EmscriptenModule {
@@ -218,7 +230,7 @@ declare global {
 export declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
-  details?: TraceDetails;
+  details?: unknown;
 }
 
 /**
@@ -230,7 +242,7 @@ export function isTraceData(data: unknown): data is TraceData {
   return (
     typeof data === 'object' &&
     data !== null &&
-    data.hasOwnProperty('traceEvents') &&
+    Object.prototype.hasOwnProperty.call(data, 'traceEvents') &&
     Array.isArray((data as TraceData).traceEvents)
   );
 }
@@ -293,7 +305,7 @@ export function shutdownTraceViewerV2() {
   if (activeWasmModule) {
     try {
       activeWasmModule.application.instance().shutdown();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Error during WASM shutdown:', e);
     }
     activeWasmModule = null;
@@ -320,8 +332,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  // tslint:disable-next-line:no-any
-  (device as any).lost
+  void (device as GPUDeviceWithLost).lost
     .then(() => {
       throw new Error('WebGPU Cannot be initialized - Device has been lost');
     })
@@ -372,8 +383,7 @@ async function loadAndStartWasm(
 }
 
 async function ensureWasmModuleIsLoaded(): Promise<void> {
-  // tslint:disable-next-line:no-any
-  if (typeof (window as any).loadWasmTraceViewerModule !== 'undefined') {
+  if (typeof window.loadWasmTraceViewerModule !== 'undefined') {
     return;
   }
   return new Promise((resolve, reject) => {
@@ -506,7 +516,7 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
       decompressedStream,
     ).arrayBuffer();
     return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
-  } catch (error) {
+  } catch (error: unknown) {
     dispatchErrorStatus('Failed to decompress gzipped file.', error);
     return null;
   }
@@ -538,7 +548,7 @@ function processPerfettoTrace(
       undefined,
       true,
     );
-  } catch (error) {
+  } catch (error: unknown) {
     dispatchErrorStatus(
       error instanceof Error ? error.message : String(error),
       error,
@@ -573,14 +583,14 @@ function processJsonTrace(
   try {
     const decoder = new TextDecoder('utf-8');
     const fileContent = decoder.decode(data);
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const jsonData = JSON.parse(fileContent) as RawJsonData;
 
     if (!isTraceData(jsonData)) {
       throw new Error('File does not contain valid trace events.');
     }
 
     traceviewerModule.processTraceEvents(jsonData, undefined);
-  } catch (error) {
+  } catch (error: unknown) {
     dispatchErrorStatus(
       error instanceof Error ? error.message : String(error),
       error,
@@ -626,7 +636,7 @@ async function processUploadedFile(
     }
 
     onFileProcessed?.();
-  } catch (error) {
+  } catch (error: unknown) {
     dispatchErrorStatus(
       `Error processing file: ${
         error instanceof Error ? error.message : String(error)
@@ -708,14 +718,14 @@ function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
 // Fetches JSON data from the given URL. The `response.json()` method returns
 // `any`, so this function returns `unknown`. Validation of the data structure
 // (e.g., using `isTraceData`) is expected to be done by the caller.
-async function loadJsonDataInternal(url: string): Promise<unknown> {
+async function loadJsonDataInternal(url: string): Promise<RawJsonData> {
   try {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    return await response.json();
-  } catch (e) {
+    return (await response.json()) as RawJsonData;
+  } catch (e: unknown) {
     console.error('Failed to load JSON data:', e);
     throw e;
   }
@@ -730,7 +740,7 @@ async function loadCompressedTraceDataInternal(
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     return await response.arrayBuffer();
-  } catch (e) {
+  } catch (e: unknown) {
     console.error('Failed to load compressed trace data:', e);
     throw e;
   }
@@ -799,7 +809,10 @@ async function fetchAndProcessTraceData({
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
   try {
-    if (urlObj.pathname.endsWith('.pb')) {
+    if (
+      urlObj.pathname.endsWith('.pb') ||
+      urlObj.searchParams.get('format') === 'pb'
+    ) {
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -894,7 +907,7 @@ async function fetchAndProcessTraceData({
         detail: {status: TraceViewerV2LoadingStatus.IDLE},
       }),
     );
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(`Error ${errorContext}:`, e);
     const errorMessage = e instanceof Error ? e.message : String(e);
     window.dispatchEvent(
@@ -988,7 +1001,7 @@ export async function traceViewerV2Main(
       if (value !== null) {
         return value === 'true';
       }
-    } catch (e) {
+    } catch (e: unknown) {
       // Handle potential SecurityError when accessing localStorage.
       console.warn(`Failed to read feature flag ${name} from localStorage:`, e);
     }
@@ -1004,7 +1017,7 @@ export async function traceViewerV2Main(
     traceviewerModule = await initGpuAndStartWasmApp();
     traceviewerModule.getFeatureFlag = window.getFeatureFlag;
     activeWasmModule = traceviewerModule;
-  } catch (e) {
+  } catch (e: unknown) {
     const errorMessage = e instanceof Error ? e.message : String(e);
     console.error('Application Initialization Failed:', e);
     window.dispatchEvent(
@@ -1104,27 +1117,31 @@ export async function traceViewerV2Main(
         return;
       }
 
-      if (urlObj.pathname.endsWith('.pb')) {
+      if (
+        urlObj.pathname.endsWith('.pb') ||
+        urlObj.searchParams.get('format') === 'pb'
+      ) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),
         );
       } else {
-        const jsonData = (await loadJsonDataInternal(
-          urlObj.toString(),
-        )) as Record<string, unknown>;
+        const jsonData = await loadJsonDataInternal(urlObj.toString());
         // Mirror the legacy behavior: gently default to an empty array if
         // traceEvents is missing so that the WASM module can safely clear out
         // any previous search results.
         const normalizedData: TraceData = {
-          ...jsonData,
           traceEvents: Array.isArray(jsonData?.['traceEvents'])
             ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
             : [],
+          fullTimespan: jsonData['fullTimespan'] as
+            | [number, number]
+            | undefined,
+          details: jsonData['details'],
         };
         traceviewerModule.setSearchResultsInWasm(normalizedData);
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Error loading search results:', e);
       throw e;
     }

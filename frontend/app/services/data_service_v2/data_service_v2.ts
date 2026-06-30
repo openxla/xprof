@@ -1,6 +1,6 @@
 import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
-import {Injectable} from '@angular/core';
+import {inject, Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {
   API_PREFIX,
@@ -46,15 +46,17 @@ export class DataServiceV2 implements DataServiceV2Interface {
   isLocalDevelopment = false;
   pathPrefix = '';
 
-  constructor(
-    private readonly httpClient: HttpClient,
-    platformLocation: PlatformLocation,
-    private readonly store: Store<{}>,
-  ) {
+  private readonly httpClient = inject(HttpClient);
+  private readonly platformLocation = inject(PlatformLocation);
+  private readonly store = inject(Store);
+
+  constructor() {
     // Clear previous searchParams from session storage
     window.sessionStorage.removeItem('searchParams');
 
-    const searchParamsFromUrl = new URLSearchParams(platformLocation.search);
+    const searchParamsFromUrl = new URLSearchParams(
+      this.platformLocation.search,
+    );
     if (searchParamsFromUrl.toString()) {
       window.sessionStorage.setItem(
         'searchParams',
@@ -63,9 +65,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
       // Persist the query parameters in the URL.
     }
 
-    this.isLocalDevelopment = platformLocation.pathname === LOCAL_URL;
-    if (String(platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)) {
-      this.pathPrefix = String(platformLocation.pathname).split(
+    this.isLocalDevelopment = this.platformLocation.pathname === LOCAL_URL;
+    if (
+      String(this.platformLocation.pathname).includes(API_PREFIX + PLUGIN_NAME)
+    ) {
+      this.pathPrefix = String(this.platformLocation.pathname).split(
         API_PREFIX + PLUGIN_NAME,
       )[0];
     }

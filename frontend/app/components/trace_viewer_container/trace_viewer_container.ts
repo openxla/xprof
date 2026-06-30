@@ -4,9 +4,11 @@ import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   OnDestroy,
@@ -67,18 +69,21 @@ export declare interface EventsSelectedEventDetail {
   events_selected_data: string;
 }
 
+interface CustomEventDetail {
+  [key: string]: unknown;
+}
+
 // Type guard for the 'EventsSelected' custom event.
 function isEventsSelectedEvent(
   event: Event,
 ): event is CustomEvent<EventsSelectedEventDetail> {
   if (!(event instanceof CustomEvent)) return false;
-  const detail = event.detail as unknown;
+  const detail = event.detail as CustomEventDetail | null;
   return (
     typeof detail === 'object' &&
     detail !== null &&
     'events_selected_data' in detail &&
-    typeof (detail as EventsSelectedEventDetail).events_selected_data ===
-      'string'
+    typeof detail['events_selected_data'] === 'string'
   );
 }
 
@@ -105,12 +110,12 @@ function isEntrySelectedEvent(
   event: Event,
 ): event is CustomEvent<EntrySelectedEventDetail> {
   if (!(event instanceof CustomEvent)) return false;
-  const detail = event.detail as unknown;
+  const detail = event.detail as CustomEventDetail | null;
   return (
     typeof detail === 'object' &&
     detail !== null &&
     'eventIndex' in detail &&
-    (detail as {eventIndex: unknown}).eventIndex !== undefined
+    detail['eventIndex'] !== undefined
   );
 }
 
@@ -125,6 +130,9 @@ export declare interface SelectedEvent {
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
+  hloModule?: string;
+  hloOpName?: string;
+  args?: Record<string, string>;
 }
 
 /**
@@ -206,9 +214,9 @@ declare interface TfTraceViewer {
   _traceViewer?: {trackView?: TrackView | null};
 }
 
-/** A trace viewer container component. */
+/** A container component that hosts the webview/iframe or WebGPU visualizer for the trace viewer. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
@@ -381,6 +389,7 @@ export class TraceViewerContainer
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   constructor() {
     this.search$
@@ -394,6 +403,7 @@ export class TraceViewerContainer
         } else if (!query) {
           this.searchResultCountText = '';
         }
+        this.cdr.markForCheck();
       });
   }
 
@@ -507,7 +517,7 @@ export class TraceViewerContainer
       trackView?.onEndPanScan_(event);
       trackView?.onEndSelection_(event);
       trackView?.onEndZoom_(event);
-    } catch (e) {}
+    } catch (e: unknown) {}
   };
 
   private readonly loadingStatusUpdateEventListener = (event: Event) => {
@@ -522,6 +532,7 @@ export class TraceViewerContainer
     } else {
       this.traceViewerV2ErrorMessage = event.detail.message;
     }
+    this.cdr.markForCheck();
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
@@ -626,6 +637,7 @@ export class TraceViewerContainer
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;
+        this.cdr.markForCheck();
       });
   }
 
@@ -677,6 +689,7 @@ export class TraceViewerContainer
         this.showTimingOnboarding = true;
       }
     }
+    this.cdr.markForCheck();
     // Sync focus to the corresponding button
     switch (mode) {
       case MouseMode.SELECT:
@@ -743,5 +756,6 @@ export class TraceViewerContainer
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+    this.cdr.markForCheck();
   }
 }

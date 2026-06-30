@@ -441,6 +441,157 @@ TEST(DeviceOpMetricsDbBuilderTest, EnterOpAccumulatesVddEnergy) {
   EXPECT_EQ(other_metrics.name(), "other_op");
   EXPECT_FALSE(other_metrics.has_vdd_energy_j());
 }
+
+TEST(DeviceFlatOpMetricsDbBuilderTest, EnterOpAccumulatesBasicMetrics) {
+  FlatOpMetricsDb db;
+  DeviceFlatOpMetricsDbBuilder builder(&db);
+
+  tsl::profiler::OpSourceInfo source_info = {
+      .source_file = "file.py",
+      .source_line = 42,
+      .stack_frame = "stack_frame_info",
+  };
+
+  DeviceFlatOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "test_cat",
+      .provenance = "test_prov",
+      .deduplicated_name = "test_dedup",
+      .long_name = "long_test_op",
+      .op_source_info = source_info,
+  };
+
+  DeviceFlatOpMetricsDbBuilder::OpData metrics_data1 = {
+      .is_eager = false,
+      .occurrences = 2,
+      .time_ps = 1000,
+      .children_time_ps = 100,
+      .flops = 10,
+      .bytes_accessed = 20,
+  };
+
+  builder.EnterOp(op_id, metrics_data1);
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  const FlatOpMetrics& metrics = db.op_instances(0);
+  EXPECT_EQ(metrics.hlo_name(), "test_op");
+  EXPECT_EQ(metrics.category(), "test_cat");
+  EXPECT_EQ(metrics.provenance(), "test_prov");
+  EXPECT_EQ(metrics.deduplicated_name(), "test_dedup");
+  EXPECT_EQ(metrics.long_name(), "long_test_op");
+  EXPECT_FALSE(metrics.is_eager());
+  EXPECT_EQ(metrics.occurrences(), 2);
+  EXPECT_EQ(metrics.time_ps(), 1000);
+  EXPECT_EQ(metrics.self_time_ps(), 900);
+  EXPECT_DOUBLE_EQ(metrics.flops_v2(), 20.0);
+  EXPECT_DOUBLE_EQ(metrics.model_flops_v2(), 20.0);
+  EXPECT_EQ(metrics.bytes_accessed(), 40);  // 20 * 2
+  EXPECT_EQ(metrics.source_info().file_name(), "file.py");
+  EXPECT_EQ(metrics.source_info().line_number(), 42);
+  EXPECT_EQ(metrics.source_info().stack_frame(), "stack_frame_info");
+}
+
+TEST(DeviceFlatOpMetricsDbBuilderTest, EnterOpMetadataPopulatesMetadata) {
+  FlatOpMetricsDb db;
+  DeviceFlatOpMetricsDbBuilder builder(&db);
+
+  tsl::profiler::OpSourceInfo source_info = {
+      .source_file = "file.py",
+      .source_line = 42,
+      .stack_frame = "stack_frame_info",
+  };
+
+  DeviceFlatOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "test_op",
+      .category = "test_cat",
+      .provenance = "test_prov",
+      .deduplicated_name = "test_dedup",
+      .long_name = "long_test_op",
+      .op_source_info = source_info,
+  };
+
+  builder.EnterOpMetadata(op_id, /*is_eager=*/true);
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  const FlatOpMetrics& metrics = db.op_instances(0);
+  EXPECT_EQ(metrics.hlo_name(), "test_op");
+  EXPECT_EQ(metrics.category(), "test_cat");
+  EXPECT_EQ(metrics.provenance(), "test_prov");
+  EXPECT_EQ(metrics.deduplicated_name(), "test_dedup");
+  EXPECT_EQ(metrics.long_name(), "long_test_op");
+  EXPECT_TRUE(metrics.is_eager());
+  EXPECT_EQ(metrics.source_info().file_name(), "file.py");
+  EXPECT_EQ(metrics.source_info().line_number(), 42);
+  EXPECT_EQ(metrics.source_info().stack_frame(), "stack_frame_info");
+}
+
+TEST(DeviceFlatOpMetricsDbBuilderTest,
+     EnterOpAccumulatesMemoryAccessedBreakdown) {
+  FlatOpMetricsDb db;
+  DeviceFlatOpMetricsDbBuilder builder(&db);
+
+  DeviceFlatOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "test_op",
+  };
+
+  DeviceFlatOpMetricsDbBuilder::OpData metrics_data1;
+  metrics_data1.occurrences = 1;
+
+  OpMetrics::MemoryAccessed* mem1 =
+      metrics_data1.memory_accessed_breakdown.Add();
+  mem1->set_memory_space(1);  // e.g. HBM
+  mem1->set_operation_type(OpMetrics::MemoryAccessed::READ);
+  mem1->set_bytes_accessed(100);
+
+  builder.EnterOp(op_id, metrics_data1);
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  const FlatOpMetrics& metrics = db.op_instances(0);
+  ASSERT_EQ(metrics.memory_accessed_breakdown_size(), 1);
+  EXPECT_EQ(metrics.memory_accessed_breakdown(0).memory_space(), 1);
+  EXPECT_EQ(metrics.memory_accessed_breakdown(0).operation_type(),
+            FlatOpMetrics::MemoryAccessed::READ);
+  EXPECT_EQ(metrics.memory_accessed_breakdown(0).bytes_accessed(), 100);
+
+  // Call again with same memory space/op type to check accumulation.
+  DeviceFlatOpMetricsDbBuilder::OpData metrics_data2;
+  metrics_data2.occurrences = 1;
+  OpMetrics::MemoryAccessed* mem2 =
+      metrics_data2.memory_accessed_breakdown.Add();
+  mem2->set_memory_space(1);
+  mem2->set_operation_type(OpMetrics::MemoryAccessed::READ);
+  mem2->set_bytes_accessed(50);
+
+  // And add a new memory space/op type.
+  OpMetrics::MemoryAccessed* mem3 =
+      metrics_data2.memory_accessed_breakdown.Add();
+  mem3->set_memory_space(2);
+  mem3->set_operation_type(OpMetrics::MemoryAccessed::WRITE);
+  mem3->set_bytes_accessed(200);
+
+  builder.EnterOp(op_id, metrics_data2);
+
+  ASSERT_EQ(metrics.memory_accessed_breakdown_size(), 2);
+
+  // Find the one with memory_space 1.
+  const FlatOpMetrics::MemoryAccessed* resolved_mem1 = nullptr;
+  const FlatOpMetrics::MemoryAccessed* resolved_mem2 = nullptr;
+  for (const FlatOpMetrics::MemoryAccessed& mem :
+       metrics.memory_accessed_breakdown()) {
+    if (mem.memory_space() == 1) resolved_mem1 = &mem;
+    if (mem.memory_space() == 2) resolved_mem2 = &mem;
+  }
+
+  ASSERT_NE(resolved_mem1, nullptr);
+  EXPECT_EQ(resolved_mem1->bytes_accessed(), 150);  // 100 + 50
+
+  ASSERT_NE(resolved_mem2, nullptr);
+  EXPECT_EQ(resolved_mem2->bytes_accessed(), 200);
+}
+
 TEST(HostOpMetricsDbBuilderTest, EnterOpAccumulatesTimings) {
   OpMetricsDb db;
   HostOpMetricsDbBuilder builder(&db);

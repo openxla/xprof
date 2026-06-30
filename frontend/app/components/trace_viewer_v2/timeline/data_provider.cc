@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -318,7 +319,7 @@ int GetEventFlameChartLevel(
 
   // Search from deepest level up
   for (int lvl = end - 1; lvl >= start; --lvl) {
-    const auto& indices = data.events_by_level[lvl];
+    absl::Span<const int> indices = data.get_level_events(lvl);
     // Binary search for event covering e->ts
     // events are likely sorted by start time.
     auto it_idx = std::upper_bound(indices.begin(), indices.end(), e->ts,
@@ -390,13 +391,12 @@ void AppendEventToTimelineData(const TraceEvent* event, int level,
       kKernelDetails);
   static const absl::NoDestructor<RE2> kModuleRe(kModuleRegex);
 
+  if (level >= std::numeric_limits<uint16_t>::max()) return;
   data.entry_start_times.push_back(event->ts);
   data.entry_total_times.push_back(event->dur);
   data.entry_levels.push_back(level);
   data.entry_names.push_back(event->name);
   data.entry_event_ids.push_back(event->event_id);
-  data.entry_pids.push_back(event->pid);
-  data.entry_tids.push_back(event->tid);
 
   auto cur_args = event->args;
   bool is_xla_ops_thread = thread_name == kXlaOps;
@@ -582,7 +582,9 @@ void PopulateThreadTrack(
   data.groups.push_back({.name = thread_group_name,
                          .start_level = current_level,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = expanded});
+                         .expanded = expanded,
+                         .pid = pid,
+                         .tid = tid});
 
   int start_level = current_level;
   int max_level = start_level;
@@ -617,6 +619,7 @@ void PopulateCounterTrack(
   group.name = name;
   group.nesting_level = kCounterNestingLevel;
   group.start_level = current_level;
+  group.pid = pid;
 
   // Counters always take one level, so force them to be expanded.
   group.expanded = true;
@@ -698,11 +701,11 @@ void PopulateAsyncProcessTrack(
   // only used internally for grouping, it's likely fine.
   ThreadId next_synthetic_tid = 0x80000000;
   for (const auto& [name, named_events] : async_groups) {
-    PopulateThreadTrack(pid, next_synthetic_tid, named_events, trace_info,
-                        current_level, data, bounds, thread_levels,
-                        process_group_name, default_expanded, expanded_states,
-                        name);
-    next_synthetic_tid++;
+    ThreadId tid =
+        named_events.empty() ? next_synthetic_tid++ : named_events[0]->tid;
+    PopulateThreadTrack(pid, tid, named_events, trace_info, current_level, data,
+                        bounds, thread_levels, process_group_name,
+                        default_expanded, expanded_states, name);
   }
 
   // Populate standard thread tracks.
@@ -870,12 +873,23 @@ FlameChartTimelineData CreateTimelineData(
     first_process = false;
   }
 
-  data.events_by_level.resize(current_level);
+  data.level_offsets.assign(current_level + 1, 0);
   for (int i = 0; i < data.entry_levels.size(); ++i) {
-    data.events_by_level[data.entry_levels[i]].push_back(i);
+    ++data.level_offsets[data.entry_levels[i] + 1];
   }
+  std::partial_sum(data.level_offsets.begin(), data.level_offsets.end(),
+                   data.level_offsets.begin());
+  data.level_event_indices.resize(data.entry_levels.size());
+  std::vector<size_t> cursors = data.level_offsets;
+  for (int i = 0; i < data.entry_levels.size(); ++i) {
+    int level = data.entry_levels[i];
+    data.level_event_indices[cursors[level]] = i;
+    ++cursors[level];
+  }
+  for (int i = 0; i < current_level; ++i) {
+    absl::Span<int> level_events = data.get_level_events(i);
+    if (level_events.empty()) continue;
 
-  for (int i = 0; i < data.events_by_level.size(); ++i) {
     // Sort by start time ascending, then duration descending.
     auto cmp_by_start_asc_then_dur_desc = [&](int idx_a, int idx_b) {
       return data.entry_start_times[idx_a] < data.entry_start_times[idx_b] ||
@@ -883,11 +897,10 @@ FlameChartTimelineData CreateTimelineData(
               data.entry_total_times[idx_a] > data.entry_total_times[idx_b]);
     };
 
-    LOG_IF(WARNING, !absl::c_is_sorted(data.events_by_level[i],
-                                       cmp_by_start_asc_then_dur_desc))
+    LOG_IF(WARNING,
+           !absl::c_is_sorted(level_events, cmp_by_start_asc_then_dur_desc))
         << "Trace Events not sorted properly for level: " << i;
-    absl::c_stable_sort(data.events_by_level[i],
-                        cmp_by_start_asc_then_dur_desc);
+    absl::c_stable_sort(level_events, cmp_by_start_asc_then_dur_desc);
   }
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,

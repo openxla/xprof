@@ -142,6 +142,51 @@ bool DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
   return toggled;
 }
 
+// Draws an expand/collapse button for virtual headers.
+bool DrawHeaderExpandCollapseButton(const char* label_id, bool& expanded,
+                                    Pixel height) {
+  bool toggled = false;
+  ImGui::PushID(label_id);
+  const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+  const Pixel kButtonHeight = height;
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  Pixel center_y = p.y + kButtonHeight * 0.5f;
+  Pixel center_x = p.x + kArrowSize * 0.5f;
+
+  if (ImGui::InvisibleButton("##expand_collapse",
+                             ImVec2(kArrowSize, kButtonHeight))) {
+    expanded = !expanded;
+    toggled = true;
+  }
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 arrow_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    arrow_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+  }
+
+  Pixel h = kArrowSize * 0.4f;
+  Pixel w = kArrowSize * 0.2f;
+
+  if (expanded) {
+    // Down arrow, like v
+    draw_list->AddLine(ImVec2(center_x - h, center_y - w),
+                       ImVec2(center_x, center_y + w), arrow_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x, center_y + w),
+                       ImVec2(center_x + h, center_y - w), arrow_col, 1.2f);
+  } else {
+    // Right arrow, like >
+    draw_list->AddLine(ImVec2(center_x - w, center_y - h),
+                       ImVec2(center_x + w, center_y), arrow_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x + w, center_y),
+                       ImVec2(center_x - w, center_y + h), arrow_col, 1.2f);
+  }
+  ImGui::PopID();
+  return toggled;
+}
+
+
 // Gets the starting level index of the group immediately following the group
 // at the given index. If the given group is the last one, returns the total
 // number of levels.
@@ -176,9 +221,93 @@ int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
   return start_idx;
 }
 
+Pixel Timeline::GetItemTop(const RenderItem& item) const {
+  if (item.type == RenderItem::Type::kHeaderProcesses) {
+    return header_processes_offset_;
+  }
+  if (item.type == RenderItem::Type::kHeaderHidden) {
+    return header_hidden_offset_;
+  }
+  return group_offsets_[item.group_index];
+}
+
+Pixel Timeline::GetItemBottom(const RenderItem& item) const {
+  constexpr Pixel kHeaderHeight = 30.0f;
+  if (item.type == RenderItem::Type::kHeaderProcesses) {
+    return header_processes_offset_ + kHeaderHeight;
+  }
+  if (item.type == RenderItem::Type::kHeaderHidden) {
+    return header_hidden_offset_ + kHeaderHeight;
+  }
+  return group_offsets_[item.group_index + 1];
+}
+
+void Timeline::BuildRenderItems(const FlameChartTimelineData& data) {
+  render_items_.clear();
+  const int group_count = data.groups.size();
+
+  if (!track_management_enabled_) {
+    render_items_.reserve(group_count);
+    for (int i = 0; i < group_count; ++i) {
+      render_items_.push_back({RenderItem::Type::kGroup, i});
+    }
+    return;
+  }
+
+  // Pre-calculate track visibility states. Since a process and all its nested
+  // subtracks form a visual block, we propagate the process's hidden status
+  // down to its descendant tracks. Caching this avoids performing redundant
+  // string-key lookup queries on `hidden_track_names_` during layout building.
+  std::vector<bool> group_is_hidden(group_count, false);
+  bool current_process_hidden = false;
+  all_processes_count_ = 0;
+  hidden_processes_count_ = 0;
+
+  for (int i = 0; i < group_count; ++i) {
+    const Group& group = data.groups[i];
+    if (group.nesting_level == kProcessNestingLevel) {
+      current_process_hidden = hidden_track_names_.contains(group.name);
+      if (current_process_hidden) {
+        hidden_processes_count_++;
+      } else {
+        all_processes_count_++;
+      }
+    }
+    group_is_hidden[i] = current_process_hidden;
+  }
+
+  // Reserve capacity on render_items_ to prevent multiple internal
+  // reallocations as elements are added (since we will add exactly
+  // group_count + 2 items).
+  render_items_.reserve(group_count + 2);
+
+  // 1. Hidden processes / "Hidden" Header
+  render_items_.push_back({RenderItem::Type::kHeaderHidden, -1});
+
+  // 2. Hidden processes and their children
+  for (int i = 0; i < group_count; ++i) {
+    if (group_is_hidden[i]) {
+      render_items_.push_back({RenderItem::Type::kGroup, i});
+    }
+  }
+
+  // 3. All Processes / "All" Header
+  render_items_.push_back({RenderItem::Type::kHeaderProcesses, -1});
+
+  // 4. Unhidden processes and their children
+  for (int i = 0; i < group_count; ++i) {
+    if (!group_is_hidden[i]) {
+      render_items_.push_back({RenderItem::Type::kGroup, i});
+    }
+  }
+}
+
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
   const int level_count = data.events_by_level.size();
   const int group_count = data.groups.size();
+
+  // Populate render_items_ based on data
+  BuildRenderItems(data);
 
   std::vector<Pixel> new_visible_level_offsets(level_count, 0.0f);
   std::vector<Pixel> new_group_offsets(group_count + 1, 0.0f);
@@ -186,11 +315,50 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
 
   Pixel current_offset =
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
+
   int hidden_nesting_level = std::numeric_limits<int>::max();
   Pixel hidden_group_center_y = 0.0f;
+  bool has_visible_group = false;
+  constexpr Pixel kHeaderHeight = 30.0f;
 
-  for (int group_index = 0; group_index < group_count; ++group_index) {
+  // Track collapsed status of headers
+  bool section_collapsed = false;
+
+  for (const RenderItem& item : render_items_) {
+    if (item.type == RenderItem::Type::kHeaderProcesses) {
+      header_processes_offset_ = current_offset;
+      section_collapsed = !processes_expanded_;
+      current_offset += kHeaderHeight;
+      continue;
+    }
+    if (item.type == RenderItem::Type::kHeaderHidden) {
+      header_hidden_offset_ = current_offset;
+      section_collapsed = !hidden_expanded_;
+      current_offset += kHeaderHeight;
+      // Reset collapsed ancestor tracker between sections
+      hidden_nesting_level = std::numeric_limits<int>::max();
+      continue;
+    }
+
+    // Now we are dealing with a group track (Type::kGroup)
+    const int group_index = item.group_index;
     const Group& group = data.groups[group_index];
+
+    // If the whole header section is collapsed, this group disappears.
+    if (section_collapsed) {
+      new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
+      const int next_group_start_level = GetNextGroupStartLevel(
+          data, group_index);
+      for (int level = group.start_level;
+           level < next_group_start_level; ++level) {
+        if (level < level_count) {
+          // Point level offset to current header offset
+          new_visible_level_offsets[level] = current_offset;
+        }
+      }
+      continue;
+    }
 
     if (group.nesting_level <= hidden_nesting_level) {
       hidden_nesting_level = std::numeric_limits<int>::max();
@@ -211,13 +379,14 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       continue;
     }
 
-    if (group_index > 0) {
+    if (has_visible_group) {
       current_offset += (group.nesting_level == kProcessNestingLevel)
                             ? kProcessTrackGap
                             : kThreadTrackGap;
     }
 
     new_group_offsets[group_index] = current_offset;
+    has_visible_group = true;
 
     const bool has_children =
         group_index + 1 < data.groups.size() &&
@@ -271,11 +440,13 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     current_offset += group_height;
   }
 
+  // Set the dummy offset at the very end
   new_group_offsets[group_count] = current_offset;
 
   group_offsets_ = std::move(new_group_offsets);
   visible_level_offsets_ = std::move(new_visible_level_offsets);
   group_visible_ = std::move(new_group_visible);
+  layout_dirty_ = false;
 }
 
 void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
@@ -348,6 +519,23 @@ void Timeline::Draw() {
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
 
+  if (track_management_enabled_) {
+    // Draw "Process" header text in the top-left empty label area of
+    // the ruler row.
+    ImGui::SetCursorPos(
+        ImVec2(ruler_start_pos.x + kIndentSize, ruler_start_pos.y));
+    ImGui::PushFont(traceviewer::fonts::label_large);
+
+    // Vertically center "Process" within ruler height (kRulerHeight = 20.0f)
+    const Pixel text_height = ImGui::GetTextLineHeight();
+    const Pixel vertical_offset = (kRulerHeight - text_height) * 0.5f;
+    ImGui::SetCursorPosY(ruler_start_pos.y +
+                         std::max(0.0f, vertical_offset));
+
+    ImGui::TextUnformatted("Process");
+    ImGui::PopFont();
+  }
+
   // Now move the cursor below the Ruler to start the Tracks child
   ImGui::SetCursorPos(
       ImVec2(ruler_start_pos.x, ruler_start_pos.y + kRulerHeight));
@@ -376,27 +564,80 @@ void Timeline::Draw() {
   const Pixel scroll_y = ImGui::GetScrollY();
   const Pixel window_height = ImGui::GetWindowHeight();
 
-  // Find the first group that is visible.
-  auto start_it = std::upper_bound(group_offsets_.begin() + 1,
-                                   group_offsets_.end(), scroll_y);
-  int start_idx = std::distance(group_offsets_.begin(), start_it) - 1;
-  start_idx = std::max(
-      0, std::min(start_idx, static_cast<int>(timeline_data_.groups.size())));
+  // Draw each RenderItem in the order they should appear in the layout.
+  for (const RenderItem& item : render_items_) {
+    if (item.type == RenderItem::Type::kGroup &&
+        !group_visible_[item.group_index]) {
+      continue;
+    }
 
-  // If the start_idx lands on a child of a collapsed group, scan backwards
-  // to find the first visible ancestor using our pre-computed visibility map.
-  start_idx = FindFirstVisibleAncestorIndex(start_idx);
+    const Pixel item_top = GetItemTop(item);
+    const Pixel item_bottom = GetItemBottom(item);
+    if (item_bottom < scroll_y || item_top > scroll_y + window_height) {
+      continue;
+    }
 
-  // Find the last group that is visible.
-  auto end_it = std::upper_bound(group_offsets_.begin(), group_offsets_.end(),
-                                 scroll_y + window_height);
-  int end_idx = timeline_data_.groups.size();
-  if (end_it != group_offsets_.end()) {
-    end_idx = std::distance(group_offsets_.begin(), end_it);
-  }
+    constexpr Pixel kHeaderHeight = 30.0f;
 
-  for (int group_index = start_idx; group_index < end_idx; ++group_index) {
-    if (!group_visible_[group_index]) continue;
+    if (item.type == RenderItem::Type::kHeaderProcesses ||
+        item.type == RenderItem::Type::kHeaderHidden) {
+      int header_id =
+          (item.type == RenderItem::Type::kHeaderProcesses) ? 100000 : 200000;
+      ImGui::PushID(header_id);
+
+      // Limit text clip region to label column
+      ImGui::PushClipRect(
+          ImVec2(tracks_start_screen_pos.x,
+                 tracks_start_screen_pos.y + item_top),
+          ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
+                 tracks_start_screen_pos.y + item_bottom),
+          true);
+
+      // Position for expand/collapse button
+      ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + kIndentSize,
+                                 tracks_start_pos.y + item_top));
+
+      bool toggled = false;
+      if (item.type == RenderItem::Type::kHeaderProcesses) {
+        toggled = DrawHeaderExpandCollapseButton(
+            "##all_header", processes_expanded_, kHeaderHeight);
+      } else {
+        toggled = DrawHeaderExpandCollapseButton(
+            "##hidden_header", hidden_expanded_, kHeaderHeight);
+      }
+
+      if (toggled) {
+        layout_dirty_ = true;
+        if (redraw_callback_) redraw_callback_();
+      }
+
+      // Name text
+      ImGui::SameLine();
+      ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
+      ImGui::PushFont(traceviewer::fonts::label_section_header);
+
+      // Vertically center text in header height
+      const Pixel text_height = ImGui::GetTextLineHeight();
+      const Pixel vertical_offset = (kHeaderHeight - text_height) * 0.5f;
+      ImGui::SetCursorPosY(tracks_start_pos.y + item_top +
+                           std::max(0.0f, vertical_offset));
+
+      std::string header_text;
+      if (item.type == RenderItem::Type::kHeaderHidden) {
+        header_text = absl::StrCat("Hidden (", hidden_processes_count_, ")");
+      } else {
+        header_text = absl::StrCat("All (", all_processes_count_, ")");
+      }
+      ImGui::TextUnformatted(header_text.c_str());
+      ImGui::PopFont();
+
+      ImGui::PopClipRect();
+      ImGui::PopID();
+      continue;
+    }
+
+    // Now copy group loop logic for RenderItem::Type::kGroup
+    int group_index = item.group_index;
     Group& group = timeline_data_.groups[group_index];
     ImGui::PushID(group_index);
 
@@ -481,7 +722,7 @@ void Timeline::Draw() {
 
     if (expandable) {
       if (DrawExpandCollapseButton(group, group_index, centereable_height)) {
-        UpdateLevelPositions(timeline_data_);
+        layout_dirty_ = true;
         if (redraw_callback_) redraw_callback_();
       }
     } else {
@@ -584,12 +825,6 @@ void Timeline::Draw() {
 
     if (is_collapsed) {
       DrawGroupPreview(group_index, px_per_time_unit_val);
-      int current_nesting_level = group.nesting_level;
-      while (group_index + 1 < timeline_data_.groups.size() &&
-             timeline_data_.groups[group_index + 1].nesting_level >
-                 current_nesting_level) {
-        group_index++;
-      }
     } else {
       DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
     }
@@ -699,6 +934,11 @@ void Timeline::Draw() {
   ImGui::PopStyleVar();  // WindowBorderSize
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
+
+  if (layout_dirty_) {
+    UpdateLevelPositions(timeline_data_);
+    layout_dirty_ = false;
+  }
 }
 
 EventRect Timeline::CalculateEventRect(
@@ -999,6 +1239,13 @@ void Timeline::ExpandRelatedTracks(int event_index) {
     }
   }
 }
+
+void Timeline::HideTrack(absl::string_view name) {
+  hidden_track_names_.insert(std::string(name));
+  UpdateLevelPositions(timeline_data_);
+  if (redraw_callback_) redraw_callback_();
+}
+
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,
@@ -2362,7 +2609,7 @@ void Timeline::DrawHideButton(int group_index,
     } else {
       hidden_track_names_.insert(group.name);
     }
-    UpdateLevelPositions(timeline_data_);
+    layout_dirty_ = true;
     if (redraw_callback_) redraw_callback_();
   }
 

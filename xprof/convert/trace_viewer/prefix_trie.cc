@@ -3,12 +3,15 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/container/btree_map.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -22,6 +25,29 @@
 
 namespace tensorflow {
 namespace profiler {
+
+PrefixTrieNode::~PrefixTrieNode() {
+  std::vector<std::unique_ptr<PrefixTrieNode>> children_to_delete;
+  auto delete_children =
+      [&children_to_delete](
+          absl::btree_map<char, std::unique_ptr<PrefixTrieNode>>& children) {
+        for (auto& [_, child] : children) {
+          if (child != nullptr) {
+            children_to_delete.push_back(std::move(child));
+          }
+        }
+      };
+
+  delete_children(this->children);
+  children.clear();
+
+  while (!children_to_delete.empty()) {
+    std::unique_ptr<PrefixTrieNode> current =
+        std::move(children_to_delete.back());
+    children_to_delete.pop_back();
+    delete_children(current->children);
+  }
+}
 
 PrefixTrieNodeProto PrefixTrieNode::ToProto() const {
   PrefixTrieNodeProto proto;
@@ -42,18 +68,25 @@ void PrefixTrie::Insert(absl::string_view key, absl::string_view id) {
   node->terminal_key_ids.emplace_back(id);
 }
 
-void IterateTrieAndSaveToLevelDbTable(PrefixTrieNode* node,
-                                      std::string key,
+void IterateTrieAndSaveToLevelDbTable(PrefixTrieNode* node, std::string key,
                                       tsl::table::TableBuilder& builder) {
-  auto proto = node->ToProto();
-  builder.Add(key, proto.SerializeAsString());
-  for (const auto& [c, child] : node->children) {
-    IterateTrieAndSaveToLevelDbTable(child.get(), key + c, builder);
+  std::vector<std::pair<PrefixTrieNode*, std::string>> stack;
+  stack.push_back({node, std::move(key)});
+
+  while (!stack.empty()) {
+    auto [node, key] = stack.back();
+    stack.pop_back();
+
+    auto proto = node->ToProto();
+    builder.Add(key, proto.SerializeAsString());
+    for (auto it = node->children.rbegin(); it != node->children.rend(); ++it) {
+      stack.push_back(
+          {it->second.get(), absl::StrCat(key, std::string(1, it->first))});
+    }
   }
 }
 
-absl::Status PrefixTrie::SaveAsLevelDbTable(
-    tsl::WritableFile* file) {
+absl::Status PrefixTrie::SaveAsLevelDbTable(tsl::WritableFile* file) {
   tsl::table::Options options;
   options.block_size = 20 * 1024 * 1024;
   options.compression = tsl::table::kSnappyCompression;

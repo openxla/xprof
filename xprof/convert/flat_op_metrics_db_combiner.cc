@@ -23,6 +23,7 @@ limitations under the License.
 #include "xla/tsl/platform/logging.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/flat_op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -70,6 +71,9 @@ void FlatOpMetricsDbCombiner::CopyFlatOpMetricsMetadata(
   }
   if (!dst->autotuned()) {
     dst->set_autotuned(src.autotuned());
+  }
+  if (!dst->has_source_info() && src.has_source_info()) {
+    *dst->mutable_source_info() = src.source_info();
   }
 }
 

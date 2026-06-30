@@ -54,11 +54,9 @@ def get_storage_client():
         ' supported.'
     )
 
-  # On corp machines, google-auth auto-detects mTLS config and tries to use
-  # pyOpenSSL for client certificates. pyOpenSSL is incompatible with
-  # urllib3 >= 2.7, so we bypass mTLS by passing a pre-configured
-  # AuthorizedSession that skips configure_mtls_channel(). xprof only needs
-  # to read GCS blobs — mutual TLS is not required.
+  # google-auth tries to use pyOpenSSL for mTLS client
+  # certificates, but pyOpenSSL is incompatible with urllib3 >= 2.7.
+  # xprof only reads GCS blobs — mutual TLS is not required.
   if google_auth is not None and google_auth_requests is not None:
     credentials, project = google_auth.default()
     http_session = google_auth_requests.AuthorizedSession(credentials)

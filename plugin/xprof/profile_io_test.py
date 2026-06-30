@@ -39,12 +39,10 @@ class MockIterator:
   def __init__(
       self, items: Iterable[Any], prefixes: Optional[list[str]] = None
   ):
-    """Initializes the instance."""
     self.items = items
     self.prefixes = prefixes or []
 
   def __iter__(self):
-    """Returns an iterator for the items."""
     return iter(self.items)
 
 
@@ -52,7 +50,6 @@ class GetFileSystemTest(parameterized.TestCase):
   """Tests for the get_file_system factory function."""
 
   def setUp(self):
-    """Initializes the test environment."""
     super().setUp()
     self.mock_storage = self.enter_context(
         mock.patch.object(profile_io, 'storage', autospec=True)
@@ -78,7 +75,6 @@ class LocalFileSystemTest(absltest.TestCase):
   """Tests for LocalFileSystem."""
 
   def setUp(self):
-    """Initializes the test environment."""
     super().setUp()
     self.temp_dir = self.create_tempdir()
     self.fs = profile_io.LocalFileSystem()
@@ -268,21 +264,17 @@ class GcsFileSystemTest(absltest.TestCase):
   """Tests for GcsFileSystem."""
 
   def setUp(self):
-    """Initializes the test environment."""
     super().setUp()
     self.mock_storage = self.enter_context(
         mock.patch.object(profile_io, 'storage', autospec=True)
     )
-    self.mock_gcs_exceptions = mock.MagicMock()
+    self.mock_gcs_exceptions = self.enter_context(
+        mock.patch.object(profile_io, 'gcs_exceptions', autospec=True)
+    )
+    # Override exception classes with real ones so `except` clauses work.
     self.mock_gcs_exceptions.NotFound = MockNotFoundError
     self.mock_gcs_exceptions.GoogleAPICallError = MockGoogleAPICallError
-    self.enter_context(
-        mock.patch.object(
-            profile_io, 'gcs_exceptions', self.mock_gcs_exceptions
-        )
-    )
     self.mock_client = mock.MagicMock()
-    # Inject storage_client dependency directly
     self.fs = profile_io.GcsFileSystem(storage_client=self.mock_client)
 
   def test_get_xplane_basenames(self):

@@ -28,6 +28,10 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/platform/logging.h"
@@ -35,6 +39,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -48,6 +53,44 @@ namespace {
 
 const int64_t kSingleOccurrence = 1;
 constexpr uint64_t kRootSymbolId = 0;
+
+// Extracts the source filename and line from the input `source_top_line`, which
+// is in the format of `<source_filename>:<source_line_number>`.
+absl::StatusOr<std::pair<std::string, int32_t>>
+ExtractSourceFileNameAndLineNumber(absl::string_view source_top_line) {
+  const auto delimiterPos = source_top_line.find(':');
+  if (delimiterPos == std::string_view::npos) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source info expression: '",
+                     std::string(source_top_line), "'"));
+  }
+  const auto source_file = source_top_line.substr(0, delimiterPos);
+  const auto line_str = source_top_line.substr(delimiterPos + 1);
+  int32_t source_line;
+  if (!absl::SimpleAtoi(line_str, &source_line)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid source line: '", std::string(line_str), "'"));
+  }
+  return std::make_pair(std::string(source_file), source_line);
+}
+
+// Populates the source filename and line number in the `source_info` from the
+// input `source_top_line`, which is expected to be in the format of
+// `<source_filename>:<source_line_number>`. If the `source_top_line` is not in
+// the expected format, then `source_info` will not be populated.`
+void PopulateSourceInfo(absl::string_view source_top_line,
+                        tensorflow::profiler::SourceInfo& source_info) {
+  const auto file_and_line =
+      ExtractSourceFileNameAndLineNumber(source_top_line);
+  if (file_and_line.ok()) {
+    source_info.set_file_name(std::move(file_and_line->first));
+    source_info.set_line_number(file_and_line->second);
+  } else {
+    LOG(ERROR) << "Failed to extract source filename and line from the input "
+                  "source_top_line: '"
+               << "' with status: " << file_and_line.status();
+  }
+}
 
 // Extracts metadata from an XEventMetadataVisitor and populates the
 // corresponding fields in a FlatOpMetrics protobuf message.
@@ -134,6 +177,16 @@ void SetOpMetadataFromHloEventMetadata(
           }
           break;
         }
+
+        case StatType::kSourceInfo:
+          PopulateSourceInfo(stat.StrOrRefValue(),
+                             *op_metrics->mutable_source_info());
+          break;
+
+        case StatType::kSourceStack:
+          op_metrics->mutable_source_info()->set_stack_frame(
+              std::string(stat.StrOrRefValue()));
+          break;
 
         default:
           break;

@@ -33,6 +33,18 @@ $search-bar-height: 56px;
   box-sizing: border-box;
 }
 
+:host ::ng-deep as-split > .as-split-gutter.as-split-gutter.as-split-gutter {
+  background-color: transparent;
+}
+
+:host ::ng-deep as-split[direction='vertical'] > .as-split-gutter {
+  overflow: visible;
+
+  .as-split-gutter-icon {
+    transform: translateY(20px);
+  }
+}
+
 iframe {
   position: absolute;
   width: 100%;
@@ -126,7 +138,7 @@ canvas {
         font-size: 20px;
         width: 20px;
         height: 20px;
-        color: #5f6368;
+        color: var(--md-sys-color--on-surface-variant);
       }
     }
 
@@ -134,7 +146,7 @@ canvas {
       padding: 0;
       height: 28px;
       font-size: 13px;
-      color: #1f1f1f;
+      color: var(--md-sys-color--on-surface);
       caret-color: var(--md-sys-color--primary);
       background: transparent;
     }
@@ -159,7 +171,7 @@ canvas {
 .search-divider {
   width: 1px;
   height: 16px;
-  background-color: #C4C7C5;
+  background-color: var(--md-sys-color--outline-variant);
   margin: 0 4px;
 }
 
@@ -213,7 +225,7 @@ canvas {
 
     &.active {
       background-color: var(--md-sys-color--primary-container);
-      color: #0b57d0;
+      color: var(--md-sys-color--primary);
     }
 
     mat-icon,
@@ -231,16 +243,17 @@ canvas {
 }
 
 .drawer {
-  height: calc(100% - 8px);
+  height: calc(100% - 16px);
   margin-top: 8px;
-  background-color: white;
+  margin-bottom: 8px;
+  background-color: var(--md-sys-color--surface);
   box-sizing: border-box;
   overflow: auto;
   border-radius: 16px;
 
   .event-detail-table-container {
     width: 100%;
-    padding: 10px;
+    padding: 24px 10px 10px 10px;
     box-sizing: border-box;
   }
 
@@ -263,7 +276,7 @@ canvas {
 
     tr.mat-mdc-header-row,
     tr.mat-mdc-footer-row {
-      background-color: #f5f5f5;
+      background-color: var(--md-sys-color--surface-container);
     }
 
     th.mat-mdc-header-cell,
@@ -272,7 +285,7 @@ canvas {
     }
 
     th.mat-mdc-header-cell {
-      background-color: #f5f5f5;
+      background-color: var(--md-sys-color--surface-container);
     }
 
     tr.mat-mdc-header-row {
@@ -303,7 +316,7 @@ canvas {
     padding: 16px;
     border: 1px solid var(--md-sys-color--outline-variant);
     border-radius: 8px;
-    background-color: var(--md-sys-color--surface-container-low);
+    background-color: var(--md-sys-color--surface);
     margin-bottom: 16px;
 
     h3 {
@@ -313,15 +326,15 @@ canvas {
     }
 
     .split-area-left {
-      background-color: var(--md-sys-color--surface-container-low);
+      background-color: var(--md-sys-color--surface);
       padding: 8px;
-      border-radius: 4px;
+      border-radius: 8px;
     }
 
     .split-area-right {
       background-color: var(--md-sys-color--surface-container);
       padding: 8px;
-      border-radius: 4px;
+      border-radius: 8px;
     }
 
     .detail-row {
@@ -385,7 +398,7 @@ canvas {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  background-color: white;
+  background-color: var(--md-sys-color--surface);
   color: red;
 
   mat-icon {
@@ -444,8 +457,8 @@ canvas {
   top: 40px;
   right: 0;
   width: 250px;
-  background: white;
-  border: 1px solid #dadce0;
+  background: var(--md-sys-color--surface);
+  border: 1px solid var(--md-sys-color--outline-variant);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   padding: 12px;
@@ -456,13 +469,13 @@ canvas {
 .coach-mark-title {
   font-size: 14px;
   font-weight: 500;
-  color: #202124;
+  color: var(--md-sys-color--on-surface);
   margin-bottom: 6px;
 }
 
 .coach-mark-content {
   font-size: 12px;
-  color: #5f6368;
+  color: var(--md-sys-color--on-surface-variant);
   line-height: 1.4;
   margin-bottom: 10px;
 }
@@ -482,8 +495,8 @@ canvas {
   right: 12px;
   width: 10px;
   height: 10px;
-  background: white;
-  border-left: 1px solid #dadce0;
-  border-top: 1px solid #dadce0;
+  background: var(--md-sys-color--surface);
+  border-left: 1px solid var(--md-sys-color--outline-variant);
+  border-top: 1px solid var(--md-sys-color--outline-variant);
   transform: rotate(45deg);
 }

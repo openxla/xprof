@@ -125,6 +125,9 @@ export declare interface SelectedEvent {
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
+  hloModule?: string;
+  hloOpName?: string;
+  args?: Record<string, string>;
 }
 
 /**

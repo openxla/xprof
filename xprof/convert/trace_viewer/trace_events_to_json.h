@@ -51,6 +51,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/task.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
+#include "plugin/xprof/protobuf/trace_filter_config.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -228,6 +229,7 @@ struct JsonTraceOptions {
   bool use_new_backend = false;
   bool mpmd_pipeline_view = false;
   std::string code_link;
+  std::optional<tensorflow::profiler::TraceFilterConfig> trace_filter_config;
 };
 
 // Counts generated JSON events by type.
@@ -790,6 +792,38 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   WriteFilteredByVisibility(events.FilterByVisibility(), output);
   WriteTraceFullTimespan(&events.trace(), output);
 
+  bool has_filter_config = false;
+  bool has_process_filter = false;
+  bool has_event_filter = false;
+  std::vector<std::unique_ptr<RE2>> device_matchers;
+  std::vector<std::unique_ptr<RE2>> resource_matchers;
+
+  if (options.trace_filter_config.has_value()) {
+    const auto& config = *options.trace_filter_config;
+    device_matchers.reserve(config.device_regexes().size());
+    for (const auto& regex : config.device_regexes()) {
+      device_matchers.push_back(std::make_unique<RE2>(regex));
+    }
+    resource_matchers.reserve(config.resource_regexes().size());
+    for (const auto& regex : config.resource_regexes()) {
+      resource_matchers.push_back(std::make_unique<RE2>(regex));
+    }
+    has_process_filter = !device_matchers.empty() || !resource_matchers.empty();
+    has_event_filter = !config.trace_event_filters().empty();
+    has_filter_config = has_process_filter || has_event_filter;
+  }
+
+  absl::flat_hash_set<uint32_t> active_devices;
+  absl::flat_hash_set<std::pair<uint32_t, uint64_t>> active_resources;
+  if (has_filter_config) {
+    events.ForAllEvents([&](const auto& event) {
+      active_devices.insert(event.device_id());
+      if (event.has_resource_id()) {
+        active_resources.insert({event.device_id(), event.resource_id()});
+      }
+    });
+  }
+
   const Trace& trace = events.trace();
   WriteTasks(trace, output);
 
@@ -804,6 +838,21 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   absl::btree_map<uint32_t, Device> ordered_devices(trace.devices().begin(),
                                                     trace.devices().end());
   for (const auto& [device_id, device] : ordered_devices) {
+    bool keep_device = true;
+    if (has_process_filter) {
+      bool device_match = device_matchers.empty();
+      for (const auto& matcher : device_matchers) {
+        if (RE2::PartialMatch(device.name(), *matcher)) {
+          device_match = true;
+          break;
+        }
+      }
+      keep_device = device_match;
+    } else if (has_event_filter) {
+      keep_device = active_devices.contains(device_id);
+    }
+    if (!keep_device) continue;
+
     if (device.has_name()) {
       separator.Add();
       output->Append(R"({"args":{"name":)", JsonEscape(device.name()),
@@ -823,6 +872,28 @@ void TraceEventsToJson(const JsonTraceOptions& options,
     absl::btree_map<uint64_t, Resource> ordered_resources(
         device.resources().begin(), device.resources().end());
     for (const auto& [resource_id, resource] : ordered_resources) {
+      bool keep_resource = true;
+      if (has_process_filter) {
+        bool device_match = device_matchers.empty();
+        for (const auto& matcher : device_matchers) {
+          if (RE2::PartialMatch(device.name(), *matcher)) {
+            device_match = true;
+            break;
+          }
+        }
+        bool resource_match = resource_matchers.empty();
+        for (const auto& matcher : resource_matchers) {
+          if (RE2::PartialMatch(resource.name(), *matcher)) {
+            resource_match = true;
+            break;
+          }
+        }
+        keep_resource = device_match && resource_match;
+      } else if (has_event_filter) {
+        keep_resource = active_resources.contains({device_id, resource_id});
+      }
+      if (!keep_resource) continue;
+
       if (resource.has_name()) {
         separator.Add();
         output->Append(R"({"args":{"name":)", JsonEscape(resource.name()),

@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #include "xprof/convert/profile_processor.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,6 +28,7 @@ limitations under the License.
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/env.h"
@@ -50,10 +52,32 @@ using ::tensorflow::profiler::XSpace;
 using ::testing::IsEmpty;
 using ::testing::Not;
 
+using GetDummySerializedProtoFn = std::function<std::optional<std::string>()>;
+using VerifySerializedProtoFn = std::function<void(const std::string&)>;
+
 struct ProfileProcessorTestParam {
   std::string test_name;
   std::string tool_name;
+  GetDummySerializedProtoFn get_dummy_serialized_proto;
+  VerifySerializedProtoFn verify_serialized_proto;
 };
+
+std::optional<std::string> GetDummyOpStats() {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_is_training(true);
+  std::string output;
+  op_stats.SerializeToString(&output);
+  return output;
+}
+
+void VerifyOpStats(const std::string& content) {
+  OpStats op_stats;
+  ASSERT_TRUE(op_stats.ParseFromString(content));
+}
+
+std::optional<std::string> GetDummyEmptyProto() { return std::nullopt; }
+
+void VerifyEmptyProto(const std::string& content) {}
 
 class ProfileProcessorTest
     : public ::testing::TestWithParam<ProfileProcessorTestParam> {};
@@ -61,12 +85,12 @@ class ProfileProcessorTest
 TEST_P(ProfileProcessorTest, MapTest) {
   const ProfileProcessorTestParam& test_param = GetParam();
   ToolOptions options;
-  auto processor = ProfileProcessorFactory::GetInstance().Create(
-      test_param.tool_name, options);
+  std::unique_ptr<ProfileProcessor> processor =
+      ProfileProcessorFactory::GetInstance().Create(test_param.tool_name,
+                                                    options);
   ASSERT_NE(processor, nullptr);
   XSpace space;
   space.add_planes()->set_name("test_plane");
-  std::string output;
   // Create a SessionSnapshot with a minimal XSpace for the test.
   std::string session_dir =
       file::JoinPath(testing::TempDir(), test_param.test_name + "_map_test");
@@ -75,12 +99,22 @@ TEST_P(ProfileProcessorTest, MapTest) {
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
-  auto status_or_session_snapshot =
-      SessionSnapshot::Create({xspace_path}, std::nullopt);
-  ASSERT_OK(status_or_session_snapshot);
-  ASSERT_OK_AND_ASSIGN(
-      std::string map_output_path,
-      processor->Map(status_or_session_snapshot.value(), "test_host", space));
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
+                       SessionSnapshot::Create({xspace_path}, std::nullopt));
+
+  std::optional<std::string> dummy_payload =
+      test_param.get_dummy_serialized_proto();
+  if (!dummy_payload.has_value()) {
+    EXPECT_EQ(processor->Map(session_snapshot, "test_host", space)
+                  .status()
+                  .code(),
+              absl::StatusCode::kUnimplemented);
+    ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
+    return;
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::string map_output_path,
+                       processor->Map(session_snapshot, "test_host", space));
 
   // Verify that the output was written to the session snapshot.
   ASSERT_OK(tsl::Env::Default()->FileExists(map_output_path));
@@ -90,10 +124,9 @@ TEST_P(ProfileProcessorTest, MapTest) {
       tsl::ReadFileToString(tsl::Env::Default(), map_output_path, &content));
   EXPECT_THAT(content, Not(IsEmpty()));
 
-  OpStats op_stats;
-  ASSERT_TRUE(op_stats.ParseFromString(content));
+  test_param.verify_serialized_proto(content);
 
-    // Clean up.
+  // Clean up.
   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
 }
 
@@ -101,19 +134,23 @@ TEST_P(ProfileProcessorTest, MapTest) {
 TEST_P(ProfileProcessorTest, ReduceTest) {
   const ProfileProcessorTestParam& test_param = GetParam();
   ToolOptions options;
-  auto processor = ProfileProcessorFactory::GetInstance().Create(
-      test_param.tool_name, options);
+  std::unique_ptr<ProfileProcessor> processor =
+      ProfileProcessorFactory::GetInstance().Create(test_param.tool_name,
+                                                    options);
   ASSERT_NE(processor, nullptr);
 
-  OpStats op_stats1;
-  op_stats1.mutable_run_environment()->set_is_training(true);
-  std::string output1;
-  ASSERT_TRUE(op_stats1.SerializeToString(&output1));
-
-  OpStats op_stats2;
-  op_stats2.mutable_run_environment()->set_is_training(true);
-  std::string output2;
-  ASSERT_TRUE(op_stats2.SerializeToString(&output2));
+  std::optional<std::string> dummy_payload =
+      test_param.get_dummy_serialized_proto();
+  if (!dummy_payload.has_value()) {
+    std::vector<std::string> map_output_files = {"dummy_file.pb"};
+    ASSERT_OK_AND_ASSIGN(
+        SessionSnapshot session_snapshot,
+        SessionSnapshot::Create({"dummy_file.pb"}, std::nullopt));
+    EXPECT_EQ(
+        processor->Reduce(session_snapshot, map_output_files).code(),
+        absl::StatusCode::kUnimplemented);
+    return;
+  }
 
   // Create temporary files for map outputs.
   std::string session_dir =
@@ -121,12 +158,12 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
   std::string map_output_path1 = file::JoinPath(session_dir, "map1.pb");
-  ASSERT_OK(
-      tsl::WriteStringToFile(tsl::Env::Default(), map_output_path1, output1));
+  ASSERT_OK(tsl::WriteStringToFile(tsl::Env::Default(), map_output_path1,
+                                   *dummy_payload));
 
   std::string map_output_path2 = file::JoinPath(session_dir, "map2.pb");
-  ASSERT_OK(
-      tsl::WriteStringToFile(tsl::Env::Default(), map_output_path2, output2));
+  ASSERT_OK(tsl::WriteStringToFile(tsl::Env::Default(), map_output_path2,
+                                   *dummy_payload));
 
   std::vector<std::string> map_output_files = {map_output_path1,
                                                map_output_path2};
@@ -134,15 +171,13 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
   // Create a SessionSnapshot with a minimal XSpace for the test.
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.push_back(std::make_unique<XSpace>());
-  auto status_or_session_snapshot =
-      SessionSnapshot::Create({map_output_path1}, std::move(xspaces));
-  ASSERT_OK(status_or_session_snapshot);
-  ASSERT_OK(
-      processor->Reduce(status_or_session_snapshot.value(), map_output_files));
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create({map_output_path1}, std::move(xspaces)));
+  ASSERT_OK(processor->Reduce(session_snapshot, map_output_files));
 
   EXPECT_EQ(processor->GetContentType(), "application/json");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
-  // TODO(bhupendradubey): Add more specific checks on the JSON output.
 
   // Clean up.
   ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
@@ -161,27 +196,47 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   space.add_planes()->set_name("test_plane");
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
 
-  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
 
   ToolOptions options;
+  std::optional<std::string> dummy_payload =
+      test_param.get_dummy_serialized_proto();
+
   // First call - should compute and write to cache.
-  ASSERT_OK_AND_ASSIGN(std::string result1,
-                       ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, test_param.tool_name, options));
-  EXPECT_THAT(result1, Not(IsEmpty()));
+  absl::StatusOr<std::string> status_or_result1 =
+      ConvertMultiXSpacesToToolDataWithProfileProcessor(
+          session_snapshot, test_param.tool_name, options);
 
+  if (!dummy_payload.has_value()) {
+    // For non-OpStats tools, an empty XSpace might cause the processor to
+    // return an error (e.g. missing HLO proto) or an empty result.
+    if (!status_or_result1.ok()) {
+      ASSERT_OK(file::RecursivelyDelete(session_dir, file::Defaults()));
+      return;
+    }
+  } else {
+    ASSERT_OK(status_or_result1);
+    EXPECT_THAT(status_or_result1.value(), Not(IsEmpty()));
+  }
+
+  std::string result1 = status_or_result1.value();
+
+  if (dummy_payload.has_value()) {
+    ASSERT_OK_AND_ASSIGN(
+        std::optional<std::string> cache_file_path,
+        session_snapshot.GetHostDataFilePath(
+            StoredDataType::OP_STATS,
+            tensorflow::profiler::kAllHostsIdentifier));
+    EXPECT_TRUE(cache_file_path.has_value());
+    ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
+  }
+
+  // Second call - should hit the cache (or recompute if no caching).
   ASSERT_OK_AND_ASSIGN(
-      auto cache_file_path,
-      session_snapshot.GetHostDataFilePath(
-          StoredDataType::OP_STATS, tensorflow::profiler::kAllHostsIdentifier));
-  EXPECT_TRUE(cache_file_path.has_value());
-  ASSERT_OK(tsl::Env::Default()->FileExists(cache_file_path.value()));
-
-  // Second call - should hit the cache.
-  ASSERT_OK_AND_ASSIGN(std::string result2,
-                       ConvertMultiXSpacesToToolDataWithProfileProcessor(
-                           session_snapshot, test_param.tool_name, options));
+      std::string result2,
+      ConvertMultiXSpacesToToolDataWithProfileProcessor(
+          session_snapshot, test_param.tool_name, options));
   EXPECT_EQ(result1, result2);
 
   // Clean up.
@@ -210,23 +265,26 @@ void BM_ProcessorE2ETest(benchmark::State& state) {
   XSpace space;
   space.add_planes()->set_name("test_plane");
   CHECK_OK(xprof::WriteBinaryProto(xspace_path, space));
-  auto session_snapshot =
+  SessionSnapshot session_snapshot =
       SessionSnapshot::Create({xspace_path}, std::nullopt).value();
   ToolOptions options;
 
   for (auto s : state) {
     // Clear the cache file before each iteration to measure the full
     // computation.
-    auto cache_file_path = session_snapshot.GetHostDataFilePath(
-        StoredDataType::OP_STATS, tensorflow::profiler::kAllHostsIdentifier);
+    absl::StatusOr<std::optional<std::string>> cache_file_path =
+        session_snapshot.GetHostDataFilePath(
+            StoredDataType::OP_STATS,
+            tensorflow::profiler::kAllHostsIdentifier);
     // if (cache_file_path.has_value()) {
     //   file::Delete(*cache_file_path, file::Defaults()).IgnoreError();
     // }
 
     // Measure the performance of
     // ConvertMultiXSpacesToToolDataWithProfileProcessor.
-    auto result = ConvertMultiXSpacesToToolDataWithProfileProcessor(
-        session_snapshot, tool_name, options);
+    absl::StatusOr<std::string> result =
+        ConvertMultiXSpacesToToolDataWithProfileProcessor(session_snapshot,
+                                                          tool_name, options);
     benchmark::DoNotOptimize(result);
     CHECK_OK(result.status());
   }
@@ -248,14 +306,21 @@ BENCHMARK(BM_ProcessorE2ETest)->Arg(0);  // overview_page
 INSTANTIATE_TEST_SUITE_P(
     ProfileProcessorTests, ProfileProcessorTest,
     ::testing::ValuesIn<ProfileProcessorTestParam>({
-        {"OverviewPage", "overview_page"},
-        {"InputPipelineAnalyzer", "input_pipeline_analyzer"},
-        {"KernelStats", "kernel_stats"},
-        {"PodViewer", "pod_viewer"},
-        {"HloStats", "hlo_stats"},
-        {"RooflineModel", "roofline_model"},
-        {"FrameworkOpStats", "framework_op_stats"},
-        {"OpProfile", "op_profile"},
+        {"OverviewPage", "overview_page", GetDummyOpStats, VerifyOpStats},
+        {"InputPipelineAnalyzer", "input_pipeline_analyzer", GetDummyOpStats,
+         VerifyOpStats},
+        {"KernelStats", "kernel_stats", GetDummyOpStats, VerifyOpStats},
+        {"PodViewer", "pod_viewer", GetDummyOpStats, VerifyOpStats},
+        {"HloStats", "hlo_stats", GetDummyOpStats, VerifyOpStats},
+        {"RooflineModel", "roofline_model", GetDummyOpStats, VerifyOpStats},
+        {"FrameworkOpStats", "framework_op_stats", GetDummyOpStats,
+         VerifyOpStats},
+        {"OpProfile", "op_profile", GetDummyOpStats, VerifyOpStats},
+        {"MemoryProfile", "memory_profile", GetDummyEmptyProto,
+         VerifyEmptyProto},
+        {"MemoryViewer", "memory_viewer", GetDummyEmptyProto, VerifyEmptyProto},
+        {"TraceViewer", "trace_viewer", GetDummyEmptyProto, VerifyEmptyProto},
+        {"GraphViewer", "graph_viewer", GetDummyEmptyProto, VerifyEmptyProto},
     }),
     [](const ::testing::TestParamInfo<ProfileProcessorTest::ParamType>& info) {
       return info.param.test_name;
@@ -263,3 +328,4 @@ INSTANTIATE_TEST_SUITE_P(
 
 }  // namespace
 }  // namespace xprof
+

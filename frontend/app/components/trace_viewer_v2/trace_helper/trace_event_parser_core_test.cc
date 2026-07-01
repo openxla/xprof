@@ -82,6 +82,9 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 5.0);
   EXPECT_EQ(result.flame_events[0].name, "compute_op");
   EXPECT_EQ(result.flame_events[0].args.at("uid"), "123");
+  EXPECT_NE(result.flame_events[0].event_id, 0);
+  EXPECT_EQ(result.flame_events[0].event_id,
+            GenerateEventId("compute_op", 1.0, 5.0));
 
   EXPECT_EQ(result.flame_events[1].ph, Phase::kComplete);
   EXPECT_DOUBLE_EQ(result.flame_events[1].ts, 3.0);
@@ -90,6 +93,9 @@ TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {
   EXPECT_EQ(result.flame_events[1].id, "999");
   EXPECT_EQ(result.flame_events[1].category,
             tsl::profiler::ContextType::kTpuLaunch);
+  EXPECT_NE(result.flame_events[1].event_id, 0);
+  EXPECT_EQ(result.flame_events[1].event_id,
+            GenerateEventId("compute_op", 3.0, 3.0));
 
   ASSERT_EQ(result.flow_events.size(), 1);
   EXPECT_EQ(result.flow_events[0].id, "999");
@@ -157,6 +163,9 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsWithDuration) {
   EXPECT_EQ(result.flame_events[0].name, "async_op");
   EXPECT_EQ(result.flame_events[0].args.at("uid"), "42");
   EXPECT_EQ(result.flame_events[0].args.at("group_id"), "99");
+  EXPECT_NE(result.flame_events[0].event_id, 0);
+  EXPECT_EQ(result.flame_events[0].event_id,
+            GenerateEventId("async_op", 1.0, 5.0));
 }
 
 TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
@@ -189,7 +198,40 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
   EXPECT_DOUBLE_EQ(result.flame_events[0].dur, 4.0);
   EXPECT_EQ(result.flame_events[0].name, "dma_transfer");
   EXPECT_EQ(result.flame_events[0].args.at("uid"), "101");
+  EXPECT_NE(result.flame_events[0].event_id, 0);
+  EXPECT_EQ(result.flame_events[0].event_id,
+            GenerateEventId("dma_transfer", 1.0, 4.0));
 }
+
+TEST(TraceEventParserCoreTest, GenerateEventIdTest) {
+  // Stable hashing: Identical inputs produce the same ID
+  EventId id1 = GenerateEventId("event_a", 10.123456, 5.654321);
+  EventId id2 = GenerateEventId("event_a", 10.123456, 5.654321);
+  EXPECT_EQ(id1, id2);
+
+  // Floating point precision normalization:
+  // e.g. 10.123456 vs 10.123456000000001 (very close floats)
+  // They should round to the same picosecond and yield the same ID.
+  EventId id_approx =
+      GenerateEventId("event_a", 10.123456000000001, 5.6543210000000004);
+  EXPECT_EQ(id1, id_approx);
+
+  // Different inputs produce different IDs
+  EventId id_diff_name = GenerateEventId("event_b", 10.123456, 5.654321);
+  EXPECT_NE(id1, id_diff_name);
+
+  EventId id_diff_ts = GenerateEventId("event_a", 10.123457, 5.654321);
+  EXPECT_NE(id1, id_diff_ts);
+
+  EventId id_diff_dur = GenerateEventId("event_a", 10.123456, 5.654322);
+  EXPECT_NE(id1, id_diff_dur);
+}
+
+TEST(TraceEventParserCoreTest, GenerateEventIdExactValues) {
+  // Use dummy value 0ULL to trigger failure and capture exact fingerprint.
+  EXPECT_EQ(GenerateEventId("test_event", 1.0, 2.0), 16168300061312540288ULL);
+}
+
 
 }  // namespace
 }  // namespace traceviewer

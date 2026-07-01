@@ -19,7 +19,6 @@ limitations under the License.
 #include <string>
 
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/repository.h"
@@ -27,6 +26,11 @@ limitations under the License.
 
 namespace tensorflow {
 namespace profiler {
+
+// Converts XSpace to EventTimeFractionAnalyzerResults for Host events.
+absl::StatusOr<EventTimeFractionAnalyzerResults>
+ConvertXSpaceToHostEventTimeFractionAnalyzerResults(
+    const XSpace& xspace, absl::Span<const std::string> target_event_names);
 
 // Converts XSpace to EventTimeFractionAnalyzerResults for the given events.
 absl::StatusOr<EventTimeFractionAnalyzerResults>

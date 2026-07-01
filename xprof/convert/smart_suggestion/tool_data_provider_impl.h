@@ -88,7 +88,8 @@ class ToolDataProviderImpl : public ToolDataProvider {
       event_time_fraction_analyzer_results_cache_ =
           std::make_unique<EventTimeFractionAnalyzerResults>();
       ToolOptions options;
-      options["event_name"] = std::string(kEventTimeFractionAnalyzerEvents);
+      options["tpu_event_name"] = kDeviceTpuEventTimeFractionAnalyzerEvents;
+      options["cpu_event_name"] = kHostCpuEventTimeFractionAnalyzerEvents;
       TF_RETURN_IF_ERROR(GetToolDataHelper(
           "event_time_fraction_analyzer",
           event_time_fraction_analyzer_results_cache_.get(), options));
@@ -153,7 +154,7 @@ class ToolDataProviderImpl : public ToolDataProvider {
                             session_snapshot_, tool_name, tool_options));
     if (tool_name == "event_time_fraction_analyzer") {
       if (!proto->ParseFromString(proto_json_string)) {
-        return tsl::errors::Internal(
+        return absl::InternalError(
             "Failed to parse event_time_fraction_analyzer result.");
       }
       return absl::OkStatus();

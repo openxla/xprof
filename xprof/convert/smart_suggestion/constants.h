@@ -72,6 +72,14 @@ inline constexpr double kSpecialOpBoundThresholdInPercent = 10;
 // than this threshold, it is considered a bottleneck.
 inline constexpr double kDebugPrintBoundThresholdInPercent = 5;
 
+// If the percentage of step time that is due to the infeed op is higher
+// than this threshold, it is considered a bottleneck.
+inline constexpr double kInfeedOpBoundThresholdInPercent = 10.0;
+
+// If the percentage of trace time that is due to enqueue_device is higher
+// than this threshold, it is considered a bottleneck.
+inline constexpr double kEnqueueDeviceBoundThresholdInPercent = 30.0;
+
 // If the percentage of async-done time is higher than this threshold, it is
 // considered a bottleneck.
 inline constexpr double kAsyncDoneThresholdInPercent = 10;
@@ -84,9 +92,12 @@ inline constexpr double kMemoryUtilizationHighThreshold = 50;
 inline constexpr double kZeroEpsilon = 1e-6;
 
 // The events to be parsed by EventTimeFractionAnalyzer for smart suggestion.
-// Currently it includes barrier-cores and debug_print.
-inline constexpr char kEventTimeFractionAnalyzerEvents[] =
-    "barrier-cores,debug_print";
+// Currently it includes barrier-cores, debug_print, infeed, and EnqueueDevice.
+inline constexpr char kDeviceTpuEventTimeFractionAnalyzerEvents[] =
+    "barrier-cores,debug_print,infeed";
+
+inline constexpr char kHostCpuEventTimeFractionAnalyzerEvents[] =
+    "EnqueueDevice";
 
 }  // namespace profiler
 }  // namespace tensorflow

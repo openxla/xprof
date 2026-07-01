@@ -48,12 +48,17 @@ using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
 
 std::vector<std::string> GetTargetEventNames(const ToolOptions& options) {
+  std::vector<std::string> result;
   for (const auto& [key, value] : options) {
-    if (key == "event_name" && std::holds_alternative<std::string>(value)) {
-      return absl::StrSplit(std::get<std::string>(value), ',');
+    if ((key == "event_name" || key == "tpu_event_name" ||
+         key == "cpu_event_name") &&
+        std::holds_alternative<std::string>(value)) {
+      std::vector<std::string> split =
+          absl::StrSplit(std::get<std::string>(value), ',', absl::SkipEmpty());
+      result.insert(result.end(), split.begin(), split.end());
     }
   }
-  return {};
+  return result;
 }
 
 std::unique_ptr<ProfileProcessor> CreateEventTimeFractionAnalyzerProcessor(
@@ -104,10 +109,18 @@ absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(
   PreprocessSingleHostXSpace(&xspace_copy, /*step_grouping=*/true,
                              /*derived_timeline=*/true);
   std::vector<std::string> target_event_names = GetTargetEventNames(options_);
-  TF_ASSIGN_OR_RETURN(EventTimeFractionAnalyzerResults results,
+  TF_ASSIGN_OR_RETURN(EventTimeFractionAnalyzerResults tpu_results,
                       ConvertXSpaceToEventTimeFractionAnalyzerResults(
                           xspace_copy, target_event_names));
-  return results.SerializeAsString();
+  TF_ASSIGN_OR_RETURN(EventTimeFractionAnalyzerResults host_results,
+                      ConvertXSpaceToHostEventTimeFractionAnalyzerResults(
+                          xspace_copy, target_event_names));
+
+  EventTimeFractionAnalyzerResults combined_results;
+  AccumulateEventTimeFractionAnalyzerResults(tpu_results, combined_results);
+  AccumulateEventTimeFractionAnalyzerResults(host_results, combined_results);
+
+  return combined_results.SerializeAsString();
 }
 
 absl::StatusOr<std::string> EventTimeFractionAnalyzerProcessor::Map(

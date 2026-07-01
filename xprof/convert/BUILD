@@ -785,6 +785,25 @@ cc_test(
 )
 
 cc_test(
+    name = "unified_memory_viewer_processor_test",
+    srcs = ["unified_memory_viewer_processor_test.cc"],
+    deps = [
+        ":base_hlo_processor",
+        ":tool_options",
+        ":unified_memory_viewer_processor_registration",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@xla//xla/service:hlo_proto_cc",
+    ],
+)
+
+cc_test(
     name = "unified_overview_page_processor_test",
     srcs = ["unified_overview_page_processor_test.cc"],
     deps = [
@@ -1802,6 +1821,7 @@ cc_library(
         ":repository",
         ":tool_options",
         ":unified_hlo_stats_processor",
+        ":unified_memory_viewer_processor",
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
         ":unified_profile_processor",
@@ -2945,11 +2965,11 @@ cc_library(
         ":unified_session_snapshot",
         ":xplane_to_hlo",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -2967,6 +2987,34 @@ cc_test(
         "@com_google_protobuf//:protobuf",
         "@xla//xla/service:hlo_proto_cc",
     ],
+)
+
+cc_library(
+    name = "unified_memory_viewer_processor",
+    srcs = ["unified_memory_viewer_processor.cc"],
+    hdrs = ["unified_memory_viewer_processor.h"],
+    deps = [
+        ":base_hlo_processor",
+        ":hlo_proto_to_memory_visualization_utils",
+        ":hlo_to_tools_data",
+        ":tool_options",
+        ":unified_session_snapshot",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
+    name = "unified_memory_viewer_processor_registration",
+    srcs = ["unified_memory_viewer_processor_registration.cc"],
+    deps = [
+        ":unified_memory_viewer_processor",
+        ":unified_profile_processor_factory",
+    ],
+    alwayslink = 1,
 )
 
 cc_library(

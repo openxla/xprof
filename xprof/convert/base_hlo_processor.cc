@@ -19,9 +19,8 @@ limitations under the License.
 #include <vector>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/status/status_macros.h"
+#include "xla/tsl/platform/statusor.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
@@ -53,7 +52,7 @@ absl::Status BaseHloProcessor::ProcessSession(
         "session_snapshot is not a tensorflow::profiler::SessionSnapshot");
   }
 
-  ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
+  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
                       tensorflow::profiler::GetHloProtoByOptions(
                           *profiler_session_snapshot, options));
 

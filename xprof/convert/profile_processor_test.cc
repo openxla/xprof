@@ -22,10 +22,9 @@ limitations under the License.
 
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
-#include "file/base/path.h"
-#include "testing/base/public/benchmark.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -69,9 +68,9 @@ TEST_P(ProfileProcessorTest, MapTest) {
   std::string output;
   // Create a SessionSnapshot with a minimal XSpace for the test.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), test_param.test_name + "_map_test");
+      tsl::io::JoinPath(testing::TempDir(), test_param.test_name + "_map_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
-  std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
   XSpace dummy_space;
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
 
@@ -117,14 +116,14 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
 
   // Create temporary files for map outputs.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), test_param.test_name + "_reduce_test");
+      tsl::io::JoinPath(testing::TempDir(), test_param.test_name + "_reduce_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
-  std::string map_output_path1 = file::JoinPath(session_dir, "map1.pb");
+  std::string map_output_path1 = tsl::io::JoinPath(session_dir, "map1.pb");
   ASSERT_OK(
       tsl::WriteStringToFile(tsl::Env::Default(), map_output_path1, output1));
 
-  std::string map_output_path2 = file::JoinPath(session_dir, "map2.pb");
+  std::string map_output_path2 = tsl::io::JoinPath(session_dir, "map2.pb");
   ASSERT_OK(
       tsl::WriteStringToFile(tsl::Env::Default(), map_output_path2, output2));
 
@@ -153,10 +152,10 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   const ProfileProcessorTestParam& test_param = GetParam();
   // Create unique session dir for this test.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), test_param.test_name + "_e2e_test");
+      tsl::io::JoinPath(testing::TempDir(), test_param.test_name + "_e2e_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
-  std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir, "test.xplane.pb");
   XSpace space;
   space.add_planes()->set_name("test_plane");
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
@@ -204,9 +203,9 @@ void BM_ProcessorE2ETest(benchmark::State& state) {
   // Setup: Create session directory and XSpace. This is done once per benchmark
   // run.
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), tool_name + "_e2e_benchmark");
+      tsl::io::JoinPath(testing::TempDir(), tool_name + "_e2e_benchmark");
   CHECK_OK(file::CreateDir(session_dir, file::Defaults()));
-  std::string xspace_path = file::JoinPath(session_dir, "test.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir, "test.xplane.pb");
   XSpace space;
   space.add_planes()->set_name("test_plane");
   CHECK_OK(xprof::WriteBinaryProto(xspace_path, space));

@@ -14,6 +14,17 @@ build:clang_local --repo_env USE_HERMETIC_CC_TOOLCHAIN=0
 
 build:macos --apple_platform_type=macos
 build:macos --copt=-DGRPC_BAZEL_BUILD
+build:macos --macos_minimum_os=13.0
+build:macos --macos_sdk_version=15.5
+
+# macOS / Apple Silicon local build tuning (inspired by DCodeX .bazelrc).
+# Keep conservative job/cpu defaults for laptops; override via --jobs or
+# scripts/xprof_fast_build.sh which auto-sizes from host hardware.
+build:macos --copt=-faligned-allocation
+build:macos --features=-layering_check
+build:macos --jobs=10
+build:macos --local_resources=cpu=8
+build:macos --local_resources=memory=16384
 
 # Bazel 7.0.0 no longer supports dynamic symbol lookup on macOS. To resolve
 # undefined symbol errors in macOS arm64 builds, explicitly add the necessary
@@ -155,3 +166,56 @@ build:wasm --host_cxxopt=-std=c++17
 build:public_cache --remote_cache="https://storage.googleapis.com/xprof-bazel-cache/" --remote_upload_local_results=false
 # Cache pushes are limited to XProf's CI system.
 build:public_cache_push --config=public_cache --remote_upload_local_results=true --google_default_credentials
+
+# #############################################################################
+# Fast local developer builds (opt-in via --config=fast).
+# Inspired by https://github.com/Sam-Si/DCodeX/blob/main/.bazelrc
+# Use:  bazel build --config=fast --config=macos //xprof/pywrap:_pywrap_profiler_plugin
+# Or:   ./scripts/xprof_fast_build.sh
+# Does NOT change default/CI builds unless explicitly selected.
+# #############################################################################
+
+# Local disk + repository caches (kept under .bazel/ — gitignored).
+# JVM/server tuning is applied by scripts/xprof_fast_build.sh via BAZEL_STARTUP_OPTS
+# (startup flags cannot be config-scoped in all Bazel versions).
+build:fast --disk_cache=.bazel/disk_cache
+build:fast --repository_cache=.bazel/repo_cache
+common:fast --announce_rc
+common:fast --color=yes
+
+# Maximum compile/link throughput for local iteration.
+build:fast --compilation_mode=opt
+build:fast --copt=-O3
+build:fast --copt=-DNDEBUG
+build:fast --strip=always
+build:fast --keep_going
+
+# Prefer local execution over sandbox where possible (big win on macOS).
+build:fast --spawn_strategy=local,worker,sandboxed
+build:fast --strategy=CppCompile=local,worker,sandboxed
+build:fast --strategy=CppLink=local,worker,sandboxed
+build:fast --strategy=Genrule=local,sandboxed
+build:fast --worker_max_instances=8
+
+# Aggressive parallelism defaults (overridden by xprof_fast_build.sh from host).
+build:fast --jobs=12
+build:fast --local_resources=cpu=10
+build:fast --local_resources=memory=32768
+
+# Lean output for faster links on large C++ graphs (macOS linker flag is harmless
+# no-op on Linux if not selected via --config=macos; only applied with fast).
+build:fast --features=-thin_lto
+
+# Optional: also pull from public remote cache (read-only) on top of local fast.
+build:fast_public_cache --config=fast
+build:fast_public_cache --config=public_cache
+
+# Benchmark/debug config: same as fast but keeps symbols (slower links).
+build:fast_dbg --config=fast
+build:fast_dbg --compilation_mode=dbg
+build:fast_dbg --copt=-O1
+build:fast_dbg --copt=-g3
+build:fast_dbg --strip=never
+
+# macOS-only fast link strip (applied when --config=macos is also active via script).
+build:macos_fast_link --linkopt=-Wl,-dead_strip

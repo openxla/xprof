@@ -10,10 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include "file/base/path.h"
-#include "file/util/temp_path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -34,6 +32,7 @@
 #include "xla/tsl/platform/status.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/tsl/platform/test.h"
+#include "tsl/platform/path.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/file_utils.h"
@@ -147,9 +146,11 @@ class StreamingTraceViewerProcessorTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // Create a temporary directory for test files.
-    temp_path_ = std::make_unique<TempPath>(TempPath::Local);
-    session_dir_ = file::JoinPath(temp_path_->path(), "session");
-    TF_CHECK_OK(tsl::Env::Default()->CreateDir(session_dir_));
+    session_dir_ = tsl::io::JoinPath(
+        testing::TempDir(),
+        absl::StrCat("session_",
+                     testing::UnitTest::GetInstance()->current_test_info()->name()));
+    TF_CHECK_OK(tsl::Env::Default()->RecursivelyCreateDir(session_dir_));
   }
 
   // Helper to create a SessionSnapshot by writing XSpaces to temp files
@@ -160,7 +161,7 @@ class StreamingTraceViewerProcessorTest : public ::testing::Test {
       const std::string& host_name = pair.first;
       const XSpace& xspace = pair.second;
       std::string xspace_path =
-          file::JoinPath(session_dir_, host_name + ".xspace");
+          tsl::io::JoinPath(session_dir_, host_name + ".xspace");
       TF_RETURN_IF_ERROR(
           xprof::WriteBinaryProto(xspace_path, xspace));
       xspace_paths.push_back(xspace_path);
@@ -171,7 +172,6 @@ class StreamingTraceViewerProcessorTest : public ::testing::Test {
   }
 
   std::string session_dir_;
-  std::unique_ptr<TempPath> temp_path_;
 };
 
 namespace {
@@ -309,7 +309,7 @@ TEST_F(StreamingTraceViewerProcessorTest, MapWithPath) {
   XSpace space = CreateTestXSpace(2);
   std::string host_name = "host1";
   std::string xspace_path =
-      file::JoinPath(session_dir_, host_name + ".xplane.pb");
+      tsl::io::JoinPath(session_dir_, host_name + ".xplane.pb");
   TF_ASSERT_OK(tsl::WriteBinaryProto(tsl::Env::Default(), xspace_path, space));
 
   ToolOptions empty_options;

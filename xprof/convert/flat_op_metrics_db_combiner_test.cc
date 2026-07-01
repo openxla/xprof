@@ -18,8 +18,8 @@ limitations under the License.
 #include <cstdint>
 #include <string>
 
-#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "<gtest/gtest.h>"
+#include <google/protobuf/text_format.h>
+#include "gtest/gtest.h"
 #include "absl/strings/str_cat.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 
@@ -27,7 +27,14 @@ namespace tensorflow {
 namespace profiler {
 namespace {
 
-using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
+// OSS-compatible replacement for google::protobuf::contrib::parse_proto
+template <typename T>
+T ParseTextProtoOrDie(const std::string& text) {
+  T proto;
+  EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(text, &proto))
+      << "Failed to parse text proto: " << text;
+  return proto;
+}
 
 class FlatOpMetricsDbCombinerTest : public ::testing::Test {
  protected:

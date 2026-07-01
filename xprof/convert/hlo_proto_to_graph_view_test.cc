@@ -18,13 +18,14 @@ limitations under the License.
 #include <string>
 #include <variant>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/service/hlo_graph_dumper.h"
 #include "xla/tsl/platform/errors.h"
 #include "xla/tsl/platform/status_matchers.h"
 #include "xla/tsl/platform/statusor.h"
+#include "absl/status/status_matchers.h"
 #include "xla/tsl/protobuf/error_codes.pb.h"
 #include "xprof/convert/tool_options.h"
 
@@ -34,8 +35,8 @@ namespace {
 
 using ::testing::HasSubstr;
 using ::testing::StartsWith;
-using ::testing::status::IsOkAndHolds;
-using ::testing::status::StatusIs;
+using ::absl_testing::IsOkAndHolds;
+using ::absl_testing::StatusIs;
 
 TEST(GraphViewerParamsTest, GraphType) {
   // Default for graph type.

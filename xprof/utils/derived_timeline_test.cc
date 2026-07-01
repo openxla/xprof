@@ -24,8 +24,8 @@ limitations under the License.
 #include <string>
 #include <utility>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"

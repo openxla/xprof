@@ -1,7 +1,7 @@
 #include "xprof/utils/hlo_proto_to_module.h"
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "google/protobuf/text_format.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 

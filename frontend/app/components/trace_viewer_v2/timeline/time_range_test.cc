@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 
 namespace traceviewer {

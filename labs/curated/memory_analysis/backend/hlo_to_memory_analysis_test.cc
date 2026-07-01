@@ -18,8 +18,8 @@ limitations under the License.
 #include <cstdint>
 #include <string>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"

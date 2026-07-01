@@ -1,6 +1,6 @@
 #include "xprof/utils/roofline_model_utils.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 
 namespace tensorflow {
 namespace profiler {

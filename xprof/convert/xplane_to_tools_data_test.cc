@@ -6,9 +6,8 @@
 
 #include "file/base/filesystem.h"
 #include "file/base/options.h"
-#include "file/base/path.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -64,10 +63,10 @@ XSpace CreateTestXSpace() {
 TEST(XplaneToToolsDataTest, TraceViewerSearchMetadataOption) {
   // Arrange
   std::string session_dir =
-      file::JoinPath(testing::TempDir(), "xplane_to_tools_data_test");
+      tsl::io::JoinPath(testing::TempDir(), "xplane_to_tools_data_test");
   ASSERT_OK(file::CreateDir(session_dir, file::Defaults()));
 
-  std::string xspace_path = file::JoinPath(session_dir, "test_host.xplane.pb");
+  std::string xspace_path = tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
   XSpace space = CreateTestXSpace();
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
 

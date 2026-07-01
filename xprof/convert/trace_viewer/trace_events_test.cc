@@ -19,9 +19,9 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include <google/protobuf/text_format.h>
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/flags/flag.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -31,14 +31,21 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
 #include "plugin/xprof/protobuf/trace_events_raw.pb.h"
+#include "xprof/utils/proto_matchers.h"
 
 namespace tensorflow::profiler {
 namespace {
 
-using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
+// OSS-compatible replacement for google::protobuf::contrib::parse_proto
+template <typename T>
+T ParseTextProtoOrDie(const std::string& text) {
+  T proto;
+  EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(text, &proto))
+      << "Failed to parse text proto: " << text;
+  return proto;
+}
 using ::testing::Eq;
-using ::testing::EqualsProto;
-using ::testing::proto::WhenDeserializedAs;
+using ::xprof::testing::EqualsProto;
 using ::tsl::profiler::Timespan;
 
 TEST(SerializationTest, SerializeFullEventSkipsTimestampAndKeepsRawData) {

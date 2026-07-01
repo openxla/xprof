@@ -20,7 +20,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/xplane_test_utils.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/memory_profile.pb.h"
 

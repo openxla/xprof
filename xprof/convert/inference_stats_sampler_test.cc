@@ -16,7 +16,7 @@ limitations under the License.
 
 #include "absl/status/statusor.h"
 #include "xla/tests/test_utils.h"
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "plugin/xprof/protobuf/inference_stats.pb.h"
 
 namespace tensorflow::profiler {

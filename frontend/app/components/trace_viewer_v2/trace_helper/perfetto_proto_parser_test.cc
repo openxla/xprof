@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_lite.pb.h"
 

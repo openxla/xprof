@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/cord.h"
 #include "protos/perfetto/trace/trace.pb.h"

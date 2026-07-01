@@ -1,6 +1,6 @@
 #include "xprof/convert/source_info_utils.h"
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {

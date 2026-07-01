@@ -8,9 +8,7 @@ package(
 
 package_group(
     name = "friends",
-    includes = [
-        "//third_party/tensorflow/core/profiler:friends",
-    ],
+    includes = [],
 )
 
 cc_library(
@@ -138,8 +136,9 @@ cc_test(
     srcs = ["op_metrics_db_utils_test.cc"],
     deps = [
         ":op_metrics_db_utils",
-        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_protobuf//:protobuf",
         "@com_google_googletest//:gtest",
+        ":proto_matchers",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -321,7 +320,6 @@ cc_test(
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:kernel_stats_proto_cc",
-        "@xla//xla/backends/profiler/gpu:cupti_buffer_events",
     ],
 )
 
@@ -365,7 +363,8 @@ cc_test(
     deps = [
         ":step_intersection",
         "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_googletest//:gtest_main",
+        "@com_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -420,6 +419,7 @@ cc_test(
     srcs = ["hlo_proto_map_test.cc"],
     deps = [
         ":hlo_proto_map",
+        "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
     ],
@@ -609,6 +609,7 @@ cc_test(
         ":performance_info_wrapper",
         ":xprof_gpu_cost_analysis",
         "@com_google_absl//absl/strings:string_view",
+        ":proto_matchers",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/hlo/ir:hlo",
@@ -779,5 +780,15 @@ cc_test(
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
+    ],
+)
+
+cc_library(
+    name = "proto_matchers",
+    testonly = True,
+    hdrs = ["proto_matchers.h"],
+    deps = [
+        "@com_google_googletest//:gtest",
+        "@tsl//tsl/platform:protobuf",
     ],
 )

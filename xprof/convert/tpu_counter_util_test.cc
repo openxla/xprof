@@ -4,8 +4,8 @@
 #include <sstream>
 #include <string>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 
 namespace xprof {

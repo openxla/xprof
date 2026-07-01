@@ -17,8 +17,8 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status_matchers.h"
 #include "xla/tsl/platform/env.h"
 #include "tsl/platform/path.h"

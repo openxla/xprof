@@ -3,7 +3,7 @@
 #include <emscripten/em_js.h>
 #include <emscripten/html5.h>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "imgui.h"
 
 namespace traceviewer {

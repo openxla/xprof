@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <limits>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 
 namespace tensorflow {

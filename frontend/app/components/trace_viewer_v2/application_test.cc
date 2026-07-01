@@ -4,7 +4,7 @@
 #include <emscripten/em_asm.h>
 #include <emscripten/emscripten.h>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "imgui.h"
 
 namespace traceviewer {

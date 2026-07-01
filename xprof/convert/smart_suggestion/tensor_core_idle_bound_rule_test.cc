@@ -21,8 +21,8 @@ limitations under the License.
 #include <vector>
 #include <string>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/statusor.h"
 #include "xprof/convert/smart_suggestion/mock_tool_data_provider.h"
 #include "xprof/convert/smart_suggestion/signal_provider.h"

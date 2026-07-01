@@ -18,7 +18,7 @@ limitations under the License.
 #include <cstdio>
 #include <string>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"

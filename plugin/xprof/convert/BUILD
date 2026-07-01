@@ -37,8 +37,7 @@ py_test(
     deps = [
         ":trace_events_json",
         "//:expect_tensorflow_installed",
-        "//third_party/py/google/protobuf",
-        "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
+        "@com_google_protobuf//:protobuf_python",
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
     ],

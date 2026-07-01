@@ -117,6 +117,9 @@ inline constexpr int kThreadNestingLevel = 1;
 inline constexpr ImU32 kSelectedTimeRangeColor = 0xFFFFC9A1;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
+// The threshold in pixels within which the mouse is considered to be over an
+// edge of a selected time range for resizing.
+inline constexpr Pixel kSelectionEdgeThreshold = 5.0f;
 // go/keep-sorted end
 
 // Bookmark Constants

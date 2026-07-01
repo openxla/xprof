@@ -2267,10 +2267,29 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     if (time_range_x_start >= timeline_x_start) {
       draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
                          ImVec2(time_range_x_start, rect_y_max), color);
+      // Check for hovering on the start edge.
+      if (!is_dragging_ &&
+          std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
+              kSelectionEdgeThreshold &&
+          ImGui::IsMouseHoveringRect(
+              ImVec2(time_range_x_start - kSelectionEdgeThreshold, rect_y_min),
+              ImVec2(time_range_x_start + kSelectionEdgeThreshold,
+                     rect_y_max))) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     }
     if (time_range_x_end <= timeline_x_start + timeline_width) {
       draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
                          ImVec2(time_range_x_end, rect_y_max), color);
+      // Check for hovering on the end edge.
+      if (!is_dragging_ &&
+          std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
+              kSelectionEdgeThreshold &&
+          ImGui::IsMouseHoveringRect(
+              ImVec2(time_range_x_end - kSelectionEdgeThreshold, rect_y_min),
+              ImVec2(time_range_x_end + kSelectionEdgeThreshold, rect_y_max))) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     }
 
     const std::string text = FormatTime(range.duration());
@@ -2557,10 +2576,17 @@ bool Timeline::HandleKeyboard() {
     is_interacting = true;
   }
 
-  // Cancel selection
+  // Cancel selection or resize
   if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-    if (is_selecting_) {
-      is_selecting_ = false;
+    if (is_selecting_ || time_range_resizing_state_.has_value()) {
+      if (is_selecting_) {
+        is_selecting_ = false;
+      }
+      if (time_range_resizing_state_.has_value()) {
+        time_range_resizing_state_.reset();
+      }
+
+      // Common cancel actions
       is_dragging_ = false;
       current_selected_time_range_.reset();
     }
@@ -2716,7 +2742,9 @@ bool Timeline::HandleMouse() {
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
-  if (is_mouse_over_timeline) {
+  if (time_range_resizing_state_.has_value()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  } else if (is_mouse_over_timeline) {
     switch (mouse_mode_) {
       case MouseMode::kSelect:
         ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
@@ -2763,6 +2791,27 @@ void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
     is_dragging_ = true;
     ImGuiIO& io = ImGui::GetIO();
     selection_start_pos_ = io.MousePos;
+
+    // Check if we are starting a resize operation on an existing range.
+    const double px_per_time = px_per_time_unit();
+    if (px_per_time > 0) {
+      for (size_t i = 0; i < selected_time_ranges_.size(); ++i) {
+        const auto& range = selected_time_ranges_[i];
+        const Pixel x_start =
+            TimeToScreenX(range.start(), timeline_origin_x, px_per_time);
+        const Pixel x_end =
+            TimeToScreenX(range.end(), timeline_origin_x, px_per_time);
+
+        if (std::abs(io.MousePos.x - x_start) <= kSelectionEdgeThreshold) {
+          time_range_resizing_state_ = {i, /*is_start_edge=*/true};
+          return;
+        } else if (std::abs(io.MousePos.x - x_end) <= kSelectionEdgeThreshold) {
+          time_range_resizing_state_ = {i, /*is_start_edge=*/false};
+          return;
+        }
+      }
+    }
+
     if (mouse_mode_ == MouseMode::kSelect && !is_selecting_) {
       is_selecting_ = true;
       selection_end_pos_ = io.MousePos;
@@ -2786,7 +2835,28 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
   // ImGuiMouseButton enum. We check if the left mouse button was clicked.
   if (ImGui::IsMouseDown(0)) {
     ImGuiIO& io = ImGui::GetIO();
-    if (is_selecting_) {
+    if (time_range_resizing_state_.has_value() &&
+        time_range_resizing_state_->range_index <
+            selected_time_ranges_.size()) {
+      const double px_per_time = px_per_time_unit();
+      Microseconds current_time =
+          PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
+
+      auto& range =
+          selected_time_ranges_[time_range_resizing_state_->range_index];
+      Microseconds start = range.start();
+      Microseconds end = range.end();
+
+      if (time_range_resizing_state_->is_start_edge) {
+        start = current_time;
+      } else {
+        end = current_time;
+      }
+
+      TimeRange new_range(std::min(start, end), std::max(start, end));
+      ApplySnapping(new_range);
+      range = new_range;
+    } else if (is_selecting_) {
       if (mouse_mode_ == MouseMode::kSelect) {
         selection_end_pos_ = io.MousePos;
       } else {
@@ -2846,6 +2916,7 @@ void Timeline::HandleMouseRelease() {
   if (ImGui::IsMouseReleased(0)) {
     is_dragging_ = false;
     is_selecting_ = false;
+    time_range_resizing_state_.reset();
 
     bool is_click = false;
     if (selection_start_pos_) {

@@ -194,6 +194,9 @@ class Timeline {
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
 
+  void AddSelectedTimeRange(const TimeRange& range) {
+    selected_time_ranges_.push_back(range);
+  }
   const std::vector<TimeRange>& selected_time_ranges() const {
     return selected_time_ranges_;
   }
@@ -610,6 +613,12 @@ class Timeline {
   // If false, the drag operation is a pan/scroll.
   // This flag is latched at the start of the drag.
   bool is_selecting_ = false;
+  // Whether the user is currently resizing an existing time range.
+  struct TimeRangeResizingState {
+    size_t range_index;
+    bool is_start_edge;
+  };
+  std::optional<TimeRangeResizingState> time_range_resizing_state_;
 
   MouseMode mouse_mode_ = MouseMode::kPan;
 

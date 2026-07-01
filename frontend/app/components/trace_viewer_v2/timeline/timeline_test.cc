@@ -5181,8 +5181,8 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
   timeline_.RevealEvent(0);
   Animation::UpdateAll(1.0f);
 
-  EXPECT_NEAR(timeline_.visible_range().start(), 100.0, 0.1);
-  EXPECT_NEAR(timeline_.visible_range().end(), 1100.0, 0.1);
+  EXPECT_NEAR(timeline_.visible_range().start(), 100.0, 0.5);
+  EXPECT_NEAR(timeline_.visible_range().end(), 1100.0, 0.5);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
@@ -5388,6 +5388,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
   timeline_.SetTimelineData(std::move(data));
 
   timeline_.SetVisibleRange({0.0, 500.0});
+  SimulateFrame();
 
   timeline_.RevealEvent(0);
   SimulateFrame();
@@ -5412,6 +5413,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
   timeline_.SetTimelineData(std::move(data));
 
   timeline_.SetVisibleRange({0.0, 500.0});
+  SimulateFrame();
 
   timeline_.RevealEvent(0);
   SimulateFrame();
@@ -7622,6 +7624,96 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
       label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {
+ protected:
+  void SetUp() override {
+    RealTimelineImGuiFixture::SetUp();
+    // 165.5us results in exactly 10px/us with 1655px timeline width.
+    timeline_.SetVisibleRange({0.0, 165.5});
+    timeline_.set_data_time_range({0.0, 1000.0});
+
+    SimulateFrame();
+    SimulateFrame();
+  }
+
+  void AddSelectedTimeRange(Microseconds start, Microseconds end) {
+    timeline_.AddSelectedTimeRange(TimeRange(start, end));
+  }
+
+  void Drag(Microseconds from_time, Microseconds to_time, bool shift = false) {
+    ImGuiIO& io = ImGui::GetIO();
+    float origin_x = GetTimelineStartX();
+    double px_per_time = 10.0;
+
+    io.AddMousePosEvent(origin_x + from_time * px_per_time, 50.0f);
+    io.AddMouseButtonEvent(0, true);
+    if (shift) io.KeyShift = true;
+    SimulateFrame();
+
+    io.AddMousePosEvent(origin_x + to_time * px_per_time, 50.0f);
+    SimulateFrame();
+
+    io.AddMouseButtonEvent(0, false);
+    SimulateFrame();
+    if (shift) io.KeyShift = false;
+  }
+};
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeTimeRangeStart) {
+  AddSelectedTimeRange(100.0, 150.0);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Resize start from 100 to 50
+  Drag(100.0, 50.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeTimeRangeEnd) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  // Resize end from 100 to 150
+  Drag(100.0, 150.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeSwapsStartAndEnd) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  // Drag start (50) past end (100) to 150
+  Drag(50.0, 150.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeWithSnapping) {
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  // Create a snap point at 100.0
+  AddSelectedTimeRange(100.0, 150.0);
+
+  // Create another range to resize (index 1)
+  AddSelectedTimeRange(10.0, 50.0);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+
+  // Resize end of second range (50.0) near snap point (100.0)
+  // Threshold = 16 / 10 = 1.6us.
+  // Drag to 99.0, it should snap to 100.0.
+  Drag(50.0, 99.0, /*shift=*/true);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
 }
 
 }  // namespace

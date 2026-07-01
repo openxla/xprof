@@ -232,6 +232,9 @@ class Timeline {
   void SetTimelineData(FlameChartTimelineData data);
   const FlameChartTimelineData& timeline_data() const { return timeline_data_; }
 
+  // Expands or collapses all processes (and their descendant threads).
+  void SetAllProcessesExpanded(bool expand);
+
   int selected_event_index() const { return selected_event_index_; }
   int selected_group_index() const { return selected_group_index_; }
   int selected_counter_index() const { return selected_counter_index_; }

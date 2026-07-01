@@ -763,7 +763,7 @@ export class GraphViewer implements OnDestroy {
     this.graphvizUri = this.dataService.getGraphVizUri(
       this.sessionId,
       searchParams,
-    );
+    ) || 'about:blank';
     if (iframe?.contentWindow?.location) {
       locationReplace(iframe.contentWindow?.location, this.graphvizUri!);
     }

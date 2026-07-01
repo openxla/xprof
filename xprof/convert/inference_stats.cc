@@ -659,12 +659,16 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
       HostEventType::kScheduleWithEagerSplit,
       HostEventType::kASBSQueueSchedule};
 
-  // Events marked with "_r:-1" are user defined root events.
+  // Events marked with "_r:-1" are user defined root events. We also treat
+  // "ModelServerRequest_" events with "_r:1" as user defined root events.
   std::vector<const XEventVisitor*> user_defined_root_events;
   for (const auto& [_, events] : host_events_by_type) {
     for (const auto& event : events) {
       std::optional<XStatVisitor> stat = event.GetStat(StatType::kIsRoot);
-      if (stat.has_value() && stat->IntValue() == -1) {
+      if (stat.has_value() &&
+          (stat->IntValue() == -1 ||
+           (stat->IntValue() == 1 &&
+            absl::StartsWith(event.Name(), "ModelServerRequest_")))) {
         user_defined_root_events.push_back(&event);
       }
     }
@@ -707,24 +711,41 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
   } else {
     request_types = absl::Span<const int64_t>(kNonBatchingRequestTypes);
   }
+  absl::flat_hash_set<int64_t> initialized_group_ids;
   for (const int64_t request_type : request_types) {
     if (const auto* request_events =
             FindOrNull(host_events_by_type, request_type)) {
       for (const XEventVisitor& request_event : *request_events) {
+        std::optional<XStatVisitor> optional_group_id =
+            request_event.GetStat(StatType::kGroupId);
+        if (!optional_group_id.has_value()) continue;
+        int64_t group_id = optional_group_id->IntValue();
+        if (process_batch_group_ids.contains(group_id)) continue;
+        if (initialized_group_ids.contains(group_id)) continue;
+
         InitializeRequestEvents(request_event, group_metadata_map,
                                 process_batch_group_ids, model_id_map,
                                 is_batching_request,
                                 /* is_user_defined_request=*/false, model_id_db,
                                 request_events_map);
+        initialized_group_ids.insert(group_id);
       }
     }
   }
 
   for (const XEventVisitor* event : user_defined_root_events) {
+    std::optional<XStatVisitor> optional_group_id =
+        event->GetStat(StatType::kGroupId);
+    if (!optional_group_id.has_value()) continue;
+    int64_t group_id = optional_group_id->IntValue();
+    if (process_batch_group_ids.contains(group_id)) continue;
+    if (initialized_group_ids.contains(group_id)) continue;
+
     InitializeRequestEvents(
         *event, group_metadata_map, process_batch_group_ids, model_id_map,
         /*is_batching_request=*/false,
         /* is_user_defined_request=*/true, model_id_db, request_events_map);
+    initialized_group_ids.insert(group_id);
   }
 
   // Set the begin and end timestamp of the request.

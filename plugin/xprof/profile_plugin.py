@@ -1853,7 +1853,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       self,
       *,
       asset_paths: Sequence[str],
-      tool_list: Iterable[str],
+      tool_list: Sequence[str],
       params: Mapping[str, Any],
       session_path: str,
   ) -> None:

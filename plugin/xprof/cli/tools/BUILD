@@ -21,6 +21,28 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "get_llo_analysis_tool",
+    srcs = ["get_llo_analysis_tool.py"],
+    visibility = ["//plugin:__subpackages__"],
+    deps = [
+        "@org_xprof//plugin/xprof/cli/internal:decorators",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+    ],
+)
+
+pytype_strict_library(
+    name = "get_llo_debug_string_tool",
+    srcs = ["get_llo_debug_string_tool.py"],
+    visibility = ["//plugin:__subpackages__"],
+    deps = [
+        "@org_xprof//plugin/xprof/cli/internal:decorators",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+    ],
+)
+
+pytype_strict_library(
     name = "get_peak_allocations_tool",
     srcs = ["get_peak_allocations_tool.py"],
     visibility = ["//plugin:__subpackages__"],

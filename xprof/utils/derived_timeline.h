@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "xla/tsl/profiler/utils/group_events.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -159,12 +160,12 @@ using SymbolResolver = std::function<Symbol(std::optional<uint64_t> program_id,
 
 // Derives TF name scope and op events from the TF op's fully qualified name
 // with the name of the originating low-level event.
-void ProcessTfOpEvent(absl::string_view tf_op_full_name,
-                      tsl::profiler::Timespan event_span,
-                      std::optional<int64_t> group_id,
-                      XPlaneBuilder& plane_builder,
-                      DerivedXLineBuilder& tf_name_scope_line_builder,
-                      DerivedXLineBuilder& tf_op_line_builder);
+void ProcessTfOpEvent(
+    absl::string_view tf_op_full_name, tsl::profiler::Timespan event_span,
+    std::optional<int64_t> group_id, XPlaneBuilder& plane_builder,
+    DerivedXLineBuilder& tf_name_scope_line_builder,
+    DerivedXLineBuilder& tf_op_line_builder,
+    absl::flat_hash_map<std::string, tsl::profiler::TfOp>* cache = nullptr);
 
 // Derives "Steps" line from group_id XStat in XEvents.
 void DeriveStepEventsFromGroups(

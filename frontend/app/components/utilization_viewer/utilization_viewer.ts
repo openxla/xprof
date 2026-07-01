@@ -1,4 +1,9 @@
-import {Component, inject, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
@@ -7,6 +12,7 @@ import {
   ChartType,
 } from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {
   BAR_CHART_OPTIONS,
@@ -19,6 +25,7 @@ import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
@@ -31,12 +38,28 @@ const UNIT_CHART_OPTIONS: google.visualization.BarChartOptions = {
   hAxis: {format: 'percent', minValue: 0.0, maxValue: 1.0},
 };
 
+const UNIT_CHART_OPTIONS_BASELINE: google.visualization.BarChartOptions = {
+  ...UNIT_CHART_OPTIONS,
+  height: 1050,
+  chartArea: {...UNIT_CHART_OPTIONS.chartArea, height: 975},
+  colors: ['#1a73e8', '#adc6fa'],
+  legend: {position: 'top'},
+};
+
 const BANDWIDTH_CHART_OPTIONS: google.visualization.BarChartOptions = {
   ...BAR_CHART_OPTIONS,
   width: 800,
   height: 400,
   chartArea: {left: '25%', width: '65%', height: 300},
   hAxis: {format: 'percent', minValue: 0.0, maxValue: 1.0},
+};
+
+const BANDWIDTH_CHART_OPTIONS_BASELINE: google.visualization.BarChartOptions = {
+  ...BANDWIDTH_CHART_OPTIONS,
+  height: 600,
+  chartArea: {...BANDWIDTH_CHART_OPTIONS.chartArea, height: 450},
+  colors: ['#1a73e8', '#adc6fa'],
+  legend: {position: 'top'},
 };
 
 const HBM_CHART_OPTIONS: google.visualization.PieChartOptions = {
@@ -67,10 +90,12 @@ declare interface NodeFilterDataProcessorMap {
  * node in a TPU chip.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'utilization-viewer',
   templateUrl: './utilization_viewer.ng.html',
   styleUrls: ['./utilization_viewer.scss'],
+  providers: [BaseDiffService],
 })
 export class UtilizationViewer extends Dashboard implements OnDestroy {
   readonly tool = 'utilization_viewer';
@@ -82,6 +107,7 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
   sessionId = '';
   host = '';
   dataService: DataServiceV2Interface = inject(DATA_SERVICE_INTERFACE_TOKEN);
+  diffService: BaseDiffService = inject(BaseDiffService);
   dataProvider = new DefaultDataProvider();
   dataInfoTensorNodesUnit: Partial<NodeChartDataInfoMap> = {};
   dataProcessorTensorNodesUnit: Partial<NodeFilterDataProcessorMap> = {};
@@ -119,28 +145,39 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     setLoadingState(true, this.store, 'Loading utilization viewer data');
     this.throbber.start();
 
-    this.dataService
-      .getData(this.sessionId, this.tool)
+    this.diffService
+      .getDiffData(this.sessionId, this.tool)
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
+      .subscribe(({active, baseline}) => {
         this.throbber.stop();
         setLoadingState(false, this.store);
-        this.parseData(data as SimpleDataTable | null);
+        this.parseData(
+          this.mergeTables(
+            active as SimpleDataTable | null,
+            baseline as SimpleDataTable | null,
+          ),
+        );
       });
   }
 
-  initDataProcessors() {
+  initDataProcessors(hasBaseline = false) {
+    const unitOptions = hasBaseline
+      ? UNIT_CHART_OPTIONS_BASELINE
+      : UNIT_CHART_OPTIONS;
+    const bandwidthOptions = hasBaseline
+      ? BANDWIDTH_CHART_OPTIONS_BASELINE
+      : BANDWIDTH_CHART_OPTIONS;
     this.coreIndexes.forEach((index: number) => {
       this.dataInfoTensorNodesUnit[index] = {
         data: null,
         dataProvider: this.dataProvider,
-        options: UNIT_CHART_OPTIONS,
+        options: unitOptions,
       };
       this.dataProcessorTensorNodesUnit[index] = null;
       this.dataInfoTensorNodesBandwidth[index] = {
         data: null,
         dataProvider: this.dataProvider,
-        options: BANDWIDTH_CHART_OPTIONS,
+        options: bandwidthOptions,
       };
       this.dataProcessorTensorNodesBandwidth[index] = null;
       this.dataInfoHBMRatio[index] = {
@@ -208,6 +245,105 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
     });
   }
 
+  mergeTables(
+    active: SimpleDataTable | null,
+    baseline: SimpleDataTable | null,
+  ): SimpleDataTable | null {
+    if (!active) return null;
+    if (!baseline) return active;
+
+    const activeCols = active.cols || [];
+    const activeRows = active.rows || [];
+    const baselineRows = baseline.rows || [];
+
+    const getColIndex = (id: string) =>
+      activeCols.findIndex((c) => c.id === id);
+    const coreCol = getColIndex(CORE_ID);
+    const nameCol = getColIndex(NAME_ID);
+    const achievedCol = getColIndex(ACHIEVED_ID);
+    const peakCol = getColIndex(PEAK_ID);
+    const unitCol = getColIndex(UNIT_ID);
+    const hostCol = getColIndex('host');
+    const deviceCol = getColIndex('device');
+    const sampleCol = getColIndex('sample');
+
+    if (
+      coreCol === -1 ||
+      nameCol === -1 ||
+      achievedCol === -1 ||
+      peakCol === -1 ||
+      unitCol === -1
+    ) {
+      return active;
+    }
+
+    const getRowKey = (row: google.visualization.DataObjectRow) => {
+      const host = hostCol !== -1 ? (row.c?.[hostCol]?.v ?? '') : '';
+      const device = deviceCol !== -1 ? (row.c?.[deviceCol]?.v ?? '') : '';
+      const sample = sampleCol !== -1 ? (row.c?.[sampleCol]?.v ?? '') : '';
+      const node = row.c?.[coreCol]?.v ?? '';
+      const name = row.c?.[nameCol]?.v ?? '';
+      const unit = row.c?.[unitCol]?.v ?? '';
+      return `${host}_${device}_${sample}_${node}_${name}_${unit}`;
+    };
+
+    const aligned = alignTables(activeRows, baselineRows, getRowKey);
+
+    const newCols = [...activeCols];
+    const baselineAchievedColIndex = newCols.length;
+    newCols.push({
+      id: 'achieved_baseline',
+      label: 'Baseline Achieved',
+      type: 'number',
+    });
+    const baselinePeakColIndex = newCols.length;
+    newCols.push({
+      id: 'peak_baseline',
+      label: 'Baseline Peak',
+      type: 'number',
+    });
+
+    const newRows: google.visualization.DataObjectRow[] = [];
+
+    for (const compRow of aligned.values()) {
+      const activeRow = compRow.active;
+      const baselineRow = compRow.baseline;
+
+      if (activeRow) {
+        const newCells = activeRow.c ? [...activeRow.c] : [];
+        newCells[baselineAchievedColIndex] = {
+          v: baselineRow?.c?.[achievedCol]?.v ?? 0,
+          f: baselineRow?.c?.[achievedCol]?.f,
+        };
+        newCells[baselinePeakColIndex] = {
+          v: baselineRow?.c?.[peakCol]?.v ?? 0,
+          f: baselineRow?.c?.[peakCol]?.f,
+        };
+        newRows.push({c: newCells});
+      } else if (baselineRow) {
+        const newCells = baselineRow.c ? [...baselineRow.c] : [];
+        newCells[achievedCol] = {v: 0};
+        newCells[peakCol] = {v: 0};
+
+        newCells[baselineAchievedColIndex] = {
+          v: baselineRow.c?.[achievedCol]?.v ?? 0,
+          f: baselineRow.c?.[achievedCol]?.f,
+        };
+        newCells[baselinePeakColIndex] = {
+          v: baselineRow.c?.[peakCol]?.v ?? 0,
+          f: baselineRow.c?.[peakCol]?.f,
+        };
+        newRows.push({c: newCells});
+      }
+    }
+
+    return {
+      cols: newCols,
+      rows: newRows,
+      p: active.p,
+    };
+  }
+
   override parseData(data: SimpleDataTable | null) {
     if (!data) return;
     this.dataProvider.parseData(data);
@@ -233,6 +369,11 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
       }
       this.hbmCoreIndexes = Array.from(hbmCoreSet).sort((a, b) => a - b);
 
+      const hasBaseline = !!this.diffService.getBaseSessionId() &&
+        dataTable.getColumnIndex('achieved_baseline') !== -1;
+      const baselineAchievedCol = dataTable.getColumnIndex('achieved_baseline');
+      const baselinePeakCol = dataTable.getColumnIndex('peak_baseline');
+
       const visibleColumns: Array<number | google.visualization.ColumnSpec> = [
         nameCol,
         {
@@ -242,24 +383,14 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
             return peak !== 0 ? achieved / peak : 0;
           },
           type: 'number',
-          label: '% Active',
+          label: hasBaseline ? 'Active % Active' : '% Active',
           id: 'active',
         },
         {
           calc: (data: google.visualization.DataTable, row: number) => {
             const achieved = data.getValue(row, achievedCol);
-            const peak = data.getValue(row, peakCol);
-            const unit = data.getValue(row, 7);
-            return `Achieved: ${achieved.toLocaleString()} ${unit}\n(Peak: ${peak.toLocaleString()} ${unit})`;
-          },
-          type: 'string',
-          role: 'tooltip',
-        },
-        {
-          calc: (data: google.visualization.DataTable, row: number) => {
-            const achieved = data.getValue(row, achievedCol);
             if (achieved === 0) return undefined;
-            const peak = data.getValue(row, 6);
+            const peak = data.getValue(row, peakCol);
             return ((100 * achieved) / peak).toFixed(2) + '%';
           },
           type: 'string',
@@ -267,7 +398,47 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
         },
       ];
 
-      this.initDataProcessors();
+      if (hasBaseline) {
+        visibleColumns.push({
+          calc: (data: google.visualization.DataTable, row: number) => {
+            const achieved = data.getValue(row, baselineAchievedCol);
+            const peak = data.getValue(row, baselinePeakCol);
+            return peak !== 0 ? achieved / peak : 0;
+          },
+          type: 'number',
+          label: 'Baseline % Active',
+          id: 'baseline',
+        });
+        visibleColumns.push({
+          calc: (data: google.visualization.DataTable, row: number) => {
+            const achieved = data.getValue(row, baselineAchievedCol);
+            if (achieved === 0) return undefined;
+            const peak = data.getValue(row, baselinePeakCol);
+            return ((100 * achieved) / peak).toFixed(2) + '%';
+          },
+          type: 'string',
+          role: 'annotation',
+        });
+      }
+
+      visibleColumns.push({
+        calc: (data: google.visualization.DataTable, row: number) => {
+          const achieved = data.getValue(row, achievedCol);
+          const peak = data.getValue(row, peakCol);
+          const unit = data.getValue(row, unitCol);
+          let tooltip = `Active Achieved: ${achieved.toLocaleString()} ${unit} (Peak: ${peak.toLocaleString()} ${unit})`;
+          if (hasBaseline) {
+            const baseAchieved = data.getValue(row, baselineAchievedCol);
+            const basePeak = data.getValue(row, baselinePeakCol);
+            tooltip += `\nBaseline Achieved: ${baseAchieved.toLocaleString()} ${unit} (Peak: ${basePeak.toLocaleString()} ${unit})`;
+          }
+          return tooltip;
+        },
+        type: 'string',
+        role: 'tooltip',
+      });
+
+      this.initDataProcessors(hasBaseline);
       this.updateDataProcessors(visibleColumns, coreCol, unitCol);
       this.updateHBMDataProcessors(nameCol, achievedCol, coreCol);
       this.updateView();

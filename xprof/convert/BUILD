@@ -2935,6 +2935,41 @@ cc_test(
 )
 
 cc_library(
+    name = "base_hlo_processor",
+    srcs = ["base_hlo_processor.cc"],
+    hdrs = ["base_hlo_processor.h"],
+    deps = [
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_hlo",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/service:hlo_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "base_hlo_processor_test",
+    srcs = ["base_hlo_processor_test.cc"],
+    deps = [
+        ":base_hlo_processor",
+        ":tool_options",
+        ":unified_session_snapshot",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@xla//xla/service:hlo_proto_cc",
+    ],
+)
+
+cc_library(
     name = "xplane_to_flat_op_metrics_db",
     srcs = ["xplane_to_flat_op_metrics_db.cc"],
     hdrs = ["xplane_to_flat_op_metrics_db.h"],

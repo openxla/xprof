@@ -69,6 +69,8 @@ message OverviewPageAnalysis {
   double device_duty_cycle_percent = 17;
   // HBM utilization in percentage calculated based on the performance counters.
   double hbm_utilization_percent = 31;
+  // Measured memory bandwidth in GB/s.
+  double measured_memory_bw = 33;
   // BEGIN-INTERNAL
   // Program Goodput metric in percentage.
   double program_goodput_percent = 18;

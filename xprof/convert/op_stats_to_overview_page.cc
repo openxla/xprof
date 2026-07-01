@@ -224,6 +224,7 @@ bool ComputeTpuAnalysisResult(const OpStats& op_stats,
         total_flops, tsl::profiler::PicoToNano(total_time_ps));
     double measured_gigabytes_per_second = tsl::profiler::SafeDivide(
         total_bytes_accessed, tsl::profiler::PicoToNano(total_time_ps));
+    analysis->set_measured_memory_bw(measured_gigabytes_per_second);
 
     double optimal_gigaflops_per_second =
         std::min(operational_intensity_flops_per_byte *
@@ -757,6 +758,9 @@ std::unique_ptr<DataTable> GenerateTpuAnalysisResultToDataTable(
       "flop_rate_utilization_relative_to_roofline",
       StrFormatToPercentage(
           analysis.flop_rate_utilization_relative_to_roofline_percent()));
+  analysis_table->AddCustomProperty(
+      "measured_memory_bw",
+      absl::StrFormat("%.1f", analysis.measured_memory_bw()));
 
   analysis_table->AddCustomProperty(
       "memory_bw_utilization_relative_to_hw_limit",

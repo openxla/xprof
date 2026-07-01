@@ -53,7 +53,7 @@ py_library(
     visibility = visibility,
     deps = [
         ":csv_writer",
-        ":trace_events_json",
+        ":trace_events_json",  # build_cleaner: keep
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
@@ -61,11 +61,16 @@ py_library(
 
 py_test(
     name = "raw_to_tool_data_test",
+    size = "small",
     srcs = ["raw_to_tool_data_test.py"],
+    main = "raw_to_tool_data_test.py",
     # strict_deps = False,
     deps = [
         ":raw_to_tool_data",
-        "//:expect_tensorflow_installed",
+        "//third_party/py/google/protobuf:use_fast_cpp_protos",
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
+        "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
 

@@ -92,6 +92,7 @@ inline constexpr Pixel kHoverPadding = 2.0f;
 // The radius of the circle used to draw points in the counter track.
 inline constexpr Pixel kPointRadius = 3.0f;
 inline constexpr Pixel kSelectedBorderThickness = 2.0f;
+inline constexpr Pixel kSelectedDataPointRadius = 4.0f;
 // The opacity of the group preview (aggregated view) background.
 inline constexpr float kGroupPreviewOpacity = 0.6f;
 // go/keep-sorted end

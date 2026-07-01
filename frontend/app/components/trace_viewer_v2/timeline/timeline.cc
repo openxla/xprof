@@ -1785,6 +1785,34 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
                              kCounterTrackColor);
   }
 
+  // Draw selected points from rectangle selection.
+  auto it_pair = std::equal_range(
+      selected_counter_points_.begin(), selected_counter_points_.end(),
+      std::make_pair(group_index, 0),
+      [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+        return a.first < b.first;
+      });
+
+  for (auto it = it_pair.first; it != it_pair.second; ++it) {
+    size_t p_idx = it->second;
+    if (p_idx < data.timestamps.size()) {
+      if (selected_group_index_ == group_index &&
+          selected_counter_index_ == p_idx) {
+        continue;  // Handled by single selection below.
+      }
+      Microseconds ts = data.timestamps[p_idx];
+      double val = data.values[p_idx];
+      Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
+      Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+
+      draw_list->AddCircleFilled(ImVec2(x, y), kSelectedDataPointRadius,
+                                 kBlue60);
+      draw_list->AddCircle(ImVec2(x, y), kSelectedDataPointRadius, kWhiteColor,
+                           /*num_segments=*/0,
+                           /*thickness=*/kSelectedBorderThickness);
+    }
+  }
+
   if (selected_group_index_ == group_index && selected_counter_index_ != -1 &&
       selected_counter_index_ < data.timestamps.size()) {
     Microseconds ts = data.timestamps[selected_counter_index_];
@@ -2634,9 +2662,14 @@ void Timeline::ProcessPendingScroll() {
 }
 
 void Timeline::HandleEventDeselection() {
+  const bool has_single_selection =
+      (selected_event_index_ != -1 || selected_group_index_ != -1);
+  const bool has_rectangle_selection =
+      (!selected_event_indices_.empty() || !selected_counter_points_.empty());
+
   // If an event was selected, and the user clicks on an empty area
   // (i.e., not on any event), deselect the event.
-  if ((selected_event_index_ != -1 || selected_group_index_ != -1) &&
+  if ((has_single_selection || has_rectangle_selection) &&
       ImGui::IsMouseReleased(0) &&
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
       !event_clicked_this_frame_) {
@@ -2650,20 +2683,30 @@ void Timeline::HandleEventDeselection() {
       }
     }
     if (is_click) {
-      selected_event_index_ = -1;
-      selected_group_index_ = -1;
-      selected_counter_index_ = -1;
+      if (has_single_selection) {
+        selected_event_index_ = -1;
+        selected_group_index_ = -1;
+        selected_counter_index_ = -1;
 
-      EventData event_data;
-      event_data[std::string(kEventSelectedIndex)] = -1;
-      event_data[std::string(kEventSelectedName)] = std::string("");
-      event_data[std::string(kEventSelectedStart)] = 0.0;
-      event_data[std::string(kEventSelectedDuration)] = 0.0;
-      event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
-      event_data[std::string(kEventSelectedDurationFormatted)] =
-          std::string("");
+        EventData event_data;
+        event_data[std::string(kEventSelectedIndex)] = -1;
+        event_data[std::string(kEventSelectedName)] = std::string("");
+        event_data[std::string(kEventSelectedStart)] = 0.0;
+        event_data[std::string(kEventSelectedDuration)] = 0.0;
+        event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
+        event_data[std::string(kEventSelectedDurationFormatted)] =
+            std::string("");
 
-      event_callback_(kEventSelected, event_data);
+        event_callback_(kEventSelected, event_data);
+      }
+
+      if (has_rectangle_selection) {
+        selected_event_indices_.clear();
+        selected_counter_points_.clear();
+        CalculateAndEmitMetrics();
+      }
+
+      if (redraw_callback_) redraw_callback_();
     }
   }
 }
@@ -2820,6 +2863,8 @@ void Timeline::HandleMouseRelease() {
     // threshold) during the click.
     if (!HandleBookmarkAddition(is_click)) {
       HandleSelectionOrTimeRangeAddition();
+      if (redraw_callback_)
+          redraw_callback_();  // Trigger redraw to show points
     }
 
     selection_start_pos_.reset();
@@ -2857,6 +2902,12 @@ bool Timeline::HandleSelectionOrTimeRangeAddition() {
       FindSelectedEvents(selection_rect);
       CalculateAndEmitMetrics();
       return true;
+        if (redraw_callback_)
+          redraw_callback_();  // Trigger redraw to show points
+      } else {
+        // Simple click in Select mode clears rectangle selection in UI.
+        CalculateAndEmitMetrics();
+        if (redraw_callback_) redraw_callback_();
     }
   } else if (current_selected_time_range_ &&
              current_selected_time_range_->duration() > 0) {

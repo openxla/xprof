@@ -17,6 +17,7 @@
 #include "absl/strings/string_view.h"
 #include "google/protobuf/arena.h"
 #include "xla/tsl/platform/file_system.h"
+#include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "tsl/profiler/lib/context_types.h"
@@ -57,6 +58,18 @@ struct TraceEventLite {
   bool is_async = false;
 };
 
+struct DmaFlowMetadata {
+  uint64_t kilobytes = 0;
+  uint64_t src_address = 0;
+  uint64_t dst_address = 0;
+  uint64_t last_write_start_cycle = 0;
+};
+
+struct LiteIngestionMetadata {
+  absl::flat_hash_map<uint64_t, DmaFlowMetadata> dma_flow_map;
+  tsl::profiler::GroupMetadataMap group_metadata_map;
+};
+
 struct TraceEventLiteContainer {
   std::vector<std::unique_ptr<TraceTrackMetadata>> tracks_metadata;
   absl::flat_hash_map<TraceTrackMetadata, std::vector<TraceEventLite>>
@@ -65,6 +78,10 @@ struct TraceEventLiteContainer {
       complete_events;
   absl::flat_hash_map<uint64_t, std::string> name_table;
   Trace trace;
+
+  // Global processed metadata annotations (populated post-merge, not merged in
+  // MergeLiteTraceEventsContainers)
+  LiteIngestionMetadata metadata;
 };
 
 void MergeLiteTraceEventsContainers(TraceEventLiteContainer* src,

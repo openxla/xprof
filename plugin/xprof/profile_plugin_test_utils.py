@@ -102,6 +102,8 @@ class DataRequestOptions:
     session_path: Path to a single session.
     run_path: Path to a directory containing multiple sessions.
     search_metadata: Whether to search event metadata.
+    format: Data format, e.g., 'pb'.
+    event_name: Name of the event to select.
   """
 
   run: str | None = None
@@ -115,6 +117,8 @@ class DataRequestOptions:
   session_path: str | None = None
   run_path: str | None = None
   search_metadata: str | None = None
+  format: str | None = None
+  event_name: str | None = None
 
 
 def make_data_request(options: DataRequestOptions) -> Request:
@@ -150,4 +154,8 @@ def make_data_request(options: DataRequestOptions) -> Request:
     req.args['run_path'] = options.run_path
   if options.search_metadata is not None:
     req.args['search_metadata'] = options.search_metadata
+  if options.format is not None:
+    req.args['format'] = options.format
+  if options.event_name is not None:
+    req.args['event_name'] = options.event_name
   return req

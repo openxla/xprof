@@ -23,28 +23,34 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections.abc import Callable, Mapping, Sequence
 import logging
 from typing import Any
 
 from xprof.convert import csv_writer
-
 from xprof.convert import trace_events_json
-from xprof.protobuf import trace_events_old_pb2
+from xprof.protobuf import (
+    trace_events_old_pb2,
+)
 from xprof.convert import _pywrap_profiler_plugin
 
 
 logger = logging.getLogger('tensorboard')
 
 
-def process_raw_trace(raw_trace):
+def process_raw_trace(raw_trace: bytes) -> str:
   """Processes raw trace data and returns the UI data."""
   trace = trace_events_old_pb2.Trace()
   trace.ParseFromString(raw_trace)
   return ''.join(trace_events_json.TraceEventsJsonStream(trace))
 
 
-def xspace_to_tools_data_from_byte_string(xspace_byte_list, filenames, tool,
-                                          params):
+def xspace_to_tools_data_from_byte_string(
+    xspace_byte_list: Sequence[bytes],
+    filenames: Sequence[str],
+    tool: str,
+    params: Mapping[str, Any],
+) -> tuple[Any, str]:
   """Helper function for getting an XSpace tool from a bytes string.
 
   Args:
@@ -56,17 +62,22 @@ def xspace_to_tools_data_from_byte_string(xspace_byte_list, filenames, tool,
   Returns:
     Returns a string of tool data.
   """
-# pylint:disable=dangerous-default-value
-  def xspace_wrapper_func(xspace_arg, tool_arg, params={}):
+
+  def xspace_wrapper_func(
+      xspace_arg: Sequence[bytes],
+      tool_arg: str,
+      options: Mapping[str, Any],
+  ) -> tuple[Any, bool]:
     return _pywrap_profiler_plugin.xspace_to_tools_data_from_byte_string(
-        xspace_arg, filenames, tool_arg, params)
-# pylint:enable=dangerous-default-value
+        xspace_arg, filenames, tool_arg, options
+    )
 
-  return xspace_to_tool_data(xspace_byte_list, tool, params,
-                             xspace_wrapper_func)
+  return xspace_to_tool_data(
+      xspace_byte_list, tool, params, xspace_wrapper_func
+  )
 
 
-def xspace_to_tool_names(xspace_paths):
+def xspace_to_tool_names(xspace_paths: Sequence[Any]) -> list[str]:
   """Converts XSpace to all the available tool names.
 
   Args:
@@ -76,17 +87,19 @@ def xspace_to_tool_names(xspace_paths):
     Returns a list of tool names.
   """
   raw_data, success = _pywrap_profiler_plugin.xspace_to_tools_data(
-      xspace_paths, 'tool_names')
+      xspace_paths, 'tool_names'
+  )
   if success:
-    return [tool for tool in raw_data.decode().split(',')]
+    return raw_data.decode().split(',')
   return []
 
 
 def xspace_to_tool_data(
-    xspace_paths,
-    tool,
-    params,
-    xspace_wrapper_func=_pywrap_profiler_plugin.xspace_to_tools_data):
+    xspace_paths: Sequence[Any],
+    tool: str,
+    params: Mapping[str, Any],
+    xspace_wrapper_func: Callable[..., tuple[Any, bool]] | None = None,
+) -> tuple[Any, str]:
   """Converts XSpace to tool data string.
 
   Args:
@@ -99,7 +112,9 @@ def xspace_to_tool_data(
   Returns:
     Returns a string of tool data and the content type for the response.
   """
-  if (tool[-1] == '^'):
+  if xspace_wrapper_func is None:
+    xspace_wrapper_func = _pywrap_profiler_plugin.xspace_to_tools_data
+  if tool.endswith('^'):
     old_tool = tool
     tool = tool[:-1]  # Remove the trailing '^'
     logger.warning(
@@ -110,16 +125,24 @@ def xspace_to_tool_data(
   options = {}
   options['use_saved_result'] = params.get('use_saved_result', True)
   if tool == 'trace_viewer':
+    options = dict(params.get('trace_viewer_options', {}))
+    options['use_saved_result'] = params.get('use_saved_result', True)
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
-      data = process_raw_trace(raw_data)
+      if options.get('format') == 'pb':
+        data = raw_data
+        content_type = 'application/octet-stream'
+      else:
+        data = process_raw_trace(raw_data)
   elif tool == 'trace_viewer@':
-    options = params.get('trace_viewer_options', {})
+    options = dict(params.get('trace_viewer_options', {}))
     options['use_saved_result'] = params.get('use_saved_result', True)
     options['hosts'] = params.get('hosts', [])
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
+      if options.get('format') == 'pb':
+        content_type = 'application/octet-stream'
   elif tool == 'overview_page':
     json_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
@@ -168,14 +191,14 @@ def xspace_to_tool_data(
   elif tool == 'graph_viewer':
     download_hlo_types = ['pb', 'pbtxt', 'json', 'short_txt', 'long_txt']
     graph_html_type = 'graph'
-    options = params.get('graph_viewer_options', {})
+    options = dict(params.get('graph_viewer_options', {}))
     options['use_saved_result'] = params.get('use_saved_result', True)
     raw_data, success = xspace_wrapper_func(xspace_paths, tool, options)
     if success:
       data = raw_data
       content_type = 'text/plain'
       data_type = options.get('type', '')
-      if (data_type in download_hlo_types):
+      if data_type in download_hlo_types:
         content_type = 'application/octet-stream'
       if data_type == graph_html_type:
         content_type = 'text/html'

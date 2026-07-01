@@ -126,6 +126,10 @@ class ProfileFileSystem(abc.ABC):
   def write_text(self, file_path: str, data: str) -> None:
     """Writes a text file."""
 
+  @abc.abstractmethod
+  def read_bytes(self, file_path: str) -> bytes | None:
+    """Reads a file as bytes."""
+
 
 class GcsFileSystem(ProfileFileSystem):
   """GCS implementation of ProfileFileSystem."""
@@ -292,6 +296,20 @@ class GcsFileSystem(ProfileFileSystem):
     except gcs_exceptions.GoogleAPICallError as e:
       logger.error('Error writing GCS file %s: %r', file_path, e, exc_info=True)
 
+  def read_bytes(self, file_path: str) -> bytes | None:
+    if storage is None or gcs_exceptions is None:
+      return None
+    try:
+      blob = storage.Blob.from_string(file_path, client=self._storage_client)
+      return blob.download_as_bytes()
+    except gcs_exceptions.NotFound:
+      return None
+    except gcs_exceptions.GoogleAPICallError as e:
+      logger.warning(
+          'Error reading GCS file %s: %r', file_path, e, exc_info=True
+      )
+      return None
+
 
 def _get_local_file_identifier(file_path_str: str) -> str | None:
   """Gets a string identifier for a local file based on mtime and size."""
@@ -448,6 +466,19 @@ class LocalFileSystem(ProfileFileSystem):
       logger.warning(
           'Cannot write text file to %s: %r', file_path, e, exc_info=True
       )
+
+  def read_bytes(self, file_path: str) -> bytes | None:
+    path = self._epath.Path(file_path)
+    try:
+      with path.open('rb') as f:
+        return f.read()
+    except FileNotFoundError:
+      return None
+    except OSError as e:
+      logger.warning(
+          'Cannot read bytes file %s: %r', file_path, e, exc_info=True
+      )
+      return None
 
 
 def get_file_system(

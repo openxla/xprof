@@ -57,6 +57,8 @@ toc:
     path: /xprof/memory_leaks
   - title: XProf Kernel User Guide
     path: /xprof/kernel-profiling
+  - title: Fusion Verification with Graph Viewer
+    path: /xprof/fusion_verification
 - title: Framework-specific profiling
   section:
   - title: JAX

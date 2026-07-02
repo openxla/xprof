@@ -2935,6 +2935,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/tsl/platform:logging",

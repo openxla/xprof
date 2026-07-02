@@ -1,0 +1,451 @@
+/**
+ * Styles for the Memory Breakdown Analysis component.
+ */
+
+:host {
+  display: block;
+}
+
+.memory-analysis-container {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+}
+
+.toolbar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+
+  app-searchable-dropdown {
+    width: 300px;
+  }
+}
+
+.dashboard-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.sidebar-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background-color: #fff;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition:
+    width 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding 200ms;
+
+  &.collapsed {
+    width: 48px;
+    padding: 0;
+    align-items: center;
+  }
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dadce0;
+  min-height: 48px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.sidebar-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #5f6368;
+  white-space: nowrap;
+}
+
+.sidebar-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 600px;
+  box-sizing: border-box;
+}
+
+.main-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.header-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    color: #202124;
+  }
+}
+
+// 1. Peak Heap Summary Cards
+mat-card.mat-mdc-card.compact-summary-card {
+  cursor: pointer;
+  border: 1px solid #e6e1e5; // M3 Outline Variant
+  border-radius: 8px; // Clean modern rounded corners
+  background-color: #f3f0f4; // M3 Surface Container Low
+  box-shadow: none;
+  transition:
+    transform 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+
+  // Enforce padding directly on parent card to avoid box-sizing width overflows (Issue 8)
+  padding: 0 12px;
+  min-height: 0;
+  height: 38px; // Reduced, highly compact height
+  display: flex;
+  align-items: center;
+
+  &:hover {
+    transform: translateY(-2px); // Modern subtle hover translation
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08); // Modern elegant shadow
+    border-color: #c4c7c5;
+  }
+
+  &.selected {
+    background-color: #d3e4ff; // M3 Primary Container Blue (Tone 90)
+    border-color: #a8c7fa; // Subtle M3 border
+    border-width: 1.5px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-content-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 0; // Reset inner padding (relies on parent card padding)
+    overflow: hidden;
+  }
+
+  .card-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    padding-right: 8px;
+  }
+
+  .category-title {
+    font-size: 13px; // Aligned to 13px
+    font-weight: 500; // Aligned to clean medium weight
+    color: #3c4043; // Aligned to soft Material dark gray
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .percentage-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: #1a73e8;
+    background-color: #e8f0fe;
+    padding: 2px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .card-right {
+    flex-shrink: 0;
+  }
+
+  .memory-val {
+    font-size: 13px; // Aligned to 13px
+    font-weight: 500; // Aligned to clean medium weight
+    color: #3c4043; // Aligned to soft Material dark gray
+  }
+}
+
+// 2. Filter Controls Area
+.controls-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: #5f6368;
+  }
+}
+
+// 3. Detailed Table Container
+.table-container {
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  max-height: calc(100vh - 360px);
+  min-height: 200px;
+  overflow: auto;
+  background-color: #fff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th.mat-mdc-header-cell {
+  background-color: #f8f9fa;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5f6368;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dadce0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+td.mat-mdc-cell {
+  font-size: 13px;
+  color: #3c4043;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f3f4;
+  vertical-align: middle;
+}
+
+tr.mat-mdc-row:hover {
+  background-color: #f8f9fa;
+}
+
+.mono-text {
+  font-family: 'Roboto Mono', 'Courier New', Courier, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+// Category Badges
+.category-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+
+  &[category='Weight'] {
+    background-color: #e8f0fe;
+    color: #1a73e8;
+  }
+
+  &[category='Input'] {
+    background-color: #e6f4ea;
+    color: #137333;
+  }
+
+  &[category='Optimizer State'] {
+    background-color: #fef7e0;
+    color: #b06000;
+  }
+
+  &[category='SparseCore'] {
+    background-color: #f3e8fd;
+    color: #9334e6;
+  }
+
+  &[category='Temporary'] {
+    background-color: #fce8e6;
+    color: #c5221f;
+  }
+
+  &[category='Unclassified'] {
+    background-color: #f1f3f4;
+    color: #5f6368;
+  }
+}
+
+.padding-percentage {
+  font-size: 11px;
+  color: #5f6368;
+  margin-left: 4px;
+}
+
+// Visualization Card Styles
+mat-card.visualization-card {
+  cursor: default;
+  border: 1px solid #dadce0;
+  box-shadow: none;
+  border-radius: 8px;
+  padding: 16px;
+
+  &:hover {
+    box-shadow: none;
+    border-color: #dadce0;
+  }
+
+  mat-card-content {
+    padding: 0;
+  }
+}
+
+.vis-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+
+  .vis-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+  }
+
+  .vis-controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+
+    mat-button-toggle-group {
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid #dadce0;
+      background: #fff;
+
+      mat-button-toggle {
+        font-size: 12px;
+        height: 32px;
+        line-height: 32px;
+      }
+    }
+  }
+}
+
+.vis-tabs {
+  ::ng-deep .mat-mdc-tab-body-wrapper {
+    margin-top: 12px;
+  }
+}
+
+// Table search and controls
+.table-controls-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+
+  .search-field {
+    width: 360px;
+
+    ::ng-deep .mat-mdc-text-field-wrapper {
+      height: 48px;
+    }
+  }
+
+  .dtype-field {
+    width: 200px;
+
+    ::ng-deep .mat-mdc-text-field-wrapper {
+      height: 48px;
+    }
+  }
+}
+
+tr.buffer-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+// Specificity chain overrides mat-row hover background without using !important (Issue 7)
+tr.mat-mdc-row.buffer-row.highlighted {
+  background-color: #e8f0fe;
+}
+
+// Specificity chain overrides Material tooltips globally without using !important or internal mdc class selectors (Issue 7)
+::ng-deep .rich-multiline-tooltip {
+  white-space: pre-line;
+
+  div {
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+}
+
+// Memory Space sidebar titles, cards, and dividers
+.sidebar-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #70757a;
+  margin: 8px 0 4px 0;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background-color: #dadce0;
+  margin: 12px 0;
+}
+
+mat-card.mat-mdc-card.compact-summary-card.space-card {
+  margin-bottom: 4px;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+
+  &.selected {
+    border-color: #1a73e8;
+    background-color: #f8f9fa;
+    border-width: 1.5px;
+  }
+}
+
+// Vis controls Memory Space selector dropdown
+.vis-dropdown.mat-mdc-form-field {
+  width: 180px;
+  margin-bottom: 0;
+
+  ::ng-deep .mat-mdc-text-field-wrapper {
+    height: 40px;
+    padding-top: 0;
+    padding-bottom: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  ::ng-deep .mat-mdc-form-field-infix {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    min-height: unset;
+  }
+}

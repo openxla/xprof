@@ -1,4 +1,9 @@
-import {Component, OnDestroy, OnInit, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+} from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
 import {ActivatedRouteSnapshot, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -24,7 +29,8 @@ import {takeUntil} from 'rxjs/operators';
 
 /** A side navigation component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'sidenav',
   templateUrl: './sidenav.ng.html',
   styleUrls: ['./sidenav.scss'],
@@ -171,6 +177,7 @@ export class SideNav implements OnInit, OnDestroy {
         : params.get('hosts');
     const sessionPath = params.get('session_path') ?? '';
     const runPath = params.get('run_path') ?? '';
+    const baseSessionId = params.get('baseSessionID') ?? '';
     const label = params.get('label') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';
     const moduleName = params.get('module_name') ?? '';
@@ -183,6 +190,9 @@ export class SideNav implements OnInit, OnDestroy {
     this.selectedModuleInternal = moduleName;
     this.runPathInternal = runPath;
     this.sessionPathInternal = sessionPath;
+    if (baseSessionId) {
+      this.dataService.setBaseSessionId(baseSessionId);
+    }
     this.labelInternal = label;
 
     if (this.multiHostEnabledTools.includes(tag)) {
@@ -236,6 +246,10 @@ export class SideNav implements OnInit, OnDestroy {
     }
     if (this.sessionPathInternal) {
       navigationEvent.session_path = this.sessionPathInternal;
+    }
+    const baseSessionId = this.dataService.getBaseSessionId();
+    if (baseSessionId) {
+      navigationEvent.baseSessionID = baseSessionId;
     }
     return navigationEvent;
   }
@@ -387,14 +401,19 @@ export class SideNav implements OnInit, OnDestroy {
     this.hosts = await this.getHostsForSelectedTag();
 
     if (this.isMultiHostsEnabled) {
-      this.selectedHostsInternal = this.selectedHostsInternal.filter(host => this.hosts.includes(host));
+      this.selectedHostsInternal = this.selectedHostsInternal.filter((host) =>
+        this.hosts.includes(host),
+      );
       if (this.selectedHostsInternal.length === 0 && this.hosts.length > 0) {
         this.selectedHostsInternal = [this.hosts[0]];
       }
       this.selectedHostsPending = [...this.selectedHostsInternal];
       this.updateAllHostsSelectedState();
     } else {
-      if (!this.hosts.includes(this.selectedHostInternal) && this.hosts.length > 0) {
+      if (
+        !this.hosts.includes(this.selectedHostInternal) &&
+        this.hosts.length > 0
+      ) {
         this.selectedHostInternal = this.hosts[0];
       }
     }
@@ -430,7 +449,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   onSubmitHosts() {
     if (this.selectedHostsPending.length > 10) {
-      alert('Warning: Maximum 10 selected hosts allowed. Loading the first 10 hosts in alphabetical order.');
+      alert(
+        'Warning: Maximum 10 selected hosts allowed. Loading the first 10 hosts in alphabetical order.',
+      );
       this.selectedHostsPending = this.selectedHostsPending.slice(0, 10);
       this.updateAllHostsSelectedState();
     }
@@ -526,7 +547,9 @@ export class SideNav implements OnInit, OnDestroy {
     let sessionName = '';
 
     if (this.sessionPathInternal) {
-      const parts = this.sessionPathInternal.split('/').filter((p) => p.length > 0);
+      const parts = this.sessionPathInternal
+        .split('/')
+        .filter((p) => p.length > 0);
       const pluginsIndex = parts.indexOf('plugins');
       if (pluginsIndex > 0) {
         sessionName = parts[pluginsIndex - 1];

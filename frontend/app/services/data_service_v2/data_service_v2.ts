@@ -14,7 +14,6 @@ import {
   HOSTS_API,
   LOCAL_URL,
   PLUGIN_NAME,
-  PRIMARY_TOOL_ENDPOINTS,
   RUN_TOOLS_API,
   RUNS_API,
   USE_SAVED_RESULT,
@@ -184,9 +183,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       params = params.set(key, value);
     });
 
-    if (PRIMARY_TOOL_ENDPOINTS.has(tag)) {
-      this.disableCacheRegeneration();
-    }
+    this.disableCacheRegeneration();
     return params;
   }
 
@@ -678,5 +675,22 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   isSmartSuggestionEnabled(): boolean {
     return this.getSearchParams().get('enable_smart_suggestion') === 'true';
+  }
+
+  getMemoryAnalysisModuleList(
+    sessionId: string,
+    host: string,
+  ): Observable<string> {
+    const params = this.getHTTPParamsForDataQuery(
+      sessionId,
+      'memory_analysis',
+      host,
+      new Map([['module_name', '']]),
+      {updateSearchParams: false},
+    );
+    return this.get(this.pathPrefix + DATA_API, {
+      'params': params,
+      'responseType': 'text',
+    }) as Observable<string>; // Justification: HttpClient with responseType 'text' returns a string payload.
   }
 }

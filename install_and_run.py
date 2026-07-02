@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Install and run the TensorBoard plugin for performance analysis.
+"""Install and run the x plugin for performance analysis.
 
    Usage: python3 install_and_run.py --envdir ENVDIR --logdir LOGDIR
                   [--port PORT] [--version 2.2]

@@ -64,12 +64,15 @@ struct HLOTracker {
   bool is_eager;
   const HloInstructionWrapper* hlo_instruction = nullptr;
   std::string hlo_op_name;
+  uint64_t flops = 0;
+  uint64_t bytes_accessed = 0;
 
   void Reset() {
     duration = program_id = group_id = 0;
     vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
+    flops = bytes_accessed = 0;
   }
 };
 
@@ -494,6 +497,9 @@ void AggregateHloFunc(HLOTracker& current, DeviceOpMetricsDbBuilder& metricDb) {
       .time_ps = current.duration,
       .children_time_ps = 0,
       .perf_info = current.hlo_instruction->GetPerformanceInfoWrapper(),
+      .flops = static_cast<int64_t>(current.flops),
+      .bytes_accessed = static_cast<int64_t>(current.bytes_accessed),
+      .model_flops = static_cast<int64_t>(current.flops),
       .vdd_energy_j = current.vdd_energy_j,
   };
 
@@ -535,6 +541,10 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
               [&current](const tsl::profiler::XStatVisitor& stat) {
                 if (stat.Name() == "vdd_energy_j") {
                   current.vdd_energy_j += stat.DoubleValue();
+                } else if (stat.Name() == "flops") {
+                  current.flops += stat.IntOrUintValue();
+                } else if (stat.Name() == "bytes_accessed") {
+                  current.bytes_accessed += stat.IntOrUintValue();
                 }
               });
           current.is_eager = stats.is_eager;

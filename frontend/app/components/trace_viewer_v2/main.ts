@@ -128,13 +128,30 @@ export enum TraceViewerV2LoadingStatus {
 }
 
 declare function loadWasmTraceViewerModule(
-  options?: object,
+  options?: Record<string, unknown>,
 ): Promise<TraceViewerV2Module>;
+
+/**
+ * Interface extending GPUDevice to include the lost promise property.
+ */
+export declare interface GPUDeviceWithLost extends GPUDevice {
+  lost: Promise<GPUDeviceLostInfo>;
+}
+
+/**
+ * Interface representing raw JSON trace data before structural validation.
+ */
+export declare interface RawJsonData {
+  traceEvents?: Array<{[key: string]: unknown}>;
+  details?: unknown;
+  [key: string]: unknown;
+}
 
 declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
+    loadWasmTraceViewerModule?: (options?: Record<string, unknown>) => Promise<TraceViewerV2Module>;
   }
 }
 
@@ -230,8 +247,8 @@ export function isTraceData(data: unknown): data is TraceData {
   return (
     typeof data === 'object' &&
     data !== null &&
-    data.hasOwnProperty('traceEvents') &&
-    Array.isArray((data as TraceData).traceEvents)
+    Object.prototype.hasOwnProperty.call(data, 'traceEvents') &&
+    Array.isArray((data as RawJsonData).traceEvents)
   );
 }
 
@@ -245,13 +262,24 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
   const details: TraceDetails = new Map();
   if (Array.isArray(rawDetails)) {
     for (const d of rawDetails) {
-      if (d && typeof d === 'object' && d.name === 'full_dma') {
-        details.set('full_dma', d.value);
+      if (
+        d &&
+        typeof d === 'object' &&
+        Object.prototype.hasOwnProperty.call(d, 'name') &&
+        (d as Record<string, unknown>)['name'] === 'full_dma'
+      ) {
+        details.set(
+          'full_dma',
+          (d as Record<string, unknown>)['value'] as boolean,
+        );
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
     const rawDetailsObj = rawDetails as Record<string, unknown>;
-    if (rawDetailsObj['full_dma'] !== undefined) {
+    if (
+      Object.prototype.hasOwnProperty.call(rawDetailsObj, 'full_dma') &&
+      rawDetailsObj['full_dma'] !== undefined
+    ) {
       details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
     }
   }
@@ -320,8 +348,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  // tslint:disable-next-line:no-any
-  (device as any).lost
+  void (device as GPUDeviceWithLost).lost
     .then(() => {
       throw new Error('WebGPU Cannot be initialized - Device has been lost');
     })
@@ -372,8 +399,7 @@ async function loadAndStartWasm(
 }
 
 async function ensureWasmModuleIsLoaded(): Promise<void> {
-  // tslint:disable-next-line:no-any
-  if (typeof (window as any).loadWasmTraceViewerModule !== 'undefined') {
+  if (typeof window.loadWasmTraceViewerModule !== 'undefined') {
     return;
   }
   return new Promise((resolve, reject) => {
@@ -573,7 +599,7 @@ function processJsonTrace(
   try {
     const decoder = new TextDecoder('utf-8');
     const fileContent = decoder.decode(data);
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const jsonData = JSON.parse(fileContent) as RawJsonData;
 
     if (!isTraceData(jsonData)) {
       throw new Error('File does not contain valid trace events.');
@@ -1112,13 +1138,17 @@ export async function traceViewerV2Main(
       } else {
         const jsonData = (await loadJsonDataInternal(
           urlObj.toString(),
-        )) as Record<string, unknown>;
+        )) as RawJsonData;
         // Mirror the legacy behavior: gently default to an empty array if
         // traceEvents is missing so that the WASM module can safely clear out
         // any previous search results.
         const normalizedData: TraceData = {
           ...jsonData,
-          traceEvents: Array.isArray(jsonData?.['traceEvents'])
+          details: jsonData.details as TraceDetails | undefined,
+          traceEvents: (jsonData &&
+            typeof jsonData === 'object' &&
+            Object.prototype.hasOwnProperty.call(jsonData, 'traceEvents') &&
+            Array.isArray(jsonData['traceEvents']))
             ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
             : [],
         };

@@ -4,6 +4,7 @@ import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   Injector,
@@ -153,7 +154,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
@@ -161,7 +162,9 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly cdr = inject(ChangeDetectorRef);
   private isDestroyed = false;
+  private loadingStatusListener?: (event: Event) => void;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
   private readonly injector = inject(Injector);
@@ -405,21 +408,23 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.store.select(getHostsState),
     ])
       .pipe(takeUntil(this.destroyed))
-      .subscribe(([params, queryParams, hostsMetadata]) => {
-        if (hostsMetadata && hostsMetadata.length > 0) {
-          this.hostList = hostsMetadata.map(
-            (host: HostMetadata) => host.hostname,
-          );
-        }
-        try {
-          this.useTraceViewerV2 =
-            queryParams['use_trace_viewer_v2'] === 'true' ||
-            window.localStorage.getItem('use_trace_viewer_v2') === 'true';
-        } catch {
-          this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
-        }
-        this.navigationEvent = {...params, ...queryParams};
+      .subscribe({
+        next: ([params, queryParams, hostsMetadata]) => {
+          if (hostsMetadata && hostsMetadata.length > 0) {
+            this.hostList = hostsMetadata.map(
+              (host: HostMetadata) => host.hostname,
+            );
+          }
+          try {
+            this.useTraceViewerV2 =
+              queryParams['use_trace_viewer_v2'] === 'true' ||
+              window.localStorage.getItem('use_trace_viewer_v2') === 'true';
+          } catch {
+            this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
+          }
+          this.navigationEvent = {...params, ...queryParams};
         this.update(this.navigationEvent);
+        this.cdr.markForCheck();
       });
 
     // Event listeners are handled by TraceViewerContainer.
@@ -443,6 +448,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
+        this.cdr.markForCheck();
       });
   }
 
@@ -454,6 +460,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         distinctUntilChanged(),
         tap<string>(() => {
           this.searching = true;
+          this.cdr.markForCheck();
         }),
         switchMap((query: string) => {
           if (!query) {
@@ -483,6 +490,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       )
       .subscribe((data) => {
         this.searching = false;
+        this.cdr.markForCheck();
         if (this.traceViewerModule && data) {
           // Type contract is guaranteed by the backend response structure.
           const traceData = data as TraceData;
@@ -509,6 +517,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           shutdownTraceViewerV2();
           this.traceViewerModule = null;
         }
+        this.cdr.markForCheck();
         return;
       }
 
@@ -530,8 +539,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
       this.update(this.navigationEvent);
       this.setupColorOnboarding();
+      this.cdr.markForCheck();
     } finally {
       this.isInitializing = false;
+      this.cdr.markForCheck();
     }
   }
 
@@ -602,6 +613,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.updateFlowCategories();
           this.updateWasmFlowCategories();
           this.updateWasmProcessMappings();
+          this.cdr.markForCheck();
         });
       }
     } else {
@@ -630,6 +642,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         DETAILS_RECEIVED_EVENT_NAME,
         this.detailsReceivedEventListener,
       );
+      if (this.loadingStatusListener) {
+        window.removeEventListener(
+          LOADING_STATUS_UPDATE_EVENT_NAME,
+          this.loadingStatusListener,
+        );
+      }
     }
   }
 
@@ -642,6 +660,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     if (this.areDetailsChanged(eventDetails)) {
       this.traceDetails = new Map(eventDetails);
       void this.update(this.navigationEvent);
+      this.cdr.markForCheck();
     }
   };
 
@@ -721,6 +740,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
     }
     this.maybeFetchAdjacentNodes();
+    this.cdr.markForCheck();
   }
 
   updateWasmProcessMappings() {
@@ -790,6 +810,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.selectedEventProperties = [];
       this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
     }
+    this.cdr.markForCheck();
   }
 
   onSearchEvents(detail: SearchEventsEventDetail): void {
@@ -873,26 +894,31 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        const traceData = data as TraceData;
-        if (
-          !traceData ||
-          !traceData.traceEvents ||
-          traceData.traceEvents.length === 0
-        ) {
-          return;
-        }
-        const lastEvent =
-          traceData.traceEvents[traceData.traceEvents.length - 1];
-        if (
-          lastEvent['ph'] === 'X' &&
-          this.selectedEvent &&
-          lastEvent['args']
-        ) {
-          const args = lastEvent['args'] as Record<string, string>;
-          this.eventArgsCache.set(cacheKey, args);
-          this.addArgsToSelectedEvent(args);
-        }
+      .subscribe({
+        next: (data) => {
+          const traceData = data as TraceData;
+          if (
+            !traceData ||
+            !traceData.traceEvents ||
+            traceData.traceEvents.length === 0
+          ) {
+            return;
+          }
+          const lastEvent =
+            traceData.traceEvents[traceData.traceEvents.length - 1];
+          if (
+            lastEvent['ph'] === 'X' &&
+            this.selectedEvent &&
+            lastEvent['args']
+          ) {
+            const args = lastEvent['args'] as Record<string, string>;
+            this.eventArgsCache.set(cacheKey, args);
+            this.addArgsToSelectedEvent(args);
+          }
+        },
+        error: (err) => {
+          console.error(err);
+        },
       });
   }
 
@@ -904,6 +930,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
     this.selectedEventProperties = properties;
     this.maybeFetchAdjacentNodes();
+    this.cdr.markForCheck();
   }
 
   private maybeFetchAdjacentNodes(): void {
@@ -949,15 +976,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.pendingAdjacentNodesFetches.delete(key);
         }),
       )
-      .subscribe((data) => {
-        if (isAdjacentNodesResponse(data)) {
-          this.hloAdjacentNodesCache.set(key, data);
-          this.injectAdjacentNodes({
-            adjacentNodes: data,
-            targetNodeName: name,
-            targetModuleName: module,
-          });
-        }
+      .subscribe({
+        next: (data) => {
+          if (isAdjacentNodesResponse(data)) {
+            this.hloAdjacentNodesCache.set(key, data);
+            this.injectAdjacentNodes({
+              adjacentNodes: data,
+              targetNodeName: name,
+              targetModuleName: module,
+            });
+          }
+        },
+        error: (err) => {
+          console.error(err);
+        },
       });
   }
 
@@ -988,6 +1020,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       value: adjacentNodes['consumer_names'].join(', '),
     });
     this.selectedEventProperties = properties;
+    this.cdr.markForCheck();
   }
 
   // END Trace Viewer V2 WASM App Methods
@@ -1213,12 +1246,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const dialogRef = this.dialog.open(this.paletteDialog, config);
 
     dialogRef.afterClosed().subscribe((result: string | undefined) => {
-      if (result && this.traceViewerModule) {
-        this.selectedPalette = result;
-        this.traceViewerModule.SetPalette(result);
-        window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
-      }
-    });
+        if (result && this.traceViewerModule) {
+          this.selectedPalette = result;
+          this.traceViewerModule.SetPalette(result);
+          window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
+          this.cdr.markForCheck();
+        }
+      });
   }
 
   onPaletteChange(palette: string) {
@@ -1236,7 +1270,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     } catch {}
     if (!prompted) {
-      const loadingStatusListener = (event: Event) => {
+      this.loadingStatusListener = (event: Event) => {
         const customEvent = event as CustomEvent;
         if (
           customEvent.detail &&
@@ -1245,17 +1279,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           setTimeout(() => {
             if (!this.destroyed.isStopped) {
               this.showColorOnboarding = true;
+              this.cdr.markForCheck();
             }
           }, 2000); // Delay 2 seconds after load complete
-          window.removeEventListener(
-            LOADING_STATUS_UPDATE_EVENT_NAME,
-            loadingStatusListener,
-          );
+          if (this.loadingStatusListener) {
+            window.removeEventListener(
+              LOADING_STATUS_UPDATE_EVENT_NAME,
+              this.loadingStatusListener,
+            );
+          }
         }
       };
       window.addEventListener(
         LOADING_STATUS_UPDATE_EVENT_NAME,
-        loadingStatusListener,
+        this.loadingStatusListener,
       );
     }
   }

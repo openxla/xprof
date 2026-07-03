@@ -1,6 +1,6 @@
 import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
-import {Injectable} from '@angular/core';
+import {Injectable, inject} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {
   API_PREFIX,
@@ -45,9 +45,9 @@ import {windowOpen} from 'safevalues/dom';
 export class DataServiceV2 implements DataServiceV2Interface {
   isLocalDevelopment = false;
   pathPrefix = '';
+  private readonly httpClient = inject(HttpClient);
 
   constructor(
-    private readonly httpClient: HttpClient,
     platformLocation: PlatformLocation,
     private readonly store: Store<{}>,
   ) {

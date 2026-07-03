@@ -4,6 +4,7 @@ import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   Injector,
@@ -153,7 +154,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
@@ -171,6 +172,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly dataService = inject(DataServiceV2);
   private readonly platformLocation = inject(PlatformLocation);
   private readonly route = inject(ActivatedRoute);
+  private readonly cdr = inject(ChangeDetectorRef);
 
   url = '';
   pathPrefix = '';
@@ -481,17 +483,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             );
         }),
       )
-      .subscribe((data) => {
-        this.searching = false;
-        if (this.traceViewerModule && data) {
-          // Type contract is guaranteed by the backend response structure.
-          const traceData = data as TraceData;
-          this.traceViewerModule.setSearchResultsInWasm({
-            ...traceData,
-            traceEvents: traceData.traceEvents ?? [],
-          } as MainTraceData);
-          this.container?.updateSearchResultCountText();
-        }
+      .subscribe({
+        next: (data) => {
+          if (this.isDestroyed) return;
+          this.searching = false;
+          if (this.traceViewerModule && data) {
+            // Type contract is guaranteed by the backend response structure.
+            const traceData = data as TraceData;
+            this.traceViewerModule.setSearchResultsInWasm({
+              ...traceData,
+              traceEvents: traceData.traceEvents ?? [],
+            } as MainTraceData);
+            this.container?.updateSearchResultCountText();
+          }
+        },
+        error: (error: unknown) => {
+          if (this.isDestroyed) return;
+          console.error('Failed to search trace events:', error);
+        },
       });
   }
 
@@ -873,26 +882,33 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        const traceData = data as TraceData;
-        if (
-          !traceData ||
-          !traceData.traceEvents ||
-          traceData.traceEvents.length === 0
-        ) {
-          return;
-        }
-        const lastEvent =
-          traceData.traceEvents[traceData.traceEvents.length - 1];
-        if (
-          lastEvent['ph'] === 'X' &&
-          this.selectedEvent &&
-          lastEvent['args']
-        ) {
-          const args = lastEvent['args'] as Record<string, string>;
-          this.eventArgsCache.set(cacheKey, args);
-          this.addArgsToSelectedEvent(args);
-        }
+      .subscribe({
+        next: (data) => {
+          if (this.isDestroyed) return;
+          const traceData = data as TraceData;
+          if (
+            !traceData ||
+            !traceData.traceEvents ||
+            traceData.traceEvents.length === 0
+          ) {
+            return;
+          }
+          const lastEvent =
+            traceData.traceEvents[traceData.traceEvents.length - 1];
+          if (
+            lastEvent['ph'] === 'X' &&
+            this.selectedEvent &&
+            lastEvent['args']
+          ) {
+            const args = lastEvent['args'] as Record<string, string>;
+            this.eventArgsCache.set(cacheKey, args);
+            this.addArgsToSelectedEvent(args);
+          }
+        },
+        error: (error: unknown) => {
+          if (this.isDestroyed) return;
+          console.error('Failed to fetch event args:', error);
+        },
       });
   }
 
@@ -949,15 +965,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           this.pendingAdjacentNodesFetches.delete(key);
         }),
       )
-      .subscribe((data) => {
-        if (isAdjacentNodesResponse(data)) {
-          this.hloAdjacentNodesCache.set(key, data);
-          this.injectAdjacentNodes({
-            adjacentNodes: data,
-            targetNodeName: name,
-            targetModuleName: module,
-          });
-        }
+      .subscribe({
+        next: (data) => {
+          if (this.isDestroyed) return;
+          if (isAdjacentNodesResponse(data)) {
+            this.hloAdjacentNodesCache.set(key, data);
+            this.injectAdjacentNodes({
+              adjacentNodes: data,
+              targetNodeName: name,
+              targetModuleName: module,
+            });
+          }
+        },
+        error: (error: unknown) => {
+          if (this.isDestroyed) return;
+          console.error('Failed to fetch adjacent nodes:', error);
+        },
       });
   }
 

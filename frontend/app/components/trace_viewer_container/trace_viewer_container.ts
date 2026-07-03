@@ -4,6 +4,7 @@ import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
@@ -382,7 +383,7 @@ export class TraceViewerContainer
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
-  constructor() {
+  constructor(private readonly cdr: ChangeDetectorRef) {
     this.search$
       .pipe(debounceTime(300), takeUntil(this.destroyed))
       .subscribe((query) => {
@@ -398,6 +399,7 @@ export class TraceViewerContainer
   }
 
   ngOnInit() {
+    this.cdr.markForCheck();
     clearDeprecatedStorageKeys();
 
     window.addEventListener(

@@ -16,6 +16,7 @@ from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import detect_layout_mismatch_copies_tool
 from xprof.cli.tools import detect_unfused_reshapes_tool
+from xprof.cli.tools import detect_unnecessary_convert_reduce_tool
 from xprof.cli.tools import get_graph_viewer_tool
 from xprof.cli.tools import get_kpi_metrics_tool
 from xprof.cli.tools import get_memory_profile_tool
@@ -38,6 +39,9 @@ def cli_main() -> dict[str, Any]:
       # keep-sorted start
       "detect_layout_mismatch_copies": (
           detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies
+      ),
+      "detect_unnecessary_convert_reduce": (
+          detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce
       ),
       "detect_unfused_reshapes": (
           detect_unfused_reshapes_tool.detect_unfused_reshapes

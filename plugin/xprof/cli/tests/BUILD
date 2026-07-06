@@ -121,7 +121,7 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:parameterized",
         "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
         "@org_xprof//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
-        "@xla//xla:xla_data_proto_py_pb2",
+        "@xla//xla:xla_data_proto_py",
     ],
 )
 
@@ -145,5 +145,19 @@ py_test(
     deps = [
         "@absl_py//absl/testing:absltest",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "detect_unnecessary_convert_reduce_tool_test",
+    srcs = ["detect_unnecessary_convert_reduce_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "@org_xprof//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
+        "@xla//xla:xla_data_proto_py",
+        "@xla//xla/python:xla_client",
+        "@xla//xla/service:hlo_proto_py",
     ],
 )

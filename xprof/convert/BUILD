@@ -3035,6 +3035,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:gpu_event_stats",

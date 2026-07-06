@@ -2972,9 +2972,9 @@ bool Timeline::HandleSelectionOrTimeRangeAddition() {
                  std::max(selection_start_pos_->y, selection_end_pos_->y));
       FindSelectedEvents(selection_rect);
       CalculateAndEmitMetrics();
+      if (redraw_callback_)
+        redraw_callback_();  // Trigger redraw to show points
       return true;
-        if (redraw_callback_)
-          redraw_callback_();  // Trigger redraw to show points
       } else {
         // Simple click in Select mode clears rectangle selection in UI.
         CalculateAndEmitMetrics();

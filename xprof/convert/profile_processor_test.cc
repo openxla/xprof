@@ -53,6 +53,7 @@ using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
 using ::testing::IsEmpty;
 using ::testing::Not;
+using ::testing::status::StatusIs;
 
 using GetDummySerializedProtoFn = std::function<std::string()>;
 using VerifySerializedProtoFn = std::function<bool(absl::string_view)>;
@@ -112,9 +113,8 @@ TEST_P(ProfileProcessorTest, MapTest) {
 
   std::string dummy_payload = test_param.get_dummy_serialized_proto();
   if (dummy_payload.empty()) {
-    EXPECT_EQ(
-        processor->Map(session_snapshot, "test_host", space).status().code(),
-        absl::StatusCode::kUnimplemented);
+    EXPECT_THAT(processor->Map(session_snapshot, "test_host", space),
+                StatusIs(absl::StatusCode::kUnimplemented));
     return;
   }
 
@@ -147,8 +147,8 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
     ASSERT_OK_AND_ASSIGN(
         SessionSnapshot session_snapshot,
         SessionSnapshot::Create({"dummy_file.pb"}, std::nullopt));
-    EXPECT_EQ(processor->Reduce(session_snapshot, map_output_files).code(),
-              absl::StatusCode::kUnimplemented);
+    EXPECT_THAT(processor->Reduce(session_snapshot, map_output_files),
+                StatusIs(absl::StatusCode::kUnimplemented));
     return;
   }
 
@@ -174,11 +174,10 @@ TEST_P(ProfileProcessorTest, ReduceTest) {
   // Create a SessionSnapshot with a minimal XSpace for the test.
   std::vector<std::unique_ptr<XSpace>> xspaces;
   xspaces.push_back(std::make_unique<XSpace>());
-  auto status_or_session_snapshot =
-      SessionSnapshot::Create({map_output_path1}, std::move(xspaces));
-  ASSERT_OK(status_or_session_snapshot);
-  ASSERT_OK(
-      processor->Reduce(status_or_session_snapshot.value(), map_output_files));
+  ASSERT_OK_AND_ASSIGN(
+      SessionSnapshot session_snapshot,
+      SessionSnapshot::Create({map_output_path1}, std::move(xspaces)));
+  ASSERT_OK(processor->Reduce(session_snapshot, map_output_files));
 
   EXPECT_EQ(processor->GetContentType(), "application/json");
   EXPECT_THAT(processor->GetData(), Not(IsEmpty()));
@@ -200,15 +199,16 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   space.add_planes()->set_name("test_plane");
   ASSERT_OK(xprof::WriteBinaryProto(xspace_path, space));
 
-  ASSERT_OK_AND_ASSIGN(auto session_snapshot,
+  ASSERT_OK_AND_ASSIGN(SessionSnapshot session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
 
   ToolOptions options;
   std::string dummy_payload = test_param.get_dummy_serialized_proto();
 
   // First call - should compute and write to cache.
-  auto result1 = ConvertMultiXSpacesToToolDataWithProfileProcessor(
-      session_snapshot, test_param.tool_name, options);
+  absl::StatusOr<std::string> result1 =
+      ConvertMultiXSpacesToToolDataWithProfileProcessor(
+          session_snapshot, test_param.tool_name, options);
 
   if (dummy_payload.empty()) {
     // For non-OpStats tools, an empty XSpace might cause the processor to
@@ -222,7 +222,7 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   }
 
   if (!dummy_payload.empty()) {
-    ASSERT_OK_AND_ASSIGN(auto cache_file_path,
+    ASSERT_OK_AND_ASSIGN(std::optional<std::string> cache_file_path,
                          session_snapshot.GetHostDataFilePath(
                              StoredDataType::OP_STATS,
                              tensorflow::profiler::kAllHostsIdentifier));
@@ -231,7 +231,7 @@ TEST_P(ProfileProcessorTest, ProcessorE2ETest) {
   }
 
   // Second call - should hit the cache (or recompute if no caching).
-  ASSERT_OK_AND_ASSIGN(auto result2,
+  ASSERT_OK_AND_ASSIGN(std::string result2,
                        ConvertMultiXSpacesToToolDataWithProfileProcessor(
                            session_snapshot, test_param.tool_name, options));
   EXPECT_EQ(*result1, result2);
@@ -259,7 +259,7 @@ void BM_ProcessorE2ETest(benchmark::State& state) {
   XSpace space;
   space.add_planes()->set_name("test_plane");
   CHECK_OK(xprof::WriteBinaryProto(xspace_path, space));
-  auto session_snapshot =
+  SessionSnapshot session_snapshot =
       SessionSnapshot::Create({xspace_path}, std::nullopt).value();
   ToolOptions options;
 
@@ -276,8 +276,9 @@ void BM_ProcessorE2ETest(benchmark::State& state) {
 
     // Measure the performance of
     // ConvertMultiXSpacesToToolDataWithProfileProcessor.
-    auto result = ConvertMultiXSpacesToToolDataWithProfileProcessor(
-        session_snapshot, tool_name, options);
+    absl::StatusOr<std::string> result =
+        ConvertMultiXSpacesToToolDataWithProfileProcessor(session_snapshot,
+                                                          tool_name, options);
     benchmark::DoNotOptimize(result);
     CHECK_OK(result.status());
   }

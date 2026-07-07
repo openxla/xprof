@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -11,12 +12,17 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {FormsModule} from '@angular/forms';
 import {
   MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
   MatAutocomplete,
+  MatAutocompleteModule,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+
 import {BehaviorSubject} from 'rxjs';
 import {FILTER_FIELDS, FILTER_OPERATORS} from './constants';
 import {
@@ -34,8 +40,15 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'filter-input',
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+  ],
   viewProviders: [
     {
       provide: MAT_AUTOCOMPLETE_DEFAULT_OPTIONS,
@@ -77,7 +90,22 @@ import {filterFieldKey, lookupFilterOperator} from './utils';
   </div>
 </mat-autocomplete>
 `,
-  styleUrls: ['./trace_viewer.css'],
+  styles: [
+    `
+    .filter-input {
+      outline: none;
+      border: none;
+      text-align: left;
+      padding: 0;
+      margin: 0;
+      background: transparent;
+      width: 100%;
+      height: 28px;
+      font-size: 14px;
+      color: #5f6368;
+    }
+  `,
+  ],
 })
 export class FilterInput implements AfterViewInit, OnChanges {
   @ViewChild('inputEl') inputEl!: ElementRef;

@@ -6,7 +6,13 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer_container",
     srcs = [
+        "constants.ts",
+        "filter_chips.ts",
+        "filter_input.ts",
+        "interfaces.ts",
         "trace_viewer_container.ts",
+        "trace_viewer_typings.ts",
+        "utils.ts",
     ],
     assets = [
         ":trace_viewer_container_css",
@@ -18,8 +24,11 @@ xprof_ng_module(
         "@npm//@angular/forms",
         "@npm//angular-split",
         "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_material_autocomplete",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_checkbox",
+        "@org_xprof//frontend/app/common/angular:angular_material_chips",
+        "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
@@ -29,6 +38,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_sort",
         "@org_xprof//frontend/app/common/angular:angular_material_table",
         "@org_xprof//frontend/app/common/angular:angular_material_tabs",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
@@ -39,11 +49,15 @@ xprof_ng_module(
 xprof_ng_module(
     name = "trace_viewer_container_tests",
     testonly = True,
-    srcs = ["trace_viewer_container_test.ts"],
+    srcs = [
+        "trace_viewer_container_test.ts",
+        "utils_test.ts",
+    ],
     deps = [
         ":trace_viewer_container",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/common",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],

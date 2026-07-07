@@ -1,3 +1,96 @@
+<div class="filter-bar" id="filter-bar">
+  <div class="filter-nav">
+    <span>All Filters</span>
+  </div>
+  <mat-divider vertical></mat-divider>
+  <span class="filter-content">
+    <filter-chips class="filter-chips" [hosts]="hostList" [processes]="processList" [filters]="selectedFilters" (filterChanged)="onFilterEdit($event)" (filterRemoved)="onFilterRemove($event)"></filter-chips>
+    <div class="filler-inputs-wrapper">
+      <filter-input #filterInput
+        [validFilterFields]="validFilterFields"
+        [hosts]="hostList"
+        [processes]="processList"
+        (filterAdded)="onFilterAdd($event)"></filter-input>
+    </div>
+    <!-- TODO: <div>Right control panel: apply | cancel | clear all</div> -->
+  </span>
+  <!-- TODO(b/433979009): Remove the temporary button to switch to the old frontend. -->
+  @if (useTraceViewerV2) {
+    <div class="right-controls">
+      @if (traceDetails && traceDetails.size > 0) {
+        <div>
+          <button mat-button class="details-button" [matMenuTriggerFor]="detailsMenu">Details <mat-icon>arrow_drop_down</mat-icon></button>
+          <mat-menu #detailsMenu="matMenu" class="details-menu">
+            @for (detail of availableDetails; track detail.key) {
+              <div (click)="$event.stopPropagation()">
+                <mat-checkbox [checked]="traceDetails.get(detail.key)" (change)="toggleDetail(detail.key, $event.checked)" style="margin: 0 16px;">
+                  {{detail.label}}
+                </mat-checkbox>
+              </div>
+            }
+          </mat-menu>
+        </div>
+      }
+      <button mat-button [matMenuTriggerFor]="flowMenu">Flow Events</button>
+      <mat-menu #flowMenu="matMenu">
+        <button mat-menu-item (click)="selectAllFlowCategories()">All</button>
+        <button mat-menu-item (click)="selectNoneFlowCategories()">None</button>
+        <mat-divider></mat-divider>
+        @for (category of flowCategories; track category.id) {
+          <button mat-menu-item (click)="toggleFlowCategory(category)">
+            <mat-checkbox [checked]="isSelectedFlowCategory(category)">{{category.name}}</mat-checkbox>
+          </button>
+        }
+      </mat-menu>
+      <button mat-button (click)="switchToOldFrontend()">
+        Switch to old frontend
+      </button>
+      <button mat-icon-button [matMenuTriggerFor]="overflowMenu" aria-label="More options">
+        <mat-icon>more_vert</mat-icon>
+      </button>
+      <div class="settings-button-wrapper">
+        <button mat-icon-button [matMenuTriggerFor]="settingsMenu" #settingsTrigger="matMenuTrigger" #settingsButton aria-label="Settings" i18n-aria-label="Settings">
+          <mat-icon>settings</mat-icon>
+        </button>
+
+        <!-- Coach Mark Bubble -->
+        <div *ngIf="showColorOnboarding" class="coach-mark-bubble">
+          <div class="coach-mark-title">Updated Trace Colors</div>
+          <div class="coach-mark-content">
+            We’ve refreshed the Trace Viewer colors for better clarity. If you’re a fan of the V1 classics, you can easily toggle them back in Settings.
+          </div>
+          <div class="coach-mark-actions">
+            <button mat-button color="primary" class="coach-mark-button" (click)="settingsTrigger.openMenu(); dismissColorOnboarding();">Open Settings</button>
+            <button mat-button class="coach-mark-button" (click)="dismissColorOnboarding()">Got it</button>
+          </div>
+          <!-- Arrow -->
+          <div class="coach-mark-arrow"></div>
+        </div>
+      </div>
+
+      <mat-menu #settingsMenu="matMenu">
+        <button mat-menu-item (click)="openColorPaletteSettings()">
+          <mat-icon>palette</mat-icon> Color Palette
+        </button>
+        <button mat-menu-item (click)="openFeatureFlagsSettings()">
+          <mat-icon>flag</mat-icon> Feature Flags
+        </button>
+      </mat-menu>
+      <mat-menu #overflowMenu="matMenu">
+        <button mat-menu-item (click)="toggleMpmdPipelineView()" matTooltip="Open Multiple-Program-Multiple-Data Pipeline View in a separate tab">
+          {{ mpmdPipelineViewEnabled ? 'Disable' : 'Open' }} MPMD Pipeline View
+        </button>
+      </mat-menu>
+    </div>
+  } @else {
+    <div class="right-controls">
+      <button mat-button (click)="switchToV2Frontend()">
+        Switch to Trace Viewer v2
+      </button>
+    </div>
+  }
+</div>
+
 <div [hidden]="!useTraceViewerV2" class="trace-viewer-component">
   <ng-container *ngIf="traceViewerV2LoadingStatus === TraceViewerV2LoadingStatus.ERROR">
     <div class="error-overlay">

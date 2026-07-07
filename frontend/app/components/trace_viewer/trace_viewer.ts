@@ -69,8 +69,7 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
-} from './constants';
-import {AdjacentNodesResponse} from './interfaces';
+} from '../trace_viewer_container/constants';
 import {
   FilterChangeEvent,
   FilterEntry,
@@ -80,12 +79,13 @@ import {
   FlowCategory,
   TraceEventFilter,
   TraceFilters,
-} from './trace_viewer_typings';
+} from '../trace_viewer_container/trace_viewer_typings';
 import {
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
   parseEventsSelectedData,
-} from './utils';
+} from '../trace_viewer_container/utils';
+import {AdjacentNodesResponse} from './interfaces';
 
 interface TraceData {
   traceEvents?: Array<{[key: string]: unknown}>;

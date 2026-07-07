@@ -6,14 +6,8 @@ package(default_visibility = ["//frontend:internal"])
 xprof_ng_module(
     name = "trace_viewer",
     srcs = [
-        "constants.ts",
-        "filter_chips.ts",
-        "filter_input.ts",
-        "interfaces.ts",
         "trace_viewer.ts",
         "trace_viewer_module.ts",
-        "trace_viewer_typings.ts",
-        "utils.ts",
     ],
     assets = [
         ":trace_viewer_css",
@@ -55,7 +49,6 @@ xprof_ng_module(
     testonly = True,
     srcs = [
         "trace_viewer_test.ts",
-        "utils_test.ts",
     ],
     deps = [
         ":trace_viewer",

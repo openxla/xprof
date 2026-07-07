@@ -17,9 +17,12 @@ import {
 } from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatDividerModule} from '@angular/material/divider';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatIconModule} from '@angular/material/icon';
 import {MatInputModule} from '@angular/material/input';
+import {MatMenuModule} from '@angular/material/menu';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSort, MatSortModule} from '@angular/material/sort';
@@ -31,12 +34,23 @@ import {
   LOADING_STATUS_UPDATE_EVENT_NAME,
   SEARCH_EVENTS_EVENT_NAME,
   SearchEventsEventDetail,
+  type TraceDetailKey,
+  type TraceDetails,
   TraceViewerV2LoadingStatus,
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, takeUntil} from 'rxjs/operators';
+import {FilterChips} from './filter_chips';
+import {FilterInput} from './filter_input';
+import {
+  FilterChangeEvent,
+  FilterEntry,
+  FilterField,
+  FilterRemoveEvent,
+  FlowCategory,
+} from './trace_viewer_typings';
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
 
@@ -227,11 +241,87 @@ declare interface TfTraceViewer {
     MatSortModule,
     MatTableModule,
     MatTabsModule,
+    MatDividerModule,
+    MatMenuModule,
+    MatCheckboxModule,
+    FilterChips,
+    FilterInput,
   ],
 })
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
+  @Input() hostList: string[] = [];
+  @Input() processList: string[] = [];
+  @Input() selectedFilters: FilterEntry[] = [];
+  @Input() validFilterFields: FilterField[] = [];
+  @Input() traceDetails: TraceDetails = new Map();
+  @Input() availableDetails: Array<{key: TraceDetailKey; label: string}> = [];
+  @Input() flowCategories: FlowCategory[] = [];
+  @Input() selectedFlowCategoryIds = new Set<number>();
+  @Input() showColorOnboarding = false;
+  @Input() mpmdPipelineViewEnabled = false;
+
+  @Output() readonly filterEdit = new EventEmitter<FilterChangeEvent>();
+  @Output() readonly filterRemove = new EventEmitter<FilterRemoveEvent>();
+  @Output() readonly filterAdd = new EventEmitter<FilterEntry>();
+  @Output() readonly toggleDetailEvent = new EventEmitter<{
+    key: TraceDetailKey;
+    checked: boolean;
+  }>();
+  @Output() readonly selectAllFlowCategoriesEvent = new EventEmitter<void>();
+  @Output() readonly selectNoneFlowCategoriesEvent = new EventEmitter<void>();
+  @Output() readonly toggleFlowCategoryEvent = new EventEmitter<FlowCategory>();
+  @Output() readonly switchToOldFrontendEvent = new EventEmitter<void>();
+  @Output() readonly switchToV2FrontendEvent = new EventEmitter<void>();
+  @Output() readonly dismissColorOnboardingEvent = new EventEmitter<void>();
+  @Output() readonly openColorPaletteSettingsEvent = new EventEmitter<void>();
+  @Output() readonly openFeatureFlagsSettingsEvent = new EventEmitter<void>();
+  @Output() readonly toggleMpmdPipelineViewEvent = new EventEmitter<void>();
+
+  onFilterEdit(event: FilterChangeEvent) {
+    this.filterEdit.emit(event);
+  }
+  onFilterRemove(event: FilterRemoveEvent) {
+    this.filterRemove.emit(event);
+  }
+  onFilterAdd(event: FilterEntry) {
+    this.filterAdd.emit(event);
+  }
+  toggleDetail(key: TraceDetailKey, checked: boolean) {
+    this.toggleDetailEvent.emit({key, checked});
+  }
+  selectAllFlowCategories() {
+    this.selectAllFlowCategoriesEvent.emit();
+  }
+  selectNoneFlowCategories() {
+    this.selectNoneFlowCategoriesEvent.emit();
+  }
+  toggleFlowCategory(category: FlowCategory) {
+    this.toggleFlowCategoryEvent.emit(category);
+  }
+  isSelectedFlowCategory(category: FlowCategory) {
+    return this.selectedFlowCategoryIds.has(category.id);
+  }
+  switchToOldFrontend() {
+    this.switchToOldFrontendEvent.emit();
+  }
+  switchToV2Frontend() {
+    this.switchToV2FrontendEvent.emit();
+  }
+  dismissColorOnboarding() {
+    this.dismissColorOnboardingEvent.emit();
+  }
+  openColorPaletteSettings() {
+    this.openColorPaletteSettingsEvent.emit();
+  }
+  openFeatureFlagsSettings() {
+    this.openFeatureFlagsSettingsEvent.emit();
+  }
+  toggleMpmdPipelineView() {
+    this.toggleMpmdPipelineViewEvent.emit();
+  }
+
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;

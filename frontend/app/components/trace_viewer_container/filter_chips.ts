@@ -1,3 +1,4 @@
+import {CommonModule} from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -6,12 +7,18 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import {MatChipEditedEvent} from '@angular/material/chips';
-
+import {FormsModule} from '@angular/forms';
 import {
   MatAutocomplete,
+  MatAutocompleteModule,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
+import {MatButtonModule} from '@angular/material/button';
+import {MatCheckboxModule} from '@angular/material/checkbox';
+import {MatChipEditedEvent, MatChipsModule} from '@angular/material/chips';
+import {MatIconModule} from '@angular/material/icon';
+import {MatTooltipModule} from '@angular/material/tooltip';
+
 import {BehaviorSubject} from 'rxjs';
 import {
   FilterFieldCategory,
@@ -29,8 +36,18 @@ const CHIP_TEXT_MAX_LENGTH = 15;
  */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
-  standalone: false,
+  standalone: true,
   selector: 'filter-chips',
+  imports: [
+    CommonModule,
+    FormsModule,
+    MatAutocompleteModule,
+    MatButtonModule,
+    MatCheckboxModule,
+    MatChipsModule,
+    MatIconModule,
+    MatTooltipModule,
+  ],
   template: `
     <mat-chip-grid #chipGrid>
       <ng-container *ngFor="let filter of filters; let idx = index">
@@ -64,7 +81,7 @@ const CHIP_TEXT_MAX_LENGTH = 15;
               <mat-checkbox class="example-margin" [checked]="allOptionsSelected" (click)="onOperateAll($event)">{{allOptionsLabel}}</mat-checkbox>
             </mat-option>
             <mat-option *ngFor="let option of (autoChipValueOptions | async) trackBy:trackByValue"
-              [value]="option.value" >
+               [value]="option.value" >
               <mat-checkbox class="example-margin" [(ngModel)]="option.checked" (click)="onClickChipOption($event)">{{option.value}}</mat-checkbox>
             </mat-option>
           </div>
@@ -72,7 +89,14 @@ const CHIP_TEXT_MAX_LENGTH = 15;
       </ng-container>
     </mat-chip-grid>
 `,
-  styleUrls: ['./trace_viewer.css'],
+  styles: [
+    `
+    .filter-chip {
+      background-color: #e8f0fe;
+      margin: 4px 5px 4px 0;
+    }
+  `,
+  ],
 })
 export class FilterChips {
   @Input() filters: FilterEntry[] = [];

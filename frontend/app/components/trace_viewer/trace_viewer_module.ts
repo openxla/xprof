@@ -15,13 +15,11 @@ import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_view
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 
-import {FilterChips} from './filter_chips';
-import {FilterInput} from './filter_input';
 import {TraceViewer} from './trace_viewer';
 
 /** A trace viewer module. */
 @NgModule({
-  declarations: [TraceViewer, FilterChips, FilterInput],
+  declarations: [TraceViewer],
   imports: [
     CommonModule,
     FormsModule,

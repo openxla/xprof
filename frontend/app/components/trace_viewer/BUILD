@@ -22,6 +22,7 @@ xprof_ng_module(
     deps = [
         "@npm//@angular/common",
         "@npm//@angular/core",
+        "@npm//@angular/core_rxjs_interop",
         "@npm//@angular/forms",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
@@ -62,6 +63,8 @@ xprof_ng_module(
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/common",
+        "@npm//@angular/core",
+        "@npm//@angular/core_testing",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//rxjs",

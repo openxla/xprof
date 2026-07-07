@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   inject,
   Injector,
   OnDestroy,
@@ -12,6 +13,7 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -48,14 +50,13 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {combineLatest, Observable, of} from 'rxjs';
 import {
   catchError,
   debounceTime,
   distinctUntilChanged,
   finalize,
   switchMap,
-  takeUntil,
   tap,
 } from 'rxjs/operators';
 import {
@@ -160,7 +161,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
   styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
-  private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly destroyRef = inject(DestroyRef);
   private isDestroyed = false;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
@@ -207,10 +208,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly pendingAdjacentNodesFetches = new Set<string>();
   private queryString = '';
   searching = false;
-  private readonly searchQuery = new ReplaySubject<string>(1);
+  private readonly searchQuerySubject = new ReplaySubject<string>(1);
   /** @export */
   get searchQueryForTesting(): Observable<string> {
-    return this.searchQuery;
+    return this.searchQuerySubject;
   }
   readonly availableDetails: Array<{key: TraceDetailKey; label: string}> = [
     {key: 'full_dma', label: 'Full DMA'},
@@ -404,7 +405,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.route.queryParams,
       this.store.select(getHostsState),
     ])
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(([params, queryParams, hostsMetadata]) => {
         if (hostsMetadata && hostsMetadata.length > 0) {
           this.hostList = hostsMetadata.map(
@@ -440,16 +441,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // UI accordingly.
     sourceCodeService
       ?.isAvailable()
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
       });
   }
 
   ngOnInit(): void {
-    this.searchQuery
+    this.searchQuerySubject
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         debounceTime(300),
         distinctUntilChanged(),
         tap<string>(() => {
@@ -623,9 +624,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.traceViewerModule = null;
       }
     } finally {
-      // Unsubscribes all pending subscriptions.
-      this.destroyed.next();
-      this.destroyed.complete();
       window.removeEventListener(
         DETAILS_RECEIVED_EVENT_NAME,
         this.detailsReceivedEventListener,
@@ -799,7 +797,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const app = this.traceViewerModule.application.instance();
     app.setSearchQuery(query);
     this.container?.updateSearchResultCountText();
-    this.searchQuery.next(query);
+    this.searchQuerySubject.next(query);
   }
 
   onInitializeWasm() {
@@ -872,7 +870,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((data) => {
         const traceData = data as TraceData;
         if (
@@ -944,20 +942,27 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         finalize(() => {
           this.pendingAdjacentNodesFetches.delete(key);
         }),
       )
-      .subscribe((data) => {
-        if (isAdjacentNodesResponse(data)) {
-          this.hloAdjacentNodesCache.set(key, data);
-          this.injectAdjacentNodes({
-            adjacentNodes: data,
-            targetNodeName: name,
-            targetModuleName: module,
-          });
-        }
+      .subscribe({
+        next: (data) => {
+          if (this.isDestroyed) return;
+          if (isAdjacentNodesResponse(data)) {
+            this.hloAdjacentNodesCache.set(key, data);
+            this.injectAdjacentNodes({
+              adjacentNodes: data,
+              targetNodeName: name,
+              targetModuleName: module,
+            });
+          }
+        },
+        error: (error: unknown) => {
+          if (this.isDestroyed) return;
+          console.error('Failed to fetch adjacent nodes:', error);
+        },
       });
   }
 

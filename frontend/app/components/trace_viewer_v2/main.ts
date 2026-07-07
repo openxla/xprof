@@ -135,6 +135,9 @@ declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
+    loadWasmTraceViewerModule?: (
+      options?: Record<string, unknown>,
+    ) => Promise<TraceViewerV2Module>;
   }
 }
 
@@ -213,12 +216,27 @@ declare global {
 }
 
 /**
+ * Interface representing raw trace event data where properties are strings or numbers.
+ */
+export interface RawData {
+  [key: string]: string | number;
+}
+
+/**
+ * Interface representing generic JSON data structures with indexable properties.
+ */
+export interface JsonData {
+  [key: string]: string | number | boolean | object | null | undefined;
+}
+
+/**
  * Interface for the trace data loaded by the trace viewer.
  */
 export declare interface TraceData {
-  traceEvents: Array<{[key: string]: unknown}>;
+  traceEvents: RawData[];
   fullTimespan?: [number, number];
   details?: TraceDetails;
+  [key: string]: string | number | boolean | object | null | undefined;
 }
 
 /**
@@ -226,31 +244,37 @@ export declare interface TraceData {
  * @param data The object to check.
  * @return True if the object is a TraceData object.
  */
-export function isTraceData(data: unknown): data is TraceData {
+export function isTraceData(
+  data: JsonData | null | undefined,
+): data is TraceData {
   return (
     typeof data === 'object' &&
     data !== null &&
     data.hasOwnProperty('traceEvents') &&
-    Array.isArray((data as TraceData).traceEvents)
+    Array.isArray((data as JsonData)['traceEvents'])
   );
 }
 
 /**
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
-function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+function maybeDispatchDetailsReceivedEvent(jsonData: TraceData): void {
+  const rawDetails = jsonData['details'] as
+    | JsonData
+    | JsonData[]
+    | null
+    | undefined;
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
   if (Array.isArray(rawDetails)) {
     for (const d of rawDetails) {
-      if (d && typeof d === 'object' && d.name === 'full_dma') {
-        details.set('full_dma', d.value);
+      if (d && typeof d === 'object' && d['name'] === 'full_dma') {
+        details.set('full_dma', d['value'] as boolean);
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
-    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    const rawDetailsObj = rawDetails as JsonData;
     if (rawDetailsObj['full_dma'] !== undefined) {
       details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
     }
@@ -280,7 +304,7 @@ interface RegisteredListener {
 
 const registeredEventListeners: RegisteredListener[] = [];
 
-function registerWindowListener(type: string, listener: EventListener) {
+function registerWindowListener(type: string, listener: EventListener): void {
   window.addEventListener(type, listener);
   registeredEventListeners.push({type, listener});
 }
@@ -289,12 +313,15 @@ function registerWindowListener(type: string, listener: EventListener) {
  * Shuts down the active Trace Viewer v2 WASM application and cleans up
  * resources, including event listeners and WASM memory.
  */
-export function shutdownTraceViewerV2() {
+export function shutdownTraceViewerV2(): void {
   if (activeWasmModule) {
     try {
       activeWasmModule.application.instance().shutdown();
     } catch (e) {
-      console.error('Error during WASM shutdown:', e);
+      console.error(
+        'Error during WASM shutdown:',
+        e instanceof Error ? e.message : String(e),
+      );
     }
     activeWasmModule = null;
   }
@@ -320,12 +347,11 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  // tslint:disable-next-line:no-any
-  (device as any).lost
-    .then(() => {
+  void device.lost
+    .then((): void => {
       throw new Error('WebGPU Cannot be initialized - Device has been lost');
     })
-    .catch(() => {});
+    .catch((): void => {});
   return device;
 }
 

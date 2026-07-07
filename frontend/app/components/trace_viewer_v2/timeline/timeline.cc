@@ -684,7 +684,6 @@ void Timeline::Draw() {
 
     if (track_management_enabled_) {
       if (group.nesting_level == kProcessNestingLevel) {
-        ImGui::SameLine();
         const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
         ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
                             kSplitterOffset - kArrowSize);

@@ -92,7 +92,9 @@ pytype_strict_library(
 pytype_strict_library(
     name = "detect_layout_mismatch_copies_tool",
     srcs = ["detect_layout_mismatch_copies_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//plugin:__subpackages__",
+    ],
     deps = [
         ":get_top_hlo_ops_tool",
         "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",

@@ -1,4 +1,3 @@
-import collections
 import json
 from unittest import mock
 
@@ -666,17 +665,8 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
     id_to_comp = {comp.id: comp}
     id_to_users = {40: [50, 60], 50: [70]}
 
-    comp_id_by_instr_id = {instr.id: comp.id for instr in comp.instructions}
-    callers_by_comp_id = collections.defaultdict(list)
-    root_id_by_comp_id = {comp.id: comp.root_id}
-
     upstream = detect_layout_mismatch_copies_tool.find_upstream_compute_stages(
-        40,
-        id_to_instr,
-        id_to_comp,
-        comp_id_by_instr_id,
-        callers_by_comp_id,
-        max_depth=5,
+        40, id_to_instr, id_to_comp, max_depth=5
     )
     upstream_names = [u.name for u, _ in upstream]
     self.assertIn("dot0", upstream_names)
@@ -684,14 +674,7 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
 
     downstream = (
         detect_layout_mismatch_copies_tool.find_downstream_compute_stages(
-            40,
-            id_to_instr,
-            id_to_users,
-            id_to_comp,
-            comp_id_by_instr_id,
-            callers_by_comp_id,
-            root_id_by_comp_id,
-            max_depth=5,
+            40, id_to_instr, id_to_users, id_to_comp, max_depth=5
         )
     )
     downstream_names = [d.name for d, _ in downstream]

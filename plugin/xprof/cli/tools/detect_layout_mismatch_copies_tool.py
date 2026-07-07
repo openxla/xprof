@@ -5,7 +5,6 @@ from collections.abc import Mapping, Sequence
 import itertools
 import json
 import logging
-import time
 import types
 from typing import Any, Callable, TypedDict
 
@@ -521,8 +520,6 @@ def find_upstream_compute_stages(
     copy_instr_id: int,
     instr_by_id: Mapping[int, Any],
     comp_by_id: Mapping[int, Any],
-    comp_id_by_instr_id: Mapping[int, int],
-    callers_by_comp_id: Mapping[int, Sequence[int]],
     max_depth: int = 5,
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive producers upstream from a copy instruction.
@@ -533,9 +530,6 @@ def find_upstream_compute_stages(
     copy_instr_id: The instruction ID of the starting HLO Copy operation.
     instr_by_id: A mapping from HLO instruction IDs to instruction protos.
     comp_by_id: A mapping from computation IDs to computation protos.
-    comp_id_by_instr_id: A mapping from instruction IDs to their computation ID.
-    callers_by_comp_id: A mapping from computation IDs to their caller
-      instruction IDs.
     max_depth: The maximum depth of the dataflow graph traversal (in number of
       hops).
 
@@ -545,6 +539,17 @@ def find_upstream_compute_stages(
         operation, a Constant, or a module-level Parameter.
       - int: The topological distance (hops) from the copy instruction.
   """
+  callers_by_comp_id = collections.defaultdict(list)
+  comp_id_by_instr_id = {}
+
+  for instr in instr_by_id.values():
+    for comp_id in instr.called_computation_ids:
+      callers_by_comp_id[comp_id].append(instr.id)
+
+  for comp_id, comp in comp_by_id.items():
+    for instr in comp.instructions:
+      comp_id_by_instr_id[instr.id] = comp_id
+
   visited = {(copy_instr_id, ())}
   queue = collections.deque([(copy_instr_id, (), 0)])
   upstream_producers = []
@@ -672,9 +677,6 @@ def find_downstream_compute_stages(
     instr_by_id: Mapping[int, Any],
     users_by_id: Mapping[int, Sequence[int]],
     comp_by_id: Mapping[int, Any],
-    comp_id_by_instr_id: Mapping[int, int],
-    callers_by_comp_id: Mapping[int, Sequence[int]],
-    root_id_by_comp_id: Mapping[int, int],
     max_depth: int = 5,
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive consumers downstream from a copy instruction.
@@ -686,11 +688,6 @@ def find_downstream_compute_stages(
     instr_by_id: A mapping from HLO instruction IDs to instruction protos.
     users_by_id: A mapping from instruction IDs to their user instruction IDs.
     comp_by_id: A mapping from computation IDs to computation protos.
-    comp_id_by_instr_id: A mapping from instruction IDs to their computation ID.
-    callers_by_comp_id: A mapping from computation IDs to their caller
-      instruction IDs.
-    root_id_by_comp_id: A mapping from computation IDs to their root
-      instruction ID.
     max_depth: The maximum depth of the dataflow graph traversal (in number of
       hops).
 
@@ -699,6 +696,19 @@ def find_downstream_compute_stages(
       - Any: The downstream compute-intensive HLO instruction proto.
       - int: The topological distance (hops) from the copy instruction.
   """
+  callers_by_comp_id = collections.defaultdict(list)
+  comp_id_by_instr_id = {}
+  root_id_by_comp_id = {}
+
+  for instr in instr_by_id.values():
+    for comp_id in instr.called_computation_ids:
+      callers_by_comp_id[comp_id].append(instr.id)
+
+  for comp_id, comp in comp_by_id.items():
+    root_id_by_comp_id[comp_id] = comp.root_id
+    for instr in comp.instructions:
+      comp_id_by_instr_id[instr.id] = comp_id
+
   visited = {(copy_instr_id, ())}
   queue = collections.deque([(copy_instr_id, (), 0)])
   compute_consumers = []
@@ -853,8 +863,6 @@ def detect_layout_mismatch_copies(
     refactoring recommendations.
   """
   try:
-    total_start_time = time.time()
-
     debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
     if not debug_info.hlo_proto:
       return json.dumps({"error": "No HLO proto found in the session."})
@@ -886,8 +894,6 @@ def detect_layout_mismatch_copies(
           "Failed to fetch or parse top HLO ops: %r", e, exc_info=True
       )
 
-    core_logic_start_time = time.time()
-
     inefficient_ops = []
 
     for hlo_proto in debug_info.hlo_proto:
@@ -901,19 +907,12 @@ def detect_layout_mismatch_copies(
           comp.id: comp.name for comp in module_proto.computations
       }
       instr_id_to_comp_id = {}
-      callers_by_comp_id = collections.defaultdict(list)
-      comp_id_by_instr_id = {}
-      root_id_by_comp_id = {}
 
       for comp in module_proto.computations:
         comp_by_id[comp.id] = comp
-        root_id_by_comp_id[comp.id] = comp.root_id
         for instr in comp.instructions:
           instr_id_to_comp_id[instr.id] = comp.id
-          comp_id_by_instr_id[instr.id] = comp.id
           instr_by_id[instr.id] = instr
-          for comp_id in instr.called_computation_ids:
-            callers_by_comp_id[comp_id].append(instr.id)
           for operand_id in instr.operand_ids:
             users_by_id[operand_id].append(instr.id)
 
@@ -930,22 +929,10 @@ def detect_layout_mismatch_copies(
           continue
 
         upstream_producers = find_upstream_compute_stages(
-            instr.id,
-            instr_by_id,
-            comp_by_id,
-            comp_id_by_instr_id,
-            callers_by_comp_id,
-            max_depth=5,
+            instr.id, instr_by_id, comp_by_id, max_depth=5
         )
         downstream_stages = find_downstream_compute_stages(
-            instr.id,
-            instr_by_id,
-            users_by_id,
-            comp_by_id,
-            comp_id_by_instr_id,
-            callers_by_comp_id,
-            root_id_by_comp_id,
-            max_depth=5,
+            instr.id, instr_by_id, users_by_id, comp_by_id, max_depth=5
         )
 
         if upstream_producers and downstream_stages:
@@ -1067,23 +1054,6 @@ def detect_layout_mismatch_copies(
       )
     else:
       message = "No layout mismatch copy bottlenecks detected."
-
-    core_logic_end_time = time.time()
-    core_logic_time_ms = (core_logic_end_time - core_logic_start_time) * 1000.0
-    core_logic_time_s = core_logic_end_time - core_logic_start_time
-    total_end_time = time.time()
-    total_time_ms = (total_end_time - total_start_time) * 1000.0
-    total_time_s = total_end_time - total_start_time
-
-    logging.info(
-        "Layout mismatch copy detection metrics - "
-        "Total wall clock time: %.2fs (%.2fms), "
-        "Core logic processing time: %.2fs (%.2fms)",
-        total_time_s,
-        total_time_ms,
-        core_logic_time_s,
-        core_logic_time_ms,
-    )
 
     return json.dumps(
         {

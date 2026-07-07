@@ -5,8 +5,10 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   OnDestroy,
@@ -15,6 +17,7 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {FormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -35,8 +38,8 @@ import {
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
-import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
-import {debounceTime, takeUntil} from 'rxjs/operators';
+import {interval, Subject, Subscription} from 'rxjs';
+import {debounceTime} from 'rxjs/operators';
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
 
@@ -379,17 +382,19 @@ export class TraceViewerContainer
   timelineHeightPercent = 100;
   detailHeightPercent = 0;
 
-  /** Handles on-destroy Subject, used to unsubscribe. */
-  private readonly destroyed = new ReplaySubject<void>(1);
+  isDestroyed = false;
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     this.search$
-      .pipe(debounceTime(300), takeUntil(this.destroyed))
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
       .subscribe((query) => {
-        this.currentSearchQuery = query;
-        this.searchEvents.emit({events_query: query});
+        this.currentSearchQuery = query as string;
+        this.searchEvents.emit({events_query: query as string});
         if (this.traceViewerModule) {
-          this.traceViewerModule.application.instance().setSearchQuery(query);
+          this.traceViewerModule.application
+            .instance()
+            .setSearchQuery(query as string);
           this.updateSearchResultCountText();
         } else if (!query) {
           this.searchResultCountText = '';
@@ -432,6 +437,7 @@ export class TraceViewerContainer
   }
 
   ngOnDestroy() {
+    this.isDestroyed = true;
     window.removeEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -456,9 +462,6 @@ export class TraceViewerContainer
       window.removeEventListener('mouseup', this.mouseUpEventListener);
       window.removeEventListener('keydown', this.keyDownEventListener);
     }
-    // Unsubscribes all pending subscriptions.
-    this.destroyed.next();
-    this.destroyed.complete();
     this.stopTutorialRotation();
   }
 
@@ -622,7 +625,7 @@ export class TraceViewerContainer
     if (this.tutorialSubscription) return;
 
     this.tutorialSubscription = interval(TUTORIAL_ROTATION_INTERVAL_MS)
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         this.currentTutorialIndex =
           (this.currentTutorialIndex + 1) % this.tutorials.length;

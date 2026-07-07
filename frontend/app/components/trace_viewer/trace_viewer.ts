@@ -4,6 +4,7 @@ import {PlatformLocation} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   inject,
   Injector,
@@ -153,13 +154,14 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyed = new ReplaySubject<void>(1);
   private isDestroyed = false;
   private isInitializing = false;
@@ -260,9 +262,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Updates the local value of a feature flag.
    */
   onFeatureFlagChange(id: string, value: boolean): void {
-    const flag = this.featureFlags.find((f) => f.id === id);
-    if (flag) {
-      flag.value = value;
+    try {
+      const flag = this.featureFlags.find((f) => f.id === id);
+      if (flag) {
+        flag.value = value;
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
@@ -270,36 +276,44 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Saves the current feature flag values to local storage and reloads the page.
    */
   saveFeatureFlags(): void {
-    for (const f of this.featureFlags) {
-      const key = FEATURE_FLAG_STORAGE_PREFIX + f.id;
-      if (f.value === f.default) {
-        window.localStorage.removeItem(key);
-      } else {
-        window.localStorage.setItem(key, f.value ? 'true' : 'false');
+    try {
+      for (const f of this.featureFlags) {
+        const key = FEATURE_FLAG_STORAGE_PREFIX + f.id;
+        if (f.value === f.default) {
+          window.localStorage.removeItem(key);
+        } else {
+          window.localStorage.setItem(key, f.value ? 'true' : 'false');
+        }
       }
+      this.dialog.closeAll();
+      window.location.reload();
+    } finally {
+      this.cdr.markForCheck();
     }
-    this.dialog.closeAll();
-    window.location.reload();
   }
 
   /**
    * Opens the feature flags settings dialog and captures initial state.
    */
   openFeatureFlagsSettings(): void {
-    // Reset this.featureFlags to the values currently in local storage.
-    // This ensures that if a user made changes and canceled previously,
-    // the dialog reopens with the persisted state.
-    this.featureFlags = loadFeatureFlagsFromStorage();
+    try {
+      // Reset this.featureFlags to the values currently in local storage.
+      // This ensures that if a user made changes and canceled previously,
+      // the dialog reopens with the persisted state.
+      this.featureFlags = loadFeatureFlagsFromStorage();
 
-    // Capture the initial state after resetting from local storage.
-    const newInitialFeatureFlags = new Map<string, boolean>();
-    for (const f of this.featureFlags) {
-      newInitialFeatureFlags.set(f.id, f.value);
+      // Capture the initial state after resetting from local storage.
+      const newInitialFeatureFlags = new Map<string, boolean>();
+      for (const f of this.featureFlags) {
+        newInitialFeatureFlags.set(f.id, f.value);
+      }
+      this.initialFeatureFlags = newInitialFeatureFlags;
+      this.dialog.open(this.featureFlagsDialog, {
+        width: '400px',
+      });
+    } finally {
+      this.cdr.markForCheck();
     }
-    this.initialFeatureFlags = newInitialFeatureFlags;
-    this.dialog.open(this.featureFlagsDialog, {
-      width: '400px',
-    });
   }
 
   get filterSelectedHosts(): string[] {
@@ -406,20 +420,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     ])
       .pipe(takeUntil(this.destroyed))
       .subscribe(([params, queryParams, hostsMetadata]) => {
-        if (hostsMetadata && hostsMetadata.length > 0) {
-          this.hostList = hostsMetadata.map(
-            (host: HostMetadata) => host.hostname,
-          );
-        }
         try {
-          this.useTraceViewerV2 =
-            queryParams['use_trace_viewer_v2'] === 'true' ||
-            window.localStorage.getItem('use_trace_viewer_v2') === 'true';
-        } catch {
-          this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
+          if (hostsMetadata && hostsMetadata.length > 0) {
+            this.hostList = hostsMetadata.map(
+              (host: HostMetadata) => host.hostname,
+            );
+          }
+          try {
+            this.useTraceViewerV2 =
+              queryParams['use_trace_viewer_v2'] === 'true' ||
+              window.localStorage.getItem('use_trace_viewer_v2') === 'true';
+          } catch {
+            this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
+          }
+          this.navigationEvent = {...params, ...queryParams};
+          this.update(this.navigationEvent);
+        } finally {
+          this.cdr.markForCheck();
         }
-        this.navigationEvent = {...params, ...queryParams};
-        this.update(this.navigationEvent);
       });
 
     // Event listeners are handled by TraceViewerContainer.
@@ -442,7 +460,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       ?.isAvailable()
       .pipe(takeUntil(this.destroyed))
       .subscribe((isAvailable) => {
-        this.sourceCodeServiceIsAvailable = isAvailable;
+        try {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        } finally {
+          this.cdr.markForCheck();
+        }
       });
   }
 
@@ -482,15 +504,19 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }),
       )
       .subscribe((data) => {
-        this.searching = false;
-        if (this.traceViewerModule && data) {
-          // Type contract is guaranteed by the backend response structure.
-          const traceData = data as TraceData;
-          this.traceViewerModule.setSearchResultsInWasm({
-            ...traceData,
-            traceEvents: traceData.traceEvents ?? [],
-          } as MainTraceData);
-          this.container?.updateSearchResultCountText();
+        try {
+          this.searching = false;
+          if (this.traceViewerModule && data) {
+            // Type contract is guaranteed by the backend response structure.
+            const traceData = data as TraceData;
+            this.traceViewerModule.setSearchResultsInWasm({
+              ...traceData,
+              traceEvents: traceData.traceEvents ?? [],
+            } as MainTraceData);
+            this.container?.updateSearchResultCountText();
+          }
+        } finally {
+          this.cdr.markForCheck();
         }
       });
   }
@@ -675,137 +701,161 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   // START Trace Viewer V2 WASM App Methods
 
   onEventSelected(event: EntrySelectedEventDetail | null) {
-    if (!event) {
-      this.selectedEvent = null;
-      this.selectedEventProperties = [];
+    try {
+      if (!event) {
+        this.selectedEvent = null;
+        this.selectedEventProperties = [];
+        this.selectionStartFormat = undefined;
+        this.selectionExtentFormat = undefined;
+        return;
+      }
+      this.updateWasmProcessMappings();
       this.selectionStartFormat = undefined;
       this.selectionExtentFormat = undefined;
-      return;
-    }
-    this.updateWasmProcessMappings();
-    this.selectionStartFormat = undefined;
-    this.selectionExtentFormat = undefined;
-    this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+      this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
 
-    const {
-      name,
-      startUsFormatted,
-      durationUsFormatted,
-      hloModuleName,
-      hloOpName,
-      uid,
-      startUs,
-      durationUs,
-      pid,
-    } = event;
+      const {
+        name,
+        startUsFormatted,
+        durationUsFormatted,
+        hloModuleName,
+        hloOpName,
+        uid,
+        startUs,
+        durationUs,
+        pid,
+      } = event;
 
-    this.selectedEvent = {
-      name,
-      startUsFormatted,
-      durationUsFormatted,
-    };
+      this.selectedEvent = {
+        name,
+        startUsFormatted,
+        durationUsFormatted,
+      };
 
-    const properties: SelectedEventProperty[] = [];
-    properties.push({property: 'Name', value: name});
-    properties.push({property: 'Start Time', value: startUsFormatted});
-    properties.push({property: 'Duration', value: durationUsFormatted});
-    if (hloModuleName) {
-      properties.push({property: 'HLO Module', value: hloModuleName});
-    }
-    if (hloOpName) {
-      properties.push({property: 'HLO Op', value: hloOpName});
-    }
-    this.selectedEventProperties = properties;
+      const properties: SelectedEventProperty[] = [];
+      properties.push({property: 'Name', value: name});
+      properties.push({property: 'Start Time', value: startUsFormatted});
+      properties.push({property: 'Duration', value: durationUsFormatted});
+      if (hloModuleName) {
+        properties.push({property: 'HLO Module', value: hloModuleName});
+      }
+      if (hloOpName) {
+        properties.push({property: 'HLO Op', value: hloOpName});
+      }
+      this.selectedEventProperties = properties;
 
-    if (uid) {
-      this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
+      if (uid) {
+        this.maybeFetchEventArgs({name, startUs, durationUs, uid, pid});
+      }
+      this.maybeFetchAdjacentNodes();
+    } finally {
+      this.cdr.markForCheck();
     }
-    this.maybeFetchAdjacentNodes();
   }
 
   updateWasmProcessMappings() {
-    const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
-    for (const [pid, host] of mappings.entries()) {
-      this.pidToHostMap.set(pid, host);
-    }
+    try {
+      const mappings = getProcessMappingsFromWasm(this.traceViewerModule);
+      for (const [pid, host] of mappings.entries()) {
+        this.pidToHostMap.set(pid, host);
+      }
 
-    const processNames = getProcessNamesFromWasm(this.traceViewerModule);
-    const uniqueHosts = new Set<string>(this.hostList);
-    const hostToProcessList: {[host: string]: Set<string>} = {};
+      const processNames = getProcessNamesFromWasm(this.traceViewerModule);
+      const uniqueHosts = new Set<string>(this.hostList);
+      const hostToProcessList: {[host: string]: Set<string>} = {};
 
-    for (const [pid, processName] of processNames.entries()) {
-      if (processName) {
-        const host = processName.split(' ')[0];
-        if (host) {
-          uniqueHosts.add(host);
-          if (!hostToProcessList[host]) {
-            hostToProcessList[host] = new Set<string>();
+      for (const [pid, processName] of processNames.entries()) {
+        if (processName) {
+          const host = processName.split(' ')[0];
+          if (host) {
+            uniqueHosts.add(host);
+            if (!hostToProcessList[host]) {
+              hostToProcessList[host] = new Set<string>();
+            }
+            hostToProcessList[host].add(`${host} ${processName} (pid ${pid})`);
           }
-          hostToProcessList[host].add(`${host} ${processName} (pid ${pid})`);
         }
       }
-    }
 
-    if (uniqueHosts.size > 0) {
-      this.hostList = Array.from(uniqueHosts).sort();
-    }
+      if (uniqueHosts.size > 0) {
+        this.hostList = Array.from(uniqueHosts).sort();
+      }
 
-    for (const host of Object.keys(hostToProcessList)) {
-      this.processes[host] = Array.from(hostToProcessList[host]).sort();
+      for (const host of Object.keys(hostToProcessList)) {
+        this.processes[host] = Array.from(hostToProcessList[host]).sort();
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   onEventsSelected(event: EventsSelectedEventDetail | null) {
-    if (!event) {
-      this.selectedEvent = null;
-      this.selectedEventProperties = [];
-      this.selectionStartFormat = undefined;
-      this.selectionExtentFormat = undefined;
-      return;
-    }
-
-    this.selectedEvent = {
-      name: 'Multiple Events Selected',
-    };
-
     try {
-      const result = parseEventsSelectedData(event.events_selected_data);
-      this.selectedEventProperties = result.properties;
-      this.selectionStartFormat = result.selectionStartFormat;
-      this.selectionExtentFormat = result.selectionExtentFormat;
-
-      if (result.isCounter) {
-        this.eventDetailColumns = ['counter', 'series', 'time', 'value'];
-      } else {
-        this.eventDetailColumns = [
-          'name',
-          'occurrences',
-          'wallDuration',
-          'selfTime',
-          'avgWallDuration',
-        ];
+      if (!event) {
+        this.selectedEvent = null;
+        this.selectedEventProperties = [];
+        this.selectionStartFormat = undefined;
+        this.selectionExtentFormat = undefined;
+        return;
       }
-    } catch (e) {
-      console.error('Failed to parse events selected data:', e);
-      this.selectedEventProperties = [];
-      this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+
+      this.selectedEvent = {
+        name: 'Multiple Events Selected',
+      };
+
+      try {
+        const result = parseEventsSelectedData(event.events_selected_data);
+        this.selectedEventProperties = result.properties;
+        this.selectionStartFormat = result.selectionStartFormat;
+        this.selectionExtentFormat = result.selectionExtentFormat;
+
+        if (result.isCounter) {
+          this.eventDetailColumns = ['counter', 'series', 'time', 'value'];
+        } else {
+          this.eventDetailColumns = [
+            'name',
+            'occurrences',
+            'wallDuration',
+            'selfTime',
+            'avgWallDuration',
+          ];
+        }
+      } catch (e) {
+        console.error('Failed to parse events selected data:', e);
+        this.selectedEventProperties = [];
+        this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   onSearchEvents(detail: SearchEventsEventDetail): void {
-    const query = detail.events_query ?? '';
-    if (!this.traceViewerModule) return;
+    try {
+      const query = detail.events_query ?? '';
+      if (!this.traceViewerModule) return;
 
-    const app = this.traceViewerModule.application.instance();
-    app.setSearchQuery(query);
-    this.container?.updateSearchResultCountText();
-    this.searchQuery.next(query);
+      const app = this.traceViewerModule.application.instance();
+      app.setSearchQuery(query);
+      this.container?.updateSearchResultCountText();
+      this.searchQuery.next(query);
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   onInitializeWasm() {
-    setTimeout(() => {
-      this.initializeWasmApp();
-    });
+    try {
+      setTimeout(() => {
+        try {
+          this.initializeWasmApp();
+        } finally {
+          this.cdr.markForCheck();
+        }
+      });
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   private readonly pidToHostMap = new Map<number, string>();
@@ -874,24 +924,28 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       )
       .pipe(takeUntil(this.destroyed))
       .subscribe((data) => {
-        const traceData = data as TraceData;
-        if (
-          !traceData ||
-          !traceData.traceEvents ||
-          traceData.traceEvents.length === 0
-        ) {
-          return;
-        }
-        const lastEvent =
-          traceData.traceEvents[traceData.traceEvents.length - 1];
-        if (
-          lastEvent['ph'] === 'X' &&
-          this.selectedEvent &&
-          lastEvent['args']
-        ) {
-          const args = lastEvent['args'] as Record<string, string>;
-          this.eventArgsCache.set(cacheKey, args);
-          this.addArgsToSelectedEvent(args);
+        try {
+          const traceData = data as TraceData;
+          if (
+            !traceData ||
+            !traceData.traceEvents ||
+            traceData.traceEvents.length === 0
+          ) {
+            return;
+          }
+          const lastEvent =
+            traceData.traceEvents[traceData.traceEvents.length - 1];
+          if (
+            lastEvent['ph'] === 'X' &&
+            this.selectedEvent &&
+            lastEvent['args']
+          ) {
+            const args = lastEvent['args'] as Record<string, string>;
+            this.eventArgsCache.set(cacheKey, args);
+            this.addArgsToSelectedEvent(args);
+          }
+        } finally {
+          this.cdr.markForCheck();
         }
       });
   }
@@ -950,13 +1004,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }),
       )
       .subscribe((data) => {
-        if (isAdjacentNodesResponse(data)) {
-          this.hloAdjacentNodesCache.set(key, data);
-          this.injectAdjacentNodes({
-            adjacentNodes: data,
-            targetNodeName: name,
-            targetModuleName: module,
-          });
+        try {
+          if (isAdjacentNodesResponse(data)) {
+            this.hloAdjacentNodesCache.set(key, data);
+            this.injectAdjacentNodes({
+              adjacentNodes: data,
+              targetNodeName: name,
+              targetModuleName: module,
+            });
+          }
+        } finally {
+          this.cdr.markForCheck();
         }
       });
   }

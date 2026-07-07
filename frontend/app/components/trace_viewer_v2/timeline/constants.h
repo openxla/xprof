@@ -66,6 +66,10 @@ inline constexpr Pixel kEventPaddingRight = 1.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;
+inline constexpr Pixel kInstantEventChevronHalfWidth = 4.5f;
+inline constexpr Pixel kInstantEventChevronHeight = 15.5f;
+inline constexpr Pixel kInstantEventHoverChevronHalfWidth = 7.0f;
+inline constexpr Pixel kInstantEventHoverChevronHeight = 20.0f;
 inline constexpr Pixel kLabelPaddingLeft = 4.0f;
 inline constexpr Pixel kMinTextWidth = 5.0f;
 inline constexpr Pixel kMinUtilizationNormalization = 1.0f;

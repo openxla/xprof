@@ -1453,8 +1453,23 @@ void Timeline::DrawEvent(int group_index, int event_index,
   if (rect.right > rect.left) {
     const std::string& event_name = timeline_data_.entry_names[event_index];
 
-    const bool is_hovered = ImGui::IsMouseHoveringRect(
-        ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+    const bool is_instant =
+        timeline_data_.entry_total_times[event_index] <= 1e-06;
+    bool is_hovered = false;
+    // As the shapes for instant events are triangles, we need to check for
+    // hover in a different way than regular events.
+    if (is_instant) {
+      // Even if the instant event is triangular, to solve the "fat finger"
+      // problem, we still want to check for hover in a rectangle around the
+      // triangle.
+      is_hovered = ImGui::IsMouseHoveringRect(
+          ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
+          ImVec2(rect.left + kInstantEventChevronHalfWidth,
+                 rect.top + kInstantEventChevronHeight));
+    } else {
+      is_hovered = ImGui::IsMouseHoveringRect(
+          ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+    }
 
     const Pixel corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
@@ -1462,26 +1477,29 @@ void Timeline::DrawEvent(int group_index, int event_index,
     const ImU32 event_color =
         GetColorForId(event_name, palette_.GetTraceColors());
 
-    const bool is_instant = timeline_data_.entry_total_times[event_index] == 0;
+    ImVec2 top, left_bottom, right_bottom;
     if (is_instant) {
       const Pixel centerX = rect.left;
-      const Pixel chevron_half_width = 3.0f;
-      const Pixel chevron_height = 7.0f;
+      const Pixel chevron_half_width =
+          is_hovered ? kInstantEventHoverChevronHalfWidth
+                     : kInstantEventChevronHalfWidth;
+      const Pixel chevron_height = is_hovered ? kInstantEventHoverChevronHeight
+                                              : kInstantEventChevronHeight;
 
-      ImVec2 top(centerX, rect.top);
-      ImVec2 left_bottom(centerX - chevron_half_width,
-                         rect.top + chevron_height);
-      ImVec2 right_bottom(centerX + chevron_half_width,
-                          rect.top + chevron_height);
+      top = ImVec2(centerX, rect.top);
+      left_bottom = ImVec2(centerX - chevron_half_width,
+                           rect.top + chevron_height);
+      right_bottom = ImVec2(centerX + chevron_half_width,
+                            rect.top + chevron_height);
 
       // Add transparency (0.6 opacity) to the event color of instant events
-      // to help distinguish overlapping ones.
+      // to help distinguish overlapping ones. Use full opacity when hovered.
       const ImU32 transparent_color =
           (event_color & ~IM_COL32_A_MASK) |
           (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT);
+      const ImU32 color = is_hovered ? event_color : transparent_color;
 
-      draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
-                                   transparent_color);
+      draw_list->AddTriangleFilled(top, left_bottom, right_bottom, color);
     } else {
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                                ImVec2(rect.right, rect.bottom), event_color,
@@ -1490,9 +1508,16 @@ void Timeline::DrawEvent(int group_index, int event_index,
     if (is_hovered) {
       hovered_event_index_ = event_index;
       // Draw a semi-transparent overlay when the event is hovered.
-      draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
-                               ImVec2(rect.right, rect.bottom), kHoverMaskColor,
-                               corner_rounding, kImDrawFlags);
+      if (is_instant) {
+        draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
+                                     kHoverMaskColor);
+        draw_list->AddTriangle(top, left_bottom, right_bottom, event_color,
+                               2.0f);
+      } else {
+        draw_list->AddRectFilled(
+            ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom),
+            kHoverMaskColor, corner_rounding, kImDrawFlags);
+      }
 
       ImGui::SetTooltip(
           "%s (%s)", event_name.c_str(),
@@ -1545,8 +1570,12 @@ void Timeline::DrawEvent(int group_index, int event_index,
     if (selected_event_index_ == event_index) {
       if (is_instant) {
         const Pixel centerX = rect.left;
-        const Pixel chevron_half_width = 3.0f;
-        const Pixel chevron_height = 7.0f;
+        const Pixel chevron_half_width =
+            is_hovered ? kInstantEventHoverChevronHalfWidth
+                       : kInstantEventChevronHalfWidth;
+        const Pixel chevron_height =
+            is_hovered ? kInstantEventHoverChevronHeight
+                       : kInstantEventChevronHeight;
 
         ImVec2 top(centerX, rect.top);
         ImVec2 left_bottom(centerX - chevron_half_width,

@@ -2681,6 +2681,143 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
 }
 
 TEST_F(MockTimelineImGuiFixture,
+       DrawEvent_HoverInstantEvent_UsesTrianglesNotRectangles) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(0.0);  // Instant event
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin("TestWindow", nullptr,
+               ImGuiWindowFlags_NoScrollbar |
+                   ImGuiWindowFlags_NoScrollWithMouse);
+
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Set up parameters for DrawEventsForLevelBase
+  int group_index = 0;
+  std::vector<int> event_indices = {0};
+  double px_per = 1.0;
+  // Let TimeToScreenX(10.0, pos.x, px_per) = pos.x + 10.0 = 100.0
+  // (if pos.x = 90.0)
+  ImVec2 pos(90.0f, 100.0f);
+  ImVec2 max(1000.0f, 500.0f);
+  float event_height = 20.0f;
+  float padding_bottom = 0.0f;
+
+  // Hover position (event left is 100).
+  io.MousePos = ImVec2(100.0f, 102.0f);
+
+  ImDrawList* draw_list = window->DrawList;
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+
+  timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+                                   max, event_height, padding_bottom);
+
+  int hover_mask_vertices = 0;
+  for (int i = 0; i < draw_list->VtxBuffer.Size; i++) {
+    if (draw_list->VtxBuffer[i].col == kHoverMaskColor) {
+      hover_mask_vertices++;
+    }
+  }
+
+  // A correct implementation uses AddTriangleFilled for the instant event
+  // hover mask (3 vertices).
+  // The buggy implementation uses AddRectFilled (4 or 6 vertices).
+  EXPECT_EQ(hover_mask_vertices, 3);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEvent_SelectedHoveredInstantEvent_ChevronSizeIncreases) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(0.0);  // Instant event
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // select the instant event at index 0
+  timeline_.RevealEvent(0);
+
+  // Set up parameters
+  int group_index = 0;
+  std::vector<int> event_indices = {0};
+  double px_per = 1.0;
+  ImVec2 pos(90.0f, 100.0f);
+  ImVec2 max(1000.0f, 500.0f);
+  float event_height = 20.0f;
+  float padding_bottom = 0.0f;
+
+  auto measure_max_y = [&](bool hovered) {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowSize(ImVec2(1000, 500));
+    ImGui::Begin("TestWindow", nullptr,
+                 ImGuiWindowFlags_NoScrollbar |
+                     ImGuiWindowFlags_NoScrollWithMouse);
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (hovered) {
+      io.MousePos = ImVec2(100.0f, 102.0f);
+    } else {
+      io.MousePos = ImVec2(-100.0f, -100.0f);  // out of bounds
+    }
+
+    ImDrawList* draw_list = window->DrawList;
+    draw_list->VtxBuffer.resize(0);
+    draw_list->CmdBuffer.resize(0);
+
+    timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+                                     max, event_height, padding_bottom);
+
+    float max_y = -10000.0f;
+    for (int i = 0; i < draw_list->VtxBuffer.Size; i++) {
+      if (draw_list->VtxBuffer[i].col == kSelectedBorderColor) {
+         if (draw_list->VtxBuffer[i].pos.y > max_y) {
+           max_y = draw_list->VtxBuffer[i].pos.y;
+         }
+      }
+    }
+    ImGui::End();
+    ImGui::EndFrame();
+    return max_y;
+  };
+
+  float unhovered_max_y = measure_max_y(false);
+  float hovered_max_y = measure_max_y(true);
+
+  // When hovered, the chevron height increases from 15.5 to 20.0.
+  // We expect the max Y of the selected border vertices to reflect this
+  // increase.
+  EXPECT_GT(hovered_max_y, unhovered_max_y + 4.0f);
+  EXPECT_LT(hovered_max_y, unhovered_max_y + 5.0f);
+}
+
+TEST_F(MockTimelineImGuiFixture,
        DrawEventsForLevel_BinarySearchCorrectlySelectsVisibleEvents) {
   FlameChartTimelineData data;
 
@@ -5004,6 +5141,93 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
     }
   }
   EXPECT_TRUE(has_black_vertices);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Test Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.resize(1);
+  data.events_by_level[0].push_back(0);
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(0.000001);  // IS_INSTANT
+  data.entry_pids.push_back(1);
+  data.entry_event_ids.push_back(0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 200.0});
+
+  // Render first frame (keep mouse out of the way so it doesn't hover)
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* group_window = nullptr;
+  const std::string child_id = "TimelineChild_Test Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      group_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(group_window, nullptr);
+  ASSERT_FALSE(group_window->DrawList->VtxBuffer.empty());
+
+  // Find the position of the event from the first rendered vertex
+  // (which is the 'top' vertex of the chevron triangle).
+  ImVec2 top_vertex = group_window->DrawList->VtxBuffer[0].pos;
+  // The rect width is 2px (left to right is +/- 1.0f from center).
+  // The expanded chevron hover hit box is +/- 4.5f.
+  // We place the mouse at center X - 3.0f, which is outside the standard
+  // rect bounds but strictly inside the expanded triangle hit box.
+  ImVec2 target_pos(top_vertex.x - 3.0f, top_vertex.y + 5.0f);
+
+  ImGui::EndFrame();
+
+  // Next frame: Move mouse
+  ImGui::GetIO().MousePos = target_pos;
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Check if it triggered hover drawing (which draws the hover mask using
+  // kHoverMaskColor). We also want to verify the event color opacity behavior.
+  bool hover_triangle_found = false;
+
+  // ImGui returns pre-multiplied colors in some context via standard math.
+  // We just need to manually verify the alpha channel of the main triangle
+  // vertices.
+  // We'll peek through the buffers looking for `kHoverMaskColor` directly.
+  ImU32 original_opaque_test_color = 0;
+
+
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      for (const auto& vtx : w->DrawList->VtxBuffer) {
+        if (vtx.col == kHoverMaskColor) {
+          hover_triangle_found = true;
+        } else {
+          // If not the outline or the mask, it is the primary triangle fill.
+          // Capture one of its colors.
+          if (vtx.col != 0) {
+             original_opaque_test_color = vtx.col;
+          }
+        }
+      }
+    }
+  }
+  EXPECT_TRUE(hover_triangle_found);
+
+  // Extract alpha (highest 8 bits in IM_COL32 packed uint32).
+  // A fully opaque color alpha is 255.
+  ImU8 alpha = (original_opaque_test_color >> IM_COL32_A_SHIFT) & 0xFF;
+  EXPECT_EQ(alpha, 255) << "Triangle should be non-transparent when hovered!";
 
   ImGui::EndFrame();
 }

@@ -79,7 +79,4 @@ absl::Status UnifiedOverviewPageProcessor::ProcessCombinedOpStats(
   return absl::OkStatus();
 }
 
-REGISTER_UNIFIED_PROFILE_PROCESSOR("overview_page",
-                                   UnifiedOverviewPageProcessor);
-
 }  // namespace xprof

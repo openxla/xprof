@@ -227,7 +227,6 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
-    alwayslink = 1,
 )
 
 cc_library(
@@ -270,7 +269,6 @@ cc_library(
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
     ],
-    alwayslink = 1,
 )
 
 cc_library(
@@ -777,8 +775,8 @@ cc_test(
         ":file_utils",
         ":repository",
         ":tool_options",
-        ":unified_hlo_stats_processor",
         ":unified_profile_processor_factory",
+        ":unified_tools_registration",
         "//file/base",
         "//file/base:options_cc",
         "//file/base:path",
@@ -797,10 +795,10 @@ cc_test(
     deps = [
         ":base_hlo_processor",
         ":tool_options",
-        ":unified_memory_viewer_processor_registration",
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
         ":unified_session_snapshot",
+        ":unified_tools_registration",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
@@ -818,8 +816,8 @@ cc_test(
         ":file_utils",
         ":repository",
         ":tool_options",
-        ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
+        ":unified_tools_registration",
         "//file/base",
         "//file/base:options_cc",
         "//file/base:path",
@@ -840,9 +838,8 @@ cc_test(
         ":file_utils",
         ":repository",
         ":tool_options",
-        ":unified_op_profile_processor",
-        ":unified_op_profile_processor_registration",
         ":unified_profile_processor_factory",
+        ":unified_tools_registration",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/platform:path",
@@ -3016,10 +3013,13 @@ cc_library(
 )
 
 cc_library(
-    name = "unified_memory_viewer_processor_registration",
-    srcs = ["unified_memory_viewer_processor_registration.cc"],
+    name = "unified_tools_registration",
+    srcs = ["unified_tools_registration.cc"],
     deps = [
+        ":unified_hlo_stats_processor",
         ":unified_memory_viewer_processor",
+        ":unified_op_profile_processor",
+        ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
     ],
     alwayslink = 1,
@@ -3069,14 +3069,4 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
-)
-
-cc_library(
-    name = "unified_op_profile_processor_registration",
-    srcs = ["unified_op_profile_processor_registration.cc"],
-    deps = [
-        ":unified_op_profile_processor",
-        ":unified_profile_processor_factory",
-    ],
-    alwayslink = 1,
 )

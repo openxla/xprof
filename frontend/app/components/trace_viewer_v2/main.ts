@@ -213,12 +213,23 @@ declare global {
 }
 
 /**
+ * Defines a minification-safe raw details interface with an index signature.
+ */
+export interface RawDetailsData {
+  [key: string]: boolean | undefined;
+}
+
+/**
  * Interface for the trace data loaded by the trace viewer.
  */
 export declare interface TraceData {
+  [key: string]: unknown;
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
-  details?: TraceDetails;
+  details?:
+    | TraceDetails
+    | RawDetailsData
+    | Array<{name: string; value: boolean}>;
 }
 
 /**
@@ -239,7 +250,7 @@ export function isTraceData(data: unknown): data is TraceData {
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
 function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+  const rawDetails = jsonData.details;
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
@@ -249,8 +260,12 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
         details.set('full_dma', d.value);
       }
     }
+  } else if (rawDetails instanceof Map) {
+    if (rawDetails.has('full_dma')) {
+      details.set('full_dma', rawDetails.get('full_dma')!);
+    }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
-    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    const rawDetailsObj = rawDetails as unknown as Record<string, unknown>;
     if (rawDetailsObj['full_dma'] !== undefined) {
       details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
     }
@@ -736,6 +751,16 @@ async function loadCompressedTraceDataInternal(
   }
 }
 
+/**
+ * Checks whether the given URL represents a compressed protobuf trace data request.
+ */
+export function isCompressedProto(urlObj: URL): boolean {
+  return (
+    urlObj.searchParams.get('format') === 'pb' ||
+    urlObj.pathname.endsWith('.pb')
+  );
+}
+
 declare interface FetchDataEventDetail {
   start_time_ms: number;
   end_time_ms: number;
@@ -799,7 +824,7 @@ async function fetchAndProcessTraceData({
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
   try {
-    if (urlObj.pathname.endsWith('.pb')) {
+    if (isCompressedProto(urlObj)) {
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -1104,7 +1129,7 @@ export async function traceViewerV2Main(
         return;
       }
 
-      if (urlObj.pathname.endsWith('.pb')) {
+      if (isCompressedProto(urlObj)) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

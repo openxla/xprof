@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   inject,
   Injector,
   OnDestroy,
@@ -12,6 +13,7 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -55,7 +57,6 @@ import {
   distinctUntilChanged,
   finalize,
   switchMap,
-  takeUntil,
   tap,
 } from 'rxjs/operators';
 import {
@@ -160,7 +161,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
   styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
-  private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly destroyRef = inject(DestroyRef);
   private isDestroyed = false;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
@@ -302,6 +303,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
+  get usePb(): boolean {
+    interface NavigationEventWithFormat extends NavigationEvent {
+      format?: string;
+    }
+    return (this.navigationEvent as NavigationEventWithFormat).format === 'pb';
+  }
+
   get filterSelectedHosts(): string[] {
     const hostFilterEntry: FilterEntry | undefined = this.selectedFilters.find(
       (filterEntry) =>
@@ -404,7 +412,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.route.queryParams,
       this.store.select(getHostsState),
     ])
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(([params, queryParams, hostsMetadata]) => {
         if (hostsMetadata && hostsMetadata.length > 0) {
           this.hostList = hostsMetadata.map(
@@ -440,7 +448,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // UI accordingly.
     sourceCodeService
       ?.isAvailable()
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
       });
@@ -449,7 +457,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit(): void {
     this.searchQuery
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         debounceTime(300),
         distinctUntilChanged(),
         tap<string>(() => {
@@ -549,6 +557,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.queryString += `&run_path=${runPath}`;
     }
 
+    if (this.usePb) {
+      this.queryString += '&format=pb';
+    }
+
     let hostsString = '';
     if (event.hosts) {
       const hostsList = parseHostsList(event.hosts);
@@ -570,6 +582,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
     if (hostsString) {
       additionalParams.set('hosts', hostsString);
+    }
+
+    if (this.usePb) {
+      additionalParams.set('format', 'pb');
     }
 
     if (this.hasValidTraceFilters()) {
@@ -623,9 +639,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.traceViewerModule = null;
       }
     } finally {
-      // Unsubscribes all pending subscriptions.
-      this.destroyed.next();
-      this.destroyed.complete();
       window.removeEventListener(
         DETAILS_RECEIVED_EVENT_NAME,
         this.detailsReceivedEventListener,
@@ -872,7 +885,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((data) => {
         const traceData = data as TraceData;
         if (
@@ -944,20 +957,27 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         finalize(() => {
           this.pendingAdjacentNodesFetches.delete(key);
         }),
       )
-      .subscribe((data) => {
-        if (isAdjacentNodesResponse(data)) {
-          this.hloAdjacentNodesCache.set(key, data);
-          this.injectAdjacentNodes({
-            adjacentNodes: data,
-            targetNodeName: name,
-            targetModuleName: module,
-          });
-        }
+      .subscribe({
+        next: (data) => {
+          if (this.isDestroyed) return;
+          if (isAdjacentNodesResponse(data)) {
+            this.hloAdjacentNodesCache.set(key, data);
+            this.injectAdjacentNodes({
+              adjacentNodes: data,
+              targetNodeName: name,
+              targetModuleName: module,
+            });
+          }
+        },
+        error: (error: unknown) => {
+          if (this.isDestroyed) return;
+          console.error('Failed to fetch adjacent nodes:', error);
+        },
       });
   }
 

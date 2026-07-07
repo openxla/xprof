@@ -321,7 +321,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
     );
   }
   // tslint:disable-next-line:no-any
-  (device as any).lost
+  void (device as unknown as {lost: Promise<void>}).lost
     .then(() => {
       throw new Error('WebGPU Cannot be initialized - Device has been lost');
     })
@@ -510,6 +510,18 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
     dispatchErrorStatus('Failed to decompress gzipped file.', error);
     return null;
   }
+}
+
+/**
+ * Checks if the URL represents a compressed protobuf file.
+ * @param urlObj The URL object to check.
+ * @return True if the URL pathname ends with .pb.
+ */
+export function isCompressedProto(urlObj: URL): boolean {
+  return (
+    urlObj.searchParams.get('format') === 'pb' ||
+    urlObj.pathname.endsWith('.pb')
+  );
 }
 
 function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
@@ -799,7 +811,7 @@ async function fetchAndProcessTraceData({
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
   try {
-    if (urlObj.pathname.endsWith('.pb')) {
+    if (isCompressedProto(urlObj)) {
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -1104,7 +1116,7 @@ export async function traceViewerV2Main(
         return;
       }
 
-      if (urlObj.pathname.endsWith('.pb')) {
+      if (isCompressedProto(urlObj)) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

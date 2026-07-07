@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   inject,
   Injector,
   OnDestroy,
@@ -12,6 +13,7 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
@@ -55,7 +57,6 @@ import {
   distinctUntilChanged,
   finalize,
   switchMap,
-  takeUntil,
   tap,
 } from 'rxjs/operators';
 import {
@@ -153,14 +154,14 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
 
 /** A trace viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
   styleUrls: ['./trace_viewer.css'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
-  private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly destroyRef = inject(DestroyRef);
   private isDestroyed = false;
   private isInitializing = false;
   private navigationEvent: NavigationEvent = {};
@@ -404,7 +405,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.route.queryParams,
       this.store.select(getHostsState),
     ])
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(([params, queryParams, hostsMetadata]) => {
         if (hostsMetadata && hostsMetadata.length > 0) {
           this.hostList = hostsMetadata.map(
@@ -440,7 +441,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // UI accordingly.
     sourceCodeService
       ?.isAvailable()
-      .pipe(takeUntil(this.destroyed))
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((isAvailable) => {
         this.sourceCodeServiceIsAvailable = isAvailable;
       });
@@ -449,7 +450,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit(): void {
     this.searchQuery
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         debounceTime(300),
         distinctUntilChanged(),
         tap<string>(() => {
@@ -481,7 +482,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             );
         }),
       )
-      .subscribe((data) => {
+      .subscribe((data: unknown) => {
         this.searching = false;
         if (this.traceViewerModule && data) {
           // Type contract is guaranteed by the backend response structure.
@@ -623,9 +624,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.traceViewerModule = null;
       }
     } finally {
-      // Unsubscribes all pending subscriptions.
-      this.destroyed.next();
-      this.destroyed.complete();
       window.removeEventListener(
         DETAILS_RECEIVED_EVENT_NAME,
         this.detailsReceivedEventListener,
@@ -872,8 +870,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         host,
         params,
       )
-      .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((data: unknown) => {
         const traceData = data as TraceData;
         if (
           !traceData ||
@@ -944,12 +942,12 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         params,
       )
       .pipe(
-        takeUntil(this.destroyed),
+        takeUntilDestroyed(this.destroyRef),
         finalize(() => {
           this.pendingAdjacentNodesFetches.delete(key);
         }),
       )
-      .subscribe((data) => {
+      .subscribe((data: unknown) => {
         if (isAdjacentNodesResponse(data)) {
           this.hloAdjacentNodesCache.set(key, data);
           this.injectAdjacentNodes({
@@ -1243,7 +1241,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           customEvent.detail.status === TraceViewerV2LoadingStatus.IDLE
         ) {
           setTimeout(() => {
-            if (!this.destroyed.isStopped) {
+            if (!this.isDestroyed) {
               this.showColorOnboarding = true;
             }
           }, 2000); // Delay 2 seconds after load complete

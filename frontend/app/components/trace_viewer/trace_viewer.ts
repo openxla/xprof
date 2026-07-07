@@ -48,7 +48,7 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {combineLatest, Observable, of} from 'rxjs';
 import {
   catchError,
   debounceTime,

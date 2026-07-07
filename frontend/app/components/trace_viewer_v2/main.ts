@@ -512,6 +512,16 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
   }
 }
 
+/**
+ * Checks whether the given URL represents a compressed protobuf file.
+ */
+export function isCompressedProto(urlObj: URL): boolean {
+  return (
+    urlObj.searchParams.get('format') === 'pb' ||
+    urlObj.pathname.endsWith('.pb')
+  );
+}
+
 function isPerfettoTrace(data: Uint8Array, fileName: string): boolean {
   return (
     fileName.endsWith('.pftrace') ||

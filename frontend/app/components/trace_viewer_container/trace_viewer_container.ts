@@ -4,9 +4,11 @@ import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
   OnChanges,
   OnDestroy,
@@ -125,6 +127,7 @@ export declare interface SelectedEvent {
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
+  args?: {[key: string]: unknown};
 }
 
 /**
@@ -208,7 +211,7 @@ declare interface TfTraceViewer {
 
 /** A trace viewer container component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
@@ -232,6 +235,7 @@ declare interface TfTraceViewer {
 export class TraceViewerContainer
   implements OnInit, OnDestroy, AfterViewInit, OnChanges
 {
+  private readonly cdr = inject(ChangeDetectorRef);
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
@@ -311,22 +315,26 @@ export class TraceViewerContainer
   counterColumns = ['counter', 'series', 'time', 'value'];
 
   @Input() set selectedEventProperties(data: SelectedEventProperty[]) {
-    this.selectedEventPropertiesDataSource.data = data;
+    try {
+      this.selectedEventPropertiesDataSource.data = data;
 
-    const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
-    const counters = data.filter((prop) => prop.hasOwnProperty('counter'));
+      const metrics = data.filter((prop) => prop.hasOwnProperty('occurrences'));
+      const counters = data.filter((prop) => prop.hasOwnProperty('counter'));
 
-    this.metricsDataSource.data = metrics;
-    this.countersDataSource.data = counters;
+      this.metricsDataSource.data = metrics;
+      this.countersDataSource.data = counters;
 
-    this.leftSideProperties = data.filter((prop) => {
-      const p = prop['property'];
-      return p !== 'Operands' && p !== 'Consumers';
-    });
-    this.rightSideProperties = data.filter((prop) => {
-      const p = prop['property'];
-      return p === 'Operands' || p === 'Consumers';
-    });
+      this.leftSideProperties = data.filter((prop) => {
+        const p = prop['property'];
+        return p !== 'Operands' && p !== 'Consumers';
+      });
+      this.rightSideProperties = data.filter((prop) => {
+        const p = prop['property'];
+        return p === 'Operands' || p === 'Consumers';
+      });
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
@@ -354,8 +362,12 @@ export class TraceViewerContainer
   @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('timingBtn') timingBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild(MatSort) set sort(matSort: MatSort | undefined) {
-    if (matSort) {
-      this.selectedEventPropertiesDataSource.sort = matSort;
+    try {
+      if (matSort) {
+        this.selectedEventPropertiesDataSource.sort = matSort;
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
@@ -386,178 +398,225 @@ export class TraceViewerContainer
     this.search$
       .pipe(debounceTime(300), takeUntil(this.destroyed))
       .subscribe((query) => {
-        this.currentSearchQuery = query;
-        this.searchEvents.emit({events_query: query});
-        if (this.traceViewerModule) {
-          this.traceViewerModule.application.instance().setSearchQuery(query);
-          this.updateSearchResultCountText();
-        } else if (!query) {
-          this.searchResultCountText = '';
+        try {
+          this.currentSearchQuery = query;
+          this.searchEvents.emit({events_query: query});
+          if (this.traceViewerModule) {
+            this.traceViewerModule.application.instance().setSearchQuery(query);
+            this.updateSearchResultCountText();
+          } else if (!query) {
+            this.searchResultCountText = '';
+          }
+        } finally {
+          this.cdr.markForCheck();
         }
       });
   }
 
   ngOnInit() {
-    clearDeprecatedStorageKeys();
+    try {
+      clearDeprecatedStorageKeys();
 
-    window.addEventListener(
-      LOADING_STATUS_UPDATE_EVENT_NAME,
-      this.loadingStatusUpdateEventListener,
-    );
-    window.addEventListener(
-      EVENT_SELECTED_EVENT_NAME,
-      this.eventSelectedEventListener,
-    );
-    window.addEventListener(
-      EVENTS_SELECTED_EVENT_NAME,
-      this.eventsSelectedEventListener,
-    );
-    window.addEventListener(
-      SEARCH_EVENTS_EVENT_NAME,
-      this.searchEventsEventListener,
-    );
-    window.addEventListener(
-      MOUSE_MODE_CHANGED_EVENT_NAME,
-      this.mouseModeChangedEventListener,
-    );
+      window.addEventListener(
+        LOADING_STATUS_UPDATE_EVENT_NAME,
+        this.loadingStatusUpdateEventListener,
+      );
+      window.addEventListener(
+        EVENT_SELECTED_EVENT_NAME,
+        this.eventSelectedEventListener,
+      );
+      window.addEventListener(
+        EVENTS_SELECTED_EVENT_NAME,
+        this.eventsSelectedEventListener,
+      );
+      window.addEventListener(
+        SEARCH_EVENTS_EVENT_NAME,
+        this.searchEventsEventListener,
+      );
+      window.addEventListener(
+        MOUSE_MODE_CHANGED_EVENT_NAME,
+        this.mouseModeChangedEventListener,
+      );
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   ngAfterViewInit() {
-    if (this.useTraceViewerV2) {
-      this.initializeWasm.emit();
-    } else {
-      window.addEventListener('mouseup', this.mouseUpEventListener);
-      window.addEventListener('keydown', this.keyDownEventListener);
+    try {
+      if (this.useTraceViewerV2) {
+        this.initializeWasm.emit();
+      } else {
+        window.addEventListener('mouseup', this.mouseUpEventListener);
+        window.addEventListener('keydown', this.keyDownEventListener);
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   ngOnDestroy() {
-    window.removeEventListener(
-      LOADING_STATUS_UPDATE_EVENT_NAME,
-      this.loadingStatusUpdateEventListener,
-    );
-    window.removeEventListener(
-      EVENT_SELECTED_EVENT_NAME,
-      this.eventSelectedEventListener,
-    );
-    window.removeEventListener(
-      EVENTS_SELECTED_EVENT_NAME,
-      this.eventsSelectedEventListener,
-    );
-    window.removeEventListener(
-      SEARCH_EVENTS_EVENT_NAME,
-      this.searchEventsEventListener,
-    );
-    window.removeEventListener(
-      MOUSE_MODE_CHANGED_EVENT_NAME,
-      this.mouseModeChangedEventListener,
-    );
-    if (!this.useTraceViewerV2) {
-      window.removeEventListener('mouseup', this.mouseUpEventListener);
-      window.removeEventListener('keydown', this.keyDownEventListener);
+    try {
+      window.removeEventListener(
+        LOADING_STATUS_UPDATE_EVENT_NAME,
+        this.loadingStatusUpdateEventListener,
+      );
+      window.removeEventListener(
+        EVENT_SELECTED_EVENT_NAME,
+        this.eventSelectedEventListener,
+      );
+      window.removeEventListener(
+        EVENTS_SELECTED_EVENT_NAME,
+        this.eventsSelectedEventListener,
+      );
+      window.removeEventListener(
+        SEARCH_EVENTS_EVENT_NAME,
+        this.searchEventsEventListener,
+      );
+      window.removeEventListener(
+        MOUSE_MODE_CHANGED_EVENT_NAME,
+        this.mouseModeChangedEventListener,
+      );
+      if (!this.useTraceViewerV2) {
+        window.removeEventListener('mouseup', this.mouseUpEventListener);
+        window.removeEventListener('keydown', this.keyDownEventListener);
+      }
+      this.stopTutorialRotation();
+      this.destroyed.next();
+      this.destroyed.complete();
+    } finally {
+      this.cdr.markForCheck();
     }
-    // Unsubscribes all pending subscriptions.
-    this.destroyed.next();
-    this.destroyed.complete();
-    this.stopTutorialRotation();
   }
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['selectedEvent']) {
-      this.updateSplitSizes();
+    try {
+      if (changes['selectedEvent']) {
+        this.updateSplitSizes();
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
-    // Disable hotkey listening when typing in the input box
-    const el = event.target as HTMLInputElement;
-    if (el.type === 'text') return;
-    switch (event.key) {
-      case 'a':
-      case 'd':
-      case 's':
-      case 'w':
-        this.tvIframe?.nativeElement?.contentWindow?.focus();
-        break;
-      case '1':
-        this.setMouseMode(MouseMode.SELECT);
-        break;
-      case '2':
-        this.setMouseMode(MouseMode.PAN);
-        break;
-      case '3':
-        this.setMouseMode(MouseMode.ZOOM);
-        break;
-      case '4':
-        this.setMouseMode(MouseMode.TIMING);
-        break;
-      default:
-        break;
+    try {
+      // Disable hotkey listening when typing in the input box
+      const el = event.target as HTMLInputElement;
+      if (el.type === 'text') return;
+      switch (event.key) {
+        case 'a':
+        case 'd':
+        case 's':
+        case 'w':
+          this.tvIframe?.nativeElement?.contentWindow?.focus();
+          break;
+        case '1':
+          this.setMouseMode(MouseMode.SELECT);
+          break;
+        case '2':
+          this.setMouseMode(MouseMode.PAN);
+          break;
+        case '3':
+          this.setMouseMode(MouseMode.ZOOM);
+          break;
+        case '4':
+          this.setMouseMode(MouseMode.TIMING);
+          break;
+        default:
+          break;
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   };
 
   private readonly mouseUpEventListener = (event: Event) => {
-    const tfViewer =
-      this.tvIframe?.nativeElement?.contentDocument?.querySelector(
-        'tf-trace-viewer',
-      ) as TfTraceViewer | null;
-    const trackView: TrackView | null | undefined =
-      tfViewer?._traceViewer?.trackView;
     try {
-      trackView?.onEndPanScan_(event);
-      trackView?.onEndSelection_(event);
-      trackView?.onEndZoom_(event);
-    } catch (e) {}
+      const tfViewer =
+        this.tvIframe?.nativeElement?.contentDocument?.querySelector(
+          'tf-trace-viewer',
+        ) as TfTraceViewer | null;
+      const trackView: TrackView | null | undefined =
+        tfViewer?._traceViewer?.trackView;
+      try {
+        trackView?.onEndPanScan_(event);
+        trackView?.onEndSelection_(event);
+        trackView?.onEndZoom_(event);
+      } catch (e) {}
+    } finally {
+      this.cdr.markForCheck();
+    }
   };
 
   private readonly loadingStatusUpdateEventListener = (event: Event) => {
-    if (!isLoadingStatusUpdateEvent(event)) {
-      return;
-    }
+    try {
+      if (!isLoadingStatusUpdateEvent(event)) {
+        return;
+      }
 
-    this.updateLoadingStatus(event.detail.status);
+      this.updateLoadingStatus(event.detail.status);
 
-    if (event.detail.status !== TraceViewerV2LoadingStatus.ERROR) {
-      this.traceViewerV2ErrorMessage = undefined;
-    } else {
-      this.traceViewerV2ErrorMessage = event.detail.message;
+      if (event.detail.status !== TraceViewerV2LoadingStatus.ERROR) {
+        this.traceViewerV2ErrorMessage = undefined;
+      } else {
+        this.traceViewerV2ErrorMessage = event.detail.message;
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   };
 
   private readonly mouseModeChangedEventListener = (e: Event) => {
-    if (isMouseModeChangedEvent(e)) {
-      this.setMouseMode(e.detail.mouseMode);
+    try {
+      if (isMouseModeChangedEvent(e)) {
+        this.setMouseMode(e.detail.mouseMode);
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   };
 
   private readonly eventSelectedEventListener = (e: Event) => {
-    if (!isEntrySelectedEvent(e)) {
-      return;
-    }
-    this.updateSearchResultCountText();
-    if (e.detail.eventIndex === -1) {
-      this.eventSelected.emit(null);
-    } else {
-      this.eventSelected.emit(e.detail);
+    try {
+      if (!isEntrySelectedEvent(e)) {
+        return;
+      }
+      this.updateSearchResultCountText();
+      if (e.detail.eventIndex === -1) {
+        this.eventSelected.emit(null);
+      } else {
+        this.eventSelected.emit(e.detail);
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   };
 
   private readonly eventsSelectedEventListener = (e: Event) => {
-    if (isEventsSelectedEvent(e)) {
-      this.eventsSelected.emit(e.detail);
-    } else {
-      console.warn(
-        'TraceViewerContainer: Received event but failed type guard',
-        e,
-      );
+    try {
+      if (isEventsSelectedEvent(e)) {
+        this.eventsSelected.emit(e.detail);
+      } else {
+        console.warn(
+          'TraceViewerContainer: Received event but failed type guard',
+          e,
+        );
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   };
 
   private readonly searchEventsEventListener = (e: Event) => {
-    if (!isSearchEventsEvent(e)) {
-      return;
+    try {
+      if (!isSearchEventsEvent(e)) {
+        return;
+      }
+      this.searchEvents.emit(e.detail);
+    } finally {
+      this.cdr.markForCheck();
     }
-    this.searchEvents.emit(e.detail);
   };
 
   /**
@@ -624,8 +683,12 @@ export class TraceViewerContainer
     this.tutorialSubscription = interval(TUTORIAL_ROTATION_INTERVAL_MS)
       .pipe(takeUntil(this.destroyed))
       .subscribe(() => {
-        this.currentTutorialIndex =
-          (this.currentTutorialIndex + 1) % this.tutorials.length;
+        try {
+          this.currentTutorialIndex =
+            (this.currentTutorialIndex + 1) % this.tutorials.length;
+        } finally {
+          this.cdr.markForCheck();
+        }
       });
   }
 
@@ -643,56 +706,76 @@ export class TraceViewerContainer
   }
 
   onSearchEvent(query: string) {
-    this.search$.next(query);
+    try {
+      this.search$.next(query);
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   clearSearch(input: HTMLInputElement) {
-    input.value = '';
-    this.currentSearchQuery = '';
-    this.onSearchEvent('');
+    try {
+      input.value = '';
+      this.currentSearchQuery = '';
+      this.onSearchEvent('');
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   dismissTimingOnboarding() {
-    this.showTimingOnboarding = false;
-    window.localStorage.setItem(this.TIMING_PROMPTED_STORAGE_KEY, 'true');
+    try {
+      this.showTimingOnboarding = false;
+      window.localStorage.setItem(this.TIMING_PROMPTED_STORAGE_KEY, 'true');
+    } finally {
+      this.cdr.markForCheck();
+    }
   }
 
   blurActiveElement() {
-    const el = document.activeElement;
-    if (el instanceof HTMLInputElement) {
-      el.blur();
+    try {
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement) {
+        el.blur();
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   setMouseMode(mode: MouseMode) {
-    this.currentMouseMode = mode;
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application.instance().setMouseMode(mode);
-    }
-    if (mode === MouseMode.TIMING) {
-      const prompted = window.localStorage.getItem(
-        this.TIMING_PROMPTED_STORAGE_KEY,
-      );
-      if (!prompted) {
-        this.showTimingOnboarding = true;
+    try {
+      this.currentMouseMode = mode;
+      if (this.traceViewerModule) {
+        this.traceViewerModule.application.instance().setMouseMode(mode);
       }
-    }
-    // Sync focus to the corresponding button
-    switch (mode) {
-      case MouseMode.SELECT:
-        this.selectBtn?.nativeElement?.focus();
-        break;
-      case MouseMode.PAN:
-        this.panBtn?.nativeElement?.focus();
-        break;
-      case MouseMode.ZOOM:
-        this.zoomBtn?.nativeElement?.focus();
-        break;
-      case MouseMode.TIMING:
-        this.timingBtn?.nativeElement?.focus();
-        break;
-      default:
-        break;
+      if (mode === MouseMode.TIMING) {
+        const prompted = window.localStorage.getItem(
+          this.TIMING_PROMPTED_STORAGE_KEY,
+        );
+        if (!prompted) {
+          this.showTimingOnboarding = true;
+        }
+      }
+      // Sync focus to the corresponding button
+      switch (mode) {
+        case MouseMode.SELECT:
+          this.selectBtn?.nativeElement?.focus();
+          break;
+        case MouseMode.PAN:
+          this.panBtn?.nativeElement?.focus();
+          break;
+        case MouseMode.ZOOM:
+          this.zoomBtn?.nativeElement?.focus();
+          break;
+        case MouseMode.TIMING:
+          this.timingBtn?.nativeElement?.focus();
+          break;
+        default:
+          break;
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
@@ -703,45 +786,61 @@ export class TraceViewerContainer
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
   onDragEnd({sizes}: {sizes: Array<number | '*'>}) {
-    if (this.selectedEvent && sizes.length > 1) {
-      // This assumes the drawer is the second area (index 1). This is safe as
-      // long as the template structure remains consistent (Canvas then Drawer).
-      const size = sizes[1];
+    try {
+      if (this.selectedEvent && sizes.length > 1) {
+        // This assumes the drawer is the second area (index 1). This is safe as
+        // long as the template structure remains consistent (Canvas then Drawer).
+        const size = sizes[1];
 
-      // '*' represents a wildcard size (null). We ignore it because we need a
-      // numeric percentage.
-      if (typeof size === 'number') {
-        this.updateSplitSizes(size);
+        // '*' represents a wildcard size (null). We ignore it because we need a
+        // numeric percentage.
+        if (typeof size === 'number') {
+          this.updateSplitSizes(size);
+        }
       }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   nextSearchResult() {
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application
-        .instance()
-        .navigateToNextSearchResult();
-      this.updateSearchResultCountText();
+    try {
+      if (this.traceViewerModule) {
+        this.traceViewerModule.application
+          .instance()
+          .navigateToNextSearchResult();
+        this.updateSearchResultCountText();
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   prevSearchResult() {
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application
-        .instance()
-        .navigateToPrevSearchResult();
-      this.updateSearchResultCountText();
+    try {
+      if (this.traceViewerModule) {
+        this.traceViewerModule.application
+          .instance()
+          .navigateToPrevSearchResult();
+        this.updateSearchResultCountText();
+      }
+    } finally {
+      this.cdr.markForCheck();
     }
   }
 
   updateSearchResultCountText() {
-    if (!this.traceViewerModule || !this.currentSearchQuery) {
-      this.searchResultCountText = '';
-      return;
+    try {
+      if (!this.traceViewerModule || !this.currentSearchQuery) {
+        this.searchResultCountText = '';
+        return;
+      }
+      const instance = this.traceViewerModule.application.instance();
+      const count = instance.getSearchResultsCount();
+      const index = instance.getCurrentSearchResultIndex();
+      this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+    } finally {
+      this.cdr.markForCheck();
     }
-    const instance = this.traceViewerModule.application.instance();
-    const count = instance.getSearchResultsCount();
-    const index = instance.getCurrentSearchResultIndex();
-    this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
   }
 }

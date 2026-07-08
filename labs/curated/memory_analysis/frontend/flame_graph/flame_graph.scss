@@ -1,0 +1,82 @@
+.flame-graph-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 12px;
+
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #666;
+
+    .breadcrumbs {
+      font-family: monospace;
+      font-weight: bold;
+    }
+  }
+
+  .flame-svg {
+    user-select: none;
+    font-family: Roboto, sans-serif;
+  }
+
+  .bar-group {
+    cursor: pointer;
+    transition:
+      opacity 0.2s ease,
+      filter 0.2s ease;
+
+    &:hover {
+      filter: brightness(0.9);
+
+      .base-rect {
+        stroke: #333;
+        stroke-width: 1px;
+      }
+    }
+
+    &.dimmed {
+      opacity: 0.35;
+      filter: grayscale(0.5);
+    }
+
+    .base-rect {
+      stroke: #fff;
+      stroke-width: 0.5px;
+    }
+
+    .bar-label {
+      fill: #111;
+      font-size: 14px;
+      font-weight: 500;
+      text-anchor: middle;
+      pointer-events: none;
+    }
+  }
+  .ruler-svg {
+    margin-bottom: 8px;
+    font-family: monospace;
+    font-size: 11px;
+    user-select: none;
+
+    .ruler-base-line {
+      stroke: #bdc1c6;
+      stroke-width: 1px;
+    }
+
+    .ruler-tick-line {
+      stroke: #bdc1c6;
+      stroke-width: 1px;
+    }
+
+    .ruler-tick-label {
+      fill: #5f6368;
+    }
+  }
+}

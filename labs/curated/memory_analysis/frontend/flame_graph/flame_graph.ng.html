@@ -1,0 +1,81 @@
+<div class="flame-graph-container">
+  <div class="toolbar-row">
+    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="zoomOut()" matTooltip="Zoom Out">
+      <mat-icon>arrow_upward</mat-icon>
+    </button>
+    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="resetZoom()" matTooltip="Reset Zoom">
+      <mat-icon>home</mat-icon>
+    </button>
+    @if (zoomStack().length > 1) {
+      <span class="breadcrumbs">
+        @for (node of zoomStack(); track (node.path || node.name); let last = $last) {
+          <span>
+            {{node.name}}@if (!last) { <span> &gt; </span> }
+          </span>
+        }
+      </span>
+    }
+  </div>
+
+  <svg [attr.width]="viewWidth" height="35" class="ruler-svg">
+    <!-- Base Line -->
+    <line x1="0" y1="22" [attr.x2]="viewWidth" y2="22" class="ruler-base-line"></line>
+    <!-- Ticks -->
+    @for (tick of rulerTicks(); track tick.label) {
+      <g>
+        <!-- Tick line projection -->
+        <line [attr.x1]="tick.x" y1="22" [attr.x2]="tick.x" y2="27" class="ruler-tick-line"></line>
+        <!-- Tick text -->
+        <text [attr.x]="tick.x" y="15" [attr.text-anchor]="tick.anchor" class="ruler-tick-label">
+          {{tick.label}}
+        </text>
+      </g>
+    }
+  </svg>
+
+  <svg [attr.width]="viewWidth" [attr.height]="svgHeight()" class="flame-svg">
+    <defs>
+      <!-- Shading pattern for padding overlay -->
+      <pattern id="padding-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="2" height="8" fill="rgba(0,0,0,0.15)"></rect>
+      </pattern>
+    </defs>
+
+    @for (bar of bars(); track bar.node.path) {
+      <g
+         [attr.transform]="'translate(' + bar.x + ',' + bar.y + ')'"
+         class="bar-group"
+         [class.dimmed]="bar.dimmed"
+         [matTooltip]="bar.tooltip"
+         matTooltipClass="rich-multiline-tooltip"
+         (click)="selectNode(bar.node)"
+         (mouseenter)="onHover(bar.node)"
+         (mouseleave)="onHover(null)">
+
+        <!-- Total Base Rect -->
+        <rect [attr.width]="bar.width"
+              [attr.height]="bar.height"
+              [attr.fill]="bar.color"
+              class="base-rect"></rect>
+
+        <!-- Padding Shaded Overlay Rect -->
+        @if (bar.paddingWidth > 0.5) {
+          <rect
+                [attr.width]="bar.paddingWidth"
+                [attr.height]="bar.height"
+                fill="url(#padding-hatch)"
+                class="padding-rect"
+                matTooltip="Padding Overhead"></rect>
+        }
+
+        <!-- Label Text -->
+        <text [attr.x]="bar.labelX"
+              [attr.y]="bar.labelY"
+              dy=".35em"
+              class="bar-label">
+          {{bar.label}}
+        </text>
+      </g>
+    }
+  </svg>
+</div>

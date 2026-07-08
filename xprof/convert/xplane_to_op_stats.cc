@@ -30,7 +30,6 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -42,6 +41,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
+#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
@@ -379,62 +379,15 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
 
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
   DutyCycleTracker duty_cycle_tracker;
-  auto is_custom_call_event_off_duty_op =
-      [](const std::optional<XStatVisitor>& hlo_category_stat,
-         const std::optional<XStatVisitor>& flops_stat,
-         const std::optional<XStatVisitor>& model_flops_stat,
-         const std::optional<XStatVisitor>& uses_ici_stat) {
-        // Custom-call check.
-        if (!hlo_category_stat.has_value() ||
-            hlo_category_stat->StrOrRefValue() !=
-                xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
-          return false;
-        }
-        // If it uses ICI, it is on-duty.
-        if (uses_ici_stat.has_value() && uses_ici_stat->IntOrUintValue() != 0) {
-          return false;
-        }
-        // If metadata contains flop count (user-provided cost for Pallas),
-        // a count of 0 implies off-duty.
-        // If no flops stat is available, consider it as an off-duty op.
-        int64_t flops =
-            flops_stat.has_value() ? flops_stat->IntOrUintValue() : 0;
-        int64_t model_flops = model_flops_stat.has_value()
-                                  ? model_flops_stat->IntOrUintValue()
-                                  : 0;
-        return flops == 0 && model_flops == 0;
-      };
   visitor.ForEachLine([&](const XLineVisitor& line) {
     if (line.Name() == tsl::profiler::kXlaOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
         auto hlo_category_stat =
             event.Metadata().GetStat(StatType::kHloCategory);
-        if (!hlo_category_stat) {
-          hlo_category_stat = event.GetStat(StatType::kHloCategory);
-        }
-        std::optional<XStatVisitor> flops_stat =
-            event.Metadata().GetStat(StatType::kFlops);
-        if (!flops_stat) {
-          flops_stat = event.GetStat(StatType::kFlops);
-        }
-        std::optional<XStatVisitor> model_flops_stat =
-            event.Metadata().GetStat(StatType::kModelFlops);
-        if (!model_flops_stat) {
-          model_flops_stat = event.GetStat(StatType::kModelFlops);
-        }
-        std::optional<XStatVisitor> uses_ici_stat =
-            event.Metadata().GetStat(StatType::kUsesIci);
-        if (!uses_ici_stat) {
-          uses_ici_stat = event.GetStat(StatType::kUsesIci);
-        }
-
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&
-              (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
-               is_custom_call_event_off_duty_op(hlo_category_stat, flops_stat,
-                                                model_flops_stat,
-                                                uses_ici_stat))));
+              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
@@ -868,6 +821,10 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
   const bool is_gpu = device_planes.empty();
   if (is_gpu) {
     device_planes = FindPlanesWithPrefix(space, kGpuPlanePrefix);
+    if (!device_planes.empty()) {
+      return absl::UnimplementedError(
+          "GPU not supported yet for FlatOpMetricsDb");
+    }
   }
   const bool is_tpu = !is_gpu;
   std::string hostname = Hostname(space);
@@ -952,15 +909,9 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
         // as it is accessed as read-only in threads. All
         // modifications were completed sequentially on the main thread.
         executor->Execute([device_plane, &op_metrics_db,
-                           &sparse_core_metrics_map, is_tpu,
-                           &hlo_module_map]() {
-          if (is_tpu) {
-            op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
-                *device_plane, sparse_core_metrics_map);
-          } else {
-            op_metrics_db = ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
-                *device_plane, hlo_module_map);
-          }
+                           &sparse_core_metrics_map]() {
+          op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+              *device_plane, sparse_core_metrics_map);
         });
       }
     }

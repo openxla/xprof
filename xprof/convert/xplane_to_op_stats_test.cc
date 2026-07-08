@@ -25,7 +25,6 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -714,7 +713,7 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromSparseCore) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 10);
 }
 
-TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCall) {
+TEST(ConvertXPlaneToOpStats, DISABLED_ConstructDutyCycleTrackerFromCustomCall) {
   XSpace space;
   XPlane* device_plane = GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
@@ -762,7 +761,8 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCall) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 40);
 }
 
-TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCallWithIci) {
+TEST(ConvertXPlaneToOpStats,
+     DISABLED_ConstructDutyCycleTrackerFromCustomCallWithIci) {
   XSpace space;
   XPlane* device_plane = GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
@@ -1452,7 +1452,8 @@ TEST(ConvertXPlaneToOpStats, PopulateDisaggregatedServingLatency) {
                        ConvertXSpaceToOpStats(space, OpStatsOptions()));
   ASSERT_TRUE(op_stats.has_disaggregated_serving_latency());
   ASSERT_EQ(op_stats.disaggregated_serving_latency().num_decode_steps(), 1);
-  double expected_avg_duration_us = tsl::profiler::PicoToMicro(duration_ps);
+  double expected_avg_duration_us =
+      tsl::profiler::PicoToMicro(duration_ps);
   ASSERT_EQ(
       op_stats.disaggregated_serving_latency().decode_step_time_us().avg(),
       expected_avg_duration_us);

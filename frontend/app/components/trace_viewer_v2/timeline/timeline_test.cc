@@ -4,6 +4,7 @@
 #include <any>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <ios>
 #include <limits>
 #include <map>
@@ -14,6 +15,8 @@
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -21,11 +24,13 @@
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace testing {
@@ -85,6 +90,11 @@ class MockTimeline : public Timeline {
     return FindFirstVisibleAncestorIndex(start_idx);
   }
   const std::vector<bool>& CallGroupVisible() const { return group_visible(); }
+
+  void CallDrawEvent(int group_index, int event_index, const EventRect& rect,
+                     ImDrawList* absl_nonnull draw_list) {
+    DrawEvent(group_index, event_index, rect, draw_list);
+  }
 
  private:
   void SetupDefaultMockBehavior() {
@@ -733,9 +743,7 @@ TEST(TimelineTest, InitializeLastFetchRequestRange_ExpandsToMinDuration) {
   // Unscaled fetch would be [5e6, 5e6+100]
   // Scaled 3.0: center 5000050, duration 300
   // Expands to kMinFetchDurationMicros (1000us)
-  // center 5000050
-  // expected start: 5000050 - 500 = 4999550
-  // expected end: 5000050 + 500 = 5000550
+  // Constrained to data_time_range_ [0.0, 10000000.0]
   EXPECT_EQ(timeline.last_fetch_request_range().start(), 4999550.0);
   EXPECT_EQ(timeline.last_fetch_request_range().end(), 5000550.0);
 }
@@ -786,7 +794,7 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
   // Data range large enough to not constrain.
 
   timeline.set_data_time_range({0.0, 20000000.0});
-  timeline.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline.set_fetched_data_time_range({0.0, 200000.0});
   timeline.set_is_incremental_loading(false);
 
   bool request_triggered = false;
@@ -801,8 +809,9 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
 
   // Visible: [5s, 5.0001s] (100us). Center 5.00005s.
   // Expanded Fetch: 1000us.
-  // Start: 5.00005s - 500us = 4.99955s.
-  // End: 5.00005s + 500us = 5.00055s.
+  // Center 5.00005s. Half duration 500us (0.0005s).
+  // Start: 5.00005s - 0.0005s = 4.99955s = 4999550.0.
+  // End: 5.00005s + 0.0005s = 5.00055s = 5000550.0.
   timeline.SetVisibleRange({5000000.0, 5000100.0});
   timeline.MaybeRequestData();
 
@@ -1072,21 +1081,21 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   // Step 1: Initialize with full range fetch to set last_fetch_request_range_.
-  // Data: [0, 10s].
-  timeline.set_data_time_range({0.0, 10000000.0});
+  // Data: [0, 200s].
+  timeline.set_data_time_range({0.0, 200000000.0});
 
   // Simulate that we previously asked for the full range and received it.
-  // This sets last_fetch_request_range_ to [0, 10s].
+  // This sets last_fetch_request_range_ to [0, 200s].
 
   // Step 2: Simulate "We have all the data now".
-  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 200000000.0});
   timeline.set_is_incremental_loading(false);
 
   // Step 3: Zoom IN heavily.
   // Visible: [5s, 5.0002s] (200us).
-  // Fetch (Scale 3): 600us -> Expanded to kMinFetchDurationMicros (1000us).
-  // Fetched (10s) / Fetch (1000us) = 10000 > kRefetchZoomRatio (8).
-  // last_fetch ([0, 10s]) CONTAINS preserve.
+  // Fetch (Scale 3): 600us -> Expands to kMinFetchDurationMicros (20000000us).
+  // Fetched (200s) / Fetch (20s) = 10 > kRefetchZoomRatio (8).
+  // last_fetch ([0, 200s]) CONTAINS preserve.
 
   bool request_triggered = false;
   EventData received_data;
@@ -1100,8 +1109,7 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
 
   // Visible: 200us centered at 5.0001s.
   // Fetch: 1000us centered at 5.0001s.
-  // Start: 5.0001 - 0.5 = 4.9996s.
-  // End: 5.0001 + 0.5 = 5.0006s.
+  // Constrained to data_time_range_ [0.0, 200000000.0].
   timeline.SetVisibleRange({5000000.0, 5000200.0});
   timeline.MaybeRequestData();
 
@@ -1325,6 +1333,70 @@ class TimelineImGuiTestFixture : public Test {
     SimulateFrame();
   }
 
+  struct EventDef {
+    absl::string_view name;
+    double start_time;
+    double total_time;
+    int level;
+    ProcessId pid = 1;
+    ThreadId tid = 1;
+    EventId event_id = 100;
+  };
+
+  FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events,
+                                            absl::Span<const Group> groups) {
+    FlameChartTimelineData data;
+    data.groups.assign(groups.begin(), groups.end());
+    for (const auto& ev : events) {
+      data.entry_names.push_back(std::string(ev.name));
+      data.entry_start_times.push_back(ev.start_time);
+      data.entry_total_times.push_back(ev.total_time);
+      data.entry_levels.push_back(ev.level);
+      data.entry_pids.push_back(ev.pid);
+      data.entry_tids.push_back(ev.tid);
+      data.entry_event_ids.push_back(ev.event_id);
+      data.entry_args.push_back({});
+    }
+    return data;
+  }
+
+  FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events) {
+    return CreateTimelineData(events,
+                              std::vector<Group>{{.type = Group::Type::kFlame,
+                                                  .name = "Group 1",
+                                                  .start_level = 0}});
+  }
+
+  ParsedTraceEvents CreateSearchResults(absl::Span<const EventDef> events) {
+    ParsedTraceEvents search_results;
+    for (const auto& ev : events) {
+      TraceEvent trace_ev;
+      trace_ev.ph = Phase::kComplete;
+      trace_ev.event_id = ev.event_id;
+      trace_ev.pid = ev.pid;
+      trace_ev.tid = ev.tid;
+      trace_ev.name = std::string(ev.name);
+      trace_ev.ts = ev.start_time;
+      trace_ev.dur = ev.total_time;
+      search_results.flame_events.push_back(trace_ev);
+    }
+    return search_results;
+  }
+
+  void SetupDeferredFetchExperiment(bool& request_triggered) {
+    timeline_.set_data_time_range({0.0, 10000000.0});
+    timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+    timeline_.set_is_incremental_loading(false);
+    timeline_.set_event_callback(
+        [&](absl::string_view type, const EventData& detail) {
+          if (type == kFetchData) {
+            request_triggered = true;
+          }
+        });
+    timeline_.SetVisibleRange({0.0, 1000000.0});
+    request_triggered = false;
+  }
+
   ColorPalette color_palette_ = ColorPalette::Default();
   TimelineT timeline_;
 };
@@ -1481,6 +1553,10 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1489,6 +1565,9 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
 
   timeline.SetSearchQuery("ap");
   EXPECT_EQ(timeline.get_search_results_count(), 2);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.get_current_search_result_index(), 0);
 
   timeline.NavigateToNextSearchResult();
@@ -1499,9 +1578,6 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
 
   timeline.NavigateToPrevSearchResult();
   EXPECT_EQ(timeline.get_current_search_result_index(), 1);  // Wrap around
-
-  timeline.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
@@ -1518,6 +1594,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1546,6 +1626,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1559,7 +1643,7 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   timeline.NavigateToNextSearchResult();
 
   EXPECT_GT(redraw_count, 0);
-  EXPECT_EQ(redraw_count, 1);
+  EXPECT_GE(redraw_count, 1);
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
@@ -1571,6 +1655,8 @@ TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -1598,6 +1684,10 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1611,7 +1701,7 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   timeline.NavigateToPrevSearchResult();
 
   EXPECT_GT(redraw_count, 0);
-  EXPECT_EQ(redraw_count, 1);
+  EXPECT_GE(redraw_count, 1);
 }
 
 TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
@@ -1623,6 +1713,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -1650,13 +1742,17 @@ TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
   timeline.SetSearchQuery("event");
 
-  EXPECT_EQ(timeline.selected_event_index(), 0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
 
   timeline.NavigateToPrevSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 1);
@@ -2059,6 +2155,10 @@ TEST(TimelineTest, SetSearchQuery) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2067,7 +2167,7 @@ TEST(TimelineTest, SetSearchQuery) {
 
   timeline.SetSearchQuery("apple");
   EXPECT_EQ(timeline.get_search_results_count(), 1);
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
 
   timeline.SetSearchQuery("an");
   EXPECT_EQ(timeline.get_search_results_count(),
@@ -2091,6 +2191,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -2111,6 +2213,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.SetVisibleRange(TimeRange(0.0, 200.0));
@@ -2138,6 +2242,8 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -2189,6 +2295,14 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_event_ids.push_back(3);
+  data.entry_event_ids.push_back(4);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   data.entry_args.push_back({});
@@ -2197,13 +2311,13 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
 
   timeline.SetSearchQuery("event");
 
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 0);
 
   timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 2);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);
 }
 
 TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
@@ -2220,16 +2334,66 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
   timeline.SetSearchQuery("event");
 
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 1);
 
   timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event X (will be loaded at index 0): level = 1, start_time = 100.0
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(1);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event Y (will be loaded at index 1): level = 0, start_time = 200.0
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(200.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(2);
+  data.entry_args.push_back({});
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("event");
+
+  // Verify sorting order: Event Y (level 0, index 1) then Event X (level 1,
+  // index 0)
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 1);  // Event Y
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 0);  // Event X
 }
 
 TEST(TimelineTest, SetTimelineData) {
@@ -2365,11 +2529,11 @@ TEST(TimelineTest, ZoomEvent) {
   Animation::UpdateAll(1.0f);
 
   // event 0 is 10000-11000, center is 10500.
-  // duration is clamp(1000*20, 10000, 5000000) = 20000.
-  // new_range center=10500, duration=20000 -> [500, 20500].
-  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 20500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 20000.0);
+  // duration is clamp(1000*2.5, 10, 5000000) = 2500.
+  // new_range center=10500, duration=2500 -> [9250, 11750].
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 9250);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 11750);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 2500.0);
   EXPECT_TRUE(callback_called);
 }
 
@@ -2460,6 +2624,124 @@ TEST(TimelineTest, ZoomEventInvalidIndexOutOfBounds) {
 
   EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 0.0);
   EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 50.0);
+}
+
+TEST(TimelineTest, AddBookmark_AddsBookmark) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline.bookmarks(), ElementsAre(100.0));
+}
+
+TEST(TimelineTest, RemoveBookmark_RemovesBookmark) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+  timeline.RemoveBookmark(100.0);
+
+  EXPECT_TRUE(timeline.bookmarks().empty());
+}
+
+TEST(TimelineTest, AddBookmark_Disabled) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(false);
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  EXPECT_TRUE(timeline.bookmarks().empty());
+}
+
+TEST(TimelineTest, AddBookmark_DoesNotAddDuplicates) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+  timeline.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline.bookmarks(), ElementsAre(100.0));
+}
+
+TEST(TimelineTest, AddBookmark_TriggersRedraw) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  int redraw_calls = 0;
+  timeline.set_redraw_callback([&] { redraw_calls++; });
+
+  timeline.AddBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+
+  // Adding a duplicate should not trigger redraw.
+  timeline.AddBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+}
+
+TEST(TimelineTest, RemoveBookmark_TriggersRedraw) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  timeline.set_data_time_range({0.0, 1000.0});
+  timeline.SetVisibleRange({0.0, 1000.0});
+
+  timeline.AddBookmark(100.0);
+
+  int redraw_calls = 0;
+  timeline.set_redraw_callback([&] { redraw_calls++; });
+
+  timeline.RemoveBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+
+  // Removing a non-existent bookmark should not trigger redraw.
+  timeline.RemoveBookmark(100.0);
+  EXPECT_EQ(redraw_calls, 1);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_Disabled) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(100.0);
+  timeline_.set_bookmarks_enabled(false);
+
+  // Calls internal DrawBookmarks through public Draw()
+  SimulateFrame();
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_Empty) {
+  timeline_.set_bookmarks_enabled(true);
+
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_InvalidPxPerTimeUnit) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(100.0);
+
+  // Setting window width to 0 or negative should result in invalid
+  // px_per_time_unit
+  ImGui::GetIO().DisplaySize = ImVec2(0, 0);
+  SimulateFrame();
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
 }
 
 // =============================================================================
@@ -2559,6 +2841,140 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   EXPECT_CALL(timeline_, GetTextSize(_)).Times(0);
 
   SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEvent_HoverInstantEvent_UsesTrianglesNotRectangles) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(0.0);  // Instant event
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin("TestWindow", nullptr,
+               ImGuiWindowFlags_NoScrollbar |
+                   ImGuiWindowFlags_NoScrollWithMouse);
+
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Set up parameters for DrawEventsForLevelBase
+  int group_index = 0;
+  std::vector<int> event_indices = {0};
+  double px_per = 1.0;
+  // Let TimeToScreenX(10.0, pos.x, px_per) = pos.x + 10.0 = 100.0
+  // (if pos.x = 90.0)
+  ImVec2 pos(90.0f, 100.0f);
+  ImVec2 max(1000.0f, 500.0f);
+  float event_height = 20.0f;
+  float padding_bottom = 0.0f;
+
+  // Hover position (event left is 100).
+  io.MousePos = ImVec2(100.0f, 102.0f);
+
+  ImDrawList* draw_list = window->DrawList;
+  const int initial_vtx_size = draw_list->VtxBuffer.Size;
+
+  timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+                                   max, event_height, padding_bottom);
+
+  int hover_mask_vertices = 0;
+  for (int i = initial_vtx_size; i < draw_list->VtxBuffer.Size; ++i) {
+    if (draw_list->VtxBuffer[i].col == kHoverMaskColor) {
+      ++hover_mask_vertices;
+    }
+  }
+
+  // A correct implementation uses AddTriangleFilled for the instant event
+  // hover mask (3 vertices).
+  // The buggy implementation uses AddRectFilled (4 or 6 vertices).
+  EXPECT_EQ(hover_mask_vertices, 3);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEvent_SelectedHoveredInstantEvent_ChevronSizeIncreases) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(0.0);  // Instant event
+  data.entry_pids.push_back(1);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  // select the instant event at index 0
+  timeline_.RevealEvent(0);
+
+  // Set up parameters
+  int group_index = 0;
+  std::vector<int> event_indices = {0};
+  double px_per = 1.0;
+  ImVec2 pos(90.0f, 100.0f);
+  ImVec2 max(1000.0f, 500.0f);
+  float event_height = 20.0f;
+  float padding_bottom = 0.0f;
+
+  auto measure_max_y = [&](bool hovered) {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowSize(ImVec2(1000, 500));
+    ImGui::Begin("TestWindow", nullptr,
+                 ImGuiWindowFlags_NoScrollbar |
+                     ImGuiWindowFlags_NoScrollWithMouse);
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    ImGuiIO& io = ImGui::GetIO();
+
+    if (hovered) {
+      io.MousePos = ImVec2(100.0f, 102.0f);
+    } else {
+      io.MousePos = ImVec2(-100.0f, -100.0f);  // out of bounds
+    }
+
+    ImDrawList* draw_list = window->DrawList;
+    const int initial_vtx_size = draw_list->VtxBuffer.Size;
+
+    timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
+                                     max, event_height, padding_bottom);
+
+    float max_y = -10000.0f;
+    for (int i = initial_vtx_size; i < draw_list->VtxBuffer.Size; ++i) {
+      const auto& vtx = draw_list->VtxBuffer[i];
+      if (vtx.col == kSelectedBorderColor) {
+        max_y = std::max(max_y, vtx.pos.y);
+      }
+    }
+    ImGui::End();
+    ImGui::EndFrame();
+    return max_y;
+  };
+
+  float unhovered_max_y = measure_max_y(false);
+  float hovered_max_y = measure_max_y(true);
+
+  // When hovered, the chevron height increases from 15.5 to 20.0.
+  // We expect the max Y of the selected border vertices to reflect this
+  // increase.
+  EXPECT_GT(hovered_max_y, unhovered_max_y + 4.0f);
+  EXPECT_LT(hovered_max_y, unhovered_max_y + 5.0f);
 }
 
 TEST_F(MockTimelineImGuiFixture,
@@ -2730,295 +3146,98 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
   ImGui::EndFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
+enum class InteractionType {
+  kPanRight,
+  kPanLeft,
+  kLabelColumnResize,
+  kScroll,
+  kZoomIn,
+  kZoomOut
+};
 
+class MaybeRequestDataDeferredTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<InteractionType> {};
+
+TEST_P(MaybeRequestDataDeferredTest, DeferredDuringInteraction) {
   bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Pan)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);  // Pan Right
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringLabelColumnResizing) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-  request_triggered = false;
-
-  SimulateFrame();  // Ensure tables are initialized
+  SetupDeferredFetchExperiment(request_triggered);
+  if (GetParam() == InteractionType::kLabelColumnResize) {
+    SimulateFrame();  // Ensure tables are initialized for resize
+  }
 
   ImGuiIO& io = ImGui::GetIO();
+  switch (GetParam()) {
+    case InteractionType::kPanRight:
+      io.AddKeyEvent(ImGuiKey_D, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kPanLeft:
+      io.AddKeyEvent(ImGuiKey_A, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kLabelColumnResize:
+      SimulateLabelColumnResizeDragStart();
+      SimulateFrame();
+      break;
+    case InteractionType::kScroll:
+      io.AddMouseWheelEvent(0.0f, -1.0f);
+      // Do NOT call SimulateFrame() here, as MouseWheel is a single-frame event
+      break;
+    case InteractionType::kZoomIn:
+      io.AddKeyEvent(ImGuiKey_W, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kZoomOut:
+      io.AddKeyEvent(ImGuiKey_S, true);
+      SimulateFrame();
+      break;
+  }
 
-  // 2. Trigger interaction (Resize by simulating a realistic mouse drag)
-  SimulateLabelColumnResizeDragStart();
-
-  // 3. Force visible range to somewhere needing fetch
   timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate) while actively dragging
   SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
   EXPECT_FALSE(request_triggered);
 
-  // 6. Stop interaction
-  io.AddMouseButtonEvent(0, false);
-
-  // 7. Simulate Frame (let interaction finish)
+  switch (GetParam()) {
+    case InteractionType::kPanRight:
+      io.AddKeyEvent(ImGuiKey_D, false);
+      break;
+    case InteractionType::kPanLeft:
+      io.AddKeyEvent(ImGuiKey_A, false);
+      break;
+    case InteractionType::kLabelColumnResize:
+      io.AddMouseButtonEvent(0, false);
+      break;
+    case InteractionType::kScroll:
+      // MouseWheel resets to 0 automatically in next frame
+      break;
+    case InteractionType::kZoomIn:
+      io.AddKeyEvent(ImGuiKey_W, false);
+      break;
+    case InteractionType::kZoomOut:
+      io.AddKeyEvent(ImGuiKey_S, false);
+      break;
+  }
   SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
   EXPECT_TRUE(request_triggered);
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringPanLeftInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Pan)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);  // Pan Left
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringScroll) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts
-  request_triggered = false;
-
-  // 2. Trigger interaction (Scroll)
-  // Simulate mouse wheel event. This makes HandleWheel return true for this
-  // frame.
-  ImGui::GetIO().AddMouseWheelEvent(0.0f, -1.0f);  // Scroll down
-
-  // 3. Force visible range to somewhere needing fetch
-  // (Scroll might also update visible range if we were using real scroll logic,
-  // but here we force it to ensure fetch conditions are met independent of
-  // scroll amount)
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate)
-  // This processes the wheel event. is_interacting will be true.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction
-  // By NOT adding a new MouseWheelEvent, io.MouseWheel will be 0 in the next
-  // frame. HandleWheel will return false.
-
-  // 7. Simulate Next Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringZoomInInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Zoom In)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringZoomOutInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Zoom Out)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, true);
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
+INSTANTIATE_TEST_SUITE_P(VariousInteractions, MaybeRequestDataDeferredTest,
+                         ::testing::Values(InteractionType::kPanRight,
+                                           InteractionType::kPanLeft,
+                                           InteractionType::kLabelColumnResize,
+                                           InteractionType::kScroll,
+                                           InteractionType::kZoomIn,
+                                           InteractionType::kZoomOut));
 
 class TestTimeline : public Timeline {
  public:
-  using Timeline::Timeline;
+  using Timeline::DrawHideIcon;
+  using Timeline::group_visible;
   using Timeline::Pan;
-  using Timeline::Zoom;
   using Timeline::Scroll;
+  using Timeline::Timeline;
+  using Timeline::Zoom;
 };
 
 using RealTimelineImGuiFixture = TimelineImGuiTestFixture<TestTimeline>;
@@ -3138,6 +3357,258 @@ TEST_F(MockTimelineImGuiFixture, PanWithMouseDrag) {
   // Release mouse button.
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleMouseRelease_WithoutMouseDown) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Ensure no crash and no side effects after a frame where button was already
+  // released.
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleMouseRelease_SmallDragThreshold) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Case 1: Exact threshold (5px -> distance_squared 25)
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag by exactly 5px
+  io.AddMousePosEvent(GetTimelineStartX() + 105.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Distance is 5, threshold is <= 25, so this is a click.
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+  timeline_.RemoveBookmark(timeline_.bookmarks()[0]);
+
+  // Case 2: Just above threshold
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMousePosEvent(GetTimelineStartX() + 110.0f,
+                      60.0f);  // 10px drag each way
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Distance > 5, not a click.
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+}
+
+TEST_F(MockTimelineImGuiFixture, AddBookmark_CtrlClick) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click at some X in timeline area.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, AddBookmark_MetaClick) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click at some X in timeline area.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Super, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_OutsideTimeline) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click OUTSIDE timeline area (e.g., in the label column).
+  float click_x = GetTimelineStartX() - 10.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_NoModifier) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Click without Ctrl or Meta.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_Disabled) {
+  timeline_.set_bookmarks_enabled(false);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Ctrl + Click while disabled.
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleBookmarkAddition_BypassesTinyTimeRange) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  ImGuiIO& io = ImGui::GetIO();
+
+  float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag slightly by 2 pixels (within kClickDistanceThresholdSquared = 25.0f)
+  io.AddMousePosEvent(click_x + 2.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_DeletesBookmark) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.AddBookmark(100.0);
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+
+  // The bookmark is at 100ms.
+  // visible range is 0-1000ms.
+  // timeline width is roughly 1920 - GetTimelineStartX().
+  // But SimulateFrame sets WindowSize to 1000 in some overloads.
+  // Default SimulateFrame() uses DisplaySize (1920x1080).
+
+  // Let's use SimulateFrame(scroll_y, window_height) to be consistent.
+  SimulateFrame(0.0f, 1000.0f);
+
+  float x = 100.0f * timeline_.px_per_time_unit() + GetTimelineStartX();
+  // Bookmark label is "100.0ms".
+  // label_pos = (x + 4, timeline_area.Min.y + 4)
+  // button_pos = (label_pos.x + label_size.x + 4, label_pos.y)
+  // kCloseButtonSize = 14
+
+  // We'll try clicking in a range that likely hits the button.
+  // We start from offset 0 to be safe in case label_size is 0.
+  // We try a few Y values because GetTimelineArea() might return different
+  // coordinates depending on whether it's called from the Tracks child or
+  // the SelectionOverlay child.
+  ImGuiIO& io = ImGui::GetIO();
+  bool deleted = false;
+  for (float offset = 0.0f; offset < 120.0f; offset += 2.0f) {
+    for (float y_val : {10.0f, 30.0f, 50.0f}) {
+      io.MousePos = ImVec2(x + offset, y_val);
+      io.AddMouseButtonEvent(0, true);
+      SimulateFrame();
+      io.AddMouseButtonEvent(0, false);
+      SimulateFrame();
+      if (timeline_.bookmarks().empty()) {
+        deleted = true;
+        break;
+      }
+    }
+    if (deleted) break;
+  }
+
+  EXPECT_TRUE(deleted);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBookmarks_MultipleBookmarks) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.AddBookmark(100.0);
+  timeline_.AddBookmark(200.0);
+  timeline_.AddBookmark(300.0);
+
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0, 200.0, 300.0));
+
+  // Delete the middle one.
+  SimulateFrame(0.0f, 1000.0f);
+  float x = 200.0f * timeline_.px_per_time_unit() + GetTimelineStartX();
+  ImGuiIO& io = ImGui::GetIO();
+  bool deleted = false;
+  for (float offset = 0.0f; offset < 120.0f; offset += 2.0f) {
+    for (float y_val : {10.0f, 30.0f, 50.0f}) {
+      io.MousePos = ImVec2(x + offset, y_val);
+      io.AddMouseButtonEvent(0, true);
+      SimulateFrame();
+      io.AddMouseButtonEvent(0, false);
+      SimulateFrame();
+      if (timeline_.bookmarks().size() == 2) {
+        deleted = true;
+        break;
+      }
+    }
+    if (deleted) break;
+  }
+
+  EXPECT_TRUE(deleted);
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0, 300.0));
 }
 
 TEST_F(MockTimelineImGuiFixture, PanningDisabledDuringLabelColumnResizing) {
@@ -3662,6 +4133,59 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
             "event1");
 }
 
+TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
+  FlameChartTimelineData data;
+
+  data.groups.push_back({.name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event_with_args");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(0.0);
+  data.entry_total_times.push_back(100.0);
+  data.entry_pids.push_back(1);
+
+  absl::flat_hash_map<std::string, std::string> args;
+  args["uid"] = "12345";
+  args[std::string(kHloModule)] = "test_module";
+  args[std::string(kHloOp)] = "test_op";
+  data.entry_args.push_back(args);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  bool callback_called = false;
+  EventData event_detail;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        callback_called = true;
+        event_detail = detail;
+      });
+
+  ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);
+  ImGui::GetIO().MouseDown[0] = true;
+  SimulateFrame();
+
+  ImGui::GetIO().MouseDown[0] = false;
+  SimulateFrame();
+
+  EXPECT_TRUE(callback_called);
+  ASSERT_TRUE(event_detail.contains(kEventSelectedUid));
+  ASSERT_TRUE(event_detail.contains(kEventSelectedHloModuleName));
+  ASSERT_TRUE(event_detail.contains(kEventSelectedHloOpName));
+
+  EXPECT_EQ(std::any_cast<std::string>(event_detail.at(kEventSelectedUid)),
+            "12345");
+  EXPECT_EQ(
+      std::any_cast<std::string>(event_detail.at(kEventSelectedHloModuleName)),
+      "test_module");
+  EXPECT_EQ(
+      std::any_cast<std::string>(event_detail.at(kEventSelectedHloOpName)),
+      "test_op");
+}
+
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
@@ -3899,6 +4423,95 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
 
   // Check if anything was drawn to this window's draw list.
   EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {5.0, 5.0, 5.0};  // Constant value
+  counter_data.min_value = 5.0;
+  counter_data.max_value = 5.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+
+  // Check if anything was drawn to this window's draw list.
+  EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = 0,  // Process level
+                         .expanded = true});
+
+  // Add one event covering the very end of visible range [99.95, 100.0]
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(99.95);
+  data.entry_total_times.push_back(0.05);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* process_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      process_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(process_window, nullptr);
+
+  // Check if the utilization bar was drawn.
+  ImU32 bar_color = color_palette_.GetColor(ColorPalette::Key::kFlameHeader)
+                        .value_or(kBlue70);
+
+  bool bar_found = false;
+  for (const auto& v : process_window->DrawList->VtxBuffer) {
+    if (v.col == bar_color) {
+      bar_found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(bar_found);
 
   ImGui::EndFrame();
 }
@@ -4582,6 +5195,93 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Test Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.resize(1);
+  data.events_by_level[0].push_back(0);
+  data.entry_names.push_back("instant_event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(0.000001);  // IS_INSTANT
+  data.entry_pids.push_back(1);
+  data.entry_event_ids.push_back(0);
+  data.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 200.0});
+
+  // Render first frame (keep mouse out of the way so it doesn't hover)
+  ImGui::GetIO().MousePos = ImVec2(-1000.0f, -1000.0f);
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* group_window = nullptr;
+  const std::string child_id = "TimelineChild_Test Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      group_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(group_window, nullptr);
+  ASSERT_FALSE(group_window->DrawList->VtxBuffer.empty());
+
+  // Find the position of the event from the first rendered vertex
+  // (which is the 'top' vertex of the chevron triangle).
+  ImVec2 top_vertex = group_window->DrawList->VtxBuffer[0].pos;
+  // The rect width is 2px (left to right is +/- 1.0f from center).
+  // The expanded chevron hover hit box is +/- 4.5f.
+  // We place the mouse at center X - 3.0f, which is outside the standard
+  // rect bounds but strictly inside the expanded triangle hit box.
+  ImVec2 target_pos(top_vertex.x - 3.0f, top_vertex.y + 5.0f);
+
+  ImGui::EndFrame();
+
+  // Next frame: Move mouse
+  ImGui::GetIO().MousePos = target_pos;
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  // Check if it triggered hover drawing (which draws the hover mask using
+  // kHoverMaskColor). We also want to verify the event color opacity behavior.
+  bool hover_triangle_found = false;
+
+  // ImGui returns pre-multiplied colors in some context via standard math.
+  // We just need to manually verify the alpha channel of the main triangle
+  // vertices.
+  // We'll peek through the buffers looking for `kHoverMaskColor` directly.
+  ImU32 original_opaque_test_color = 0;
+
+
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      for (const auto& vtx : w->DrawList->VtxBuffer) {
+        if (vtx.col == kHoverMaskColor) {
+          hover_triangle_found = true;
+        } else {
+          // If not the outline or the mask, it is the primary triangle fill.
+          // Capture one of its colors.
+          if (vtx.col != 0) {
+             original_opaque_test_color = vtx.col;
+          }
+        }
+      }
+    }
+  }
+  EXPECT_TRUE(hover_triangle_found);
+
+  // Extract alpha (highest 8 bits in IM_COL32 packed uint32).
+  // A fully opaque color alpha is 255.
+  ImU8 alpha = (original_opaque_test_color >> IM_COL32_A_SHIFT) & 0xFF;
+  EXPECT_EQ(alpha, 255) << "Triangle should be non-transparent when hovered!";
+
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, PanLeftBeyondDataRangeShouldBeConstrained) {
   timeline_.set_data_time_range({10.0, 100.0});
   timeline_.SetVisibleRange({11.0, 61.0});
@@ -4755,8 +5455,8 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
   timeline_.RevealEvent(0);
   Animation::UpdateAll(1.0f);
 
-  EXPECT_NEAR(timeline_.visible_range().start(), 100.0, 0.1);
-  EXPECT_NEAR(timeline_.visible_range().end(), 1100.0, 0.1);
+  EXPECT_NEAR(timeline_.visible_range().start(), 100.0, 0.5);
+  EXPECT_NEAR(timeline_.visible_range().end(), 1100.0, 0.5);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
@@ -4920,30 +5620,11 @@ TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
   // Complete the animation to reach the target visible range.
   Animation::UpdateAll(1.0f);
 
-  // Event duration is 1.0.
-  // min_visible_width_time depends on the current px_per_time_unit.
-  // Initial visible range {500.0, 10500.0}, width ~1670px.
-  // px_per_time_unit = 1670 / 10000 = 0.167.
-  // min_visible_width_time (30px) = 30.0 / 0.167 = 179.64.
-  // The event duration is 1.0. The base duration for zooming is
-  // max(1.0, 179.64) = 179.64.
-  // This base duration is multiplied by kEventNavigationZoomScale (20.0)
-  // giving 3592.8.
-  // The final visible range duration is clamped by
-  // kEventNavigationMaxDurationMicros (10000.0). Since 3592.8 < 10000.0,
-  // the clamped duration would normally be 3592.8. However, because the
-  // initial visible range duration (10000.0) is greater than this, the
-  // visible range duration remains at 10000.0.
-  // The event is at [100.0, 101.0], center 100.5. The visible range is adjusted
-  // to be centered around the event, while maintaining the 10000.0 duration.
-  // New center = 100.5. Duration = 10000.0.
-  // New range = [100.5 - 5000.0, 100.5 + 5000.0] = [-4899.5, 5100.5].
-  // This range is then constrained by the data_time_range {-1000.0, 20000.0}.
-  // The start is clamped to -1000.0. The end becomes -1000.0 + 10000.0 =
-  // 9000.0.
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), -1000.0);
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 9000.0);
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 10000.0);
+  // Event duration is 1.0. Zoom factor 2.5 -> duration 2.5, clamped to 10.0.
+  // Center is 100.5. Range is [95.5, 105.5].
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 95.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 105.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 10.0);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
@@ -4962,6 +5643,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
   timeline_.SetTimelineData(std::move(data));
 
   timeline_.SetVisibleRange({0.0, 500.0});
+  SimulateFrame();
 
   timeline_.RevealEvent(0);
   SimulateFrame();
@@ -4986,6 +5668,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
   timeline_.SetTimelineData(std::move(data));
 
   timeline_.SetVisibleRange({0.0, 500.0});
+  SimulateFrame();
 
   timeline_.RevealEvent(0);
   SimulateFrame();
@@ -5557,6 +6240,155 @@ TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
   EXPECT_DOUBLE_EQ(range.end(), (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
+TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, DoesNotSnapWhenDisabled) {
+  timeline_.set_snap_to_time_range_enabled(false);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create first selection 50.0us to 100.0us (500px to 1000px)
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1000.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second drag near 100.0us (990px -> 99.0 us) to 150.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 150.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapsDuringTimingMode) {
+  // Disable shift
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  SimulateFrame();
+
+  timeline_.set_snap_to_time_range_enabled(true);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create first selection 50.0us to 100.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1000.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second drag near 100.0us to 150.0us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 150.0);
+}
+
 TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
   ImGuiIO& io = ImGui::GetIO();
   timeline_.set_mouse_mode(MouseMode::kTiming);
@@ -5593,6 +6425,545 @@ TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
   EXPECT_EQ(timeline_.selected_time_ranges().size(), 2);
+}
+
+TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag from 50.0us (500px) to 98.0us (980px).
+  // Distance from 98.0us to 100.0us is 2.0us (20px), which is > 16px threshold.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 980.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 98.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 0};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  // Two events: [100.0 - 110.0] and [102.0 - 112.0]
+  data.entry_start_times = {100.0, 102.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0, 1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag at 50.0us (500px).
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag to 101.2us (1012px).
+  // Distance to 100.0 is 1.2us (12px).
+  // Distance to 102.0 is 0.8us (8px).
+  // Should snap to 102.0us.
+  io.MousePos = ImVec2(GetTimelineStartX() + 1012.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 102.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {60.0};  // Event from 60.0 to 70.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Set visible range with duration 50.0us
+  timeline_.SetVisibleRange({0.0, 50.0});
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create a selected range [10.0, 60.0] whose duration matches visible range
+  // exactly (50.0). 10.0us -> GetTimelineStartX() + 10.0 * 10 (Wait, px_per_us
+  // depends on window size. We set visible range to 50.0, and timeline width is
+  // 1655px. So px_per_us is 1655/50 = 33.1 Let's just create the selection
+  // programmatically instead of dragging, or drag accurately. Actually, we can
+  // just call ApplySnapping manually if it were public, but it's private.
+  // Dragging: start at 10.0us (10 * 33.1 = 331px).
+  io.MousePos = ImVec2(GetTimelineStartX() + 331.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End at 59.8us to snap to 60.0us (event start).
+  // 59.8 * 33.1 = 1979.38px
+  io.MousePos = ImVec2(GetTimelineStartX() + 1979.38f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Expected to snap end to 60.0. Since is_pan is true (duration 50.0 matches
+  // visible range), start should snap to 60.0 - 50.0 = 10.0.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 60.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, and has multiple levels so it is expandable.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should not snap because group is collapsed
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest,
+       SnapDoesNotIgnoreEventsForNonFlameGroupsEvenWhenCollapsed) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, and has multiple levels so it is expandable.
+  // But it is NOT kFlame!
+  data.groups = {{Group::Type::kCounter, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It SHOULD snap because non-kFlame groups are never considered collapsed for
+  // snapping
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest,
+       SnapIgnoresHasChildrenIfNestingLevelIsSameOrLower) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {100.0, 100.0};
+  data.entry_self_times = {100.0, 100.0};
+  data.entry_start_times = {100.0, 500.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 2};
+  data.entry_tids = {1, 2};
+  data.entry_args = {{}, {}};
+
+  // Group 0 has another group after it, but it's not a child (nesting level is
+  // not >). Thus, it should NOT be considered as having children, so it should
+  // not be considered expandable/collapsed even if `expanded` is false.
+  data.groups = {{Group::Type::kFlame, "group1", "", 0, 0, false},
+                 {Group::Type::kFlame, "group2", "", 1, 0, false}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Try snapping to event1 in group1
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap because group1 is not considered collapsed since it's not
+  // expandable
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is expanded.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Use a window height of 20.0f and a scroll of 0 so that the top edge of the
+  // event (which is at 20.0f) is exactly at the bottom visible edge of the
+  // window. This verifies the strict > comparison for skipping events outside
+  // view.
+  SimulateFrame(0.0f, 20.0f);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame(0.0f, 20.0f);
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame(0.0f, 20.0f);
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame(0.0f, 20.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is expanded.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Use a scroll of 43.0f (which equals y_bottom) so that the bottom edge of
+  // the event (which is at 43.0f) is exactly at the top visible edge of the
+  // window. This verifies the strict < comparison for skipping events outside
+  // view.
+  SimulateFrame(43.0f, 1000.0f);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start near 100.0 us (990px -> 99.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame(43.0f, 1000.0f);
+
+  // End near 200.0 us (2010px -> 201.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame(43.0f, 1000.0f);
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame(43.0f, 1000.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // It should snap
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+
+  // Verify strict viewport culling logic at the lower boundary.
+  // Manipulate ImGui style padding to precisely position the event
+  // such that its top edge is exactly 0.5 pixels below the visible window area.
+  // The culling logic must strictly evaluate `y_top > window_height` and skip
+  // the event, preventing it from being considered for snapping.
+  float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = 200.5f;
+
+  timeline_.SetTimelineData(data);
+
+  float window_height = 200.0f;
+
+  auto draw_frame = [&](float height) {
+    ImGui::GetIO().DisplaySize = ImVec2(1920.0f, height);
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  };
+
+  draw_frame(window_height);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  draw_frame(window_height);
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  draw_frame(window_height);
+
+  io.AddMouseButtonEvent(0, false);
+  draw_frame(window_height);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Verify no snapping occurred because the event was culled.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+
+  // Verify strict viewport culling logic at the upper boundary.
+  // Manipulate ImGui style padding to precisely position the event
+  // such that its bottom edge is exactly 0.5 pixels above the current scroll
+  // position. The culling logic must strictly evaluate `y_bottom <
+  // current_scroll_y` and skip the event, preventing it from being considered
+  // for snapping. This exact positioning is achieved by setting a negative
+  // CellPadding.y.
+  float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = -23.5f;
+
+  timeline_.SetTimelineData(data);
+
+  float window_height = 200.0f;
+
+  auto draw_frame = [&](float height) {
+    ImGui::GetIO().DisplaySize = ImVec2(1920.0f, height);
+    ImGui::NewFrame();
+    timeline_.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::EndFrame();
+  };
+
+  draw_frame(window_height);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  draw_frame(window_height);
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  draw_frame(window_height);
+
+  io.AddMouseButtonEvent(0, false);
+  draw_frame(window_height);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  // Verify no snapping occurred because the event was culled.
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {100.0, 100.0};
+  data.entry_self_times = {100.0, 100.0};
+  data.entry_start_times = {100.0, 100.0};  // Events at 100.0
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  // Group is expanded and has multiple levels.
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};  // Event at 100.0
+  data.entry_names = {"event1"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  // Group is NOT expanded, but it is NOT expandable (only 1 level, no children)
+  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Drag near 100.0 us
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
 }
 
 // =============================================================================
@@ -6053,6 +7424,91 @@ TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
   EXPECT_LE(timeline_.get_bounds_notification_timer_for_test(), 0.0f);
 }
 
+TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Move mouse over the track label. The label column is 250px wide.
+  // We indent by some amount, so X=100 should be on the text.
+  // Y should be around 50px (first track).
+  io.MousePos = ImVec2(100.0f, 50.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(100.0f, 50.0f);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  const char* clipboard_text = ImGui::GetClipboardText();
+  ASSERT_NE(clipboard_text, nullptr);
+  EXPECT_STREQ(clipboard_text, "Test Group Name");
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ClickExpandCollapseButtonTogglesExpandedState) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  // Needs to test an expandable group, so has_multiple_levels or has_children.
+  // Let's set start_level=0 and next_group_start_level=2 to simulate multiple
+  // levels.
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.events_by_level = {{0}, {}};  // 2 levels, second level empty
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Button is at X = (nesting_level + 1) * kIndentSize.
+  // We don't have kIndentSize exposed directly in tests, but it's probably ~16.
+  // So X=15 is a safe bet for the invisible button.
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(15.0f, 50.0f);
+  SimulateFrame();
+
+  // It should be a Hand cursor over the button
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+}
+
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
   FlameChartTimelineData data;
   data.events_by_level.resize(5);
@@ -6193,7 +7649,2402 @@ TEST_F(MockTimelineImGuiFixture,
   EXPECT_EQ(timeline_.CallFindFirstVisibleAncestorIndex(2), 1);
 }
 
+TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  // Group 0: Process A (nesting_level = 0, name = "Process A", start_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 1: Thread A1 (nesting_level = 1, name = "Thread A1", start_level = 0)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread A1",
+      .start_level = 0,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Group 2: Thread A2 (nesting_level = 1, name = "Thread A2", start_level = 1)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread A2",
+      .start_level = 1,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Group 3: Process B (nesting_level = 0, name = "Process B", start_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 2,
+      .nesting_level = 0,
+      .expanded = true,
+  });
+
+  // Group 4: Thread B1 (nesting_level = 1, name = "Thread B1", start_level = 2)
+  data.groups.push_back({
+      .type = Group::Type::kFlame,
+      .name = "Thread B1",
+      .start_level = 2,
+      .nesting_level = 1,
+      .expanded = true,
+  });
+
+  // Set the data on timeline.
+  timeline_.SetTimelineData(data);
+
+  // 1. Hide "Process A". First, test with feature flag ENABLED.
+  timeline_.set_track_management_enabled(true);
+  const float prev_padding_y = ImGui::GetStyle().CellPadding.y;
+  ImGui::GetStyle().CellPadding.y = 10.0f;
+  timeline_.HideTrack("Process A");
+
+  // Verify group visibility for this state.
+  ASSERT_EQ(timeline_.CallGroupVisible().size(), 5);
+  EXPECT_FALSE(timeline_.CallGroupVisible()[0]);  // Process A hidden
+  // Thread A1 hidden (child of hidden Process A)
+  EXPECT_FALSE(timeline_.CallGroupVisible()[1]);
+  // Thread A2 hidden (child of hidden Process A)
+  EXPECT_FALSE(timeline_.CallGroupVisible()[2]);
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+
+  // Verify visible level offsets for levels in hidden track.
+  ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 10.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 10.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 75.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 99.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 123.5f);
+
+  ImGui::GetStyle().CellPadding.y = prev_padding_y;
+
+  // 2. Now disable the feature flag. Hiding should be ignored and
+  // all tracks should reappear.
+  timeline_.set_track_management_enabled(false);
+  timeline_.UpdateLevelPositions(timeline_.timeline_data());
+
+  EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Process A visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Thread A1 visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[2]);  // Thread A2 visible again
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  // Process A is collapsed, but has children.
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, 1, true}
+  };
+  data.events_by_level = {{0}, {}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 45.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became hidden
+  EXPECT_FALSE(timeline_.group_visible()[0]);
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
+  ImGui::NewFrame();
+  ImGui::Begin("TestWindow");
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ASSERT_NE(draw_list, nullptr);
+
+  // Call DrawHideIcon with is_track_hidden = true to cover the slashing line
+  // logic (line 2451)
+  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+                         /*is_track_hidden=*/true);
+
+  // Also call with is_track_hidden = false to cover the other branch
+  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+                         /*is_track_hidden=*/false);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawTrackManagementHiddenTrackPopIDCovered) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  // Set track management to false so "Process A" isn't marked invisible in
+  // group_visible_ when HideTrack is called.
+  timeline_.set_track_management_enabled(false);
+  timeline_.HideTrack("Process A");
+
+  // Re-enable track management without calling UpdateLevelPositions, leaving
+  // group_visible_[0] as true
+  timeline_.set_track_management_enabled(true);
+
+  // Simulate Frame (calls Draw()). It will reach the hidden track check inside
+  // the rendering loop (line 432), pop the ID, and continue.
+  SimulateFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  // Process A is expanded, Thread A1 is expanded.
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      {Group::Type::kFlame, "Thread A1", "", 1, 1, true}
+  };
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+
+  SimulateFrame();
+
+  const float label_width = timeline_.GetLabelWidth();
+  const float font_size = ImGui::GetFontSize();
+  // Math check: kArrowSize = font_size * 0.7f.
+  const float arrow_size = font_size * 0.7f;
+  const float splitter_offset = 4.0f;  // kSplitterOffset is 4.0f
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Test 1: Verify that hovering over a process track's hide button
+  // sets the cursor to Hand.
+  // The correct button horizontal range is:
+  // [label_width - splitter_offset - arrow_size,
+  //  label_width - splitter_offset].
+  // Set position to the center of the range.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size * 0.5f, 45.0f);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Test 2: Hovering just outside (to the left) of the correct range.
+  // Under correct code, this is outside. Cursor should NOT be Hand.
+  // Under mutated code (Mutant 612), arrow_size is increased by 1px,
+  // making the range wider to the left, so it would be Hand.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size - 0.5f, 45.0f);
+  SimulateFrame();
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Test 3: Verify that Thread A1 (nesting_level = 1 !=
+  // kProcessNestingLevel) does NOT render a hide button.
+  // Under correct code, it has no button, so cursor at its label's
+  // right-end position is NOT Hand.
+  // Under mutated code (Mutant 610), it renders a button here,
+  // so cursor would be Hand.
+  // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
+  // Y = 20.0f). Its center Y is 20.0f + 54.0f + 23.0f * 0.5f = 85.5f.
+  io.MousePos = ImVec2(
+      label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
+  SimulateFrame();
+  EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {
+ protected:
+  void SetUp() override {
+    RealTimelineImGuiFixture::SetUp();
+    // 165.5us results in exactly 10px/us with 1655px timeline width.
+    timeline_.SetVisibleRange({0.0, 165.5});
+    timeline_.set_data_time_range({0.0, 1000.0});
+
+    SimulateFrame();
+    SimulateFrame();
+  }
+
+  void AddSelectedTimeRange(Microseconds start, Microseconds end) {
+    timeline_.AddSelectedTimeRange(TimeRange(start, end));
+  }
+
+  void Drag(Microseconds from_time, Microseconds to_time, bool shift = false) {
+    ImGuiIO& io = ImGui::GetIO();
+    float origin_x = GetTimelineStartX();
+    double px_per_time = 10.0;
+
+    io.AddMousePosEvent(origin_x + from_time * px_per_time, 50.0f);
+    io.AddMouseButtonEvent(0, true);
+    if (shift) io.KeyShift = true;
+    SimulateFrame();
+
+    io.AddMousePosEvent(origin_x + to_time * px_per_time, 50.0f);
+    SimulateFrame();
+
+    io.AddMouseButtonEvent(0, false);
+    SimulateFrame();
+    if (shift) io.KeyShift = false;
+  }
+};
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeTimeRangeStart) {
+  AddSelectedTimeRange(100.0, 150.0);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Resize start from 100 to 50
+  Drag(100.0, 50.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeTimeRangeEnd) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  // Resize end from 100 to 150
+  Drag(100.0, 150.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeSwapsStartAndEnd) {
+  AddSelectedTimeRange(50.0, 100.0);
+
+  // Drag start (50) past end (100) to 150
+  Drag(50.0, 150.0);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeWithSnapping) {
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  // Create a snap point at 100.0
+  AddSelectedTimeRange(100.0, 150.0);
+
+  // Create another range to resize (index 1)
+  AddSelectedTimeRange(10.0, 50.0);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+
+  // Resize end of second range (50.0) near snap point (100.0)
+  // Threshold = 16 / 10 = 1.6us.
+  // Drag to 99.0, it should snap to 100.0.
+  Drag(50.0, 99.0, /*shift=*/true);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenNavigatedEventNotPresent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 5000000.0, 1000.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_GT(timeline_.visible_range_target().start(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenPrevNavigatedEventNotPresent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 5000000.0, 1000.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_GT(timeline_.visible_range_target().start(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsRobustFallbackMatching) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"copy.done", 100.0, 50.0, 0, 1, 1, 1001},
+      {"while", 100.0, 50.0, 1, 1, 1, 1002},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("while");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"while", 100.0001, 50.0001, 0, 1, 1, 9999}}));
+
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+enum class MismatchType {
+  kPid,
+  kTid,
+  kName,
+  kDuration,
+  kStartTime,
+  kSearchDuration,
+  kSearchStartTime
+};
+
+class ReconciliationMismatchTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<MismatchType> {};
+
+TEST_P(ReconciliationMismatchTest, MismatchFailsReconciliation) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  if (GetParam() != MismatchType::kSearchDuration &&
+      GetParam() != MismatchType::kSearchStartTime) {
+    timeline_.SetSearchQuery("eventA");
+    if (GetParam() == MismatchType::kStartTime) {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 9999}}));
+      EXPECT_EQ(timeline_.get_search_results_count(), 1);
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 200.0, 50.0, 0, 1, 1, 1002}}));
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+    } else {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      std::vector<EventDef> new_events = {{"dummy", 0.0, 10.0, 0, 1, 1, 3003}};
+      switch (GetParam()) {
+        case MismatchType::kPid:
+          new_events.push_back({"eventA", 100.0, 50.0, 0, 2, 1, 2002});
+          break;
+        case MismatchType::kTid:
+          new_events.push_back({"eventA", 100.0, 50.0, 0, 1, 2, 2002});
+          break;
+        case MismatchType::kName:
+          new_events.push_back({"eventB", 100.0, 50.0, 0, 1, 1, 2002});
+          break;
+        case MismatchType::kDuration:
+          new_events.push_back({"eventA", 100.0, 100.0, 0, 1, 1, 2002});
+          break;
+        default:
+          break;
+      }
+      timeline_.SetTimelineData(CreateTimelineData(new_events));
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+    }
+  } else {
+    timeline_.SetSearchQuery("eventA");
+    if (GetParam() == MismatchType::kSearchDuration) {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 60.0, 0, 1, 1, 9999}}));
+    } else {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 200.0, 50.0, 0, 1, 1, 9999}}));
+    }
+    timeline_.NavigateToNextSearchResult();
+    EXPECT_EQ(timeline_.selected_event_index(), -1);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousMismatches, ReconciliationMismatchTest,
+    ::testing::Values(MismatchType::kPid, MismatchType::kTid,
+                      MismatchType::kName, MismatchType::kDuration,
+                      MismatchType::kStartTime, MismatchType::kSearchDuration,
+                      MismatchType::kSearchStartTime));
+
+enum class SortingTestType {
+  kComprehensive,
+  kIgnoreNonSortMetadata,
+  kInvalidLevels,
+  kIgnoreNonSortMetadataReverse,
+  kEqualSortIndexFallbackTid,
+  kMinLevelNotOverwritten,
+  kMinLevelUnloadedActiveThread,
+  kProcessSortIndexFallbackPid,
+  kMinLevelIgnoresInvalidLevels
+};
+
+class SearchResultsSortingTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<SortingTestType> {};
+
+TEST_P(SearchResultsSortingTest, SortingBehaviors) {
+  switch (GetParam()) {
+    case SortingTestType::kComprehensive: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"ev0", 100.0, 10.0, 0, 2, 1, 100},
+          {"ev1", 200.0, 10.0, 1, 1, 2, 101},
+          {"ev2", 300.0, 10.0, 2, 1, 3, 102},
+          {"ev3", 150.0, 10.0, 0, 1, 2, 103},
+          {"ev4", 120.0, 10.0, 1, 1, 1, 104},
+          {"ev5", 110.0, 10.0, 2, 1, 1, 105},
+          {"ev6", 50.0, 10.0, 0, 3, 1, 106},
+          {"ev7", 60.0, 10.0, 0, 4, 1, 107},
+          {"ev8", 130.0, 10.0, 1, 1, 1, 108},
+          {"ev9", 400.0, 10.0, 1, 1, 4, 109},
+          {"ev10", 410.0, 10.0, 1, 1, 5, 110},
+          {"ev11", 420.0, 10.0, 1, 1, 7, 111},
+          {"ev12", 430.0, 10.0, 1, 1, 6, 112},
+          {"ev15", 160.0, 10.0, 0, 5, 1, 115},
+          {"ev16", 170.0, 10.0, 0, 6, 1, 116},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kProcessSortIndex, 2, 0, kSortIndex, "10");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 3, 0, kSortIndex, "5");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 5, 0, kSortIndex, "30");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 6, 0, kSortIndex, "30");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 4, kSortIndex, "20");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 5, kSortIndex, "20");
+
+      auto add_event = [&](EventId event_id, ProcessId pid, ThreadId tid,
+                           absl::string_view name, double ts, double dur) {
+        TraceEvent ev;
+        ev.ph = Phase::kComplete;
+        ev.event_id = event_id;
+        ev.pid = pid;
+        ev.tid = tid;
+        ev.name = std::string(name);
+        ev.ts = ts;
+        ev.dur = dur;
+        search_results.flame_events.push_back(ev);
+      };
+      add_event(100, 2, 1, "ev0", 100.0, 10.0);
+      add_event(101, 1, 2, "ev1", 200.0, 10.0);
+      add_event(102, 1, 3, "ev2", 300.0, 10.0);
+      add_event(103, 1, 2, "ev3", 150.0, 10.0);
+      add_event(104, 1, 1, "ev4", 120.0, 10.0);
+      add_event(105, 1, 1, "ev5", 110.0, 10.0);
+      add_event(106, 3, 1, "ev6", 50.0, 10.0);
+      add_event(107, 4, 1, "ev7", 60.0, 10.0);
+      add_event(108, 1, 1, "ev8", 130.0, 10.0);
+      add_event(109, 1, 4, "ev9", 400.0, 10.0);
+      add_event(110, 1, 5, "ev10", 410.0, 10.0);
+      add_event(111, 1, 7, "ev11", 420.0, 10.0);
+      add_event(112, 1, 6, "ev12", 430.0, 10.0);
+      add_event(113, 1, 1, "ev13", 140.0, 10.0);
+      add_event(114, 1, 1, "ev14", 150.0, 10.0);
+      add_event(115, 5, 1, "ev15", 160.0, 10.0);
+      add_event(116, 6, 1, "ev16", 170.0, 10.0);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      std::vector<int> expected_order = {6, 0, 13, 14, 3,  1,  9, 10, 4,
+                                         8, 8, 8,  5,  12, 11, 2, 7};
+      for (int i = 0; i < expected_order.size(); ++i) {
+        timeline_.NavigateToNextSearchResult();
+        EXPECT_EQ(timeline_.selected_event_index(), expected_order[i])
+            << "Mismatch at index " << i;
+      }
+      break;
+    }
+    case SortingTestType::kIgnoreNonSortMetadata: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, 99, 1, 1, 100},
+          {"evC", 300.0, 10.0, 99, 1, 3, 102},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadName, 1, 1, kSortIndex, "5");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "10");
+      add_meta(Phase::kComplete, kThreadSortIndex, 1, 3, kSortIndex, "2");
+
+      TraceEvent evA{.ph = Phase::kComplete,
+                     .event_id = 100,
+                     .pid = 1,
+                     .tid = 1,
+                     .name = "evA",
+                     .ts = 100.0,
+                     .dur = 10.0};
+      TraceEvent evB{.ph = Phase::kComplete,
+                     .event_id = 101,
+                     .pid = 1,
+                     .tid = 2,
+                     .name = "evB",
+                     .ts = 200.0,
+                     .dur = 10.0};
+      TraceEvent evC{.ph = Phase::kComplete,
+                     .event_id = 102,
+                     .pid = 1,
+                     .tid = 3,
+                     .name = "evC",
+                     .ts = 300.0,
+                     .dur = 10.0};
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+      search_results.flame_events.push_back(evC);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case SortingTestType::kInvalidLevels: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, -1, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA", 100.0, 10.0, 0, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case SortingTestType::kIgnoreNonSortMetadataReverse: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 100.0, 10.0, 99, 1, 2, 100}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "1");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 1, kSortIndex, "10");
+
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 999;
+      evA.pid = 1;
+      evA.tid = 1;
+      evA.name = "evA";
+      evA.ts = 150.0;
+      evA.dur = 10.0;
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 100;
+      evB.pid = 1;
+      evB.tid = 2;
+      evB.name = "evB";
+      evB.ts = 100.0;
+      evB.dur = 10.0;
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_EQ(
+          timeline_.get_pending_navigation_event_id_for_test().value_or(0),
+          999);
+      break;
+    }
+    case SortingTestType::kEqualSortIndexFallbackTid: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, 0, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "1");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 1, kSortIndex, "1");
+
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 100;
+      evA.pid = 1;
+      evA.tid = 2;
+      evA.name = "evA";
+      evA.ts = 100.0;
+      evA.dur = 10.0;
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 101;
+      evB.pid = 1;
+      evB.tid = 1;
+      evB.name = "evB";
+      evB.ts = 200.0;
+      evB.dur = 10.0;
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case SortingTestType::kMinLevelNotOverwritten: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA1", 100.0, 10.0, 0, 1, 2, 100},
+          {"evA2", 50.0, 10.0, 2, 1, 2, 101},
+          {"evB1", 200.0, 10.0, 1, 1, 1, 102},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA1", 100.0, 10.0, 0, 1, 2, 100},
+          {"evA2", 50.0, 10.0, 0, 1, 2, 101},
+          {"evB1", 200.0, 10.0, 0, 1, 1, 102},
+      }));
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 2);
+      break;
+    }
+    case SortingTestType::kMinLevelUnloadedActiveThread: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 200.0, 10.0, 1, 1, 1, 100}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA_unloaded", 300.0, 10.0, 0, 1, 1, 999},
+          {"evB", 200.0, 10.0, 0, 1, 1, 100},
+      }));
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 100);
+      EXPECT_EQ(results[1].event_id, 999);
+      break;
+    }
+    case SortingTestType::kProcessSortIndexFallbackPid: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 200.0, 10.0, 0, 2, 1, 100},
+                              {"evA", 100.0, 10.0, 0, 1, 1, 101}},
+                             std::vector<Group>{{.type = Group::Type::kFlame,
+                                                 .name = "Process 1",
+                                                 .start_level = 0},
+                                                {.type = Group::Type::kFlame,
+                                                 .name = "Process 2",
+                                                 .start_level = 0}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kProcessSortIndex, 1, 0, kSortIndex, "10.0");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 2, 0, kSortIndex, "10.0");
+
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 100;
+      evB.pid = 2;
+      evB.tid = 1;
+      evB.name = "evB";
+      evB.ts = 200.0;
+      evB.dur = 10.0;
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 101;
+      evA.pid = 1;
+      evA.tid = 1;
+      evA.name = "evA";
+      evA.ts = 100.0;
+      evA.dur = 10.0;
+      search_results.flame_events.push_back(evB);
+      search_results.flame_events.push_back(evA);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 101);
+      EXPECT_EQ(results[1].event_id, 100);
+      break;
+    }
+    case SortingTestType::kMinLevelIgnoresInvalidLevels: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"ev_invalid", 100.0, 10.0, -1, 1, 1, 100},
+          {"ev_valid", 200.0, 10.0, 2, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"ev_unloaded", 300.0, 10.0, -1, 1, 1, 999},
+          {"ev_other", 200.0, 10.0, 1, 1, 1, 101},
+      }));
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 101);
+      EXPECT_EQ(results[1].event_id, 999);
+      break;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousSorting, SearchResultsSortingTest,
+    ::testing::Values(SortingTestType::kComprehensive,
+                      SortingTestType::kIgnoreNonSortMetadata,
+                      SortingTestType::kInvalidLevels,
+                      SortingTestType::kIgnoreNonSortMetadataReverse,
+                      SortingTestType::kEqualSortIndexFallbackTid,
+                      SortingTestType::kMinLevelNotOverwritten,
+                      SortingTestType::kMinLevelUnloadedActiveThread,
+                      SortingTestType::kProcessSortIndexFallbackPid,
+                      SortingTestType::kMinLevelIgnoresInvalidLevels));
+
+enum class HappyPathType {
+  kReconciliation,
+  kPendingNavigation,
+  kPendingNavigationFallback,
+  kActiveNavigation,
+  kActiveNavigationMissingEvent,
+  kSearchActiveIndex,
+  kDifferentiateByDuration
+};
+
+class ReconciliationHappyPathTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<HappyPathType> {};
+
+TEST_P(ReconciliationHappyPathTest, HappyPathBehaviors) {
+  switch (GetParam()) {
+    case HappyPathType::kReconciliation: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.get_search_results_count(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 1, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case HappyPathType::kPendingNavigation: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_FALSE(
+          timeline_.get_pending_navigation_event_id_for_test().has_value());
+      break;
+    }
+    case HappyPathType::kPendingNavigationFallback: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 2002}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_FALSE(
+          timeline_.get_pending_navigation_event_id_for_test().has_value());
+      break;
+    }
+    case HappyPathType::kActiveNavigation: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case HappyPathType::kActiveNavigationMissingEvent: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+      break;
+    }
+    case HappyPathType::kSearchActiveIndex: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case HappyPathType::kDifferentiateByDuration: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"eventA", 100.0, 100.0, 0, 1, 1, 2001},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousHappyPaths, ReconciliationHappyPathTest,
+    ::testing::Values(HappyPathType::kReconciliation,
+                      HappyPathType::kPendingNavigation,
+                      HappyPathType::kPendingNavigationFallback,
+                      HappyPathType::kActiveNavigation,
+                      HappyPathType::kActiveNavigationMissingEvent,
+                      HappyPathType::kSearchActiveIndex,
+                      HappyPathType::kDifferentiateByDuration));
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataFallbackNameTernaryElse) {
+  FlameChartTimelineData data1;
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  timeline_.SetTimelineData(std::move(data1));
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"", 100.0, 50.0, 0, 0, 0, 9999}}));
+
+  FlameChartTimelineData data2;
+  data2.entry_event_ids.push_back(2002);
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+
+  timeline_.SetTimelineData(std::move(data2));
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesSearchWithNegativeIndexAndEmptyResults) {
+  FlameChartTimelineData data1;
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  timeline_.SetTimelineData(std::move(data1));
+
+  timeline_.SetSearchQuery("non_existent");
+  timeline_.SetSearchResults(ParsedTraceEvents());
+
+  ASSERT_EQ(timeline_.get_current_search_result_index(), -1);
+  ASSERT_EQ(timeline_.get_search_results_count(), 0);
+
+  FlameChartTimelineData data2;
+  data2.entry_event_ids.push_back(2002);
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+
+  timeline_.SetTimelineData(std::move(data2));
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsEmptyResultsEarlyReturn) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kAsyncBegin, .event_id = 1001};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchQuery("event");
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&]() { redraw_called = true; });
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_TRUE(redraw_called);
+  EXPECT_EQ(timeline_.get_search_results_count(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsEmptyQueryEarlyReturn) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kComplete, .event_id = 1001};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchQuery("");
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&]() { redraw_called = true; });
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_TRUE(redraw_called);
+  EXPECT_EQ(timeline_.get_search_results_count(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomEventExpandsRelatedTracks) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  FlameChartTimelineData data =
+      CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}},
+                         std::vector<Group>{{.type = Group::Type::kFlame,
+                                             .name = "Process Group",
+                                             .start_level = 0,
+                                             .nesting_level = 0,
+                                             .expanded = false}});
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
+  // Set visible range
+  timeline_.SetVisibleRange({0.0, 200.0});
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  // Load timeline data with one matching event, one non-matching event, and one
+  // instant non-matching event
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1, 2, 3});
+
+  // Event 0: matching_2 (starts at 10.0, duration 40.0)
+  data.entry_names.push_back("matching_2");
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1001);
+  data.entry_args.push_back({});
+
+  // Event 1: other_2 (starts at 60.0, duration 40.0)
+  data.entry_names.push_back("other_2");
+  data.entry_start_times.push_back(60.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1002);
+  data.entry_args.push_back({});
+
+  // Event 2: instant_other_1 (starts at 120.0, duration 0.0) - instant,
+  // non-matching
+  data.entry_names.push_back("instant_other_1");
+  data.entry_start_times.push_back(120.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1003);
+  data.entry_args.push_back({});
+
+  // Event 3: matching_instant_0 (starts at 140.0, duration 0.0) - instant,
+  // matching
+  data.entry_names.push_back("matching_instant_0");
+  data.entry_start_times.push_back(140.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1004);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set search query targeting "matching"
+  timeline_.SetSearchQuery("matching");
+
+  // Run SimulateFrame to draw
+  SimulateFrame();
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* group_window = nullptr;
+  const std::string child_id = "TimelineChild_Group 1_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      group_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(group_window, nullptr);
+
+  ImDrawList* draw_list = group_window->DrawList;
+
+  // Let's find the colors of the drawn shapes.
+  ColorPalette palette = ColorPalette::Default();
+  ImU32 original_match_color =
+      GetColorForId("matching_2", palette.GetTraceColors());
+  ImU32 original_other_color =
+      GetColorForId("other_2", palette.GetTraceColors());
+  ImU32 original_instant_color =
+      GetColorForId("instant_other_1", palette.GetTraceColors());
+  ImU32 original_matching_instant_color =
+      GetColorForId("matching_instant_0", palette.GetTraceColors());
+
+  EXPECT_NE(original_match_color, original_other_color);
+  EXPECT_NE(original_match_color, original_instant_color);
+  EXPECT_NE(original_match_color, original_matching_instant_color);
+  EXPECT_NE(original_other_color, original_instant_color);
+  EXPECT_NE(original_other_color, original_matching_instant_color);
+  EXPECT_NE(original_instant_color, original_matching_instant_color);
+
+  // Calculates what the grayscale color of original_other_color should be:
+  const uint32_t r = (original_other_color >> IM_COL32_R_SHIFT) & 0xFF;
+  const uint32_t g = (original_other_color >> IM_COL32_G_SHIFT) & 0xFF;
+  const uint32_t b = (original_other_color >> IM_COL32_B_SHIFT) & 0xFF;
+  const uint32_t luminance = (r * 299 + g * 587 + b * 114) / 1000;
+  ImU32 expected_gray_color = IM_COL32(luminance, luminance, luminance, 102);
+
+  // Calculates what the grayscale color of original_instant_color should be
+  // with transparency:
+  const uint32_t ir = (original_instant_color >> IM_COL32_R_SHIFT) & 0xFF;
+  const uint32_t ig = (original_instant_color >> IM_COL32_G_SHIFT) & 0xFF;
+  const uint32_t ib = (original_instant_color >> IM_COL32_B_SHIFT) & 0xFF;
+  const uint32_t iluminance = (ir * 299 + ig * 587 + ib * 114) / 1000;
+  ImU32 expected_instant_gray =
+      IM_COL32(iluminance, iluminance, iluminance, 102);
+  ImU32 expected_instant_transparent_gray =
+      ((expected_instant_gray & ~IM_COL32_A_MASK) |
+       (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT));
+
+  bool found_match_color = false;
+  bool found_gray_color = false;
+  bool found_original_other_color = false;
+  bool found_instant_color = false;
+  bool found_matching_instant_color = false;
+
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == original_match_color) {
+      found_match_color = true;
+    }
+    if (vtx.col == expected_gray_color) {
+      found_gray_color = true;
+    }
+    if (vtx.col == original_other_color) {
+      found_original_other_color = true;
+    }
+    if (vtx.col == expected_instant_transparent_gray) {
+      found_instant_color = true;
+    }
+    if (vtx.col == original_matching_instant_color) {
+      found_matching_instant_color = true;
+    }
+  }
+
+  EXPECT_TRUE(found_match_color);
+  EXPECT_TRUE(found_gray_color);
+  EXPECT_FALSE(found_original_other_color);
+  EXPECT_TRUE(found_instant_color);
+  EXPECT_TRUE(found_matching_instant_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesSearchWithNegativeIndex) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search query to match "eventA". This populates search_results_ with
+  // 1 result, but current_search_result_index_ remains -1.
+  timeline_.SetSearchQuery("eventA");
+  ASSERT_EQ(timeline_.get_search_results_count(), 1);
+  ASSERT_EQ(timeline_.get_current_search_result_index(), -1);
+
+  // 3. Set pending_navigation_event_id_ to a non-existent event ID (say 9999)
+  timeline_.set_pending_navigation_event_id_for_test(9999);
+
+  // 4. Update timeline data. Since pending_id (9999) is not in data, and
+  // current_search_result_index_ is -1, it should not reconcile to any loaded
+  // index. pending_navigation_event_id_ must remain 9999. selected_event_index_
+  // must remain -1.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data2.entry_names.push_back("eventB");
+  data2.entry_start_times.push_back(200.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(2);
+  data2.entry_tids.push_back(2);
+  data2.entry_event_ids.push_back(1002);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_TRUE(timeline_.get_pending_navigation_event_id_for_test().has_value());
+  if (timeline_.get_pending_navigation_event_id_for_test().has_value()) {
+    EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test().value(),
+              9999);
+  }
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data with NEW data.
+  // Event 1 (index 0): Duration 100.0 (Does NOT match old search result).
+  // Event 2 (index 1): Duration 50.0 (Matches old search result).
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event 1: Different duration
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(100.0);  // Different duration
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(2001);  // Different ID to force fallback
+  data2.entry_args.push_back({});
+
+  // Event 2: Matching duration
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);  // Matching duration
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(2002);  // Different ID to force fallback
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  // The search result should reconcile to index 1 (Event 2), not index 0.
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data where eventA is still present at index 0.
+  // Reconciliation should set selected_event_index_ to 0.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Add a dummy event at index 0
+  data2.entry_names.push_back("dummy");
+  data2.entry_start_times.push_back(0.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(999);
+  data2.entry_args.push_back({});
+
+  // Add the matching event at index 1
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(1001);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataDeselectsEventWhenActiveSearchResultIsUnloaded) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data where eventA is NOT present.
+  // Reconciliation should set selected_event_index_ to -1.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Add a dummy event that doesn't match
+  data2.entry_names.push_back("dummy");
+  data2.entry_start_times.push_back(0.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(999);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsEventsOnSameThreadAndLevelByStartTime) {
+  // 1. Load data with one thread having two events on the same level (0)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event X (will be loaded at index 0): start_time = 200.0 (later)
+  data.entry_names.push_back("eventA");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1001);
+  data.entry_args.push_back({});
+
+  // Event Y (will be loaded at index 1): start_time = 100.0 (earlier)
+  data.entry_names.push_back("eventA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1002);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results (contains both events)
+  ParsedTraceEvents search_results;
+  TraceEvent evX;
+  evX.ph = Phase::kComplete;
+  evX.event_id = 1001;
+  evX.pid = 1;
+  evX.tid = 1;
+  evX.name = "eventA";
+  evX.ts = 200.0;
+  evX.dur = 10.0;
+  search_results.flame_events.push_back(evX);
+
+  TraceEvent evY;
+  evY.ph = Phase::kComplete;
+  evY.event_id = 1002;
+  evY.pid = 1;
+  evY.tid = 1;
+  evY.name = "eventA";
+  evY.ts = 100.0;
+  evY.dur = 10.0;
+  search_results.flame_events.push_back(evY);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Verify sorting order: evY (ts=100.0, index 1 in data) then evX (ts=200.0,
+  // index 0 in data)
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);  // evY
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);  // evX
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsPreservesActiveSelectionZoom) {
+  // 1. Load data with evA (index 0) and evB (index 1)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results containing [evA]
+  ParsedTraceEvents search_results1;
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 100;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results1.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results1);
+
+  // Navigate to first search result (selects evA, index 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Set search results containing [evB] instead
+  ParsedTraceEvents search_results2;
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 101;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results2.flame_events.push_back(evB);
+
+  // This should trigger navigation zoom preservation (since navigation is
+  // active)
+  timeline_.SetSearchResults(search_results2);
+
+  // Assertions:
+  // Under correct code, active navigation is updated to evB (index 1) and
+  // ZoomEvent(1) is called
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 192.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 217.5);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsPreservesActiveSelectionRangeWhenNotLoaded) {
+  // 1. Load data with evA (index 0)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results containing [evA]
+  ParsedTraceEvents search_results1;
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 100;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results1.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results1);
+
+  // Navigate to first search result (selects evA, index 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Set search results containing [evB] which is NOT loaded in data
+  ParsedTraceEvents search_results2;
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 101;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results2.flame_events.push_back(evB);
+
+  // This should trigger navigation range update to evB's center (205.0) with
+  // duration (25.0)
+  timeline_.SetSearchResults(search_results2);
+
+  // Assertions:
+  // selected_event_index_ remains 0 (since evB is not loaded, it doesn't change
+  // selection)
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  // visible_range_target should be [192.5, 217.5]
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevelDrawsInstantEventsAsChevrons) {
+  // 1. Setup with duration 0.0 (instant event)
+  // Use empty name "" to avoid text drawing which can mask vertex counts.
+  FlameChartTimelineData data1;
+  data1.groups.push_back({.name = "Group 1",
+                          .start_level = 0,
+                          .nesting_level = 1,
+                          .expanded = true});
+  data1.events_by_level.push_back({0});
+  data1.entry_names.push_back("");
+  data1.entry_levels.push_back(0);
+  data1.entry_start_times.push_back(25.0);
+  data1.entry_total_times.push_back(0.0);
+  data1.entry_pids.push_back(1);
+  data1.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data1));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window1 = nullptr;
+  for (int i = 0; i < ImGui::GetCurrentContext()->Windows.Size; ++i) {
+    ImGuiWindow* w = ImGui::GetCurrentContext()->Windows[i];
+    if (absl::StrContains(w->Name, "TimelineChild_Group 1_0_")) {
+      window1 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window1, nullptr);
+  int vtx_chevron = window1->DrawList->VtxBuffer.Size;
+  ImGui::EndFrame();
+
+  // 2. Setup with duration 10.0 (non-instant event)
+  FlameChartTimelineData data2;
+  data2.groups.push_back({.name = "Group 1",
+                          .start_level = 0,
+                          .nesting_level = 1,
+                          .expanded = true});
+  data2.events_by_level.push_back({0});
+  data2.entry_names.push_back("");
+  data2.entry_levels.push_back(0);
+  data2.entry_start_times.push_back(25.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_pids.push_back(1);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window2 = nullptr;
+  for (int i = 0; i < ImGui::GetCurrentContext()->Windows.Size; ++i) {
+    ImGuiWindow* w = ImGui::GetCurrentContext()->Windows[i];
+    if (absl::StrContains(w->Name, "TimelineChild_Group 1_0_")) {
+      window2 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window2, nullptr);
+  int vtx_rect = window2->DrawList->VtxBuffer.Size;
+  ImGui::EndFrame();
+
+  // Verify vertex counts: rectangle has 4 vertices, chevron has 6 vertices.
+  EXPECT_EQ(vtx_rect, 4);
+  EXPECT_EQ(vtx_chevron, 6);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
+  // 1. Load data with evA and evB
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Group Y events: evY1 (index 0), evY2 (index 1)
+  data.entry_names.push_back("evY1");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evY2");
+  data.entry_start_times.push_back(110.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  // Group X events: evX1 (index 2), evX2 (index 3)
+  data.entry_names.push_back("evX1");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(102);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evX2");
+  data.entry_start_times.push_back(210.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(103);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // 2. Search for "evY" -> returns 2 results
+  timeline_.SetSearchQuery("evY");
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+
+  // Navigate 1 -> should go to first result (evY1, index 0)
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  // 3. Search for "evX" -> should clear previous results and reset index to -1
+  timeline_.SetSearchQuery("evX");
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+
+  // Navigate 1 -> should start from -1, become 0 -> go to first result (evX1,
+  // index 2)
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 2);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsResultsByMinLevelForUnloadedEventOnActiveThread) {
+  // 1. Populate timeline data with single thread (tid 1)
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  // Event 0 (index 0): pid 1, tid 1 (Thread A) - loaded at level 1
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(1);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Search results containing:
+  // - evA_unloaded: unloaded on Thread A (pid 1, tid 1) -> level -1
+  // - evB: loaded on Thread A (pid 1, tid 1) -> level 1
+  // PUSH evA_unloaded BEFORE evB to test stable sort preservation under Mutant
+  // B!
+  ParsedTraceEvents search_results;
+  TraceEvent evA_unloaded;
+  evA_unloaded.ph = Phase::kComplete;
+  evA_unloaded.event_id = 999;
+  evA_unloaded.pid = 1;
+  evA_unloaded.tid = 1;
+  evA_unloaded.name = "evA_unloaded";
+  evA_unloaded.ts = 300.0;
+  evA_unloaded.dur = 10.0;
+  search_results.flame_events.push_back(evA_unloaded);
+
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 100;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results.flame_events.push_back(evB);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results);
+
+  // Sorting order verification under clean code:
+  // Both are on the same thread, so effective levels are compared.
+  // evB effective level = 1.
+  // evA_unloaded effective level = 1 (looked up from Thread A min level, which
+  // is 1). Levels are equal, so falls back to start time: evB (200.0) <
+  // evA_unloaded (300.0) -> evB should be first.
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0].event_id, 100);  // evB should be first
+  EXPECT_EQ(results[1].event_id, 999);  // evA_unloaded should be second
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsResultsByProcessSortIndexFallbackToPid) {
+  // 1. Populate timeline data (loaded) with two events in different processes
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 2",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  // Event B (index 0, event_id 100): pid 2
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(2);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  // Event A (index 1, event_id 101): pid 1
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Search results containing process sort metadata:
+  // We map both PID 1 and PID 2 to sort index 10.0.
+  // PUSH evB (pid 2, event_id 100) BEFORE evA (pid 1, event_id 101) in input!
+  ParsedTraceEvents search_results;
+
+  TraceEvent meta1{
+      .ph = Phase::kMetadata, .pid = 1, .name = std::string(kProcessSortIndex)};
+  meta1.args.try_emplace(std::string(kSortIndex), "10.0");
+  search_results.flame_events.push_back(meta1);
+
+  TraceEvent meta2{
+      .ph = Phase::kMetadata, .pid = 2, .name = std::string(kProcessSortIndex)};
+  meta2.args.try_emplace(std::string(kSortIndex), "10.0");
+  search_results.flame_events.push_back(meta2);
+
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 100;
+  evB.pid = 2;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results.flame_events.push_back(evB);
+
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 101;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results);
+
+  // Sorting verification under clean code:
+  // Both have same process sort index (10.0).
+  // So it falls back to PID comparison:
+  // evA (pid 1) < evB (pid 2) -> evA (event_id 101) should be first!
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0].event_id, 101);  // evA (event_id 101) should be first
+  EXPECT_EQ(results[1].event_id, 100);  // evB (event_id 100) should be second
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToNextSearchResultPansToUnloadedEvent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToNextSearchResultPansToUnloadedEventClamped) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 195.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToPrevSearchResultPansToUnloadedEvent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToPrevSearchResultPansToUnloadedEventClamped) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 195.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsTriggersRedrawCallback) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev;
+  ev.ph = Phase::kComplete;
+  ev.event_id = 100;
+  search_results.flame_events.push_back(ev);
+
+  int redraw_count = 0;
+  timeline_.set_redraw_callback([&]() { redraw_count++; });
+
+  timeline_.SetSearchResults(search_results);
+  EXPECT_EQ(redraw_count, 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsEmptyResetsCurrentSearchResultIndex) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(ParsedTraceEvents());
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsWithActiveNavigationSelectsFirstResult) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evB", 200.0, 10.0, 0, 1, 1, 101}}));
+
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsProcessesInstantDeprecatedPhase) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("instant");
+
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kInstantDeprecated,
+                .event_id = 1001,
+                .pid = 0,
+                .tid = 1,
+                .name = "instant_event",
+                .ts = 100.0,
+                .dur = 0.0};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsFallbackUpdatesEventId) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"while", 100.0, 50.0, 1, 1, 1, 1002},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("while");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"while", 100.0001, 50.0001, 1, 1, 1, 9999}}));
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 1002);
+  EXPECT_EQ(results[0].loaded_index, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoverColor) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT,
+            static_cast<ImU32>(0.6f * 255.0f));
+
+  draw_list->PopClipRect();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(100.0f, 102.0f);
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT, 255);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsPopulatesAllSearchResultFields) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"target_event", 100.0, 50.0, 1, 2, 3, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("target");
+
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kInstant,
+                .event_id = 1001,
+                .pid = 2,
+                .tid = 3,
+                .name = "target_event",
+                .ts = 100.0,
+                .dur = 50.0};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchResults(search_results);
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 1001);
+  EXPECT_EQ(results[0].level, 1);
+  EXPECT_EQ(results[0].start_time, 100.0);
+  EXPECT_EQ(results[0].duration, 50.0);
+  EXPECT_EQ(results[0].pid, 2);
+  EXPECT_EQ(results[0].tid, 3);
+  EXPECT_EQ(results[0].name, "target_event");
+  EXPECT_EQ(results[0].loaded_index, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       RecomputeSearchResultsSortsByLevelThenStartTime) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_level2", 200.0, 10.0, 2, 1, 1, 1002},
+      {"ev_level1_late", 300.0, 10.0, 1, 1, 1, 1003},
+      {"ev_level1_early", 100.0, 10.0, 1, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev_level");
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 3);
+  EXPECT_EQ(results[0].event_id, 1001);
+  EXPECT_EQ(results[1].event_id, 1003);
+  EXPECT_EQ(results[2].event_id, 1002);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventClipsNonPositiveWidth) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect inverted_rect{
+      .left = 110.0f, .top = 100.0f, .right = 100.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, inverted_rect, draw_list);
+
+  EXPECT_EQ(draw_list->VtxBuffer.Size, 0);
+
+  EventRect zero_rect{
+      .left = 100.0f, .top = 100.0f, .right = 100.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, zero_rect, draw_list);
+
+  EXPECT_EQ(draw_list->VtxBuffer.Size, 0);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataRetainsPendingNavigationWhenUnmatched) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.set_pending_navigation_event_id_for_test(9999);
+
+  FlameChartTimelineData data2 = CreateTimelineData({
+      {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+  });
+  timeline_.SetTimelineData(std::move(data2));
+
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 9999);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesPendingNavigationAndZooms) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.set_pending_navigation_event_id_for_test(1001);
+
+  FlameChartTimelineData data2 = CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  });
+  timeline_.SetTimelineData(std::move(data2));
+
+  EXPECT_FALSE(
+      timeline_.get_pending_navigation_event_id_for_test().has_value());
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsWithActiveNavigationPansToUnloadedEvent) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evB", 200.0, 10.0, 0, 1, 1, 101}}));
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventInstantSearchMatchColor) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("instant");
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT, 255);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
-

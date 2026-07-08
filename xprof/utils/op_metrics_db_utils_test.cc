@@ -131,6 +131,29 @@ TEST(OpMetricsDbTest, FromXEventHandlesMissingOccurrences) {
 #endif
 }
 
+TEST(OpMetricsDbTest, FromXEventExtractsVddEnergy) {
+  XPlane raw_plane;
+  XPlaneBuilder plane(&raw_plane);
+  XLineBuilder line = plane.GetOrCreateLine(0);
+  XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("metadata");
+  XEventBuilder event = line.AddEvent(*event_metadata);
+  event.SetOffsetPs(0);
+  event.SetDurationPs(100);
+
+  XStatMetadata* energy_stat_metadata =
+      plane.GetOrCreateStatMetadata("vdd_energy_j");
+  event.AddStatValue(*energy_stat_metadata, 42.0);
+
+  tsl::profiler::XPlaneVisitor plane_visitor =
+      tsl::profiler::CreateTfXPlaneVisitor(&raw_plane);
+  tsl::profiler::XEventVisitor event_visitor(
+      &plane_visitor, &raw_plane.lines(0), &raw_plane.lines(0).events(0));
+
+  OpMetrics op_metrics = FromXEvent(event_visitor);
+
+  EXPECT_DOUBLE_EQ(op_metrics.vdd_energy_j(), 42.0);
+}
+
 TEST(OpMetricsDbTest, GetOpKeyFromXEvent) {
   XPlane raw_plane;
   XPlaneBuilder plane(&raw_plane);
@@ -169,14 +192,18 @@ TEST(OpMetricsDbTest, AddOpMetric) {
         *plane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kSymbolId)), 1);
     XStatMetadata* time_scale_multiplier_stat = plane.GetOrCreateStatMetadata(
         GetStatTypeStr(StatType::kTimeScaleMultiplier));
+    XStatMetadata* energy_stat_metadata =
+        plane.GetOrCreateStatMetadata("vdd_energy_j");
     XEventBuilder event = line.AddEvent(*event_metadata);
     event.SetOffsetPs(0);
     event.SetDurationPs(100);
     event.AddStatValue(*time_scale_multiplier_stat, 0.5);
+    event.AddStatValue(*energy_stat_metadata, 10.0);
     XEventBuilder event2 = line.AddEvent(*event_metadata);
     event2.SetOffsetPs(100);
     event2.SetDurationPs(100);
     event2.AddStatValue(*time_scale_multiplier_stat, 1.0);
+    event2.AddStatValue(*energy_stat_metadata, 20.0);
   }
   {
     XEventMetadata* event_metadata = plane.GetOrCreateEventMetadata("m2");
@@ -226,6 +253,7 @@ TEST(OpMetricsDbTest, AddOpMetric) {
                   normalized_time_ps: 150
                   min_time_ps: 100
                   num_cores: 1
+                  vdd_energy_j: 30
                 }
                 metrics_db {
                   hlo_module_id: 1

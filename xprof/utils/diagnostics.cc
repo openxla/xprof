@@ -18,6 +18,7 @@ limitations under the License.
 #include <string>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
@@ -25,7 +26,7 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-const absl::string_view kErrorIncompleteStep =
+ABSL_CONST_INIT const absl::string_view kErrorIncompleteStep =
     "Incomplete step observed and hence the step time is unknown."
     "Instead, we use the trace duration as the step time. This may happen"
     " if your profiling duration is shorter than the step time. In this"
@@ -38,19 +39,19 @@ const absl::string_view kErrorEmptyIntersect =
     "step time is "
     "unknown.";
 
-const absl::string_view kErrorNoStepMarker =
+ABSL_CONST_INIT const absl::string_view kErrorNoStepMarker =
     "No step marker observed and hence the step time is unknown."
     " This may happen if (1) training steps are not instrumented (e.g., if"
     " you are not using Keras) or (2) the profiling duration is shorter"
     " than the step time. For (1), you need to add step instrumentation;"
     " for (2), you may try to profile longer.";
 
-const absl::string_view kNoDeviceTraceCollected =
+ABSL_CONST_INIT const absl::string_view kNoDeviceTraceCollected =
     "No TensorCore device trace was collected. This might happen if your job "
     "hadn't been run on the device when sampling was turned on. You could try "
     "the sampling again later.";
 
-const absl::string_view kStepsDropped =
+ABSL_CONST_INIT const absl::string_view kStepsDropped =
     " steps dropped. This might happen when you profile many hosts and/or many "
     "steps. You could try to profile shorter or reduce the number of hosts "
     "you profile.";

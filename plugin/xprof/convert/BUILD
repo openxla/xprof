@@ -37,7 +37,7 @@ py_test(
     deps = [
         ":trace_events_json",
         "//:expect_tensorflow_installed",
-        "//net/proto2/python/public",
+        "//third_party/py/google/protobuf",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
@@ -46,7 +46,9 @@ py_test(
 
 py_library(
     name = "raw_to_tool_data",
-    srcs = ["raw_to_tool_data.py"],
+    srcs = [
+        "raw_to_tool_data.py",
+    ],
     # strict_deps = False,
     visibility = visibility,
     deps = [

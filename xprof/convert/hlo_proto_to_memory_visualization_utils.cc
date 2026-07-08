@@ -23,7 +23,6 @@ limitations under the License.
 #include <list>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -587,6 +586,7 @@ struct HeapSimulatorStats {
       VLOG(1) << absl::StrFormat("New peak heap size on %d :: %d bytes",
                                  peak_heap_size_position, peak_heap_size_bytes);
       peak_logical_buffers = logical_buffers;
+      peak_canonical_to_display_id = canonical_to_display_id;
     }
     // Initialize the buffer lifespan if needed.
     if (init_buffer_span) {
@@ -669,6 +669,12 @@ struct HeapSimulatorStats {
   absl::flat_hash_set<const LogicalBufferStruct*> seen_logical_buffers;
   absl::flat_hash_set<const BufferAllocationProto*> seen_buffer_allocations;
 
+  // Maps root canonical buffer ID to the ID of the buffer currently using
+  // that physical memory (the most recent SHARE_WITH buffer). Snapshotted
+  // at peak time into peak_canonical_to_display_id.
+  absl::flat_hash_map<int64_t, int64_t> canonical_to_display_id;
+  absl::flat_hash_map<int64_t, int64_t> peak_canonical_to_display_id;
+
   // Constants while iterating through heap simulator trace.
   const HloProtoBufferWrapper& wrapper;
   int64_t simulator_trace_event_size;
@@ -723,6 +729,11 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
         auto& canonical_buffer = *logical_buffer->get_canonical_buffer();
         TF_RETURN_IF_ERROR(stats->DecreaseMemoryUsage(&canonical_buffer));
       }
+      // Narrow the sharer's span end when it is freed.
+      if (logical_buffer->span && logical_buffer->canonical_buffer) {
+        logical_buffer->span->second =
+            stats->heap_size_bytes_timeline.size() - 1;
+      }
     } else if (event.kind() == HeapSimulatorTrace::Event::SHARE_WITH) {
       int64_t canonical_buffer_id = event.share_with_canonical_id();
       LogicalBufferStruct* canonical_buffer =
@@ -733,10 +744,18 @@ absl::Status ProcessHeapSimulatorTrace(const HloProtoBufferWrapper& wrapper,
       auto ref_count = logical_buffer->share_with(canonical_buffer);
 
       if (ref_count == 1) {
-        // SHARE_WITH happens after the FREE of a canonical buffer.
-        // SHARE_WITH event does not initialize buffer lifetime span, it was
-        // initialized by ALLOC event using the canonical logical buffer.
-        stats->IncreaseMemoryUsage(canonical_buffer,
+        // SHARE_WITH after FREE: the canonical's physical memory is being
+        // reused. Use get_canonical_buffer() to resolve the root of the
+        // canonical chain, matching DecreaseMemoryUsage which also uses the
+        // root. Track the sharer as the display buffer for the bar chart,
+        // and give it its own span starting from this event.
+        auto* root_canonical = canonical_buffer->get_canonical_buffer();
+        stats->canonical_to_display_id[root_canonical->proto.id()] =
+            logical_buffer->proto.id();
+        logical_buffer->span.emplace(
+            stats->heap_size_bytes_timeline.size() - 1,
+            stats->simulator_trace_event_size - 1);
+        stats->IncreaseMemoryUsage(root_canonical,
                                    /*init_buffer_span=*/false);
       }
     } else {
@@ -775,8 +794,16 @@ struct PeakUsageSnapshot {
     // Buffers from HeapSimulatorTrace.
     for (const int64_t logical_buffer_id :
          simulator_stats.peak_logical_buffers) {
+      // Use the current sharer's metadata if this canonical buffer is being
+      // shared, so the bar chart shows the correct instruction name.
+      auto it =
+          simulator_stats.peak_canonical_to_display_id.find(logical_buffer_id);
+      int64_t display_id =
+          (it != simulator_stats.peak_canonical_to_display_id.end())
+              ? it->second
+              : logical_buffer_id;
       const LogicalBufferStruct* logical_buffer =
-          wrapper.GetLogicalBuffer(logical_buffer_id);
+          wrapper.GetLogicalBuffer(display_id);
       if (logical_buffer == nullptr) return;
       AddHeapObject(*logical_buffer);
     }
@@ -868,8 +895,8 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
   };
 
   struct RenderOptions {
-    size_t graph_width = 2048;
-    size_t graph_height = 2048;
+    size_t graph_width = 1UL << 12;
+    size_t graph_height = 1UL << 12;
   } render_options;
 
   int num_lb_colors = kBufferColors.size();
@@ -905,25 +932,32 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
   int node_id = 0;
   auto add_rect = [&](size_t x, size_t y, size_t width, size_t height,
                       std::string_view description, absl::string_view color) {
-    size_t center_x = x + (width >> 1);
-    size_t center_y = y + (height >> 1);
-    int pos_x = center_x * scale_x;
-    int pos_y = center_y * scale_y;
-    int rect_w = width * scale_x;
-    int rect_h = height * scale_y;
-    // Skip when block size is smaller than half a pixel in output size.
-    if (height * scale_y < 0.5) return;
-    rect_h = std::max(rect_h, 1);  // Rounding up.
-    std::string rect = absl::StrFormat(
-        R"("%d" [tooltip="%s", pos="%d,%d!", width="%d!", height="%d!", color="%s"];)",
-        node_id++, description, pos_x, pos_y, rect_w, rect_h, color);
-    rects.push_back(rect);
+    double center_x =
+        static_cast<double>(x) + (static_cast<double>(width) / 2.0);
+    double center_y =
+        static_cast<double>(y) + (static_cast<double>(height) / 2.0);
+    double pos_x = (center_x * scale_x);
+    double pos_y = (center_y * scale_y);
+    // Skip when block size is smaller than 1.0 point in either dimension.
+    if (static_cast<double>(width) * scale_x < 1.0 ||
+        static_cast<double>(height) * scale_y < 1.0) {
+      return;
+    }
+    // Graphviz DOT 'width' and 'height' attributes are defined in inches (72
+    // points per inch), whereas 'pos' coordinates are in points. We divide
+    // point-scale values by 72.0 to convert to inches.
+    double rect_w = (static_cast<double>(width) * scale_x);
+    double rect_h = (static_cast<double>(height) * scale_y);
+    rects.push_back(absl::StrFormat(
+        R"("%d" [tooltip="%s", pos="%.2f,%.2f!", width="%.2f", )"
+        R"(height="%.2f", fixedsize=true, color="%s"];)",
+        node_id++, description, pos_x, pos_y, rect_w, rect_h, color));
   };
   int buffer_id = 0;
   for (const auto& buffer_allocation : buffer_allocations) {
     // Exclude BAs for "global variables". The timeline provides little value.
     if (buffer_allocation->IsIndefinite()) continue;
-    auto buffer_allocation_offset = buffer_allocation_offsets[buffer_id++];
+    size_t buffer_allocation_offset = buffer_allocation_offsets[buffer_id++];
     add_rect(0, buffer_allocation_offset, total_x_size,
              buffer_allocation->size(), buffer_allocation->description(),
              "#ffffffff");
@@ -935,23 +969,24 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
       // Exclude non-canonical logical buffers.
       if (!logical_buffer->span || logical_buffer->canonical_buffer) continue;
       size_t width = logical_buffer->span->second - logical_buffer->span->first;
-      size_t height = buffer_allocation_offset + logical_buffer->size();
+      size_t y = buffer_allocation_offset + logical_buffer->offset;
+      size_t height = logical_buffer->size();
       std::string_view color = kBufferColors[node_id % num_lb_colors];
       auto it =
           peak_snapshot.buffer_id_to_color_.find(logical_buffer->proto.id());
       if (it != peak_snapshot.buffer_id_to_color_.end()) {
         color = kBufferColors[it->second % num_lb_colors];
       }
-      add_rect(logical_buffer->span->first, logical_buffer->offset, width,
-               height, logical_buffer->description(), color);
+      add_rect(logical_buffer->span->first, y, width, height,
+               logical_buffer->description(), color);
     }
   }
   VLOG(1) << "rects:" << rects.size();
   // Add a dummy rect to avoid stucking in local optimal when layout the graph
   if (timeline_option.timeline_noise) {
     rects.push_back(
-        R"("10000000" [tooltip="invisible_dummy_buffer_assignment", pos="0,0!",
-        width="0!", height="0!", color=black];)");
+        R"("10000000" [tooltip="invisible_dummy_buffer_assignment", )"
+        R"(pos="0,0!", width="0!", height="0!", color=black];)");
   }
   result->set_allocation_timeline(absl::StrFormat(
       "graph G {\n epsilon=0.5 \n node [shape=box,style=filled];\n "

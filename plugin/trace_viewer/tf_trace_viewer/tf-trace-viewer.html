@@ -1940,6 +1940,29 @@ dashboard would integrate trace viewer app using iframe.
       return key;
     },
 
+    _maybeUpdateEventArguments: function(event) {
+      if (!event["args"] || Object.keys(event["args"]).length === 0) return;
+      const pid = event["pid"];
+      const tid = event["tid"];
+      const tsMs = event["ts"] / 1000.0;
+
+      const process = this._model.processes[pid];
+      if (!process) return;
+      const thread = process.threads[tid];
+      if (!thread) return;
+
+      // Find the slice in memory with matching start time (with epsilon tolerance)
+      for (const slice of thread.sliceGroup.slices) {
+        if (Math.abs(slice.start - tsMs) < 0.001) {
+          if (!slice.args) slice.args = {};
+          for (const key in event["args"]) {
+            slice.args[key] = event["args"][key];
+          }
+          break;
+        }
+      }
+    },
+
     // Decodes the JSON trace and specifically exclude counter events,
     // removes all events that were loaded before
     // and serializes to JSON again.
@@ -1954,6 +1977,10 @@ dashboard would integrate trace viewer app using iframe.
           if (!this._loadedTraceEvents.has(key)) {
             this._loadedTraceEvents.add(key);
             filteredTraceEvents.push(event);
+          } else {
+            // Duplicate detected: the event is already loaded on the timeline.
+            // Merge the newly parsed metadata arguments into the existing slice!
+            this._maybeUpdateEventArguments(event);
           }
         }, this);
         return filteredTraceEvents;

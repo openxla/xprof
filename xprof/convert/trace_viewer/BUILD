@@ -120,6 +120,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@xla//xla/tsl/profiler/utils:timespan",
@@ -138,8 +139,15 @@ cc_test(
 
 cc_library(
     name = "trace_events",
-    srcs = ["trace_events.cc"],
-    hdrs = ["trace_events.h"],
+    srcs = [
+        "lite_trace_events.cc",
+        "trace_events.cc",
+    ],
+    hdrs = [
+        "lite_trace_events.h",
+        "lite_trace_events_visibility.h",
+        "trace_events.h",
+    ],
     deps = [
         ":prefix_trie",
         ":trace_events_filter_interface",
@@ -149,6 +157,7 @@ cc_library(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/log",
@@ -167,6 +176,7 @@ cc_library(
         "@org_xprof//xprof/convert:xprof_thread_pool_executor",
         "@tsl//tsl/platform:platform_port",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/lib/io:block",
         "@xla//xla/tsl/lib/io:iterator",
         "@xla//xla/tsl/lib/io:table",
@@ -174,7 +184,10 @@ cc_library(
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:macros",
+        "@xla//xla/tsl/profiler/utils:group_events",
         "@xla//xla/tsl/profiler/utils:timespan",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
 
@@ -265,6 +278,7 @@ cc_test(
     deps = [
         ":trace_events",
         "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",

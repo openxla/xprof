@@ -82,28 +82,30 @@ absl::Status XProfGpuCostAnalysis::HandleCustomCall(
     const xla::HloInstruction* hlo) {
   TF_RETURN_IF_ERROR(xla::gpu::GpuHloCostAnalysis::HandleCustomCall(hlo));
 
-  if (xla::gpu::IsCublasGemm(*hlo)) {
-    // The naming conventions and meanings of gemm parameters are documented at:
-    // https://docs.nvidia.com/cuda/cublas/index.html#using-the-cublaslt-api
-    // as inherited from GpuHloCostAnalysis, we only normalize the flops based
-    // on the datatype of A and B, which are supposed of same bitwidth.
-    int dot_operands_bitwidth =
-        xla::primitive_util::BitWidth(hlo->operand(0)->shape().element_type());
-    uint32_t flop_rate_adjustment = 1;
-    switch (dot_operands_bitwidth) {
-      case 8:
-        flop_rate_adjustment = 2;
-        break;
-      case 4:
-        flop_rate_adjustment = 4;
-        break;
-      default:
-        break;
-    }
-    float model_flops = current_properties_[kFlopsKey];
-    current_properties_[kDeviceFlopsAdjustment] =
-        model_flops - model_flops / flop_rate_adjustment;
+  if (!xla::gpu::IsCublasLtGemm(*hlo)) {
+    return absl::OkStatus();
   }
+
+  // The naming conventions and meanings of gemm parameters are documented at:
+  // https://docs.nvidia.com/cuda/cublas/index.html#using-the-cublaslt-api
+  // as inherited from GpuHloCostAnalysis, we only normalize the flops based
+  // on the datatype of A and B, which are supposed of same bitwidth.
+  int dot_operands_bitwidth =
+      xla::primitive_util::BitWidth(hlo->operand(0)->shape().element_type());
+  uint32_t flop_rate_adjustment = 1;
+  switch (dot_operands_bitwidth) {
+    case 8:
+      flop_rate_adjustment = 2;
+      break;
+    case 4:
+      flop_rate_adjustment = 4;
+      break;
+    default:
+      break;
+  }
+  float model_flops = current_properties_[kFlopsKey];
+  current_properties_[kDeviceFlopsAdjustment] =
+      model_flops - model_flops / flop_rate_adjustment;
   return absl::OkStatus();
 }
 

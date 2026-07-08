@@ -55,6 +55,8 @@ toc:
     path: /xprof/custom_call_profiling
   - title: Diagnosing Fragmentation
     path: /xprof/diagnosing_fragmentation
+  - title: Tracking Tensor Lifetimes and Identifying Memory Leaks
+    path: /xprof/memory_leaks
   - title: XProf Kernel User Guide
     path: /xprof/kernel-profiling
 - title: Framework-specific profiling

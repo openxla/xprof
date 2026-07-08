@@ -17,6 +17,8 @@ namespace profiler {
 
 // A node in the prefix trie data structure.
 struct PrefixTrieNode {
+  PrefixTrieNode() = default;
+  ~PrefixTrieNode();
   // The ids of the keys that are terminated at this node.
   std::vector<std::string> terminal_key_ids;
   absl::btree_map<char, std::unique_ptr<PrefixTrieNode>> children;

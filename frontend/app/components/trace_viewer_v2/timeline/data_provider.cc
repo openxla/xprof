@@ -19,6 +19,7 @@
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -628,6 +629,9 @@ void PopulateCounterTrack(
   }
 
   CounterData counter_data;
+  if (!events.empty()) {
+    counter_data.event_stats = events.front()->event_stats;
+  }
   counter_data.timestamps.reserve(total_entries);
   counter_data.values.reserve(total_entries);
 
@@ -869,6 +873,21 @@ FlameChartTimelineData CreateTimelineData(
   data.events_by_level.resize(current_level);
   for (int i = 0; i < data.entry_levels.size(); ++i) {
     data.events_by_level[data.entry_levels[i]].push_back(i);
+  }
+
+  for (int i = 0; i < data.events_by_level.size(); ++i) {
+    // Sort by start time ascending, then duration descending.
+    auto cmp_by_start_asc_then_dur_desc = [&](int idx_a, int idx_b) {
+      return data.entry_start_times[idx_a] < data.entry_start_times[idx_b] ||
+             (data.entry_start_times[idx_a] == data.entry_start_times[idx_b] &&
+              data.entry_total_times[idx_a] > data.entry_total_times[idx_b]);
+    };
+
+    LOG_IF(WARNING, !absl::c_is_sorted(data.events_by_level[i],
+                                       cmp_by_start_asc_then_dur_desc))
+        << "Trace Events not sorted properly for level: " << i;
+    absl::c_stable_sort(data.events_by_level[i],
+                        cmp_by_start_asc_then_dur_desc);
   }
 
   GenerateFlowLines(trace_info, thread_levels, top_5_flow_categories, data,

@@ -158,3 +158,15 @@ mat-sidenav {
   display: inline-block;
   width: 1em;
 }
+
+:host(op-profile),
+:host(op-profile-base) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+op-profile-base,
+mat-sidenav-container {
+  flex: 1;
+}

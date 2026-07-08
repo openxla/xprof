@@ -45,11 +45,11 @@ export interface DataServiceV2Interface {
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
 
   /** Creates a tool URL for cross tool linking. */
-  createToolUrl(
-    toolName: string,
-    sessionId: string,
-    params: {[key: string]: string},
-  ): string;
+  createToolUrl(options: {
+    toolName: string;
+    sessionId: string;
+    params: Record<string, string>;
+  }): string;
 
   getGraphViewerLink(
     sessionId: string,
@@ -92,6 +92,9 @@ export interface DataServiceV2Interface {
     sessionId: string,
     host?: string,
   ): Observable<Diagnostics>;
+
+  getXPlaneDiagnostics(sessionId: string): Observable<Diagnostics>;
+
   getOpProfileSummary(data: OpProfileData): OpProfileSummary[];
   // TODO(b/429042977): Do not include Custom Call text for provenance nodes.
   getCustomCallTextLink(
@@ -161,6 +164,10 @@ export interface DataServiceV2Interface {
   getRooflineModelLink(sessionId: string): string;
   getPluginVersion(): Observable<string | null>;
   isSmartSuggestionEnabled(): boolean;
+  getMemoryAnalysisModuleList(
+    sessionId: string,
+    host: string,
+  ): Observable<string>;
 }
 
 /** Injection token for the data service interface. */

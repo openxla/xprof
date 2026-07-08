@@ -157,6 +157,11 @@ void Application::Initialize() {
   platform_ = std::make_unique<WGPURenderPlatform>();
   platform_->Init(initial_canvas_state);
   timeline_ = std::make_unique<Timeline>(palette_);
+  timeline_->set_snap_to_time_range_enabled(
+      IsFeatureEnabled("snap_to_time_range"));
+  timeline_->set_track_management_enabled(
+      IsFeatureEnabled("enable_track_management"));
+  timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);

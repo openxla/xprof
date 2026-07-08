@@ -81,6 +81,7 @@ HloStatsRecord ConvertOpMetricsToHloStatsRecord(
   record.set_core_type(GetTpuCoreType(metrics.core_type()));
   record.set_parent_op_name(parent_op_name);
   *record.mutable_source_info() = metrics.source_info();
+  record.set_vdd_energy_j(metrics.vdd_energy_j());
   return record;
 }
 
@@ -185,6 +186,7 @@ std::vector<std::vector<std::string>> HloStatsDataTableColumns() {
       {"source_info", "string", "Source Info"},
       {"core_type", "string", "TPU core type"},
       {"parent_op_name", "string", "Parent op name"},
+      {"vdd_energy", "number", "VDD Energy (J)"},
   };
   return kColumns;
 }
@@ -225,6 +227,7 @@ std::unique_ptr<tensorflow::profiler::DataTable> CreateHloStatsDataTable(
     row->AddTextCell(SourceInfoFormattedText(record.source_info()));
     row->AddTextCell(record.core_type());
     row->AddTextCell(record.parent_op_name());
+    row->AddNumberCell(record.vdd_energy_j());
   }
   return data_table;
 }

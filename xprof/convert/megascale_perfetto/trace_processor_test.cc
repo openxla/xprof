@@ -1,10 +1,12 @@
 #include "xprof/convert/megascale_perfetto/trace_processor.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
 #include "<gtest/gtest.h>"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xprof/convert/megascale_perfetto/xprof_trace.h"
 
@@ -195,9 +197,30 @@ TEST(TraceProcessorTest, ModifiesTrackNames) {
   EXPECT_EQ(trace.megascale_fragments[0][0].name, "rendezvous_0 (0)");
 }
 
-TEST(TraceProcessorTest, ResolvesFlows) {
+std::string InferDoneName(absl::string_view name) {
+  size_t dot_pos = name.find('.');
+  if (dot_pos == absl::string_view::npos) {
+    return absl::StrCat(name, "-done");
+  }
+  return absl::StrCat(name.substr(0, dot_pos), "-done", name.substr(dot_pos));
+}
+
+struct FlowResolutionParams {
+  std::string test_name;
+  std::string rendezvous_name;
+  std::string send_name;
+  std::string recv_name;
+  std::string graph_key;
+};
+
+class FlowResolutionTest
+    : public ::testing::TestWithParam<FlowResolutionParams> {};
+
+TEST_P(FlowResolutionTest, ResolvesFlows) {
+  const auto& params = GetParam();
   XprofTrace trace;
-  auto& tpu_tracks = trace.tpu_fragments[0];
+  constexpr int64_t kDeviceId = 100003;
+  auto& tpu_tracks = trace.tpu_fragments[kDeviceId];
   tpu_tracks.reserve(2);
 
   Track& modules = tpu_tracks.emplace_back();
@@ -210,73 +233,71 @@ TEST(TraceProcessorTest, ResolvesFlows) {
   ops.name = "XLA Ops";
   ops.events.reserve(5);
 
-  Event send_event{"send.42", /*ts=*/150, /*duration=*/10};
+  Event send_event{params.send_name, /*ts=*/150, /*duration=*/10};
   send_event.args.push_back(
       {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
+       trace.string_table.Intern(absl::StrCat(
+           "_xla_host_transfer_rendezvous=\"", params.rendezvous_name, "\""))});
   ops.events.push_back(std::move(send_event));
   Event& send_ref = ops.events.back();
 
-  Event recv_event{"recv.43", /*ts=*/160, /*duration=*/10};
+  Event recv_event{params.recv_name, /*ts=*/160, /*duration=*/10};
   recv_event.args.push_back(
       {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
+       trace.string_table.Intern(absl::StrCat(
+           "_xla_host_transfer_rendezvous=\"", params.rendezvous_name, "\""))});
   ops.events.push_back(std::move(recv_event));
   Event& recv_ref = ops.events.back();
 
-  Event send_done_event{"send-done.42", /*ts=*/400, /*duration=*/10};
+  Event send_done_event{InferDoneName(params.send_name), /*ts=*/400,
+                        /*duration=*/10};
   send_done_event.args.push_back(
       {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
+       trace.string_table.Intern(absl::StrCat(
+           "_xla_host_transfer_rendezvous=\"", params.rendezvous_name, "\""))});
   ops.events.push_back(std::move(send_done_event));
   Event& send_done_ref = ops.events.back();
 
-  Event recv_done_event{"recv-done.43", /*ts=*/500, /*duration=*/10};
+  std::string recv_done_name = InferDoneName(params.recv_name);
+  Event recv_done_event{recv_done_name, /*ts=*/500, /*duration=*/10};
   recv_done_event.args.push_back(
       {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
+       trace.string_table.Intern(absl::StrCat(
+           "_xla_host_transfer_rendezvous=\"", params.rendezvous_name, "\""))});
   ops.events.push_back(std::move(recv_done_event));
   Event& recv_done_ref = ops.events.back();
 
-  Track& ms = trace.megascale_fragments[0].emplace_back();
+  Track& ms = trace.megascale_fragments[kDeviceId].emplace_back();
   ms.name = "rendezvous";
   ms.events.reserve(4);
 
   Event d2h_start{"DeviceToHost START", /*ts=*/200, /*duration=*/10};
-  d2h_start.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
+  d2h_start.args.push_back({trace.string_table.Intern("graph_key"),
+                            trace.string_table.Intern(params.graph_key)});
   d2h_start.args.push_back(
       {trace.string_table.Intern("action_index"), int64_t{0}});
   ms.events.push_back(std::move(d2h_start));
   Event& d2h_start_ref = ms.events.back();
 
   Event d2h_end{"DeviceToHost END", /*ts=*/250, /*duration=*/10};
-  d2h_end.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
+  d2h_end.args.push_back({trace.string_table.Intern("graph_key"),
+                          trace.string_table.Intern(params.graph_key)});
   d2h_end.args.push_back(
       {trace.string_table.Intern("is_last_instance"), int64_t{1}});
   ms.events.push_back(std::move(d2h_end));
   Event& d2h_end_ref = ms.events.back();
 
   Event h2d_start{"HostToDevice START", /*ts=*/300, /*duration=*/10};
-  h2d_start.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
+  h2d_start.args.push_back({trace.string_table.Intern("graph_key"),
+                            trace.string_table.Intern(params.graph_key)});
   h2d_start.args.push_back(
       {trace.string_table.Intern("action_index"), int64_t{0}});
   ms.events.push_back(std::move(h2d_start));
   Event& h2d_start_ref = ms.events.back();
 
   Event h2d_end{"HostToDevice END", /*ts=*/350, /*duration=*/10};
-  h2d_end.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
+  h2d_end.args.push_back({trace.string_table.Intern("graph_key"),
+                          trace.string_table.Intern(params.graph_key)});
   h2d_end.args.push_back(
       {trace.string_table.Intern("is_last_instance"), int64_t{1}});
   ms.events.push_back(std::move(h2d_end));
@@ -344,168 +365,40 @@ TEST(TraceProcessorTest, ResolvesFlows) {
   // Verify that a recv-done END event is added and that it has the expected
   // inflows.
   ASSERT_EQ(ops.events.size(), 5);
-  EXPECT_EQ(ops.events[4].name, "recv-done.43 END");
+  EXPECT_EQ(ops.events[4].name, absl::StrCat(recv_done_name, " END"));
   Event& recv_done_end_ref = ops.events[4];
   std::vector<int64_t> recv_done_end_in =
       get_flow_ids(recv_done_end_ref, FlowDirection::kSink);
   EXPECT_TRUE(has_common_element(h2d_end_out, recv_done_end_in));
 }
 
-TEST(TraceProcessorTest, ResolvesFlowsWithoutHloSuffix) {
-  XprofTrace trace;
-  auto& tpu_tracks = trace.tpu_fragments[0];
-  tpu_tracks.reserve(2);
-
-  Track& modules = tpu_tracks.emplace_back();
-  modules.name = "XLA Modules";
-  Event m1{"module 1", /*ts=*/50, /*duration=*/1000};
-  m1.args.push_back({trace.string_table.Intern("run_id"), uint64_t{123}});
-  modules.events.push_back(std::move(m1));
-
-  Track& ops = tpu_tracks.emplace_back();
-  ops.name = "XLA Ops";
-  ops.events.reserve(5);
-
-  Event send_event{"send", /*ts=*/150, /*duration=*/10};
-  send_event.args.push_back(
-      {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
-  ops.events.push_back(std::move(send_event));
-  Event& send_ref = ops.events.back();
-
-  Event recv_event{"recv", /*ts=*/160, /*duration=*/10};
-  recv_event.args.push_back(
-      {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
-  ops.events.push_back(std::move(recv_event));
-  Event& recv_ref = ops.events.back();
-
-  Event send_done_event{"send-done", /*ts=*/400, /*duration=*/10};
-  send_done_event.args.push_back(
-      {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
-  ops.events.push_back(std::move(send_done_event));
-  Event& send_done_ref = ops.events.back();
-
-  Event recv_done_event{"recv-done", /*ts=*/500, /*duration=*/10};
-  recv_done_event.args.push_back(
-      {trace.string_table.Intern("long_name"),
-       trace.string_table.Intern(
-           "_xla_host_transfer_rendezvous=\"myrendezvous_0\"")});
-  ops.events.push_back(std::move(recv_done_event));
-  Event& recv_done_ref = ops.events.back();
-
-  Track& ms = trace.megascale_fragments[0].emplace_back();
-  ms.name = "rendezvous";
-  ms.events.reserve(4);
-
-  Event d2h_start{"DeviceToHost START", /*ts=*/200, /*duration=*/10};
-  d2h_start.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
-  d2h_start.args.push_back(
-      {trace.string_table.Intern("action_index"), int64_t{0}});
-  ms.events.push_back(std::move(d2h_start));
-  Event& d2h_start_ref = ms.events.back();
-
-  Event d2h_end{"DeviceToHost END", /*ts=*/250, /*duration=*/10};
-  d2h_end.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
-  d2h_end.args.push_back(
-      {trace.string_table.Intern("is_last_instance"), int64_t{1}});
-  ms.events.push_back(std::move(d2h_end));
-  Event& d2h_end_ref = ms.events.back();
-
-  Event h2d_start{"HostToDevice START", /*ts=*/300, /*duration=*/10};
-  h2d_start.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
-  h2d_start.args.push_back(
-      {trace.string_table.Intern("action_index"), int64_t{0}});
-  ms.events.push_back(std::move(h2d_start));
-  Event& h2d_start_ref = ms.events.back();
-
-  Event h2d_end{"HostToDevice END", /*ts=*/350, /*duration=*/10};
-  h2d_end.args.push_back(
-      {trace.string_table.Intern("graph_key"),
-       trace.string_table.Intern("device_0_gid_myrendezvous_0$1^i0")});
-  h2d_end.args.push_back(
-      {trace.string_table.Intern("is_last_instance"), int64_t{1}});
-  ms.events.push_back(std::move(h2d_end));
-  Event& h2d_end_ref = ms.events.back();
-
-  TraceProcessor processor(&trace);
-  processor.Process();
-
-  auto get_flow_ids = [&](const Event& event, FlowDirection dir) {
-    std::vector<int64_t> ids;
-    for (const auto& flow : event.flows) {
-      if (flow.direction == dir) {
-        ids.push_back(flow.id);
-      }
-    }
-    return ids;
-  };
-
-  auto has_common_element = [](const std::vector<int64_t>& a,
-                               const std::vector<int64_t>& b) {
-    for (auto x : a) {
-      for (auto y : b) {
-        if (x == y) return true;
-      }
-    }
-    return false;
-  };
-
-  // 1. send -> send-done
-  std::vector<int64_t> send_out =
-      get_flow_ids(send_ref, FlowDirection::kSource);
-  std::vector<int64_t> send_done_in =
-      get_flow_ids(send_done_ref, FlowDirection::kSink);
-  EXPECT_TRUE(has_common_element(send_out, send_done_in));
-
-  // 2. send -> recv-done
-  std::vector<int64_t> recv_done_in =
-      get_flow_ids(recv_done_ref, FlowDirection::kSink);
-  EXPECT_TRUE(has_common_element(send_out, recv_done_in));
-
-  // 3. send -> D2H start
-  std::vector<int64_t> d2h_start_in =
-      get_flow_ids(d2h_start_ref, FlowDirection::kSink);
-  EXPECT_TRUE(has_common_element(send_out, d2h_start_in));
-
-  // 4. recv -> recv-done
-  std::vector<int64_t> recv_out =
-      get_flow_ids(recv_ref, FlowDirection::kSource);
-  EXPECT_TRUE(has_common_element(recv_out, recv_done_in));
-
-  // 5. recv -> H2D start
-  std::vector<int64_t> h2d_start_in =
-      get_flow_ids(h2d_start_ref, FlowDirection::kSink);
-  EXPECT_TRUE(has_common_element(recv_out, h2d_start_in));
-
-  // 6. D2H END -> send-done
-  std::vector<int64_t> d2h_end_out =
-      get_flow_ids(d2h_end_ref, FlowDirection::kSource);
-  EXPECT_TRUE(has_common_element(d2h_end_out, send_done_in));
-
-  // 7. H2D END -> recv-done (recv-done END)
-  std::vector<int64_t> h2d_end_out =
-      get_flow_ids(h2d_end_ref, FlowDirection::kSource);
-
-  // Verify that a recv-done END event is added and that it has the expected
-  // inflows.
-  ASSERT_EQ(ops.events.size(), 5);
-  EXPECT_EQ(ops.events[4].name, "recv-done END");
-  Event& recv_done_end_ref = ops.events[4];
-  std::vector<int64_t> recv_done_end_in =
-      get_flow_ids(recv_done_end_ref, FlowDirection::kSink);
-  EXPECT_TRUE(has_common_element(h2d_end_out, recv_done_end_in));
-}
+INSTANTIATE_TEST_SUITE_P(
+    TraceProcessorTests, FlowResolutionTest,
+    ::testing::Values(
+        FlowResolutionParams{
+            .test_name = "Standard",
+            .rendezvous_name = "myrendezvous_0",
+            .send_name = "send.42",
+            .recv_name = "recv.43",
+            .graph_key = "device_100003_gid_myrendezvous_0$1^i0",
+        },
+        FlowResolutionParams{
+            .test_name = "WithoutHloSuffix",
+            .rendezvous_name = "myrendezvous_0",
+            .send_name = "send",
+            .recv_name = "recv",
+            .graph_key = "device_100003_gid_myrendezvous_0$1^i0",
+        },
+        FlowResolutionParams{
+            .test_name = "UnderscoreInRendezvous",
+            .rendezvous_name = "op_name.123_0",
+            .send_name = "send.42",
+            .recv_name = "recv.43",
+            .graph_key = "device_100003_gid_op_name.123_0$l456^i78",
+        }),
+    [](const ::testing::TestParamInfo<FlowResolutionParams>& info) {
+      return info.param.test_name;
+    });
 
 TEST(TraceProcessorTest, GroupsTinyEvents) {
   XprofTrace trace;

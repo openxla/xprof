@@ -482,6 +482,10 @@ class JsonEventWriter {
       case TraceEventArguments::Argument::kUintValue:
         return absl::StrCat(arg.uint_value());
       case TraceEventArguments::Argument::kDoubleValue:
+        // Displaying two decimal places for Perf Counter utilizations.
+        if (IsUtilizationBasedStats(arg.name())) {
+          return absl::StrFormat("%.2f", arg.double_value());
+        }
         return absl::StrFormat("%.17g", arg.double_value());
       case TraceEventArguments::Argument::kRefValue: {
         const auto& it = trace_.name_table().find(arg.ref_value());
@@ -600,7 +604,11 @@ class JsonEventWriter {
     if (std::isfinite(value)) {
       output_->Append(JsonEscape(name));
       // "%.17g" is the default double format in google::protobuf::util::JsonFormat.
-      absl::Format(output_, ":%.17g", value);
+      if (IsUtilizationBasedStats(name)) {
+        absl::Format(output_, ":%.2f", value);
+      } else {
+        absl::Format(output_, ":%.17g", value);
+      }
     } else if (std::isinf(value)) {
       output_->Append(JsonEscape(name), R"(:"Infinity")");
     } else if (std::isinf(-value)) {

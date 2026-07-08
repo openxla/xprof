@@ -62,6 +62,7 @@ struct CounterData {
   std::vector<double> values;
   double min_value = std::numeric_limits<double>::max();
   double max_value = std::numeric_limits<double>::lowest();
+  std::string event_stats;
 };
 
 // Represents a grouping of timeline tracks, such as processes, threads, or
@@ -107,7 +108,7 @@ struct FlameChartTimelineData {
   // Compare latency from network to memory-heavy local storage.
   std::vector<ProcessId> entry_pids;
   std::vector<ThreadId> entry_tids;
-  std::vector<std::map<std::string, std::string>> entry_args;
+  std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
@@ -132,6 +133,16 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  struct SearchResult {
+    EventId event_id;
+    int level;
+    Microseconds start_time;
+    Microseconds duration;
+    ProcessId pid;
+    ThreadId tid;
+    std::string name;
+    int loaded_index = -1;
+  };
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -161,6 +172,14 @@ class Timeline {
   bool get_should_restore_scroll_for_test() const {
     return should_restore_scroll_;
   }
+  // Sets the pending navigation event ID for testing.
+  void set_pending_navigation_event_id_for_test(std::optional<EventId> id) {
+    pending_navigation_event_id_ = id;
+  }
+  // Gets the pending navigation event ID for testing.
+  std::optional<EventId> get_pending_navigation_event_id_for_test() const {
+    return pending_navigation_event_id_;
+  }
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -171,12 +190,23 @@ class Timeline {
   void set_redraw_callback(RedrawCallback callback) {
     redraw_callback_ = std::move(callback);
   }
+  void RequestRedraw() {
+    if (redraw_callback_) {
+      redraw_callback_();
+    }
+  }
 
   // Sets the search query to highlight events matching the query.
   // The search is case-insensitive.
-  void SetSearchQuery(const std::string& query);
+  void SetSearchQuery(absl::string_view query);
+
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
 
   int get_search_results_count() const { return search_results_.size(); }
+  const std::vector<SearchResult>& get_search_results_for_test() const {
+    return search_results_;
+  }
   int get_current_search_result_index() const {
     return current_search_result_index_;
   }
@@ -187,7 +217,13 @@ class Timeline {
   // like zooming to a selection.
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
+  const TimeRange& visible_range_target() const {
+    return visible_range_.target();
+  }
 
+  void AddSelectedTimeRange(const TimeRange& range) {
+    selected_time_ranges_.push_back(range);
+  }
   const std::vector<TimeRange>& selected_time_ranges() const {
     return selected_time_ranges_;
   }
@@ -238,6 +274,28 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
+  void set_snap_to_time_range_enabled(bool enabled) {
+    snap_to_time_range_enabled_ = enabled;
+  }
+  bool snap_to_time_range_enabled() const {
+    return snap_to_time_range_enabled_;
+  }
+
+  void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
+  bool bookmarks_enabled() const { return bookmarks_enabled_; }
+
+  // Adds a bookmark at the specified time if one doesn't already exist nearby.
+  void AddBookmark(Microseconds time);
+
+  // Removes the specified bookmark.
+  void RemoveBookmark(Microseconds time);
+
+  const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
+  void set_track_management_enabled(bool enabled) {
+    track_management_enabled_ = enabled;
+  }
+  bool track_management_enabled() const { return track_management_enabled_; }
+
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
@@ -251,6 +309,8 @@ class Timeline {
     flow_category_filter_ = category_id;
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
+
+  void HideTrack(const absl::string_view name);
 
   void Draw();
 
@@ -379,7 +439,24 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
+  void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                    Pixel kIconDrawSize, ImU32 icon_col,
+                    bool is_track_hidden = false);
+
+  void DrawEvent(int group_index, int event_index, const EventRect& rect,
+                 ImDrawList* absl_nonnull draw_list);
+
  private:
+  void NavigateToSearchResult(const SearchResult& result);
+
+  // Applies snapping to selected time ranges for the given range.
+  void ApplySnapping(TimeRange& range);
+
+  // Finds the nearest event edge to a given time across all tracks.
+  void FindNearestEventEdge(Microseconds time, Microseconds threshold,
+                            Microseconds& best_diff, Microseconds& snapped_time,
+                            bool& snapped) const;
+
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
   // Emits viewport changed event to JS side.
@@ -400,9 +477,6 @@ class Timeline {
                      ImDrawList* absl_nonnull draw_list,
                      ImU32 text_color) const;
 
-  void DrawEvent(int group_index, int event_index, const EventRect& rect,
-                 ImDrawList* absl_nonnull draw_list);
-
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
                           Pixel height, float y_ratio, ImDrawList* draw_list);
@@ -410,6 +484,8 @@ class Timeline {
   void DrawCounterTrack(int group_index, const CounterData& counter_data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
+
+  void DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -456,6 +532,9 @@ class Timeline {
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
 
+  // Updates the search results based on the current search query.
+  void RecomputeSearchResults();
+
   // Handles mouse input for creating curtains.
   // Returns true if any interaction occurred.
   bool HandleMouse();
@@ -464,12 +543,26 @@ class Timeline {
   void HandleMouseDrag(Pixel timeline_origin_x);
   void HandleMouseRelease();
 
+  // Helper to handle bookmark addition upon mouse release.
+  // Returns true if a bookmark was successfully added.
+  bool HandleBookmarkAddition(bool is_click);
+  // Helper to handle selection or time range addition upon mouse release.
+  // Returns true if a selection was made or a time range was added.
+  bool HandleSelectionOrTimeRangeAddition();
+
   void FindSelectedEvents(const ImRect& selection_rect);
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();
 
   // Draws a notification toast at the bottom of the timeline.
   void DrawToast(absl::string_view message, float& timer, float base_y_offset);
+
+  // Draws all the bookmarks as vertical lines.
+  void DrawBookmarks(Pixel timeline_width, double px_per_time_unit_val);
+
+  // Draws a generic close (x) button. Returns true if the button was clicked.
+  bool DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                       const ImRect& hover_rect);
 
   // Helper to calculate the timeline area.
   ImRect GetTimelineArea() const;
@@ -552,8 +645,19 @@ class Timeline {
   // If false, the drag operation is a pan/scroll.
   // This flag is latched at the start of the drag.
   bool is_selecting_ = false;
+  // Whether the user is currently resizing an existing time range.
+  struct TimeRangeResizingState {
+    size_t range_index;
+    bool is_start_edge;
+  };
+  std::optional<TimeRangeResizingState> time_range_resizing_state_;
 
   MouseMode mouse_mode_ = MouseMode::kPan;
+
+  int hovered_event_index_ = -1;
+  bool snap_to_time_range_enabled_ = false;
+  bool bookmarks_enabled_ = false;
+  bool track_management_enabled_ = false;
 
   bool mpmd_pipeline_view_enabled_ = false;
 
@@ -561,6 +665,7 @@ class Timeline {
   int event_index_to_scroll_to_ = -1;
 
   std::vector<TimeRange> selected_time_ranges_;
+  std::vector<Microseconds> bookmarks_;
 
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;
@@ -580,9 +685,10 @@ class Timeline {
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
   std::string search_query_lower_;
-  // Indices into timeline_data_ entries
-  std::vector<int> search_results_;
+  std::vector<SearchResult> search_results_;
+  absl::flat_hash_set<int> matching_event_indices_;
   int current_search_result_index_ = -1;
+  std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the bounds
   // notification toast.
@@ -598,6 +704,7 @@ class Timeline {
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
+  absl::flat_hash_set<std::string> hidden_track_names_;
 };
 
 }  // namespace traceviewer

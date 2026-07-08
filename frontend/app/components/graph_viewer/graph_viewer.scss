@@ -2,20 +2,38 @@
 
 @import 'frontend/app/styles/common';
 
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .item-container {
   display: flex;
   padding: 20px 20px 0;
+  flex: 0 0 auto;
+}
+
+.form-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.hlo-download {
+  margin-left: 8px;
+  margin-top: 10px; // Align with the top mat-form-field
 }
 
 mat-sidenav {
   background: transparent;
-  height: max-content;
   // set fixed width to avoid weird behavior of mat-sidenav-content width change when collapsing the xprof sidenav.
   width: 350px;
+  display: flex;
+  flex-direction: column;
 }
 
 mat-sidenav-container {
-  display: inline;
+  flex: 1;
 }
 
 iframe {
@@ -66,7 +84,7 @@ mat-progress-bar {
   position: sticky;
   width: 100%;
   box-shadow: none;
-  border-bottom: .5px solid silver;
+  border-bottom: 0.5px solid silver;
   border-radius: 0;
 }
 

@@ -32,6 +32,7 @@ limitations under the License.
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/flags/declare.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/functional/bind_front.h"
 #include "absl/log/check.h"
@@ -59,6 +60,8 @@ limitations under the License.
 #include "xprof/convert/xprof_thread_pool_executor.h"
 #include "plugin/xprof/protobuf/task.pb.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
+
+ABSL_DECLARE_FLAG(bool, xprof_enable_metadata_indexing);
 
 namespace tensorflow {
 namespace profiler {
@@ -92,7 +95,7 @@ struct SearchOptions {
 };
 
 using SerializeEventFn = absl::AnyInvocable<absl::Status(
-    const TraceEvent&, TraceEvent&, std::string&)>;
+    const TraceEvent&, TraceEvent&, std::string&) const>;
 
 absl::Status DoStoreAsLevelDbTable(
     std::unique_ptr<tsl::WritableFile>& file, const Trace& trace,
@@ -223,8 +226,11 @@ absl::Status DoLoadFromLevelDbTable(
   // Read the metadata.
   iterator->SeekToFirst();
   if (!ReadTraceMetadata(iterator.get(), kTraceMetadataKey, &trace)) {
-    return absl::UnknownError(
-        "Could not parse Trace proto to read trace metadata");
+    iterator->Seek("trace");
+    if (!ReadTraceMetadata(iterator.get(), "trace", &trace)) {
+      return absl::UnknownError(
+          "Could not parse Trace proto to read trace metadata");
+    }
   }
 
   if (filter) filter->SetUp(trace);
@@ -421,8 +427,11 @@ absl::Status DoSearchInLevelDbTable(
   trace_events_iterator->SeekToFirst();
   if (!ReadTraceMetadata(trace_events_iterator.get(), kTraceMetadataKey,
                          &trace)) {
-    return absl::UnknownError(
-        "Could not parse Trace proto to read trace metadata");
+    trace_events_iterator->Seek("trace");
+    if (!ReadTraceMetadata(trace_events_iterator.get(), "trace", &trace)) {
+      return absl::UnknownError(
+          "Could not parse Trace proto to read trace metadata");
+    }
   }
   if (filter) filter->SetUp(trace);
 
@@ -602,7 +611,10 @@ absl::Status DoReadFullEventFromLevelDbTable(
   trace_events_iterator->SeekToFirst();
   if (!ReadTraceMetadata(trace_events_iterator.get(), kTraceMetadataKey,
                          &trace)) {
-    return absl::UnknownError("Could not parse Trace proto");
+    trace_events_iterator->Seek("trace");
+    if (!ReadTraceMetadata(trace_events_iterator.get(), "trace", &trace)) {
+      return absl::UnknownError("Could not parse Trace proto");
+    }
   }
 
   for (int zoom_level = 0; zoom_level < NumLevels(); ++zoom_level) {
@@ -707,6 +719,15 @@ class TraceEventsContainerBase {
   TraceEventsContainerBase& operator=(const TraceEventsContainerBase&) = delete;
 
   void Merge(TraceEventsContainerBase&& other, int host_id);
+
+  uint64_t MaybeInternString(absl::string_view name) {
+    uint64_t fingerprint = hash_(name);
+    std::string& interned_name = (*trace_.mutable_name_table())[fingerprint];
+    if (interned_name.empty()) {
+      interned_name = name;
+    }
+    return fingerprint;
+  }
 
   // Creates a TraceEvent prefilled with the given values.
   void AddCompleteEvent(absl::string_view name, uint64_t resource_id,
@@ -870,6 +891,8 @@ class TraceEventsContainerBase {
   }
 
   // Stores the contents of this container in a level-db sstable file.
+  // TODO(b/522205373): Cleanup legacy trace_events implementation once lite
+  // trace events is fully enabled.
   absl::Status StoreAsLevelDbTable(
       std::unique_ptr<tsl::WritableFile> file) const {
     Trace trace = trace_;
@@ -884,6 +907,8 @@ class TraceEventsContainerBase {
   // file contains only the metadata and the third file contains the prefix
   // trie index over trace event names that would be used for fast prefix
   // search of events.
+  // TODO(b/522205373): Cleanup legacy trace_events implementation once lite
+  // trace events is fully enabled.
   absl::Status StoreAsLevelDbTables(
       std::unique_ptr<tsl::WritableFile> trace_events_file,
       std::unique_ptr<tsl::WritableFile> trace_events_metadata_file,
@@ -1138,15 +1163,6 @@ class TraceEventsContainerBase {
       event_tracks.push_back(events);
     });
     return MergeEventTracks(event_tracks);
-  }
-
-  uint64_t MaybeInternString(absl::string_view name) {
-    uint64_t fp = hash_(name);
-    auto& it = (*trace_.mutable_name_table())[fp];
-    if (it.empty()) {
-      it = name;
-    }
-    return fp;
   }
 
   void MaybeInternEventName(TraceEvent* event, absl::string_view name) {

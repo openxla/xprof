@@ -30,6 +30,7 @@
 #include "xprof/convert/file_utils.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -46,9 +47,8 @@ class MockOpStatsProcessor : public BaseOpStatsProcessor {
       : BaseOpStatsProcessor(options), called_(false) {}
 
   absl::Status ProcessCombinedOpStats(
-      const SessionSnapshot& session_snapshot,
-      const OpStats& combined_op_stats,
-      const ToolOptions& options) override {
+      const XprofSessionSnapshot& session_snapshot,
+      const OpStats& combined_op_stats, const ToolOptions& options) override {
     called_ = true;
     return absl::OkStatus();
   }

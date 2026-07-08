@@ -1,0 +1,235 @@
+<div class="memory-analysis-container" [class.sidebar-collapsed]="!sidebarExpanded()">
+  @if (loading()) {
+    <div class="loading-overlay">
+      <mat-spinner diameter="48"></mat-spinner>
+    </div>
+  }
+
+  <div class="main-content-area">
+    <!-- Top Controls Row -->
+    <div class="top-controls-row">
+      <button mat-icon-button (click)="toggleSidebar()" matTooltip="Toggle Sidebar" class="sidebar-toggle-btn">
+        <mat-icon>{{sidebarExpanded() ? 'menu_open' : 'menu'}}</mat-icon>
+      </button>
+
+      @if (moduleList.length > 1) {
+        <mat-form-field appearance="outline" class="module-selector">
+          <mat-label>Select HLO Module</mat-label>
+          <mat-select [value]="selectedModule" (selectionChange)="onModuleSelected($event.value)">
+            @for (mod of moduleList; track mod) {
+              <mat-option [value]="mod">{{mod}}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+    </div>
+
+    <!-- Visualizer Section -->
+    <div class="visualizer-section">
+      <div class="vis-toolbar">
+        <mat-button-toggle-group [value]="hierarchyType" (change)="onHierarchyTypeChange($event.value)" aria-label="Hierarchy Type">
+          <mat-button-toggle value="jax">JAX Tree</mat-button-toggle>
+          <mat-button-toggle value="category">Category Tree</mat-button-toggle>
+        </mat-button-toggle-group>
+
+        <mat-button-toggle-group [value]="sizeMetric" (change)="onSizeMetricChange($event.value)" aria-label="Size Metric">
+          <mat-button-toggle value="total">Total Size</mat-button-toggle>
+          <mat-button-toggle value="padding">Padding Size</mat-button-toggle>
+        </mat-button-toggle-group>
+
+        <mat-button-toggle-group [value]="colorMode" (change)="onColorModeChange($event.value)" aria-label="Color Mode">
+          <mat-button-toggle value="category">Category Color</mat-button-toggle>
+          <mat-button-toggle value="padding">Padding Color</mat-button-toggle>
+          <mat-button-toggle value="classic">Classic Color</mat-button-toggle>
+        </mat-button-toggle-group>
+      </div>
+
+      <mat-tab-group [(selectedIndex)]="activeTab" class="vis-tab-group">
+        <mat-tab label="Flame Graph">
+          @if (rootNode) {
+            <memory-flame-graph
+               [rootNode]="rootNode"
+               [sizeMetric]="sizeMetric"
+               [colorMode]="colorMode"
+               [selectedNode]="selectedVisualNode"
+               [hoveredBuffer]="hoveredVisualNode?.buffer ?? null"
+               [hoveredPath]="hoveredVisualNode?.path ?? ''"
+               [searchTerm]="searchTerm"
+               (nodeSelected)="onVisualNodeSelected($event)"
+               (nodeHovered)="onVisualNodeHovered($event)">
+            </memory-flame-graph>
+          }
+        </mat-tab>
+        <mat-tab label="Treemap">
+          @if (rootNode) {
+            <memory-treemap
+               [rootNode]="rootNode"
+               [sizeMetric]="sizeMetric"
+               [colorMode]="colorMode"
+               [selectedNode]="selectedVisualNode"
+               [hoveredBuffer]="hoveredVisualNode?.buffer ?? null"
+               [hoveredPath]="hoveredVisualNode?.path ?? ''"
+               [searchTerm]="searchTerm"
+               (nodeSelected)="onVisualNodeSelected($event)"
+               (nodeHovered)="onVisualNodeHovered($event)">
+            </memory-treemap>
+          }
+        </mat-tab>
+      </mat-tab-group>
+    </div>
+
+    <!-- Table Controls Bar -->
+    <div class="table-controls-bar">
+      <mat-form-field appearance="outline" class="search-field">
+        <mat-label>Search buffers, ops, or paths</mat-label>
+        <input matInput [value]="searchTerm" (input)="onSearchChanged($event)" placeholder="Search...">
+        <mat-icon matSuffix>search</mat-icon>
+      </mat-form-field>
+
+      @if (dtypeList.length > 1) {
+        <mat-form-field appearance="outline" class="dtype-field">
+          <mat-label>Dtype</mat-label>
+          <mat-select [value]="selectedDtype" (selectionChange)="onDtypeSelected($event.value)">
+            @for (dt of dtypeList; track dt) {
+              <mat-option [value]="dt">{{dt}}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+    </div>
+
+    <!-- Buffers Table Section -->
+    <div class="table-container">
+      <table mat-table [dataSource]="filteredBuffers()" class="buffers-table">
+        <!-- Name Column -->
+        <ng-container matColumnDef="name">
+          <th mat-header-cell *matHeaderCellDef> Buffer Name </th>
+          <td mat-cell *matCellDef="let row"> {{row.name}} </td>
+        </ng-container>
+
+        <!-- Memory Space Column -->
+        <ng-container matColumnDef="memorySpace">
+          <th mat-header-cell *matHeaderCellDef> Space </th>
+          <td mat-cell *matCellDef="let row"> {{row.memorySpace}} </td>
+        </ng-container>
+
+        <!-- Size Column -->
+        <ng-container matColumnDef="sizeMib">
+          <th mat-header-cell *matHeaderCellDef> Size (MiB) </th>
+          <td mat-cell *matCellDef="let row"> {{row.sizeMib | number:'1.1-2'}} </td>
+        </ng-container>
+
+        <!-- Category Column -->
+        <ng-container matColumnDef="category">
+          <th mat-header-cell *matHeaderCellDef> Category </th>
+          <td mat-cell *matCellDef="let row"> {{row.category}} </td>
+        </ng-container>
+
+        <!-- SubCategory Column -->
+        <ng-container matColumnDef="subCategory">
+          <th mat-header-cell *matHeaderCellDef> Sub-category </th>
+          <td mat-cell *matCellDef="let row"> {{row.subCategory}} </td>
+        </ng-container>
+
+        <!-- Group Column -->
+        <ng-container matColumnDef="group">
+          <th mat-header-cell *matHeaderCellDef> Group </th>
+          <td mat-cell *matCellDef="let row"> {{row.group}} </td>
+        </ng-container>
+
+        <!-- Padding Column -->
+        <ng-container matColumnDef="paddingOverhead">
+          <th mat-header-cell *matHeaderCellDef> Padding (MiB) </th>
+          <td mat-cell *matCellDef="let row">
+            {{row.paddingMib | number:'1.1-2'}} ({{row.paddingPercentage | number:'1.1-1'}}%)
+          </td>
+        </ng-container>
+
+        <!-- Dtype Column -->
+        <ng-container matColumnDef="dtype">
+          <th mat-header-cell *matHeaderCellDef> Dtype </th>
+          <td mat-cell *matCellDef="let row"> {{row.dtype}} </td>
+        </ng-container>
+
+        <!-- Shape Column -->
+        <ng-container matColumnDef="shape">
+          <th mat-header-cell *matHeaderCellDef> Shape </th>
+          <td mat-cell *matCellDef="let row"> {{row.shape}} </td>
+        </ng-container>
+
+        <!-- TF Op Column -->
+        <ng-container matColumnDef="tfOpName">
+          <th mat-header-cell *matHeaderCellDef> TF Op </th>
+          <td mat-cell *matCellDef="let row"> {{row.tfOpName}} </td>
+        </ng-container>
+
+        <!-- JAX Path Column -->
+        <ng-container matColumnDef="jaxVariablePath">
+          <th mat-header-cell *matHeaderCellDef> JAX Path </th>
+          <td mat-cell *matCellDef="let row"> {{row.jaxVariablePath}} </td>
+        </ng-container>
+
+        <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+        <tr mat-row *matRowDef="let row; columns: displayedColumns;"
+            [class.hovered]="hoveredBuffersSet().has(row)"
+            (mouseenter)="onRowHover(row)"
+            (mouseleave)="onRowHover(null)"></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- Collapsible Sidebar Panel -->
+  <div class="sidebar-panel" [class.collapsed]="!sidebarExpanded()">
+    <div class="sidebar-header">
+      <h3>Memory Breakdown</h3>
+    </div>
+
+    <!-- Memory Space Breakdown Cards -->
+    @if (result && spaceList.length > 0) {
+      <div class="sidebar-section">
+        <h4>Memory Space</h4>
+        <div class="summary-cards-container">
+          @if (spaceList.length > 1) {
+            <mat-card class="compact-summary-card space-card"
+                      [class.selected]="selectedSpace === 'all'"
+                      (click)="onSpaceSelected('all')">
+              <mat-card-content>
+                <div class="card-title">All Spaces</div>
+                <div class="card-value">{{totalMemoryMib | number:'1.1-2'}} MiB</div>
+              </mat-card-content>
+            </mat-card>
+          }
+          @for (space of result.memorySpaceBreakdown | keyvalue:compareSpacesDesc; track space.key) {
+            <mat-card class="compact-summary-card space-card"
+                      [class.selected]="selectedSpace === space.key"
+                      (click)="onSpaceSelected(space.key)">
+              <mat-card-content>
+                <div class="card-title">{{space.key}}</div>
+                <div class="card-value">{{space.value | number:'1.1-2'}} MiB</div>
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Category Summary Cards -->
+    @if (activeCategorySummaries().length > 0) {
+      <div class="sidebar-section">
+        <h4>Categories</h4>
+        <div class="summary-cards-container">
+          @for (summary of activeCategorySummaries(); track summary.name) {
+            <mat-card class="compact-summary-card"
+                      [class.selected]="selectedCategories.has(summary.name)"
+                      (click)="toggleCategory(summary.name)">
+              <mat-card-content>
+                <div class="card-title">{{summary.name}}</div>
+                <div class="card-value">{{summary.value | number:'1.1-2'}} MiB ({{summary.percentage | number:'1.1-1'}}%)</div>
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>

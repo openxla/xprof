@@ -18,6 +18,7 @@ import abc
 from collections.abc import Mapping
 from collections.abc import Sequence
 import functools
+import itertools
 import json
 import logging
 import os
@@ -27,14 +28,19 @@ from etils import epath
 
 logger = logging.getLogger('tensorboard.plugins.profile')
 
+
 try:
   # pylint: disable=g-import-not-at-top
-  from google.cloud import exceptions as gcs_exceptions  # type: ignore
+  import google.auth as google_auth  # type: ignore
+  from google.api_core import exceptions as gcs_exceptions  # type: ignore
+  from google.auth.transport import requests as google_auth_requests  # type: ignore
   from google.cloud import storage  # type: ignore
 except ImportError:
   logger.warning(
       'Google Cloud Storage not found. GCS paths will not be supported.'
   )
+  google_auth = None
+  google_auth_requests = None
   gcs_exceptions = None
   storage = None
 
@@ -47,7 +53,18 @@ def get_storage_client():
         'Google Cloud Storage libraries not found. gs:// paths are not'
         ' supported.'
     )
-  return storage.Client()
+
+  # google-auth tries to use pyOpenSSL for mTLS client
+  # certificates, but pyOpenSSL is incompatible with urllib3 >= 2.7.
+  # xprof only reads GCS blobs — mutual TLS is not required.
+  if google_auth is not None and google_auth_requests is not None:
+    credentials, project = google_auth.default()
+    http_session = google_auth_requests.AuthorizedSession(credentials)
+    return storage.Client(
+        project=project, credentials=credentials, _http=http_session
+    )
+  else:
+    return storage.Client()
 
 
 def _list_gcs_dir(storage_client, gcs_path: str):
@@ -130,7 +147,10 @@ class GcsFileSystem(ProfileFileSystem):
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
       for blob in blobs:
-        if not blob.name.endswith('.xplane.pb'):
+        if not (
+            blob.name.endswith('.xplane.pb')
+            or blob.name.endswith('.xplane.riegeli')
+        ):
           continue
         md5_hash = blob.md5_hash
         if not isinstance(md5_hash, str):
@@ -143,7 +163,10 @@ class GcsFileSystem(ProfileFileSystem):
           return None
         file_identifiers[os.path.basename(blob.name)] = md5_hash
       return file_identifiers
-    except RuntimeError:
+    except Exception as e:  # pylint: disable=broad-except
+      logger.warning(
+          'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
+      )
       return None
 
   def get_xplane_basenames(self, dir_path: str) -> list[str]:
@@ -153,22 +176,36 @@ class GcsFileSystem(ProfileFileSystem):
           os.path.basename(blob.name)
           for blob in blobs
           if blob.name.endswith('.xplane.pb')
+          or blob.name.endswith('.xplane.riegeli')
       ]
-    except RuntimeError:
+    except Exception as e:  # pylint: disable=broad-except
+      logger.warning(
+          'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
+      )
       return []
 
   def dir_has_xplane_files(self, dir_path: str) -> bool:
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
-      return any(blob.name.endswith('.xplane.pb') for blob in blobs)
-    except RuntimeError:
+      return any(
+          blob.name.endswith('.xplane.pb')
+          or blob.name.endswith('.xplane.riegeli')
+          for blob in blobs
+      )
+    except Exception as e:  # pylint: disable=broad-except
+      logger.warning(
+          'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
+      )
       return False
 
   def get_all_basenames(self, dir_path: str) -> list[str]:
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
       return [os.path.basename(blob.name) for blob in blobs]
-    except RuntimeError:
+    except Exception as e:  # pylint: disable=broad-except
+      logger.warning(
+          'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
+      )
       return []
 
   def get_session_paths(self, dir_path: str) -> dict[str, str]:
@@ -183,8 +220,10 @@ class GcsFileSystem(ProfileFileSystem):
           continue
         session_name = self._epath.Path(subdir_prefix).name
         path_by_session_name[session_name] = session_path_str
-    except RuntimeError:
-      pass
+    except Exception as e:  # pylint: disable=broad-except
+      logger.warning(
+          'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
+      )
     return path_by_session_name
 
   def read_json(self, file_path: str) -> dict[str, Any] | None:
@@ -279,7 +318,9 @@ class LocalFileSystem(ProfileFileSystem):
     path = self._epath.Path(dir_path)
     file_identifiers = {}
     try:
-      for xplane_file in path.glob('*.xplane.pb'):
+      for xplane_file in itertools.chain(
+          path.glob('*.xplane.pb'), path.glob('*.xplane.riegeli')
+      ):
         file_id = _get_local_file_identifier(str(xplane_file))
         if file_id is None:
           logger.warning(
@@ -301,7 +342,12 @@ class LocalFileSystem(ProfileFileSystem):
   def get_xplane_basenames(self, dir_path: str) -> list[str]:
     path = self._epath.Path(dir_path)
     try:
-      return [f.name for f in path.glob('*.xplane.pb')]
+      return [
+          f.name
+          for f in itertools.chain(
+              path.glob('*.xplane.pb'), path.glob('*.xplane.riegeli')
+          )
+      ]
     except OSError as e:
       logger.warning(
           'Cannot read asset directory: %s, OpError %s',
@@ -314,7 +360,7 @@ class LocalFileSystem(ProfileFileSystem):
   def dir_has_xplane_files(self, dir_path: str) -> bool:
     path = self._epath.Path(dir_path)
     try:
-      return any(path.glob('*.xplane.pb'))
+      return any(path.glob('*.xplane.pb')) or any(path.glob('*.xplane.riegeli'))
     except OSError:
       return False
 
@@ -404,8 +450,17 @@ class LocalFileSystem(ProfileFileSystem):
       )
 
 
-def get_file_system(path: str, epath_module: Any = epath) -> ProfileFileSystem:
+def get_file_system(
+    path: str, epath_module: Any = epath, storage_client: Any = None
+) -> ProfileFileSystem:
   """Returns a file system abstracting remote/local file operations."""
   if storage is not None and path.startswith('gs://'):
-    return GcsFileSystem(epath_module, storage_client=get_storage_client())
+    return GcsFileSystem(
+        epath_module,
+        storage_client=(
+            storage_client
+            if storage_client is not None
+            else get_storage_client()
+        ),
+    )
   return LocalFileSystem(epath_module)

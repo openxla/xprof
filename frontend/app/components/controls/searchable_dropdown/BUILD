@@ -3,6 +3,7 @@ load("//defs:defs.bzl", "xprof_ng_module")
 
 package(default_visibility = [
     "@org_xprof//frontend:__subpackages__",
+    "@org_xprof//labs:__subpackages__",
 ])
 
 xprof_ng_module(

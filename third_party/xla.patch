@@ -42,3 +42,45 @@ diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/platform/cloud/BU
      deps = [
          ":http_request",
          "//xla/tsl/platform:env",
+diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/profiler/utils/xplane_schema.cc /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/profiler/utils/xplane_schema.cc
+--- a/xla/tsl/profiler/utils/xplane_schema.cc	2026-02-25 03:10:50.179850953 +0000
++++ b/xla/tsl/profiler/utils/xplane_schema.cc	2026-02-25 03:11:01.034779770 +0000
+@@ -171,6 +171,8 @@
+       {"ScheduleWithSplit", kScheduleWithSplit},
+       {"ScheduleWithEagerSplit", kScheduleWithEagerSplit},
+       {"ASBSQueue::Schedule", kASBSQueueSchedule},
++      {"OrbaxServing::ProcessBatch", kOrbaxProcessBatch},
++      {"OrbaxServing::ConcatInputBuffers", kOrbaxConcatInputBuffers},
+       // TFRT related.
+       {"TfrtModelRun", kTfrtModelRun},
+       // Serving related.
+@@ -424,7 +426,8 @@
+        {"hbm_energy_nj", kHbmEnergy},
+        {"hbm_power_events", kHbmPowerEvents},
+        {"transaction_with_chip_core_id", kTransactionWithChipCoreId},
+-       {"program_counter", kProgramCounter}});
++       {"program_counter", kProgramCounter},
++       {"uses_ici", kUsesIci}});
+   DCHECK_EQ(stat_type_map->size(), kNumStatTypes);
+   return *stat_type_map;
+ }
+diff -ruN xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/profiler/utils/xplane_schema.h /tmp/xla_mod/xla-a085ce021f5d26d1ccc762543ccc56d5eace2cfb/xla/tsl/profiler/utils/xplane_schema.h
+--- a/xla/tsl/profiler/utils/xplane_schema.h	2026-02-25 03:10:50.179850953 +0000
++++ b/xla/tsl/profiler/utils/xplane_schema.h	2026-02-25 03:11:01.034779770 +0000
+@@ -156,6 +156,8 @@
+   kScheduleWithSplit,
+   kScheduleWithEagerSplit,
+   kASBSQueueSchedule,
++  kOrbaxConcatInputBuffers,
++  kOrbaxProcessBatch,
+   // TFRT related.
+   kTfrtModelRun,
+   // Serving related.
+@@ -406,3 +408,4 @@
+   kTransactionWithChipCoreId,
+   // Program Counter in Oci Descriptors, etc
+   kProgramCounter,
++  kUsesIci,
+@@ -414,1 +417,1 @@
+-  kLastStatType = kProgramCounter,
++  kLastStatType = kUsesIci,

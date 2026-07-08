@@ -267,4 +267,35 @@ PyMODINIT_FUNC PyInit_profiler_plugin_c_api(void) {
   return m;
 }
 
+#ifdef EMBEDDED_FEATURES_ENABLED
+EXPORT_C bool BuiltWithEmbedded() { return true; }
+#include "xprof/embedded/llo_analysis/llo_analysis_c_api.h"
+EXPORT_C LloAnalysisHandle CreateLloAnalysis(const char* filename) {
+  return CreateLloAnalysisImpl(filename);
+}
+EXPORT_C int GetTotalInstructions(LloAnalysisHandle handle) {
+  return GetTotalInstructionsImpl(handle);
+}
+EXPORT_C int GetUniqueRegisters(LloAnalysisHandle handle) {
+  return GetUniqueRegistersImpl(handle);
+}
+EXPORT_C int GetNumUniqueOpcodes(LloAnalysisHandle handle) {
+  return GetNumUniqueOpcodesImpl(handle);
+}
+EXPORT_C int GetOpcodeAtIndex(LloAnalysisHandle handle, int index) {
+  return GetOpcodeAtIndexImpl(handle, index);
+}
+EXPORT_C int GetOpcodeCountAtIndex(LloAnalysisHandle handle, int index) {
+  return GetOpcodeCountAtIndexImpl(handle, index);
+}
+EXPORT_C const char* GetLloDebugString(LloAnalysisHandle handle) {
+  return GetLloDebugStringImpl(handle);
+}
+EXPORT_C void FreeLloAnalysis(LloAnalysisHandle handle) {
+  FreeLloAnalysisImpl(handle);
+}
+#else
+EXPORT_C bool BuiltWithEmbedded() { return false; }
+#endif
+
 }  // extern "C"

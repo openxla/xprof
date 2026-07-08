@@ -23,6 +23,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/log/check.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "plugin/xprof/protobuf/trace_events.pb.h"
@@ -34,6 +35,11 @@ namespace profiler {
 inline absl::string_view ResourceName(const Trace& trace, uint32_t device_id,
                                       uint32_t resource_id) {
   return trace.devices().at(device_id).resources().at(resource_id).name();
+}
+
+// Returns true if the stat name indicates it is a utilization-based metric.
+inline bool IsUtilizationBasedStats(absl::string_view name) {
+  return absl::EndsWith(name, "(util %)");
 }
 
 // Returns the resource name for the given event in trace.

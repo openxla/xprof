@@ -25,16 +25,23 @@ limitations under the License.
 
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
+#include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/flat_op_metrics_db_combiner.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
-#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/op_utils.h"
+#include "absl/strings/str_cat.h"
+#include "absl/log/log.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
+#include "xprof/utils/gpu_event_stats.h"
+#include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -62,12 +69,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
   };
 
   struct OpMetricsInProgress {
-    std::shared_ptr<XEventsFlatOpMetricsDbBuilder> builder;
+    std::unique_ptr<XEventsFlatOpMetricsDbBuilder> builder;
     tsl::profiler::AncestorStack<ParentReference> event_stack;
     OpMetricsInProgress()
-        : builder(std::make_shared<XEventsFlatOpMetricsDbBuilder>()),
+        : builder(std::make_unique<XEventsFlatOpMetricsDbBuilder>()),
           event_stack(
-              [builder = builder](const ParentReference& parent) {
+              [builder_ptr = builder.get()](const ParentReference& parent) {
                 FlatOpMetrics op_metrics =
                     XEventsFlatOpMetricsDbBuilder::FromXEvent(parent.event);
                 op_metrics.set_time_ps(parent.device_timespan.duration_ps());
@@ -84,11 +91,12 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
                                     : 1.0;
                 op_metrics.set_normalized_time_ps(op_metrics.time_ps() *
                                                   factor);
-                auto key = GetOpKeyFromXEvent(parent.event);
+                XEventsOpMetricsDbBuilder::OpKey key =
+                    GetOpKeyFromXEvent(parent.event);
                 XEventsFlatOpMetricsDbBuilder::OpKey flat_key;
                 flat_key.program_id = key.program_id;
                 flat_key.symbol_id = key.symbol_id;
-                builder->AddOpMetric(op_metrics, flat_key);
+                builder_ptr->AddOpMetric(op_metrics, flat_key);
               },
               [](const ParentReference& parent, const ParentReference& child) {
                 return parent.device_timespan.Includes(child.device_timespan);
@@ -146,10 +154,9 @@ void ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb(
         // Check if the current module_it encapsulates the event.
         if (module_it->timespan.Includes(timespan)) {
           // Insert that event into the stack for that module.
-          std::string hlo_name =
-              event.Metadata().HasDisplayName()
-                  ? std::string(event.Metadata().DisplayName())
-                  : std::string(event.Metadata().Name());
+          absl::string_view hlo_name = event.Metadata().HasDisplayName()
+                                           ? event.Metadata().DisplayName()
+                                           : event.Metadata().Name();
           XEventsOpMetricsDbBuilder::OpKey key = GetOpKeyFromXEvent(event);
           auto module_id = key.program_id.has_value() ? key.program_id.value()
                                                       : module_it->tc_start_id;
@@ -299,6 +306,143 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
     tc_db.add_op_instances()->Swap(&op_instance);
   }
   return tc_db;
+}
+
+}  // namespace profiler
+}  // namespace tensorflow
+
+namespace tensorflow {
+namespace profiler {
+namespace {
+
+struct HLOTracker {
+  uint64_t duration = 0;
+  double vdd_energy_j = 0.0;
+  uint64_t program_id = 0;
+  uint64_t group_id = 0;
+  bool is_eager;
+  const HloInstructionWrapper* hlo_instruction = nullptr;
+  std::string hlo_op_name;
+
+  void Reset() {
+    duration = program_id = group_id = 0;
+    vdd_energy_j = 0.0;
+    hlo_op_name.clear();
+    hlo_instruction = nullptr;
+  }
+};
+
+void AggregateHloFunc(HLOTracker& current,
+                      DeviceFlatOpMetricsDbBuilder& builder) {
+  if (current.hlo_instruction == nullptr) return;
+
+  DeviceFlatOpMetricsDbBuilder::OpIdentifier op_id;
+  op_id.program_id = current.program_id;
+  op_id.name = current.hlo_op_name;
+  op_id.category = current.hlo_instruction->Category();
+  op_id.provenance = current.hlo_instruction->TfOpName();
+  op_id.deduplicated_name = current.hlo_instruction->DeduplicatedName();
+  op_id.long_name = current.hlo_instruction->Expression();
+  op_id.op_source_info = current.hlo_instruction->SourceInfo();
+
+  DeviceFlatOpMetricsDbBuilder::OpData op_data;
+  op_data.is_eager = current.is_eager;
+  op_data.occurrences = 1;
+  op_data.time_ps = current.duration;
+  op_data.children_time_ps = 0;
+  op_data.vdd_energy_j = current.vdd_energy_j;
+  op_data.perf_info = current.hlo_instruction->GetPerformanceInfoWrapper();
+
+  builder.EnterOp(op_id, op_data);
+
+  current.Reset();
+}
+
+}  // namespace
+
+FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
+    const XPlane& device_trace, const HloModuleMap& hlo_module_map) {
+  FlatOpMetricsDb db;
+  DeviceFlatOpMetricsDbBuilder builder(&db);
+
+  int64_t first_op_offset_ps = std::numeric_limits<int64_t>::max();
+  int64_t last_op_offset_ps = 0;
+  int64_t num_tf_ops = 0;
+
+  XPlaneVisitor plane = tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
+  HLOTracker current;
+
+  plane.ForEachLine([&](const XLineVisitor& line) {
+    if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      first_op_offset_ps = std::min(first_op_offset_ps, event.OffsetPs());
+      last_op_offset_ps = std::max(last_op_offset_ps, event.EndOffsetPs());
+
+      GpuEventStats stats(&event);
+      if (stats.IsXlaOp()) {
+        const auto* hlo_instruction = GetHloInstruction(
+            hlo_module_map, stats.program_id, stats.hlo_op_names.back());
+        if (hlo_instruction != nullptr) {
+          if (stats.hlo_op_names.back() != current.hlo_op_name ||
+              stats.group_id != current.group_id) {
+            AggregateHloFunc(current, builder);
+          }
+          current.hlo_instruction = hlo_instruction;
+          current.hlo_op_name = stats.hlo_op_names.back();
+          current.duration += event.DurationPs();
+          event.ForEachStat(
+              [&current](const tsl::profiler::XStatVisitor& stat) {
+                if (stat.Name() == "vdd_energy_j") {
+                  current.vdd_energy_j += stat.DoubleValue();
+                }
+              });
+          current.is_eager = stats.is_eager;
+          current.program_id = *stats.program_id;
+          if (stats.group_id.has_value()) {
+            current.group_id = *stats.group_id;
+          }
+        }
+      } else if (stats.IsTfOp()) {
+        AggregateHloFunc(current, builder);
+        tsl::profiler::TfOp tf_op =
+            tsl::profiler::ParseTfOpFullname(stats.tf_op_fullname);
+        if (tf_op.category != tsl::profiler::Category::kUnknown) {
+          num_tf_ops++;
+        }
+        std::string name = absl::StrCat(tf_op.name, "/", event.Name());
+
+        DeviceFlatOpMetricsDbBuilder::OpIdentifier op_id;
+        op_id.program_id = 0;
+        op_id.name = name;
+        op_id.category = tf_op.type;
+        op_id.provenance = stats.tf_op_fullname;
+        op_id.deduplicated_name = "";
+
+        DeviceFlatOpMetricsDbBuilder::OpData op_data;
+        op_data.is_eager = stats.is_eager;
+        op_data.occurrences = 1;
+        op_data.time_ps = event.DurationPs();
+        op_data.children_time_ps = 0;
+
+        builder.EnterOp(op_id, op_data);
+      }
+    });
+    if (num_tf_ops >= 5) {
+      LOG(WARNING)
+          << "TfOpRoofLineCostEstimator has been deprecated, but we "
+          << "detected " << num_tf_ops << " TfOps. If you rely on "
+          << "individual TfOp peak flops and bytes accessed estimates, "
+          << "please open an issue on GitHub at openxla/xprof.";
+    }
+    AggregateHloFunc(current, builder);
+  });
+
+  uint64_t total_time_ps = last_op_offset_ps > first_op_offset_ps
+                               ? last_op_offset_ps - first_op_offset_ps
+                               : 0;
+  SetTotalTimePs(db, total_time_ps);
+  AddIdleOp(db);
+  return db;
 }
 
 }  // namespace profiler

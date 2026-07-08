@@ -22,6 +22,7 @@ limitations under the License.
 #include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/flags/flag.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "google/protobuf/arena.h"
@@ -206,6 +207,7 @@ std::string GetTempFilename(absl::string_view suffix) {
 }
 
 TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
+  absl::SetFlag(&FLAGS_xprof_enable_metadata_indexing, true);
   // 1. Create and populate a TraceEventsContainerBase
   using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
   TestContainer input_container;
@@ -377,6 +379,7 @@ TEST(TraceEventsSearchTest, SearchMetadataKeysInTrie) {
 }
 
 TEST(TraceEventsSearchTest, SearchMetadataInternedAndEdgeCases) {
+  absl::SetFlag(&FLAGS_xprof_enable_metadata_indexing, true);
   using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
   TestContainer input_container;
 

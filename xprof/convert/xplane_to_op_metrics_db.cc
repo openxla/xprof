@@ -32,7 +32,6 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/lib/gtl/map_util.h"
 #include "xla/tsl/platform/logging.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -59,6 +58,7 @@ using ::tsl::profiler::GetDeviceEventTimespan;
 
 struct HLOTracker {
   uint64_t duration = 0;
+  double vdd_energy_j = 0.0;
   uint64_t program_id = 0;
   uint64_t group_id = 0;
   bool is_eager;
@@ -67,6 +67,7 @@ struct HLOTracker {
 
   void Reset() {
     duration = program_id = group_id = 0;
+    vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
   }
@@ -476,35 +477,27 @@ void ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(
 
 void AggregateHloFunc(HLOTracker& current, DeviceOpMetricsDbBuilder& metricDb) {
   if (current.hlo_instruction == nullptr) return;
-  auto performance_info_wrapper =
-      current.hlo_instruction->GetPerformanceInfoWrapper();
-  if (performance_info_wrapper != nullptr) {
-    metricDb.EnterOp(
-        current.program_id, current.hlo_op_name,
-        current.hlo_instruction->Category(),
-        current.hlo_instruction->TfOpName(),
-        current.hlo_instruction->DeduplicatedName(), current.is_eager,
-        /*occurrences=*/1, current.duration, /*children_time_ps=*/0,
-        performance_info_wrapper->DeviceFlops(),
-        performance_info_wrapper->bytes_accessed(),
-        ConvertPerformanceInfo(
-            performance_info_wrapper->memory_accessed_breakdown(),
-            /*occurrences=*/1),
-        performance_info_wrapper->ModelFlops(),
-        current.hlo_instruction->Expression(),
-        current.hlo_instruction->SourceInfo());
-  } else {
-    metricDb.EnterOp(current.program_id, current.hlo_op_name,
-                     current.hlo_instruction->Category(),
-                     current.hlo_instruction->TfOpName(),
-                     current.hlo_instruction->DeduplicatedName(),
-                     current.is_eager, /*occurrences=*/1, current.duration,
-                     /*children_time_ps=*/0, /*flops=*/0,
-                     /*bytes_accessed=*/0,
-                     /*bytes_accessed_breakdown=*/{}, /*model_flops=*/0,
-                     current.hlo_instruction->Expression(),
-                     current.hlo_instruction->SourceInfo());
-  }
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = current.program_id,
+      .name = current.hlo_op_name,
+      .category = current.hlo_instruction->Category(),
+      .provenance = current.hlo_instruction->TfOpName(),
+      .deduplicated_name = current.hlo_instruction->DeduplicatedName(),
+      .long_name = current.hlo_instruction->Expression(),
+      .op_source_info = current.hlo_instruction->SourceInfo(),
+  };
+
+  DeviceOpMetricsDbBuilder::OpData event_data = {
+      .is_eager = current.is_eager,
+      .occurrences = 1,
+      .time_ps = current.duration,
+      .children_time_ps = 0,
+      .perf_info = current.hlo_instruction->GetPerformanceInfoWrapper(),
+      .vdd_energy_j = current.vdd_energy_j,
+  };
+
+  metricDb.EnterOp(op_id, event_data);
   current.Reset();
 }
 
@@ -538,6 +531,12 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
           current.hlo_instruction = hlo_instruction;
           current.hlo_op_name = stats.hlo_op_names.back();
           current.duration += event.DurationPs();
+          event.ForEachStat(
+              [&current](const tsl::profiler::XStatVisitor& stat) {
+                if (stat.Name() == "vdd_energy_j") {
+                  current.vdd_energy_j += stat.DoubleValue();
+                }
+              });
           current.is_eager = stats.is_eager;
           current.program_id = *stats.program_id;
           if (stats.group_id.has_value()) {
@@ -552,15 +551,22 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
           num_tf_ops++;
         }
         std::string name = absl::StrCat(tf_op.name, "/", event.Name());
-        device_op_metrics_db_builder.EnterOp(
-            /*program_id=*/0,
-            /**name=*/name,
-            /**category=*/tf_op.type,
-            /*provenance=*/stats.tf_op_fullname, "", stats.is_eager,
-            /*occurrences=*/1, event.DurationPs(),
-            /*children_time_ps=*/0,
-            /*flops=*/0,
-            /*bytes_accessed=*/0);
+        DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
+            .program_id = 0,
+            .name = name,
+            .category = tf_op.type,
+            .provenance = stats.tf_op_fullname,
+            .deduplicated_name = "",
+        };
+        DeviceOpMetricsDbBuilder::OpData event_data = {
+            .is_eager = stats.is_eager,
+            .occurrences = 1,
+            .time_ps = static_cast<uint64_t>(event.DurationPs()),
+            .children_time_ps = 0,
+            .flops = 0,
+            .bytes_accessed = 0,
+        };
+        device_op_metrics_db_builder.EnterOp(op_id, event_data);
       }
     });
     if (num_tf_ops >= 5) {

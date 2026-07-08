@@ -13,7 +13,6 @@
         (filterAdded)="onFilterAdd($event)"></filter-input>
     </div>
   </span>
-
   <ng-container *ngIf="useTraceViewerV2">
     <div class="right-controls">
       <div *ngIf="traceDetails && traceDetails.size > 0">
@@ -36,16 +35,34 @@
         </button>
       </mat-menu>
       <button mat-button (click)="switchVersion()">
-        Switch to V1
+        Switch to the old frontend
       </button>
       <div class="settings-button-wrapper">
         <button mat-icon-button [matMenuTriggerFor]="settingsMenu" #settingsTrigger="matMenuTrigger" aria-label="Settings">
           <mat-icon>settings</mat-icon>
         </button>
+
+        <!-- Coach Mark Bubble -->
+        <div *ngIf="showColorOnboarding" class="coach-mark-bubble">
+          <div class="coach-mark-title">Updated Trace Colors</div>
+          <div class="coach-mark-content">
+            We’ve refreshed the Trace Viewer colors for better clarity. If you’re a fan of the V1 classics, you can easily toggle them back in Settings.
+          </div>
+          <div class="coach-mark-actions">
+            <button mat-button color="primary" class="coach-mark-button" (click)="settingsTrigger.openMenu(); dismissColorOnboarding();">Open Settings</button>
+            <button mat-button class="coach-mark-button" (click)="dismissColorOnboarding()">Got it</button>
+          </div>
+          <!-- Arrow -->
+          <div class="coach-mark-arrow"></div>
+        </div>
       </div>
+
       <mat-menu #settingsMenu="matMenu">
         <button mat-menu-item (click)="openColorPaletteSettings()">
           <mat-icon>palette</mat-icon> Color Palette
+        </button>
+        <button mat-menu-item (click)="openFeatureFlagsSettings()">
+          <mat-icon>flag</mat-icon> Feature Flags
         </button>
       </mat-menu>
     </div>
@@ -53,7 +70,7 @@
   <ng-container *ngIf="!useTraceViewerV2">
     <div class="right-controls">
       <button mat-button (click)="switchVersion()">
-        Switch to V2
+        Switch to the new frontend (experimental)
       </button>
     </div>
   </ng-container>
@@ -88,6 +105,30 @@
     </button>
     <button mat-button color="primary" (click)="dialogRef.close()">
       Close
+    </button>
+  </mat-dialog-actions>
+</ng-template>
+
+<ng-template #featureFlagsDialog let-dialogRef="dialogRef">
+  <h2 mat-dialog-title>Feature Flags (Experiments)</h2>
+  <mat-dialog-content class="feature-flags-dialog-content">
+    <div *ngFor="let flag of featureFlags" class="feature-flag-item">
+      <mat-checkbox [checked]="flag.value" (change)="onFeatureFlagChange(flag.id, $event.checked)">
+        <strong>{{flag.name}}</strong>
+      </mat-checkbox>
+      <div class="feature-flag-description">{{flag.description}}</div>
+    </div>
+    <div *ngIf="hasFeatureFlagChanges" class="feature-flag-warning">
+      <mat-icon class="feature-flag-warning-icon">warning</mat-icon>
+      <span>Changes will take effect after page refresh.</span>
+    </div>
+  </mat-dialog-content>
+  <mat-dialog-actions align="end">
+    <button mat-button color="primary" [disabled]="!hasFeatureFlagChanges" (click)="saveFeatureFlags()">
+      Save
+    </button>
+    <button mat-button color="primary" (click)="dialogRef.close()">
+      Cancel
     </button>
   </mat-dialog-actions>
 </ng-template>

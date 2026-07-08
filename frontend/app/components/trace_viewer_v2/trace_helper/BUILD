@@ -18,6 +18,7 @@ wasm_cc_library(
     name = "trace_event",
     hdrs = ["trace_event.h"],
     deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@tsl//tsl/profiler/lib:context_types",
     ],
@@ -83,7 +84,7 @@ proto_library(
 )
 
 cc_proto_library(
-    name = "trace_lite_proto_cc",
+    name = "trace_lite_cc_proto",
     deps = [":trace_lite_proto"],
 )
 
@@ -100,7 +101,7 @@ wasm_cc_library(
         ":perfetto_constants",
         ":trace_event",
         ":trace_event_parser",
-        ":trace_lite_proto_cc",
+        ":trace_lite_cc_proto",
     ],
     alwayslink = True,
 )
@@ -111,8 +112,27 @@ wasm_cc_test(
     deps = [
         ":perfetto_proto_parser",
         ":trace_event",
-        ":trace_lite_proto_cc",
+        ":trace_lite_cc_proto",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+wasm_cc_test(
+    name = "trace_pb_event_parser_test",
+    srcs = ["trace_pb_event_parser_test.cc"],
+    linkopts = [
+        "-sASYNCIFY=1",
+        "-sNO_EXIT_RUNTIME=1",
+    ],
+    deps = [
+        ":trace_pb_event_parser",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:application",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
+        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
     ],
 )
 

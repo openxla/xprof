@@ -66,6 +66,10 @@ inline constexpr Pixel kEventPaddingRight = 1.0f;
 // The size of the visual indent for nested groups in the timeline, indicating
 // their nesting level.
 inline constexpr Pixel kIndentSize = 10.0f;
+inline constexpr Pixel kInstantEventChevronHalfWidth = 4.5f;
+inline constexpr Pixel kInstantEventChevronHeight = 15.5f;
+inline constexpr Pixel kInstantEventHoverChevronHalfWidth = 7.0f;
+inline constexpr Pixel kInstantEventHoverChevronHeight = 20.0f;
 inline constexpr Pixel kLabelPaddingLeft = 4.0f;
 inline constexpr Pixel kMinTextWidth = 5.0f;
 inline constexpr Pixel kMinUtilizationNormalization = 1.0f;
@@ -77,6 +81,8 @@ inline constexpr Pixel kThreadTrackGap = 4.0f;
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
 inline constexpr double kEpsilon = 0.001;
+// The scale factor applied to the font size to determine the arrow / icon size.
+inline constexpr float kIconSizeScale = 0.7f;
 // go/keep-sorted end
 
 // Highlighting Constants
@@ -90,6 +96,7 @@ inline constexpr Pixel kHoverPadding = 2.0f;
 // The radius of the circle used to draw points in the counter track.
 inline constexpr Pixel kPointRadius = 3.0f;
 inline constexpr Pixel kSelectedBorderThickness = 2.0f;
+inline constexpr Pixel kSelectedDataPointRadius = 4.0f;
 // The opacity of the group preview (aggregated view) background.
 inline constexpr float kGroupPreviewOpacity = 0.6f;
 // go/keep-sorted end
@@ -114,6 +121,16 @@ inline constexpr int kThreadNestingLevel = 1;
 inline constexpr ImU32 kSelectedTimeRangeColor = 0xFFFFC9A1;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
+// The threshold in pixels within which the mouse is considered to be over an
+// edge of a selected time range for resizing.
+inline constexpr Pixel kSelectionEdgeThreshold = 5.0f;
+// go/keep-sorted end
+
+// Bookmark Constants
+// go/keep-sorted start
+inline constexpr ImU32 kBookmarkColor = kPink80;
+inline constexpr Pixel kBookmarkLabelPadding = 4.0f;
+inline constexpr Pixel kBookmarkThickness = 2.0f;
 // go/keep-sorted end
 
 // Close Button Constants
@@ -181,15 +198,17 @@ inline constexpr float kRefetchZoomRatio = 8.0f;
 // go/keep-sorted start
 // The maximum duration to zoom to when navigating to an event (=5s).
 inline constexpr Microseconds kEventNavigationMaxDurationMicros = 5000000.0;
-// The minimum duration to zoom to when navigating to an event (=10ms).
-inline constexpr Microseconds kEventNavigationMinDurationMicros = 10000.0;
+// The minimum duration to zoom to when navigating to an event (=10us).
+inline constexpr Microseconds kEventNavigationMinDurationMicros = 10.0;
 // The factor by which to multiply event duration to determine viewport size.
-inline constexpr double kEventNavigationZoomFactor = 20.0;
+inline constexpr double kEventNavigationZoomFactor = 2.5;
 // go/keep-sorted end
 
 // UI Strings Constants
 // go/keep-sorted start
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
+inline constexpr char kHideTrackTooltip[] = "Hide track";
+inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 // go/keep-sorted end
 }  // namespace traceviewer
 

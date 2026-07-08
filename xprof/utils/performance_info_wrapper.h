@@ -25,6 +25,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "tsl/platform/protobuf.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "xprof/utils/cost_utils.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 
 namespace tensorflow {
@@ -41,10 +42,14 @@ class PerformanceInfoWrapper {
   static std::unique_ptr<PerformanceInfoWrapper> Create(
       std::unique_ptr<PerfInfoType> performance_info);
 
-  int64_t BytesAccessed() const { return performance_info_->bytes_accessed(); }
+  int64_t BytesAccessed() const {
+    return ValidHloCost(performance_info_->bytes_accessed());
+  }
 
   // Number of flops required for the hlo_instruction.
-  int64_t ModelFlops() const { return performance_info_->flops(); }
+  int64_t ModelFlops() const {
+    return ValidHloCost(performance_info_->flops());
+  }
   // Number of flops normalized to the peak capacity of the device.
   int64_t DeviceFlops() const;
 

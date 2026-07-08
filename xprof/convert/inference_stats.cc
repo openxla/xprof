@@ -672,13 +672,17 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
 
   // Group IDs of ProcessBatch events.
   absl::flat_hash_set<int64_t> process_batch_group_ids;
-  if (const auto* process_batch_events =
-          FindOrNull(host_events_by_type, HostEventType::kProcessBatch)) {
-    for (const XEventVisitor& process_batch_event : *process_batch_events) {
-      std::optional<XStatVisitor> optional_group_id =
-          process_batch_event.GetStat(StatType::kGroupId);
-      if (!optional_group_id.has_value()) continue;
-      process_batch_group_ids.insert(optional_group_id->IntValue());
+  static constexpr int64_t kProcessBatchEventTypes[] = {
+      HostEventType::kProcessBatch, HostEventType::kOrbaxProcessBatch};
+  for (const int64_t event_type : kProcessBatchEventTypes) {
+    if (const auto* process_batch_events =
+            FindOrNull(host_events_by_type, event_type)) {
+      for (const XEventVisitor& process_batch_event : *process_batch_events) {
+        std::optional<XStatVisitor> optional_group_id =
+            process_batch_event.GetStat(StatType::kGroupId);
+        if (!optional_group_id.has_value()) continue;
+        process_batch_group_ids.insert(optional_group_id->IntValue());
+      }
     }
   }
 
@@ -769,30 +773,34 @@ void BuildBatchEventsMap(const std::vector<XPlane*>& device_traces,
                          RequestEventsMap* request_events_map,
                          BatchEventsMap* batch_events_map) {
   // Initialize BatchDetails from ProcessBatch events.
-  if (const auto* process_batch_events =
-          FindOrNull(host_events_by_type, HostEventType::kProcessBatch)) {
-    for (const XEventVisitor& process_batch_event : *process_batch_events) {
-      std::optional<XStatVisitor> optional_group_id =
-          process_batch_event.GetStat(StatType::kGroupId);
-      if (!optional_group_id.has_value()) continue;
-      int64_t group_id = optional_group_id->IntValue();
-      const GroupMetadata* group_metadata =
-          FindOrNull(group_metadata_map, group_id);
-      if (!group_metadata) continue;
-      BatchEvents& batch_events = (*batch_events_map)[group_id];
-      tensorflow::profiler::BatchDetail& batch_detail =
-          batch_events.batch_detail_proto;
-      batch_detail.set_batch_id(group_id);
-      batch_detail.set_start_time_ps(process_batch_event.TimestampPs());
-      batch_detail.set_end_time_ps(process_batch_event.EndTimestampPs());
-      // The parent group_ids of a batch are the requests related to this
-      // batch.
-      for (const int64_t parent_group_id : group_metadata->parents) {
-        batch_detail.add_related_request_ids(parent_group_id);
+  static constexpr int64_t kProcessBatchEventTypes[] = {
+      HostEventType::kProcessBatch, HostEventType::kOrbaxProcessBatch};
+  for (const int64_t event_type : kProcessBatchEventTypes) {
+    if (const auto* process_batch_events =
+            FindOrNull(host_events_by_type, event_type)) {
+      for (const XEventVisitor& process_batch_event : *process_batch_events) {
+        std::optional<XStatVisitor> optional_group_id =
+            process_batch_event.GetStat(StatType::kGroupId);
+        if (!optional_group_id.has_value()) continue;
+        int64_t group_id = optional_group_id->IntValue();
+        const GroupMetadata* group_metadata =
+            FindOrNull(group_metadata_map, group_id);
+        if (!group_metadata) continue;
+        BatchEvents& batch_events = (*batch_events_map)[group_id];
+        tensorflow::profiler::BatchDetail& batch_detail =
+            batch_events.batch_detail_proto;
+        batch_detail.set_batch_id(group_id);
+        batch_detail.set_start_time_ps(process_batch_event.TimestampPs());
+        batch_detail.set_end_time_ps(process_batch_event.EndTimestampPs());
+        // The parent group_ids of a batch are the requests related to this
+        // batch.
+        for (const int64_t parent_group_id : group_metadata->parents) {
+          batch_detail.add_related_request_ids(parent_group_id);
+        }
+        // Sort related_request_ids to get deterministic result.
+        std::sort(batch_detail.mutable_related_request_ids()->begin(),
+                  batch_detail.mutable_related_request_ids()->end());
       }
-      // Sort related_request_ids to get deterministic result.
-      std::sort(batch_detail.mutable_related_request_ids()->begin(),
-                batch_detail.mutable_related_request_ids()->end());
     }
   }
 
@@ -802,6 +810,7 @@ void BuildBatchEventsMap(const std::vector<XPlane*>& device_traces,
   // same profile.
   static constexpr int64_t kPaddingEventTypes[] = {
       HostEventType::kConcatInputTensors,
+      HostEventType::kOrbaxConcatInputBuffers,
       HostEventType::kMergeInputTensors,
       HostEventType::kBrainSessionRun,
   };
@@ -1338,6 +1347,7 @@ void ParseTfstreamzForBatchingParameter(
 
   static constexpr char kBatchingParamPrefix[] =
       "/tensorflow/serving/batching/";
+  // TODO(b/522044907): Collect Orbax batching params from Streamz.
   static constexpr char kBatchingParamNumBatchThreads[] = "num_batch_threads";
   static constexpr char kBatchingParamBatchTimeoutMicros[] =
       "batch_timeout_micros";

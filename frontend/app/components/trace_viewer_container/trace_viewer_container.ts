@@ -387,6 +387,7 @@ export class TraceViewerContainer
       .pipe(debounceTime(300), takeUntil(this.destroyed))
       .subscribe((query) => {
         this.currentSearchQuery = query;
+        this.searchEvents.emit({events_query: query});
         if (this.traceViewerModule) {
           this.traceViewerModule.application.instance().setSearchQuery(query);
           this.updateSearchResultCountText();
@@ -533,6 +534,7 @@ export class TraceViewerContainer
     if (!isEntrySelectedEvent(e)) {
       return;
     }
+    this.updateSearchResultCountText();
     if (e.detail.eventIndex === -1) {
       this.eventSelected.emit(null);
     } else {
@@ -642,7 +644,6 @@ export class TraceViewerContainer
 
   onSearchEvent(query: string) {
     this.search$.next(query);
-    this.searchEvents.emit({events_query: query});
   }
 
   clearSearch(input: HTMLInputElement) {
@@ -741,10 +742,6 @@ export class TraceViewerContainer
     const instance = this.traceViewerModule.application.instance();
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
-    if (count === 0) {
-      this.searchResultCountText = '0 / 0';
-      return;
-    }
-    this.searchResultCountText = `${index === -1 ? 1 : index + 1} / ${count}`;
+    this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
   }
 }

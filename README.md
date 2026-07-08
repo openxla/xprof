@@ -184,13 +184,13 @@ If you have profile data in a directory (e.g., `profiler/demo`), you can view it
 by running:
 
 ```
-$ xprof profiler/demo --port=6006
-```
-
-Or with the optional flag:
-
-```
 $ xprof --logdir=profiler/demo --port=6006
+```
+
+Or with the optional command name:
+
+```
+$ xprof server --logdir=profiler/demo --port=6006
 ```
 
 ### With TensorBoard
@@ -209,7 +209,8 @@ overview page show up. Congratulations\! You're now ready to capture a profile.
 
 ### Command-Line Arguments
 
-When launching XProf from the command line, you can use the following arguments:
+When launching the XProf server from the command line, you can use the following
+arguments:
 
 |Command                                |Shorthand         |Default              |Description                                                                                                                                                                                                                                                                                                                                                                          |
 |---------------------------------------|------------------|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -268,7 +269,7 @@ profiles from various locations without restarting XProf.
 For example, if you start XProf with no log directory:
 
 ```bash
-xprof
+xprof server
 ```
 
 You can load sessions using the following URL parameters.
@@ -338,7 +339,7 @@ processing requests. You should also hide the capture button as workers are not
 meant to be interacted with directly.
 
 ```
-$ xprof --grpc_port=50051 --port=9999 --hide_capture_profile_button
+$ xprof server --grpc_port=50051 --port=9999 --hide_capture_profile_button
 ```
 
 **Aggregator Node**
@@ -347,7 +348,7 @@ The aggregator node runs XProf with the `--worker_service_address` flag pointing
 to all available workers. Users will interact with aggregator node's UI.
 
 ```
-$ xprof --worker_service_address=<worker1_ip>:50051,<worker2_ip>:50051 --port=6006 --logdir=profiler/demo
+$ xprof server --worker_service_address=<worker1_ip>:50051,<worker2_ip>:50051 --port=6006 --logdir=profiler/demo
 ```
 
 Replace `<worker1_ip>, <worker2_ip>` with the addresses of your worker machines.

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -37,6 +38,66 @@
 namespace traceviewer {
 namespace {
 
+using FallbackKey = std::tuple<ProcessId, ThreadId, absl::string_view>;
+
+absl::flat_hash_map<FallbackKey, std::vector<int>> BuildFallbackMap(
+    const FlameChartTimelineData& timeline_data) {
+  const int num_loaded = timeline_data.entry_event_ids.size();
+  absl::flat_hash_map<FallbackKey, std::vector<int>> fallback_map;
+  fallback_map.reserve(num_loaded);
+  for (int i = 0; i < num_loaded; ++i) {
+    const ProcessId loaded_pid =
+        (i < timeline_data.entry_pids.size()) ? timeline_data.entry_pids[i] : 0;
+    const ThreadId loaded_tid =
+        (i < timeline_data.entry_tids.size()) ? timeline_data.entry_tids[i] : 0;
+    const absl::string_view loaded_name =
+        (i < timeline_data.entry_names.size())
+            ? absl::string_view(timeline_data.entry_names[i])
+            : absl::string_view();
+    fallback_map[FallbackKey(loaded_pid, loaded_tid, loaded_name)].push_back(i);
+  }
+  return fallback_map;
+}
+
+int FindFallbackMatchedIndex(
+    const absl::flat_hash_map<FallbackKey, std::vector<int>>& fallback_map,
+    const FlameChartTimelineData& timeline_data, ProcessId pid, ThreadId tid,
+    absl::string_view name, Microseconds start_time, Microseconds duration) {
+  auto bucket_it = fallback_map.find(FallbackKey(pid, tid, name));
+  if (bucket_it == fallback_map.end()) {
+    return -1;
+  }
+  for (int i : bucket_it->second) {
+    const Microseconds loaded_start =
+        (i < timeline_data.entry_start_times.size())
+            ? timeline_data.entry_start_times[i]
+            : 0.0;
+    const Microseconds loaded_dur = (i < timeline_data.entry_total_times.size())
+                                        ? timeline_data.entry_total_times[i]
+                                        : 0.0;
+    if (std::abs(loaded_start - start_time) < 1.0 &&
+        std::abs(loaded_dur - duration) < 1.0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void ApplySnappingToEdge(Microseconds time, Microseconds threshold,
+                         const std::vector<Microseconds>& candidates,
+                         Microseconds& best_diff, Microseconds& snapped_edge,
+                         bool& snapped) {
+  auto it =
+      std::lower_bound(candidates.begin(), candidates.end(), time - threshold);
+  for (; it != candidates.end() && *it <= time + threshold; ++it) {
+    Microseconds diff = std::abs(time - *it);
+    if (diff < best_diff) {
+      best_diff = diff;
+      snapped_edge = *it;
+      snapped = true;
+    }
+  }
+}
 // Calculates a speed multiplier based on how long a key has been held down.
 // Provides acceleration for continuous actions like panning and zooming.
 float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
@@ -53,19 +114,13 @@ float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
   return 1.0f + multiplier;
 }
 
-// The argument name for sort index in process_sort_index and
-// thread_sort_index metadata events.
-constexpr absl::string_view kSortIndex = "sort_index";
-constexpr absl::string_view kProcessSortIndex = "process_sort_index";
-
 // Extracts process sort indices from metadata events in search results.
 absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
     const ParsedTraceEvents& search_results) {
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
-  for (const auto& event : search_results.flame_events) {
+  for (const TraceEvent& event : search_results.flame_events) {
     if (event.ph == Phase::kMetadata && event.name == kProcessSortIndex) {
-      if (auto it = event.args.find(std::string(kSortIndex));
-          it != event.args.end()) {
+      if (const auto it = event.args.find(kSortIndex); it != event.args.end()) {
         double sort_index_double;
         if (absl::SimpleAtod(it->second, &sort_index_double)) {
           process_sort_indices[event.pid] =
@@ -83,7 +138,7 @@ bool DrawExpandCollapseButton(Group& group, int group_index, Pixel height) {
   // Always show the expand/collapse button.
   ImGui::PushID(group_index);
   // Draw a smaller arrow button.
-  const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonHeight = height;
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
@@ -172,16 +227,35 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       ImGui::GetCurrentContext() ? ImGui::GetStyle().CellPadding.y : 0.0f;
   int hidden_nesting_level = std::numeric_limits<int>::max();
   Pixel hidden_group_center_y = 0.0f;
+  bool in_hidden_process = false;
+  bool has_visible_group = false;
 
   for (int group_index = 0; group_index < group_count; ++group_index) {
     const Group& group = data.groups[group_index];
 
-    if (group.nesting_level <= hidden_nesting_level) {
-      hidden_nesting_level = std::numeric_limits<int>::max();
+    if (group.nesting_level == kProcessNestingLevel) {
+      in_hidden_process = track_management_enabled_ &&
+                          hidden_track_names_.contains(group.name);
     }
 
     const int next_group_start_level =
         GetNextGroupStartLevel(data, group_index);
+
+    if (in_hidden_process) {
+      new_group_offsets[group_index] = current_offset;
+      new_group_visible[group_index] = false;
+      for (int level = group.start_level; level < next_group_start_level;
+           ++level) {
+        if (level < level_count) {
+          new_visible_level_offsets[level] = current_offset;
+        }
+      }
+      continue;
+    }
+
+    if (group.nesting_level <= hidden_nesting_level) {
+      hidden_nesting_level = std::numeric_limits<int>::max();
+    }
 
     if (hidden_nesting_level != std::numeric_limits<int>::max()) {
       new_group_offsets[group_index] = current_offset;
@@ -195,13 +269,14 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       continue;
     }
 
-    if (group_index > 0) {
+    if (has_visible_group) {
       current_offset += (group.nesting_level == kProcessNestingLevel)
                             ? kProcessTrackGap
                             : kThreadTrackGap;
     }
 
     new_group_offsets[group_index] = current_offset;
+    has_visible_group = true;
 
     const bool has_children =
         group_index + 1 < data.groups.size() &&
@@ -277,6 +352,58 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
 
+  // Reconcile loaded_index for all search results against the new
+  // timeline_data_.
+  const int num_loaded = timeline_data_.entry_event_ids.size();
+  absl::flat_hash_map<EventId, int> event_id_to_loaded_index;
+  event_id_to_loaded_index.reserve(num_loaded);
+  for (int i = 0; i < num_loaded; ++i) {
+    event_id_to_loaded_index.try_emplace(timeline_data_.entry_event_ids[i], i);
+  }
+
+  std::optional<absl::flat_hash_map<FallbackKey, std::vector<int>>>
+      lazy_loaded_events;
+
+  matching_event_indices_.clear();
+  for (SearchResult& result : search_results_) {
+    if (const auto it = event_id_to_loaded_index.find(result.event_id);
+        it != event_id_to_loaded_index.end()) {
+      result.loaded_index = it->second;
+    } else {
+      if (!lazy_loaded_events.has_value()) {
+        lazy_loaded_events = BuildFallbackMap(timeline_data_);
+      }
+      result.loaded_index = FindFallbackMatchedIndex(
+          *lazy_loaded_events, timeline_data_, result.pid, result.tid,
+          result.name, result.start_time, result.duration);
+      if (result.loaded_index != -1) {
+        result.event_id = timeline_data_.entry_event_ids[result.loaded_index];
+      }
+    }
+    if (result.loaded_index != -1) {
+      matching_event_indices_.insert(result.loaded_index);
+    }
+  }
+
+  if (pending_navigation_event_id_.has_value()) {
+    int matched_index = -1;
+    if (current_search_result_index_ >= 0 &&
+        current_search_result_index_ < search_results_.size()) {
+      matched_index =
+          search_results_.at(current_search_result_index_).loaded_index;
+    }
+
+    if (matched_index != -1) {
+      ZoomEvent(matched_index);
+      pending_navigation_event_id_.reset();
+    }
+  } else if (current_search_result_index_ >= 0 &&
+             current_search_result_index_ < search_results_.size()) {
+    const SearchResult& active =
+        search_results_.at(current_search_result_index_);
+    selected_event_index_ = active.loaded_index;
+  }
+
   if (is_incremental_loading_) {
     should_restore_scroll_ = true;
   }
@@ -285,6 +412,7 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 }
 
 void Timeline::Draw() {
+  hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -390,6 +518,11 @@ void Timeline::Draw() {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     if (group.nesting_level == kProcessNestingLevel) {
+      if (track_management_enabled_ &&
+          hidden_track_names_.contains(group.name)) {
+        ImGui::PopID();
+        continue;
+      }
       ImU32 bg_color =
           group.expanded
               ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
@@ -439,7 +572,7 @@ void Timeline::Draw() {
       }
     }
 
-    const Pixel kArrowSize = ImGui::GetFontSize() * 0.7f;
+    const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
     // We add 1 to the nesting level because ImGui::Indent(0) results in a
     // default, potentially large indentation. By adding 1, even top-level
     // groups (nesting_level 0) receive a base indentation of `kIndentSize`,
@@ -549,6 +682,18 @@ void Timeline::Draw() {
     ImGui::SetCursorPosY(label_start_y);
     ImGui::PopClipRect();
 
+    if (track_management_enabled_) {
+      if (group.nesting_level == kProcessNestingLevel) {
+        ImGui::SameLine();
+        const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+        ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
+                            kSplitterOffset - kArrowSize);
+        const bool is_track_hidden = hidden_track_names_.contains(group.name);
+        DrawHideButton(
+            group_index, centereable_height, is_track_hidden);
+      }
+    }
+
     ImGui::SetCursorPos(
         ImVec2(tracks_start_pos.x + label_width_,
                tracks_start_pos.y + group_offsets_[group_index]));
@@ -640,6 +785,7 @@ void Timeline::Draw() {
   // elements like tooltips.
   DrawFlows(current_timeline_width_, tracks_start_screen_pos.y);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
+  DrawBookmarks(current_timeline_width_, px_per_time_unit_val);
   DrawSelectionRectangle();
 
   // Draw vertical split line between sidebar and tracks
@@ -914,13 +1060,14 @@ void Timeline::ZoomEvent(int event_index) {
 
   selected_event_index_ = event_index;
   event_index_to_scroll_to_ = event_index;
+  ExpandRelatedTracks(event_index);
 
   const Microseconds start = timeline_data_.entry_start_times[event_index];
   const Microseconds event_duration =
       timeline_data_.entry_total_times[event_index];
-  // When navigating to an event, set the visible duration to 20 times the
+  // When navigating to an event, set the visible duration to 2.5 times the
   // event's duration to provide context around the event. Clamp the
-  // duration between 10ms and 5s to prevent zooming in too far on
+  // duration between 10us and 5s to prevent zooming in too far on
   // short events or zooming out too far on long events.
   const Microseconds duration =
       std::max(kEventNavigationMinDurationMicros,
@@ -969,6 +1116,13 @@ void Timeline::ExpandRelatedTracks(int event_index) {
     }
   }
 }
+
+void Timeline::HideTrack(absl::string_view name) {
+  hidden_track_names_.insert(std::string(name));
+  UpdateLevelPositions(timeline_data_);
+  if (redraw_callback_) redraw_callback_();
+}
+
 
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,
@@ -1069,6 +1223,147 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
   // towards this new zoom level.
   SetVisibleRange(new_range, /*animate=*/true);
   EmitViewportChanged(new_range);
+}
+
+void Timeline::ApplySnapping(TimeRange& range) {
+  // Global flag to enable or disable the snapping feature.
+  if (!snap_to_time_range_enabled_) {
+    return;
+  }
+  // Snapping only applies when in measuring mode (kTiming) or when Shift+Drag
+  // is used to select a time range.
+  if (mouse_mode_ != MouseMode::kTiming && !ImGui::GetIO().KeyShift) {
+    return;
+  }
+  const double px_per_time = px_per_time_unit();
+  if (px_per_time <= 0) return;
+
+  const Microseconds threshold = 16.0 / px_per_time;
+  const Microseconds original_duration = visible_range_.target().duration();
+  const bool is_pan = std::abs(range.duration() - original_duration) < 1e-6;
+
+  Microseconds best_diff_start = threshold;
+  Microseconds best_diff_end = threshold;
+  Microseconds snapped_start_time = range.start();
+  Microseconds snapped_end_time = range.end();
+  bool snapped_start = false;
+  bool snapped_end = false;
+
+  // 1. Check selected time ranges
+  for (const auto& sel_range : selected_time_ranges_) {
+    ApplySnappingToEdge(range.start(), threshold,
+                        {sel_range.start(), sel_range.end()}, best_diff_start,
+                        snapped_start_time, snapped_start);
+    ApplySnappingToEdge(range.end(), threshold,
+                        {sel_range.start(), sel_range.end()}, best_diff_end,
+                        snapped_end_time, snapped_end);
+  }
+
+  // 2. Check all visible events
+  FindNearestEventEdge(range.start(), threshold, best_diff_start,
+                       snapped_start_time, snapped_start);
+  FindNearestEventEdge(range.end(), threshold, best_diff_end, snapped_end_time,
+                       snapped_end);
+
+  if (is_pan) {
+    if (snapped_start) {
+      range = {snapped_start_time, snapped_start_time + original_duration};
+    } else if (snapped_end) {
+      range = {snapped_end_time - original_duration, snapped_end_time};
+    }
+  } else {
+    Microseconds final_start =
+        snapped_start ? snapped_start_time : range.start();
+    Microseconds final_end = snapped_end ? snapped_end_time : range.end();
+    range = TimeRange(std::min(final_start, final_end),
+                      std::max(final_start, final_end));
+  }
+}
+
+void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
+                                    Microseconds& best_diff,
+                                    Microseconds& snapped_time,
+                                    bool& snapped) const {
+  const double px_per_time = px_per_time_unit();
+  if (px_per_time <= 0) return;
+
+  Pixel current_scroll_y = ImGui::GetScrollY();
+  Pixel window_height = ImGui::GetWindowHeight();
+
+  for (int group_index = 0; group_index < timeline_data_.groups.size();
+       ++group_index) {
+    if (group_index >= group_visible_.size() || !group_visible_[group_index]) {
+      continue;
+    }
+
+    const Group& group = timeline_data_.groups[group_index];
+    int next_group_start_level =
+        GetNextGroupStartLevel(timeline_data_, group_index);
+
+    const bool has_children =
+        group_index + 1 < timeline_data_.groups.size() &&
+        timeline_data_.groups[group_index + 1].nesting_level >
+            group.nesting_level;
+    const bool has_multiple_levels =
+        next_group_start_level - group.start_level > 1;
+    const bool expandable = group.type == Group::Type::kFlame &&
+                            (has_children || has_multiple_levels);
+    const bool is_collapsed = expandable && !group.expanded;
+
+    if (is_collapsed) {
+      continue;
+    }
+
+    for (int level = group.start_level; level < next_group_start_level;
+         ++level) {
+      if (level < 0 || level >= timeline_data_.events_by_level.size() ||
+          level >= visible_level_offsets_.size()) {
+        continue;
+      }
+
+      Pixel y_center = visible_level_offsets_[level];
+      Pixel y_top = y_center - kEventHeight * 0.5f;
+      Pixel y_bottom = y_center + kEventHeight * 0.5f;
+
+      if (y_bottom < current_scroll_y ||
+          y_top > current_scroll_y + window_height) {
+        continue;
+      }
+
+      const auto& indices = timeline_data_.events_by_level[level];
+      if (indices.empty()) continue;
+
+      auto it = std::lower_bound(
+          indices.begin(), indices.end(), time - threshold,
+          [this](int event_index, Microseconds t) {
+            return timeline_data_.entry_start_times[event_index] +
+                       timeline_data_.entry_total_times[event_index] <
+                   t;
+          });
+
+      for (; it != indices.end(); ++it) {
+        const int event_index = *it;
+        if (event_index < 0 ||
+            event_index >= timeline_data_.entry_start_times.size() ||
+            event_index >= timeline_data_.entry_total_times.size()) {
+          continue;
+        }
+
+        const Microseconds start =
+            timeline_data_.entry_start_times[event_index];
+        if (start > time + threshold) {
+          break;
+        }
+
+        const Microseconds duration =
+            timeline_data_.entry_total_times[event_index];
+        if (duration * px_per_time >= 2.0) {
+          ApplySnappingToEdge(time, threshold, {start, start + duration},
+                              best_diff, snapped_time, snapped);
+        }
+      }
+    }
+  }
 }
 
 double Timeline::px_per_time_unit() const {
@@ -1250,45 +1545,84 @@ void Timeline::DrawEvent(int group_index, int event_index,
   if (rect.right > rect.left) {
     const std::string& event_name = timeline_data_.entry_names[event_index];
 
-    const bool is_hovered = ImGui::IsMouseHoveringRect(
-        ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+    const bool is_instant =
+        timeline_data_.entry_total_times[event_index] <= 1e-06;
+    bool is_hovered = false;
+    // As the shapes for instant events are triangles, we need to check for
+    // hover in a different way than regular events.
+    if (is_instant) {
+      // Even if the instant event is triangular, to solve the "fat finger"
+      // problem, we still want to check for hover in a rectangle around the
+      // triangle.
+      is_hovered = ImGui::IsMouseHoveringRect(
+          ImVec2(rect.left - kInstantEventChevronHalfWidth, rect.top),
+          ImVec2(rect.left + kInstantEventChevronHalfWidth,
+                 rect.top + kInstantEventChevronHeight));
+    } else {
+      is_hovered = ImGui::IsMouseHoveringRect(
+          ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+    }
 
     const Pixel corner_rounding =
         is_hovered ? kHoverCornerRounding : kCornerRounding;
 
-    const ImU32 event_color =
-        GetColorForId(event_name, palette_.GetTraceColors());
+    ImU32 event_color = GetColorForId(event_name, palette_.GetTraceColors());
 
-    const bool is_instant = timeline_data_.entry_total_times[event_index] == 0;
+    bool matches_search = false;
+    if (!search_query_lower_.empty()) {
+      matches_search = matching_event_indices_.contains(event_index);
+      if (!matches_search) {
+        // Gray out non-matching events with muted grayscale and lower opacity
+        const uint32_t r = (event_color >> IM_COL32_R_SHIFT) & 0xFF;
+        const uint32_t g = (event_color >> IM_COL32_G_SHIFT) & 0xFF;
+        const uint32_t b = (event_color >> IM_COL32_B_SHIFT) & 0xFF;
+        const uint32_t luminance = (r * 299 + g * 587 + b * 114) / 1000;
+        event_color = IM_COL32(luminance, luminance, luminance, 102);
+      }
+    }
+
+    ImVec2 top, left_bottom, right_bottom;
     if (is_instant) {
       const Pixel centerX = rect.left;
-      const Pixel chevron_half_width = 3.0f;
-      const Pixel chevron_height = 7.0f;
+      const Pixel chevron_half_width =
+          is_hovered ? kInstantEventHoverChevronHalfWidth
+                     : kInstantEventChevronHalfWidth;
+      const Pixel chevron_height = is_hovered ? kInstantEventHoverChevronHeight
+                                              : kInstantEventChevronHeight;
 
-      ImVec2 top(centerX, rect.top);
-      ImVec2 left_bottom(centerX - chevron_half_width,
-                         rect.top + chevron_height);
-      ImVec2 right_bottom(centerX + chevron_half_width,
-                          rect.top + chevron_height);
+      top = ImVec2(centerX, rect.top);
+      left_bottom = ImVec2(centerX - chevron_half_width,
+                           rect.top + chevron_height);
+      right_bottom = ImVec2(centerX + chevron_half_width,
+                            rect.top + chevron_height);
 
       // Add transparency (0.6 opacity) to the event color of instant events
-      // to help distinguish overlapping ones.
+      // to help distinguish overlapping ones. Use full opacity when hovered.
       const ImU32 transparent_color =
           (event_color & ~IM_COL32_A_MASK) |
           (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT);
+      const ImU32 color =
+          (is_hovered || matches_search) ? event_color : transparent_color;
 
-      draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
-                                   transparent_color);
+      draw_list->AddTriangleFilled(top, left_bottom, right_bottom, color);
     } else {
       draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
                                ImVec2(rect.right, rect.bottom), event_color,
                                corner_rounding, kImDrawFlags);
     }
     if (is_hovered) {
+      hovered_event_index_ = event_index;
       // Draw a semi-transparent overlay when the event is hovered.
-      draw_list->AddRectFilled(ImVec2(rect.left, rect.top),
-                               ImVec2(rect.right, rect.bottom), kHoverMaskColor,
-                               corner_rounding, kImDrawFlags);
+      if (is_instant) {
+        draw_list->AddTriangleFilled(top, left_bottom, right_bottom,
+                                     kHoverMaskColor);
+        draw_list->AddTriangle(top, left_bottom, right_bottom, event_color,
+                               2.0f);
+      } else {
+        draw_list->AddRectFilled(
+            ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom),
+            kHoverMaskColor, corner_rounding, kImDrawFlags);
+      }
 
       ImGui::SetTooltip(
           "%s (%s)", event_name.c_str(),
@@ -1341,8 +1675,12 @@ void Timeline::DrawEvent(int group_index, int event_index,
     if (selected_event_index_ == event_index) {
       if (is_instant) {
         const Pixel centerX = rect.left;
-        const Pixel chevron_half_width = 3.0f;
-        const Pixel chevron_height = 7.0f;
+        const Pixel chevron_half_width =
+            is_hovered ? kInstantEventHoverChevronHalfWidth
+                       : kInstantEventChevronHalfWidth;
+        const Pixel chevron_height =
+            is_hovered ? kInstantEventHoverChevronHeight
+                       : kInstantEventChevronHeight;
 
         ImVec2 top(centerX, rect.top);
         ImVec2 left_bottom(centerX - chevron_half_width,
@@ -1564,6 +1902,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
         TimeToScreenX(data.timestamps[i + 1], pos.x, px_per_time_unit_val);
     Pixel y = y_base - (data.values[i] - data.min_value) * y_ratio;
 
+    // Add a minimum 1px height so that a value equal to min_value is still
+    // visible as a thin line instead of completely disappearing.
+    y = std::min(y, y_base - 1.0f);
+
     draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
                              kCounterTrackColor);
   }
@@ -1575,6 +1917,34 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
     draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
                              kCounterTrackColor);
+  }
+
+  // Draw selected points from rectangle selection.
+  auto it_pair = std::equal_range(
+      selected_counter_points_.begin(), selected_counter_points_.end(),
+      std::make_pair(group_index, 0),
+      [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+        return a.first < b.first;
+      });
+
+  for (auto it = it_pair.first; it != it_pair.second; ++it) {
+    size_t p_idx = it->second;
+    if (p_idx < data.timestamps.size()) {
+      if (selected_group_index_ == group_index &&
+          selected_counter_index_ == p_idx) {
+        continue;  // Handled by single selection below.
+      }
+      Microseconds ts = data.timestamps[p_idx];
+      double val = data.values[p_idx];
+      Pixel x = TimeToScreenX(ts, pos.x, px_per_time_unit_val);
+      Pixel y = pos.y + height - (val - data.min_value) * y_ratio;
+
+      draw_list->AddCircleFilled(ImVec2(x, y), kSelectedDataPointRadius,
+                                 kBlue60);
+      draw_list->AddCircle(ImVec2(x, y), kSelectedDataPointRadius, kWhiteColor,
+                           /*num_segments=*/0,
+                           /*thickness=*/kSelectedBorderThickness);
+    }
   }
 
   if (selected_group_index_ == group_index && selected_counter_index_ != -1 &&
@@ -2002,7 +2372,8 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
   const Pixel time_range_x_start =
       TimeToScreenX(range.start(), timeline_x_start, px_per_time_unit_val);
   const Pixel time_range_x_end =
-      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val);
+      TimeToScreenX(range.end(), timeline_x_start, px_per_time_unit_val) -
+      kEventPaddingRight;
   // Clip the selection rectangle to the visible timeline bounds.
   // If the selection starts before the timeline's visible area,
   // clipped_x_start ensures we only start drawing from timeline_x_start.
@@ -2030,10 +2401,29 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
     if (time_range_x_start >= timeline_x_start) {
       draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
                          ImVec2(time_range_x_start, rect_y_max), color);
+      // Check for hovering on the start edge.
+      if (!is_dragging_ &&
+          std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
+              kSelectionEdgeThreshold &&
+          ImGui::IsMouseHoveringRect(
+              ImVec2(time_range_x_start - kSelectionEdgeThreshold, rect_y_min),
+              ImVec2(time_range_x_start + kSelectionEdgeThreshold,
+                     rect_y_max))) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     }
     if (time_range_x_end <= timeline_x_start + timeline_width) {
       draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
                          ImVec2(time_range_x_end, rect_y_max), color);
+      // Check for hovering on the end edge.
+      if (!is_dragging_ &&
+          std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
+              kSelectionEdgeThreshold &&
+          ImGui::IsMouseHoveringRect(
+              ImVec2(time_range_x_end - kSelectionEdgeThreshold, rect_y_min),
+              ImVec2(time_range_x_end + kSelectionEdgeThreshold, rect_y_max))) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+      }
     }
 
     const std::string text = FormatTime(range.duration());
@@ -2118,33 +2508,33 @@ DeleteButtonLayout Timeline::GetDeleteButtonLayout(
 void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                                 const ImRect& hover_rect,
                                 const TimeRange& range) {
+  if (DrawCloseButton(draw_list, button_pos, hover_rect)) {
+    auto it = absl::c_find(selected_time_ranges_, range);
+    if (it != selected_time_ranges_.end()) {
+      selected_time_ranges_.erase(it);
+    }
+    if (current_selected_time_range_ &&
+        *current_selected_time_range_ == range) {
+      current_selected_time_range_.reset();
+    }
+  }
+}
+
+bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
+                               const ImRect& hover_rect) {
   const Pixel button_size = kCloseButtonSize;
   const ImVec2 button_min = button_pos;
   const ImVec2 button_max(button_pos.x + button_size,
                           button_pos.y + button_size);
 
-  // If the mouse is hovering over the designated area, draw the button.
+  bool clicked = false;
   if (ImGui::IsMouseHoveringRect(hover_rect.Min, hover_rect.Max)) {
     ImU32 button_color = kCloseButtonColor;
-
-    // If the mouse is hovering over the button, change the color to the
-    // hover color. Also, if the mouse is clicked on the button, remove the
-    // range from the list of selected time ranges.
     if (ImGui::IsMouseHoveringRect(button_min, button_max)) {
       button_color = kCloseButtonHoverColor;
       ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-      // ImGui uses 0 to represent the left mouse button.
-      // If the mouse is clicked on the button, remove the range from the list
-      // of selected time ranges.
       if (ImGui::IsMouseClicked(0)) {
-        auto it = absl::c_find(selected_time_ranges_, range);
-        if (it != selected_time_ranges_.end()) {
-          selected_time_ranges_.erase(it);
-        }
-        if (current_selected_time_range_ &&
-            *current_selected_time_range_ == range) {
-          current_selected_time_range_.reset();
-        }
+        clicked = true;
       }
     }
 
@@ -2159,6 +2549,102 @@ void Timeline::DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
     draw_list->AddLine(ImVec2(center.x - x_radius, center.y + x_radius),
                        ImVec2(center.x + x_radius, center.y - x_radius),
                        kWhiteColor);
+  }
+  return clicked;
+}
+
+void Timeline::DrawHideButton(int group_index,
+                                Pixel height, bool is_track_hidden) {
+  const Group& group = timeline_data_.groups[group_index];
+
+  // Base size to determine the icon's drawing area and the button's width.
+  // The button size (especially width) directly relates to the icon draw size
+  // so that the hit target matches the visual boundary of the hide icon.
+  const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
+  const Pixel kButtonVisibleHeight = height;
+
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  // The icon will be drawn within a kIconDrawSize * kIconDrawSize area.
+  // The button width matches the icon draw width.
+  const ImVec2 buttonSize(kIconDrawSize, kButtonVisibleHeight);
+
+  if (ImGui::InvisibleButton("##hide", buttonSize)) {
+    auto it = hidden_track_names_.find(group.name);
+    if (it != hidden_track_names_.end()) {
+      hidden_track_names_.erase(it);
+    } else {
+      hidden_track_names_.insert(group.name);
+    }
+    UpdateLevelPositions(timeline_data_);
+    if (redraw_callback_) redraw_callback_();
+  }
+
+  // Calculate the center point for drawing the icon.
+  Pixel center_x = p.x + kIconDrawSize * 0.5f;
+  Pixel center_y = p.y + kButtonVisibleHeight * 0.5f;
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 icon_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    icon_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+    ImGui::SetTooltip(is_track_hidden ? kUnhideTrackTooltip
+                                      : kHideTrackTooltip);
+  }
+
+  const Pixel content_region_avail_width =
+      ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const bool is_row_hovered = ImGui::IsMouseHoveringRect(
+      ImVec2(tracks_start_screen_pos_.x,
+             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+      ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
+             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+
+  if (is_row_hovered) {
+    DrawHideIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
+                 is_track_hidden);
+  }
+}
+
+// Draws the hide/unhide icon in a kIconDrawSize * kIconDrawSize square area.
+// The icon's drawing coordinates are relative to the center and will not
+// exceed the boundaries defined by kIconDrawSize.
+void Timeline::DrawHideIcon(ImDrawList* draw_list, Pixel center_x,
+                            Pixel center_y, Pixel kIconDrawSize, ImU32 icon_col,
+                            bool is_track_hidden) {
+  float r = kIconDrawSize * 0.5f;
+
+  // Curve approximation using segments
+  ImVec2 p0(center_x - r, center_y);
+  ImVec2 p1(center_x - r * 0.5f, center_y - r * 0.45f);
+  ImVec2 p2(center_x, center_y - r * 0.6f);
+  ImVec2 p3(center_x + r * 0.5f, center_y - r * 0.45f);
+  ImVec2 p4(center_x + r, center_y);
+
+  // Top eye curve
+  draw_list->AddLine(p0, p1, icon_col, 1.0f);
+  draw_list->AddLine(p1, p2, icon_col, 1.0f);
+  draw_list->AddLine(p2, p3, icon_col, 1.0f);
+  draw_list->AddLine(p3, p4, icon_col, 1.0f);
+
+  // Bottom eye curve
+  ImVec2 p5(center_x - r * 0.5f, center_y + r * 0.45f);
+  ImVec2 p6(center_x, center_y + r * 0.6f);
+  ImVec2 p7(center_x + r * 0.5f, center_y + r * 0.45f);
+
+  draw_list->AddLine(p0, p5, icon_col, 1.0f);
+  draw_list->AddLine(p5, p6, icon_col, 1.0f);
+  draw_list->AddLine(p6, p7, icon_col, 1.0f);
+  draw_list->AddLine(p7, p4, icon_col, 1.0f);
+
+  // Pupil (center)
+  draw_list->AddCircleFilled(ImVec2(center_x, center_y), r * 0.25f, icon_col);
+
+  // Slashed line for crossed eye
+  if (is_track_hidden) {
+    draw_list->AddLine(ImVec2(center_x - r * 0.9f, center_y - r * 0.6f),
+                       ImVec2(center_x + r * 0.9f, center_y + r * 0.6f),
+                       icon_col, 1.0f);
   }
 }
 
@@ -2224,10 +2710,17 @@ bool Timeline::HandleKeyboard() {
     is_interacting = true;
   }
 
-  // Cancel selection
+  // Cancel selection or resize
   if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-    if (is_selecting_) {
-      is_selecting_ = false;
+    if (is_selecting_ || time_range_resizing_state_.has_value()) {
+      if (is_selecting_) {
+        is_selecting_ = false;
+      }
+      if (time_range_resizing_state_.has_value()) {
+        time_range_resizing_state_.reset();
+      }
+
+      // Common cancel actions
       is_dragging_ = false;
       current_selected_time_range_.reset();
     }
@@ -2329,9 +2822,14 @@ void Timeline::ProcessPendingScroll() {
 }
 
 void Timeline::HandleEventDeselection() {
+  const bool has_single_selection =
+      (selected_event_index_ != -1 || selected_group_index_ != -1);
+  const bool has_rectangle_selection =
+      (!selected_event_indices_.empty() || !selected_counter_points_.empty());
+
   // If an event was selected, and the user clicks on an empty area
   // (i.e., not on any event), deselect the event.
-  if ((selected_event_index_ != -1 || selected_group_index_ != -1) &&
+  if ((has_single_selection || has_rectangle_selection) &&
       ImGui::IsMouseReleased(0) &&
       ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
       !event_clicked_this_frame_) {
@@ -2345,20 +2843,30 @@ void Timeline::HandleEventDeselection() {
       }
     }
     if (is_click) {
-      selected_event_index_ = -1;
-      selected_group_index_ = -1;
-      selected_counter_index_ = -1;
+      if (has_single_selection) {
+        selected_event_index_ = -1;
+        selected_group_index_ = -1;
+        selected_counter_index_ = -1;
 
-      EventData event_data;
-      event_data[std::string(kEventSelectedIndex)] = -1;
-      event_data[std::string(kEventSelectedName)] = std::string("");
-      event_data[std::string(kEventSelectedStart)] = 0.0;
-      event_data[std::string(kEventSelectedDuration)] = 0.0;
-      event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
-      event_data[std::string(kEventSelectedDurationFormatted)] =
-          std::string("");
+        EventData event_data;
+        event_data[std::string(kEventSelectedIndex)] = -1;
+        event_data[std::string(kEventSelectedName)] = std::string("");
+        event_data[std::string(kEventSelectedStart)] = 0.0;
+        event_data[std::string(kEventSelectedDuration)] = 0.0;
+        event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
+        event_data[std::string(kEventSelectedDurationFormatted)] =
+            std::string("");
 
-      event_callback_(kEventSelected, event_data);
+        event_callback_(kEventSelected, event_data);
+      }
+
+      if (has_rectangle_selection) {
+        selected_event_indices_.clear();
+        selected_counter_points_.clear();
+        CalculateAndEmitMetrics();
+      }
+
+      if (redraw_callback_) redraw_callback_();
     }
   }
 }
@@ -2368,7 +2876,9 @@ bool Timeline::HandleMouse() {
   const bool is_mouse_over_timeline =
       ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max);
 
-  if (is_mouse_over_timeline) {
+  if (time_range_resizing_state_.has_value()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+  } else if (is_mouse_over_timeline) {
     switch (mouse_mode_) {
       case MouseMode::kSelect:
         ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
@@ -2415,6 +2925,27 @@ void Timeline::HandleMouseDown(Pixel timeline_origin_x) {
     is_dragging_ = true;
     ImGuiIO& io = ImGui::GetIO();
     selection_start_pos_ = io.MousePos;
+
+    // Check if we are starting a resize operation on an existing range.
+    const double px_per_time = px_per_time_unit();
+    if (px_per_time > 0) {
+      for (size_t i = 0; i < selected_time_ranges_.size(); ++i) {
+        const auto& range = selected_time_ranges_[i];
+        const Pixel x_start =
+            TimeToScreenX(range.start(), timeline_origin_x, px_per_time);
+        const Pixel x_end =
+            TimeToScreenX(range.end(), timeline_origin_x, px_per_time);
+
+        if (std::abs(io.MousePos.x - x_start) <= kSelectionEdgeThreshold) {
+          time_range_resizing_state_ = {i, /*is_start_edge=*/true};
+          return;
+        } else if (std::abs(io.MousePos.x - x_end) <= kSelectionEdgeThreshold) {
+          time_range_resizing_state_ = {i, /*is_start_edge=*/false};
+          return;
+        }
+      }
+    }
+
     if (mouse_mode_ == MouseMode::kSelect && !is_selecting_) {
       is_selecting_ = true;
       selection_end_pos_ = io.MousePos;
@@ -2438,7 +2969,28 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
   // ImGuiMouseButton enum. We check if the left mouse button was clicked.
   if (ImGui::IsMouseDown(0)) {
     ImGuiIO& io = ImGui::GetIO();
-    if (is_selecting_) {
+    if (time_range_resizing_state_.has_value() &&
+        time_range_resizing_state_->range_index <
+            selected_time_ranges_.size()) {
+      const double px_per_time = px_per_time_unit();
+      Microseconds current_time =
+          PixelToTime(io.MousePos.x - timeline_origin_x, px_per_time);
+
+      auto& range =
+          selected_time_ranges_[time_range_resizing_state_->range_index];
+      Microseconds start = range.start();
+      Microseconds end = range.end();
+
+      if (time_range_resizing_state_->is_start_edge) {
+        start = current_time;
+      } else {
+        end = current_time;
+      }
+
+      TimeRange new_range(std::min(start, end), std::max(start, end));
+      ApplySnapping(new_range);
+      range = new_range;
+    } else if (is_selecting_) {
       if (mouse_mode_ == MouseMode::kSelect) {
         selection_end_pos_ = io.MousePos;
       } else {
@@ -2448,6 +3000,7 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
         current_selected_time_range_ =
             TimeRange(std::min(drag_start_time_, current_time),
                       std::max(drag_start_time_, current_time));
+        ApplySnapping(*current_selected_time_range_);
       }
     } else if (mouse_mode_ == MouseMode::kZoom) {
       Zoom(1.0f + io.MouseDelta.y * 0.01f);
@@ -2481,8 +3034,8 @@ void Timeline::DrawToast(absl::string_view message, float& timer,
 
   // Fade out at the end.
   const float alpha = std::max(0.0f, std::min(1.0f, timer * 2.0f));
-  const ImU32 bg_color = IM_COL32(
-      32, 33, 36, (int)(230.0f * alpha));  // Dark grey
+  const ImU32 bg_color =
+      IM_COL32(32, 33, 36, (int)(230.0f * alpha));  // Dark grey
   const ImU32 text_color = IM_COL32(255, 255, 255, (int)(255.0f * alpha));
 
   draw_list->AddRectFilled(
@@ -2497,29 +3050,75 @@ void Timeline::HandleMouseRelease() {
   if (ImGui::IsMouseReleased(0)) {
     is_dragging_ = false;
     is_selecting_ = false;
-    if (mouse_mode_ == MouseMode::kSelect && selection_start_pos_ &&
-        selection_end_pos_) {
-      const float dx = selection_end_pos_->x - selection_start_pos_->x;
-      const float dy = selection_end_pos_->y - selection_start_pos_->y;
+    time_range_resizing_state_.reset();
+
+    bool is_click = false;
+    if (selection_start_pos_) {
+      const float dx = ImGui::GetIO().MousePos.x - selection_start_pos_->x;
+      const float dy = ImGui::GetIO().MousePos.y - selection_start_pos_->y;
       const float distance_squared = dx * dx + dy * dy;
-      if (distance_squared > kClickDistanceThresholdSquared) {
-        ImRect selection_rect =
-            ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
-                   std::min(selection_start_pos_->y, selection_end_pos_->y),
-                   std::max(selection_start_pos_->x, selection_end_pos_->x),
-                   std::max(selection_start_pos_->y, selection_end_pos_->y));
-        FindSelectedEvents(selection_rect);
-        CalculateAndEmitMetrics();
+      if (distance_squared <= kClickDistanceThresholdSquared) {
+        is_click = true;
       }
-    } else if (current_selected_time_range_ &&
-               current_selected_time_range_->duration() > 0) {
-      selected_time_ranges_.push_back(*current_selected_time_range_);
     }
+
+    // If a bookmark was handled (e.g., added via Ctrl+Click), bypass
+    // selection or time range additions. This prevents accidentally adding
+    // tiny time ranges if the user slightly moved the mouse (within
+    // threshold) during the click.
+    if (!HandleBookmarkAddition(is_click)) {
+      HandleSelectionOrTimeRangeAddition();
+      if (redraw_callback_)
+          redraw_callback_();  // Trigger redraw to show points
+    }
+
     selection_start_pos_.reset();
     selection_end_pos_.reset();
     current_selected_time_range_.reset();
-    selection_start_pos_ = std::nullopt;
   }
+}
+
+bool Timeline::HandleBookmarkAddition(bool is_click) {
+  if (bookmarks_enabled_ && is_click &&
+      (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper)) {
+    const ImRect timeline_area = GetTimelineArea();
+    if (ImGui::IsMouseHoveringRect(timeline_area.Min, timeline_area.Max)) {
+      const Microseconds time = PixelToTime(
+          ImGui::GetMousePos().x - timeline_area.Min.x, px_per_time_unit());
+      AddBookmark(time);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Timeline::HandleSelectionOrTimeRangeAddition() {
+  if (mouse_mode_ == MouseMode::kSelect && selection_start_pos_ &&
+      selection_end_pos_) {
+    const float dx = selection_end_pos_->x - selection_start_pos_->x;
+    const float dy = selection_end_pos_->y - selection_start_pos_->y;
+    const float distance_squared = dx * dx + dy * dy;
+    if (distance_squared > kClickDistanceThresholdSquared) {
+      ImRect selection_rect =
+          ImRect(std::min(selection_start_pos_->x, selection_end_pos_->x),
+                 std::min(selection_start_pos_->y, selection_end_pos_->y),
+                 std::max(selection_start_pos_->x, selection_end_pos_->x),
+                 std::max(selection_start_pos_->y, selection_end_pos_->y));
+      FindSelectedEvents(selection_rect);
+      CalculateAndEmitMetrics();
+      if (redraw_callback_)
+        redraw_callback_();  // Trigger redraw to show points
+      return true;
+      } else {
+        // Simple click in Select mode clears rectangle selection in UI.
+        CalculateAndEmitMetrics();
+    }
+  } else if (current_selected_time_range_ &&
+             current_selected_time_range_->duration() > 0) {
+    selected_time_ranges_.push_back(*current_selected_time_range_);
+    return true;
+  }
+  return false;
 }
 
 ImRect Timeline::GetTimelineArea() const {
@@ -2613,9 +3212,16 @@ void Timeline::MaybeRequestData() {
   is_incremental_loading_ = true;
 }
 
-void Timeline::SetSearchQuery(const std::string& query) {
-  search_query_lower_ = absl::AsciiStrToLower(query);
+void Timeline::SetSearchQuery(absl::string_view query) {
+  const std::string new_query_lower = absl::AsciiStrToLower(query);
+  if (search_query_lower_ == new_query_lower) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+  search_query_lower_ = new_query_lower;
+  pending_navigation_event_id_.reset();
   search_results_.clear();
+  matching_event_indices_.clear();
   current_search_result_index_ = -1;
 
   if (query.empty()) {
@@ -2623,25 +3229,249 @@ void Timeline::SetSearchQuery(const std::string& query) {
     return;
   }
 
-  for (int i = 0; i < timeline_data_.entry_names.size(); ++i) {
-    const auto& name = timeline_data_.entry_names[i];
-    if (absl::StartsWithIgnoreCase(name, query)) {
-      search_results_.push_back(i);
+  RecomputeSearchResults();
+}
+
+void Timeline::RecomputeSearchResults() {
+  const int num_entries = timeline_data_.entry_names.size();
+  search_results_.reserve(num_entries);
+  matching_event_indices_.reserve(num_entries);
+  for (int i = 0; i < num_entries; ++i) {
+    const std::string& name = timeline_data_.entry_names[i];
+    if (absl::StartsWithIgnoreCase(name, search_query_lower_)) {
+      const EventId event_id = timeline_data_.entry_event_ids[i];
+      const int level = timeline_data_.entry_levels[i];
+      const Microseconds start_time = timeline_data_.entry_start_times[i];
+      const Microseconds total_time = timeline_data_.entry_total_times[i];
+      const ProcessId pid = timeline_data_.entry_pids[i];
+      const ThreadId tid = timeline_data_.entry_tids[i];
+      search_results_.push_back(SearchResult{.event_id = event_id,
+                                             .level = level,
+                                             .start_time = start_time,
+                                             .duration = total_time,
+                                             .pid = pid,
+                                             .tid = tid,
+                                             .name = name,
+                                             .loaded_index = i});
+      matching_event_indices_.insert(i);
     }
   }
 
-  // Sort results by start time to make navigation natural.
-  absl::c_sort(search_results_, [&](int a, int b) {
-    return timeline_data_.entry_start_times[a] <
-           timeline_data_.entry_start_times[b];
-  });
+  // Sort results horizontally by track hierarchy and start time.
+  absl::c_sort(search_results_,
+               [](const SearchResult& a, const SearchResult& b) {
+                 if (a.level != b.level) {
+                   return a.level < b.level;
+                 }
+                 return a.start_time < b.start_time;
+               });
 
-  if (!search_results_.empty()) {
+  if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::SetSearchResults(const ParsedTraceEvents& search_results) {
+  const bool navigation_active = (current_search_result_index_ >= 0);
+
+  search_results_.clear();
+  matching_event_indices_.clear();
+  current_search_result_index_ = -1;
+
+  if (search_query_lower_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  absl::flat_hash_map<EventId, int> event_id_to_loaded_index;
+  absl::flat_hash_map<EventId, int> event_id_to_level;
+  const int num_loaded = timeline_data_.entry_event_ids.size();
+  event_id_to_loaded_index.reserve(num_loaded);
+  event_id_to_level.reserve(num_loaded);
+  for (int i = 0; i < num_loaded; ++i) {
+    const EventId ev_id = timeline_data_.entry_event_ids[i];
+    event_id_to_loaded_index.try_emplace(ev_id, i);
+    const int lvl = (i < timeline_data_.entry_levels.size())
+                        ? timeline_data_.entry_levels[i]
+                        : -1;
+    event_id_to_level.try_emplace(ev_id, lvl);
+  }
+
+  std::optional<absl::flat_hash_map<FallbackKey, std::vector<int>>>
+      lazy_loaded_events;
+
+  for (const TraceEvent& event : search_results.flame_events) {
+    if (event.ph != Phase::kComplete && event.ph != Phase::kInstant &&
+        event.ph != Phase::kInstantDeprecated) {
+      continue;
+    }
+    int level = -1;
+    if (const auto it = event_id_to_level.find(event.event_id);
+        it != event_id_to_level.end()) {
+      level = it->second;
+    }
+    EventId event_id = event.event_id;
+    int loaded_index = -1;
+    if (const auto it = event_id_to_loaded_index.find(event.event_id);
+        it != event_id_to_loaded_index.end()) {
+      loaded_index = it->second;
+    } else {
+      if (!lazy_loaded_events.has_value()) {
+        lazy_loaded_events = BuildFallbackMap(timeline_data_);
+      }
+      loaded_index = FindFallbackMatchedIndex(
+          *lazy_loaded_events, timeline_data_, event.pid, event.tid, event.name,
+          event.ts, event.dur);
+      if (loaded_index != -1) {
+        event_id = timeline_data_.entry_event_ids[loaded_index];
+      }
+    }
+
+    search_results_.push_back(SearchResult{.event_id = event_id,
+                                           .level = level,
+                                           .start_time = event.ts,
+                                           .duration = event.dur,
+                                           .pid = event.pid,
+                                           .tid = event.tid,
+                                           .name = event.name,
+                                           .loaded_index = loaded_index});
+    if (loaded_index != -1) {
+      matching_event_indices_.insert(loaded_index);
+    }
+  }
+
+  if (search_results_.empty()) {
+    if (redraw_callback_) redraw_callback_();
+    return;
+  }
+
+  absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices =
+      GetProcessSortIndices(search_results);
+  absl::flat_hash_map<std::pair<ProcessId, ThreadId>, uint32_t>
+      thread_sort_indices;
+  for (const TraceEvent& event : search_results.flame_events) {
+    if (event.ph == Phase::kMetadata && event.name == kThreadSortIndex) {
+      if (const auto it = event.args.find(kSortIndex); it != event.args.end()) {
+        double sort_index_double;
+        if (absl::SimpleAtod(it->second, &sort_index_double)) {
+          thread_sort_indices[{event.pid, event.tid}] =
+              static_cast<uint32_t>(sort_index_double);
+        }
+      }
+    }
+  }
+
+  absl::flat_hash_map<std::pair<ProcessId, ThreadId>, int> pid_tid_to_min_level;
+  for (int i = 0; i < num_loaded; ++i) {
+    const ProcessId pid = (i < timeline_data_.entry_pids.size())
+                              ? timeline_data_.entry_pids[i]
+                              : 0;
+    const ThreadId tid = (i < timeline_data_.entry_tids.size())
+                             ? timeline_data_.entry_tids[i]
+                             : 0;
+    const int level = (i < timeline_data_.entry_levels.size())
+                          ? timeline_data_.entry_levels[i]
+                          : -1;
+    if (level != -1) {
+      auto [it, inserted] = pid_tid_to_min_level.try_emplace({pid, tid}, level);
+      if (level < it->second) {
+        it->second = level;
+      }
+    }
+  }
+
+  absl::c_sort(
+      search_results_, [&](const SearchResult& a, const SearchResult& b) {
+        if (a.pid != b.pid) {
+          const auto it_a = process_sort_indices.find(a.pid);
+          uint32_t sort_index_a = (it_a != process_sort_indices.end())
+                                      ? it_a->second
+                                      : std::numeric_limits<uint32_t>::max();
+          const auto it_b = process_sort_indices.find(b.pid);
+          uint32_t sort_index_b = (it_b != process_sort_indices.end())
+                                      ? it_b->second
+                                      : std::numeric_limits<uint32_t>::max();
+          if (sort_index_a != sort_index_b) {
+            return sort_index_a < sort_index_b;
+          }
+          return a.pid < b.pid;
+        }
+
+        if (a.tid != b.tid) {
+          int min_level_a = -1;
+          if (const auto it_min_a = pid_tid_to_min_level.find({a.pid, a.tid});
+              it_min_a != pid_tid_to_min_level.end()) {
+            min_level_a = it_min_a->second;
+          }
+          int min_level_b = -1;
+          if (const auto it_min_b = pid_tid_to_min_level.find({b.pid, b.tid});
+              it_min_b != pid_tid_to_min_level.end()) {
+            min_level_b = it_min_b->second;
+          }
+
+          if (min_level_a != -1 && min_level_b != -1) {
+            if (min_level_a != min_level_b) {
+              return min_level_a < min_level_b;
+            }
+          }
+
+          uint32_t thread_sort_a = std::numeric_limits<uint32_t>::max();
+          if (const auto it_thread_a = thread_sort_indices.find({a.pid, a.tid});
+              it_thread_a != thread_sort_indices.end()) {
+            thread_sort_a = it_thread_a->second;
+          }
+          uint32_t thread_sort_b = std::numeric_limits<uint32_t>::max();
+          if (const auto it_thread_b = thread_sort_indices.find({b.pid, b.tid});
+              it_thread_b != thread_sort_indices.end()) {
+            thread_sort_b = it_thread_b->second;
+          }
+
+          if (thread_sort_a != thread_sort_b) {
+            return thread_sort_a < thread_sort_b;
+          }
+          return a.tid < b.tid;
+        }
+
+        int effective_level_a = a.level;
+        if (effective_level_a == -1) {
+          const auto it_min = pid_tid_to_min_level.find({a.pid, a.tid});
+          effective_level_a =
+              (it_min != pid_tid_to_min_level.end()) ? it_min->second : 0;
+        }
+        int effective_level_b = b.level;
+        if (effective_level_b == -1) {
+          const auto it_min = pid_tid_to_min_level.find({b.pid, b.tid});
+          effective_level_b =
+              (it_min != pid_tid_to_min_level.end()) ? it_min->second : 0;
+        }
+        if (effective_level_a != effective_level_b) {
+          return effective_level_a < effective_level_b;
+        }
+        return a.start_time < b.start_time;
+      });
+
+  if (navigation_active) {
     current_search_result_index_ = 0;
-    RevealEvent(search_results_[0]);
+    NavigateToSearchResult(search_results_[0]);
   }
 
   if (redraw_callback_) redraw_callback_();
+}
+
+void Timeline::NavigateToSearchResult(const SearchResult& result) {
+  if (result.loaded_index != -1) {
+    ZoomEvent(result.loaded_index);
+  } else {
+    pending_navigation_event_id_ = result.event_id;
+    const Microseconds start = result.start_time;
+    const Microseconds event_duration = result.duration;
+    const Microseconds duration =
+        std::max(kEventNavigationMinDurationMicros,
+                 std::min(event_duration * kEventNavigationZoomFactor,
+                          kEventNavigationMaxDurationMicros));
+    const Microseconds center = start + event_duration / 2.0;
+    TimeRange new_range = {center - duration / 2.0, center + duration / 2.0};
+    ConstrainTimeRange(new_range);
+    SetVisibleRange(new_range, /*animate=*/true);
+  }
 }
 
 void Timeline::NavigateToNextSearchResult() {
@@ -2650,7 +3480,7 @@ void Timeline::NavigateToNextSearchResult() {
   if (current_search_result_index_ >= search_results_.size()) {
     current_search_result_index_ = 0;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
+  NavigateToSearchResult(search_results_[current_search_result_index_]);
   if (redraw_callback_) redraw_callback_();
 }
 
@@ -2660,7 +3490,7 @@ void Timeline::NavigateToPrevSearchResult() {
   if (current_search_result_index_ < 0) {
     current_search_result_index_ = search_results_.size() - 1;
   }
-  RevealEvent(search_results_[current_search_result_index_]);
+  NavigateToSearchResult(search_results_[current_search_result_index_]);
   if (redraw_callback_) redraw_callback_();
 }
 
@@ -2671,7 +3501,6 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
   const ImRect timeline_area = GetTimelineArea();
   const Pixel screen_x_offset = timeline_area.Min.x;
   const double px_per_time = px_per_time_unit();
-  const Pixel scroll_y = ImGui::GetScrollY();
 
   for (size_t group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
@@ -2688,7 +3517,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         const auto& events = timeline_data_.events_by_level[level];
         const Pixel y_top = tracks_start_screen_pos_.y +
                             visible_level_offsets_[level] -
-                            kEventHeight * 0.5f - scroll_y;
+                            kEventHeight * 0.5f;
         const Pixel y_bottom = y_top + kEventHeight;
 
         if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
@@ -2733,7 +3562,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
       }
     } else if (group.type == Group::Type::kCounter) {
       Pixel y_top =
-          tracks_start_screen_pos_.y + group_offsets_[group_index] - scroll_y;
+          tracks_start_screen_pos_.y + group_offsets_[group_index];
       Pixel group_height = kCounterTrackHeight;
       Pixel y_bottom = y_top + group_height;
 
@@ -2795,13 +3624,11 @@ void Timeline::CalculateAndEmitMetrics() {
     Microseconds start_us =
         PixelToTime(std::min(selection_start_pos_->x, selection_end_pos_->x) -
                         timeline_area.Min.x,
-                    px_per_time) +
-        visible_range_->start();
+                    px_per_time);
     Microseconds end_us =
         PixelToTime(std::max(selection_start_pos_->x, selection_end_pos_->x) -
                         timeline_area.Min.x,
-                    px_per_time) +
-        visible_range_->start();
+                    px_per_time);
     selection_start_us = start_us;
     selection_extent_us = end_us - start_us;
   }
@@ -2833,14 +3660,15 @@ void Timeline::CalculateAndEmitMetrics() {
     std::string metrics_json = "[";
     bool first = true;
     for (const auto& [name, metrics] : aggregated_metrics) {
-      if (!first) metrics_json += ',';
+      if (!first) absl::StrAppend(&metrics_json, ",");
       first = false;
-      metrics_json += absl::StrFormat(
+      absl::StrAppendFormat(
+          &metrics_json,
           R"({"name":"%s","count":%d,"wallTimeUs":%.1f,"selfTimeUs":%.1f,"avgWallDurationUs":%.1f})",
           name, metrics.count, metrics.wall_time, metrics.self_time,
           metrics.wall_time / metrics.count);
     }
-    metrics_json += ']';
+    absl::StrAppend(&metrics_json, "]");
 
     absl::StrAppend(&json, R"(,"metrics":)", metrics_json);
   }
@@ -2858,13 +3686,14 @@ void Timeline::CalculateAndEmitMetrics() {
       Microseconds ts = counter_data.timestamps[point_index];
       double val = counter_data.values[point_index];
 
-      if (!first) counters_json += ',';
+      if (!first) absl::StrAppend(&counters_json, ",");
       first = false;
-      counters_json += absl::StrFormat(
+      absl::StrAppendFormat(
+          &counters_json,
           R"({"counter":"%s","series":"%s","time":%.1f,"value":%.1f})",
-          group.name, group.subtitle, ts, val);
+          group.name, counter_data.event_stats, ts, val);
     }
-    counters_json += ']';
+    absl::StrAppend(&counters_json, "]");
 
     absl::StrAppend(&json, R"(,"counters":)", counters_json);
   }
@@ -2894,6 +3723,81 @@ void Timeline::DrawSelectionRectangle() {
 
   draw_list->AddRectFilled(rect.Min, rect.Max, color);
   draw_list->AddRect(rect.Min, rect.Max, border_color, 0.0f, 0, 2.0f);
+}
+
+void Timeline::DrawBookmarks(Pixel timeline_width,
+                             double px_per_time_unit_val) {
+  if (!bookmarks_enabled_ || bookmarks_.empty() || px_per_time_unit_val <= 0)
+    return;
+
+  const ImRect timeline_area = GetTimelineArea();
+  const Pixel screen_x_offset = timeline_area.Min.x;
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  std::optional<Microseconds> bookmark_to_delete;
+
+  for (const Microseconds time : bookmarks_) {
+    const Pixel x = TimeToScreenX(time, screen_x_offset, px_per_time_unit_val);
+
+    if (x < timeline_area.Min.x || x > timeline_area.Max.x) continue;
+
+    // Draw vertical line
+    draw_list->AddLine(ImVec2(x, timeline_area.Min.y),
+                       ImVec2(x, timeline_area.Max.y), kBookmarkColor,
+                       kBookmarkThickness);
+
+    // Draw label (timestamp)
+    const std::string label = FormatTime(time);
+    ImGui::PushFont(fonts::label_small);
+    const ImVec2 label_size = ImGui::CalcTextSize(label.c_str());
+    const ImVec2 label_pos = ImVec2(
+        x + kBookmarkLabelPadding, timeline_area.Min.y + kBookmarkLabelPadding);
+    draw_list->AddText(label_pos, kBookmarkColor, label.c_str());
+
+    // Unified Delete Button logic (matches TimeRange selection behavior)
+    const ImVec2 button_pos =
+        ImVec2(label_pos.x + label_size.x + kBookmarkLabelPadding, label_pos.y);
+    const ImRect button_rect(button_pos,
+                             ImVec2(button_pos.x + kCloseButtonSize,
+                                    button_pos.y + kCloseButtonSize));
+
+    // Hover area includes label and button
+    const ImRect hover_rect(label_pos, button_rect.Max);
+
+    if (DrawCloseButton(draw_list, button_pos, hover_rect)) {
+      bookmark_to_delete = time;
+    }
+
+    ImGui::PopFont();
+  }
+
+  if (bookmark_to_delete) {
+    RemoveBookmark(*bookmark_to_delete);
+  }
+}
+
+void Timeline::AddBookmark(Microseconds time) {
+  if (!bookmarks_enabled_) return;
+  const double px_per_time = px_per_time_unit();
+  const Microseconds threshold = px_per_time > 0 ? 5.0 / px_per_time : 1e-9;
+
+  auto it = absl::c_find_if(bookmarks_, [time, threshold](Microseconds b) {
+    return std::abs(b - time) < threshold;
+  });
+
+  if (it == bookmarks_.end()) {
+    bookmarks_.push_back(time);
+    absl::c_sort(bookmarks_);
+    if (redraw_callback_) redraw_callback_();
+  }
+}
+
+void Timeline::RemoveBookmark(Microseconds time) {
+  if (!bookmarks_enabled_) return;
+  auto it = absl::c_find(bookmarks_, time);
+  if (it != bookmarks_.end()) {
+    bookmarks_.erase(it);
+    if (redraw_callback_) redraw_callback_();
+  }
 }
 
 }  // namespace traceviewer

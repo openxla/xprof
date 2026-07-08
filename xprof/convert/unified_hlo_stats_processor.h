@@ -19,9 +19,9 @@
 #include "absl/status/status.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/base_op_stats_processor.h"
-#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -33,12 +33,10 @@ class UnifiedHloStatsProcessor : public BaseOpStatsProcessor {
       : BaseOpStatsProcessor(options) {}
 
   absl::Status ProcessCombinedOpStats(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats,
       const tensorflow::profiler::ToolOptions& options) override;
 };
-
-REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats", UnifiedHloStatsProcessor);
 
 }  // namespace xprof
 

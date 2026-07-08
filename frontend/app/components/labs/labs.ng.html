@@ -1,151 +1,315 @@
-<div class="labs-container" *ngIf="isLabsEnabled">
-  <!-- Header Banner -->
-  <header class="labs-header">
-    <div class="header-content">
-      <div class="header-icon-container">
-        <mat-icon class="header-icon">science</mat-icon>
+@if (isLabsEnabled()) {
+  <div class="labs-container">
+    <!-- Labs Header -->
+    <header class="labs-header">
+      <div class="header-left">
+        <!-- Back navigation link (visible in playground view) -->
+        @if (activeView() === 'playground') {
+          <button class="labs-back-btn" (click)="setActiveView('experiments')">
+            <mat-icon class="material-symbols-outlined">arrow_back</mat-icon>
+            <span>Back to XProf Labs</span>
+          </button>
+        }
+
+        <h1>XProf Labs</h1>
+        <p>
+          An experimental playground and plugin marketplace. Prototype and share custom profiling utilities, analyze raw HLO/Xplane data in Colab notebooks, or try AI-assisted trace analysis.
+        </p>
       </div>
-      <div class="header-text">
-        <div class="title-row">
-          <h1>Xprof Labs</h1>
-          <span class="experimental-badge">Experimental</span>
+
+      <div class="header-right">
+        @if (activeView() === 'experiments') {
+          <button class="labs-create-btn" (click)="setActiveView('playground')">
+            <mat-icon class="material-symbols-outlined">science</mat-icon>
+            <span>Start new experiment</span>
+          </button>
+        }
+
+        @if (activeView() === 'playground') {
+          <button class="playground-review-btn" [disabled]="true">
+            <mat-icon class="material-symbols-outlined">rate_review</mat-icon>
+            <span>Send for Review</span>
+          </button>
+          <button class="playground-draft-btn" [disabled]="true">
+            <mat-icon class="material-symbols-outlined">edit_note</mat-icon>
+            <span>Save Draft</span>
+          </button>
+          <button class="playground-discard-btn" (click)="setActiveView('experiments')" title="Discard changes">
+            <mat-icon class="material-symbols-outlined">delete_outline</mat-icon>
+          </button>
+        }
+      </div>
+    </header>
+
+    <!-- Labs Marketplace Container (Default Active View) -->
+    @if (activeView() === 'experiments') {
+      <div class="labs-view">
+        <!-- Labs Tabs -->
+        <div class="labs-tabs">
+          <button class="labs-tab-btn" [class.active]="activeTab() === 'curated'" (click)="setActiveTab('curated')">
+            Curated Experiments
+          </button>
+          <button class="labs-tab-btn" [class.active]="activeTab() === 'my-tools'" (click)="setActiveTab('my-tools')">
+            My Experiments
+          </button>
         </div>
-        <p>Explore incubation-stage utilities, advanced visualizations, and experimental data playgrounds.</p>
-      </div>
-    </div>
-  </header>
 
-  <!-- View Toggle Navigation Bar -->
-  <div class="view-toggle-container">
-    <mat-button-toggle-group [value]="activeView" (change)="setActiveView($event.value)" aria-label="Select view mode" class="labs-view-toggle">
-      <mat-button-toggle value="experiments">
-        <mat-icon>dashboard</mat-icon>
-        <span>Curated Experiments</span>
-      </mat-button-toggle>
-      <mat-button-toggle value="playground">
-        <mat-icon>code_blocks</mat-icon>
-        <span>Labs Playground</span>
-      </mat-button-toggle>
-    </mat-button-toggle-group>
-  </div>
-
-  <!-- Toggleable Content Layout -->
-  <div class="labs-content-area">
-    <!-- Column 1: Curated Tools with Search & Filters -->
-    <section class="full-width-section curated-section" *ngIf="activeView === 'experiments'">
-      <h2 class="section-title">Curated Experiments</h2>
-      <p class="section-subtitle">High-value diagnostic tools developed by core performance teams.</p>
-
-      <!-- Sticky Toolbar: Search & Filters -->
-      <div class="curated-toolbar">
-        <mat-form-field class="search-field" appearance="outline">
-          <mat-icon matPrefix>search</mat-icon>
-          <mat-label>Search experiments...</mat-label>
-          <input matInput [value]="searchQuery" (input)="onSearchChange($event)">
-        </mat-form-field>
-
-        <mat-chip-listbox class="category-chips" aria-label="Category selection"
-                          [value]="selectedCategory" (change)="onCategoryChange($event.value)">
-          <mat-chip-option *ngFor="let category of categories" [value]="category">
-            {{category}}
-          </mat-chip-option>
-        </mat-chip-listbox>
-      </div>
-
-      <!-- Sub-section: Featured Tools (Grid layout) -->
-      <ng-container *ngIf="featuredTools.length > 0">
-        <h3 class="sub-section-title">Featured</h3>
-        <div class="tools-grid">
-          <mat-card class="tool-card" *ngFor="let tool of featuredTools; trackBy: trackByTool">
-            <mat-card-header class="card-header">
-              <mat-icon class="card-icon" mat-card-avatar>{{tool.icon}}</mat-icon>
-              <mat-card-title class="card-title">
-                {{tool.label}}
-                <span class="status-badge" [class.alpha]="tool.status === 'Alpha'" [class.beta]="tool.status === 'Beta'">
-                  {{tool.status}}
-                </span>
-              </mat-card-title>
-            </mat-card-header>
-
-            <mat-card-content class="card-content">
-              <p>{{tool.description}}</p>
-            </mat-card-content>
-
-            <mat-card-actions class="card-actions">
-              <button mat-flat-button color="primary" (click)="onLaunchTool(tool)">
-                Launch Experiment
+        <!-- Search and Filter Bar -->
+        <div class="search-filter-bar">
+          <!-- Filter Chips (Left) -->
+          <div class="market-filter-chips">
+            @for (category of categories; track category) {
+              <button class="filter-chip" [class.active]="selectedCategory() === category" (click)="onCategoryChange(category)">
+                {{category}}
               </button>
-            </mat-card-actions>
-          </mat-card>
-        </div>
-      </ng-container>
+            }
+          </div>
 
-      <!-- Sub-section: All Experiments (Dense List Layout) -->
-      <ng-container *ngIf="regularTools.length > 0">
-        <h3 class="sub-section-title">All Experiments</h3>
-        <div class="dense-tools-list">
-          <div class="dense-tool-row" *ngFor="let tool of regularTools; trackBy: trackByTool">
-            <div class="tool-row-left">
-              <mat-icon class="tool-row-icon">{{tool.icon}}</mat-icon>
-              <div class="tool-row-meta">
-                <span class="tool-row-label">{{tool.label}}</span>
-                <span class="tool-row-description">{{tool.description}}</span>
+          <!-- Controls (Right): Search + View Toggle -->
+          <div class="controls-right">
+            <div class="search-container">
+              <mat-form-field appearance="outline" class="market-search-form-field">
+                <mat-icon matPrefix class="search-icon material-symbols-outlined">search</mat-icon>
+                <input type="text" matInput class="market-search-input" placeholder="Search experiments..." aria-label="Search experiments" [value]="searchQuery()" (input)="onSearchChange($event)">
+              </mat-form-field>
+              @if (searchQuery()) {
+                <button class="market-search-clear-btn" (click)="clearSearch()" title="Clear search">
+                  <mat-icon class="material-symbols-outlined">close</mat-icon>
+                </button>
+              }
+            </div>
+
+            <div class="view-toggle-group">
+              <button [class.active]="displayMode() === 'grid'" (click)="setDisplayMode('grid')" title="Grid View">
+                <mat-icon class="material-symbols-outlined">grid_view</mat-icon>
+              </button>
+              <button [class.active]="displayMode() === 'list'" (click)="setDisplayMode('list')" title="List View">
+                <mat-icon class="material-symbols-outlined">view_list</mat-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabs Content Container -->
+        <div class="tabs-content-container">
+          <!-- Active Search Result Header -->
+          @if (searchQuery()) {
+            <div class="search-results-header">
+              <h4>Search results ({{searchResultsCount()}})</h4>
+            </div>
+          }
+
+          <!-- TAB 1: CURATED EXPERIMENTS -->
+          @if (activeTab() === 'curated') {
+            <div class="labs-tab-panel" [class.grid-view]="displayMode() === 'grid'" [class.list-view]="displayMode() === 'list'">
+              <!-- Table Header (Visible only in List View) -->
+              @if (filteredCuratedTools().length > 0) {
+                <div class="labs-table-header">
+                  <div class="col-1">
+                    <div class="h-icon"></div>
+                    <div class="h-title">Title</div>
+                    <div class="h-desc">Description</div>
+                    <div class="h-cat">Category</div>
+                  </div>
+                  <div class="col-2">
+                    <div class="h-owner">Owner</div>
+                    <div class="h-bug">Buganizer</div>
+                    <div class="h-life">Lifecycle</div>
+                  </div>
+                  <div class="col-3">
+                    <div>Status</div>
+                  </div>
+                  <div class="col-4">
+                    <div>Actions</div>
+                  </div>
+                </div>
+              }
+
+              <!-- Curated Tools List/Grid -->
+              @for (tool of filteredCuratedTools(); track tool.key) {
+                <div class="labs-tool-card">
+                  <div class="card-top">
+                    <div class="card-header-row">
+                      <div class="card-icon-box" [ngClass]="tool.colorClass ?? ''">
+                        <mat-icon class="material-symbols-outlined">{{tool.icon}}</mat-icon>
+                      </div>
+                      <button class="card-fav-btn" [class.favorite]="tool.isFavorite" (click)="toggleFavorite(tool)" title="Add to favorites">
+                        <mat-icon class="material-symbols-outlined">{{tool.isFavorite ? 'star' : 'star_border'}}</mat-icon>
+                      </button>
+                    </div>
+
+                    <h3 class="card-title" [title]="tool.label">{{tool.label}}</h3>
+                    <p class="card-desc" [title]="tool.description">{{tool.description}}</p>
+                    <div class="card-category-container">
+                      @for (tag of tool.tags; track tag) {
+                        <span [ngClass]="tool.colorClass ?? ''">{{tag}}</span>
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Governance Metadata -->
+                  <div class="governance-metadata">
+                    <mat-icon class="material-symbols-outlined">person_outline</mat-icon>
+                    <span class="card-owner">{{tool.owner ?? ''}}</span>
+
+                    <mat-icon class="material-symbols-outlined">bug_report</mat-icon>
+                    <a href="#" class="card-buganizer">{{tool.buganizer ?? ''}}</a>
+
+                    <mat-icon class="material-symbols-outlined">info_outline</mat-icon>
+                    <span class="card-lifecycle-container">
+                      <span class="card-lifecycle-text" [ngClass]="tool.lifecycleClass">{{tool.lifecycle ?? ''}}</span>
+                      @if (tool.mau) {
+                        <span class="mau-text">(MAU: {{tool.mau}})</span>
+                      }
+                    </span>
+                  </div>
+
+                  <!-- Status Badge -->
+                  <div class="card-status-container">
+                    <span [ngClass]="tool.statusTextClass">{{tool.statusText ?? ''}}</span>
+                  </div>
+
+                  <!-- Card Actions -->
+                  <div class="card-actions">
+                    <button class="launch-btn" (click)="onLaunchTool(tool)">Launch</button>
+                    <button class="card-more-btn" title="More options">
+                      <mat-icon class="material-symbols-outlined">more_vert</mat-icon>
+                    </button>
+                  </div>
+                </div>
+              }
+
+              <!-- Curated Favorites Empty State -->
+              @if (filteredCuratedTools().length === 0 && selectedCategory() === 'Favorite') {
+                <div class="empty-state">
+                  <div class="empty-icon-box amber">
+                    <mat-icon class="material-symbols-outlined">star_outline</mat-icon>
+                  </div>
+                  <h4>No favorite experiments yet</h4>
+                  <p>Click the star icon in the top-right corner of any experiment card to save it here for quick access.</p>
+                </div>
+              }
+
+              <!-- Curated Search/Filter Empty State -->
+              @if (filteredCuratedTools().length === 0 && selectedCategory() !== 'Favorite') {
+                <div class="empty-state">
+                  <div class="empty-icon-box gray">
+                    <mat-icon class="material-symbols-outlined">search_off</mat-icon>
+                  </div>
+                  <h4>No results found</h4>
+                  <p>We couldn't find any experiments matching your query. Try checking for typos or searching a different term.</p>
+                </div>
+              }
+            </div>
+          }
+
+          <!-- TAB 2: MY EXPERIMENTS -->
+          @if (activeTab() === 'my-tools') {
+            <div class="labs-tab-panel" [class.grid-view]="displayMode() === 'grid'" [class.list-view]="displayMode() === 'list'">
+              <!-- Empty state initially -->
+              @if (myTools().length === 0) {
+                <div class="empty-state">
+                  <div class="empty-icon-box blue">
+                    <mat-icon class="material-symbols-outlined">dashboard_customize</mat-icon>
+                  </div>
+                  <h4>No experiments started yet</h4>
+                  <p>Drafts and experiments you submit for review will show up here. Use the Playground Sandbox to start a new experiment.</p>
+                  <button class="empty-state-create-btn" (click)="setActiveView('playground')">
+                    <mat-icon class="material-symbols-outlined">science</mat-icon>
+                    <span>Start first experiment</span>
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Create Tool Workspace Card (Secondary Page View) -->
+    @if (activeView() === 'playground') {
+      <div class="create-tool-view">
+        <!-- Warning telemetry limits -->
+        <div class="warning-banner">
+          <mat-icon class="material-symbols-outlined">warning</mat-icon>
+          <div>
+            <strong>Playground Safeguard:</strong> Trace inputs are capped at <strong>100MB (or 100k events)</strong> to prevent browser latency.
+          </div>
+        </div>
+
+        <div class="playground-grid">
+          <!-- Left: Jupyter Notebook Code Cell & Prompt -->
+          <div class="playground-panel">
+            <div class="panel-header">
+              <span>Python Script Input</span>
+              <div class="header-actions">
+                <span class="playground-status">{{playgroundStatusText()}}</span>
+                <button class="playground-run-btn" [disabled]="isPlaygroundRunDisabled()" (click)="runPlayground()">
+                  <mat-icon class="material-symbols-outlined">play_arrow</mat-icon>
+                  <span>Run</span>
+                </button>
               </div>
             </div>
-            <div class="tool-row-right">
-              <span class="status-badge" [class.alpha]="tool.status === 'Alpha'" [class.beta]="tool.status === 'Beta'">
-                {{tool.status}}
-              </span>
-              <button mat-stroked-button (click)="onLaunchTool(tool)">Launch</button>
+
+            <div class="code-area">
+              @if (isAiGenerating()) {
+                <div class="ai-spinner">
+                  <div class="spinner-content">
+                    <mat-icon class="material-symbols-outlined">sync</mat-icon>
+                    <span>AI generating visualization code...</span>
+                  </div>
+                </div>
+              }
+              <mat-form-field appearance="outline" class="playground-code-form-field">
+                <textarea matInput placeholder="Type python trace visualization code here..." aria-label="Python trace visualization code" [value]="playgroundCodeContent()" (input)="onCodeChange($event)" spellcheck="false"></textarea>
+              </mat-form-field>
+            </div>
+
+            <!-- AI Prompt Assistance Bar -->
+            <div class="ai-prompt-bar">
+              <mat-icon class="material-symbols-outlined">auto_awesome</mat-icon>
+              <mat-form-field appearance="outline" class="playground-ai-form-field">
+                <input type="text" matInput placeholder="Generate viz code, e.g. 'Plot TPU 0 instruction compilation overhead'" aria-label="AI prompt for generating visualization code" [value]="playgroundAiPrompt()" (input)="onAiPromptChange($event)" (keyup.enter)="askAi()">
+              </mat-form-field>
+              <button class="ask-ai-btn" [disabled]="isAskAiDisabled()" (click)="askAi()">Ask AI</button>
+            </div>
+          </div>
+
+          <!-- Right: Visualization Canvas Output -->
+          <div class="playground-panel">
+            <div class="panel-header">
+              <span>Visualizer Plot Output</span>
+            </div>
+
+            <div class="chart-container">
+              @if (hasPlaygroundChart()) {
+                <!-- Active Chart State -->
+                <div class="active-chart-state" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                  <h4 style="margin: 0 0 16px 0; font-size: 13px; font-weight: 600; color: #202124;">TPU 0 Instruction Compilation Overhead</h4>
+                  <div style="width: 100%; height: 240px; border-left: 1px solid #dadce0; border-bottom: 1px solid #dadce0; position: relative; display: flex; align-items: flex-end; justify-content: space-around; padding-top: 20px;">
+                    <div style="width: 24px; height: 40%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                    <div style="width: 24px; height: 65%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                    <div style="width: 24px; height: 30%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                    <div style="width: 24px; height: 85%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                    <div style="width: 24px; height: 50%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                    <div style="width: 24px; height: 95%; background-color: #c2e7ff; border-top: 2px solid #0b57d0; border-radius: 4px 4px 0 0;"></div>
+                  </div>
+                  <div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #5f6368; margin-top: 8px;">
+                    <span>0s</span><span>1s</span><span>2s</span><span>3s</span><span>4s</span><span>5s</span>
+                  </div>
+                </div>
+              } @else {
+                <!-- Default Chart State -->
+                <div class="default-chart-state">
+                  <mat-icon class="material-symbols-outlined">insights</mat-icon>
+                  <h4>Run code to generate plot</h4>
+                  <p>Press "Run" in the code panel to compile telemetry inputs and output an interactive graph.</p>
+                </div>
+              }
             </div>
           </div>
         </div>
-      </ng-container>
-
-      <div class="empty-state" *ngIf="featuredTools.length === 0 && regularTools.length === 0">
-        <mat-icon class="empty-icon">info</mat-icon>
-        <p>No experiments found matching your criteria.</p>
       </div>
-    </section>
-
-    <!-- Column 2: Playground (Widescreen immersive) -->
-    <section class="full-width-section playground-section" *ngIf="activeView === 'playground'">
-      <h2 class="section-title">Labs Playground</h2>
-      <p class="section-subtitle">Interactive, programmatic sandbox for custom data queries.</p>
-
-      <div class="playground-overlay-container">
-        <!-- Disabled Glassmorphic Panel -->
-        <div class="playground-card disabled-state">
-          <div class="badge-row">
-            <span class="coming-soon-badge">Coming Soon</span>
-          </div>
-          <mat-icon class="playground-large-icon">code_blocks</mat-icon>
-          <h3>Ad-hoc Python & SQL Sandbox</h3>
-          <p>Write programmatic queries directly against raw XPlane, HLO compiler graphs, and trace events. Generate and plot custom charts instantly.</p>
-
-          <!-- Illustrative Mock Wireframe -->
-          <div class="playground-mock-panel">
-            <div class="mock-sidebar"></div>
-            <div class="mock-editor">
-              <div class="mock-line code-1"></div>
-              <div class="mock-line code-2"></div>
-              <div class="mock-line code-3"></div>
-            </div>
-            <div class="mock-canvas">
-              <div class="mock-bar bar-1"></div>
-              <div class="mock-bar bar-2"></div>
-              <div class="mock-bar bar-3"></div>
-            </div>
-          </div>
-
-          <div class="playground-actions">
-            <button mat-stroked-button disabled>Open Code Workspace</button>
-            <a href="https://issuetracker.google.com/issues/new?component=161330" target="_blank" class="feedback-link">
-              Submit Use Case / Request Access
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
+    }
   </div>
-</div>
+}

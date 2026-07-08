@@ -134,11 +134,14 @@ declare function loadWasmTraceViewerModule(
 declare global {
   interface Window {
     wasmMemoryBytes: number;
+    getFeatureFlag?: (name: string) => boolean;
   }
 }
 
   export declare interface TraceViewerV2Module extends EmscriptenModule {
   HEAPU8: Uint8Array;
+  _malloc(size: number): number;
+  _free(ptr: number): void;
   getFeatureFlag?(name: string): boolean;
   SetPalette(paletteName: string): void;
   canvas: HTMLCanvasElement;
@@ -148,12 +151,21 @@ declare global {
     data: TraceData,
     timeRangeFromUrl?: [number, number],
   ): void;
+  /**
+   * Passes compressed protobuf trace events from a memory buffer in the WASM heap.
+   * @param dataPtr A pointer to the memory address in the WASM heap where
+   *     the compressed trace data is stored.
+   * @param dataSize The size of the compressed trace data in bytes.
+   * @param timeRangeFromUrl Optional initial visible time range [start, end]
+   *     in milliseconds.
+   */
   processCompressedTraceEvents(
-    data: Uint8Array,
+    dataPtr: number,
+    dataSize: number,
     timeRangeFromUrl?: [number, number],
   ): void;
   /**
-   * Pass Perfetto trace events from a memory buffer in the WASM heap.
+   * Passes Perfetto trace events from a memory buffer in the WASM heap.
    * @param dataPtr A pointer to the memory address in the WASM heap where
    *     the Perfetto trace data is stored.
    * @param dataSize The size of the Perfetto trace data in bytes.
@@ -456,8 +468,8 @@ function setupFileInputHandler(
 /**
  * Dispatches an ERROR loading status event to the window and logs the message.
  */
-function dispatchErrorStatus(msg: string) {
-  console.error(msg);
+function dispatchErrorStatus(msg: string, error: unknown) {
+  console.error(msg, error);
 
   window.dispatchEvent(
     new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
@@ -495,8 +507,7 @@ async function decompressGzip(data: Uint8Array): Promise<Uint8Array | null> {
     ).arrayBuffer();
     return new Uint8Array(decompressedArrayBuffer as ArrayBuffer);
   } catch (error) {
-    console.error('Frontend: failed to decompress file', error);
-    dispatchErrorStatus('Failed to decompress gzipped file.');
+    dispatchErrorStatus('Failed to decompress gzipped file.', error);
     return null;
   }
 }
@@ -516,6 +527,9 @@ function processPerfettoTrace(
   let dataPtr: number | undefined;
   try {
     dataPtr = traceviewerModule._malloc(data.length);
+    if (!dataPtr) {
+      throw new Error('Failed to allocate WASM memory buffer');
+    }
     traceviewerModule.HEAPU8.set(data, dataPtr);
 
     traceviewerModule.processPerfettoTraceEvents(
@@ -525,9 +539,12 @@ function processPerfettoTrace(
       true,
     );
   } catch (error) {
-    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+    dispatchErrorStatus(
+      error instanceof Error ? error.message : String(error),
+      error,
+    );
   } finally {
-    if (dataPtr !== undefined) {
+    if (dataPtr !== undefined && dataPtr !== 0) {
       traceviewerModule._free(dataPtr);
     }
   }
@@ -564,7 +581,10 @@ function processJsonTrace(
 
     traceviewerModule.processTraceEvents(jsonData, undefined);
   } catch (error) {
-    dispatchErrorStatus(error instanceof Error ? error.message : String(error));
+    dispatchErrorStatus(
+      error instanceof Error ? error.message : String(error),
+      error,
+    );
     throw error;
   }
 }
@@ -611,6 +631,7 @@ async function processUploadedFile(
       `Error processing file: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      error,
     );
   }
 }
@@ -756,13 +777,19 @@ function isFetchDataEvent(
  * Fetches and processes trace data (either .pb or .json) from the given URL.
  * Handles status dispatches, yielding to event loop, and latency measurement.
  */
-async function fetchAndProcessTraceData(
-  urlObj: URL,
-  traceviewerModule: TraceViewerV2Module,
-  isAbortRequested: () => boolean,
-  timeRange?: [number, number],
-  errorContext = 'processing',
-) {
+async function fetchAndProcessTraceData({
+  urlObj,
+  traceviewerModule,
+  isAbortRequested,
+  timeRange,
+  errorContext,
+}: {
+  urlObj: URL;
+  traceviewerModule: TraceViewerV2Module;
+  isAbortRequested: () => boolean;
+  timeRange?: [number, number];
+  errorContext: string;
+}) {
   window.dispatchEvent(
     new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
       detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
@@ -793,10 +820,23 @@ async function fetchAndProcessTraceData(
 
       performance.mark('traceProcessStart');
 
-      traceviewerModule.processCompressedTraceEvents(
-        new Uint8Array(buffer),
-        timeRange,
-      );
+      let dataPtr: number | undefined;
+      try {
+        dataPtr = traceviewerModule._malloc(buffer.byteLength);
+        if (!dataPtr) {
+          throw new Error('Failed to allocate WASM memory buffer');
+        }
+        traceviewerModule.HEAPU8.set(new Uint8Array(buffer), dataPtr);
+        traceviewerModule.processCompressedTraceEvents(
+          dataPtr,
+          buffer.byteLength,
+          timeRange,
+        );
+      } finally {
+        if (dataPtr !== undefined && dataPtr !== 0) {
+          traceviewerModule._free(dataPtr);
+        }
+      }
     } else {
       const jsonData = await loadJsonDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
@@ -856,12 +896,12 @@ async function fetchAndProcessTraceData(
     );
   } catch (e) {
     console.error(`Error ${errorContext}:`, e);
-    const error = e as Error;
+    const errorMessage = e instanceof Error ? e.message : String(e);
     window.dispatchEvent(
       new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
         detail: {
           status: TraceViewerV2LoadingStatus.ERROR,
-          message: error.message,
+          message: errorMessage,
         },
       }),
     );
@@ -899,13 +939,13 @@ async function handleFetchDataEvent(
     String(detail.end_time_ms),
   );
 
-  await fetchAndProcessTraceData(
+  await fetchAndProcessTraceData({
     urlObj,
     traceviewerModule,
-    () => initialDataUrl !== getCurrentDataUrl(),
-    [detail.start_time_ms, detail.end_time_ms],
-    'fetching new data',
-  );
+    isAbortRequested: () => initialDataUrl !== getCurrentDataUrl(),
+    timeRange: [detail.start_time_ms, detail.end_time_ms],
+    errorContext: 'fetching new data',
+  });
 }
 
 /**
@@ -938,31 +978,40 @@ export async function traceViewerV2Main(
   // events.
   shutdownTraceViewerV2();
 
+  // Define getFeatureFlag on window so C++ can access it during initialization
+  // before the WASM module fully loads.
+  window.getFeatureFlag = (name: string): boolean => {
+    // TODO(b/498744795): Now only supports boolean flags (true/false).
+    // Will be extended in the future.
+    try {
+      const value = window.localStorage.getItem(`xprof_ff_${name}`);
+      if (value !== null) {
+        return value === 'true';
+      }
+    } catch (e) {
+      // Handle potential SecurityError when accessing localStorage.
+      console.warn(`Failed to read feature flag ${name} from localStorage:`, e);
+    }
+    // If the flag is not in local storage, use the default value.
+    return getDefaultFeatureFlag(name);
+  };
+
   let traceviewerModule: TraceViewerV2Module | null = null;
   let currentDataUrl: string | null = null;
   let currentLoadingPromise: Promise<void> | null = null;
 
   try {
     traceviewerModule = await initGpuAndStartWasmApp();
-    traceviewerModule.getFeatureFlag = (name: string): boolean => {
-      // TODO(b/498744795): Now only supports boolean flags (true/false).
-      // Will be extended in the future.
-      const value = window.localStorage.getItem(`xprof_ff_${name}`);
-      if (value !== null) {
-        return value === 'true';
-      }
-      // If the flag is not in local storage, use the default value.
-      return getDefaultFeatureFlag(name);
-    };
+    traceviewerModule.getFeatureFlag = window.getFeatureFlag;
     activeWasmModule = traceviewerModule;
   } catch (e) {
-    const error = e as Error;
-    console.error('Application Initialization Failed:', error);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.error('Application Initialization Failed:', e);
     window.dispatchEvent(
       new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
         detail: {
           status: TraceViewerV2LoadingStatus.ERROR,
-          message: error.message,
+          message: errorMessage,
         },
       }),
     );
@@ -1010,12 +1059,12 @@ export async function traceViewerV2Main(
           urlObj = new URL(url, window.location.href);
         } catch (e) {
           console.error('Invalid URL:', url, e);
-          const error = e as Error;
+          const errorMessage = (e as Error).message;
           window.dispatchEvent(
             new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
               detail: {
                 status: TraceViewerV2LoadingStatus.ERROR,
-                message: error.message,
+                message: errorMessage,
               },
             }),
           );
@@ -1027,13 +1076,13 @@ export async function traceViewerV2Main(
           expandUrlTimeRange(urlObj, timeRangeFromUrl);
         }
 
-        await fetchAndProcessTraceData(
+        await fetchAndProcessTraceData({
           urlObj,
           traceviewerModule,
-          () => url !== currentDataUrl,
-          timeRangeFromUrl,
-          'loading data',
-        );
+          isAbortRequested: () => url !== currentDataUrl,
+          timeRange: timeRangeFromUrl,
+          errorContext: 'loading data',
+        });
       } finally {
         if (url === currentDataUrl) {
           currentLoadingPromise = null;

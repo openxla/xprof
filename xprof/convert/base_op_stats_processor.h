@@ -23,7 +23,6 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
-#include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
 #include "xprof/convert/unified_session_snapshot.h"
@@ -44,11 +43,9 @@ class BaseOpStatsProcessor : public virtual UnifiedProfileProcessor {
 
   // Converts XSpace to serialized OpStats.
   absl::StatusOr<std::string> Map(
-      const XprofSessionSnapshot& session_snapshot, absl::string_view hostname,
+      const XprofSessionSnapshot& session_snapshot,
+      absl::string_view hostname,
       const tensorflow::profiler::XSpace& xspace) override;
-
-  absl::StatusOr<std::string> Map(absl::string_view xspace_path) override;
-
   // Deserializes map_outputs, combines OpStats, and delegates to
   // ProcessCombinedOpStats.
   absl::Status Reduce(
@@ -67,7 +64,7 @@ class BaseOpStatsProcessor : public virtual UnifiedProfileProcessor {
   // TODO: b/514176124 - Migrate to XprofSessionSnapshot in the child CL
   // (cl/907391150).
   virtual absl::Status ProcessCombinedOpStats(
-      const tensorflow::profiler::SessionSnapshot& session_snapshot,
+      const XprofSessionSnapshot& session_snapshot,
       const tensorflow::profiler::OpStats& combined_op_stats,
       const tensorflow::profiler::ToolOptions& options) = 0;
 

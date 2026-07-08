@@ -14,7 +14,6 @@ import {
   HOSTS_API,
   LOCAL_URL,
   PLUGIN_NAME,
-  PRIMARY_TOOL_ENDPOINTS,
   RUN_TOOLS_API,
   RUNS_API,
   USE_SAVED_RESULT,
@@ -102,9 +101,6 @@ export class DataServiceV2 implements DataServiceV2Interface {
             '<b>status:</b> ' +
             String(error.status) +
             '<br>' +
-            '<b>statusText:</b> ' +
-            error.statusText +
-            '<br>' +
             '<b>error:</b> ' +
             errorString;
         }
@@ -187,9 +183,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
       params = params.set(key, value);
     });
 
-    if (PRIMARY_TOOL_ENDPOINTS.has(tag)) {
-      this.disableCacheRegeneration();
-    }
+    this.disableCacheRegeneration();
     return params;
   }
 
@@ -305,12 +299,34 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return false;
   }
 
-  createToolUrl(
-    toolName: string,
-    sessionId: string,
-    params: {[key: string]: string},
-  ): string {
-    return '';
+  createToolUrl({
+    toolName,
+    sessionId,
+    params,
+  }: {
+    toolName: string;
+    sessionId: string;
+    params: Record<string, string>;
+  }): string {
+    if (!sessionId) return '';
+    const linkParams = new URLSearchParams();
+    linkParams.set('tool', toolName);
+    linkParams.set('run', sessionId);
+    for (const [key, value] of Object.entries(params)) {
+      if (value) {
+        linkParams.set(key, value);
+      }
+    }
+    const searchParams = this.getSearchParams();
+    const sessionPath = searchParams.get('session_path');
+    const runPath = searchParams.get('run_path');
+    if (sessionPath) {
+      linkParams.set('session_path', sessionPath);
+    }
+    if (runPath) {
+      linkParams.set('run_path', runPath);
+    }
+    return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
   }
 
   getGraphTypes(sessionId: string) {
@@ -516,6 +532,11 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return of({info: [], warnings: [], errors: []});
   }
 
+  getXPlaneDiagnostics(sessionId: string): Observable<Diagnostics> {
+    // Not implemented for 3P.
+    return of({info: [], warnings: [], errors: []});
+  }
+
   getSearchParams(): URLSearchParams {
     return new URLSearchParams(
       window.sessionStorage.getItem('searchParams') || '',
@@ -654,5 +675,22 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   isSmartSuggestionEnabled(): boolean {
     return this.getSearchParams().get('enable_smart_suggestion') === 'true';
+  }
+
+  getMemoryAnalysisModuleList(
+    sessionId: string,
+    host: string,
+  ): Observable<string> {
+    const params = this.getHTTPParamsForDataQuery(
+      sessionId,
+      'memory_analysis',
+      host,
+      new Map([['module_name', '']]),
+      {updateSearchParams: false},
+    );
+    return this.get(this.pathPrefix + DATA_API, {
+      'params': params,
+      'responseType': 'text',
+    }) as Observable<string>; // Justification: HttpClient with responseType 'text' returns a string payload.
   }
 }

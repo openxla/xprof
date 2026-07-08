@@ -30,6 +30,10 @@ build:macos --host_crosstool_top=@local_config_apple_cc//:toolchain
 # _USE_MATH_DEFINES is defined. We use -D for clang compatibility.
 build:windows --copt=-D_USE_MATH_DEFINES
 build:windows --host_copt=-D_USE_MATH_DEFINES
+# Bypasses MSVC standard library static assertions that enforce a minimum Clang version,
+# allowing Clang 18 to compile against MSVC 14.44 (latest VS 2022 updates) to match XLA.
+build:windows --copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
+build:windows --host_copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 # Make sure to include as little of windows.h as possible
 build:windows --copt=-DWIN32_LEAN_AND_MEAN
 build:windows --host_copt=-DWIN32_LEAN_AND_MEAN
@@ -48,6 +52,8 @@ build:ci_windows_amd64 --enable_runfiles
 # Inject MSVC flags via environment variables that emcc seamlessly ignores
 build:ci_windows_amd64 --action_env=_CL_="/std:c++17 /Zc:__cplusplus"
 build:ci_windows_amd64 --host_action_env=_CL_="/std:c++17 /Zc:__cplusplus"
+build:ci_windows_amd64 --copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
+build:ci_windows_amd64 --host_copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 build:ci_windows_amd64 --action_env=_LINK_="/FORCE:MULTIPLE"
 build:ci_windows_amd64 --host_action_env=_LINK_="/FORCE:MULTIPLE"
 

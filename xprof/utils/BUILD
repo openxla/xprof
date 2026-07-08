@@ -31,6 +31,7 @@ cc_library(
     hdrs = ["diagnostics.h"],
     deps = [
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:diagnostics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -93,6 +94,7 @@ cc_library(
     srcs = ["op_metrics_db_utils.cc"],
     hdrs = ["op_metrics_db_utils.h"],
     deps = [
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -120,8 +122,11 @@ cc_library(
     deps = [
         ":op_metrics_db_utils",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:logging",
         "@xla//xla/tsl/platform:macros",
@@ -170,11 +175,13 @@ cc_library(
     srcs = ["op_utils.cc"],
     hdrs = ["op_utils.h"],
     deps = [
+        ":flat_op_metrics_db_utils",
         ":hlo_module_map",
         ":op_metrics_db_utils",
         ":performance_info_wrapper",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//xprof/convert:op_metrics_db_combiner",
@@ -184,6 +191,20 @@ cc_library(
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:tf_op_utils",
         "@xla//xla/tsl/profiler/utils:timespan",
+    ],
+)
+
+cc_test(
+    name = "op_utils_test",
+    size = "small",
+    srcs = ["op_utils_test.cc"],
+    deps = [
+        ":op_utils",
+        ":performance_info_wrapper",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
     ],
 )
 
@@ -520,10 +541,6 @@ cc_library(
 cc_test(
     name = "xprof_gpu_cost_analysis_test",
     srcs = ["xprof_gpu_cost_analysis_test.cc"],
-    tags = [
-        "manual",
-        "notap",
-    ],
     deps = [
         ":xprof_gpu_cost_analysis",
         "@com_google_absl//absl/strings:string_view",
@@ -577,6 +594,7 @@ cc_library(
     srcs = ["performance_info_wrapper.cc"],
     hdrs = ["performance_info_wrapper.h"],
     deps = [
+        ":cost_utils",
         ":hlo_cost_analysis_wrapper",
         "@com_google_absl//absl/memory",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",

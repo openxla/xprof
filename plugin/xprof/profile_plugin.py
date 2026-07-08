@@ -108,6 +108,7 @@ ALL_HOSTS = 'ALL_HOSTS'
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
 _EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
+_EXTENSION_TO_TOOL['xplane.riegeli'] = 'xplane'
 
 _FILENAME_RE = re.compile(
     r"""
@@ -117,7 +118,7 @@ _FILENAME_RE = re.compile(
     )?             # End optional non-capturing group.
     (              # Start capture group 2: The tool extension.
     """
-    + '|'.join(re.escape(v) for v in TOOLS.values())
+    + '|'.join(re.escape(v) for v in _EXTENSION_TO_TOOL.keys())
     + r"""
     )              # End capture group 2.
     """,
@@ -1263,7 +1264,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     params['memory_space'] = request.args.get('memory_space', '0')
 
-    if tool == 'trace_viewer@':
+    if tool in ('trace_viewer', 'trace_viewer@'):
       options = {}
       options['resolution'] = request.args.get('resolution', 8000)
       options['full_dma'] = full_dma
@@ -1272,14 +1273,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['start_time_ms'] = request.args.get('start_time_ms')
       if request.args.get('end_time_ms') is not None:
         options['end_time_ms'] = request.args.get('end_time_ms')
-      if request.args.get('event_name') is not None:
-        options['event_name'] = request.args.get('event_name')
+      event_name = request.args.get('event_name')
+      format_arg = request.args.get('format')
+      if event_name is not None:
+        options['event_name'] = event_name
+        # For event selection (fetching event details), do not use the
+        # compressed protobuf path; use the regular JSON path instead.
+        options['format'] = 'json'
+      elif format_arg is not None:
+        options['format'] = format_arg
       if request.args.get('duration_ms') is not None:
         options['duration_ms'] = request.args.get('duration_ms')
       if request.args.get('unique_id') is not None:
         options['unique_id'] = request.args.get('unique_id')
       if request.args.get('search_prefix') is not None:
         options['search_prefix'] = request.args.get('search_prefix')
+      if request.args.get('search_metadata') is not None:
+        # Retrigger presubmits (second attempt).
+        options['search_metadata'] = _get_bool_arg(
+            request.args, 'search_metadata', False
+        )
       params['trace_viewer_options'] = options
 
     _, content_encoding = None, None
@@ -1847,7 +1860,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       self,
       *,
       asset_paths: Sequence[str],
-      tool_list: Iterable[str],
+      tool_list: Sequence[str],
       params: Mapping[str, Any],
       session_path: str,
   ) -> None:

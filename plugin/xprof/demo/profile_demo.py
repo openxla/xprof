@@ -26,9 +26,9 @@ import os
 import shutil
 
 from absl import app
+from google.protobuf import text_format
 import tensorflow as tf
 
-from google.protobuf import text_format
 from tensorboard.backend.event_processing import plugin_asset_util
 from xprof import profile_plugin
 from xprof.demo import profile_demo_data

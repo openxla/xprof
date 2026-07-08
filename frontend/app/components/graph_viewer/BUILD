@@ -42,6 +42,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/controls/download_hlo",
+        "@org_xprof//frontend/app/components/controls/searchable_dropdown",
         "@org_xprof//frontend/app/components/diagnostics_view",
         "@org_xprof//frontend/app/components/graph_viewer/hlo_text_view",
         "@org_xprof//frontend/app/components/op_profile:op_profile_data",
@@ -57,16 +58,53 @@ xprof_ng_module(
 xprof_ng_module(
     name = "tests",
     testonly = True,
-    srcs = ["graph_viewer_test.ts"],
+    srcs = [
+        "graph_viewer_test.ts",
+    ],
+    assets = [
+        ":graph_viewer_css",
+        "graph_viewer.ng.html",
+    ],
     deps = [
         ":graph_viewer",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/core",
         "@npm//@angular/router",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
+        "@org_xprof//frontend/app/common/utils:testing",
+        "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
+        "@org_xprof//frontend/app/store",
+    ],
+)
+
+xprof_ng_module(
+    name = "screenshot_tests",
+    testonly = True,
+    srcs = [
+        "graph_viewer_screenshot_test.ts",
+    ],
+    assets = [
+        ":graph_viewer_css",
+        "graph_viewer.ng.html",
+    ],
+    tags = ["requires-net:external"],
+    deps = [
+        ":graph_viewer",
+        "//javascript/angular2/testing/catalyst/async",
+        # ksf,
+        "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@npm//@angular/router",
+        "@npm//rxjs",
+        "//third_party/javascript/typings/jasmine",
+        "@org_xprof//frontend/app/common/constants",
+        "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/common/utils:testing",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",

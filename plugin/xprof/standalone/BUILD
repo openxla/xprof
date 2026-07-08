@@ -79,7 +79,7 @@ py_test(
     # strict_deps = False,
     deps = [
         ":plugin_asset_util",
-        "@pytest//pytest",
-        "@pytest//pytest:parameterized",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )

@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_parser_core.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -15,6 +16,13 @@
 #include "plugin/xprof/protobuf/trace_data_response.pb.h"
 
 namespace traceviewer {
+
+EventId GenerateEventId(absl::string_view name, Microseconds ts,
+                        Microseconds dur) {
+  const int64_t ts_ps = static_cast<int64_t>(std::round(ts * 1000000.0));
+  const int64_t dur_ps = static_cast<int64_t>(std::round(dur * 1000000.0));
+  return tsl::Fingerprint64(absl::StrCat(name, ":", ts_ps, ":", dur_ps));
+}
 
 Phase ParsePhase(absl::string_view ph_str) {
   if (!ph_str.empty()) {
@@ -163,8 +171,7 @@ void ProcessCompleteEvents(const xprof::TraceDataResponse& response,
       }
 
       ev.args["uid"] = std::to_string(ev_meta.serial());
-      ev.event_id =
-          tsl::Fingerprint64(absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+      ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
 
       if (!ev.id.empty()) {
         result.flow_events.push_back(ev);
@@ -215,8 +222,7 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
           ev.dur = dur;
           ev.ph = Phase::kComplete;
           ev.is_async = true;
-          ev.event_id = tsl::Fingerprint64(
-              absl::StrCat(ev.name, ":", ev.ts, ":", ev.dur));
+          ev.event_id = GenerateEventId(ev.name, ev.ts, ev.dur);
           result.flame_events.push_back(std::move(ev));
         } else {
           // No duration, assume it's part of a separate Begin/End pair.
@@ -237,8 +243,8 @@ void ProcessAsyncEvents(const xprof::TraceDataResponse& response,
             if (!ev.args.empty()) {
               begin_ev.args.insert(ev.args.begin(), ev.args.end());
             }
-            begin_ev.event_id = tsl::Fingerprint64(absl::StrCat(
-                begin_ev.name, ":", begin_ev.ts, ":", begin_ev.dur));
+            begin_ev.event_id =
+                GenerateEventId(begin_ev.name, begin_ev.ts, begin_ev.dur);
             result.flame_events.push_back(std::move(begin_ev));
             open_async_events.erase(it);
           }

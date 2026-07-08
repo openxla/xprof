@@ -53,6 +53,7 @@ const TF_OP_NAME_ID = 'tf_op_name';
 const TOTAL_TIME_ID = 'total_time';
 const CORE_TYPE_ID = 'core_type';
 const SPARSE_CORE_VALUE = 'SparseCore';
+const VDD_ENERGY_ID = 'vdd_energy';
 
 /** A Hlo Stats component. */
 @Component({
@@ -452,6 +453,7 @@ export class HloStats extends Dashboard implements OnDestroy {
       SOURCE_INFO_ID,
       TF_OP_NAME_ID,
       TOTAL_TIME_ID,
+      VDD_ENERGY_ID,
     ]);
     for (let i = 0; i < numColumns; i++) {
       const colId = dataTable.getColumnId(i);

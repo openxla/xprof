@@ -2721,16 +2721,15 @@ TEST_F(MockTimelineImGuiFixture,
   io.MousePos = ImVec2(100.0f, 102.0f);
 
   ImDrawList* draw_list = window->DrawList;
-  draw_list->VtxBuffer.resize(0);
-  draw_list->CmdBuffer.resize(0);
+  const int initial_vtx_size = draw_list->VtxBuffer.Size;
 
   timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
                                    max, event_height, padding_bottom);
 
   int hover_mask_vertices = 0;
-  for (int i = 0; i < draw_list->VtxBuffer.Size; i++) {
+  for (int i = initial_vtx_size; i < draw_list->VtxBuffer.Size; ++i) {
     if (draw_list->VtxBuffer[i].col == kHoverMaskColor) {
-      hover_mask_vertices++;
+      ++hover_mask_vertices;
     }
   }
 
@@ -2788,18 +2787,16 @@ TEST_F(MockTimelineImGuiFixture,
     }
 
     ImDrawList* draw_list = window->DrawList;
-    draw_list->VtxBuffer.resize(0);
-    draw_list->CmdBuffer.resize(0);
+    const int initial_vtx_size = draw_list->VtxBuffer.Size;
 
     timeline_.DrawEventsForLevelBase(group_index, event_indices, px_per, 0, pos,
                                      max, event_height, padding_bottom);
 
     float max_y = -10000.0f;
-    for (int i = 0; i < draw_list->VtxBuffer.Size; i++) {
-      if (draw_list->VtxBuffer[i].col == kSelectedBorderColor) {
-         if (draw_list->VtxBuffer[i].pos.y > max_y) {
-           max_y = draw_list->VtxBuffer[i].pos.y;
-         }
+    for (int i = initial_vtx_size; i < draw_list->VtxBuffer.Size; ++i) {
+      const auto& vtx = draw_list->VtxBuffer[i];
+      if (vtx.col == kSelectedBorderColor) {
+        max_y = std::max(max_y, vtx.pos.y);
       }
     }
     ImGui::End();

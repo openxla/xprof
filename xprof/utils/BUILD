@@ -594,6 +594,7 @@ cc_library(
     srcs = ["performance_info_wrapper.cc"],
     hdrs = ["performance_info_wrapper.h"],
     deps = [
+        ":cost_utils",
         ":hlo_cost_analysis_wrapper",
         "@com_google_absl//absl/memory",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",

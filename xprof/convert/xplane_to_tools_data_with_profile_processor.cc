@@ -26,6 +26,7 @@
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
+#include "xprof/convert/unified_tools_registration.h"
 #include "plugin/xprof/protobuf/worker_service.pb.h"
 #include "plugin/xprof/worker/grpc_utils.h"
 #include "plugin/xprof/worker/stub_factory.h"
@@ -193,6 +194,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
   absl::Time start_time = absl::Now();
 
   if (absl::GetFlag(FLAGS_enable_unified_xprof)) {
+    xprof::RegisterUnifiedToolRegistrations();
     auto unified_processor =
         xprof::UnifiedProfileProcessorFactory::GetInstance().Create(
             tool_name, options);

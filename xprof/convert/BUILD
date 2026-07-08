@@ -1824,12 +1824,9 @@ cc_library(
         ":profile_processor_factory",
         ":repository",
         ":tool_options",
-        ":unified_hlo_stats_processor",
-        ":unified_memory_viewer_processor",
-        ":unified_op_profile_processor",
-        ":unified_overview_page_processor",
         ":unified_profile_processor",
         ":unified_profile_processor_factory",
+        ":unified_tools_registration",
         "@com_github_grpc_grpc//:grpc++",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/log",
@@ -3015,6 +3012,7 @@ cc_library(
 cc_library(
     name = "unified_tools_registration",
     srcs = ["unified_tools_registration.cc"],
+    hdrs = ["unified_tools_registration.h"],
     deps = [
         ":unified_hlo_stats_processor",
         ":unified_memory_viewer_processor",

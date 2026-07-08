@@ -27,6 +27,7 @@ limitations under the License.
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
+#include "xprof/convert/unified_tools_registration.h"
 
 namespace xprof {
 namespace {
@@ -36,6 +37,7 @@ using ::tensorflow::profiler::ToolOptions;
 using ::tensorflow::profiler::XSpace;
 
 TEST(UnifiedOpProfileProcessorTest, MinimalTest) {
+  RegisterUnifiedToolRegistrations();
   ToolOptions options;
   auto processor = UnifiedProfileProcessorFactory::GetInstance().Create(
       "op_profile", options);
@@ -47,7 +49,7 @@ TEST(UnifiedOpProfileProcessorTest, MinimalTest) {
   std::string xspace_path =
       tsl::io::JoinPath(session_dir, "test_host.xplane.pb");
   XSpace dummy_space;
-  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
 
   std::vector<std::string> xspace_paths = {xspace_path};
   ASSERT_OK_AND_ASSIGN(

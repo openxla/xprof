@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xprof/convert/unified_tools_registration.h"
+
 #include "xprof/convert/unified_hlo_stats_processor.h"
 #include "xprof/convert/unified_memory_viewer_processor.h"
 #include "xprof/convert/unified_op_profile_processor.h"
@@ -21,11 +23,13 @@ limitations under the License.
 
 namespace xprof {
 
-REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats", UnifiedHloStatsProcessor);
-REGISTER_UNIFIED_PROFILE_PROCESSOR("memory_viewer",
-                                   UnifiedMemoryViewerProcessor);
-REGISTER_UNIFIED_PROFILE_PROCESSOR("op_profile", UnifiedOpProfileProcessor);
-REGISTER_UNIFIED_PROFILE_PROCESSOR("overview_page",
-                                   UnifiedOverviewPageProcessor);
+void RegisterUnifiedToolRegistrations() {
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats", UnifiedHloStatsProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("memory_viewer",
+                                     UnifiedMemoryViewerProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("op_profile", UnifiedOpProfileProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("overview_page",
+                                     UnifiedOverviewPageProcessor);
+}
 
 }  // namespace xprof

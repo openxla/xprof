@@ -28,6 +28,7 @@ limitations under the License.
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
+#include "xprof/convert/unified_tools_registration.h"
 #include "xprof/convert/unified_session_snapshot.h"
 
 namespace xprof {
@@ -51,6 +52,7 @@ class MockXprofSessionSnapshot : public XprofSessionSnapshot {
 };
 
 TEST(UnifiedMemoryViewerProcessorTest, ProcessHloJsonTest) {
+  RegisterUnifiedToolRegistrations();
   tensorflow::profiler::ToolOptions options;
   std::unique_ptr<UnifiedProfileProcessor> processor =
       UnifiedProfileProcessorFactory::GetInstance().Create("memory_viewer",
@@ -76,6 +78,7 @@ TEST(UnifiedMemoryViewerProcessorTest, ProcessHloJsonTest) {
 }
 
 TEST(UnifiedMemoryViewerProcessorTest, ProcessHloHtmlTest) {
+  RegisterUnifiedToolRegistrations();
   tensorflow::profiler::ToolOptions options;
   options["view_memory_allocation_timeline"] = true;
   std::unique_ptr<UnifiedProfileProcessor> processor =

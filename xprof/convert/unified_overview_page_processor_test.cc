@@ -33,6 +33,7 @@
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_profile_processor_factory.h"
+#include "xprof/convert/unified_tools_registration.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 
 namespace xprof {
@@ -53,6 +54,7 @@ class UnifiedOverviewPageProcessorTest : public ::testing::Test {
                                   "unified_overview_page_processor_test");
     file::RecursivelyDelete(session_dir_, file::Defaults()).IgnoreError();
     ASSERT_OK(file::CreateDir(session_dir_, file::Defaults()));
+    RegisterUnifiedToolRegistrations();
   }
 
   void TearDown() override {
@@ -70,7 +72,7 @@ TEST_F(UnifiedOverviewPageProcessorTest, MinimalTest) {
 
   std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
-  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
 
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
@@ -90,7 +92,7 @@ TEST_F(UnifiedOverviewPageProcessorTest, ProcessCombinedOpStatsTrainingTest) {
 
   std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
-  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
 
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));
@@ -128,7 +130,7 @@ TEST_F(UnifiedOverviewPageProcessorTest, ProcessCombinedOpStatsInferenceTest) {
 
   std::string xspace_path = file::JoinPath(session_dir_, "test_host.xplane.pb");
   XSpace dummy_space;
-  ASSERT_OK(xprof::WriteBinaryProto(xspace_path, dummy_space));
+  ASSERT_OK(WriteBinaryProto(xspace_path, dummy_space));
 
   ASSERT_OK_AND_ASSIGN(auto session_snapshot,
                        SessionSnapshot::Create({xspace_path}, std::nullopt));

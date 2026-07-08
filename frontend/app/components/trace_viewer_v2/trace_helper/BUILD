@@ -18,6 +18,7 @@ wasm_cc_library(
     name = "trace_event",
     hdrs = ["trace_event.h"],
     deps = [
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@tsl//tsl/profiler/lib:context_types",
     ],

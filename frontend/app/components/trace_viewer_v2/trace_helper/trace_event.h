@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
 #include "tsl/profiler/lib/context_types.h"
 
@@ -69,7 +70,7 @@ struct TraceEvent {
   Microseconds dur = 0.0;
   std::string id;
   tsl::profiler::ContextType category = tsl::profiler::ContextType::kGeneric;
-  std::map<std::string, std::string> args;
+  absl::flat_hash_map<std::string, std::string> args;
   bool is_async = false;
 };
 

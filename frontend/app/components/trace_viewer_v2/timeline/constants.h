@@ -198,10 +198,10 @@ inline constexpr float kRefetchZoomRatio = 8.0f;
 // go/keep-sorted start
 // The maximum duration to zoom to when navigating to an event (=5s).
 inline constexpr Microseconds kEventNavigationMaxDurationMicros = 5000000.0;
-// The minimum duration to zoom to when navigating to an event (=10ms).
-inline constexpr Microseconds kEventNavigationMinDurationMicros = 10000.0;
+// The minimum duration to zoom to when navigating to an event (=10us).
+inline constexpr Microseconds kEventNavigationMinDurationMicros = 10.0;
 // The factor by which to multiply event duration to determine viewport size.
-inline constexpr double kEventNavigationZoomFactor = 20.0;
+inline constexpr double kEventNavigationZoomFactor = 2.5;
 // go/keep-sorted end
 
 // UI Strings Constants

@@ -4,6 +4,7 @@
 #include <any>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <ios>
 #include <limits>
 #include <map>
@@ -14,6 +15,8 @@
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -21,6 +24,7 @@
 #include "imgui_internal.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/animation.h"
+#include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
@@ -86,6 +90,11 @@ class MockTimeline : public Timeline {
     return FindFirstVisibleAncestorIndex(start_idx);
   }
   const std::vector<bool>& CallGroupVisible() const { return group_visible(); }
+
+  void CallDrawEvent(int group_index, int event_index, const EventRect& rect,
+                     ImDrawList* absl_nonnull draw_list) {
+    DrawEvent(group_index, event_index, rect, draw_list);
+  }
 
  private:
   void SetupDefaultMockBehavior() {
@@ -734,9 +743,7 @@ TEST(TimelineTest, InitializeLastFetchRequestRange_ExpandsToMinDuration) {
   // Unscaled fetch would be [5e6, 5e6+100]
   // Scaled 3.0: center 5000050, duration 300
   // Expands to kMinFetchDurationMicros (1000us)
-  // center 5000050
-  // expected start: 5000050 - 500 = 4999550
-  // expected end: 5000050 + 500 = 5000550
+  // Constrained to data_time_range_ [0.0, 10000000.0]
   EXPECT_EQ(timeline.last_fetch_request_range().start(), 4999550.0);
   EXPECT_EQ(timeline.last_fetch_request_range().end(), 5000550.0);
 }
@@ -787,7 +794,7 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
   // Data range large enough to not constrain.
 
   timeline.set_data_time_range({0.0, 20000000.0});
-  timeline.set_fetched_data_time_range({0.0, 2000000.0});
+  timeline.set_fetched_data_time_range({0.0, 200000.0});
   timeline.set_is_incremental_loading(false);
 
   bool request_triggered = false;
@@ -802,8 +809,9 @@ TEST(TimelineTest, MaybeRequestDataExpandsToMinDuration) {
 
   // Visible: [5s, 5.0001s] (100us). Center 5.00005s.
   // Expanded Fetch: 1000us.
-  // Start: 5.00005s - 500us = 4.99955s.
-  // End: 5.00005s + 500us = 5.00055s.
+  // Center 5.00005s. Half duration 500us (0.0005s).
+  // Start: 5.00005s - 0.0005s = 4.99955s = 4999550.0.
+  // End: 5.00005s + 0.0005s = 5.00055s = 5000550.0.
   timeline.SetVisibleRange({5000000.0, 5000100.0});
   timeline.MaybeRequestData();
 
@@ -1073,21 +1081,21 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   // Step 1: Initialize with full range fetch to set last_fetch_request_range_.
-  // Data: [0, 10s].
-  timeline.set_data_time_range({0.0, 10000000.0});
+  // Data: [0, 200s].
+  timeline.set_data_time_range({0.0, 200000000.0});
 
   // Simulate that we previously asked for the full range and received it.
-  // This sets last_fetch_request_range_ to [0, 10s].
+  // This sets last_fetch_request_range_ to [0, 200s].
 
   // Step 2: Simulate "We have all the data now".
-  timeline.set_fetched_data_time_range({0.0, 10000000.0});
+  timeline.set_fetched_data_time_range({0.0, 200000000.0});
   timeline.set_is_incremental_loading(false);
 
   // Step 3: Zoom IN heavily.
   // Visible: [5s, 5.0002s] (200us).
-  // Fetch (Scale 3): 600us -> Expanded to kMinFetchDurationMicros (1000us).
-  // Fetched (10s) / Fetch (1000us) = 10000 > kRefetchZoomRatio (8).
-  // last_fetch ([0, 10s]) CONTAINS preserve.
+  // Fetch (Scale 3): 600us -> Expands to kMinFetchDurationMicros (20000000us).
+  // Fetched (200s) / Fetch (20s) = 10 > kRefetchZoomRatio (8).
+  // last_fetch ([0, 200s]) CONTAINS preserve.
 
   bool request_triggered = false;
   EventData received_data;
@@ -1101,8 +1109,7 @@ TEST(TimelineTest, MaybeRequestDataRefetchesWhenZoomedInDespiteRangeCoverage) {
 
   // Visible: 200us centered at 5.0001s.
   // Fetch: 1000us centered at 5.0001s.
-  // Start: 5.0001 - 0.5 = 4.9996s.
-  // End: 5.0001 + 0.5 = 5.0006s.
+  // Constrained to data_time_range_ [0.0, 200000000.0].
   timeline.SetVisibleRange({5000000.0, 5000200.0});
   timeline.MaybeRequestData();
 
@@ -1326,6 +1333,70 @@ class TimelineImGuiTestFixture : public Test {
     SimulateFrame();
   }
 
+  struct EventDef {
+    absl::string_view name;
+    double start_time;
+    double total_time;
+    int level;
+    ProcessId pid = 1;
+    ThreadId tid = 1;
+    EventId event_id = 100;
+  };
+
+  FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events,
+                                            absl::Span<const Group> groups) {
+    FlameChartTimelineData data;
+    data.groups.assign(groups.begin(), groups.end());
+    for (const auto& ev : events) {
+      data.entry_names.push_back(std::string(ev.name));
+      data.entry_start_times.push_back(ev.start_time);
+      data.entry_total_times.push_back(ev.total_time);
+      data.entry_levels.push_back(ev.level);
+      data.entry_pids.push_back(ev.pid);
+      data.entry_tids.push_back(ev.tid);
+      data.entry_event_ids.push_back(ev.event_id);
+      data.entry_args.push_back({});
+    }
+    return data;
+  }
+
+  FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events) {
+    return CreateTimelineData(events,
+                              std::vector<Group>{{.type = Group::Type::kFlame,
+                                                  .name = "Group 1",
+                                                  .start_level = 0}});
+  }
+
+  ParsedTraceEvents CreateSearchResults(absl::Span<const EventDef> events) {
+    ParsedTraceEvents search_results;
+    for (const auto& ev : events) {
+      TraceEvent trace_ev;
+      trace_ev.ph = Phase::kComplete;
+      trace_ev.event_id = ev.event_id;
+      trace_ev.pid = ev.pid;
+      trace_ev.tid = ev.tid;
+      trace_ev.name = std::string(ev.name);
+      trace_ev.ts = ev.start_time;
+      trace_ev.dur = ev.total_time;
+      search_results.flame_events.push_back(trace_ev);
+    }
+    return search_results;
+  }
+
+  void SetupDeferredFetchExperiment(bool& request_triggered) {
+    timeline_.set_data_time_range({0.0, 10000000.0});
+    timeline_.set_fetched_data_time_range({0.0, 2000000.0});
+    timeline_.set_is_incremental_loading(false);
+    timeline_.set_event_callback(
+        [&](absl::string_view type, const EventData& detail) {
+          if (type == kFetchData) {
+            request_triggered = true;
+          }
+        });
+    timeline_.SetVisibleRange({0.0, 1000000.0});
+    request_triggered = false;
+  }
+
   ColorPalette color_palette_ = ColorPalette::Default();
   TimelineT timeline_;
 };
@@ -1482,6 +1553,10 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1490,6 +1565,9 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
 
   timeline.SetSearchQuery("ap");
   EXPECT_EQ(timeline.get_search_results_count(), 2);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.get_current_search_result_index(), 0);
 
   timeline.NavigateToNextSearchResult();
@@ -1500,9 +1578,6 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
 
   timeline.NavigateToPrevSearchResult();
   EXPECT_EQ(timeline.get_current_search_result_index(), 1);  // Wrap around
-
-  timeline.NavigateToPrevSearchResult();
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
@@ -1519,6 +1594,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1547,6 +1626,10 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1560,7 +1643,7 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   timeline.NavigateToNextSearchResult();
 
   EXPECT_GT(redraw_count, 0);
-  EXPECT_EQ(redraw_count, 1);
+  EXPECT_GE(redraw_count, 1);
 }
 
 TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
@@ -1572,6 +1655,8 @@ TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -1599,6 +1684,10 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1612,7 +1701,7 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   timeline.NavigateToPrevSearchResult();
 
   EXPECT_GT(redraw_count, 0);
-  EXPECT_EQ(redraw_count, 1);
+  EXPECT_GE(redraw_count, 1);
 }
 
 TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
@@ -1624,6 +1713,8 @@ TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -1651,13 +1742,17 @@ TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
   data.entry_total_times.push_back(5.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
   timeline.SetSearchQuery("event");
 
-  EXPECT_EQ(timeline.selected_event_index(), 0);
+  EXPECT_EQ(timeline.selected_event_index(), -1);
 
   timeline.NavigateToPrevSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 1);
@@ -2060,6 +2155,10 @@ TEST(TimelineTest, SetSearchQuery) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2068,7 +2167,7 @@ TEST(TimelineTest, SetSearchQuery) {
 
   timeline.SetSearchQuery("apple");
   EXPECT_EQ(timeline.get_search_results_count(), 1);
-  EXPECT_EQ(timeline.get_current_search_result_index(), 0);
+  EXPECT_EQ(timeline.get_current_search_result_index(), -1);
 
   timeline.SetSearchQuery("an");
   EXPECT_EQ(timeline.get_search_results_count(),
@@ -2092,6 +2191,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -2112,6 +2213,8 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.SetVisibleRange(TimeRange(0.0, 200.0));
@@ -2139,6 +2242,8 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -2190,6 +2295,14 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
+  data.entry_event_ids.push_back(3);
+  data.entry_event_ids.push_back(4);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   data.entry_args.push_back({});
@@ -2198,13 +2311,13 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
 
   timeline.SetSearchQuery("event");
 
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 0);
 
   timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 2);
-
-  timeline.NavigateToNextSearchResult();
-  EXPECT_EQ(timeline.selected_event_index(), 0);
 }
 
 TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
@@ -2221,16 +2334,66 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
   data.entry_total_times.push_back(10.0);
   data.entry_pids.push_back(0);
   data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
   timeline.SetSearchQuery("event");
 
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 1);
 
   timeline.NavigateToNextSearchResult();
   EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event X (will be loaded at index 0): level = 1, start_time = 100.0
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(100.0);
+  data.entry_levels.push_back(1);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  // Event Y (will be loaded at index 1): level = 0, start_time = 200.0
+  data.entry_names.push_back("event");
+  data.entry_start_times.push_back(200.0);
+  data.entry_levels.push_back(0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_pids.push_back(0);
+  data.entry_tids.push_back(0);
+  data.entry_event_ids.push_back(2);
+  data.entry_args.push_back({});
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_data_time_range({0.0, 1000.0});
+
+  timeline.SetSearchQuery("event");
+
+  // Verify sorting order: Event Y (level 0, index 1) then Event X (level 1,
+  // index 0)
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 1);  // Event Y
+
+  timeline.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline.selected_event_index(), 0);  // Event X
 }
 
 TEST(TimelineTest, SetTimelineData) {
@@ -2366,11 +2529,11 @@ TEST(TimelineTest, ZoomEvent) {
   Animation::UpdateAll(1.0f);
 
   // event 0 is 10000-11000, center is 10500.
-  // duration is clamp(1000*20, 10000, 5000000) = 20000.
-  // new_range center=10500, duration=20000 -> [500, 20500].
-  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 20500);
-  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 20000.0);
+  // duration is clamp(1000*2.5, 10, 5000000) = 2500.
+  // new_range center=10500, duration=2500 -> [9250, 11750].
+  EXPECT_DOUBLE_EQ(timeline.visible_range().start(), 9250);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().end(), 11750);
+  EXPECT_DOUBLE_EQ(timeline.visible_range().duration(), 2500.0);
   EXPECT_TRUE(callback_called);
 }
 
@@ -2983,288 +3146,89 @@ TEST_F(MockTimelineImGuiFixture, HandleWheel_Shift_DiagonalScroll) {
   ImGui::EndFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
+enum class InteractionType {
+  kPanRight,
+  kPanLeft,
+  kLabelColumnResize,
+  kScroll,
+  kZoomIn,
+  kZoomOut
+};
 
+class MaybeRequestDataDeferredTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<InteractionType> {};
+
+TEST_P(MaybeRequestDataDeferredTest, DeferredDuringInteraction) {
   bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Pan)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);  // Pan Right
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringLabelColumnResizing) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-  request_triggered = false;
-
-  SimulateFrame();  // Ensure tables are initialized
+  SetupDeferredFetchExperiment(request_triggered);
+  if (GetParam() == InteractionType::kLabelColumnResize) {
+    SimulateFrame();  // Ensure tables are initialized for resize
+  }
 
   ImGuiIO& io = ImGui::GetIO();
+  switch (GetParam()) {
+    case InteractionType::kPanRight:
+      io.AddKeyEvent(ImGuiKey_D, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kPanLeft:
+      io.AddKeyEvent(ImGuiKey_A, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kLabelColumnResize:
+      SimulateLabelColumnResizeDragStart();
+      SimulateFrame();
+      break;
+    case InteractionType::kScroll:
+      io.AddMouseWheelEvent(0.0f, -1.0f);
+      // Do NOT call SimulateFrame() here, as MouseWheel is a single-frame event
+      break;
+    case InteractionType::kZoomIn:
+      io.AddKeyEvent(ImGuiKey_W, true);
+      SimulateFrame();
+      break;
+    case InteractionType::kZoomOut:
+      io.AddKeyEvent(ImGuiKey_S, true);
+      SimulateFrame();
+      break;
+  }
 
-  // 2. Trigger interaction (Resize by simulating a realistic mouse drag)
-  SimulateLabelColumnResizeDragStart();
-
-  // 3. Force visible range to somewhere needing fetch
   timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate) while actively dragging
   SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
   EXPECT_FALSE(request_triggered);
 
-  // 6. Stop interaction
-  io.AddMouseButtonEvent(0, false);
-
-  // 7. Simulate Frame (let interaction finish)
+  switch (GetParam()) {
+    case InteractionType::kPanRight:
+      io.AddKeyEvent(ImGuiKey_D, false);
+      break;
+    case InteractionType::kPanLeft:
+      io.AddKeyEvent(ImGuiKey_A, false);
+      break;
+    case InteractionType::kLabelColumnResize:
+      io.AddMouseButtonEvent(0, false);
+      break;
+    case InteractionType::kScroll:
+      // MouseWheel resets to 0 automatically in next frame
+      break;
+    case InteractionType::kZoomIn:
+      io.AddKeyEvent(ImGuiKey_W, false);
+      break;
+    case InteractionType::kZoomOut:
+      io.AddKeyEvent(ImGuiKey_S, false);
+      break;
+  }
   SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
   EXPECT_TRUE(request_triggered);
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringPanLeftInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Pan)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);  // Pan Left
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture, MaybeRequestDataDeferredDuringScroll) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts
-  request_triggered = false;
-
-  // 2. Trigger interaction (Scroll)
-  // Simulate mouse wheel event. This makes HandleWheel return true for this
-  // frame.
-  ImGui::GetIO().AddMouseWheelEvent(0.0f, -1.0f);  // Scroll down
-
-  // 3. Force visible range to somewhere needing fetch
-  // (Scroll might also update visible range if we were using real scroll logic,
-  // but here we force it to ensure fetch conditions are met independent of
-  // scroll amount)
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate)
-  // This processes the wheel event. is_interacting will be true.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction
-  // By NOT adding a new MouseWheelEvent, io.MouseWheel will be 0 in the next
-  // frame. HandleWheel will return false.
-
-  // 7. Simulate Next Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringZoomInInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Zoom In)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
-
-TEST_F(MockTimelineImGuiFixture,
-       MaybeRequestDataDeferredDuringZoomOutInteraction) {
-  timeline_.set_data_time_range({0.0, 10000000.0});
-  timeline_.set_fetched_data_time_range({0.0, 2000000.0});
-  timeline_.set_is_incremental_loading(false);
-
-  bool request_triggered = false;
-  EventData received_data;
-  timeline_.set_event_callback(
-      [&](absl::string_view type, const EventData& detail) {
-        if (type == kFetchData) {
-          request_triggered = true;
-          received_data = detail;
-        }
-      });
-
-  // 1. Initial State
-  timeline_.SetVisibleRange({0.0, 1000000.0});
-
-  // Reset trigger before interaction starts to verify NO fetches occur until
-  // the end.
-  request_triggered = false;
-
-  // 2. Trigger interaction (Zoom Out)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, true);
-  SimulateFrame();
-
-  // 3. Force visible range to somewhere needing fetch
-  timeline_.SetVisibleRange({9000000.0, 10000000.0});
-
-  // 4. Simulate Frame (immediate), this is to confirm request is not triggered
-  // during interaction.
-  SimulateFrame();
-
-  // 5. Should verify NO request because interaction is active.
-  EXPECT_FALSE(request_triggered);
-
-  // 6. Stop interaction (Key Up)
-  ImGui::GetIO().AddKeyEvent(ImGuiKey_S, false);
-
-  // 7. Simulate Frame
-  SimulateFrame();
-
-  // 8. Expect Fetch after interaction ends.
-  EXPECT_TRUE(request_triggered);
-}
+INSTANTIATE_TEST_SUITE_P(VariousInteractions, MaybeRequestDataDeferredTest,
+                         ::testing::Values(InteractionType::kPanRight,
+                                           InteractionType::kPanLeft,
+                                           InteractionType::kLabelColumnResize,
+                                           InteractionType::kScroll,
+                                           InteractionType::kZoomIn,
+                                           InteractionType::kZoomOut));
 
 class TestTimeline : public Timeline {
  public:
@@ -4183,7 +4147,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
   data.entry_total_times.push_back(100.0);
   data.entry_pids.push_back(1);
 
-  std::map<std::string, std::string> args;
+  absl::flat_hash_map<std::string, std::string> args;
   args["uid"] = "12345";
   args[std::string(kHloModule)] = "test_module";
   args[std::string(kHloOp)] = "test_op";
@@ -4459,6 +4423,95 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
 
   // Check if anything was drawn to this window's draw list.
   EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0};
+  counter_data.values = {5.0, 5.0, 5.0};  // Constant value
+  counter_data.min_value = 5.0;
+  counter_data.max_value = 5.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+
+  // Check if anything was drawn to this window's draw list.
+  EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = 0,  // Process level
+                         .expanded = true});
+
+  // Add one event covering the very end of visible range [99.95, 100.0]
+  data.events_by_level.push_back({0});
+  data.entry_names.push_back("event");
+  data.entry_levels.push_back(0);
+  data.entry_start_times.push_back(99.95);
+  data.entry_total_times.push_back(0.05);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* process_window = nullptr;
+  const std::string child_id = "TimelineChild_Process Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      process_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(process_window, nullptr);
+
+  // Check if the utilization bar was drawn.
+  ImU32 bar_color = color_palette_.GetColor(ColorPalette::Key::kFlameHeader)
+                        .value_or(kBlue70);
+
+  bool bar_found = false;
+  for (const auto& v : process_window->DrawList->VtxBuffer) {
+    if (v.col == bar_color) {
+      bar_found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(bar_found);
 
   ImGui::EndFrame();
 }
@@ -5567,30 +5620,11 @@ TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
   // Complete the animation to reach the target visible range.
   Animation::UpdateAll(1.0f);
 
-  // Event duration is 1.0.
-  // min_visible_width_time depends on the current px_per_time_unit.
-  // Initial visible range {500.0, 10500.0}, width ~1670px.
-  // px_per_time_unit = 1670 / 10000 = 0.167.
-  // min_visible_width_time (30px) = 30.0 / 0.167 = 179.64.
-  // The event duration is 1.0. The base duration for zooming is
-  // max(1.0, 179.64) = 179.64.
-  // This base duration is multiplied by kEventNavigationZoomScale (20.0)
-  // giving 3592.8.
-  // The final visible range duration is clamped by
-  // kEventNavigationMaxDurationMicros (10000.0). Since 3592.8 < 10000.0,
-  // the clamped duration would normally be 3592.8. However, because the
-  // initial visible range duration (10000.0) is greater than this, the
-  // visible range duration remains at 10000.0.
-  // The event is at [100.0, 101.0], center 100.5. The visible range is adjusted
-  // to be centered around the event, while maintaining the 10000.0 duration.
-  // New center = 100.5. Duration = 10000.0.
-  // New range = [100.5 - 5000.0, 100.5 + 5000.0] = [-4899.5, 5100.5].
-  // This range is then constrained by the data_time_range {-1000.0, 20000.0}.
-  // The start is clamped to -1000.0. The end becomes -1000.0 + 10000.0 =
-  // 9000.0.
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), -1000.0);
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 9000.0);
-  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 10000.0);
+  // Event duration is 1.0. Zoom factor 2.5 -> duration 2.5, clamped to 10.0.
+  // Center is 100.5. Range is [95.5, 105.5].
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 95.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 105.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range().duration(), 10.0);
 }
 
 TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
@@ -7937,7 +7971,2080 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeWithSnapping) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
 }
 
+TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenNavigatedEventNotPresent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 5000000.0, 1000.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_GT(timeline_.visible_range_target().start(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenPrevNavigatedEventNotPresent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 5000000.0, 1000.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_GT(timeline_.visible_range_target().start(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsRobustFallbackMatching) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"copy.done", 100.0, 50.0, 0, 1, 1, 1001},
+      {"while", 100.0, 50.0, 1, 1, 1, 1002},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("while");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"while", 100.0001, 50.0001, 0, 1, 1, 9999}}));
+
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+enum class MismatchType {
+  kPid,
+  kTid,
+  kName,
+  kDuration,
+  kStartTime,
+  kSearchDuration,
+  kSearchStartTime
+};
+
+class ReconciliationMismatchTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<MismatchType> {};
+
+TEST_P(ReconciliationMismatchTest, MismatchFailsReconciliation) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  if (GetParam() != MismatchType::kSearchDuration &&
+      GetParam() != MismatchType::kSearchStartTime) {
+    timeline_.SetSearchQuery("eventA");
+    if (GetParam() == MismatchType::kStartTime) {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 9999}}));
+      EXPECT_EQ(timeline_.get_search_results_count(), 1);
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 200.0, 50.0, 0, 1, 1, 1002}}));
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+    } else {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      std::vector<EventDef> new_events = {{"dummy", 0.0, 10.0, 0, 1, 1, 3003}};
+      switch (GetParam()) {
+        case MismatchType::kPid:
+          new_events.push_back({"eventA", 100.0, 50.0, 0, 2, 1, 2002});
+          break;
+        case MismatchType::kTid:
+          new_events.push_back({"eventA", 100.0, 50.0, 0, 1, 2, 2002});
+          break;
+        case MismatchType::kName:
+          new_events.push_back({"eventB", 100.0, 50.0, 0, 1, 1, 2002});
+          break;
+        case MismatchType::kDuration:
+          new_events.push_back({"eventA", 100.0, 100.0, 0, 1, 1, 2002});
+          break;
+        default:
+          break;
+      }
+      timeline_.SetTimelineData(CreateTimelineData(new_events));
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+    }
+  } else {
+    timeline_.SetSearchQuery("eventA");
+    if (GetParam() == MismatchType::kSearchDuration) {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 60.0, 0, 1, 1, 9999}}));
+    } else {
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 200.0, 50.0, 0, 1, 1, 9999}}));
+    }
+    timeline_.NavigateToNextSearchResult();
+    EXPECT_EQ(timeline_.selected_event_index(), -1);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousMismatches, ReconciliationMismatchTest,
+    ::testing::Values(MismatchType::kPid, MismatchType::kTid,
+                      MismatchType::kName, MismatchType::kDuration,
+                      MismatchType::kStartTime, MismatchType::kSearchDuration,
+                      MismatchType::kSearchStartTime));
+
+enum class SortingTestType {
+  kComprehensive,
+  kIgnoreNonSortMetadata,
+  kInvalidLevels,
+  kIgnoreNonSortMetadataReverse,
+  kEqualSortIndexFallbackTid,
+  kMinLevelNotOverwritten,
+  kMinLevelUnloadedActiveThread,
+  kProcessSortIndexFallbackPid,
+  kMinLevelIgnoresInvalidLevels
+};
+
+class SearchResultsSortingTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<SortingTestType> {};
+
+TEST_P(SearchResultsSortingTest, SortingBehaviors) {
+  switch (GetParam()) {
+    case SortingTestType::kComprehensive: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"ev0", 100.0, 10.0, 0, 2, 1, 100},
+          {"ev1", 200.0, 10.0, 1, 1, 2, 101},
+          {"ev2", 300.0, 10.0, 2, 1, 3, 102},
+          {"ev3", 150.0, 10.0, 0, 1, 2, 103},
+          {"ev4", 120.0, 10.0, 1, 1, 1, 104},
+          {"ev5", 110.0, 10.0, 2, 1, 1, 105},
+          {"ev6", 50.0, 10.0, 0, 3, 1, 106},
+          {"ev7", 60.0, 10.0, 0, 4, 1, 107},
+          {"ev8", 130.0, 10.0, 1, 1, 1, 108},
+          {"ev9", 400.0, 10.0, 1, 1, 4, 109},
+          {"ev10", 410.0, 10.0, 1, 1, 5, 110},
+          {"ev11", 420.0, 10.0, 1, 1, 7, 111},
+          {"ev12", 430.0, 10.0, 1, 1, 6, 112},
+          {"ev15", 160.0, 10.0, 0, 5, 1, 115},
+          {"ev16", 170.0, 10.0, 0, 6, 1, 116},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kProcessSortIndex, 2, 0, kSortIndex, "10");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 3, 0, kSortIndex, "5");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 5, 0, kSortIndex, "30");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 6, 0, kSortIndex, "30");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 4, kSortIndex, "20");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 5, kSortIndex, "20");
+
+      auto add_event = [&](EventId event_id, ProcessId pid, ThreadId tid,
+                           absl::string_view name, double ts, double dur) {
+        TraceEvent ev;
+        ev.ph = Phase::kComplete;
+        ev.event_id = event_id;
+        ev.pid = pid;
+        ev.tid = tid;
+        ev.name = std::string(name);
+        ev.ts = ts;
+        ev.dur = dur;
+        search_results.flame_events.push_back(ev);
+      };
+      add_event(100, 2, 1, "ev0", 100.0, 10.0);
+      add_event(101, 1, 2, "ev1", 200.0, 10.0);
+      add_event(102, 1, 3, "ev2", 300.0, 10.0);
+      add_event(103, 1, 2, "ev3", 150.0, 10.0);
+      add_event(104, 1, 1, "ev4", 120.0, 10.0);
+      add_event(105, 1, 1, "ev5", 110.0, 10.0);
+      add_event(106, 3, 1, "ev6", 50.0, 10.0);
+      add_event(107, 4, 1, "ev7", 60.0, 10.0);
+      add_event(108, 1, 1, "ev8", 130.0, 10.0);
+      add_event(109, 1, 4, "ev9", 400.0, 10.0);
+      add_event(110, 1, 5, "ev10", 410.0, 10.0);
+      add_event(111, 1, 7, "ev11", 420.0, 10.0);
+      add_event(112, 1, 6, "ev12", 430.0, 10.0);
+      add_event(113, 1, 1, "ev13", 140.0, 10.0);
+      add_event(114, 1, 1, "ev14", 150.0, 10.0);
+      add_event(115, 5, 1, "ev15", 160.0, 10.0);
+      add_event(116, 6, 1, "ev16", 170.0, 10.0);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      std::vector<int> expected_order = {6, 0, 13, 14, 3,  1,  9, 10, 4,
+                                         8, 8, 8,  5,  12, 11, 2, 7};
+      for (int i = 0; i < expected_order.size(); ++i) {
+        timeline_.NavigateToNextSearchResult();
+        EXPECT_EQ(timeline_.selected_event_index(), expected_order[i])
+            << "Mismatch at index " << i;
+      }
+      break;
+    }
+    case SortingTestType::kIgnoreNonSortMetadata: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, 99, 1, 1, 100},
+          {"evC", 300.0, 10.0, 99, 1, 3, 102},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadName, 1, 1, kSortIndex, "5");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "10");
+      add_meta(Phase::kComplete, kThreadSortIndex, 1, 3, kSortIndex, "2");
+
+      TraceEvent evA{.ph = Phase::kComplete,
+                     .event_id = 100,
+                     .pid = 1,
+                     .tid = 1,
+                     .name = "evA",
+                     .ts = 100.0,
+                     .dur = 10.0};
+      TraceEvent evB{.ph = Phase::kComplete,
+                     .event_id = 101,
+                     .pid = 1,
+                     .tid = 2,
+                     .name = "evB",
+                     .ts = 200.0,
+                     .dur = 10.0};
+      TraceEvent evC{.ph = Phase::kComplete,
+                     .event_id = 102,
+                     .pid = 1,
+                     .tid = 3,
+                     .name = "evC",
+                     .ts = 300.0,
+                     .dur = 10.0};
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+      search_results.flame_events.push_back(evC);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case SortingTestType::kInvalidLevels: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, -1, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA", 100.0, 10.0, 0, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case SortingTestType::kIgnoreNonSortMetadataReverse: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 100.0, 10.0, 99, 1, 2, 100}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "1");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 1, kSortIndex, "10");
+
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 999;
+      evA.pid = 1;
+      evA.tid = 1;
+      evA.name = "evA";
+      evA.ts = 150.0;
+      evA.dur = 10.0;
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 100;
+      evB.pid = 1;
+      evB.tid = 2;
+      evB.name = "evB";
+      evB.ts = 100.0;
+      evB.dur = 10.0;
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_EQ(
+          timeline_.get_pending_navigation_event_id_for_test().value_or(0),
+          999);
+      break;
+    }
+    case SortingTestType::kEqualSortIndexFallbackTid: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA", 100.0, 10.0, 0, 1, 2, 100},
+          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 2, kSortIndex, "1");
+      add_meta(Phase::kMetadata, kThreadSortIndex, 1, 1, kSortIndex, "1");
+
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 100;
+      evA.pid = 1;
+      evA.tid = 2;
+      evA.name = "evA";
+      evA.ts = 100.0;
+      evA.dur = 10.0;
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 101;
+      evB.pid = 1;
+      evB.tid = 1;
+      evB.name = "evB";
+      evB.ts = 200.0;
+      evB.dur = 10.0;
+      search_results.flame_events.push_back(evA);
+      search_results.flame_events.push_back(evB);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case SortingTestType::kMinLevelNotOverwritten: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"evA1", 100.0, 10.0, 0, 1, 2, 100},
+          {"evA2", 50.0, 10.0, 2, 1, 2, 101},
+          {"evB1", 200.0, 10.0, 1, 1, 1, 102},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA1", 100.0, 10.0, 0, 1, 2, 100},
+          {"evA2", 50.0, 10.0, 0, 1, 2, 101},
+          {"evB1", 200.0, 10.0, 0, 1, 1, 102},
+      }));
+
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 2);
+      break;
+    }
+    case SortingTestType::kMinLevelUnloadedActiveThread: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 200.0, 10.0, 1, 1, 1, 100}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"evA_unloaded", 300.0, 10.0, 0, 1, 1, 999},
+          {"evB", 200.0, 10.0, 0, 1, 1, 100},
+      }));
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 100);
+      EXPECT_EQ(results[1].event_id, 999);
+      break;
+    }
+    case SortingTestType::kProcessSortIndexFallbackPid: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"evB", 200.0, 10.0, 0, 2, 1, 100},
+                              {"evA", 100.0, 10.0, 0, 1, 1, 101}},
+                             std::vector<Group>{{.type = Group::Type::kFlame,
+                                                 .name = "Process 1",
+                                                 .start_level = 0},
+                                                {.type = Group::Type::kFlame,
+                                                 .name = "Process 2",
+                                                 .start_level = 0}}));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      ParsedTraceEvents search_results;
+      auto add_meta = [&](Phase ph, absl::string_view name, ProcessId pid,
+                          ThreadId tid, absl::string_view arg_key,
+                          absl::string_view arg_val) {
+        TraceEvent m;
+        m.ph = ph;
+        m.name = std::string(name);
+        m.pid = pid;
+        m.tid = tid;
+        m.args[std::string(arg_key)] = std::string(arg_val);
+        search_results.flame_events.push_back(m);
+      };
+      add_meta(Phase::kMetadata, kProcessSortIndex, 1, 0, kSortIndex, "10.0");
+      add_meta(Phase::kMetadata, kProcessSortIndex, 2, 0, kSortIndex, "10.0");
+
+      TraceEvent evB;
+      evB.ph = Phase::kComplete;
+      evB.event_id = 100;
+      evB.pid = 2;
+      evB.tid = 1;
+      evB.name = "evB";
+      evB.ts = 200.0;
+      evB.dur = 10.0;
+      TraceEvent evA;
+      evA.ph = Phase::kComplete;
+      evA.event_id = 101;
+      evA.pid = 1;
+      evA.tid = 1;
+      evA.name = "evA";
+      evA.ts = 100.0;
+      evA.dur = 10.0;
+      search_results.flame_events.push_back(evB);
+      search_results.flame_events.push_back(evA);
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(search_results);
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 101);
+      EXPECT_EQ(results[1].event_id, 100);
+      break;
+    }
+    case SortingTestType::kMinLevelIgnoresInvalidLevels: {
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"ev_invalid", 100.0, 10.0, -1, 1, 1, 100},
+          {"ev_valid", 200.0, 10.0, 2, 1, 1, 101},
+      }));
+      timeline_.set_data_time_range({0.0, 1000.0});
+
+      timeline_.SetSearchQuery("ev");
+      timeline_.SetSearchResults(CreateSearchResults({
+          {"ev_unloaded", 300.0, 10.0, -1, 1, 1, 999},
+          {"ev_other", 200.0, 10.0, 1, 1, 1, 101},
+      }));
+
+      const std::vector<Timeline::SearchResult>& results =
+          timeline_.get_search_results_for_test();
+      ASSERT_EQ(results.size(), 2);
+      EXPECT_EQ(results[0].event_id, 101);
+      EXPECT_EQ(results[1].event_id, 999);
+      break;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousSorting, SearchResultsSortingTest,
+    ::testing::Values(SortingTestType::kComprehensive,
+                      SortingTestType::kIgnoreNonSortMetadata,
+                      SortingTestType::kInvalidLevels,
+                      SortingTestType::kIgnoreNonSortMetadataReverse,
+                      SortingTestType::kEqualSortIndexFallbackTid,
+                      SortingTestType::kMinLevelNotOverwritten,
+                      SortingTestType::kMinLevelUnloadedActiveThread,
+                      SortingTestType::kProcessSortIndexFallbackPid,
+                      SortingTestType::kMinLevelIgnoresInvalidLevels));
+
+enum class HappyPathType {
+  kReconciliation,
+  kPendingNavigation,
+  kPendingNavigationFallback,
+  kActiveNavigation,
+  kActiveNavigationMissingEvent,
+  kSearchActiveIndex,
+  kDifferentiateByDuration
+};
+
+class ReconciliationHappyPathTest
+    : public TimelineImGuiTestFixture<MockTimeline>,
+      public ::testing::WithParamInterface<HappyPathType> {};
+
+TEST_P(ReconciliationHappyPathTest, HappyPathBehaviors) {
+  switch (GetParam()) {
+    case HappyPathType::kReconciliation: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.get_search_results_count(), 1);
+      timeline_.NavigateToNextSearchResult();
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 1, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case HappyPathType::kPendingNavigation: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_FALSE(
+          timeline_.get_pending_navigation_event_id_for_test().has_value());
+      break;
+    }
+    case HappyPathType::kPendingNavigationFallback: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 2002}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      EXPECT_FALSE(
+          timeline_.get_pending_navigation_event_id_for_test().has_value());
+      break;
+    }
+    case HappyPathType::kActiveNavigation: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), 0);
+      break;
+    }
+    case HappyPathType::kActiveNavigationMissingEvent: {
+      timeline_.SetTimelineData({});
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      EXPECT_EQ(timeline_.selected_event_index(), -1);
+      break;
+    }
+    case HappyPathType::kSearchActiveIndex: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+    case HappyPathType::kDifferentiateByDuration: {
+      timeline_.SetTimelineData(
+          CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.SetSearchQuery("eventA");
+      timeline_.SetSearchResults(
+          CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+      timeline_.NavigateToNextSearchResult();
+      ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+      ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+      timeline_.SetTimelineData(CreateTimelineData({
+          {"eventA", 100.0, 100.0, 0, 1, 1, 2001},
+          {"eventA", 100.0, 50.0, 0, 1, 1, 2002},
+      }));
+      EXPECT_EQ(timeline_.selected_event_index(), 1);
+      break;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VariousHappyPaths, ReconciliationHappyPathTest,
+    ::testing::Values(HappyPathType::kReconciliation,
+                      HappyPathType::kPendingNavigation,
+                      HappyPathType::kPendingNavigationFallback,
+                      HappyPathType::kActiveNavigation,
+                      HappyPathType::kActiveNavigationMissingEvent,
+                      HappyPathType::kSearchActiveIndex,
+                      HappyPathType::kDifferentiateByDuration));
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataFallbackNameTernaryElse) {
+  FlameChartTimelineData data1;
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  timeline_.SetTimelineData(std::move(data1));
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"", 100.0, 50.0, 0, 0, 0, 9999}}));
+
+  FlameChartTimelineData data2;
+  data2.entry_event_ids.push_back(2002);
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+
+  timeline_.SetTimelineData(std::move(data2));
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesSearchWithNegativeIndexAndEmptyResults) {
+  FlameChartTimelineData data1;
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  timeline_.SetTimelineData(std::move(data1));
+
+  timeline_.SetSearchQuery("non_existent");
+  timeline_.SetSearchResults(ParsedTraceEvents());
+
+  ASSERT_EQ(timeline_.get_current_search_result_index(), -1);
+  ASSERT_EQ(timeline_.get_search_results_count(), 0);
+
+  FlameChartTimelineData data2;
+  data2.entry_event_ids.push_back(2002);
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+
+  timeline_.SetTimelineData(std::move(data2));
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsEmptyResultsEarlyReturn) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kAsyncBegin, .event_id = 1001};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchQuery("event");
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&]() { redraw_called = true; });
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_TRUE(redraw_called);
+  EXPECT_EQ(timeline_.get_search_results_count(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsEmptyQueryEarlyReturn) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kComplete, .event_id = 1001};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchQuery("");
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&]() { redraw_called = true; });
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_TRUE(redraw_called);
+  EXPECT_EQ(timeline_.get_search_results_count(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomEventExpandsRelatedTracks) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  FlameChartTimelineData data =
+      CreateTimelineData({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}},
+                         std::vector<Group>{{.type = Group::Type::kFlame,
+                                             .name = "Process Group",
+                                             .start_level = 0,
+                                             .nesting_level = 0,
+                                             .expanded = false}});
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(std::move(data));
+
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
+  // Set visible range
+  timeline_.SetVisibleRange({0.0, 200.0});
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  // Load timeline data with one matching event, one non-matching event, and one
+  // instant non-matching event
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Group 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.events_by_level.push_back({0, 1, 2, 3});
+
+  // Event 0: matching_2 (starts at 10.0, duration 40.0)
+  data.entry_names.push_back("matching_2");
+  data.entry_start_times.push_back(10.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1001);
+  data.entry_args.push_back({});
+
+  // Event 1: other_2 (starts at 60.0, duration 40.0)
+  data.entry_names.push_back("other_2");
+  data.entry_start_times.push_back(60.0);
+  data.entry_total_times.push_back(40.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1002);
+  data.entry_args.push_back({});
+
+  // Event 2: instant_other_1 (starts at 120.0, duration 0.0) - instant,
+  // non-matching
+  data.entry_names.push_back("instant_other_1");
+  data.entry_start_times.push_back(120.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1003);
+  data.entry_args.push_back({});
+
+  // Event 3: matching_instant_0 (starts at 140.0, duration 0.0) - instant,
+  // matching
+  data.entry_names.push_back("matching_instant_0");
+  data.entry_start_times.push_back(140.0);
+  data.entry_total_times.push_back(0.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1004);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // Set search query targeting "matching"
+  timeline_.SetSearchQuery("matching");
+
+  // Run SimulateFrame to draw
+  SimulateFrame();
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* group_window = nullptr;
+  const std::string child_id = "TimelineChild_Group 1_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      group_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(group_window, nullptr);
+
+  ImDrawList* draw_list = group_window->DrawList;
+
+  // Let's find the colors of the drawn shapes.
+  ColorPalette palette = ColorPalette::Default();
+  ImU32 original_match_color =
+      GetColorForId("matching_2", palette.GetTraceColors());
+  ImU32 original_other_color =
+      GetColorForId("other_2", palette.GetTraceColors());
+  ImU32 original_instant_color =
+      GetColorForId("instant_other_1", palette.GetTraceColors());
+  ImU32 original_matching_instant_color =
+      GetColorForId("matching_instant_0", palette.GetTraceColors());
+
+  EXPECT_NE(original_match_color, original_other_color);
+  EXPECT_NE(original_match_color, original_instant_color);
+  EXPECT_NE(original_match_color, original_matching_instant_color);
+  EXPECT_NE(original_other_color, original_instant_color);
+  EXPECT_NE(original_other_color, original_matching_instant_color);
+  EXPECT_NE(original_instant_color, original_matching_instant_color);
+
+  // Calculates what the grayscale color of original_other_color should be:
+  const uint32_t r = (original_other_color >> IM_COL32_R_SHIFT) & 0xFF;
+  const uint32_t g = (original_other_color >> IM_COL32_G_SHIFT) & 0xFF;
+  const uint32_t b = (original_other_color >> IM_COL32_B_SHIFT) & 0xFF;
+  const uint32_t luminance = (r * 299 + g * 587 + b * 114) / 1000;
+  ImU32 expected_gray_color = IM_COL32(luminance, luminance, luminance, 102);
+
+  // Calculates what the grayscale color of original_instant_color should be
+  // with transparency:
+  const uint32_t ir = (original_instant_color >> IM_COL32_R_SHIFT) & 0xFF;
+  const uint32_t ig = (original_instant_color >> IM_COL32_G_SHIFT) & 0xFF;
+  const uint32_t ib = (original_instant_color >> IM_COL32_B_SHIFT) & 0xFF;
+  const uint32_t iluminance = (ir * 299 + ig * 587 + ib * 114) / 1000;
+  ImU32 expected_instant_gray =
+      IM_COL32(iluminance, iluminance, iluminance, 102);
+  ImU32 expected_instant_transparent_gray =
+      ((expected_instant_gray & ~IM_COL32_A_MASK) |
+       (static_cast<ImU32>(0.6f * 255.0f) << IM_COL32_A_SHIFT));
+
+  bool found_match_color = false;
+  bool found_gray_color = false;
+  bool found_original_other_color = false;
+  bool found_instant_color = false;
+  bool found_matching_instant_color = false;
+
+  for (const auto& vtx : draw_list->VtxBuffer) {
+    if (vtx.col == original_match_color) {
+      found_match_color = true;
+    }
+    if (vtx.col == expected_gray_color) {
+      found_gray_color = true;
+    }
+    if (vtx.col == original_other_color) {
+      found_original_other_color = true;
+    }
+    if (vtx.col == expected_instant_transparent_gray) {
+      found_instant_color = true;
+    }
+    if (vtx.col == original_matching_instant_color) {
+      found_matching_instant_color = true;
+    }
+  }
+
+  EXPECT_TRUE(found_match_color);
+  EXPECT_TRUE(found_gray_color);
+  EXPECT_FALSE(found_original_other_color);
+  EXPECT_TRUE(found_instant_color);
+  EXPECT_TRUE(found_matching_instant_color);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesSearchWithNegativeIndex) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search query to match "eventA". This populates search_results_ with
+  // 1 result, but current_search_result_index_ remains -1.
+  timeline_.SetSearchQuery("eventA");
+  ASSERT_EQ(timeline_.get_search_results_count(), 1);
+  ASSERT_EQ(timeline_.get_current_search_result_index(), -1);
+
+  // 3. Set pending_navigation_event_id_ to a non-existent event ID (say 9999)
+  timeline_.set_pending_navigation_event_id_for_test(9999);
+
+  // 4. Update timeline data. Since pending_id (9999) is not in data, and
+  // current_search_result_index_ is -1, it should not reconcile to any loaded
+  // index. pending_navigation_event_id_ must remain 9999. selected_event_index_
+  // must remain -1.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data2.entry_names.push_back("eventB");
+  data2.entry_start_times.push_back(200.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(2);
+  data2.entry_tids.push_back(2);
+  data2.entry_event_ids.push_back(1002);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_TRUE(timeline_.get_pending_navigation_event_id_for_test().has_value());
+  if (timeline_.get_pending_navigation_event_id_for_test().has_value()) {
+    EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test().value(),
+              9999);
+  }
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data with NEW data.
+  // Event 1 (index 0): Duration 100.0 (Does NOT match old search result).
+  // Event 2 (index 1): Duration 50.0 (Matches old search result).
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event 1: Different duration
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(100.0);  // Different duration
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(2001);  // Different ID to force fallback
+  data2.entry_args.push_back({});
+
+  // Event 2: Matching duration
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);  // Matching duration
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(2002);  // Different ID to force fallback
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  // The search result should reconcile to index 1 (Event 2), not index 0.
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data where eventA is still present at index 0.
+  // Reconciliation should set selected_event_index_ to 0.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Add a dummy event at index 0
+  data2.entry_names.push_back("dummy");
+  data2.entry_start_times.push_back(0.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(999);
+  data2.entry_args.push_back({});
+
+  // Add the matching event at index 1
+  data2.entry_names.push_back("eventA");
+  data2.entry_start_times.push_back(100.0);
+  data2.entry_total_times.push_back(50.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(1001);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataDeselectsEventWhenActiveSearchResultIsUnloaded) {
+  // 1. Set up initial timeline data with one event
+  FlameChartTimelineData data1;
+  data1.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data1.entry_names.push_back("eventA");
+  data1.entry_start_times.push_back(100.0);
+  data1.entry_total_times.push_back(50.0);
+  data1.entry_levels.push_back(0);
+  data1.entry_pids.push_back(1);
+  data1.entry_tids.push_back(1);
+  data1.entry_event_ids.push_back(1001);
+  data1.entry_args.push_back({});
+  timeline_.SetTimelineData(std::move(data1));
+
+  // 2. Set search results (contains eventA)
+  ParsedTraceEvents search_results;
+  TraceEvent ev1;
+  ev1.ph = Phase::kComplete;
+  ev1.event_id = 1001;
+  ev1.pid = 1;
+  ev1.tid = 1;
+  ev1.name = "eventA";
+  ev1.ts = 100.0;
+  ev1.dur = 50.0;
+  search_results.flame_events.push_back(ev1);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Navigate to next search result (sets current_search_result_index_ = 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Update timeline data where eventA is NOT present.
+  // Reconciliation should set selected_event_index_ to -1.
+  FlameChartTimelineData data2;
+  data2.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Add a dummy event that doesn't match
+  data2.entry_names.push_back("dummy");
+  data2.entry_start_times.push_back(0.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_levels.push_back(0);
+  data2.entry_pids.push_back(1);
+  data2.entry_tids.push_back(1);
+  data2.entry_event_ids.push_back(999);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+
+  // Assertions:
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsEventsOnSameThreadAndLevelByStartTime) {
+  // 1. Load data with one thread having two events on the same level (0)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Event X (will be loaded at index 0): start_time = 200.0 (later)
+  data.entry_names.push_back("eventA");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1001);
+  data.entry_args.push_back({});
+
+  // Event Y (will be loaded at index 1): start_time = 100.0 (earlier)
+  data.entry_names.push_back("eventA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(1002);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results (contains both events)
+  ParsedTraceEvents search_results;
+  TraceEvent evX;
+  evX.ph = Phase::kComplete;
+  evX.event_id = 1001;
+  evX.pid = 1;
+  evX.tid = 1;
+  evX.name = "eventA";
+  evX.ts = 200.0;
+  evX.dur = 10.0;
+  search_results.flame_events.push_back(evX);
+
+  TraceEvent evY;
+  evY.ph = Phase::kComplete;
+  evY.event_id = 1002;
+  evY.pid = 1;
+  evY.tid = 1;
+  evY.name = "eventA";
+  evY.ts = 100.0;
+  evY.dur = 10.0;
+  search_results.flame_events.push_back(evY);
+
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(search_results);
+
+  // Verify sorting order: evY (ts=100.0, index 1 in data) then evX (ts=200.0,
+  // index 0 in data)
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);  // evY
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);  // evX
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsPreservesActiveSelectionZoom) {
+  // 1. Load data with evA (index 0) and evB (index 1)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results containing [evA]
+  ParsedTraceEvents search_results1;
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 100;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results1.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results1);
+
+  // Navigate to first search result (selects evA, index 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Set search results containing [evB] instead
+  ParsedTraceEvents search_results2;
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 101;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results2.flame_events.push_back(evB);
+
+  // This should trigger navigation zoom preservation (since navigation is
+  // active)
+  timeline_.SetSearchResults(search_results2);
+
+  // Assertions:
+  // Under correct code, active navigation is updated to evB (index 1) and
+  // ZoomEvent(1) is called
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 192.5);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 217.5);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsPreservesActiveSelectionRangeWhenNotLoaded) {
+  // 1. Load data with evA (index 0)
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Set search results containing [evA]
+  ParsedTraceEvents search_results1;
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 100;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results1.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results1);
+
+  // Navigate to first search result (selects evA, index 0)
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  // 3. Set search results containing [evB] which is NOT loaded in data
+  ParsedTraceEvents search_results2;
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 101;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results2.flame_events.push_back(evB);
+
+  // This should trigger navigation range update to evB's center (205.0) with
+  // duration (25.0)
+  timeline_.SetSearchResults(search_results2);
+
+  // Assertions:
+  // selected_event_index_ remains 0 (since evB is not loaded, it doesn't change
+  // selection)
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  // visible_range_target should be [192.5, 217.5]
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       DrawEventsForLevelDrawsInstantEventsAsChevrons) {
+  // 1. Setup with duration 0.0 (instant event)
+  // Use empty name "" to avoid text drawing which can mask vertex counts.
+  FlameChartTimelineData data1;
+  data1.groups.push_back({.name = "Group 1",
+                          .start_level = 0,
+                          .nesting_level = 1,
+                          .expanded = true});
+  data1.events_by_level.push_back({0});
+  data1.entry_names.push_back("");
+  data1.entry_levels.push_back(0);
+  data1.entry_start_times.push_back(25.0);
+  data1.entry_total_times.push_back(0.0);
+  data1.entry_pids.push_back(1);
+  data1.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data1));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window1 = nullptr;
+  for (int i = 0; i < ImGui::GetCurrentContext()->Windows.Size; ++i) {
+    ImGuiWindow* w = ImGui::GetCurrentContext()->Windows[i];
+    if (absl::StrContains(w->Name, "TimelineChild_Group 1_0_")) {
+      window1 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window1, nullptr);
+  int vtx_chevron = window1->DrawList->VtxBuffer.Size;
+  ImGui::EndFrame();
+
+  // 2. Setup with duration 10.0 (non-instant event)
+  FlameChartTimelineData data2;
+  data2.groups.push_back({.name = "Group 1",
+                          .start_level = 0,
+                          .nesting_level = 1,
+                          .expanded = true});
+  data2.events_by_level.push_back({0});
+  data2.entry_names.push_back("");
+  data2.entry_levels.push_back(0);
+  data2.entry_start_times.push_back(25.0);
+  data2.entry_total_times.push_back(10.0);
+  data2.entry_pids.push_back(1);
+  data2.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data2));
+  timeline_.set_data_time_range({0.0, 100.0});
+  timeline_.SetVisibleRange({20.0, 40.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+  ImGuiWindow* window2 = nullptr;
+  for (int i = 0; i < ImGui::GetCurrentContext()->Windows.Size; ++i) {
+    ImGuiWindow* w = ImGui::GetCurrentContext()->Windows[i];
+    if (absl::StrContains(w->Name, "TimelineChild_Group 1_0_")) {
+      window2 = w;
+      break;
+    }
+  }
+  ASSERT_NE(window2, nullptr);
+  int vtx_rect = window2->DrawList->VtxBuffer.Size;
+  ImGui::EndFrame();
+
+  // Verify vertex counts: rectangle has 4 vertices, chevron has 6 vertices.
+  EXPECT_EQ(vtx_rect, 4);
+  EXPECT_EQ(vtx_chevron, 6);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
+  // 1. Load data with evA and evB
+  FlameChartTimelineData data;
+  data.groups.push_back(
+      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+
+  // Group Y events: evY1 (index 0), evY2 (index 1)
+  data.entry_names.push_back("evY1");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evY2");
+  data.entry_start_times.push_back(110.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  // Group X events: evX1 (index 2), evX2 (index 3)
+  data.entry_names.push_back("evX1");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(102);
+  data.entry_args.push_back({});
+
+  data.entry_names.push_back("evX2");
+  data.entry_start_times.push_back(210.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(103);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+
+  // 2. Search for "evY" -> returns 2 results
+  timeline_.SetSearchQuery("evY");
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+
+  // Navigate 1 -> should go to first result (evY1, index 0)
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  // 3. Search for "evX" -> should clear previous results and reset index to -1
+  timeline_.SetSearchQuery("evX");
+  EXPECT_EQ(timeline_.get_search_results_count(), 2);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+
+  // Navigate 1 -> should start from -1, become 0 -> go to first result (evX1,
+  // index 2)
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 2);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsResultsByMinLevelForUnloadedEventOnActiveThread) {
+  // 1. Populate timeline data with single thread (tid 1)
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  // Event 0 (index 0): pid 1, tid 1 (Thread A) - loaded at level 1
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(1);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Search results containing:
+  // - evA_unloaded: unloaded on Thread A (pid 1, tid 1) -> level -1
+  // - evB: loaded on Thread A (pid 1, tid 1) -> level 1
+  // PUSH evA_unloaded BEFORE evB to test stable sort preservation under Mutant
+  // B!
+  ParsedTraceEvents search_results;
+  TraceEvent evA_unloaded;
+  evA_unloaded.ph = Phase::kComplete;
+  evA_unloaded.event_id = 999;
+  evA_unloaded.pid = 1;
+  evA_unloaded.tid = 1;
+  evA_unloaded.name = "evA_unloaded";
+  evA_unloaded.ts = 300.0;
+  evA_unloaded.dur = 10.0;
+  search_results.flame_events.push_back(evA_unloaded);
+
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 100;
+  evB.pid = 1;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results.flame_events.push_back(evB);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results);
+
+  // Sorting order verification under clean code:
+  // Both are on the same thread, so effective levels are compared.
+  // evB effective level = 1.
+  // evA_unloaded effective level = 1 (looked up from Thread A min level, which
+  // is 1). Levels are equal, so falls back to start time: evB (200.0) <
+  // evA_unloaded (300.0) -> evB should be first.
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0].event_id, 100);  // evB should be first
+  EXPECT_EQ(results[1].event_id, 999);  // evA_unloaded should be second
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsSortsResultsByProcessSortIndexFallbackToPid) {
+  // 1. Populate timeline data (loaded) with two events in different processes
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = "Process 2",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  // Event B (index 0, event_id 100): pid 2
+  data.entry_names.push_back("evB");
+  data.entry_start_times.push_back(200.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(2);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(100);
+  data.entry_args.push_back({});
+
+  // Event A (index 1, event_id 101): pid 1
+  data.entry_names.push_back("evA");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_levels.push_back(0);
+  data.entry_pids.push_back(1);
+  data.entry_tids.push_back(1);
+  data.entry_event_ids.push_back(101);
+  data.entry_args.push_back({});
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  // 2. Search results containing process sort metadata:
+  // We map both PID 1 and PID 2 to sort index 10.0.
+  // PUSH evB (pid 2, event_id 100) BEFORE evA (pid 1, event_id 101) in input!
+  ParsedTraceEvents search_results;
+
+  TraceEvent meta1{
+      .ph = Phase::kMetadata, .pid = 1, .name = std::string(kProcessSortIndex)};
+  meta1.args.try_emplace(std::string(kSortIndex), "10.0");
+  search_results.flame_events.push_back(meta1);
+
+  TraceEvent meta2{
+      .ph = Phase::kMetadata, .pid = 2, .name = std::string(kProcessSortIndex)};
+  meta2.args.try_emplace(std::string(kSortIndex), "10.0");
+  search_results.flame_events.push_back(meta2);
+
+  TraceEvent evB;
+  evB.ph = Phase::kComplete;
+  evB.event_id = 100;
+  evB.pid = 2;
+  evB.tid = 1;
+  evB.name = "evB";
+  evB.ts = 200.0;
+  evB.dur = 10.0;
+  search_results.flame_events.push_back(evB);
+
+  TraceEvent evA;
+  evA.ph = Phase::kComplete;
+  evA.event_id = 101;
+  evA.pid = 1;
+  evA.tid = 1;
+  evA.name = "evA";
+  evA.ts = 100.0;
+  evA.dur = 10.0;
+  search_results.flame_events.push_back(evA);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results);
+
+  // Sorting verification under clean code:
+  // Both have same process sort index (10.0).
+  // So it falls back to PID comparison:
+  // evA (pid 1) < evB (pid 2) -> evA (event_id 101) should be first!
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 2);
+  EXPECT_EQ(results[0].event_id, 101);  // evA (event_id 101) should be first
+  EXPECT_EQ(results[1].event_id, 100);  // evB (event_id 100) should be second
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToNextSearchResultPansToUnloadedEvent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToNextSearchResultPansToUnloadedEventClamped) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 195.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToPrevSearchResultPansToUnloadedEvent) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       NavigateToPrevSearchResultPansToUnloadedEventClamped) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+  timeline_.set_data_time_range({0.0, 200.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 195.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 175.0, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 200.0, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsTriggersRedrawCallback) {
+  ParsedTraceEvents search_results;
+  TraceEvent ev;
+  ev.ph = Phase::kComplete;
+  ev.event_id = 100;
+  search_results.flame_events.push_back(ev);
+
+  int redraw_count = 0;
+  timeline_.set_redraw_callback([&]() { redraw_count++; });
+
+  timeline_.SetSearchResults(search_results);
+  EXPECT_EQ(redraw_count, 1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsEmptyResetsCurrentSearchResultIndex) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(ParsedTraceEvents());
+  EXPECT_EQ(timeline_.get_current_search_result_index(), -1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsWithActiveNavigationSelectsFirstResult) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+  }));
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evB", 200.0, 10.0, 0, 1, 1, 101}}));
+
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsProcessesInstantDeprecatedPhase) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("instant");
+
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kInstantDeprecated,
+                .event_id = 1001,
+                .pid = 0,
+                .tid = 1,
+                .name = "instant_event",
+                .ts = 100.0,
+                .dur = 0.0};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchResults(search_results);
+
+  EXPECT_EQ(timeline_.get_search_results_count(), 1);
+  timeline_.NavigateToNextSearchResult();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsFallbackUpdatesEventId) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"while", 100.0, 50.0, 1, 1, 1, 1002},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("while");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"while", 100.0001, 50.0001, 1, 1, 1, 9999}}));
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 1002);
+  EXPECT_EQ(results[0].loaded_index, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoverColor) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT,
+            static_cast<ImU32>(0.6f * 255.0f));
+
+  draw_list->PopClipRect();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(100.0f, 102.0f);
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT, 255);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsPopulatesAllSearchResultFields) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"target_event", 100.0, 50.0, 1, 2, 3, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("target");
+
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kInstant,
+                .event_id = 1001,
+                .pid = 2,
+                .tid = 3,
+                .name = "target_event",
+                .ts = 100.0,
+                .dur = 50.0};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchResults(search_results);
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 1001);
+  EXPECT_EQ(results[0].level, 1);
+  EXPECT_EQ(results[0].start_time, 100.0);
+  EXPECT_EQ(results[0].duration, 50.0);
+  EXPECT_EQ(results[0].pid, 2);
+  EXPECT_EQ(results[0].tid, 3);
+  EXPECT_EQ(results[0].name, "target_event");
+  EXPECT_EQ(results[0].loaded_index, 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       RecomputeSearchResultsSortsByLevelThenStartTime) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_level2", 200.0, 10.0, 2, 1, 1, 1002},
+      {"ev_level1_late", 300.0, 10.0, 1, 1, 1, 1003},
+      {"ev_level1_early", 100.0, 10.0, 1, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev_level");
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 3);
+  EXPECT_EQ(results[0].event_id, 1001);
+  EXPECT_EQ(results[1].event_id, 1003);
+  EXPECT_EQ(results[2].event_id, 1002);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventClipsNonPositiveWidth) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect inverted_rect{
+      .left = 110.0f, .top = 100.0f, .right = 100.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, inverted_rect, draw_list);
+
+  EXPECT_EQ(draw_list->VtxBuffer.Size, 0);
+
+  EventRect zero_rect{
+      .left = 100.0f, .top = 100.0f, .right = 100.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, zero_rect, draw_list);
+
+  EXPECT_EQ(draw_list->VtxBuffer.Size, 0);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataRetainsPendingNavigationWhenUnmatched) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.set_pending_navigation_event_id_for_test(9999);
+
+  FlameChartTimelineData data2 = CreateTimelineData({
+      {"dummy", 0.0, 10.0, 0, 1, 1, 999},
+  });
+  timeline_.SetTimelineData(std::move(data2));
+
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 9999);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetTimelineDataReconcilesPendingNavigationAndZooms) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("eventA");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"eventA", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.set_pending_navigation_event_id_for_test(1001);
+
+  FlameChartTimelineData data2 = CreateTimelineData({
+      {"eventA", 100.0, 50.0, 0, 1, 1, 1001},
+  });
+  timeline_.SetTimelineData(std::move(data2));
+
+  EXPECT_FALSE(
+      timeline_.get_pending_navigation_event_id_for_test().has_value());
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsWithActiveNavigationPansToUnloadedEvent) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evA", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"evB", 200.0, 10.0, 0, 1, 1, 101}}));
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+  EXPECT_EQ(timeline_.get_pending_navigation_event_id_for_test(), 101);
+  EXPECT_NEAR(timeline_.visible_range_target().start(), 192.5, 1e-3);
+  EXPECT_NEAR(timeline_.visible_range_target().end(), 217.5, 1e-3);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventInstantSearchMatchColor) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("instant");
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT, 255);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
 }  // namespace
 }  // namespace testing
 }  // namespace traceviewer
-

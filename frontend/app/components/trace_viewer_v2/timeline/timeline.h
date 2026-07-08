@@ -108,7 +108,7 @@ struct FlameChartTimelineData {
   // Compare latency from network to memory-heavy local storage.
   std::vector<ProcessId> entry_pids;
   std::vector<ThreadId> entry_tids;
-  std::vector<std::map<std::string, std::string>> entry_args;
+  std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
   std::vector<Group> groups;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
@@ -133,6 +133,16 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  struct SearchResult {
+    EventId event_id;
+    int level;
+    Microseconds start_time;
+    Microseconds duration;
+    ProcessId pid;
+    ThreadId tid;
+    std::string name;
+    int loaded_index = -1;
+  };
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -162,6 +172,14 @@ class Timeline {
   bool get_should_restore_scroll_for_test() const {
     return should_restore_scroll_;
   }
+  // Sets the pending navigation event ID for testing.
+  void set_pending_navigation_event_id_for_test(std::optional<EventId> id) {
+    pending_navigation_event_id_ = id;
+  }
+  // Gets the pending navigation event ID for testing.
+  std::optional<EventId> get_pending_navigation_event_id_for_test() const {
+    return pending_navigation_event_id_;
+  }
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -180,9 +198,15 @@ class Timeline {
 
   // Sets the search query to highlight events matching the query.
   // The search is case-insensitive.
-  void SetSearchQuery(const std::string& query);
+  void SetSearchQuery(absl::string_view query);
+
+  // Sets the search results from the given parsed trace events.
+  void SetSearchResults(const ParsedTraceEvents& search_results);
 
   int get_search_results_count() const { return search_results_.size(); }
+  const std::vector<SearchResult>& get_search_results_for_test() const {
+    return search_results_;
+  }
   int get_current_search_result_index() const {
     return current_search_result_index_;
   }
@@ -193,6 +217,9 @@ class Timeline {
   // like zooming to a selection.
   void SetVisibleRange(const TimeRange& range, bool animate = false);
   const TimeRange& visible_range() const { return *visible_range_; }
+  const TimeRange& visible_range_target() const {
+    return visible_range_.target();
+  }
 
   void AddSelectedTimeRange(const TimeRange& range) {
     selected_time_ranges_.push_back(range);
@@ -416,7 +443,12 @@ class Timeline {
                     Pixel kIconDrawSize, ImU32 icon_col,
                     bool is_track_hidden = false);
 
+  void DrawEvent(int group_index, int event_index, const EventRect& rect,
+                 ImDrawList* absl_nonnull draw_list);
+
  private:
+  void NavigateToSearchResult(const SearchResult& result);
+
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
 
@@ -444,9 +476,6 @@ class Timeline {
   void DrawEventName(absl::string_view event_name, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list,
                      ImU32 text_color) const;
-
-  void DrawEvent(int group_index, int event_index, const EventRect& rect,
-                 ImDrawList* absl_nonnull draw_list);
 
   void DrawCounterTooltip(int group_index, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
@@ -502,6 +531,9 @@ class Timeline {
 
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
+
+  // Updates the search results based on the current search query.
+  void RecomputeSearchResults();
 
   // Handles mouse input for creating curtains.
   // Returns true if any interaction occurred.
@@ -653,9 +685,10 @@ class Timeline {
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
   std::string search_query_lower_;
-  // Indices into timeline_data_ entries
-  std::vector<int> search_results_;
+  std::vector<SearchResult> search_results_;
+  absl::flat_hash_set<int> matching_event_indices_;
   int current_search_result_index_ = -1;
+  std::optional<EventId> pending_navigation_event_id_;
 
   // Stores the remaining time (in seconds) to display the bounds
   // notification toast.

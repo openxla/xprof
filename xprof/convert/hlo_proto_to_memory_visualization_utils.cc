@@ -32,15 +32,18 @@ limitations under the License.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "nlohmann/json.hpp"
 #include "google/protobuf/json/json.h"
 #include "xla/layout_util.h"
 #include "xla/service/buffer_assignment.h"
 #include "xla/service/hlo.pb.h"
+#include "xla/service/hlo_proto_util.h"
 #include "xla/shape.h"
 #include "xla/shape_util.h"
 #include "xla/tsl/platform/errors.h"
@@ -841,7 +844,12 @@ void CreatePeakUsageSnapshot(const HloProtoBufferWrapper& wrapper,
        wrapper.LogicalBuffersWithIndefiniteLifetime(memory_color)) {
     const auto& buffer_allocation = logical_buffer->buffer_allocation;
     peak_snapshot->indefinite_memory_usage_bytes += buffer_allocation.size();
-    peak_snapshot->AddHeapObject(*logical_buffer);
+    // Only add indefinite buffers to the bar chart for HBM. For other memory
+    // spaces (e.g. VMEM), XLA skips these during allocation assignment so they
+    // never actually consume memory.
+    if (memory_color == 0) {
+      peak_snapshot->AddHeapObject(*logical_buffer);
+    }
   }
 
   // Add temporary buffers (traced by heap simulator) to peak usage snapshot.
@@ -994,6 +1002,73 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
       absl::StrJoin(rects, "\n")));
 }
 
+// Compute the max scoped VMEM allocation by parsing backend_config JSON
+// from HLO instructions. Returns size in bytes.
+std::pair<int64_t, std::string> ComputeMaxScopedAllocationBytes(
+    const ::xla::HloProto& hlo_proto, int64_t memory_color) {
+  // Scoped allocations are only relevant for VMEM (memory_space 1).
+  if (memory_color != 1) {
+    return {0, ""};
+  }
+
+  // Proto3 JSON encoding represents int64 fields as quoted strings to avoid
+  // precision loss in IEEE 754 doubles (e.g., "size":"12345"). We handle both
+  // string and number types for robustness.
+  auto get_int64 = [](const nlohmann::json& j,
+                      const std::string& key) -> int64_t {
+    auto it = j.find(key);
+    if (it == j.end()) {
+      return 0;
+    }
+    if (it->is_number()) {
+      return it->get<int64_t>();
+    }
+    if (it->is_string()) {
+      int64_t result = 0;
+      if (absl::SimpleAtoi(it->get<std::string>(), &result)) {
+        return result;
+      }
+      return 0;
+    }
+    return 0;
+  };
+
+  int64_t max_scoped_bytes = 0;
+  std::string max_instruction_name;
+  const auto& module = hlo_proto.hlo_module();
+  for (const auto& computation : module.computations()) {
+    for (const auto& instruction : computation.instructions()) {
+      absl::StatusOr<std::string> config_or =
+          xla::GetBackendConfigString(instruction, &module);
+      if (!config_or.ok()) {
+        continue;
+      }
+
+      auto json = nlohmann::json::parse(config_or.value(),
+                                        /*cb=*/nullptr,
+                                        /*allow_exceptions=*/false);
+      if (json.is_discarded()) {
+        continue;
+      }
+      auto it = json.find("used_scoped_memory_configs");
+      if (it == json.end() || !it->is_array()) {
+        continue;
+      }
+
+      for (const auto& entry : *it) {
+        if (get_int64(entry, "memory_space") == memory_color) {
+          int64_t size = get_int64(entry, "size");
+          if (size > max_scoped_bytes) {
+            max_scoped_bytes = size;
+            max_instruction_name = instruction.name();
+          }
+        }
+      }
+    }
+  }
+  return {max_scoped_bytes, max_instruction_name};
+}
+
 void GeneratePreprocessResult(const HloProtoBufferWrapper& wrapper,
                               const HeapSimulatorStats& simulator_stats,
                               const PeakUsageSnapshot& peak_snapshot,
@@ -1063,6 +1138,7 @@ void GeneratePreprocessResult(const HloProtoBufferWrapper& wrapper,
                             add_mib);
   result->set_peak_unpadded_heap_mib(
       BytesToMiB(simulator_stats.peak_unpadded_heap_size_bytes) + add_mib);
+
   result->set_peak_heap_size_position(simulator_stats.peak_heap_size_position);
 
   // Build buffer lifespan.
@@ -1075,6 +1151,17 @@ void GeneratePreprocessResult(const HloProtoBufferWrapper& wrapper,
 
   NoteSpecialAllocations(wrapper, memory_color, peak_snapshot.small_buffer_size,
                          result);
+
+  // Compute scoped VMEM allocation as a separate metric. We do NOT add it to
+  // peak_heap_mib or total_buffer_allocation_mib because the frontend derives
+  // HLO temp, fragmentation, and padding metrics from those fields. The
+  // frontend header adds scoped to the display values directly.
+  auto [scoped_bytes, scoped_instruction_name] =
+      ComputeMaxScopedAllocationBytes(wrapper.GetHloProto(), memory_color);
+  if (scoped_bytes > 0) {
+    result->set_max_scoped_vmem_allocation_mib(BytesToMiB(scoped_bytes));
+    result->set_max_scoped_vmem_instruction_name(scoped_instruction_name);
+  }
 }
 
 }  // namespace

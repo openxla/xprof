@@ -52,6 +52,9 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   hloTempSizeWithoutFragmentationMiB = '';
   hloTempSizeWithFragmentationMiB = '';
   hloTempFragmentation = '';
+  maxScopedVmemAllocationMiB = '';
+  maxScopedVmemInstructionName = '';
+
   timelineUrl = '';
   usage?: MemoryUsage;
   heapSizes: number[] = [];
@@ -206,10 +209,22 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
     this.timelineUrl = this.usage.timelineUrl;
 
-    this.totalBufferAllocationMiB =
-        utils.bytesToMiB(this.usage.totalBufferAllocationBytes).toFixed(2);
-    this.peakHeapSizeMiB =
-        utils.bytesToMiB(this.usage.peakHeapSizeBytes).toFixed(2);
+    if (this.usage.maxScopedVmemAllocationBytes > 0) {
+      // For VMEM: show HLO temp + scoped. We use hloTemp* (which subtracts
+      // indefinite) rather than the raw proto values, because the raw proto
+      // values include indefinite buffers that don't consume VMEM.
+      this.totalBufferAllocationMiB =
+          utils.bytesToMiB(this.usage.hloTempSizeWithFragmentationBytes +
+              this.usage.maxScopedVmemAllocationBytes).toFixed(2);
+      this.peakHeapSizeMiB =
+          utils.bytesToMiB(this.usage.hloTempSizeWithoutFragmentationBytes +
+              this.usage.maxScopedVmemAllocationBytes).toFixed(2);
+    } else {
+      this.totalBufferAllocationMiB =
+          utils.bytesToMiB(this.usage.totalBufferAllocationBytes).toFixed(2);
+      this.peakHeapSizeMiB =
+          utils.bytesToMiB(this.usage.peakHeapSizeBytes).toFixed(2);
+    }
     this.paddingOverhead =
         utils.bytesToMiB(this.usage.paddingOverhead).toFixed(2);
     this.totalArgumentSizeBytes =
@@ -222,9 +237,17 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
             .toFixed(2);
     this.hloTempFragmentation =
         (this.usage.hloTempFragmentation * 100.0).toFixed(2);
+    this.maxScopedVmemAllocationMiB =
+        utils.bytesToMiB(this.usage.maxScopedVmemAllocationBytes).toFixed(2);
+    this.maxScopedVmemInstructionName =
+        this.usage.maxScopedVmemInstructionName || '';
+
     this.heapSizes = this.usage.heapSizes || [];
     this.unpaddedHeapSizes = this.usage.unpaddedHeapSizes || [];
     this.hloInstructionNames = this.usage.hloInstructionNames || [];
+    // peakInfo uses the raw heap sim peak (excludes scoped) because it marks
+    // the peak position on the program order chart, which visualizes the heap
+    // simulation timeline — scoped allocations are not part of that timeline.
     this.peakInfo = {
       size: utils.bytesToMiB(this.usage.peakHeapSizeBytes),
       alloc: this.usage.peakHeapSizePosition + 1,

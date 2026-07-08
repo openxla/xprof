@@ -21,6 +21,8 @@ export class MemoryUsage {
   hloTempSizeWithFragmentationBytes: number;
   hloTempFragmentation: number;
   totalArgumentSizeBytes: number;
+  maxScopedVmemAllocationBytes: number;
+  maxScopedVmemInstructionName: string;
   peakLogicalBuffers: number[];
   peakHeapSizePosition: number;
   indefiniteMemoryUsageBytes: MemoryUsageBytes;
@@ -58,6 +60,8 @@ export class MemoryUsage {
     this.hloTempSizeWithFragmentationBytes = 0;
     this.hloTempFragmentation = 0;
     this.totalArgumentSizeBytes = 0;
+    this.maxScopedVmemAllocationBytes = 0;
+    this.maxScopedVmemInstructionName = '';
     this.peakLogicalBuffers = [];
     this.peakHeapSizePosition = 0;
     this.indefiniteMemoryUsageBytes = {padded: 0, unpadded: 0};
@@ -138,6 +142,10 @@ export class MemoryUsage {
       this.hloTempFragmentation =
           fragmentationSizeBytes / this.hloTempSizeWithFragmentationBytes;
     }
+    this.maxScopedVmemAllocationBytes =
+        (preprocess.maxScopedVmemAllocationMib || 0) * 1024 * 1024;
+    this.maxScopedVmemInstructionName =
+        preprocess.maxScopedVmemInstructionName || '';
 
     this.peakHeapSizePosition = (preprocess.peakHeapSizePosition || 0);
     this.heapSizes = preprocess.heapSizes || [];

@@ -64,4 +64,6 @@ export interface PreprocessResult {
   indefiniteBufferAllocationMib?: /* double */ number;
   indefiniteLifetimes?: BufferAllocation[];
   allocationTimeline?: string;
+  maxScopedVmemAllocationMib?: /* double */ number;
+  maxScopedVmemInstructionName?: string;
 }

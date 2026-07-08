@@ -1917,6 +1917,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":graphviz_helper",
+        "@com_github_nlohmann_json//:json",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
@@ -1933,6 +1934,7 @@ cc_library(
         "@xla//xla:xla_data_proto_cc",
         "@xla//xla/service:buffer_assignment",
         "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/service:hlo_proto_util",
         "@xla//xla/tsl/platform:errors",
         "@xla//xla/tsl/platform:statusor",
         "@xla//xla/tsl/platform:types",

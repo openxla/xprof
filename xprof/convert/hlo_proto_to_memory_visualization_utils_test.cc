@@ -675,6 +675,221 @@ TEST(MemoryViewerTest, TestLogicalBuffersDoNotOverlap) {
   verify_no_overlap(kHLOChronological);
 }
 
+// VMEM HLO proto with scoped allocation in backend_config.
+// 1 buffer allocation of 1MB in VMEM (color=1).
+// 2 logical buffers, each 0.5MB.
+// fusion.1 has a 1MB scoped VMEM allocation.
+static constexpr char kHLOVmemWithScoped[] = R"pb(
+  hlo_module {
+    name: "test_module"
+    entry_computation_name: "test_computation"
+    computations {
+      name: "test_computation"
+      instructions {
+        name: "fusion.1"
+        id: 0
+        backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"1048576\"}]}"
+        shape { tuple_shapes { element_type: U64 } }
+      }
+      instructions {
+        name: "fusion.2"
+        id: 1
+        shape { tuple_shapes { element_type: U64 } }
+      }
+    }
+  }
+  buffer_assignment {
+    buffer_allocations {
+      index: 0
+      size: 1048576
+      color: 1
+      assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+      assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
+    }
+    logical_buffers {
+      id: 1
+      size: 524288
+      color: 1
+      defined_at { instruction_id: 0 shape_index: 0 }
+    }
+    logical_buffers {
+      id: 2
+      size: 524288
+      color: 1
+      defined_at { instruction_id: 1 shape_index: 0 }
+    }
+    heap_simulator_traces {
+      events { kind: ALLOC buffer_id: 1 }
+      events { kind: ALLOC buffer_id: 2 }
+      events { kind: FREE buffer_id: 1 }
+      events { kind: FREE buffer_id: 2 }
+    }
+  }
+)pb";
+
+TEST(MemoryViewerTest, ScopedVmemAllocation_SingleInstruction) {
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOVmemWithScoped, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 1.0);
+  EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.1");
+}
+
+TEST(MemoryViewerTest, ScopedVmemAllocation_MaxAcrossInstructions) {
+  // Two instructions with different scoped VMEM sizes.
+  // fusion.1 has 1MB, fusion.2 has 2MB. Should pick fusion.2.
+  static constexpr char kHLOVmemTwoScoped[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "fusion.1"
+          id: 0
+          backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"1048576\"}]}"
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "fusion.2"
+          id: 1
+          backend_config: "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\",\"size\":\"2097152\"}]}"
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+        assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
+      }
+      logical_buffers {
+        id: 1
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 2 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHLOVmemTwoScoped, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 2.0);
+  EXPECT_EQ(result.max_scoped_vmem_instruction_name(), "fusion.2");
+}
+
+TEST(MemoryViewerTest, ScopedVmemAllocation_NoScopedConfigs) {
+  // VMEM HLO with no used_scoped_memory_configs in backend_config.
+  static constexpr char kHLOVmemNoScoped[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "fusion.1"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "fusion.2"
+          id: 1
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+        assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
+      }
+      logical_buffers {
+        id: 1
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 2 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHLOVmemNoScoped, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
+}
+
+TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
+  // Even if instructions have scoped configs, HBM (color=0) should not report
+  // scoped allocations because ComputeMaxScopedAllocationBytes is VMEM-only.
+  static constexpr char kHeapSimulatorTrace[] = R"pb(
+    events { kind: ALLOC buffer_id: 1 }
+    events { kind: ALLOC buffer_id: 2 }
+    events { kind: FREE buffer_id: 1 }
+    events { kind: FREE buffer_id: 2 }
+  )pb";
+  std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  // Inject a backend_config with scoped VMEM into the first instruction.
+  hlo_proto.mutable_hlo_module()
+      ->mutable_computations(0)
+      ->mutable_instructions(0)
+      ->set_backend_config(
+          "{\"used_scoped_memory_configs\":[{\"memory_space\":\"1\","
+          "\"size\":\"1048576\"}]}");
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 0;  // HBM
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                       ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

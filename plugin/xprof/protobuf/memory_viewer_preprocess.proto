@@ -105,6 +105,15 @@ message PreprocessResult {
   // total size of indefinite/global buffer allocations.
   double indefinite_buffer_allocation_mib = 19;
 
+  // Max scoped VMEM allocation across all instructions (MiB).
+  // Scoped allocations are pre-reserved VMEM regions used during instruction
+  // execution (e.g., for collective operations). They are not tracked by the
+  // heap simulator but contribute to total VMEM usage.
+  double max_scoped_vmem_allocation_mib = 21;
+
+  // Name of the HLO instruction with the largest scoped VMEM allocation.
+  string max_scoped_vmem_instruction_name = 22;
+
   repeated BufferAllocation indefinite_lifetimes = 16;
 
   string allocation_timeline = 17;

@@ -93,6 +93,10 @@ fi
 
 # Copy static files.
 cd xprof
+mkdir -p utils
+cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v7x.h" utils/
+cp "${ROOT_RUNFILE_DIR}/xprof/utils/tpu_counter_ids_v6e.h" utils/
+
 mkdir -p static
 cd static
 cp "$PLUGIN_RUNFILE_DIR/xprof/static/index.html" .

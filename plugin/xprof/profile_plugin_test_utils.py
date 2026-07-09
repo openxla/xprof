@@ -23,7 +23,7 @@ import dataclasses
 from typing import Any, Callable, Sequence
 
 from etils import epath
-from werkzeug import Request
+from werkzeug import wrappers
 
 from xprof import profile_plugin
 from xprof import version
@@ -104,6 +104,8 @@ class DataRequestOptions:
     search_metadata: Whether to search event metadata.
     format: Data format, e.g., 'pb'.
     event_name: Name of the event to select.
+    names_only: Whether to only return counter names instead of full data.
+    device_type: Device type for perf counter names, e.g., 'v7x'.
   """
 
   run: str | None = None
@@ -119,9 +121,11 @@ class DataRequestOptions:
   search_metadata: str | None = None
   format: str | None = None
   event_name: str | None = None
+  names_only: str | None = None
+  device_type: str | None = None
 
 
-def make_data_request(options: DataRequestOptions) -> Request:
+def make_data_request(options: DataRequestOptions) -> wrappers.Request:
   """Creates a werkzeug.Request to pass as argument to ProfilePlugin.data_impl.
 
   Args:
@@ -130,7 +134,7 @@ def make_data_request(options: DataRequestOptions) -> Request:
   Returns:
     A werkzeug.Request to pass to ProfilePlugin.data_impl.
   """
-  req = Request({})
+  req = wrappers.Request({})
   req.args = {}
   if options.run:
     req.args['run'] = options.run
@@ -158,4 +162,8 @@ def make_data_request(options: DataRequestOptions) -> Request:
     req.args['format'] = options.format
   if options.event_name is not None:
     req.args['event_name'] = options.event_name
+  if options.names_only is not None:
+    req.args['names_only'] = options.names_only
+  if options.device_type:
+    req.args['device_type'] = options.device_type
   return req

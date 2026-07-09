@@ -750,6 +750,15 @@ xprof_proto_library(
     srcs = ["backend_configs.proto"],
 )
 
+filegroup(
+    name = "tpu_counter_ids_headers",
+    srcs = [
+        "tpu_counter_ids_v6e.h",
+        "tpu_counter_ids_v7x.h",
+    ],
+    visibility = ["//plugin:internal"],
+)
+
 cc_library(
     name = "tpu_counter_ids_v7x",
     hdrs = ["tpu_counter_ids_v7x.h"],

@@ -377,6 +377,47 @@ class ProfilePluginTest(absltest.TestCase):
           )
       )
 
+  def testDataNamesOnly_HappyPath(self):
+    data, content_type, _ = self.plugin.data_impl(
+        utils.make_data_request(
+            utils.DataRequestOptions(
+                tool='perf_counters', names_only='1', device_type='v7x'
+            )
+        )
+    )
+    self.assertEqual(content_type, 'application/json')
+    names = json.loads(data)
+    self.assertIsInstance(names, list)
+    self.assertNotEmpty(names)
+    self.assertIn('name', names[0])
+    self.assertIn('val', names[0])
+
+  def testDataNamesOnly_MissingDeviceType(self):
+    with self.assertRaisesRegex(ValueError, 'device_type is required'):
+      self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(tool='perf_counters', names_only='1')
+          )
+      )
+
+  def testDataNamesOnly_FileNotFoundFallback(self):
+    with mock.patch.object(
+        profile_plugin.counter_extractor, 'get_all_counters'
+    ) as mock_get_counters:
+      mock_get_counters.side_effect = FileNotFoundError(
+          'Simulated missing file'
+      )
+      data, content_type, _ = self.plugin.data_impl(
+          utils.make_data_request(
+              utils.DataRequestOptions(
+                  tool='perf_counters', names_only='1', device_type='v7x'
+              )
+          )
+      )
+      self.assertEqual(content_type, 'application/json')
+      names = json.loads(data)
+      self.assertEqual(names, [])
+
   def testDataWithCache(self):
     generate_testdata(self.logdir)
     self.multiplexer.AddRunsFromDirectory(self.logdir)

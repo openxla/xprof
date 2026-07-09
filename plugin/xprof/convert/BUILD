@@ -14,6 +14,7 @@ py_library(
     name = "all_libs",
     # strict_deps = False,
     deps = [
+        ":counter_extractor",
         ":raw_to_tool_data",
         ":trace_events_json",
     ],
@@ -56,6 +57,23 @@ py_library(
         ":trace_events_json",
         "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
+    ],
+)
+
+py_library(
+    name = "counter_extractor",
+    srcs = ["counter_extractor.py"],
+    data = ["@org_xprof//xprof/utils:tpu_counter_ids_headers"],
+    # strict_deps = False,
+)
+
+py_test(
+    name = "counter_extractor_test",
+    srcs = ["counter_extractor_test.py"],
+    # strict_deps = False,
+    deps = [
+        ":counter_extractor",
+        "@absl_py//absl/testing:absltest",
     ],
 )
 

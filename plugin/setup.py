@@ -83,6 +83,7 @@ setuptools.setup(
     package_data={
         'xprof': [
             'static/**',
+            'utils/*.h',
             'convert/profiler_plugin_c_api.so',
             'convert/profiler_plugin_c_api.pyd',
             'convert/profiler_plugin_c_api.dylib',

@@ -85,6 +85,7 @@ xprof_ng_module(
 sass_binary(
     name = "framework_op_stats_css",
     src = "framework_op_stats.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

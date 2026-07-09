@@ -39,6 +39,7 @@ xprof_ng_module(
 sass_binary(
     name = "diagnostics_view_css",
     src = "diagnostics_view.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

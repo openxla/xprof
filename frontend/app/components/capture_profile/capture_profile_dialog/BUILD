@@ -48,6 +48,7 @@ xprof_ng_module(
 sass_binary(
     name = "capture_profile_dialog_css",
     src = "capture_profile_dialog.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

@@ -46,6 +46,7 @@ xprof_ng_module(
 sass_binary(
     name = "stack_trace_page_css",
     src = "stack_trace_page.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = ["@org_xprof//frontend/app/styles:common"],

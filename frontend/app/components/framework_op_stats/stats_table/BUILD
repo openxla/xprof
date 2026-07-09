@@ -58,6 +58,7 @@ xprof_ng_module(
 sass_binary(
     name = "stats_table_css",
     src = "stats_table.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

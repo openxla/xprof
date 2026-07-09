@@ -25,6 +25,7 @@ xprof_ng_module(
 sass_binary(
     name = "view_architecture_css",
     src = "view_architecture.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

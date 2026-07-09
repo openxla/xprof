@@ -21,6 +21,7 @@ xprof_ng_module(
 sass_binary(
     name = "message_css",
     src = "message.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [
@@ -61,6 +62,7 @@ xprof_ng_module(
 sass_binary(
     name = "stack_frame_snippet_css",
     src = "stack_frame_snippet.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [
@@ -91,6 +93,7 @@ xprof_ng_module(
 sass_binary(
     name = "stack_trace_snippet_css",
     src = "stack_trace_snippet.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

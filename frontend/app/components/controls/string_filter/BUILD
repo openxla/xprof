@@ -27,6 +27,7 @@ xprof_ng_module(
 sass_binary(
     name = "string_filter_css",
     src = "string_filter.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

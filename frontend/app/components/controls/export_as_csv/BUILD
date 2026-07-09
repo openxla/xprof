@@ -24,6 +24,7 @@ xprof_ng_module(
 sass_binary(
     name = "export_as_csv_css",
     src = "export_as_csv.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

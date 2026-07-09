@@ -59,6 +59,7 @@ xprof_ng_module(
 sass_binary(
     name = "operations_table_css",
     src = "operations_table.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

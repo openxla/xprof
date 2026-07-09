@@ -45,6 +45,7 @@ xprof_ng_module(
 sass_binary(
     name = "memory_timeline_graph_css",
     src = "memory_timeline_graph.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

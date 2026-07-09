@@ -40,6 +40,7 @@ xprof_ng_module(
 sass_binary(
     name = "max_heap_chart_css",
     src = "max_heap_chart.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

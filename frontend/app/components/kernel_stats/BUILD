@@ -68,6 +68,7 @@ xprof_ng_module(
 sass_binary(
     name = "kernel_stats_css",
     src = "kernel_stats.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

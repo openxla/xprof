@@ -118,6 +118,7 @@ xprof_ng_module(
 sass_binary(
     name = "op_profile_common_css",
     src = "op_profile_common.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

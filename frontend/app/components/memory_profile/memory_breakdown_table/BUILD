@@ -48,6 +48,7 @@ xprof_ng_module(
 sass_binary(
     name = "memory_breakdown_table_css",
     src = "memory_breakdown_table.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

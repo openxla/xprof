@@ -47,6 +47,7 @@ xprof_ng_module(
 sass_binary(
     name = "megascale_stats_css",
     src = "megascale_stats.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

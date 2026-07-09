@@ -64,6 +64,7 @@ xprof_ng_module(
 sass_binary(
     name = "sidenav_css",
     src = "sidenav.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

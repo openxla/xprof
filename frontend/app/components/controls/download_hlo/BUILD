@@ -50,6 +50,7 @@ xprof_ng_module(
 sass_binary(
     name = "download_hlo_css",
     src = "download_hlo.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

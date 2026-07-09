@@ -38,6 +38,7 @@ xprof_ng_module(
 sass_binary(
     name = "analysis_summary_css",
     src = "analysis_summary.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

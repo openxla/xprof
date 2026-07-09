@@ -59,6 +59,7 @@ xprof_ng_module(
 sass_binary(
     name = "input_pipeline_css",
     src = "input_pipeline.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

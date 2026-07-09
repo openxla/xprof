@@ -44,6 +44,7 @@ xprof_ng_module(
 sass_binary(
     name = "op_table_entry_css",
     src = "op_table_entry.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

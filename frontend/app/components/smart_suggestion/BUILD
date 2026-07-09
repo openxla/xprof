@@ -29,6 +29,7 @@ xprof_ng_module(
 sass_binary(
     name = "smart_suggestion_view_css",
     src = "smart_suggestion_view.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

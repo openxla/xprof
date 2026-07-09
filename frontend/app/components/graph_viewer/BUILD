@@ -114,6 +114,7 @@ xprof_ng_module(
 sass_binary(
     name = "graph_viewer_css",
     src = "graph_viewer.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

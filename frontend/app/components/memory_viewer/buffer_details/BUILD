@@ -46,6 +46,7 @@ xprof_ng_module(
 sass_binary(
     name = "buffer_details_css",
     src = "buffer_details.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

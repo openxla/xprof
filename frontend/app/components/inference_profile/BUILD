@@ -61,6 +61,7 @@ xprof_ng_module(
 sass_binary(
     name = "inference_profile_css",
     src = "inference_profile.scss",
+    allow_imports = True,
     sourcemap = False,
     deps = [
         "@org_xprof//frontend/app/styles:common",

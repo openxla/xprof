@@ -54,6 +54,7 @@ xprof_ng_module(
 sass_binary(
     name = "device_side_analysis_detail_css",
     src = "device_side_analysis_detail.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

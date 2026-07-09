@@ -38,6 +38,7 @@ xprof_ng_module(
 sass_binary(
     name = "inference_latency_chart_css",
     src = "inference_latency_chart.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

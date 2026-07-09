@@ -51,6 +51,7 @@ xprof_ng_module(
 sass_binary(
     name = "topology_graph_css",
     src = "topology_graph.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

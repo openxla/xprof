@@ -57,6 +57,7 @@ xprof_ng_module(
 sass_binary(
     name = "host_side_analysis_detail_css",
     src = "host_side_analysis_detail.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

@@ -57,6 +57,7 @@ xprof_ng_module(
 sass_binary(
     name = "source_mapper_css",
     src = "source_mapper.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = ["@org_xprof//frontend/app/styles:common"],

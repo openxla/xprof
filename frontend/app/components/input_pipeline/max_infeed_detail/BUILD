@@ -39,6 +39,7 @@ xprof_ng_module(
 sass_binary(
     name = "max_infeed_detail_css",
     src = "max_infeed_detail.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

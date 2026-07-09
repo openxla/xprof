@@ -44,6 +44,7 @@ xprof_ng_module(
 sass_binary(
     name = "host_op_css",
     src = "host_op.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

@@ -56,6 +56,7 @@ xprof_ng_module(
 sass_binary(
     name = "pod_viewer_css",
     src = "pod_viewer.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

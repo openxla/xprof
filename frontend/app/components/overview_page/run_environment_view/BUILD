@@ -40,6 +40,7 @@ xprof_ng_module(
 sass_binary(
     name = "run_environment_view_css",
     src = "run_environment_view.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

@@ -61,6 +61,7 @@ xprof_ng_module(
 sass_binary(
     name = "overview_page_css",
     src = "overview_page.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

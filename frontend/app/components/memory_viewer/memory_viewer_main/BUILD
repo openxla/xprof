@@ -61,6 +61,7 @@ xprof_ng_module(
 sass_binary(
     name = "memory_viewer_main_css",
     src = "memory_viewer_main.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

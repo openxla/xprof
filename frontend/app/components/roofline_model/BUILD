@@ -65,6 +65,7 @@ xprof_ng_module(
 sass_binary(
     name = "roofline_model_css",
     src = "roofline_model.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = ["@org_xprof//frontend/app/styles:common"],

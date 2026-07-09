@@ -44,6 +44,7 @@ xprof_ng_module(
 sass_binary(
     name = "performance_summary_css",
     src = "performance_summary.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

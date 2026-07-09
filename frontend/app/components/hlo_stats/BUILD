@@ -77,6 +77,7 @@ xprof_ng_module(
 sass_binary(
     name = "hlo_stats_css",
     src = "hlo_stats.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

@@ -41,6 +41,7 @@ xprof_ng_module(
 sass_binary(
     name = "memory_profile_summary_css",
     src = "memory_profile_summary.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

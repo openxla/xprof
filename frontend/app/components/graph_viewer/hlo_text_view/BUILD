@@ -52,6 +52,7 @@ xprof_ng_module(
 sass_binary(
     name = "hlo_text_view_css",
     src = "hlo_text_view.scss",
+    allow_imports = True,
     # stack = True,
     sourcemap = False,
     deps = [

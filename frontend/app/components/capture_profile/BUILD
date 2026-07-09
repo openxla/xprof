@@ -52,6 +52,7 @@ xprof_ng_module(
 sass_binary(
     name = "capture_profile_css",
     src = "capture_profile.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

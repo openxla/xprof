@@ -45,6 +45,7 @@ xprof_ng_module(
 sass_binary(
     name = "empty_page_css",
     src = "empty_page.scss",
+    allow_imports = True,
     # stack = False,
     sourcemap = False,
     deps = [

@@ -216,7 +216,8 @@ ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
     const emscripten::val& visible_range_from_url) {
   ParsedTraceEvents result;
-  if (!trace_data.hasOwnProperty("traceEvents")) {
+  if (trace_data.isNull() || trace_data.isUndefined() ||
+      !trace_data.hasOwnProperty("traceEvents")) {
     return result;
   }
 
@@ -300,6 +301,16 @@ void ParseAndProcessTraceEvents(const emscripten::val& trace_data,
   Application::Instance().RequestRedraw();
 }
 
+void SetSearchResultsInWasm(const emscripten::val& trace_data) {
+  if (!Application::Instance().IsInitialized()) {
+    return;
+  }
+  const ParsedTraceEvents parsed_events =
+      ParseTraceEvents(trace_data, emscripten::val::null());
+  Application::Instance().timeline().SetSearchResults(parsed_events);
+  Application::Instance().RequestRedraw();
+}
+
 emscripten::val GetAllFlowCategories() {
   emscripten::val categories = emscripten::val::array();
   for (int i = 0;
@@ -358,6 +369,9 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
 
   emscripten::function("processTraceEvents",
                        &traceviewer::ParseAndProcessTraceEvents);
+
+  emscripten::function("setSearchResultsInWasm",
+                       &traceviewer::SetSearchResultsInWasm);
 
   emscripten::function("getAllFlowCategories",
                        &traceviewer::GetAllFlowCategories);

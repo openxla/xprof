@@ -831,9 +831,6 @@ FlameChartTimelineData CreateTimelineData(
               data.entry_total_times[idx_a] > data.entry_total_times[idx_b]);
     };
 
-    LOG_IF(WARNING, !absl::c_is_sorted(data.events_by_level[i],
-                                       cmp_by_start_asc_then_dur_desc))
-        << "Trace Events not sorted properly for level: " << i;
     absl::c_stable_sort(data.events_by_level[i],
                         cmp_by_start_asc_then_dur_desc);
   }

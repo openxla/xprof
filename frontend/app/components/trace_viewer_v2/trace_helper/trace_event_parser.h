@@ -13,6 +13,9 @@ ParsedTraceEvents ParseTraceEvents(
     const emscripten::val& trace_data,
     const emscripten::val& visible_range_from_url);
 
+// Parses trace data containing search results and updates the timeline.
+void SetSearchResultsInWasm(const emscripten::val& trace_data);
+
 // Converts a string category to its corresponding ContextType enum.
 tsl::profiler::ContextType GetContextTypeFromString(absl::string_view category);
 

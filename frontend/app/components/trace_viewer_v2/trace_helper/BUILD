@@ -169,3 +169,25 @@ cc_test(
         "@tsl//tsl/profiler/lib:context_types",
     ],
 )
+
+wasm_cc_library(
+    name = "trace_event_packer",
+    srcs = ["trace_event_packer.cc"],
+    hdrs = ["trace_event_packer.h"],
+    deps = [
+        ":trace_event",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "trace_event_packer_test",
+    srcs = ["trace_event_packer_test.cc"],
+    deps = [
+        ":trace_event",
+        ":trace_event_packer",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

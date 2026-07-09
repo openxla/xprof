@@ -34,7 +34,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
-#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_packer.h"
 
 namespace traceviewer {
 
@@ -469,91 +469,22 @@ void AppendEventToTimelineData(const TraceEvent* event, int level,
   bounds.max = std::max(bounds.max, event->ts + event->dur);
 }
 
-// Appends the given nodes (an array of trees) to the data, starting at the
-// given level. Returns the maximum level of the nodes.
-int AppendNodesAtLevel(absl::Span<const std::unique_ptr<TraceEventNode>> nodes,
-                       int current_level, FlameChartTimelineData& data,
-                       TimeBounds& bounds, const TraceInformation& trace_info,
-                       absl::string_view thread_name) {
-  struct StackFrame {
-    absl::Span<const std::unique_ptr<TraceEventNode>> nodes;
-    int level;
-  };
-
-  int max_level_overall = current_level;
-  std::vector<StackFrame> stack;
-  if (!nodes.empty()) {
-    stack.push_back({nodes, current_level});
-  }
-
-  while (!stack.empty()) {
-    StackFrame frame = stack.back();
-    stack.pop_back();
-
-    int level = frame.level;
-    max_level_overall = std::max(max_level_overall, level);
-
-    for (const auto& node : frame.nodes) {
-      const TraceEvent* event = node->event;
-
-      AppendEventToTimelineData(event, level, data, bounds, trace_info,
-                                thread_name);
-
-      if (!node->children.empty()) {
-        stack.push_back({node->children, level + 1});
-      }
-    }
-  }
-  return max_level_overall;
-}
-
-void PopulateThreadTrackWithPackedLayout(
-    ProcessId pid, ThreadId tid, absl::Span<const TraceEvent* const> events,
-    int start_level, int& max_level, FlameChartTimelineData& data,
-    TimeBounds& bounds, const TraceInformation& trace_info,
-    const std::string& thread_group_name) {
-  std::vector<const TraceEvent*> sorted_events(events.begin(), events.end());
-  absl::c_sort(sorted_events, [](const TraceEvent* a, const TraceEvent* b) {
-    return a->ts < b->ts;
-  });
-
-  std::vector<Microseconds> row_end_times;
-  for (const TraceEvent* event : sorted_events) {
-    const Microseconds start = event->ts;
-    const Microseconds duration = event->dur;
-    const Microseconds end = start + duration;
-
-    int selected_row = -1;
-    for (size_t i = 0; i < row_end_times.size(); ++i) {
-      if (row_end_times[i] <= start) {
-        selected_row = i;
-        break;
-      }
-    }
-
-    if (selected_row == -1) {
-      row_end_times.push_back(end);
-      selected_row = row_end_times.size() - 1;
-    } else {
-      row_end_times[selected_row] = end;
-    }
-
-    int absolute_level = start_level + selected_row;
+// Packs trace events for a thread track and appends them to data (inout).
+// Updates max_level (inout) if any packed event exceeds it, and expands
+// bounds (inout) to include the start and end timestamps of all appended
+// events.
+void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
+                               int start_level, int& max_level,
+                               FlameChartTimelineData& data, TimeBounds& bounds,
+                               const TraceInformation& trace_info,
+                               absl::string_view thread_group_name) {
+  std::vector<PackedEvent> packed_events = PackTraceEvents(events);
+  for (const PackedEvent& packed : packed_events) {
+    const int absolute_level = start_level + packed.level;
     max_level = std::max(max_level, absolute_level);
-
-    AppendEventToTimelineData(event, absolute_level, data, bounds, trace_info,
-                              thread_group_name);
+    AppendEventToTimelineData(packed.event, absolute_level, data, bounds,
+                              trace_info, thread_group_name);
   }
-}
-
-void PopulateThreadTrackWithTreeLayout(
-    ProcessId pid, ThreadId tid, absl::Span<const TraceEvent* const> events,
-    int current_level, int& max_level, FlameChartTimelineData& data,
-    TimeBounds& bounds, const TraceInformation& trace_info,
-    const std::string& thread_group_name) {
-  TraceEventTree event_tree = BuildTree(events);
-  max_level = AppendNodesAtLevel(event_tree.roots, current_level, data, bounds,
-                                 trace_info, thread_group_name);
 }
 
 void PopulateThreadTrack(
@@ -587,15 +518,8 @@ void PopulateThreadTrack(
   int start_level = current_level;
   int max_level = start_level;
 
-  if (custom_name.has_value()) {
-    PopulateThreadTrackWithPackedLayout(pid, tid, events, start_level,
-                                        max_level, data, bounds, trace_info,
-                                        thread_group_name);
-  } else {
-    PopulateThreadTrackWithTreeLayout(pid, tid, events, current_level,
-                                      max_level, data, bounds, trace_info,
-                                      thread_group_name);
-  }
+  PopulateThreadTrackEvents(events, start_level, max_level, data, bounds,
+                            trace_info, thread_group_name);
 
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
@@ -735,10 +659,10 @@ void PopulateSyncProcessTrack(
     tids.insert(it->first.second);
   }
 
-  for (const auto tid : tids) {
+  for (const ThreadId tid : tids) {
     absl::Span<const TraceEvent* const> events;
     if (it_events != trace_info.events_by_pid_tid.end()) {
-      auto it = it_events->second.find(tid);
+      const auto it = it_events->second.find(tid);
       if (it != it_events->second.end()) {
         events = it->second;
       }

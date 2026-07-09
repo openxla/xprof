@@ -3129,26 +3129,89 @@ TEST_F(DataProviderTest, VerifyEventsByLevelSorting) {
 
   // Verify the levels of each entry.
   // A (0), B (1), C (1), D (2), E (0), F (1).
-  // The entries are appended in the order A, E, F, B, C, D.
-  // Let's verify mapping:
-  // Index 0: A -> ts=100, level=0
-  // Index 1: E -> ts=250, level=0
-  // Index 2: F -> ts=260, level=1
-  // Index 3: B -> ts=110, level=1
-  // Index 4: C -> ts=130, level=1
-  // Index 5: D -> ts=140, level=2
-  EXPECT_THAT(data.entry_levels, ElementsAre(0, 0, 1, 1, 1, 2));
+  // Entries are appended chronologically: A, B, C, D, E, F.
+  //   Index 0: A -> ts=100, level=0
+  //   Index 1: B -> ts=110, level=1
+  //   Index 2: C -> ts=130, level=1
+  //   Index 3: D -> ts=140, level=2
+  //   Index 4: E -> ts=250, level=0
+  //   Index 5: F -> ts=260, level=1
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 1, 2, 0, 1));
 
   ASSERT_THAT(data.events_by_level, SizeIs(3));
 
-  // Level 0 should contain A (0) and E (1).
-  EXPECT_THAT(data.events_by_level[0], ElementsAre(0, 1));
+  // Level 0 should contain A (0) and E (4).
+  EXPECT_THAT(data.events_by_level[0], ElementsAre(0, 4));
 
-  // Level 1 should contain B (3), C (4), and F (2), sorted by start time.
-  EXPECT_THAT(data.events_by_level[1], ElementsAre(3, 4, 2));
+  // Level 1 should contain B (1), C (2), and F (5), sorted by start time.
+  EXPECT_THAT(data.events_by_level[1], ElementsAre(1, 2, 5));
 
-  // Level 2 should contain D (5).
-  EXPECT_THAT(data.events_by_level[2], ElementsAre(5));
+  // Level 2 should contain D (3).
+  EXPECT_THAT(data.events_by_level[2], ElementsAre(3));
+}
+
+TEST_F(DataProviderTest, PopulateSyncThreadTrackWithOverlapPreserved) {
+  // Sync events (is_async = false) that overlap but are not nested.
+  // Event A: [100, 200], Event B: [150, 250]
+  // Both should be preserved and placed on different levels.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_101"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "EventA",
+       .ts = 100.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "EventB",
+       .ts = 150.0,
+       .dur = 100.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  EXPECT_THAT(data.entry_names, UnorderedElementsAre("EventA", "EventB"));
+
+  // They should be on different levels because they overlap.
+  // And they should be sorted by start time.
+  // EventA (100) -> level 0
+  // EventB (150) -> level 1
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
+}
+
+TEST_F(DataProviderTest, PopulateSyncThreadTrackWithNestedSameStartTieBreaker) {
+  // Nested events that start at the same time.
+  // Event A: [100, 200] (parent)
+  // Event B: [100, 150] (child)
+  // Event A to be at level 0, and Event B at level 1.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 101, "Thread_101"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "EventB",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "EventA",
+       .ts = 100.0,
+       .dur = 100.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  EXPECT_THAT(data.entry_names, ElementsAre("EventA", "EventB"));
+
+  // EventA should be level 0, EventB level 1.
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
 }
 
 }  // namespace

@@ -249,6 +249,7 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(1000.0, 1100.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(200.0, 300.0));
+  EXPECT_THAT(data.entry_self_times, ElementsAre(200.0, 300.0));
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
   EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 2"));
 
@@ -296,6 +297,7 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 110.0, 120.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(100.0, 50.0, 20.0));
+  EXPECT_THAT(data.entry_self_times, ElementsAre(50.0, 30.0, 20.0));
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
   EXPECT_THAT(data.entry_names, ElementsAre("Event A", "Event B", "Event C"));
 
@@ -307,6 +309,33 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
 
   EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 200.0);
+}
+
+TEST_F(DataProviderTest, ProcessOverlappingNonNestedEvents) {
+  const std::vector<TraceEvent> events = {{.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event A",
+                                           .ts = 100.0,
+                                           .dur = 50.0},
+                                          {.ph = Phase::kComplete,
+                                           .pid = 1,
+                                           .tid = 101,
+                                           .name = "Event B",
+                                           .ts = 120.0,
+                                           .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+
+  ASSERT_THAT(data.groups, SizeIs(2));
+  EXPECT_EQ(data.groups[1].name, "Thread_101");
+
+  EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 120.0));
+  EXPECT_THAT(data.entry_total_times, ElementsAre(50.0, 50.0));
+  EXPECT_THAT(data.entry_self_times, ElementsAre(50.0, 50.0));
+  EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
 }
 
 TEST_F(DataProviderTest, ProcessNonOverlappingCompleteEventsSameThread) {

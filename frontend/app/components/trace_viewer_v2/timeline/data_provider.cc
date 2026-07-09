@@ -35,6 +35,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_packer.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_tree.h"
 
 namespace traceviewer {
 
@@ -376,10 +377,11 @@ void GenerateFlowLines(const TraceInformation& trace_info,
   }
 }
 
-void AppendEventToTimelineData(const TraceEvent* event, int level,
-                               FlameChartTimelineData& data, TimeBounds& bounds,
-                               const TraceInformation& trace_info,
-                               absl::string_view thread_name) {
+void AppendEventToTimelineData(
+    const TraceEvent* event, int level, FlameChartTimelineData& data,
+    TimeBounds& bounds, const TraceInformation& trace_info,
+    absl::string_view thread_name,
+    std::optional<Microseconds> self_time = std::nullopt) {
   static const absl::NoDestructor<std::string> kHloOpStr(kHloOp);
   static const absl::NoDestructor<std::string> kHloModuleStr(kHloModule);
   static const absl::NoDestructor<std::string> kHloModuleDefaultStr(
@@ -392,6 +394,7 @@ void AppendEventToTimelineData(const TraceEvent* event, int level,
 
   data.entry_start_times.push_back(event->ts);
   data.entry_total_times.push_back(event->dur);
+  data.entry_self_times.push_back(self_time.value_or(event->dur));
   data.entry_levels.push_back(level);
   data.entry_names.push_back(event->name);
   data.entry_event_ids.push_back(event->event_id);
@@ -478,12 +481,33 @@ void PopulateThreadTrackEvents(absl::Span<const TraceEvent* const> events,
                                FlameChartTimelineData& data, TimeBounds& bounds,
                                const TraceInformation& trace_info,
                                absl::string_view thread_group_name) {
+  TraceEventTree tree = BuildTree(events);
+  absl::flat_hash_map<const TraceEvent*, Microseconds> self_times;
+  self_times.reserve(events.size());
+  std::vector<const TraceEventNode*> node_stack;
+  node_stack.reserve(events.size());
+  for (const auto& root : tree.roots) {
+    node_stack.push_back(root.get());
+  }
+  while (!node_stack.empty()) {
+    const TraceEventNode* node = node_stack.back();
+    node_stack.pop_back();
+    self_times[node->event] = node->self_time;
+    for (const auto& child : node->children) {
+      node_stack.push_back(child.get());
+    }
+  }
+
   std::vector<PackedEvent> packed_events = PackTraceEvents(events);
   for (const PackedEvent& packed : packed_events) {
     const int absolute_level = start_level + packed.level;
     max_level = std::max(max_level, absolute_level);
+    std::optional<Microseconds> self_time = std::nullopt;
+    if (auto it = self_times.find(packed.event); it != self_times.end()) {
+      self_time = it->second;
+    }
     AppendEventToTimelineData(packed.event, absolute_level, data, bounds,
-                              trace_info, thread_group_name);
+                              trace_info, thread_group_name, self_time);
   }
 }
 

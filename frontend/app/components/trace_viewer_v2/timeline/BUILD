@@ -115,6 +115,7 @@ wasm_cc_library(
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_packer",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event_tree",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],
 )

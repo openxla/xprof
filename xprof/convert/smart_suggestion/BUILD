@@ -43,6 +43,7 @@ cc_library(
         ":signal_provider",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -222,6 +223,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -277,8 +279,8 @@ cc_library(
         ":input_bound_rule",
         ":memory_bound_rule",
         ":smart_suggestion_rule_factory",
-        ":sparse_core_offload_rule",
         ":tensor_core_idle_bound_rule",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 
@@ -337,6 +339,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//plugin/xprof/protobuf:smart_suggestion_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 

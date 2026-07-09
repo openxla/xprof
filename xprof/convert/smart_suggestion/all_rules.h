@@ -26,7 +26,6 @@ limitations under the License.
 #include "xprof/convert/smart_suggestion/input_bound_rule.h"
 #include "xprof/convert/smart_suggestion/memory_bound_rule.h"
 #include "xprof/convert/smart_suggestion/smart_suggestion_rule_factory.h"
-#include "xprof/convert/smart_suggestion/sparse_core_offload_rule.h"
 #include "xprof/convert/smart_suggestion/tensor_core_idle_bound_rule.h"
 
 namespace tensorflow {
@@ -44,7 +43,6 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
   f->Register<HostProcessingBoundRule>();
   f->Register<InputBoundRule>();
   f->Register<MemoryBoundRule>();
-  f->Register<SparseCoreOffloadRule>();
   f->Register<TensorCoreIdleBoundRule>();
   // go/keep-sorted end
 }
@@ -53,7 +51,6 @@ inline void RegisterAllRules(SmartSuggestionRuleFactory* f) {
 inline void RegisterAllRulesFor3P(SmartSuggestionRuleFactory* f) {
   // go/keep-sorted start
   f->Register<BarrierCoresRule>();
-  // TODO Enable SparseCoreOffloadRule for 3P.
   // go/keep-sorted end
 }
 

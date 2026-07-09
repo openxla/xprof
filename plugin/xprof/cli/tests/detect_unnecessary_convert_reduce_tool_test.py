@@ -693,7 +693,7 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     )
     self.assertTrue(is_ineff)
     self.assertTrue(is_low)
-    self.assertIn("Keep intermediate reduction calculation", rec)
+    self.assertEqual(rec, "")
     self.assertIn("Low priority", warn)
 
     # Norm context in training gets silently skipped
@@ -743,6 +743,39 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     self.assertTrue(is_ineff)
     self.assertIn("Keep intermediate reduction calculation", rec)
     self.assertIn("Warning: The reduction size is large", warn)
+
+  def test_deep_graph_recursion_limit(self):
+    # Generates a very deep computation chain to verify the iterative
+    # implementation does not hit RecursionError (which recursive DFS would
+    # do for depth > 1000).
+    lines = [
+        "HloModule deep_module",
+        "ENTRY entry_computation {",
+        "  p0 = f16[10] parameter(0)",
+        "  c0 = f32[10] convert(p0)",
+    ]
+
+    # Add 1100 intermediate dummy element-wise operations (abs) to create depth
+    prev = "c0"
+    for i in range(1, 1100):
+      curr = f"x_{i}"
+      lines.append(f"  {curr} = f32[10] abs({prev})")
+      prev = curr
+
+    lines.append(f"  ROOT r = f32[10] abs({prev})")
+    lines.append("}")
+
+    hlo_text = "\n".join(lines)
+    proto = _parse_hlo_text_to_proto(hlo_text)
+    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
+
+    # We trace from the ROOT instruction id
+    root_id = proto.computations[0].root_id
+
+    # This should run without throwing RecursionError!
+    upcast_instr = tracer.trace_upcast(root_id)
+    self.assertIsNotNone(upcast_instr)
+    self.assertEqual(upcast_instr.opcode, "convert")
 
 
 if __name__ == "__main__":

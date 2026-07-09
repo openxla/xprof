@@ -5,6 +5,7 @@ from collections.abc import Callable
 import enum
 import json
 import logging
+import time
 from typing import Any
 
 from xprof.cli.internal.oss import hlo_tools
@@ -176,224 +177,225 @@ class _HloModuleTracer:
 
     return _ReductionContext.GENERAL
 
-  def trace_upcast(
-      self,
-      start_instr_id: int,
-  ) -> Any | None:
-    """Traces upstream to find convert(bf16 -> f32)."""
-    return self._trace_upcast(start_instr_id, tuple_index=None, visited=set())
+  def trace_upcast(self, start_instr_id: int) -> Any | None:
+    """Traces upstream from an instruction to locate an F32 upcast."""
+    # Stack holds: (instruction_id, tuple_index, call_stack)
+    # call_stack tracks active fusion callers to prevent context-sensitivity
+    # collision.
+    stack = [(start_instr_id, None, ())]
 
-  def _trace_upcast(
-      self,
-      start_instr_id: int,
-      tuple_index: int | None,
-      visited: set[int],
-  ) -> Any | None:
-    """Internal recursive tracing upstream to find convert(bf16 -> f32)."""
+    # FIX: Track (instruction_id, tuple_index) to prevent cycle detection
+    # collision across different tuple elements of a shared tuple.
+    visited = set()
 
-    if start_instr_id in visited:
-      return None
-    visited.add(start_instr_id)
+    while stack:
+      curr_id, tuple_index, call_stack = stack.pop()
 
-    instr = self.instructions.get(start_instr_id)
-    if not instr:
-      return None
-
-    opcode = instr.opcode.lower()
-    if opcode not in _ALLOWED_TRACING_OPCODES:
-      return None
-
-    # Found an upcast (bf16/f16 -> f32) Convert op
-    if opcode == "convert":
-      if tuple_index is None and instr.shape.element_type == _F32_TYPE:
-        if instr.operand_ids:
-          operand_instr = self.instructions.get(instr.operand_ids[0])
-          if operand_instr and operand_instr.shape.element_type in {
-              _BF16_TYPE,
-              _F16_TYPE,
-          }:
-            return instr
-
-    elif opcode == "get-tuple-element":
-      if instr.operand_ids:
-        return self._trace_upcast(
-            instr.operand_ids[0], tuple_index=instr.tuple_index, visited=visited
-        )
-
-    elif opcode == "tuple":
-      if tuple_index is not None and tuple_index < len(instr.operand_ids):
-        return self._trace_upcast(
-            instr.operand_ids[tuple_index], tuple_index=None, visited=visited
-        )
-
-    elif opcode == "parameter":
-      comp_id = self.instruction_to_computation.get(instr.id)
-      if comp_id is not None:
-        fusion_caller = self.fusion_callers.get(comp_id)
-        if fusion_caller:
-          _, caller_instr = fusion_caller
-          if instr.parameter_number < len(caller_instr.operand_ids):
-            return self._trace_upcast(
-                caller_instr.operand_ids[instr.parameter_number],
-                tuple_index=tuple_index,
-                visited=visited,
-            )
-
-    elif opcode == "fusion":
-      if instr.called_computation_ids:
-        comp = self.computations.get(instr.called_computation_ids[0])
-        if comp:
-          return self._trace_upcast(
-              comp.root_id, tuple_index=tuple_index, visited=visited
-          )
-
-    # Element-wise math and shape changes pass-through
-    for op_id in instr.operand_ids:
-      op_instr = self.instructions.get(op_id)
-      if op_instr and op_instr.opcode.lower() == "constant":
+      state_key = (curr_id, tuple_index)
+      if state_key in visited:
         continue
-      res = self._trace_upcast(op_id, tuple_index, visited)
-      if res is not None:
-        return res
+      visited.add(state_key)
+
+      instr = self.instructions.get(curr_id)
+      if not instr:
+        continue
+
+      opcode = instr.opcode.lower()
+      if opcode not in _ALLOWED_TRACING_OPCODES:
+        continue
+
+      handled = False
+
+      # 1. Match Convert Pattern
+      if opcode == "convert":
+        if tuple_index is None and instr.shape.element_type == _F32_TYPE:
+          if instr.operand_ids:
+            operand_instr = self.instructions.get(instr.operand_ids[0])
+            if operand_instr and operand_instr.shape.element_type in {
+                _BF16_TYPE,
+                _F16_TYPE,
+            }:
+              return instr
+
+      # 2. Get-Tuple-Element Unpacking
+      elif opcode == "get-tuple-element":
+        if instr.operand_ids:
+          stack.append((instr.operand_ids[0], instr.tuple_index, call_stack))
+          handled = True
+
+      # 3. Tuple Packing
+      elif opcode == "tuple":
+        if tuple_index is not None:
+          if tuple_index < len(instr.operand_ids):
+            stack.append((instr.operand_ids[tuple_index], None, call_stack))
+          # FIX: If tuple_index is out-of-bounds, mark handled to stop
+          # incorrect fallthrough.
+          handled = True
+
+      # 4. Exiting Fusion (Parameter mapped to Caller Operands)
+      elif opcode == "parameter":
+        # FIX: Use dynamic call stack for context-sensitive mapping if available
+        if call_stack:
+          caller_id = call_stack[-1]
+          caller_instr = self.instructions.get(caller_id)
+          if caller_instr and instr.parameter_number < len(
+              caller_instr.operand_ids
+          ):
+            stack.append((
+                caller_instr.operand_ids[instr.parameter_number],
+                tuple_index,
+                call_stack[:-1],
+            ))
+            handled = True
+        else:
+          # Fall back to static map if call_stack is empty (e.g. trace started
+          # inside fusion).
+          comp_id = self.instruction_to_computation.get(instr.id)
+          if comp_id is not None:
+            fusion_caller = self.fusion_callers.get(comp_id)
+            if fusion_caller:
+              _, caller_instr = fusion_caller
+              if instr.parameter_number < len(caller_instr.operand_ids):
+                stack.append((
+                    caller_instr.operand_ids[instr.parameter_number],
+                    tuple_index,
+                    (),
+                ))
+                handled = True
+
+      # 5. Entering Fusion (Fusion mapped to called Computation Root)
+      elif opcode == "fusion":
+        if instr.called_computation_ids:
+          comp = self.computations.get(instr.called_computation_ids[0])
+          if comp:
+            stack.append((comp.root_id, tuple_index, call_stack + (instr.id,)))
+            handled = True
+
+      # 6. Fallback General Operations (Element-wise and Shapes)
+      if not handled:
+        # Push operands in reversed order to preserve left-to-right DFS
+        # traversal order.
+        for op_id in reversed(instr.operand_ids):
+          op_instr = self.instructions.get(op_id)
+          if op_instr and op_instr.opcode.lower() == "constant":
+            continue
+          stack.append((op_id, tuple_index, call_stack))
 
     return None
 
-  def trace_downcast(
-      self,
-      start_instr_id: int,
-  ) -> bool:
-    """Traces downstream to find convert(f32 -> bf16/f16)."""
-    return self._trace_downcast(
-        start_instr_id, tuple_index=None, prev_instr_id=None, visited=set()
-    )
+  def trace_downcast(self, start_instr_id: int) -> bool:
+    """Traces downstream from an instruction to locate a downcast to BF16/F16."""
+    # Stack holds: (instruction_id, tuple_index, prev_instruction_id,
+    # call_stack)
+    stack = [(start_instr_id, None, None, ())]
+    visited = set()  # holds (instruction_id, tuple_index)
 
-  def _trace_downcast(
-      self,
-      start_instr_id: int,
-      tuple_index: int | None,
-      prev_instr_id: int | None,
-      visited: set[tuple[int, int | None]],
-  ) -> bool:
-    """Internal recursive tracing downstream to find convert(f32 -> bf16/f16)."""
+    while stack:
+      curr_id, tuple_index, prev_instr_id, call_stack = stack.pop()
 
-    state_key = (start_instr_id, tuple_index)
-    if state_key in visited:
-      return False
-    visited.add(state_key)
+      state_key = (curr_id, tuple_index)
+      if state_key in visited:
+        continue
+      visited.add(state_key)
 
-    instr = self.instructions.get(start_instr_id)
-    if not instr:
-      return False
-    opcode = instr.opcode.lower()
-    comp_id = self.instruction_to_computation.get(start_instr_id)
-
-    # Exiting Fusion computation
-    comp = self.computations.get(comp_id) if comp_id is not None else None
-    if comp and start_instr_id == comp.root_id:
-      fusion_caller = self.fusion_callers.get(comp_id)
-      if fusion_caller:
-        _, caller_instr = fusion_caller
-        if opcode == "tuple" and prev_instr_id is not None:
-          indices = [
-              i
-              for i, op_id in enumerate(instr.operand_ids)
-              if op_id == prev_instr_id
-          ]
-          for idx in indices:
-            if self._trace_downcast(
-                caller_instr.id,
-                tuple_index=idx,
-                prev_instr_id=caller_instr.id,
-                visited=visited,
-            ):
-              return True
-        else:
-          if self._trace_downcast(
-              caller_instr.id,
-              tuple_index=tuple_index,
-              prev_instr_id=caller_instr.id,
-              visited=visited,
-          ):
-            return True
-        return False
-
-    if opcode not in _ALLOWED_TRACING_OPCODES:
-      return False
-
-    # Search consumers
-    for consumer in self.consumers.get(start_instr_id, []):
-      consumer_op = consumer.opcode.lower()
-      if consumer_op not in _ALLOWED_TRACING_OPCODES:
+      instr = self.instructions.get(curr_id)
+      if not instr:
         continue
 
-      if consumer_op == "convert":
-        if tuple_index is None:
-          if consumer.shape.element_type in {
-              _BF16_TYPE,
-              _F16_TYPE,
-          }:
-            return True
-        if self._trace_downcast(
-            consumer.id,
-            tuple_index=tuple_index,
-            prev_instr_id=start_instr_id,
-            visited=visited,
-        ):
-          return True
+      opcode = instr.opcode.lower()
+      comp_id = self.instruction_to_computation.get(curr_id)
 
-      elif consumer_op == "get-tuple-element":
-        if tuple_index is None or consumer.tuple_index == tuple_index:
-          if self._trace_downcast(
-              consumer.id,
-              tuple_index=None,
-              prev_instr_id=start_instr_id,
-              visited=visited,
-          ):
-            return True
+      # 1. Exiting Fusion (Root Node of a Computation reached)
+      comp = self.computations.get(comp_id) if comp_id is not None else None
+      if comp and curr_id == comp.root_id:
+        caller_instr = None
+        new_call_stack = call_stack
 
-      elif consumer_op == "tuple":
-        indices = [
-            i
-            for i, op_id in enumerate(consumer.operand_ids)
-            if op_id == start_instr_id
-        ]
-        for idx in indices:
-          if self._trace_downcast(
-              consumer.id,
-              tuple_index=idx,
-              prev_instr_id=start_instr_id,
-              visited=visited,
-          ):
-            return True
+        # FIX: Resolve context using active call stack if available
+        if call_stack:
+          caller_id = call_stack[-1]
+          caller_instr = self.instructions.get(caller_id)
+          new_call_stack = call_stack[:-1]
+        else:
+          # Fall back to static map
+          fusion_caller = self.fusion_callers.get(comp_id)
+          if fusion_caller:
+            _, caller_instr = fusion_caller
 
-      elif consumer_op == "fusion":
-        if consumer.called_computation_ids:
-          called_comp_id = consumer.called_computation_ids[0]
-          if called_comp_id in self.computations:
+        if caller_instr:
+          if opcode == "tuple" and prev_instr_id is not None:
             indices = [
                 i
-                for i, op_id in enumerate(consumer.operand_ids)
-                if op_id == start_instr_id
+                for i, op_id in enumerate(instr.operand_ids)
+                if op_id == prev_instr_id
             ]
-            for idx in indices:
-              param_instr = self.computation_parameters[called_comp_id].get(idx)
-              if param_instr is not None:
-                if self._trace_downcast(
-                    param_instr.id,
-                    tuple_index=tuple_index,
-                    prev_instr_id=start_instr_id,
-                    visited=visited,
-                ):
-                  return True
+            for idx in reversed(indices):
+              stack.append(
+                  (caller_instr.id, idx, caller_instr.id, new_call_stack)
+              )
+          else:
+            stack.append(
+                (caller_instr.id, tuple_index, caller_instr.id, new_call_stack)
+            )
+          continue  # Handoff complete
 
-      else:
-        if self._trace_downcast(
-            consumer.id,
-            tuple_index=tuple_index,
-            prev_instr_id=start_instr_id,
-            visited=visited,
-        ):
-          return True
+      if opcode not in _ALLOWED_TRACING_OPCODES:
+        continue
+
+      # 2. General Consumer Traversal
+      for consumer in reversed(self.consumers.get(curr_id, [])):
+        consumer_op = consumer.opcode.lower()
+        if consumer_op not in _ALLOWED_TRACING_OPCODES:
+          continue
+
+        # A. Match Downcast Pattern
+        if consumer_op == "convert":
+          if tuple_index is None:
+            if consumer.shape.element_type in {_BF16_TYPE, _F16_TYPE}:
+              return True
+          stack.append((consumer.id, tuple_index, curr_id, call_stack))
+
+        # B. Get-Tuple-Element
+        elif consumer_op == "get-tuple-element":
+          if tuple_index is None or consumer.tuple_index == tuple_index:
+            stack.append((consumer.id, None, curr_id, call_stack))
+
+        # C. Tuple Packing
+        elif consumer_op == "tuple":
+          indices = [
+              i
+              for i, op_id in enumerate(consumer.operand_ids)
+              if op_id == curr_id
+          ]
+          for idx in reversed(indices):
+            stack.append((consumer.id, idx, curr_id, call_stack))
+
+        # D. Entering Fusion
+        elif consumer_op == "fusion":
+          if consumer.called_computation_ids:
+            called_comp_id = consumer.called_computation_ids[0]
+            if called_comp_id in self.computations:
+              indices = [
+                  i
+                  for i, op_id in enumerate(consumer.operand_ids)
+                  if op_id == curr_id
+              ]
+              for idx in reversed(indices):
+                param_instr = self.computation_parameters[called_comp_id].get(
+                    idx
+                )
+                if param_instr is not None:
+                  # Add consumer.id (fusion instruction) to call_stack
+                  stack.append((
+                      param_instr.id,
+                      tuple_index,
+                      curr_id,
+                      call_stack + (consumer.id,),
+                  ))
+
+        # E. General Fallback
+        else:
+          stack.append((consumer.id, tuple_index, curr_id, call_stack))
 
     return False
 
@@ -446,7 +448,7 @@ def _evaluate_optimization(
     if context == _ReductionContext.GENERAL:
       return (
           True,
-          rec,
+          "",
           "Low priority: Training upcast detected on a general reduction.",
           True,
       )
@@ -481,8 +483,10 @@ def detect_unnecessary_convert_reduce(
   Returns:
       A JSON string summarizing the findings.
   """
+  total_start_time = time.time()
   try:
     # 1. Fetch Top Ops to drive candidate scanning
+    fetch_top_ops_start_time = time.time()
     try:
       top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
       if not top_ops_json:
@@ -502,8 +506,10 @@ def detect_unnecessary_convert_reduce(
           "inefficient_ops": [],
           "message": f"Failed to fetch top ops: {e}",
       })
+    fetch_top_ops_end_time = time.time()
 
     # 2. Fetch HLO proto for all modules
+    fetch_hlo_proto_start_time = time.time()
     try:
       # pylint: disable=protected-access
       debug_info = hlo_tools._fetch_debug_info(session_id)
@@ -515,6 +521,7 @@ def detect_unnecessary_convert_reduce(
           "inefficient_ops": [],
           "message": f"Failed to fetch debug info: {e}",
       })
+    fetch_hlo_proto_end_time = time.time()
 
     # Map module names and clean keys for lookup
     modules = {}
@@ -533,6 +540,7 @@ def detect_unnecessary_convert_reduce(
     inefficient_ops = []
     tracers = {}
 
+    core_logic_start_time = time.time()
     # 3. Scan and match only the top ops candidates
     for op in top_ops:
       raw_name = op.get("name", "")
@@ -667,6 +675,30 @@ def detect_unnecessary_convert_reduce(
       )
     else:
       message = "No inefficient reduction promotions detected."
+
+    core_logic_end_time = time.time()
+    total_end_time = time.time()
+
+    fetch_top_ops_time_s = fetch_top_ops_end_time - fetch_top_ops_start_time
+    fetch_hlo_proto_time_s = (
+        fetch_hlo_proto_end_time - fetch_hlo_proto_start_time
+    )
+    core_logic_time_s = core_logic_end_time - core_logic_start_time
+    total_time_s = total_end_time - total_start_time
+
+    logging.info(
+        "Convert-reduce type promotion detection metrics - "
+        "Session ID: %s, "
+        "Total wall clock time: %.3fs, "
+        "Fetch top ops time: %.3fs, "
+        "Fetch HLO proto time: %.3fs, "
+        "Core logic processing time: %.3fs",
+        session_id,
+        total_time_s,
+        fetch_top_ops_time_s,
+        fetch_hlo_proto_time_s,
+        core_logic_time_s,
+    )
 
     return json.dumps(
         {

@@ -44,6 +44,7 @@ xprof_ng_module(
         ":trace_viewer_container",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
+        "@npm//@angular/platform-browser",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],

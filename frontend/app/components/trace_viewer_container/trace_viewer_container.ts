@@ -36,7 +36,7 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
-import {debounceTime, takeUntil} from 'rxjs/operators';
+import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
 
@@ -384,7 +384,11 @@ export class TraceViewerContainer
 
   constructor() {
     this.search$
-      .pipe(debounceTime(300), takeUntil(this.destroyed))
+      .pipe(
+        debounceTime(300),
+        distinctUntilChanged(),
+        takeUntil(this.destroyed),
+      )
       .subscribe((query) => {
         this.currentSearchQuery = query;
         this.searchEvents.emit({events_query: query});
@@ -642,29 +646,34 @@ export class TraceViewerContainer
     }
   }
 
-  onSearchEvent(query: string) {
+  onSearchEvent(query: string): void {
+    this.searchQuery = query;
     this.search$.next(query);
   }
 
-  clearSearch(input: HTMLInputElement) {
-    input.value = '';
+  clearSearch(event?: Event): void {
+    event?.stopPropagation();
+    this.searchQuery = '';
     this.currentSearchQuery = '';
+    if (this.traceViewerModule) {
+      this.traceViewerModule.application.instance().setSearchQuery('');
+    }
     this.onSearchEvent('');
   }
 
-  dismissTimingOnboarding() {
+  dismissTimingOnboarding(): void {
     this.showTimingOnboarding = false;
     window.localStorage.setItem(this.TIMING_PROMPTED_STORAGE_KEY, 'true');
   }
 
-  blurActiveElement() {
+  blurActiveElement(): void {
     const el = document.activeElement;
     if (el instanceof HTMLInputElement) {
       el.blur();
     }
   }
 
-  setMouseMode(mode: MouseMode) {
+  setMouseMode(mode: MouseMode): void {
     this.currentMouseMode = mode;
     if (this.traceViewerModule) {
       this.traceViewerModule.application.instance().setMouseMode(mode);
@@ -702,7 +711,7 @@ export class TraceViewerContainer
    * @param event The event data containing the new sizes of the split areas.
    *     `event.sizes` is `IOutputAreaSizes` from `angular-split`.
    */
-  onDragEnd({sizes}: {sizes: Array<number | '*'>}) {
+  onDragEnd({sizes}: {sizes: Array<number | '*'>}): void {
     if (this.selectedEvent && sizes.length > 1) {
       // This assumes the drawer is the second area (index 1). This is safe as
       // long as the template structure remains consistent (Canvas then Drawer).
@@ -716,25 +725,36 @@ export class TraceViewerContainer
     }
   }
 
-  nextSearchResult() {
-    if (this.traceViewerModule) {
+  private syncEffectiveSearchQuery(query?: string): void {
+    if (!this.traceViewerModule) return;
+    const effectiveQuery = query || this.currentSearchQuery;
+    if (effectiveQuery !== this.currentSearchQuery) {
+      this.currentSearchQuery = effectiveQuery;
+      this.searchQuery = effectiveQuery;
+      this.searchEvents.emit({events_query: effectiveQuery});
       this.traceViewerModule.application
         .instance()
-        .navigateToNextSearchResult();
-      this.updateSearchResultCountText();
+        .setSearchQuery(effectiveQuery);
     }
   }
 
-  prevSearchResult() {
-    if (this.traceViewerModule) {
-      this.traceViewerModule.application
-        .instance()
-        .navigateToPrevSearchResult();
-      this.updateSearchResultCountText();
-    }
+  nextSearchResult(query?: string, event?: Event): void {
+    event?.stopPropagation();
+    if (!this.traceViewerModule) return;
+    this.syncEffectiveSearchQuery(query);
+    this.traceViewerModule.application.instance().navigateToNextSearchResult();
+    this.updateSearchResultCountText();
   }
 
-  updateSearchResultCountText() {
+  prevSearchResult(query?: string, event?: Event): void {
+    event?.stopPropagation();
+    if (!this.traceViewerModule) return;
+    this.syncEffectiveSearchQuery(query);
+    this.traceViewerModule.application.instance().navigateToPrevSearchResult();
+    this.updateSearchResultCountText();
+  }
+
+  updateSearchResultCountText(): void {
     if (!this.traceViewerModule || !this.currentSearchQuery) {
       this.searchResultCountText = '';
       return;

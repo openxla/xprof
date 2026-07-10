@@ -12,23 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""The TensorBoard plugin for performance profiling."""
+"""The TensorBoard plugin for performance profiling.
+
+This module defines the ProfilePlugin façade. Supporting logic lives in
+submodules under `xprof.profile_plugin` (tools, http, cache).
+"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+import functools
 import concurrent.futures
-import gzip
 import json
-import logging
 import os
-import re
-import sys
 import threading
-import time
-from typing import Any, TextIO, TypedDict
+from typing import Any, TypedDict
 
 from etils import epath
 import etils.epath.backend
@@ -37,353 +37,78 @@ from werkzeug import wrappers
 
 from xprof import profile_io
 from xprof import version
-from xprof.convert import counter_extractor
-from xprof.convert import raw_to_tool_data as convert
+from xprof.profile_plugin.cache.result_cache_policy import should_use_saved_result
+from xprof.profile_plugin.cache.tools_cache import ToolsCache
+from xprof.profile_plugin.constants import (
+    ALL_HOSTS,
+    BASE_ROUTE,
+    BUNDLE_JS_ROUTE,
+    CAPTURE_ROUTE,
+    CACHE_VERSION_FILE,
+    CONFIG_ROUTE,
+    DATA_CSV_ROUTE,
+    DATA_ROUTE,
+    GENERATE_CACHE_ROUTE,
+    HLO_MODULE_LIST_ROUTE,
+    HOSTS_ROUTE,
+    INDEX_HTML_ROUTE,
+    INDEX_JS_ROUTE,
+    LOCAL_ROUTE,
+    MATERIALICONS_WOFF2_ROUTE,
+    PLUGIN_NAME,
+    RUNS_ROUTE,
+    RUN_TOOLS_ROUTE,
+    STYLES_CSS_ROUTE,
+    TB_NAME,
+    TRACE_VIEWER_INDEX_HTML_ROUTE,
+    TRACE_VIEWER_INDEX_JS_ROUTE,
+    TRACE_VIEWER_V2_JS_ROUTE,
+    TRACE_VIEWER_V2_WASM_ROUTE,
+    VERSION_ROUTE,
+    ZONE_JS_ROUTE,
+)
+from xprof.profile_plugin.http.logging_middleware import logging_wrapper
+from xprof.profile_plugin.http.request_params import (
+    generate_csv_filename,
+    get_bool_arg,
+)
+from xprof.profile_plugin.http.respond import respond, version_route
+from xprof.profile_plugin.logging_config import logger
+from xprof.profile_plugin.tensorflow_bridge import create_tf_profiler
+from xprof.profile_plugin.tools.catalog import get_active_tools
+from xprof.profile_plugin.tools.filenames import (
+    hosts_from_xplane_filenames,
+    parse_filename,
+)
+from xprof.profile_plugin.tools.registry import (
+    DEFAULT_CACHE_TOOLS,
+    HLO_TOOLS,
+    TOOLS,
+    XPLANE_TOOLS,
+    XPLANE_TOOLS_ALL_HOSTS_ONLY,
+    XPLANE_TOOLS_SET,
+    supports_multi_host_selection,
+    use_xplane,
+)
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
-from xprof.convert import _pywrap_profiler_plugin
 
 
-logger = logging.getLogger('tensorboard.plugins.profile')
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-  handler = logging.StreamHandler(sys.stderr)
-  formatter = logging.Formatter(
-      '%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s'
-  )
-  handler.setFormatter(formatter)
-  logger.addHandler(handler)
-  logger.propagate = False
+@functools.lru_cache(maxsize=1)
+def _load_convert_module():
+  """Import convert helpers once (requires generated protos / pywrap)."""
+  from xprof.convert import raw_to_tool_data as convert  # pylint: disable=g-import-not-at-top
+  return convert
 
-try:
-  import tensorflow.compat.v2 as tf  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
 
-  tf.enable_v2_behavior()
-except ImportError:
-  logger.info(
-      'Disabling some remote capture features as tensorflow is not available'
-  )
-  tf = None
+@functools.lru_cache(maxsize=1)
+def _load_pywrap_module():
+  """Import the native profiler extension once."""
+  from xprof.convert import _pywrap_profiler_plugin as pywrap  # pylint: disable=g-import-not-at-top
+  return pywrap
 
-# The prefix of routes provided by this plugin.
-TB_NAME = 'plugins'
-PLUGIN_NAME = 'profile'
-
-BASE_ROUTE = '/'
-INDEX_JS_ROUTE = '/index.js'
-INDEX_HTML_ROUTE = '/index.html'
-BUNDLE_JS_ROUTE = '/bundle.js'
-STYLES_CSS_ROUTE = '/styles.css'
-MATERIALICONS_WOFF2_ROUTE = '/materialicons.woff2'
-TRACE_VIEWER_INDEX_HTML_ROUTE = '/trace_viewer_index.html'
-TRACE_VIEWER_INDEX_JS_ROUTE = '/trace_viewer_index.js'
-TRACE_VIEWER_V2_JS_ROUTE = '/trace_viewer_v2.js'
-TRACE_VIEWER_V2_WASM_ROUTE = '/trace_viewer_v2.wasm'
-ZONE_JS_ROUTE = '/zone.js'
-DATA_ROUTE = '/data'
-DATA_CSV_ROUTE = '/data_csv'
-VERSION_ROUTE = '/version'
-RUNS_ROUTE = '/runs'
-RUN_TOOLS_ROUTE = '/run_tools'
-HOSTS_ROUTE = '/hosts'
-HLO_MODULE_LIST_ROUTE = '/module_list'
-CAPTURE_ROUTE = '/capture_profile'
-LOCAL_ROUTE = '/local'
-CONFIG_ROUTE = '/config'
-CACHE_VERSION_FILE = 'cache_version.txt'
-GENERATE_CACHE_ROUTE = '/generate_cache'
-
-# Suffixes of "^, #, @" symbols represent different input data formats for the
-# same tool.
-# 1) '^': data generate from XPlane.
-# 2) '#': data is in gzip format.
-# 3) '@': data generate from proto, or tracetable for streaming trace viewer.
-# 4) no suffix: data is in json format, ready to feed to frontend.
-TOOLS = {
-    'xplane': 'xplane.pb',
-    'hlo_proto': 'hlo_proto.pb',
-}
-
-ALL_HOSTS = 'ALL_HOSTS'
 
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
-
-_EXTENSION_TO_TOOL = {extension: tool for tool, extension in TOOLS.items()}
-_EXTENSION_TO_TOOL['xplane.riegeli'] = 'xplane'
-
-_FILENAME_RE = re.compile(
-    r"""
-    (?:            # Start optional non-capturing group for the host.
-      (.*)         #   Capture group 1: The host name.
-      \.           #   A literal dot.
-    )?             # End optional non-capturing group.
-    (              # Start capture group 2: The tool extension.
-    """
-    + '|'.join(re.escape(v) for v in _EXTENSION_TO_TOOL.keys())
-    + r"""
-    )              # End capture group 2.
-    """,
-    re.VERBOSE,
-)
-
-
-# Tools that can be generated from xplane end with ^.
-XPLANE_TOOLS = [
-    'trace_viewer',  # non-streaming before TF 2.13
-    'trace_viewer@',  # streaming since TF 2.14
-    'overview_page',
-    'input_pipeline_analyzer',
-    'framework_op_stats',
-    'kernel_stats',
-    'memory_profile',
-    'pod_viewer',
-    'op_profile',
-    'hlo_stats',
-    'roofline_model',
-    'inference_profile',
-    'memory_viewer',
-    'graph_viewer',
-    'megascale_stats',
-    'perf_counters',
-    'utilization_viewer',
-    'smart_suggestion',
-]
-
-XPLANE_TOOLS_SET = frozenset(XPLANE_TOOLS)
-DEFAULT_CACHE_TOOLS = ('overview_page', 'trace_viewer@')
-
-# XPlane generated tools that support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_SUPPORTED = frozenset([
-    'input_pipeline_analyzer',
-    'framework_op_stats',
-    'kernel_stats',
-    'overview_page',
-    'pod_viewer',
-    'megascale_stats',
-])
-
-# XPlane generated tools that only support all host mode.
-XPLANE_TOOLS_ALL_HOSTS_ONLY = frozenset(
-    ['overview_page', 'pod_viewer', 'smart_suggestion']
-)
-
-# Rate limiter constants, the GCS quota defined below
-# https://cloud.google.com/storage/quotas#rate-quotas.
-# currently set to 1000 request per minute.
-# TODO(kcai): The assumption on the average number of subdirs is not
-# always true. If this is not sufficient, we can consider a token-based
-# approach that counts the number of subdirs after calling iterdir.
-MAX_GCS_REQUESTS = 1000
-LIMIT_WINDOW_SECONDS = 60
-AVERAGE_SUBDIR_NUMBER = 10
-
-
-def use_xplane(tool: str) -> bool:
-  return tool in XPLANE_TOOLS
-
-
-# HLO generated tools.
-HLO_TOOLS = frozenset(['graph_viewer', 'memory_viewer'])
-
-
-def use_hlo(tool: str) -> bool:
-  return tool in HLO_TOOLS
-
-
-def make_filename(host: str, tool: str) -> str:
-  """Returns the name of the file containing data for the given host and tool.
-
-  Args:
-    host: Name of the host that produced the profile data, e.g., 'localhost'.
-    tool: Name of the tool, e.g., 'trace_viewer'.
-
-  Returns:
-    The host name concatenated with the tool-specific extension, e.g.,
-    'localhost.trace'.
-  """
-  filename = str(host) + '.' if host else ''
-  if use_hlo(tool):
-    tool = 'hlo_proto'
-  elif use_xplane(tool):
-    tool = 'xplane'
-  return filename + TOOLS[tool]
-
-
-def _parse_filename(filename: str) -> tuple[str | None, str | None]:
-  """Returns the host and tool encoded in a filename in the run directory.
-
-  Args:
-    filename: Name of a file in the run directory. The name might encode a host
-      and tool, e.g., 'host.tracetable', 'host.domain.op_profile.json', or just
-      a tool, e.g., 'trace', 'tensorflow_stats.pb'.
-
-  Returns:
-    A tuple (host, tool) containing the names of the host and tool, e.g.,
-    ('localhost', 'trace_viewer'). Either of the tuple's components can be None.
-  """
-  m = _FILENAME_RE.fullmatch(filename)
-  if m is None:
-    return filename, None
-  return m.group(1), _EXTENSION_TO_TOOL[m.group(2)]
-
-
-def _get_hosts(filenames: Sequence[str]) -> set[str]:
-  """Parses a sequence of filenames and returns the set of hosts.
-
-  Args:
-    filenames: A sequence of filenames (just basenames, no directory).
-
-  Returns:
-    A set of host names encoded in the filenames.
-  """
-  hosts = set()
-  for name in filenames:
-    host, _ = _parse_filename(name)
-    if host:
-      hosts.add(host)
-  return hosts
-
-
-def _get_tools(filenames: Sequence[str], profile_run_dir: str) -> set[str]:
-  """Parses a sequence of filenames and returns the set of tools.
-
-  If xplane is present in the repository, add tools that can be generated by
-  xplane if we don't have a file for the tool.
-
-  Args:
-    filenames: A sequence of filenames.
-    profile_run_dir: The run directory of the profile.
-
-  Returns:
-    A set of tool names encoded in the filenames.
-  """
-  tools = set()
-  found = set()
-  xplane_filenames = []
-  for name in filenames:
-    _, tool = _parse_filename(name)
-    if tool == 'xplane':
-      xplane_filenames.append(os.path.join(profile_run_dir, name))
-      continue
-    elif tool == 'hlo_proto':
-      continue
-    elif tool:
-      tools.add(tool)
-      if tool[-1] in ('@'):
-        found.add(tool[:-1])
-      else:
-        found.add(tool)
-  # profile_run_dir might be empty, like in cloud AI use case.
-  if not profile_run_dir:
-    if xplane_filenames:
-      for item in XPLANE_TOOLS:
-        if item[:-1] not in found:
-          tools.add(item)
-  else:
-    try:
-      if xplane_filenames:
-        return set(convert.xspace_to_tool_names(xplane_filenames))
-    except AttributeError:
-      logger.warning('XPlane converters are available after Tensorflow 2.4')
-  return tools
-
-
-@wrappers.Request.application
-def version_route(_: wrappers.Request) -> wrappers.Response:
-  return respond(version.__version__, 'text/plain')
-
-
-def respond(
-    body: Any,
-    content_type: str,
-    code: int = 200,
-    content_encoding: tuple[str, str] | None = None,
-    extra_headers: Mapping[str, str] | None = None,
-) -> wrappers.Response:
-  """Create a Werkzeug response, handling JSON serialization and CSP.
-
-  Args:
-    body: For JSON responses, a JSON-serializable object; otherwise, a raw
-      `bytes` string or Unicode `str` (which will be encoded as UTF-8).
-    content_type: Response content-type (`str`); use `application/json` to
-      automatically serialize structures.
-    code: HTTP status code (`int`).
-    content_encoding: Response Content-Encoding header ('str'); e.g. 'gzip'. If
-      the content type is not set, The data would be compressed and the content
-      encoding would be set to gzip.
-    extra_headers: Optional additional headers to add to the response.
-
-  Returns:
-    A `werkzeug.wrappers.Response` object.
-  """
-  if content_type == 'application/json' and isinstance(
-      body, (dict, list, set, tuple)
-  ):
-    body = json.dumps(body, sort_keys=True)
-  if not isinstance(body, bytes):
-    body = body.encode('utf-8')
-  csp_parts = {
-      'default-src': ["'self'"],
-      'script-src': [
-          "'self'",
-          "'unsafe-eval'",
-          "'unsafe-inline'",
-          'https://www.gstatic.com',
-      ],
-      'object-src': ["'none'"],
-      'style-src': [
-          "'self'",
-          "'unsafe-inline'",
-          'https://fonts.googleapis.com',
-          'https://www.gstatic.com',
-      ],
-      'font-src': [
-          "'self'",
-          'https://fonts.googleapis.com',
-          'https://fonts.gstatic.com',
-          'data:',
-      ],
-      'connect-src': [
-          "'self'",
-          'data:',
-          'www.gstatic.com',
-      ],
-      'img-src': [
-          "'self'",
-          'blob:',
-          'data:',
-      ],
-      'frame-src': [
-          "'self'",
-          'https://ui.perfetto.dev',
-      ],
-      'script-src-elem': [
-          "'self'",
-          "'unsafe-inline'",
-          # Remember to restrict on integrity when importing from jsdelivr
-          # Whitelist this domain to support hlo_graph_dumper html format
-          'https://cdn.jsdelivr.net/npm/',
-          'https://www.gstatic.com',
-      ],
-  }
-  csp = ';'.join((' '.join([k] + v) for (k, v) in csp_parts.items()))
-  headers = [
-      ('Content-Security-Policy', csp),
-      ('X-Content-Type-Options', 'nosniff'),
-  ]
-  if content_encoding:
-    headers.append(('Content-Encoding', content_encoding))
-  else:
-    headers.append(('Content-Encoding', 'gzip'))
-    body = gzip.compress(body)
-
-  if extra_headers is not None:
-    headers.extend(extra_headers.items())
-
-  return wrappers.Response(
-      body, content_type=content_type, status=code, headers=headers
-  )
-
 
 def _plugin_assets(
     session_dir: str, runs: Sequence[str], plugin_name: str
@@ -416,297 +141,6 @@ def _tb_run_directory(session_dir: str, run: str) -> str:
   return session_dir if run == '.' else os.path.join(session_dir, run)
 
 
-def hosts_from_xplane_filenames(
-    filenames: Sequence[str], tool: str
-) -> Sequence[str]:
-  """Converts a sequence of filenames to a list of host names given a tool.
-
-  Args:
-    filenames: A sequence of filenames.
-    tool: A string representing the profiling tool.
-
-  Returns:
-    A list of hostnames.
-  """
-  hosts = _get_hosts(filenames)
-  if len(hosts) > 1:
-    if tool in XPLANE_TOOLS_ALL_HOSTS_ONLY:
-      hosts = [ALL_HOSTS]
-    elif tool in XPLANE_TOOLS_ALL_HOSTS_SUPPORTED:
-      hosts.add(ALL_HOSTS)
-  return sorted(hosts)
-
-
-def _get_bool_arg(
-    args: Mapping[str, Any], arg_name: str, default: bool
-) -> bool:
-  """Gets a boolean argument from a request.
-
-  Args:
-    args: The werkzeug request arguments.
-    arg_name: The name of the argument.
-    default: The default value if the argument is not present.
-
-  Returns:
-    The boolean value of the argument.
-  """
-  arg_str = args.get(arg_name)
-  if arg_str is None:
-    return default
-  return arg_str.lower() == 'true'
-
-
-def _generate_csv_filename(request: wrappers.Request) -> str:
-  """Generates a sanitized filename for the CSV export."""
-  tool = request.args.get('tag', 'data')
-  run = request.args.get('run', '')
-  host = request.args.get('host', '')
-
-  safe_tool = re.sub(r'[^a-zA-Z0-9_\-]', '_', tool)
-  safe_run = re.sub(r'[^a-zA-Z0-9_\-]', '_', run)
-
-  host_suffix = host.split('-')[-1] if host else ''
-  safe_host_suffix = re.sub(r'[^a-zA-Z0-9_\-]', '_', host_suffix)
-
-  filename_parts = (p for p in [safe_tool, safe_run, safe_host_suffix] if p)
-  return '_'.join(filename_parts) + '.csv'
-
-
-class ToolsCache:
-  """A cache for tool lists based on file content hashes or mtimes.
-
-  Attributes:
-    CACHE_FILE_NAME: The name of the cache file.
-    CACHE_VERSION: The version of the cache format.
-  """
-
-  CACHE_FILE_NAME = '.cached_tools.json'
-  CACHE_VERSION = 1
-
-  def __init__(
-      self, profile_run_dir: epath.Path, fs: profile_io.ProfileFileSystem
-  ):
-    """Initializes the ToolsCache.
-
-    Args:
-      profile_run_dir: The directory containing the profile run data.
-      fs: The file system object to use for file operations.
-    """
-    self._profile_run_dir = profile_run_dir
-    self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
-    self._fs = fs
-    logger.info('ToolsCache initialized for %s', self._cache_file)
-
-  def load(self) -> list[str] | None:
-    """Loads the cached list of tools if the cache is valid.
-
-    The cache is valid if the cache file exists, the version matches, and
-    the file states (hashes/mtimes) of the XPlane files have not changed.
-
-    Returns:
-      A list of tool names if the cache is valid, otherwise None.
-    """
-    cached_data = self._fs.read_json(str(self._cache_file))
-    if cached_data is None:
-      return None
-
-    if cached_data.get('version') != self.CACHE_VERSION:
-      logger.info(
-          'ToolsCache invalid: version mismatch, expected %s, got %s.'
-          ' Invalidating %s',
-          self.CACHE_VERSION,
-          cached_data.get('version'),
-          self._cache_file,
-      )
-      self.invalidate()
-      return None
-
-    current_files = self._fs.get_xplane_file_states(str(self._profile_run_dir))
-    if current_files is None:
-      logger.info(
-          'ToolsCache invalid: could not determine current file states.'
-          ' Invalidating %s',
-          self._cache_file,
-      )
-      self.invalidate()
-      return None
-
-    if cached_data.get('files') != current_files:
-      logger.info(
-          'ToolsCache invalid: file states differ. Invalidating %s',
-          self._cache_file,
-      )
-      self.invalidate()
-      return None
-
-    logger.info('ToolsCache hit: %s', self._cache_file)
-    return cached_data.get('tools')
-
-  def save(self, tools: Sequence[str]) -> None:
-    """Saves the list of tools and the current file states to the cache file.
-
-    Args:
-      tools: The list of tool names to cache.
-    """
-    current_files_for_cache = self._fs.get_xplane_file_states(
-        str(self._profile_run_dir)
-    )
-    if current_files_for_cache is None:
-      logger.warning(
-          'ToolsCache not saved: could not get file states %s', self._cache_file
-      )
-      return
-
-    new_cache_data = {
-        'version': self.CACHE_VERSION,
-        'files': current_files_for_cache,
-        'tools': tools,
-    }
-    self._fs.write_json(str(self._cache_file), new_cache_data)
-
-  def invalidate(self) -> None:
-    """Deletes the cache file, forcing regeneration on the next load."""
-    self._fs.delete_file(str(self._cache_file))
-
-
-class _TfProfiler:
-  """A helper class to encapsulate all TensorFlow-dependent profiler logic."""
-
-  def __init__(self, tf_module):
-    if not tf_module:
-      raise ImportError('TensorFlow module is not available.')
-    self.tf = tf_module
-
-  def _get_worker_list(self, cluster_resolver) -> str:
-    """Parses TPU workers list from the cluster resolver."""
-    cluster_spec = cluster_resolver.cluster_spec()
-    task_indices = cluster_spec.task_indices('worker')
-    worker_list = [
-        cluster_spec.task_address('worker', i).replace(':8470', ':8466')
-        for i in task_indices
-    ]
-    return ','.join(worker_list)
-
-  def resolve_tpu_name(
-      self, tpu_name: str, worker_list: str
-  ) -> tuple[str, str, str]:
-    """Resolves a TPU name to its master IP, service address, and worker list.
-
-    Args:
-      tpu_name: The name of the TPU to resolve.
-      worker_list: A comma-separated list of worker addresses.
-
-    Returns:
-      A tuple containing (service_addr, worker_list, master_ip).
-    """
-    try:
-      resolver = self.tf.distribute.cluster_resolver.TPUClusterResolver(
-          tpu_name
-      )
-      master_grpc_addr = resolver.get_master()
-    except RuntimeError as err:
-      # Propagate error to be handled by the caller.
-      raise RuntimeError(
-          f'Error initializing TPUClusterResolver: {err}'
-      ) from err
-    except (ValueError, TypeError) as e:
-      # Handle cases where the TPU name is invalid.
-      raise ValueError(f'No TPU found with the name: {tpu_name}') from e
-
-    if not worker_list:
-      worker_list = self._get_worker_list(resolver)
-
-    # TPU cluster resolver always returns port 8470. Replace it with 8466
-    # on which profiler service is running.
-    master_ip = master_grpc_addr.replace('grpc://', '').replace(':8470', '')
-    service_addr = f'{master_ip}:8466'
-    return service_addr, worker_list, master_ip
-
-
-def _logging_wrapper(
-    app: Callable[
-        [
-            Mapping[str, Any],
-            Callable[[str, Sequence[tuple[str, str]], Any | None], Any],
-        ],
-        Iterable[bytes],
-    ],
-    clock: Callable[[], float] = time.time,
-    writer: TextIO = sys.stderr,
-) -> Callable[
-    [
-        Mapping[str, Any],
-        Callable[[str, Sequence[tuple[str, str]], Any | None], Any],
-    ],
-    Iterable[bytes],
-]:
-  """Wraps a WSGI application to log request timing in GKE-friendly JSON format.
-
-  Args:
-    app: The WSGI application to wrap.
-    clock: A function that returns the current time. Defaults to `time.time`.
-    writer: A file-like object to write logs to. Defaults to `sys.stderr`.
-
-  Returns:
-    A new WSGI application that logs request timing.
-  """
-
-  def wrapper(
-      environ: Mapping[str, Any],
-      start_response: Callable[
-          [str, Sequence[tuple[str, str]], Any | None], Any
-      ],
-  ) -> Iterable[bytes]:
-    start_time = clock()
-    request_method = environ.get('REQUEST_METHOD', '')
-    # Reconstruct the URL as best as possible from WSGI environ.
-    url_path = environ.get('SCRIPT_NAME', '') + environ.get('PATH_INFO', '')
-    query_string = environ.get('QUERY_STRING')
-    request_url = f'{url_path}?{query_string}' if query_string else url_path
-
-    # container for status code captured from start_response
-    status_info = {'code': 200}  # Default to 200 if not captured (unlikely)
-
-    def custom_start_response(
-        status: str,
-        headers: Sequence[tuple[str, str]],
-        exc_info: Any | None = None,
-    ) -> Any:
-      try:
-        status_code_str, *_ = status.split(' ', 1)
-        status_info['code'] = int(status_code_str)
-      except (ValueError, IndexError):
-        logger.warning(
-            'Failed to parse status code from %r', status, exc_info=True
-        )
-      return start_response(status, headers, exc_info)
-
-    response = app(environ, custom_start_response)
-    try:
-      yield from response
-    finally:
-      duration = clock() - start_time
-      log_entry = {
-          'httpRequest': {
-              'requestMethod': request_method,
-              'requestUrl': request_url,
-              'status': status_info['code'],
-              'latency': f'{duration:.9f}s',
-          }
-      }
-      # Write raw JSON to stderr for GKE/Cloud Logging to pick up as structured
-      # payload. We use sys.stderr instead of the logging module because the
-      # latter would add text prefixes (timestamp, level, etc.) that break the
-      # JSON parsing required for the "httpRequest" field to be recognized by
-      # GKE.
-      writer.write(json.dumps(log_entry) + '\n')
-      writer.flush()
-      if hasattr(response, 'close'):
-        response.close()
-
-  return wrapper
-
-
 class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
 
@@ -720,7 +154,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
       xspace_to_tool_data_fn: Callable[
           [Sequence[epath.Path], str, dict[str, Any]],
           tuple[bytes | str | None, str],
-      ] = convert.xspace_to_tool_data,
+      ]
+      | None = None,
       version_module: Any = version,
       cache_generation_executor: concurrent.futures.Executor | None = None,
   ):
@@ -746,6 +181,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     )
     self.src_prefix = getattr(context, 'src_prefix', '')
     self._epath = epath_module
+    # May be None until first conversion; resolved lazily via _get_xspace_fn().
     self._xspace_to_tool_data = xspace_to_tool_data_fn
     self._version = version_module
 
@@ -758,7 +194,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self._run_dir_cache_lock = threading.Lock()
     # Cache to map profile run name to corresponding tensorboard dir name
     self._run_to_profile_run_dir = {}
-    self._tf_profiler = _TfProfiler(tf) if tf else None
+    self._tf_profiler = create_tf_profiler()
     # Limit to 1 worker to prevent potential Out-of-Memory (OOM) errors.
     # Cache generation, especially for tools like trace viewer, can be
     # memory-intensive when processing large XPlane files. Running multiple
@@ -770,20 +206,22 @@ class ProfilePlugin(base_plugin.TBPlugin):
         )
     )
 
+  def _get_xspace_fn(self):
+    """Resolve the XSpace→tool conversion callable (default loaded lazily)."""
+    if self._xspace_to_tool_data is None:
+      self._xspace_to_tool_data = _load_convert_module().xspace_to_tool_data
+    return self._xspace_to_tool_data
+
+  def _profile_fs(self, path_str: str):
+    """Return a ProfileFileSystem for ``path_str`` (local disk or GCS)."""
+    return profile_io.get_file_system(path_str, self._epath)
+
   def _get_xplane_basenames(self, path_str: str) -> Sequence[str]:
-    """Returns a list of .xplane.pb base filenames in the given path."""
-    fs = profile_io.get_file_system(path_str, self._epath)
-    return fs.get_xplane_basenames(path_str)
+    """List ``*.xplane.pb`` / ``*.xplane.riegeli`` basenames under a session dir.
 
-  def _dir_has_xplane_files(self, path_str: str) -> bool:
-    """Checks if the directory contains any .xplane.pb files."""
-    fs = profile_io.get_file_system(path_str, self._epath)
-    return fs.dir_has_xplane_files(path_str)
-
-  def _get_all_basenames(self, path_str: str) -> Sequence[str]:
-    """Returns a list of all base filenames in the given path."""
-    fs = profile_io.get_file_system(path_str, self._epath)
-    return fs.get_all_basenames(path_str)
+    Kept as a method so tests can simulate I/O failures via patch.
+    """
+    return self._profile_fs(path_str).get_xplane_basenames(path_str)
 
   def is_active(self) -> bool:
     """Whether this plugin is active and has any profile data to show.
@@ -795,15 +233,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
       self._is_active = any(self.generate_runs())
     return self._is_active
 
-  def _does_tool_support_multi_hosts_processing(self, tool: str) -> bool:
-    """Returns true if the tool supports multi-hosts processing."""
-    return tool == 'trace_viewer@' or tool == 'trace_viewer'
-
   def get_plugin_apps(
       self,
   ) -> dict[str, Callable[[wrappers.Request], wrappers.Response]]:
     return {
-        route: _logging_wrapper(app)
+        route: logging_wrapper(app)
         for route, app in {
             BASE_ROUTE: self.default_handler,
             INDEX_JS_ROUTE: self.static_file_route,
@@ -863,7 +297,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     Raises:
       IOError: File could not be read or found.
     """
-    filepath = os.path.join(os.path.dirname(__file__), 'static', filename)
+    filepath = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', filename)
 
     try:
       with open(filepath, 'rb') as infile:
@@ -920,7 +354,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     session_dir_by_run_name = None
     if session_path_arg:
       session_dir_by_run_name = {}
-      if self._dir_has_xplane_files(session_path_arg):
+      if self._profile_fs(session_path_arg).dir_has_xplane_files(session_path_arg):
         run_name = self._epath.Path(session_path_arg).name
         session_dir_by_run_name[run_name] = session_path_arg
     elif run_path_arg:
@@ -1120,7 +554,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
     try:
       xplane_basenames = self._get_xplane_basenames(run_dir)
       for basename in xplane_basenames:
-        host_name, _ = _parse_filename(basename)
+        host_name, _ = parse_filename(basename)
         if host_name:
           all_xplane_files[host_name] = self._epath.Path(
               os.path.join(run_dir, basename)
@@ -1136,7 +570,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
           'No xplane file found for run: %s, tool: %s' % (run, tool)
       )
 
-    if hosts_param and self._does_tool_support_multi_hosts_processing(tool):
+    if hosts_param and supports_multi_host_selection(tool):
       selected_hosts = hosts_param.split(',')
       for selected_host in selected_hosts:
         if selected_host in all_xplane_files:
@@ -1180,11 +614,10 @@ class ProfilePlugin(base_plugin.TBPlugin):
     return selected_hosts, asset_paths
 
   def _write_cache_version_file(self, run_dir: str) -> None:
-    """Writes the current version to the cache version file."""
+    """Persist the plugin version next to a session for result-cache invalidation."""
     try:
-      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-          'w'
-      ) as f:
+      cache_path = self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE))
+      with cache_path.open('w') as f:
         f.write(self._version.__version__)
     except OSError:
       logger.warning(
@@ -1220,6 +653,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
             'device_type is required for perf_counters with names_only'
         )
       try:
+        from xprof.convert import counter_extractor  # pylint: disable=g-import-not-at-top
         names = counter_extractor.get_all_counters(device_type)
       except FileNotFoundError:
         logger.warning(
@@ -1233,27 +667,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
     module_name = request.args.get('module_name')
     program_id = request.args.get('program_id')
     tqx = request.args.get('tqx')
-    perfetto = _get_bool_arg(request.args, 'perfetto', False)
-    use_saved_result = _get_bool_arg(request.args, 'use_saved_result', True)
-    full_dma = _get_bool_arg(request.args, 'full_dma', False)
-    enable_legacy_dcn = _get_bool_arg(request.args, 'enable_legacy_dcn', False)
+    perfetto = get_bool_arg(request.args, 'perfetto', False)
+    use_saved_result = get_bool_arg(request.args, 'use_saved_result', True)
+    full_dma = get_bool_arg(request.args, 'full_dma', False)
+    enable_legacy_dcn = get_bool_arg(request.args, 'enable_legacy_dcn', False)
     run_dir = self._run_dir(run, request)
 
     # Check if the cache file exists and if the cache file version is less
     # than the current plugin version, clear the cache.
-    try:
-      with self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE)).open(
-          'r'
-      ) as f:
-        cache_version = f.read().strip()
-        if cache_version < self._version.__version__:
-          use_saved_result = False
-    except FileNotFoundError:
-      logger.info('Cache version file not found, invalidating cache.')
-      use_saved_result = False
-    except OSError:
-      logger.warning('Cannot read cache version file', exc_info=True)
-      use_saved_result = False
+    use_saved_result = should_use_saved_result(
+        run_dir, use_saved_result, self._version, self._epath
+    )
 
     graph_viewer_options = self._get_graph_viewer_options(request)
     # Host param is used by HLO tools to identify the module.
@@ -1307,7 +731,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['search_prefix'] = request.args.get('search_prefix')
       if request.args.get('search_metadata') is not None:
         # Retrigger presubmits (second attempt).
-        options['search_metadata'] = _get_bool_arg(
+        options['search_metadata'] = get_bool_arg(
             request.args, 'search_metadata', False
         )
       params['trace_viewer_options'] = options
@@ -1322,7 +746,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
       params['hosts'] = selected_hosts
       try:
-        data, content_type = self._xspace_to_tool_data(
+        data, content_type = self._get_xspace_fn()(
             asset_paths,
             tool,
             params,
@@ -1356,11 +780,11 @@ class ProfilePlugin(base_plugin.TBPlugin):
       logger.warning('Cannot find asset directory for: %s', run)
       return ''
     try:
-      all_basenames = self._get_all_basenames(run_dir)
+      all_basenames = self._profile_fs(run_dir).get_all_basenames(run_dir)
       module_list = [
           name
           for f in all_basenames
-          if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
+          if f.endswith('.hlo_proto.pb') and (name := parse_filename(f)[0])
       ]
 
       if not module_list:
@@ -1369,17 +793,17 @@ class ProfilePlugin(base_plugin.TBPlugin):
         if xplane_filenames:
           try:
             # This triggers ConvertMultiXSpaceToHloProto in the C++ backend.
-            convert.xspace_to_tool_names(xplane_filenames)
+            _load_convert_module().xspace_to_tool_names(xplane_filenames)
           except AttributeError:
             logger.warning(
                 'XPlane converters are available after Tensorflow 2.4'
             )
 
-          all_basenames = self._get_all_basenames(run_dir)
+          all_basenames = self._profile_fs(run_dir).get_all_basenames(run_dir)
           module_list = [
               name
               for f in all_basenames
-              if f.endswith('.hlo_proto.pb') and (name := _parse_filename(f)[0])
+              if f.endswith('.hlo_proto.pb') and (name := parse_filename(f)[0])
           ]
 
       return ','.join(module_list)
@@ -1429,8 +853,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
             code=400,
         )
 
-      csv_data = convert.json_to_csv_string(data)
-      filename = _generate_csv_filename(request)
+      csv_data = _load_convert_module().json_to_csv_string(data)
+      filename = generate_csv_filename(request)
 
       return respond(
           csv_data,
@@ -1505,7 +929,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       )
     try:
       # The core trace call remains, now with cleanly resolved parameters.
-      _pywrap_profiler_plugin.trace(
+      _load_pywrap_module().trace(
           service_addr.removeprefix('grpc://'),
           str(self.logdir),
           worker_list,
@@ -1668,59 +1092,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
     # Cache is invalid or doesn't exist, regenerate
     tools = []
-    all_filenames = self._get_all_basenames(run_dir)
+    all_filenames = self._profile_fs(run_dir).get_all_basenames(run_dir)
 
     if all_filenames:
-      tools = self._get_active_tools(all_filenames, str(profile_run_dir))
+      tools = get_active_tools(all_filenames, str(profile_run_dir))
       cache.save(tools)
 
     for tool in tools:
       yield tool
-
-  def _get_active_tools(self, filenames, profile_run_dir=''):
-    """Get a list of tools available given the filenames created by profiler.
-
-    Args:
-      filenames: List of strings that represent filenames
-      profile_run_dir: The run directory of the profile.
-
-    Returns:
-      A list of strings representing the available tools
-    """
-    tool_sort_order = [
-        'overview_page',
-        'trace_viewer',
-        'trace_viewer@',
-        'graph_viewer',
-        'op_profile',
-        'hlo_op_profile',
-        'input_pipeline_analyzer',
-        'input_pipeline',
-        'kernel_stats',
-        'memory_profile',
-        'memory_viewer',
-        'roofline_model',
-        'perf_counters',
-        'pod_viewer',
-        'framework_op_stats',
-        'tensorflow_stats',  # Legacy name for framework_op_stats
-        'hlo_op_stats',
-        'hlo_stats',  # Legacy name for hlo_op_stats
-        'inference_profile',
-        'megascale_stats',
-    ]
-    tools = _get_tools(filenames, profile_run_dir)
-    if 'trace_viewer@' in tools:
-      # streaming trace viewer always override normal trace viewer.
-      # the trailing '@' is to inform tf-profile-dashboard.html and
-      # tf-trace-viewer.html that stream trace viewer should be used.
-      tools.discard('trace_viewer')
-
-    sorted_tools = [t for t in tool_sort_order if t in tools]
-    remaining_tools = tools.difference(sorted_tools)
-    sorted_tools.extend(sorted(remaining_tools))
-
-    return sorted_tools
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
@@ -1904,7 +1283,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         logger.info('Generating cache for tool %s...', tool)
         tool_params = base_tool_params.copy()
         tool_params['hosts'] = hosts_from_xplane_filenames(filenames, tool)
-        self._xspace_to_tool_data(
+        self._get_xspace_fn()(
             [self._epath.Path(p) for p in asset_paths], tool, tool_params
         )
         logger.info(

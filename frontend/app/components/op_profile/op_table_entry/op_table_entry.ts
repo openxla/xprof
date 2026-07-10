@@ -106,8 +106,7 @@ export class OpTableEntry implements OnChanges {
 
     this.name = (this.node && this.node.name) ? this.node.name : '';
     this.offset = this.level.toString() + 'em';
-    this.provenance =
-        this.node?.xla?.provenance?.replace(/^.*(:|\/)/, '') || '-';
+    this.provenance = utils.parseFrameworkOpType(this.node?.xla?.provenance);
     this.timeWasted = utils.percent(utils.timeWasted(this.node, this.rootNode));
 
     if (this.node?.metrics?.rawBytesAccessedArray &&

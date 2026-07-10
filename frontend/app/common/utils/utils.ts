@@ -773,3 +773,24 @@ export function getGigaflopsReadableString(value: number): string {
   }
   return `${value} GFLOP/s`;
 }
+
+/**
+ * Extracts the framework operation type from a provenance or tf_op_name string.
+ * If the op_type after the colon is empty, falls back to deriving the op type
+ * from the op_name path before the colon.
+ *
+ * * Examples:
+ * - 'gradients/layer/Einsum_1:Einsum' -> 'Einsum'
+ * - 'gradients/pointwise/dot_general:' -> 'dot_general' (fallback)
+ * - 'model/layer/MatMul_1:' -> 'MatMul_1' (fallback)
+ * - undefined or empty string -> '-'
+ */
+export function parseFrameworkOpType(provenance?: string): string {
+  if (!provenance) return '-';
+  let parsedOpType = provenance.replace(/^.*:/, '').replace(/^.*\//, '');
+  if (!parsedOpType) {
+    const opName = provenance.split(':')[0] || '';
+    parsedOpType = opName.replace(/^.*\//, '');
+  }
+  return parsedOpType || '-';
+}

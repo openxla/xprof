@@ -667,6 +667,7 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
     id_to_users = {40: [50, 60], 50: [70]}
 
     comp_id_by_instr_id = {instr.id: comp.id for instr in comp.instructions}
+    comp_id_by_name = {c.name: c.id for c in id_to_comp.values()}
     callers_by_comp_id = collections.defaultdict(list)
     root_id_by_comp_id = {comp.id: comp.root_id}
 
@@ -674,6 +675,7 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
         40,
         id_to_instr,
         id_to_comp,
+        comp_id_by_name,
         comp_id_by_instr_id,
         callers_by_comp_id,
         max_depth=5,
@@ -688,6 +690,7 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
             id_to_instr,
             id_to_users,
             id_to_comp,
+            comp_id_by_name,
             comp_id_by_instr_id,
             callers_by_comp_id,
             root_id_by_comp_id,

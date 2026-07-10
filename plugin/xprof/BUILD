@@ -14,7 +14,10 @@ py_library(
 
 py_library(
     name = "profile_plugin",
-    srcs = glob(["profile_plugin/**/*.py"]),
+    srcs = glob(
+        ["profile_plugin/**/*.py"],
+        exclude = ["profile_plugin/tests/**"],
+    ),
     deps = [
         ":profile_io",
         ":version",

@@ -25,7 +25,6 @@ from __future__ import print_function
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import functools
 import concurrent.futures
-import json
 import os
 import threading
 from typing import Any, TypedDict
@@ -37,14 +36,12 @@ from werkzeug import wrappers
 
 from xprof import profile_io
 from xprof import version
-from xprof.profile_plugin.cache.result_cache_policy import should_use_saved_result
+from xprof.profile_plugin.cache.result_cache_policy import write_cache_version_file
 from xprof.profile_plugin.cache.tools_cache import ToolsCache
 from xprof.profile_plugin.constants import (
-    ALL_HOSTS,
     BASE_ROUTE,
     BUNDLE_JS_ROUTE,
     CAPTURE_ROUTE,
-    CACHE_VERSION_FILE,
     CONFIG_ROUTE,
     DATA_CSV_ROUTE,
     DATA_ROUTE,
@@ -68,12 +65,13 @@ from xprof.profile_plugin.constants import (
     ZONE_JS_ROUTE,
 )
 from xprof.profile_plugin.http.logging_middleware import logging_wrapper
-from xprof.profile_plugin.http.request_params import (
-    generate_csv_filename,
-    get_bool_arg,
-)
+from xprof.profile_plugin.http.parse_request import tool_request_from_args
+from xprof.profile_plugin.http.request_params import generate_csv_filename
 from xprof.profile_plugin.http.respond import respond, version_route
 from xprof.profile_plugin.logging_config import logger
+from xprof.profile_plugin.services.hosts import HostSelector
+from xprof.profile_plugin.services.sessions import SessionResolver
+from xprof.profile_plugin.services.tool_data import ToolDataService
 from xprof.profile_plugin.tensorflow_bridge import create_tf_profiler
 from xprof.profile_plugin.tools.catalog import get_active_tools
 from xprof.profile_plugin.tools.filenames import (
@@ -82,16 +80,44 @@ from xprof.profile_plugin.tools.filenames import (
 )
 from xprof.profile_plugin.tools.registry import (
     DEFAULT_CACHE_TOOLS,
-    HLO_TOOLS,
-    TOOLS,
-    XPLANE_TOOLS,
-    XPLANE_TOOLS_ALL_HOSTS_ONLY,
     XPLANE_TOOLS_SET,
-    supports_multi_host_selection,
-    use_xplane,
 )
 from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
+
+
+class _ConvertAdapter:
+  """Adapts the injectable ``xspace_to_tool_data`` callable to ConvertPort."""
+
+  def __init__(
+      self,
+      get_fn: Callable[
+          [],
+          Callable[
+              [Sequence[epath.Path], str, dict[str, Any]],
+              tuple[bytes | str | None, str],
+          ],
+      ],
+  ):
+    self._get_fn = get_fn
+
+  def xspace_to_tool_data(
+      self,
+      paths: Sequence[Any],
+      tool: str,
+      params: Mapping[str, Any],
+  ) -> tuple[bytes | str | None, str]:
+    return self._get_fn()(paths, tool, params)
+
+
+class _FsFactoryAdapter:
+  """Adapts ``_profile_fs`` to FileSystemFactory."""
+
+  def __init__(self, get_fs: Callable[[str], Any]):
+    self._get_fs = get_fs
+
+  def get(self, path: str) -> Any:
+    return self._get_fs(path)
 
 
 @functools.lru_cache(maxsize=1)
@@ -184,6 +210,16 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # May be None until first conversion; resolved lazily via _get_xspace_fn().
     self._xspace_to_tool_data = xspace_to_tool_data_fn
     self._version = version_module
+    self._sessions = SessionResolver(epath_module=self._epath)
+    self._hosts = HostSelector()
+    self._tool_data = ToolDataService(
+        convert=_ConvertAdapter(self._get_xspace_fn),
+        sessions=self._sessions,
+        hosts=self._hosts,
+        version=self._version,
+        epath_module=self._epath,
+        fs_factory=_FsFactoryAdapter(self._profile_fs),
+    )
 
     # Whether the plugin is active. This is an expensive computation, so we
     # compute this asynchronously and cache positive results indefinitely.
@@ -351,16 +387,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         if request and not session_path_arg
         else None
     )
-    session_dir_by_run_name = None
-    if session_path_arg:
-      session_dir_by_run_name = {}
-      if self._profile_fs(session_path_arg).dir_has_xplane_files(session_path_arg):
-        run_name = self._epath.Path(session_path_arg).name
-        session_dir_by_run_name[run_name] = session_path_arg
-    elif run_path_arg:
-      fs = profile_io.get_file_system(run_path_arg, self._epath)
-      session_dir_by_run_name = fs.get_session_paths(run_path_arg)
-    return session_dir_by_run_name
+    return self._sessions.run_map_from_params(session_path_arg, run_path_arg)
 
   def _run_dir(
       self, run: str, request: wrappers.Request | None = None
@@ -390,32 +417,13 @@ class ProfilePlugin(base_plugin.TBPlugin):
     session_dir_by_run_name = self._session_dir_by_run_name_from_request(
         request
     )
-    if session_dir_by_run_name is not None:
-      if run in session_dir_by_run_name:
-        return session_dir_by_run_name[run]
-      else:
-        raise ValueError(
-            f'Run {run} not found in run map: {session_dir_by_run_name}'
-        )
-
-    with self._run_dir_cache_lock:
-      if run in self._run_to_profile_run_dir:
-        return self._run_to_profile_run_dir[run]
-
-    if not self.logdir:
-      raise RuntimeError(
-          'No matching run directory for run %s. Logdir is empty.' % run
-      )
-    tb_run_name, profile_run_name = os.path.split(run.rstrip(os.sep))
-    if not tb_run_name:
-      tb_run_name = '.'
-    tb_run_directory = _tb_run_directory(self.logdir, tb_run_name)
-    if not self._epath.Path(tb_run_directory).is_dir():
-      raise RuntimeError('No matching run directory for run %s' % run)
-    plugin_directory = plugin_asset_util.PluginDirectory(
-        tb_run_directory, PLUGIN_NAME
+    return self._sessions.resolve_run_dir(
+        run,
+        session_dir_by_run_name,
+        self.logdir,
+        self._run_to_profile_run_dir,
+        self._run_dir_cache_lock,
     )
-    return os.path.join(plugin_directory, profile_run_name)
 
   def runs_imp(self, request: wrappers.Request | None = None) -> list[str]:
     """Returns a list all runs for the profile plugin.
@@ -528,12 +536,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
 
   def _get_valid_hosts(
       self, run_dir: str, run: str, tool: str, hosts_param: str, host: str
-  ) -> tuple[Sequence[str], Sequence[epath.Path]]:
+  ) -> tuple[list[str], list[Any]]:
     """Retrieves and validates the hosts and asset paths for a run and tool.
+
+    Thin wrapper around HostSelector; keeps list/list return type for callers.
 
     Args:
       run_dir: The run directory.
-      run: The frontend run name.
+      run: The frontend run name (unused; retained for call-site compatibility).
       tool: The requested tool.
       hosts_param: Comma-separated list of selected hosts.
       host: The single host parameter.
@@ -544,85 +554,26 @@ class ProfilePlugin(base_plugin.TBPlugin):
     Raises:
       FileNotFoundError: If a required xplane file for the specified host(s)
         is not found.
-      IOError: If there is an error reading asset directories.
     """
-    asset_paths = []
-    selected_hosts = []
-    all_xplane_files = {}  # Map host to path
-
-    # Find all available xplane files for the run and map them by host.
-    try:
-      xplane_basenames = self._get_xplane_basenames(run_dir)
-      for basename in xplane_basenames:
-        host_name, _ = parse_filename(basename)
-        if host_name:
-          all_xplane_files[host_name] = self._epath.Path(
-              os.path.join(run_dir, basename)
-          )
-    except OSError as e:
-      logger.warning('Cannot read asset directory: %s, OpError %r', run_dir, e)
-      raise IOError(
-          'Cannot read asset directory: %s, OpError %r' % (run_dir, e)
-      ) from e
-    if not all_xplane_files:
-      logger.warning('no xplane files found for run: %s, tool: %s', run, tool)
-      raise FileNotFoundError(
-          'No xplane file found for run: %s, tool: %s' % (run, tool)
-      )
-
-    if hosts_param and supports_multi_host_selection(tool):
-      selected_hosts = hosts_param.split(',')
-      for selected_host in selected_hosts:
-        if selected_host in all_xplane_files:
-          asset_paths.append(all_xplane_files[selected_host])
-        else:
-          raise FileNotFoundError(
-              'No xplane file found for host: %s in run: %s'
-              % (selected_host, run)
-          )
-    elif host == ALL_HOSTS:
-      asset_paths = list(all_xplane_files.values())
-      selected_hosts = list(all_xplane_files.keys())
-    elif host and host in all_xplane_files:
-      selected_hosts = [host]
-      asset_paths = [all_xplane_files[host]]
-    elif host:
-      logger.warning('No xplane file found for host: %s in run: %s', host, run)
-      if host not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
-        raise FileNotFoundError(
-            'No xplane file found for host: %s in run: %s' % (host, run)
-        )
-    # for request that does not specify host or hosts param, use all hosts.
-    # would also be no-op for tools that is host-agnostic.
-    elif not host and not hosts_param:
-      selected_hosts = list(all_xplane_files.keys())
-      asset_paths = list(all_xplane_files.values())
-
-    if not asset_paths:
-      logger.warning(
-          'No matching asset paths found for run %s, tool %s, host(s) %s / %s',
-          run,
-          tool,
-          hosts_param,
-          host,
-      )
-      if not host and tool not in XPLANE_TOOLS_ALL_HOSTS_ONLY:
-        raise FileNotFoundError(
-            'Host must be specified for tool %s in run %s' % (tool, run)
-        )
-
-    return selected_hosts, asset_paths
+    del run  # Retained for callers; HostSelector messages use run_dir.
+    basenames = self._get_xplane_basenames(run_dir)
+    selection = self._hosts.select(
+        run_dir=run_dir,
+        tool=tool,
+        host=host,
+        hosts_param=hosts_param,
+        xplane_basenames=basenames,
+        path_join=lambda *p: self._epath.Path(os.path.join(*p)),
+    )
+    return list(selection.selected_hosts), list(selection.asset_paths)
 
   def _write_cache_version_file(self, run_dir: str) -> None:
-    """Persist the plugin version next to a session for result-cache invalidation."""
-    try:
-      cache_path = self._epath.Path(os.path.join(run_dir, CACHE_VERSION_FILE))
-      with cache_path.open('w') as f:
-        f.write(self._version.__version__)
-    except OSError:
-      logger.warning(
-          'Cannot write cache version file to %s', run_dir, exc_info=True
-      )
+    """Persist the plugin version next to a session for result-cache invalidation.
+
+    Thin delegate so tests can still patch this method; ToolDataService writes
+    via ``result_cache_policy.write_cache_version_file`` directly.
+    """
+    write_cache_version_file(run_dir, self._version, self._epath)
 
   def data_impl(
       self, request: wrappers.Request
@@ -642,135 +593,18 @@ class ProfilePlugin(base_plugin.TBPlugin):
       IOError: If there is an error reading asset directories.
       AttributeError: If there is an error during xplane to tool data conversion
       ValueError: If xplane conversion fails due to invalid data.
+      RuntimeError: If session resolution fails when logdir is missing.
     """
-    run = request.args.get('run')
-    tool = request.args.get('tag')
-
-    if tool == 'perf_counters' and request.args.get('names_only') == '1':
-      device_type = request.args.get('device_type')
-      if not device_type:
-        raise ValueError(
-            'device_type is required for perf_counters with names_only'
-        )
-      try:
-        from xprof.convert import counter_extractor  # pylint: disable=g-import-not-at-top
-        names = counter_extractor.get_all_counters(device_type)
-      except FileNotFoundError:
-        logger.warning(
-            'Failed to get counter names for device type: %s', device_type
-        )
-        names = []
-      return json.dumps(names), 'application/json', None
-
-    hosts_param = request.args.get('hosts')
-    host = request.args.get('host')
-    module_name = request.args.get('module_name')
-    program_id = request.args.get('program_id')
-    tqx = request.args.get('tqx')
-    perfetto = get_bool_arg(request.args, 'perfetto', False)
-    use_saved_result = get_bool_arg(request.args, 'use_saved_result', True)
-    full_dma = get_bool_arg(request.args, 'full_dma', False)
-    enable_legacy_dcn = get_bool_arg(request.args, 'enable_legacy_dcn', False)
-    run_dir = self._run_dir(run, request)
-
-    # Check if the cache file exists and if the cache file version is less
-    # than the current plugin version, clear the cache.
-    use_saved_result = should_use_saved_result(
-        run_dir, use_saved_result, self._version, self._epath
+    req = tool_request_from_args(request.args)
+    result = self._tool_data.get_tool_data(
+        req,
+        session_path=request.args.get('session_path'),
+        run_path=request.args.get('run_path'),
+        logdir=self.logdir,
+        run_dir_cache=self._run_to_profile_run_dir,
+        cache_lock=self._run_dir_cache_lock,
     )
-
-    graph_viewer_options = self._get_graph_viewer_options(request)
-    # Host param is used by HLO tools to identify the module.
-    params = {
-        'graph_viewer_options': graph_viewer_options,
-        'tqx': tqx,
-        'perfetto': perfetto,
-        'host': host,
-        'module_name': module_name,
-        'program_id': program_id,
-        'use_saved_result': use_saved_result,
-    }
-    if request.args.get('group_by'):
-      params['group_by'] = request.args.get('group_by')
-    if request.args.get('refresh_suggestion'):
-      params['refresh_suggestion'] = request.args.get('refresh_suggestion')
-    content_type = 'application/json'
-
-    if tool not in TOOLS and not use_xplane(tool):
-      return None, content_type, None
-    if tool == 'memory_viewer' and request.args.get(
-        'view_memory_allocation_timeline'
-    ):
-      params['view_memory_allocation_timeline'] = True
-
-    params['memory_space'] = request.args.get('memory_space', '0')
-
-    if tool in ('trace_viewer', 'trace_viewer@'):
-      options = {}
-      options['resolution'] = request.args.get('resolution', 8000)
-      options['full_dma'] = full_dma
-      options['enable_legacy_dcn'] = enable_legacy_dcn
-      if request.args.get('start_time_ms') is not None:
-        options['start_time_ms'] = request.args.get('start_time_ms')
-      if request.args.get('end_time_ms') is not None:
-        options['end_time_ms'] = request.args.get('end_time_ms')
-      event_name = request.args.get('event_name')
-      format_arg = request.args.get('format')
-      if event_name is not None:
-        options['event_name'] = event_name
-        # For event selection (fetching event details), do not use the
-        # compressed protobuf path; use the regular JSON path instead.
-        options['format'] = 'json'
-      elif format_arg is not None:
-        options['format'] = format_arg
-      if request.args.get('duration_ms') is not None:
-        options['duration_ms'] = request.args.get('duration_ms')
-      if request.args.get('unique_id') is not None:
-        options['unique_id'] = request.args.get('unique_id')
-      if request.args.get('search_prefix') is not None:
-        options['search_prefix'] = request.args.get('search_prefix')
-      if request.args.get('search_metadata') is not None:
-        # Retrigger presubmits (second attempt).
-        options['search_metadata'] = get_bool_arg(
-            request.args, 'search_metadata', False
-        )
-      params['trace_viewer_options'] = options
-
-    _, content_encoding = None, None
-    if use_xplane(tool):
-      selected_hosts, asset_paths = self._get_valid_hosts(
-          run_dir, run, tool, hosts_param, host
-      )
-      if not asset_paths:
-        return None, content_type, None
-
-      params['hosts'] = selected_hosts
-      try:
-        data, content_type = self._get_xspace_fn()(
-            asset_paths,
-            tool,
-            params,
-        )
-      except AttributeError as e:
-        logger.warning('Error generating analysis results due to %r', e)
-        raise AttributeError(
-            'Error generating analysis results due to %r' % e
-        ) from e
-      except ValueError as e:
-        logger.warning('XPlane convert to tool data failed as %r', e)
-        raise
-      except FileNotFoundError as e:
-        logger.warning('XPlane convert to tool data failed as %r', e)
-        raise
-
-      # Write cache version file if use_saved_result is False.
-      if not use_saved_result:
-        self._write_cache_version_file(run_dir)
-
-      return data, content_type, content_encoding
-
-    logger.info('%s does not use xplane', tool)
-    return None, content_type, None
+    return result.data, result.content_type, result.content_encoding
 
   def hlo_module_list_impl(self, request: wrappers.Request) -> str:
     """Returns a string of HLO module names concatenated by comma for the given run."""

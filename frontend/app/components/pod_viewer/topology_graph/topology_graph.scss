@@ -1,6 +1,6 @@
 /** CSS for a topology graph view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -134,5 +134,5 @@
 }
 
 .control {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
 }

@@ -1,6 +1,6 @@
 /** Common CSS for an op profile component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 mat-sidenav-container {
   background-color: #fff;
@@ -9,7 +9,7 @@ mat-sidenav-container {
 mat-sidenav {
   background: transparent;
   width: 340px;
-  @include border-right-gray;
+  @include common.border-right-gray;
 }
 
 .container {
@@ -38,12 +38,12 @@ mat-sidenav {
 }
 
 .control-title {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
   margin-bottom: 5px;
 }
 
 .ops-control-title {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
   margin: -20px 0 -24px;
 }
 

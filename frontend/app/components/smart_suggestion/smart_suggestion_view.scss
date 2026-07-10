@@ -1,10 +1,10 @@
 /** CSS for a smart suggestion view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
-  @include border-bottom-gray;
-  @include border-right-gray;
+  @include common.border-bottom-gray;
+  @include common.border-right-gray;
 }
 
 // Styles for the outer list wrapping each suggestion block
@@ -86,7 +86,7 @@
 :host:not(.dark-theme) {
   mat-expansion-panel {
     margin: 0;
-    @include overview-card;
+    @include common.overview-card;
   }
 }
 
@@ -95,7 +95,7 @@ mat-expansion-panel-header {
 }
 
 mat-panel-title {
-  @include overview-card-title;
+  @include common.overview-card-title;
   background-color: transparent;
 }
 
@@ -117,7 +117,7 @@ mat-panel-title {
 
 mat-expansion-panel-header.cdk-keyboard-focused,
 mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
-  background-color: $card-title-focus-background-color;
+  background-color: common.$card-title-focus-background-color;
 }
 
 .mat-expanded mat-expansion-panel-header {
@@ -129,22 +129,22 @@ mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
   border: none;
 
   mat-expansion-panel {
-    @include overview-card-dark-theme;
+    @include common.overview-card-dark-theme;
   }
 
   mat-panel-title {
     background-color: transparent;
-    color: $dark-theme-card-title-color;
+    color: common.$dark-theme-card-title-color;
   }
 
   mat-expansion-panel-header {
-    background-color: $dark-theme-card-title-background-color;
+    background-color: common.$dark-theme-card-title-background-color;
     margin: 0;
   }
 
   mat-expansion-panel-header.cdk-keyboard-focused,
   mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
-    background-color: $dark-theme-card-title-focus-background-color;
+    background-color: common.$dark-theme-card-title-focus-background-color;
   }
 
   .table {

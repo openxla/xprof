@@ -1,13 +1,13 @@
 /** CSS for an op detail view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
 }
 
 mat-card {
-  @include detail-card;
+  @include common.detail-card;
 }
 
 .info-header {
@@ -42,12 +42,12 @@ mat-card {
 }
 
 .info-header-subheader {
-  color: $content-primary-color;
+  color: common.$content-primary-color;
   font-style: italic;
 }
 
 .info-content {
-  color: $content-primary-color;
+  color: common.$content-primary-color;
   font-size: 16px;
   padding: 16px;
 }

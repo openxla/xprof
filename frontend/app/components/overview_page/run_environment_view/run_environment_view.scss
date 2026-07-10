@@ -1,25 +1,25 @@
 /** CSS for a run environment view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
-  @include border-bottom-gray;
-  @include border-right-gray;
+  @include common.border-bottom-gray;
+  @include common.border-right-gray;
   flex-grow: 1;
 }
 
 :host:not(.dark-theme) {
   mat-card {
-    @include overview-card;
+    @include common.overview-card;
   }
 }
 
 mat-card {
-  @include overview-card-height;
+  @include common.overview-card-height;
 }
 
 mat-card-title {
-  @include overview-card-title;
+  @include common.overview-card-title;
 }
 
 b {
@@ -30,12 +30,12 @@ b {
   border: none;
 
   mat-card {
-    @include overview-card-dark-theme;
+    @include common.overview-card-dark-theme;
   }
 
   mat-card-title {
-    background-color: $dark-theme-card-title-background-color;
-    color: $dark-theme-card-title-color;
+    background-color: common.$dark-theme-card-title-background-color;
+    color: common.$dark-theme-card-title-color;
     padding: 16px;
     margin: -16px -16px 16px;
   }

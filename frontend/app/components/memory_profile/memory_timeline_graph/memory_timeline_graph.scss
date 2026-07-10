@@ -1,20 +1,20 @@
 /** CSS for a memory timeline graph view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
-  @include border-bottom-gray;
-  @include border-right-gray;
+  @include common.border-bottom-gray;
+  @include common.border-right-gray;
   flex-grow: 1;
 }
 
 mat-card {
-  @include overview-card;
-  @include overview-card-height;
+  @include common.overview-card;
+  @include common.overview-card-height;
 }
 
 mat-card-title {
-  @include overview-card-title;
+  @include common.overview-card-title;
 }
 
 .chart {

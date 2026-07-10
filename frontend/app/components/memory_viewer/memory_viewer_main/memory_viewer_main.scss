@@ -1,6 +1,6 @@
 /** CSS for a memory viewer main component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -15,7 +15,7 @@
 }
 
 .control-title {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
   margin-bottom: 5px;
 }
 

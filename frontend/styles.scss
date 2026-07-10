@@ -1,3 +1,4 @@
+@use 'sass:map';
 @use '@angular/material' as mat;
 
 :root {
@@ -51,7 +52,7 @@ $theme: mat.define-light-theme(
 @include mat.dialog-theme($theme);
 @include mat.progress-spinner-theme($theme);
 @include mat.progress-bar-theme($theme);
-@include mat.slide-toggle-theme(map-merge($theme, (density: -5)));
+@include mat.slide-toggle-theme(map.merge($theme, (density: -5)));
 @include mat.radio-theme($theme);
 @include mat.snack-bar-theme($theme);
 @include mat.slider-theme($theme);

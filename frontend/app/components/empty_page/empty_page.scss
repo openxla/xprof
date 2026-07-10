@@ -1,6 +1,6 @@
 /** CSS for an empty page component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;

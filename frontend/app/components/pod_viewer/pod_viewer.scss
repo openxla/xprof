@@ -1,6 +1,6 @@
 /** CSS for a pod viewer component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -20,5 +20,5 @@ mat-slider {
 }
 
 .control {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
 }

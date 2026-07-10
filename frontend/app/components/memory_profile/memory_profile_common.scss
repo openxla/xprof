@@ -1,6 +1,6 @@
 /** CSS for a memory profile component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -44,7 +44,7 @@ mat-form-field {
 }
 
 .full-column {
-  @include border-right-gray;
+  @include common.border-right-gray;
   width: 100%;
 }
 

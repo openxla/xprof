@@ -1,6 +1,6 @@
 /** CSS for an operations table component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -8,6 +8,6 @@
 }
 
 .table {
-  border: 1px solid $border-color;
+  border: 1px solid common.$border-color;
   width: fit-content;
 }

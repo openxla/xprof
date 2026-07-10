@@ -1,6 +1,6 @@
 /** CSS for export-as-CSV component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 .save-button {
   padding-top: 8px;
@@ -9,6 +9,6 @@
 }
 
 .save-button:hover {
-  color: $button-focus-color;
+  color: common.$button-focus-color;
   cursor: pointer;
 }

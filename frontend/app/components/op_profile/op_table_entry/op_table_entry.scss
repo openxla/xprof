@@ -1,9 +1,9 @@
 /** CSS for an op talbe entry view component. */
 
-@import 'frontend/app/components/op_profile/op_profile_common';
+@use 'frontend/app/components/op_profile/op_profile_common';
 
 :host {
-  color: $content-primary-color;
+  color: op_profile_common.$content-primary-color;
 }
 
 .row {

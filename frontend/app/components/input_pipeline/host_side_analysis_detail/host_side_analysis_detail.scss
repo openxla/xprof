@@ -1,9 +1,9 @@
 /** CSS for a host-side analysis detail view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 mat-expansion-panel {
-  @include overview-card;
+  @include common.overview-card;
   margin: 0;
 }
 
@@ -12,13 +12,13 @@ mat-expansion-panel-header {
 }
 
 mat-panel-title {
-  @include overview-card-title;
+  @include common.overview-card-title;
   background-color: transparent;
 }
 
 mat-expansion-panel-header.cdk-keyboard-focused,
 mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
-  background-color: $card-title-focus-background-color !important;
+  background-color: common.$card-title-focus-background-color !important;
 }
 
 .mat-expanded mat-expansion-panel-header {
@@ -27,7 +27,7 @@ mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
 }
 
 .section-container {
-  @include border-bottom-gray;
+  @include common.border-bottom-gray;
   padding: 20px;
 }
 
@@ -36,5 +36,5 @@ mat-expansion-panel:not(.mat-expanded) mat-expansion-panel-header:hover {
 }
 
 .column-chart, .recommendations {
-  color: $content-primary-color;
+  color: common.$content-primary-color;
 }

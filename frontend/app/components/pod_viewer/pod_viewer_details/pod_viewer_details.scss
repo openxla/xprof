@@ -1,6 +1,6 @@
 /** CSS for a pod viewer detail view component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -8,7 +8,7 @@
 }
 
 mat-card {
-  @include detail-card;
+  @include common.detail-card;
 }
 
 .info-header {
@@ -18,7 +18,7 @@ mat-card {
 }
 
 .info-content {
-  color: $content-primary-color;
+  color: common.$content-primary-color;
   padding: 16px;
 }
 

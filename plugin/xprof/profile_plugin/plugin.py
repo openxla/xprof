@@ -30,14 +30,11 @@ import threading
 from typing import Any, TypedDict
 
 from etils import epath
-import etils.epath.backend
-import six
 from werkzeug import wrappers
 
 from xprof import profile_io
 from xprof import version
 from xprof.profile_plugin.cache.result_cache_policy import write_cache_version_file
-from xprof.profile_plugin.cache.tools_cache import ToolsCache
 from xprof.profile_plugin.constants import (
     BASE_ROUTE,
     BUNDLE_JS_ROUTE,
@@ -56,7 +53,6 @@ from xprof.profile_plugin.constants import (
     RUNS_ROUTE,
     RUN_TOOLS_ROUTE,
     STYLES_CSS_ROUTE,
-    TB_NAME,
     TRACE_VIEWER_INDEX_HTML_ROUTE,
     TRACE_VIEWER_INDEX_JS_ROUTE,
     TRACE_VIEWER_V2_JS_ROUTE,
@@ -70,10 +66,10 @@ from xprof.profile_plugin.http.request_params import generate_csv_filename
 from xprof.profile_plugin.http.respond import respond, version_route
 from xprof.profile_plugin.logging_config import logger
 from xprof.profile_plugin.services.hosts import HostSelector
+from xprof.profile_plugin.services.runs import RunDiscovery
 from xprof.profile_plugin.services.sessions import SessionResolver
 from xprof.profile_plugin.services.tool_data import ToolDataService
 from xprof.profile_plugin.tensorflow_bridge import create_tf_profiler
-from xprof.profile_plugin.tools.catalog import get_active_tools
 from xprof.profile_plugin.tools.filenames import (
     hosts_from_xplane_filenames,
     parse_filename,
@@ -83,7 +79,6 @@ from xprof.profile_plugin.tools.registry import (
     XPLANE_TOOLS_SET,
 )
 from xprof.standalone.tensorboard_shim import base_plugin
-from xprof.standalone.tensorboard_shim import plugin_asset_util
 
 
 class _ConvertAdapter:
@@ -136,37 +131,6 @@ def _load_pywrap_module():
 
 HostMetadata = TypedDict('HostMetadata', {'hostname': str})
 
-def _plugin_assets(
-    session_dir: str, runs: Sequence[str], plugin_name: str
-) -> dict[str, Sequence[str]]:
-  result = {}
-  for run in runs:
-    run_path = _tb_run_directory(session_dir, run)
-    assets = plugin_asset_util.ListAssets(run_path, plugin_name)
-    result[run] = assets
-  return result
-
-
-def _tb_run_directory(session_dir: str, run: str) -> str:
-  """Returns the TensorBoard run directory for a TensorBoard run name.
-
-  This helper returns the TensorBoard-level run directory (the one that would)
-  contain tfevents files) for a given TensorBoard run name (aka the relative
-  path from the session_dir root to this directory). For the root run '.'
-  this is the bare session_dir path; for all other runs this is the
-  session_dir joined with the run name.
-
-  Args:
-    session_dir: the TensorBoard log directory root path
-    run: the TensorBoard run name, e.g. '.' or 'train'
-
-  Returns:
-    The TensorBoard run directory path, e.g. my/session_dir or
-    my/session_dir/train.
-  """
-  return session_dir if run == '.' else os.path.join(session_dir, run)
-
-
 class ProfilePlugin(base_plugin.TBPlugin):
   """Profile Plugin for TensorBoard."""
 
@@ -210,7 +174,9 @@ class ProfilePlugin(base_plugin.TBPlugin):
     # May be None until first conversion; resolved lazily via _get_xspace_fn().
     self._xspace_to_tool_data = xspace_to_tool_data_fn
     self._version = version_module
-    self._sessions = SessionResolver(epath_module=self._epath)
+    self._sessions = SessionResolver(
+        self._epath, fs_factory=lambda p: self._profile_fs(p)
+    )
     self._hosts = HostSelector()
     self._tool_data = ToolDataService(
         convert=_ConvertAdapter(self._get_xspace_fn),
@@ -230,6 +196,14 @@ class ProfilePlugin(base_plugin.TBPlugin):
     self._run_dir_cache_lock = threading.Lock()
     # Cache to map profile run name to corresponding tensorboard dir name
     self._run_to_profile_run_dir = {}
+    self._run_discovery = RunDiscovery(
+        logdir=self.logdir,
+        epath_module=self._epath,
+        run_dir_cache=self._run_to_profile_run_dir,
+        cache_lock=self._run_dir_cache_lock,
+        get_all_basenames=lambda p: self._profile_fs(p).get_all_basenames(p),
+        get_file_system=self._profile_fs,
+    )
     self._tf_profiler = create_tf_profiler()
     # Limit to 1 worker to prevent potential Out-of-Memory (OOM) errors.
     # Cache generation, especially for tools like trace viewer, can be
@@ -779,161 +753,13 @@ class ProfilePlugin(base_plugin.TBPlugin):
     except Exception as e:  # pylint: disable=broad-except
       return respond({'error': str(e)}, 'application/json', code=500)
 
-  def _get_graph_viewer_options(
-      self, request: wrappers.Request
-  ) -> dict[str, Any]:
-    node_name = request.args.get('node_name')
-    module_name = request.args.get('module_name')
-    graph_width_str = request.args.get('graph_width') or ''
-    graph_width = int(graph_width_str) if graph_width_str.isdigit() else 3
-    show_metadata = int(request.args.get('show_metadata') == 'true')
-    merge_fusion = int(request.args.get('merge_fusion') == 'true')
-    program_id = request.args.get('program_id')
-    return {
-        'node_name': node_name,
-        'module_name': module_name,
-        'program_id': program_id,
-        'graph_width': graph_width,
-        'show_metadata': show_metadata,
-        'merge_fusion': merge_fusion,
-        'format': request.args.get('format'),
-        'type': request.args.get('type'),
-    }
-
   def generate_runs(self) -> Iterator[str]:
-    """Generator for a list of runs.
-
-    The "run name" here is a "frontend run name" - see _tb_run_directory() for
-    the definition of a "frontend run name" and how it maps to a directory of
-    profile data for a specific profile "run". The profile plugin concept of
-    "run" is different from the normal TensorBoard run; each run in this case
-    represents a single instance of profile data collection, more similar to a
-    "step" of data in typical TensorBoard semantics. These runs reside in
-    subdirectories of the plugins/profile directory within any regular
-    TensorBoard run directory or within the session_dir root directory
-    itself (even if it contains no tfevents file and would thus not be
-    considered a normal TensorBoard run, for backwards compatibility).
-
-    `generate_runs` will get all runs first, and get tools list from
-    `generate_tools_of_run` for a single run due to expensive processing for
-    xspace data to parse the tools.
-    Example:
-      logs/
-        plugins/
-          profile/
-            run1/
-              hostA.trace
-        train/
-          events.out.tfevents.foo
-          plugins/
-            profile/
-              run1/
-                hostA.trace
-                hostB.trace
-              run2/
-                hostA.trace
-        validation/
-          events.out.tfevents.foo
-          plugins/
-            profile/
-              run1/
-                hostA.trace
-        new_job/
-          tensorboard/
-            plugins/
-              profile/
-                run1/
-                  hostA.xplane.pb
-    Yields:
-    A sequence of string that are "frontend run names".
-    For the above example, this would be:
-        "run1", "train/run1", "train/run2", "validation/run1",
-        "new_job/tensorboard/run1"
-    """
-    if not self.logdir:
-      return
-
-    # Ensure that we check the root logdir and all subdirectories.
-    # Note that we check if logdir is a directory to handle case where
-    # it's actually a multipart directory spec, which this plugin does not
-    # support.
-    #
-    # This change still enforce the requirement that the subdirectories must
-    # end with plugins/profile directory, as enforced by TensorBoard.
-    logdir_path = self._epath.Path(self.logdir)
-    schemeless_logdir = str(logdir_path)
-    if '://' in schemeless_logdir:
-      schemeless_logdir = schemeless_logdir.split('://', 1)[1]
-    tb_runs = {'.'}
-
-    if logdir_path.is_dir():
-      try:
-        fs = etils.epath.backend.fsspec_backend.fs(self.logdir)
-        for path_str in fs.glob(os.path.join(self.logdir, '**', PLUGIN_NAME)):
-          path = self._epath.Path(path_str)
-          if fs.isdir(path) and path.parent.name == TB_NAME:
-            tb_run_dir = path.parent.parent
-            tb_run = tb_run_dir.relative_to(schemeless_logdir)
-            tb_runs.add(str(tb_run))
-      except ValueError:
-        # gcsfs not available, fall back to legacy path walk.
-        for cur_dir, _, _ in logdir_path.walk():
-          if cur_dir.name == PLUGIN_NAME and cur_dir.parent.name == TB_NAME:
-            tb_run_dir = cur_dir.parent.parent
-            tb_run = tb_run_dir.relative_to(logdir_path)
-            tb_runs.add(str(tb_run))
-    tb_run_names_to_dirs = {
-        run: _tb_run_directory(self.logdir, run) for run in tb_runs
-    }
-    plugin_assets = _plugin_assets(
-        self.logdir, list(tb_run_names_to_dirs), PLUGIN_NAME
-    )
-    visited_runs = set()
-    for tb_run_name, profile_runs in six.iteritems(plugin_assets):
-      tb_run_dir = tb_run_names_to_dirs[tb_run_name]
-      tb_plugin_dir = plugin_asset_util.PluginDirectory(tb_run_dir, PLUGIN_NAME)
-
-      for profile_run in profile_runs:
-        # Remove trailing separator; some filesystem implementations emit this.
-        profile_run = profile_run.rstrip(os.sep)
-        if tb_run_name == '.':
-          frontend_run = profile_run
-        else:
-          frontend_run = str(self._epath.Path(tb_run_name) / profile_run)
-        profile_run_dir = str(self._epath.Path(tb_plugin_dir) / profile_run)
-        if self._epath.Path(profile_run_dir).is_dir():
-          with self._run_dir_cache_lock:
-            self._run_to_profile_run_dir[frontend_run] = profile_run_dir
-          if frontend_run not in visited_runs:
-            visited_runs.add(frontend_run)
-            yield frontend_run
+    """Yield frontend run names under logdir (delegates to RunDiscovery)."""
+    yield from self._run_discovery.iter_frontend_runs()
 
   def generate_tools_of_run(self, run: str, run_dir: str) -> Iterator[str]:
-    """Generate a list of tools given a certain run."""
-    if not run_dir:
-      logger.warning('Cannot find asset directory for: %s', run)
-      return
-    profile_run_dir = self._epath.Path(run_dir)
-    fs = profile_io.get_file_system(run_dir, self._epath)
-    cache = ToolsCache(profile_run_dir, fs)
-
-    cached_tools = cache.load()
-
-    if cached_tools is not None:
-      for tool in cached_tools:
-        yield tool
-      return
-
-    # Cache is invalid or doesn't exist, regenerate
-    tools = []
-    all_filenames = self._profile_fs(run_dir).get_all_basenames(run_dir)
-
-    if all_filenames:
-      tools = get_active_tools(all_filenames, str(profile_run_dir))
-      cache.save(tools)
-
-    for tool in tools:
-      yield tool
+    """Yield tools for a run (delegates to RunDiscovery)."""
+    yield from self._run_discovery.tools_of_run(run, run_dir)
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application

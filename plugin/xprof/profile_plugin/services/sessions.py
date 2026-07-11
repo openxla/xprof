@@ -2,7 +2,7 @@
 """Session/run path resolution (session_path > run_path > logdir).
 
 Ported from ProfilePlugin._session_dir_by_run_name_from_request and _run_dir.
-Full logdir walk / generate_runs discovery is Task 6.
+Logdir walk / generate_runs lives in services.runs.RunDiscovery.
 """
 
 from __future__ import annotations

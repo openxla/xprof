@@ -105,7 +105,7 @@ class GoldenCharacterizationTest(unittest.TestCase):
     golden = golden_loader.load_golden('run_tools')
     # Patch catalog path used by generate_tools_of_run (convert may be stubbed).
     with mock.patch(
-        'xprof.profile_plugin.plugin.get_active_tools',
+        'xprof.profile_plugin.services.runs.get_active_tools',
         return_value=list(golden['tools']),
     ):
       tools = self.plugin.run_tools_imp(self.session)

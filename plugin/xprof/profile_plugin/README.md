@@ -59,3 +59,4 @@ python3 plugin/xprof/profile_plugin/tests/run_all_tests.py
 
 - Unit: `tests/unit/`
 - Golden / integration: `tests/golden_*`, `tests/plugin_integration_test.py`
+- HTTP contracts (route table + lean per-API happy/error via `get_plugin_apps()`): `tests/http_contract/`

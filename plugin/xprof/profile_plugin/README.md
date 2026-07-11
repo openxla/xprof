@@ -1,27 +1,55 @@
 # `xprof.profile_plugin` layout
 
-The HTTP TensorBoard/XProf profile UI is split so **no single module owns everything**.
+The HTTP TensorBoard / XProf **frontend** is split so each UI API lives in one place.
 
 ## Layers
 
-| Layer | Package | Responsibility |
-|-------|---------|----------------|
-| HTTP edge | `http/` | Werkzeug request parse, `respond()`, access logging |
-| Façade | `plugin.py` | Route table, construct services, thin handlers |
-| Domain services | `services/` | Sessions, hosts, tool data, run discovery (no Werkzeug) |
-| Tool taxonomy | `tools/` | Filenames, registry, catalog, option builders |
-| Cache | `cache/` | Tools list cache, result-cache version policy |
-| Ports | `deps.py` | Convert / filesystem protocols for injection |
-| Optional TF | `tensorflow_bridge.py` | Remote TPU capture helpers |
+```text
+Browser UI
+    │  HTTP
+    ▼
+api/*          ← one module per frontend concern (routes + request/response)
+    │
+plugin.py      ← construct services + register route table only
+    │
+services/*     ← pure domain (no Werkzeug): sessions, hosts, tool_data, runs
+tools/*        ← tool taxonomy, filenames, option builders
+cache/*        ← tools-list cache, result-cache version policy
+http/*         ← respond(), logging middleware, parse helpers
+```
 
-## Where to look
+## Frontend APIs (`api/`)
 
-- **Add a tool query option** → `tools/options/<family>.py` + registry
-- **Change host selection** → `services/hosts.py`
-- **Change session_path / run_path rules** → `services/sessions.py`
-- **Change convert orchestration** → `services/tool_data.py`
-- **Change logdir run discovery** → `services/runs.py`
-- **Change HTTP status/body mapping** → route methods in `plugin.py` + `http/respond.py`
+| Module | Routes / UI surface |
+|--------|---------------------|
+| `api/static_api.py` | `/`, static JS/CSS/WASM, `/config` |
+| `api/runs_api.py` | `/runs`, `/run_tools` (session list + tools for a run) |
+| `api/hosts_api.py` | `/hosts` (hosts for a run+tool) |
+| `api/data_api.py` | `/data`, `/data_csv`, HLO module list |
+| `api/capture_api.py` | `/capture_profile` |
+| `api/cache_api.py` | `/generate_cache` (background warm-up) |
+
+Handlers are **mixins** composed into `ProfilePlugin` so existing call sites
+(`plugin.data_impl`, `plugin.runs_imp`, …) keep working.
+
+## Domain services (`services/`)
+
+| Module | Responsibility |
+|--------|----------------|
+| `sessions.py` | `session_path` / `run_path` / logdir resolution |
+| `hosts.py` | Host selection for convert |
+| `tool_data.py` | Convert orchestration + cache version policy |
+| `runs.py` | Logdir walk → frontend run names + tools-of-run |
+| `counter_names.py` | `perf_counters` + `names_only` special case |
+
+## Where to change what
+
+- **New query option for a tool** → `tools/options/<family>.py`
+- **Host selection rules** → `services/hosts.py`
+- **Session path rules** → `services/sessions.py`
+- **Convert / tool data** → `services/tool_data.py`
+- **HTTP status / body for a UI call** → matching `api/*_api.py` + `http/respond.py`
+- **Route table / wiring** → `plugin.py` only
 
 ## Tests
 
@@ -29,6 +57,5 @@ The HTTP TensorBoard/XProf profile UI is split so **no single module owns everyt
 python3 plugin/xprof/profile_plugin/tests/run_all_tests.py
 ```
 
-Unit tests live under `tests/unit/`; golden HTTP/shape checks under `tests/golden_*` and `tests/fixtures/`.
-
-Target: keep **`plugin.py` as a thin façade** (routes + wiring). Business logic belongs in `services/` / `tools/`.
+- Unit: `tests/unit/`
+- Golden / integration: `tests/golden_*`, `tests/plugin_integration_test.py`

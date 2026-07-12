@@ -614,6 +614,232 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
         expected_compute,
     )
 
+  def test_primitive_type_map_covers_known_xla_types(self):
+    """Hardcoded PrimitiveType ints must match xla_data_pb2 (map maintenance)."""
+    known_types = (
+        "PRED",
+        "S8",
+        "S16",
+        "S32",
+        "S64",
+        "U8",
+        "U16",
+        "U32",
+        "U64",
+        "F16",
+        "F32",
+        "F64",
+        "BF16",
+        "C64",
+        "C128",
+        "TUPLE",
+        "TOKEN",
+    )
+    names = detect_layout_mismatch_copies_tool._PRIMITIVE_TYPE_NAMES
+    values = detect_layout_mismatch_copies_tool._PRIMITIVE_TYPE_VALUES
+    lane_map = detect_layout_mismatch_copies_tool.LANE_SIZE_BY_PRIMITIVE_TYPE
+
+    for type_name in known_types:
+      val = xla_data_pb2.PrimitiveType.Value(type_name)
+      self.assertIn(
+          val,
+          names,
+          msg=f"Missing PrimitiveType {type_name}={val} in _PRIMITIVE_TYPE_NAMES",
+      )
+      self.assertEqual(names[val], type_name)
+      self.assertEqual(values[type_name], val)
+
+    # Types with fixed bit widths must also appear in the lane-size map.
+    for type_name in ("F32", "BF16", "F16", "PRED", "S8", "U8", "F64"):
+      val = xla_data_pb2.PrimitiveType.Value(type_name)
+      self.assertIn(
+          val,
+          lane_map,
+          msg=f"Missing lane size for PrimitiveType {type_name}={val}",
+      )
+
+  def test_deep_graph_no_recursion_error(self):
+    """Deep pass-through chains must not raise RecursionError (iterative BFS)."""
+    depth = 1100
+
+    def _make_instr(instr_id, name, opcode, operand_ids=None):
+      instr = mock.Mock(
+          spec_set=[
+              "id",
+              "name",
+              "opcode",
+              "operand_ids",
+              "called_computation_ids",
+              "custom_call_target",
+              "parameter_number",
+              "tuple_index",
+              "shape",
+          ]
+      )
+      instr.id = instr_id
+      instr.name = name
+      instr.opcode = opcode
+      instr.operand_ids = list(operand_ids or [])
+      instr.called_computation_ids = []
+      instr.custom_call_target = ""
+      instr.parameter_number = 0
+      instr.tuple_index = 0
+      instr.shape = xla_data_pb2.ShapeProto(
+          element_type=xla_data_pb2.F32,
+          dimensions=[128, 256],
+          layout=xla_data_pb2.LayoutProto(minor_to_major=[1, 0]),
+      )
+      return instr
+
+    # Upstream compute -> depth bitcasts -> copy -> reduce.
+    id_to_instr = {}
+    id_to_instr[1] = _make_instr(1, "dot_op", "dot")
+    prev_id = 1
+    for i in range(depth):
+      instr_id = 2 + i
+      id_to_instr[instr_id] = _make_instr(
+          instr_id, f"bitcast_{i}", "bitcast", operand_ids=[prev_id]
+      )
+      prev_id = instr_id
+
+    copy_id = prev_id + 1
+    id_to_instr[copy_id] = _make_instr(
+        copy_id, "copy_op", "copy", operand_ids=[prev_id]
+    )
+    # Layout mismatch on the copy result (for completeness of the fixture).
+    id_to_instr[copy_id].shape = xla_data_pb2.ShapeProto(
+        element_type=xla_data_pb2.F32,
+        dimensions=[128, 256],
+        layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
+    )
+
+    reduce_id = copy_id + 1
+    id_to_instr[reduce_id] = _make_instr(
+        reduce_id, "reduce_op", "reduce", operand_ids=[copy_id]
+    )
+
+    id_to_comp = {1: mock.Mock(spec_set=["id", "instructions", "root_id"])}
+    id_to_comp[1].id = 1
+    id_to_comp[1].instructions = list(id_to_instr.values())
+    id_to_comp[1].root_id = reduce_id
+    comp_id_by_instr_id = {instr_id: 1 for instr_id in id_to_instr}
+    callers_by_comp_id = collections.defaultdict(list)
+    users_by_id = collections.defaultdict(list)
+    for instr in id_to_instr.values():
+      for op_id in instr.operand_ids:
+        users_by_id[op_id].append(instr.id)
+    root_id_by_comp_id = {1: reduce_id}
+
+    # Upstream walk over the full chain (depth >> sys.getrecursionlimit()).
+    upstream = detect_layout_mismatch_copies_tool.find_upstream_compute_stages(
+        copy_id,
+        id_to_instr,
+        id_to_comp,
+        comp_id_by_instr_id,
+        callers_by_comp_id,
+        max_depth=depth + 5,
+    )
+    upstream_names = [u.name for u, _ in upstream]
+    self.assertIn("dot_op", upstream_names)
+
+    # Downstream walk finds the reduce consumer.
+    downstream = (
+        detect_layout_mismatch_copies_tool.find_downstream_compute_stages(
+            copy_id,
+            id_to_instr,
+            users_by_id,
+            id_to_comp,
+            comp_id_by_instr_id,
+            callers_by_comp_id,
+            root_id_by_comp_id,
+            max_depth=depth + 5,
+        )
+    )
+    downstream_names = [d.name for d, _ in downstream]
+    self.assertIn("reduce_op", downstream_names)
+
+  def test_deep_nested_fusion_is_compute_stage(self):
+    """Deeply nested fusions must not raise RecursionError in is_compute_stage."""
+    depth = 1100
+    id_to_comp = {}
+
+    # Innermost computation: a single compute "dot" leaf.
+    leaf = mock.Mock(
+        spec_set=["id", "opcode", "called_computation_ids", "custom_call_target"]
+    )
+    leaf.id = 99999
+    leaf.opcode = "dot"
+    leaf.called_computation_ids = []
+    leaf.custom_call_target = ""
+
+    innermost = mock.Mock(spec_set=["id", "instructions"])
+    innermost.id = depth
+    innermost.instructions = [leaf]
+    id_to_comp[depth] = innermost
+
+    # Computations 1..depth-1 each contain one fusion that calls the next.
+    for level in range(1, depth):
+      fusion = mock.Mock(
+          spec_set=[
+              "id",
+              "opcode",
+              "called_computation_ids",
+              "custom_call_target",
+          ]
+      )
+      fusion.id = 20000 + level
+      fusion.opcode = "fusion"
+      fusion.called_computation_ids = [level + 1]
+      fusion.custom_call_target = ""
+
+      comp = mock.Mock(spec_set=["id", "instructions"])
+      comp.id = level
+      comp.instructions = [fusion]
+      id_to_comp[level] = comp
+
+    # Top-level fusion calls computation 1 (entry to the nesting spine).
+    top = mock.Mock(
+        spec_set=["id", "opcode", "called_computation_ids", "custom_call_target"]
+    )
+    top.id = 0
+    top.opcode = "fusion"
+    top.called_computation_ids = [1]
+    top.custom_call_target = ""
+
+    self.assertTrue(
+        detect_layout_mismatch_copies_tool.is_compute_stage(top, id_to_comp)
+    )
+
+  def test_deep_nested_tuple_layout_mismatch(self):
+    """Deeply nested tuple shapes must not raise RecursionError."""
+    depth = 1100
+    # Build two parallel nested tuple spines that differ at the leaf layout.
+    src = xla_data_pb2.ShapeProto()
+    tgt = xla_data_pb2.ShapeProto()
+    src_cursor = src
+    tgt_cursor = tgt
+    for _ in range(depth - 1):
+      src_cursor = src_cursor.tuple_shapes.add()
+      tgt_cursor = tgt_cursor.tuple_shapes.add()
+    src_cursor.tuple_shapes.add(
+        element_type=xla_data_pb2.F32,
+        dimensions=[128, 256],
+        layout=xla_data_pb2.LayoutProto(minor_to_major=[1, 0]),
+    )
+    tgt_cursor.tuple_shapes.add(
+        element_type=xla_data_pb2.F32,
+        dimensions=[128, 256],
+        layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
+    )
+
+    self.assertTrue(
+        detect_layout_mismatch_copies_tool.has_layout_mismatch(src, tgt)
+    )
+    optimal, _, _ = (
+        detect_layout_mismatch_copies_tool.check_minor_dimension_optimality(src)
+    )
+    self.assertTrue(optimal)
+
   @mock.patch.object(hlo_tools, "_fetch_debug_info", autospec=True)
   def test_gte_tuple_path_tracking(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()

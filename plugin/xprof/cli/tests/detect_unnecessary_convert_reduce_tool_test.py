@@ -682,8 +682,15 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     )
 
   def test_evaluate_optimization(self):
+    # Exact recommendation string used for non-low-priority inefficient ops.
+    keep_bf16_rec = (
+        "Keep intermediate reduction calculation in BF16/F16 precision to match"
+        " inputs."
+    )
+
     # 1. TRAINING phase
-    # General context gets low priority alert
+    # General context gets low priority alert: empty recommendation by design
+    # (action deferred); assert the full warning text stays stable.
     is_ineff, rec, warn, is_low = (
         detect_unnecessary_convert_reduce_tool._evaluate_optimization(
             "TRAINING",
@@ -694,7 +701,10 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     self.assertTrue(is_ineff)
     self.assertTrue(is_low)
     self.assertEqual(rec, "")
-    self.assertIn("Low priority", warn)
+    self.assertEqual(
+        warn,
+        "Low priority: Training upcast detected on a general reduction.",
+    )
 
     # Norm context in training gets silently skipped
     is_ineff, _, _, _ = (
@@ -717,7 +727,7 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     )
     self.assertTrue(is_ineff)
     self.assertFalse(is_low)
-    self.assertIn("Keep intermediate reduction calculation", rec)
+    self.assertEqual(rec, keep_bf16_rec)
     self.assertEqual(warn, "")
 
     # Softmax context in inference: size <= 1024 gets no warning
@@ -729,7 +739,7 @@ class DetectReduceConvertToolTest(absltest.TestCase):
         )
     )
     self.assertTrue(is_ineff)
-    self.assertIn("Keep intermediate reduction calculation", rec)
+    self.assertEqual(rec, keep_bf16_rec)
     self.assertEqual(warn, "")
 
     # Softmax context in inference: size > 1024 gets extra precision warning
@@ -741,8 +751,12 @@ class DetectReduceConvertToolTest(absltest.TestCase):
         )
     )
     self.assertTrue(is_ineff)
-    self.assertIn("Keep intermediate reduction calculation", rec)
-    self.assertIn("Warning: The reduction size is large", warn)
+    self.assertEqual(rec, keep_bf16_rec)
+    self.assertEqual(
+        warn,
+        "Warning: The reduction size is large (>1024). Verify model accuracy"
+        " after downcasting to avoid precision loss issues.",
+    )
 
   def test_deep_graph_recursion_limit(self):
     # Generates a very deep computation chain to verify the iterative

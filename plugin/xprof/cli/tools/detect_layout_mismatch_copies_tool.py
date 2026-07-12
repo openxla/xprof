@@ -16,6 +16,16 @@ from xprof.cli.tools import (
     get_top_hlo_ops_tool,
 )
 
+# Hardcoded XLA PrimitiveType enum int → name map.
+#
+# Maintained manually (not imported from xla_data_pb2) to avoid the heavy
+# protobuf dependency at CLI startup. Must stay in sync with:
+#   xla/xla_data.proto  (message PrimitiveType / enum PrimitiveType)
+# When a new primitive type lands upstream:
+#   1. Add its enum integer and name here.
+#   2. If it has a fixed bit width used for TPU lane sizing, also add an entry
+#      to _PRIMITIVE_TYPE_SPECS below (name, bit_width).
+#   3. Extend the unit test that spot-checks known PrimitiveType ints.
 _PRIMITIVE_TYPE_NAMES = {
     0: "PRIMITIVE_TYPE_INVALID",
     1: "PRED",
@@ -334,7 +344,7 @@ def get_tpu_lane_size(
 
 
 def has_layout_mismatch(source_shape: Any, target_shape: Any) -> bool:
-  """Recursively checks for layout mismatches down to leaf shapes.
+  """Checks for layout mismatches down to leaf shapes (iterative DFS).
 
   Args:
     source_shape: The starting ShapeProto message.
@@ -347,43 +357,47 @@ def has_layout_mismatch(source_shape: Any, target_shape: Any) -> bool:
   if not source_shape or not target_shape:
     return False
 
-  if source_shape.tuple_shapes or target_shape.tuple_shapes:
-    if len(source_shape.tuple_shapes) != len(target_shape.tuple_shapes):
+  # Iterative walk so deeply nested tuple shapes cannot blow the Python stack.
+  stack = [(source_shape, target_shape)]
+  while stack:
+    src, tgt = stack.pop()
+    if src.tuple_shapes or tgt.tuple_shapes:
+      if len(src.tuple_shapes) != len(tgt.tuple_shapes):
+        return True
+      for s, t in zip(src.tuple_shapes, tgt.tuple_shapes):
+        stack.append((s, t))
+      continue
+
+    if src.layout and src.layout.minor_to_major:
+      src_layout = list(src.layout.minor_to_major)
+    else:
+      src_layout = None
+
+    if tgt.layout and tgt.layout.minor_to_major:
+      tgt_layout = list(tgt.layout.minor_to_major)
+    else:
+      tgt_layout = None
+
+    if src_layout is None and tgt_layout is not None:
+      src_layout = list(reversed(range(len(src.dimensions))))
+    if tgt_layout is None and src_layout is not None:
+      tgt_layout = list(reversed(range(len(tgt.dimensions))))
+
+    if src_layout != tgt_layout:
       return True
-    return any(
-        has_layout_mismatch(src, tgt)
-        for src, tgt in zip(
-            source_shape.tuple_shapes, target_shape.tuple_shapes
-        )
-    )
 
-  if source_shape.layout and source_shape.layout.minor_to_major:
-    src_layout = list(source_shape.layout.minor_to_major)
-  else:
-    src_layout = None
-
-  if target_shape.layout and target_shape.layout.minor_to_major:
-    tgt_layout = list(target_shape.layout.minor_to_major)
-  else:
-    tgt_layout = None
-
-  if src_layout is None and tgt_layout is not None:
-    src_layout = list(reversed(range(len(source_shape.dimensions))))
-  if tgt_layout is None and src_layout is not None:
-    tgt_layout = list(reversed(range(len(target_shape.dimensions))))
-
-  return src_layout != tgt_layout
+  return False
 
 
 def check_minor_dimension_optimality(
     shape_proto: Any,
     max_packing_factor: int = 32,
 ) -> tuple[bool, int | None, int | None]:
-  """Recursively checks TPU lane alignment for all leaf minor dimensions.
+  """Checks TPU lane alignment for all leaf minor dimensions (iterative DFS).
 
   Args:
-    shape_proto: The XLA shape proto to check recursively. Can be a tuple shape
-      or a primitive leaf shape.
+    shape_proto: The XLA shape proto to check. Can be a tuple shape or a
+      primitive leaf shape.
     max_packing_factor: The maximum packing factor for TPU dimension alignment
       considerations.
 
@@ -399,27 +413,26 @@ def check_minor_dimension_optimality(
   if not shape_proto:
     return True, None, None
 
-  if shape_proto.tuple_shapes:
-    for sub in shape_proto.tuple_shapes:
-      optimal, size, lane = check_minor_dimension_optimality(
-          sub, max_packing_factor
-      )
-      if not optimal:
-        return False, size, lane
-    return True, None, None
+  # Iterative walk so deeply nested tuple shapes cannot blow the Python stack.
+  stack = [shape_proto]
+  while stack:
+    shape = stack.pop()
+    if shape.tuple_shapes:
+      stack.extend(shape.tuple_shapes)
+      continue
 
-  if not shape_proto.dimensions:
-    return True, None, None
+    if not shape.dimensions:
+      continue
 
-  minor_idx = len(shape_proto.dimensions) - 1
-  if shape_proto.layout and shape_proto.layout.minor_to_major:
-    minor_idx = shape_proto.layout.minor_to_major[0]
+    minor_idx = len(shape.dimensions) - 1
+    if shape.layout and shape.layout.minor_to_major:
+      minor_idx = shape.layout.minor_to_major[0]
 
-  if 0 <= minor_idx < len(shape_proto.dimensions):
-    minor_size = shape_proto.dimensions[minor_idx]
-    lane_size = get_tpu_lane_size(shape_proto.element_type, max_packing_factor)
-    if lane_size is not None and minor_size % lane_size != 0:
-      return False, minor_size, lane_size
+    if 0 <= minor_idx < len(shape.dimensions):
+      minor_size = shape.dimensions[minor_idx]
+      lane_size = get_tpu_lane_size(shape.element_type, max_packing_factor)
+      if lane_size is not None and minor_size % lane_size != 0:
+        return False, minor_size, lane_size
 
   return True, None, None
 
@@ -477,11 +490,14 @@ def is_compute_stage(
 ) -> bool:
   """Checks if an HLO instruction is a compute-intensive stage.
 
+  Nested fusions are walked iteratively so deep fusion trees cannot exceed the
+  Python recursion limit.
+
   Args:
     instr: The HLO instruction proto to check.
     comp_by_id: A mapping from computation IDs to computation protos.
     visited_fusions: A set of fusion instruction IDs already visited to prevent
-      infinite recursion.
+      cycles in fusion nesting.
 
   Returns:
     True if the instruction is a compute-intensive stage, False otherwise.
@@ -489,31 +505,39 @@ def is_compute_stage(
   if visited_fusions is None:
     visited_fusions = set()
 
-  opcode_lower = instr.opcode.lower()
+  # Iterative DFS over nested fusions (no recursive helper).
+  stack = [instr]
+  while stack:
+    curr = stack.pop()
+    opcode_lower = curr.opcode.lower()
 
-  if any(keyword in opcode_lower for keyword in _COMPUTE_KEYWORDS):
-    return True
+    if any(keyword in opcode_lower for keyword in _COMPUTE_KEYWORDS):
+      return True
 
-  if opcode_lower == "custom-call":
-    return is_compute_custom_call(instr)
+    if opcode_lower == "custom-call":
+      if is_compute_custom_call(curr):
+        return True
+      continue
 
-  if opcode_lower == "fusion":
-    if instr.id in visited_fusions:
-      return False
-    visited_fusions.add(instr.id)
+    if opcode_lower != "fusion":
+      continue
 
-    for comp_id in instr.called_computation_ids:
+    if curr.id in visited_fusions:
+      continue
+    visited_fusions.add(curr.id)
+
+    for comp_id in curr.called_computation_ids:
       comp = comp_by_id.get(comp_id)
-      if comp:
-        for inner_instr in comp.instructions:
-          inner_op = inner_instr.opcode.lower()
-          if any(keyword in inner_op for keyword in _COMPUTE_KEYWORDS):
-            return True
-          if inner_op == "custom-call" and is_compute_custom_call(inner_instr):
-            return True
-          if inner_op == "fusion":
-            if is_compute_stage(inner_instr, comp_by_id, visited_fusions):
-              return True
+      if not comp:
+        continue
+      for inner_instr in comp.instructions:
+        inner_op = inner_instr.opcode.lower()
+        if any(keyword in inner_op for keyword in _COMPUTE_KEYWORDS):
+          return True
+        if inner_op == "custom-call" and is_compute_custom_call(inner_instr):
+          return True
+        if inner_op == "fusion":
+          stack.append(inner_instr)
   return False
 
 
@@ -527,7 +551,9 @@ def find_upstream_compute_stages(
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive producers upstream from a copy instruction.
 
-  Traverses backward, tracking data and control flow dependency boundaries.
+  Uses iterative BFS (no recursion) so deep HLO chains cannot overflow the
+  Python stack. Traverses backward, tracking data and control flow dependency
+  boundaries.
 
   Args:
     copy_instr_id: The instruction ID of the starting HLO Copy operation.
@@ -679,7 +705,9 @@ def find_downstream_compute_stages(
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive consumers downstream from a copy instruction.
 
-  Traverses forward, tracking data and control flow dependency boundaries.
+  Uses iterative BFS (no recursion) so deep HLO chains cannot overflow the
+  Python stack. Traverses forward, tracking data and control flow dependency
+  boundaries.
 
   Args:
     copy_instr_id: The instruction ID of the starting HLO Copy operation.

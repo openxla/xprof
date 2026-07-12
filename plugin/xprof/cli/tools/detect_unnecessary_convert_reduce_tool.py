@@ -178,7 +178,11 @@ class _HloModuleTracer:
     return _ReductionContext.GENERAL
 
   def trace_upcast(self, start_instr_id: int) -> Any | None:
-    """Traces upstream from an instruction to locate an F32 upcast."""
+    """Traces upstream from an instruction to locate an F32 upcast.
+
+    Implemented as iterative DFS (explicit stack) so deep HLO chains cannot
+    hit Python's recursion limit.
+    """
     # Stack holds: (instruction_id, tuple_index, call_stack)
     # call_stack tracks active fusion callers to prevent context-sensitivity
     # collision.
@@ -284,7 +288,11 @@ class _HloModuleTracer:
     return None
 
   def trace_downcast(self, start_instr_id: int) -> bool:
-    """Traces downstream from an instruction to locate a downcast to BF16/F16."""
+    """Traces downstream from an instruction to locate a downcast to BF16/F16.
+
+    Implemented as iterative DFS (explicit stack) so deep HLO chains cannot
+    hit Python's recursion limit.
+    """
     # Stack holds: (instruction_id, tuple_index, prev_instruction_id,
     # call_stack)
     stack = [(start_instr_id, None, None, ())]

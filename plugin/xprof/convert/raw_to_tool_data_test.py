@@ -15,6 +15,8 @@
 
 """Tests for the raw_to_tool_data module."""
 
+import gzip
+import struct
 from unittest import mock
 
 from absl.testing import absltest
@@ -26,6 +28,20 @@ from xprof.protobuf import (
     trace_events_old_pb2,
 )
 from xprof.convert import _pywrap_profiler_plugin
+
+
+def _zstd_frame_with_content_size(content_size: int) -> bytes:
+  """Build a minimal zstd frame header declaring ``content_size``.
+
+  Uses Single_Segment + 8-byte Frame_Content_Size so any size fits. The
+  frame body is intentionally incomplete; bounds checks only need the header.
+  """
+  magic = b'\x28\xb5\x2f\xfd'
+  # FCS_flag=3 (8 bytes), Single_Segment=1, no dict id, no checksum.
+  descriptor = bytes([0xE0])
+  fcs = struct.pack('<Q', content_size)
+  # Pad a few bytes so the payload is non-empty after the header.
+  return magic + descriptor + fcs + b'\x00\x01\x02\x03'
 
 
 class RawToToolDataTest(absltest.TestCase):
@@ -348,6 +364,133 @@ class RawToToolDataTest(absltest.TestCase):
         "graph_viewer",
         {"type": "pb", "use_saved_result": True},
     )
+
+
+class CompressedTraceBoundsTest(absltest.TestCase):
+  """Tests for compressed protobuf/gzip size limits and corrupt handling."""
+
+  def test_max_decompressed_trace_bytes_is_positive(self):
+    self.assertGreater(raw_to_tool_data.MAX_DECOMPRESSED_TRACE_BYTES, 0)
+
+  def test_uncompressed_payload_passes_bounds_check(self):
+    # Happy path for mocks / raw protobufs: no gzip/zstd magic → no-op.
+    raw_to_tool_data.ensure_compressed_trace_within_bounds(b"compressed_pb")
+    self.assertEqual(
+        raw_to_tool_data.decompress_trace_data(b"not-compressed"),
+        b"not-compressed",
+    )
+
+  def test_gzip_happy_path_decompresses_under_limit(self):
+    payload = b"trace-event-payload" * 10
+    compressed = gzip.compress(payload)
+    raw_to_tool_data.ensure_compressed_trace_within_bounds(
+        compressed, max_decompressed_bytes=len(payload) + 1
+    )
+    self.assertEqual(
+        raw_to_tool_data.decompress_trace_data(
+            compressed, max_decompressed_bytes=len(payload) + 1
+        ),
+        payload,
+    )
+
+  def test_gzip_corrupt_header_raises(self):
+    corrupt = b"\x1f\x8b" + b"\x00\x00\x00\x00\xff\xff"
+    with self.assertRaisesRegex(
+        raw_to_tool_data.CompressedTraceError, "corrupt gzip"
+    ):
+      raw_to_tool_data.ensure_compressed_trace_within_bounds(corrupt)
+
+  def test_gzip_oversize_raises(self):
+    payload = b"A" * 10_000
+    compressed = gzip.compress(payload)
+    with self.assertRaisesRegex(
+        raw_to_tool_data.CompressedTraceError, "exceeds limit"
+    ):
+      raw_to_tool_data.ensure_compressed_trace_within_bounds(
+          compressed, max_decompressed_bytes=100
+      )
+
+  def test_zstd_happy_path_declared_size_under_limit(self):
+    frame = _zstd_frame_with_content_size(1024)
+    raw_to_tool_data.ensure_compressed_trace_within_bounds(
+        frame, max_decompressed_bytes=1024
+    )
+    # decompress_trace_data size-checks zstd but returns compressed bytes.
+    self.assertEqual(
+        raw_to_tool_data.decompress_trace_data(
+            frame, max_decompressed_bytes=1024
+        ),
+        frame,
+    )
+
+  def test_zstd_corrupt_header_raises(self):
+    # Valid magic, truncated / invalid descriptor payload.
+    corrupt = b"\x28\xb5\x2f\xfd\xff"
+    with self.assertRaisesRegex(
+        raw_to_tool_data.CompressedTraceError, "corrupt zstd"
+    ):
+      raw_to_tool_data.ensure_compressed_trace_within_bounds(corrupt)
+
+  def test_zstd_reserved_bits_raise(self):
+    # Descriptor with reserved bit 3 set.
+    corrupt = b"\x28\xb5\x2f\xfd" + bytes([0x08]) + b"\x00"
+    with self.assertRaisesRegex(
+        raw_to_tool_data.CompressedTraceError, "reserved"
+    ):
+      raw_to_tool_data.ensure_compressed_trace_within_bounds(corrupt)
+
+  def test_zstd_oversize_declared_content_raises(self):
+    oversize = raw_to_tool_data.MAX_DECOMPRESSED_TRACE_BYTES + 1
+    frame = _zstd_frame_with_content_size(oversize)
+    with self.assertRaisesRegex(
+        raw_to_tool_data.CompressedTraceError,
+        r"decompressed zstd trace exceeds limit",
+    ):
+      raw_to_tool_data.ensure_compressed_trace_within_bounds(frame)
+
+  def test_trace_viewer_pb_oversize_zstd_raises_value_error(self):
+    frame = _zstd_frame_with_content_size(
+        raw_to_tool_data.MAX_DECOMPRESSED_TRACE_BYTES + 1
+    )
+    params = {"trace_viewer_options": {"format": "pb"}}
+    wrapper_func = mock.MagicMock(return_value=(frame, True))
+
+    with self.assertRaisesRegex(ValueError, "exceeds limit"):
+      raw_to_tool_data.xspace_to_tool_data(
+          xspace_paths=["/path/to/xspace"],
+          tool="trace_viewer",
+          params=params,
+          xspace_wrapper_func=wrapper_func,
+      )
+
+  def test_trace_viewer_streaming_pb_corrupt_gzip_raises_value_error(self):
+    corrupt = b"\x1f\x8b\x00\x00\x00\x00\xff\xff"
+    params = {"trace_viewer_options": {"format": "pb"}}
+    wrapper_func = mock.MagicMock(return_value=(corrupt, True))
+
+    with self.assertRaisesRegex(ValueError, "corrupt gzip"):
+      raw_to_tool_data.xspace_to_tool_data(
+          xspace_paths=["/path/to/xspace"],
+          tool="trace_viewer@",
+          params=params,
+          xspace_wrapper_func=wrapper_func,
+      )
+
+  def test_trace_viewer_pb_valid_gzip_returns_octet_stream(self):
+    payload = b"ok-trace"
+    compressed = gzip.compress(payload)
+    params = {"trace_viewer_options": {"format": "pb"}}
+    wrapper_func = mock.MagicMock(return_value=(compressed, True))
+
+    data, content_type = raw_to_tool_data.xspace_to_tool_data(
+        xspace_paths=["/path/to/xspace"],
+        tool="trace_viewer",
+        params=params,
+        xspace_wrapper_func=wrapper_func,
+    )
+
+    self.assertEqual(data, compressed)
+    self.assertEqual(content_type, "application/octet-stream")
 
 
 if __name__ == "__main__":

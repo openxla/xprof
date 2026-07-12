@@ -15,6 +15,13 @@ export declare interface FeatureFlag {
 /**
  * The list of all available feature flags.
  * Enforced to be unique by design using object keys.
+ *
+ * Policy for experimental / default-off flags:
+ * - Prefer `default: false` until the feature is ready to ship broadly.
+ * - Put an owner and a remove-by date in `description` so flags do not
+ *   linger indefinitely, e.g.:
+ *   "Owner: xprof-team@. Remove-by: 2026-12-01. <what the flag does>"
+ * - Ids and display names (labels) must stay unique; see feature_flags_test.ts.
  */
 const FEATURE_FLAGS = {
   'use_pb': {

@@ -821,6 +821,11 @@ void CompareLevelDbTables(
   }
 }
 
+// Google3 differential suite: full TraceEventsContainer vs LiteTraceEvents on
+// real xplane fixtures (event counts by level + LevelDB table parity).
+// OSS-runnable synthetic parity is also covered by
+// XPlaneToTraceContainerTest.LiteVsFullEventCountParity.
+// FIX-021: dual lite/full paths must stay comparable; keep both suites green.
 class LiteTraceEventsParityTest : public ::testing::TestWithParam<std::string> {
 };
 

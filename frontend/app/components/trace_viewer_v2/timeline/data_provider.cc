@@ -577,8 +577,12 @@ void PopulateCounterTrack(
   }
 
   CounterData counter_data;
+  // Default empty when the track has no events or events omit event_stats
+  // (pre-#2860 traces). Downstream metrics JSON still emits a series string.
   if (!events.empty()) {
     counter_data.event_stats = events.front()->event_stats;
+  } else {
+    counter_data.event_stats.clear();
   }
   counter_data.timestamps.reserve(total_entries);
   counter_data.values.reserve(total_entries);

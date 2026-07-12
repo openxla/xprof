@@ -38,6 +38,9 @@ inline absl::string_view ResourceName(const Trace& trace, uint32_t device_id,
 }
 
 // Returns true if the stat name indicates it is a utilization-based metric.
+// Used by display-side formatters (two-decimal util % in the UI). The JSON
+// export path keeps full double precision for these stats so parsers are not
+// forced through a string-rounded data path.
 inline bool IsUtilizationBasedStats(absl::string_view name) {
   return absl::EndsWith(name, "(util %)");
 }

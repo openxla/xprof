@@ -1,8 +1,9 @@
 #include "xprof/convert/trace_viewer/trace_events_util.h"
+
 #include <cstdint>
 #include <limits>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 
 namespace tensorflow {
@@ -58,6 +59,14 @@ TEST(ExpandTraceSpanTest, BadTimestampsAreIgnored) {
       &trace);
   EXPECT_EQ(trace.min_timestamp_ps(), 5);
   EXPECT_EQ(trace.max_timestamp_ps(), 20);
+}
+
+TEST(IsUtilizationBasedStatsTest, MatchesUtilPercentSuffix) {
+  EXPECT_TRUE(IsUtilizationBasedStats("MXU (util %)"));
+  EXPECT_TRUE(IsUtilizationBasedStats("HBM BW (util %)"));
+  EXPECT_FALSE(IsUtilizationBasedStats("power"));
+  EXPECT_FALSE(IsUtilizationBasedStats("util"));
+  EXPECT_FALSE(IsUtilizationBasedStats(""));
 }
 
 }  // namespace

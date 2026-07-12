@@ -73,8 +73,12 @@ void ParseAndAppend(const emscripten::val& event, ParsedTraceEvents& result,
     if (event.hasOwnProperty("pid"))
       ev.pid = static_cast<ProcessId>(event["pid"].as<double>());
     if (event.hasOwnProperty("name")) ev.name = event["name"].as<std::string>();
-    if (event.hasOwnProperty("event_stats"))
+    // Default empty when absent so old traces without event_stats still parse.
+    if (event.hasOwnProperty("event_stats")) {
       ev.event_stats = event["event_stats"].as<std::string>();
+    } else {
+      ev.event_stats.clear();
+    }
 
     emscripten::val entries = event["entries"];
     // Avoid converting the entry to a vector or intermediate objects to

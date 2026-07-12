@@ -2074,7 +2074,9 @@ dashboard would integrate trace viewer app using iframe.
       // A large counter event can generate a hash key that exceeds the maximum safe
       // value for a number, which throws a RangeError.
       const ungroupedCounterEvents = counterEvents.flatMap(event => {
-        const argName = event.event_stats;
+        // Default when event_stats is absent (old traces / producers before
+        // CounterEvent.event_stats). Avoids JS key "undefined" on args.
+        const argName = event.event_stats || 'value';
         return event.entries.map(entry => ({
             pid: event.pid,
             name: event.name,

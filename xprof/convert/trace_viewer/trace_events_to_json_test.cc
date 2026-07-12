@@ -21,12 +21,13 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/btree_map.h"
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/str_format.h"
 #include "google/protobuf/map.h"
 #include "xprof/convert/trace_viewer/trace_viewer_color.h"
 #include "plugin/xprof/protobuf/task.pb.h"
@@ -322,6 +323,58 @@ TYPED_TEST(JsonEventWriterTypedTest, CounterEventTest) {
   EXPECT_EQ(
       output_str,
       R"({"pid":1,"name":"counter_event","ph":"C","event_stats":"arg1","entries":[[1,100]]})");
+}
+
+// Utilization stats stay full-precision numbers in JSON (not pre-rounded to
+// two decimals). Display formatting is UI-side.
+TYPED_TEST(JsonEventWriterTypedTest, UtilizationCounterKeepsFullPrecision) {
+  Trace trace;
+  DefaultTraceEventsColorer colorer;
+  absl::btree_map<uint64_t, uint64_t> references;
+  std::string output_str;
+  TypeParam output(&output_str);
+  JsonEventWriter<TypeParam, RawData> writer(&colorer, trace, references,
+                                             &output);
+
+  TraceEvent event;
+  event.set_device_id(1);
+  event.set_name("MXU");
+  event.set_timestamp_ps(1000000);
+  RawData raw_data;
+  TraceEventArguments::Argument& arg = *raw_data.mutable_args()->add_arg();
+  arg.set_name("MXU (util %)");
+  // Value with more than 2 significant fractional digits.
+  constexpr double kUtil = 12.3456789;
+  arg.set_double_value(kUtil);
+  event.set_raw_data(raw_data.SerializeAsString());
+  writer.AddCounterEvent(event);
+
+  output_str += "]}";
+
+  EXPECT_THAT(output_str, HasSubstr("\"event_stats\":\"MXU (util %)\""));
+  // Full precision (%.17g), not the former "%.2f" truncation to 12.35.
+  EXPECT_THAT(output_str, HasSubstr(absl::StrFormat("%.17g", kUtil)));
+  EXPECT_THAT(output_str, Not(HasSubstr(",12.35]")));
+}
+
+// Counters with no args omit event_stats; consumers must default the field.
+TYPED_TEST(JsonEventWriterTypedTest, CounterEventOmitsEventStatsWhenNoArgs) {
+  Trace trace;
+  DefaultTraceEventsColorer colorer;
+  absl::btree_map<uint64_t, uint64_t> references;
+  std::string output_str;
+  TypeParam output(&output_str);
+  JsonEventWriter<TypeParam, RawData> writer(&colorer, trace, references,
+                                             &output);
+
+  TraceEvent event;
+  event.set_device_id(1);
+  event.set_name("empty_counter");
+  event.set_timestamp_ps(1000000);
+  writer.AddCounterEvent(event);
+
+  EXPECT_THAT(output_str, HasSubstr(R"("ph":"C")"));
+  EXPECT_THAT(output_str, Not(HasSubstr("event_stats")));
 }
 
 TYPED_TEST(JsonEventWriterTypedTest, AsyncEventTest) {

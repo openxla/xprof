@@ -15,9 +15,10 @@ limitations under the License.
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/strings/match.h"
@@ -27,6 +28,7 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/trace_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xprof/convert/file_utils.h"
+#include "xprof/convert/trace_viewer/lite_trace_events.h"
 #include "xprof/convert/xplane_to_trace_container.h"
 #include "xprof/utils/tensorflow_utils.h"
 
@@ -204,6 +206,72 @@ TEST(XPlaneToTraceContainerTest, SubprocessHostTrace_ConvertsToTraceEvents) {
   });
   EXPECT_TRUE(event1_found);
   EXPECT_TRUE(event2_found);
+}
+
+// Differential coverage: full TraceEventsContainer vs LiteTraceEvents on the
+// same synthetic XSpace. Catches dual-path drift for event counts and
+// visibility levels without google3-only LevelDB fixtures.
+// Deeper LevelDB table parity lives in streaming_trace_viewer_processor_test
+// (LiteTraceEventsParityTest; google3 data deps).
+TEST(XPlaneToTraceContainerTest, LiteVsFullEventCountParity) {
+  XSpace xspace;
+  CHECK_OK(ParseTextFormatFromString(
+      absl::Substitute(
+          "planes {"
+          "  name: \"/device:GPU:0\""
+          "  lines {"
+          "    name: \"_counters_\""
+          "    events {"
+          "      metadata_id: 100"
+          "      offset_ps: $0"
+          "      stats { metadata_id: 200 uint64_value: 100 }"
+          "    }"
+          "    events {"
+          "      metadata_id: 100"
+          "      offset_ps: $1"
+          "      stats { metadata_id: 200 uint64_value: 200 }"
+          "    }"
+          "  }"
+          "  lines {"
+          "    id: 14"
+          "    name: \"Stream #14(MemcpyH2D)\""
+          "    timestamp_ns: $2"
+          "    events {"
+          "      metadata_id: 10"
+          "      offset_ps: 0"
+          "      duration_ps: $1"
+          "    }"
+          "    events {"
+          "      metadata_id: 10"
+          "      offset_ps: $0"
+          "      duration_ps: $3"
+          "    }"
+          "  }"
+          "  event_metadata {key: 10 value: { id: 10 name: \"MemcpyD2D\" }}"
+          "  event_metadata {key: 100 value: { id: 100 name: \"Counter 1\" }}"
+          "  stat_metadata {key: 200 value: { id: 200 name: \"counter_1\"}}"
+          "}",
+          tsl::profiler::UniToPico(1), tsl::profiler::UniToPico(2),
+          tsl::profiler::UniToNano(1), tsl::profiler::UniToNano(500)),
+      &xspace));
+
+  TraceEventsContainer full_container;
+  ConvertXSpaceToTraceEventsContainer("localhost", xspace, &full_container);
+
+  TraceEventLiteContainer lite_container;
+  ConvertXSpaceToLiteTraceEventsContainer("localhost", xspace, &lite_container);
+
+  EXPECT_EQ(full_container.NumEvents(), NumEvents(lite_container));
+  EXPECT_GT(full_container.NumEvents(), 0);
+
+  auto full_by_level = full_container.GetTraceEventsByLevel();
+  auto lite_by_level = LiteTraceEventsByLevel(&lite_container);
+  EXPECT_EQ(full_by_level.size(), lite_by_level.size());
+  for (size_t i = 0; i < full_by_level.size() && i < lite_by_level.size();
+       ++i) {
+    EXPECT_EQ(full_by_level[i].size(), lite_by_level[i].size())
+        << "Mismatch at visibility level " << i;
+  }
 }
 
 }  // namespace

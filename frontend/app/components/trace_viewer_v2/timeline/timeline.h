@@ -62,6 +62,8 @@ struct CounterData {
   std::vector<double> values;
   double min_value = std::numeric_limits<double>::max();
   double max_value = std::numeric_limits<double>::lowest();
+  // Copied from CounterEvent::event_stats; empty when the field was absent on
+  // all source events (safe default for old traces).
   std::string event_stats;
 };
 

@@ -206,6 +206,8 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 
 // UI Strings Constants
 // go/keep-sorted start
+// Two-decimal display for counter values (including utilization stats).
+// Full precision is preserved in the JSON model; format only for tooltips.
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";

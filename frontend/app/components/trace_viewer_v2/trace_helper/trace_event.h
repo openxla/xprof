@@ -77,6 +77,8 @@ struct TraceEvent {
 struct CounterEvent {
   ProcessId pid = 0;
   std::string name;
+  // Series id for counter values. Defaults to empty when the JSON field is
+  // absent (pre-event_stats traces / old producers) so consumers never crash.
   std::string event_stats;
   std::vector<Microseconds> timestamps;
   std::vector<double> values;

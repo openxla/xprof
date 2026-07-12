@@ -482,10 +482,10 @@ class JsonEventWriter {
       case TraceEventArguments::Argument::kUintValue:
         return absl::StrCat(arg.uint_value());
       case TraceEventArguments::Argument::kDoubleValue:
-        // Displaying two decimal places for Perf Counter utilizations.
-        if (IsUtilizationBasedStats(arg.name())) {
-          return absl::StrFormat("%.2f", arg.double_value());
-        }
+        // Keep full precision in the JSON model. Display-side formatting for
+        // utilization stats (e.g. two decimals) lives in the UI
+        // (kCounterTooltipFormat / catapult). IsUtilizationBasedStats()
+        // identifies those series for consumers that need UI-side formatting.
         return absl::StrFormat("%.17g", arg.double_value());
       case TraceEventArguments::Argument::kRefValue: {
         const auto& it = trace_.name_table().find(arg.ref_value());
@@ -604,11 +604,9 @@ class JsonEventWriter {
     if (std::isfinite(value)) {
       output_->Append(JsonEscape(name));
       // "%.17g" is the default double format in google::protobuf::util::JsonFormat.
-      if (IsUtilizationBasedStats(name)) {
-        absl::Format(output_, ":%.2f", value);
-      } else {
-        absl::Format(output_, ":%.17g", value);
-      }
+      // Do not pre-round utilization stats here; keep full precision for
+      // parsers. UI shows two decimals when needed (see IsUtilizationBasedStats).
+      absl::Format(output_, ":%.17g", value);
     } else if (std::isinf(value)) {
       output_->Append(JsonEscape(name), R"(:"Infinity")");
     } else if (std::isinf(-value)) {

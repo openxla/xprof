@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/platform/env.h"
@@ -128,5 +128,61 @@ TEST(PrefixTrieTest, PrefixTrieSearchWithFileNotFound) {
   auto results =
       LoadTrieAsLevelDbTableAndSearch("non_existent_file.ptldb2", "a");
   EXPECT_EQ(results.status().code(), absl::StatusCode::kNotFound);
+}
+
+// Stress-tests the iterative destroy (and optional LevelDB save) path that
+// replaced recursive walkers. A single key of length kDepth creates a chain of
+// that many child nodes; naive recursion would risk stack overflow.
+TEST(PrefixTrieTest, DeepChainInsertDestroyAndSave) {
+  constexpr int kDepth = 2000;
+  const std::string deep_key(kDepth, 'x');
+  const std::string deep_id = "deep_id";
+  const std::string filename =
+      absl::StrCat(::testing::TempDir(), "/prefix_trie_deep.ptldb2");
+
+  {
+    PrefixTrie trie;
+    trie.Insert(deep_key, deep_id);
+    // A second id on the same deep key exercises multi-id terminals on a leaf.
+    trie.Insert(deep_key, "deep_id_2");
+    // A short key that is a strict prefix of the deep chain.
+    trie.Insert(deep_key.substr(0, 16), "prefix_id");
+
+    std::unique_ptr<tsl::WritableFile> file;
+    ASSERT_OK(tsl::Env::Default()->NewWritableFile(filename, &file));
+    ASSERT_OK(trie.SaveAsLevelDbTable(file.get()));
+  }  // trie destructor must not stack-overflow on a depth-2000 chain
+
+  // Full-key search.
+  {
+    auto results = LoadTrieAsLevelDbTableAndSearch(filename, deep_key);
+    ASSERT_OK(results);
+    std::vector<PrefixSearchResult> expected_results = {
+        {.key = deep_key, .terminal_key_ids = {deep_id, "deep_id_2"}}};
+    EXPECT_THAT(*results, UnorderedPointwise(PrefixSearchResultFieldsAreEqual(),
+                                             expected_results));
+  }
+
+  // Prefix search: both the short terminal and the deep terminal match.
+  {
+    auto results =
+        LoadTrieAsLevelDbTableAndSearch(filename, deep_key.substr(0, 8));
+    ASSERT_OK(results);
+    std::vector<PrefixSearchResult> expected_results = {
+        {.key = deep_key.substr(0, 16), .terminal_key_ids = {"prefix_id"}},
+        {.key = deep_key, .terminal_key_ids = {deep_id, "deep_id_2"}}};
+    EXPECT_THAT(*results, UnorderedPointwise(PrefixSearchResultFieldsAreEqual(),
+                                             expected_results));
+  }
+}
+
+// Pure insert+destroy (no LevelDB I/O): verifies iterative ~PrefixTrieNode on
+// a deep single-child spine without relying on the save path.
+TEST(PrefixTrieTest, DeepChainInsertAndDestroy) {
+  constexpr int kDepth = 2500;
+  const std::string deep_key(kDepth, 'z');
+  PrefixTrie trie;
+  trie.Insert(deep_key, "id");
+  // Leaving scope runs the iterative destructor across kDepth nodes.
 }
 }  // namespace

@@ -918,6 +918,180 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
 
+// Minimal HLO module with no buffer_assignment message. Older profiles and
+// partial captures may omit assignment; memory viz must not crash and should
+// surface zeroed peaks / proto3 defaults for newer VMEM fields.
+static constexpr char kHLOModuleOnlyNoBufferAssignment[] = R"pb(
+  hlo_module {
+    name: "partial_module"
+    entry_computation_name: "test_computation"
+    computations {
+      name: "test_computation"
+      instructions {
+        name: "param.0"
+        id: 0
+        shape { element_type: F32 dimensions: 4 }
+      }
+    }
+  }
+)pb";
+
+void ExpectEmptyMemoryViewerDefaults(const PreprocessResult& result,
+                                     absl::string_view expected_module_name) {
+  EXPECT_EQ(result.module_name(), expected_module_name);
+  EXPECT_EQ(result.peak_heap_mib(), 0);
+  EXPECT_EQ(result.peak_unpadded_heap_mib(), 0);
+  EXPECT_EQ(result.total_buffer_allocation_mib(), 0);
+  EXPECT_EQ(result.indefinite_buffer_allocation_mib(), 0);
+  EXPECT_EQ(result.entry_computation_parameters_mib(), 0);
+  EXPECT_EQ(result.non_reusable_mib(), 0);
+  EXPECT_EQ(result.maybe_live_out_mib(), 0);
+  EXPECT_TRUE(result.max_heap().empty());
+  EXPECT_TRUE(result.heap_sizes().empty());
+  EXPECT_TRUE(result.unpadded_heap_sizes().empty());
+  EXPECT_TRUE(result.indefinite_lifetimes().empty());
+  // Proto3 defaults for VMEM fields introduced after older preprocess protos.
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
+}
+
+TEST(MemoryViewerTest, MissingBufferAssignment_NoCrashAndZeroDefaults) {
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHLOModuleOnlyNoBufferAssignment, &hlo_proto)
+          .ok());
+  EXPECT_FALSE(hlo_proto.has_buffer_assignment());
+
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  ExpectEmptyMemoryViewerDefaults(result, "partial_module");
+  EXPECT_EQ(result.entry_computation_name(), "test_computation");
+}
+
+TEST(MemoryViewerTest, MissingBufferAssignment_VmemColorDefaults) {
+  // Same partial proto viewed as VMEM (color=1): still no crash; VMEM metrics
+  // and scoped fields stay at defaults without assignment data.
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHLOModuleOnlyNoBufferAssignment, &hlo_proto)
+          .ok());
+
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  ExpectEmptyMemoryViewerDefaults(result, "partial_module");
+}
+
+TEST(MemoryViewerTest, EmptyBufferAssignment_NoCrashAndZeroDefaults) {
+  // Explicit empty buffer_assignment (present but no allocations/traces).
+  static constexpr char kHLOEmptyAssignment[] = R"pb(
+    hlo_module {
+      name: "empty_assignment_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "param.0"
+          id: 0
+          shape { element_type: F32 dimensions: 4 }
+        }
+      }
+    }
+    buffer_assignment {}
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOEmptyAssignment, &hlo_proto).ok());
+  ASSERT_TRUE(hlo_proto.has_buffer_assignment());
+  EXPECT_EQ(hlo_proto.buffer_assignment().buffer_allocations_size(), 0);
+  EXPECT_EQ(hlo_proto.buffer_assignment().logical_buffers_size(), 0);
+  EXPECT_EQ(hlo_proto.buffer_assignment().heap_simulator_traces_size(), 0);
+
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  ExpectEmptyMemoryViewerDefaults(result, "empty_assignment_module");
+}
+
+TEST(MemoryViewerTest, OldPreprocessResult_MissingVmemFieldsDefault) {
+  // Simulates an older PreprocessResult wire payload that predates scoped VMEM
+  // fields (proto fields 21/22). Unset fields must remain proto3 defaults so
+  // consumers can treat them as absent without special versioning.
+  PreprocessResult old_style;
+  old_style.set_module_name("legacy_module");
+  old_style.set_peak_heap_mib(1.5);
+  old_style.set_peak_unpadded_heap_mib(1.0);
+  old_style.set_total_buffer_allocation_mib(2.0);
+  // Deliberately leave max_scoped_vmem_* unset (proto3 scalar/string defaults).
+  EXPECT_EQ(old_style.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(old_style.max_scoped_vmem_instruction_name().empty());
+
+  // Round-trip through serialization to mimic an old client that never wrote
+  // the new fields.
+  std::string serialized;
+  ASSERT_TRUE(old_style.SerializeToString(&serialized));
+  PreprocessResult parsed;
+  ASSERT_TRUE(parsed.ParseFromString(serialized));
+  EXPECT_EQ(parsed.module_name(), "legacy_module");
+  EXPECT_EQ(parsed.peak_heap_mib(), 1.5);
+  EXPECT_EQ(parsed.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(parsed.max_scoped_vmem_instruction_name().empty());
+}
+
+TEST(MemoryViewerTest, BufferAssignmentWithoutHeapTrace_UsesIndefiniteOnly) {
+  // Assignment present but no heap simulator trace: still convert successfully
+  // using indefinite allocations only (common partial/old profile shape).
+  static constexpr char kHLOAssignmentNoTrace[] = R"pb(
+    hlo_module {
+      name: "no_trace_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "constant.1"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 0
+        is_constant: true
+        assigned { logical_buffer_id: 1 offset: 0 size: 1048576 }
+      }
+      logical_buffers {
+        id: 1
+        size: 1048576
+        color: 0
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+    }
+  )pb";
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(
+      ParseTextFormatFromString(kHLOAssignmentNoTrace, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_EQ(result.module_name(), "no_trace_module");
+  EXPECT_EQ(result.total_buffer_allocation_mib(), 1);
+  EXPECT_EQ(result.indefinite_buffer_allocation_mib(), 1);
+  // No heap-sim events → temporary peak from simulator is 0; indefinite is
+  // folded into peak via CreatePeakUsageSnapshot / GeneratePreprocessResult.
+  EXPECT_EQ(result.peak_heap_mib(), 1);
+  EXPECT_EQ(result.max_scoped_vmem_allocation_mib(), 0);
+  EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

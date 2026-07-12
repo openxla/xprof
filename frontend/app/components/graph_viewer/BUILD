@@ -82,6 +82,9 @@ xprof_ng_module(
     ],
 )
 
+# Layout regression guards for graph viewer height / download button placement
+# (#2829 / FIX-016). Sources live in google3; keep this target wired so OSS
+# export does not drop the screenshot suite registration.
 xprof_ng_module(
     name = "screenshot_tests",
     testonly = True,

@@ -7,6 +7,16 @@
 }
 
 .control {
+  // Fixed width keeps filter rows compact in tools like perf counters; long
+  // names truncate and rely on [attr.title] for the full string (FIX-037).
   width: 120px;
   margin-right: 8px;
+
+  // Closed mat-select trigger: ellipsis so truncation is intentional, not
+  // mid-glyph clipping.
+  ::ng-deep .mat-mdc-select-value-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

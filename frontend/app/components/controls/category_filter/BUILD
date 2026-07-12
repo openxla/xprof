@@ -23,6 +23,18 @@ xprof_ng_module(
     ],
 )
 
+xprof_ng_module(
+    name = "tests",
+    testonly = True,
+    srcs = [
+        "category_filter_test.ts",
+    ],
+    deps = [
+        ":category_filter",
+        "//third_party/javascript/typings/jasmine",
+    ],
+)
+
 sass_binary(
     name = "category_filter_css",
     src = "category_filter.scss",

@@ -1,6 +1,17 @@
 <mat-form-field class="control" *ngIf="columnLabel" appearance="outline">
   <mat-label>{{columnLabel}}</mat-label>
-  <mat-select (selectionChange)="updateFilter()" [(value)]="value">
-    <mat-option *ngFor="let option of options" [value]="option" [title]="option">{{option}}</mat-option>
+  <!--
+    The closed select trigger and option list are only ~120px wide, so long
+    category names (e.g. kernel names in perf counters) truncate. Expose the
+    full string via native title tooltips (FIX-037 / #2652).
+  -->
+  <mat-select
+    (selectionChange)="updateFilter()"
+    [(value)]="value"
+    [attr.title]="optionTitle(value)">
+    <mat-option
+      *ngFor="let option of options"
+      [value]="option"
+      [attr.title]="optionTitle(option)">{{option}}</mat-option>
   </mat-select>
 </mat-form-field>

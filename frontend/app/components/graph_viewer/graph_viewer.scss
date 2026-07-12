@@ -26,6 +26,9 @@
 
 mat-sidenav {
   background: transparent;
+  // Do NOT set height: max-content here. That grows the sidenav with content,
+  // hides the container scrollbar, and breaks Op Profile / Graph Viewer
+  // scrolling (FIX-016 / #2833). Height comes from the flex host instead.
   // set fixed width to avoid weird behavior of mat-sidenav-content width change when collapsing the xprof sidenav.
   width: 350px;
   display: flex;

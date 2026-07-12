@@ -1,6 +1,18 @@
 import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
 
 /**
+ * Full label string for category-filter title/tooltips when the UI truncates.
+ * Null/undefined map to empty so host title attributes stay well-formed.
+ */
+export function categoryFilterOptionTitle(
+    option: number|string|boolean|null|undefined): string {
+  if (option === null || option === undefined) {
+    return '';
+  }
+  return String(option);
+}
+
+/**
  * A category filter component.
  * The options are all unique values in the given column of dataTable.
  * Each cell in the column contains one value or multiple values if a
@@ -28,6 +40,11 @@ export class CategoryFilter implements OnChanges {
 
   @Output()
   changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+
+  /** Full option text for native title tooltips on truncated labels. */
+  optionTitle(option: number|string|boolean|null|undefined): string {
+    return categoryFilterOptionTitle(option);
+  }
 
   ngOnChanges(changes: SimpleChanges) {
     this.processData();

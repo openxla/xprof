@@ -210,3 +210,43 @@ export function getProcessNamesFromWasm(
   }
   return result;
 }
+
+/**
+ * Scope identity for Trace Viewer network dedup caches (event args + adjacent
+ * HLO nodes). Keys deliberately exclude run/host so lookups stay short; instead
+ * callers clear the maps whenever this scope string changes.
+ */
+export function buildNetworkCacheScope(
+  run: string,
+  tag: string,
+  host: string,
+): string {
+  return `${run}|${tag}|${host}`;
+}
+
+/**
+ * Cache key for lazy event-arg fetches. Start time is in microseconds; the
+ * fetch path also tolerates a 50ms fuzzy match when scanning the map.
+ */
+export function buildEventArgsCacheKey(name: string, startUs: number): string {
+  return `${name}:${startUs}`;
+}
+
+/** Cache key for HLO adjacent-node (operands/consumers) fetches. */
+export function buildAdjacentNodesCacheKey(
+  nodeName: string,
+  moduleName: string,
+): string {
+  return `${nodeName}-${moduleName}`;
+}
+
+/**
+ * True when a prior scope was recorded and the navigation scope changed.
+ * First observation (previous === null) must not clear caches.
+ */
+export function shouldInvalidateNetworkCache(
+  previousScope: string | null,
+  nextScope: string,
+): boolean {
+  return previousScope !== null && previousScope !== nextScope;
+}

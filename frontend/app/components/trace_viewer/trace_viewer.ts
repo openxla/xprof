@@ -82,9 +82,13 @@ import {
   TraceFilters,
 } from './trace_viewer_typings';
 import {
+  buildAdjacentNodesCacheKey,
+  buildEventArgsCacheKey,
+  buildNetworkCacheScope,
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
   parseEventsSelectedData,
+  shouldInvalidateNetworkCache,
 } from './utils';
 
 interface TraceData {
@@ -199,12 +203,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
+  /**
+   * Network request dedup caches for lazy event-args and adjacent-node fetches.
+   * Keys omit run/host; {@link clearNetworkDedupCaches} must run whenever the
+   * navigation scope (run / tag / host) changes so a prior profile cannot
+   * serve stale args. In-flight responses also re-check scope before writing.
+   */
   private readonly eventArgsCache = new Map<string, Record<string, string>>();
   private readonly hloAdjacentNodesCache = new Map<
     string,
     AdjacentNodesResponse
   >();
   private readonly pendingAdjacentNodesFetches = new Set<string>();
+  /** Last run|tag|host scope used for the network dedup caches above. */
+  private lastNetworkCacheScope: string | null = null;
   private queryString = '';
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
@@ -536,6 +548,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   update(event: NavigationEvent): void {
+    // Drop deduped network results when the profile scope changes so event-arg
+    // and adjacent-node caches cannot return data from a previous run/host.
+    this.maybeInvalidateNetworkCaches(event);
+
     const isStreaming = event.tag === 'trace_viewer@';
     const run = event.run || '';
     const tag = event.tag || '';
@@ -670,6 +686,43 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       }
     }
     return event.host || (this.hostList && this.hostList[0]) || '';
+  }
+
+  /**
+   * Composes the navigation scope used to decide when network dedup caches
+   * must be cleared. Mirrors the (run, tag, host) triple passed to
+   * DataServiceV2.getData for event-args and adjacent-node fetches.
+   */
+  private getNetworkCacheScope(
+    event: NavigationEvent = this.navigationEvent,
+  ): string {
+    return buildNetworkCacheScope(
+      event.run ?? '',
+      event.tag ?? '',
+      this.getCurrentHost(event),
+    );
+  }
+
+  /**
+   * Clears event-args / adjacent-node dedup state. Exposed for tests via the
+   * package suite; production callers go through maybeInvalidateNetworkCaches.
+   */
+  clearNetworkDedupCaches(): void {
+    this.eventArgsCache.clear();
+    this.hloAdjacentNodesCache.clear();
+    this.pendingAdjacentNodesFetches.clear();
+  }
+
+  /**
+   * Invalidates network dedup caches when run, tag, or host changes. The first
+   * observation of a scope only records it (no clear).
+   */
+  private maybeInvalidateNetworkCaches(event: NavigationEvent): void {
+    const nextScope = this.getNetworkCacheScope(event);
+    if (shouldInvalidateNetworkCache(this.lastNetworkCacheScope, nextScope)) {
+      this.clearNetworkDedupCaches();
+    }
+    this.lastNetworkCacheScope = nextScope;
   }
 
   // START Trace Viewer V2 WASM App Methods
@@ -842,7 +895,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    const cacheKey = `${name}:${startUs}`;
+    const cacheKey = buildEventArgsCacheKey(name, startUs);
 
     const params = new Map<string, string>();
     params.set('event_name', name);
@@ -865,6 +918,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       host = this.getCurrentHost();
     }
 
+    // Capture navigation scope at request time so a late response after a
+    // run/host/tag change neither pollutes the cleared cache nor mutates the
+    // wrong selection. Scope uses getCurrentHost(), not the pid-resolved host.
+    const requestScope = this.getNetworkCacheScope();
+
     this.dataService
       .getData(
         this.navigationEvent.run ?? '',
@@ -874,6 +932,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       )
       .pipe(takeUntil(this.destroyed))
       .subscribe((data) => {
+        if (this.getNetworkCacheScope() !== requestScope) {
+          return;
+        }
         const traceData = data as TraceData;
         if (
           !traceData ||
@@ -917,7 +978,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     const {name, module} = getHloNameAndModule(this.selectedEventProperties);
     if (!name || !module) return;
 
-    const key = `${name}-${module}`;
+    const key = buildAdjacentNodesCacheKey(name, module);
     const cachedAdjNodes = this.hloAdjacentNodesCache.get(key);
     if (cachedAdjNodes) {
       this.injectAdjacentNodes({
@@ -936,11 +997,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     params.set('node_name', name);
     params.set('module_name', module);
 
+    const host = this.getCurrentHost();
+    const requestScope = this.getNetworkCacheScope();
+
     this.dataService
       .getData(
         this.navigationEvent.run ?? '',
         'graph_viewer',
-        this.getCurrentHost(),
+        host,
         params,
       )
       .pipe(
@@ -950,6 +1014,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }),
       )
       .subscribe((data) => {
+        // Discard responses that raced a run/host/tag navigation change.
+        if (this.getNetworkCacheScope() !== requestScope) {
+          return;
+        }
         if (isAdjacentNodesResponse(data)) {
           this.hloAdjacentNodesCache.set(key, data);
           this.injectAdjacentNodes({

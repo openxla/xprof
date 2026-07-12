@@ -5,10 +5,16 @@
 
 namespace xprof {
 
-// Enum of TPU counter IDs used in
-// perftools/gputools/profiler/collector/tpu_counter_util.cc.
-// This is a best-effort list generated without macro expansion and might be
-// incomplete.
+// Enum of TPU v7x hardware counter IDs used by utilization / perf-counter
+// conversion (see also perftools/gputools/profiler/collector/tpu_counter_util.cc
+// internally).
+//
+// Generation: best-effort extract of TPU v7x counter IDs without full macro
+// expansion of the internal counter schema; the list may be incomplete.
+// Numeric IDs must stay unique (duplicate IDs would mislabel HW counters).
+// Uniqueness is enforced by //xprof/utils:tpu_counter_ids_v7x_test.
+// Land header updates as one atomic OSS change; do not thrash add/delete/re-add
+// across exports.
 enum TpuCounterIdsTpu7x : uint64_t {
   // NOLINTBEGIN
   VF_CHIP_DIE0_PWRMGR_PWRMGR_TC_THROTTLE_CORE_DEBUG_STATS_UNPRIVILEGED_CLOCKS_SKIPPED =

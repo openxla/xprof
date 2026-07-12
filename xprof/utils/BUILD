@@ -764,6 +764,20 @@ cc_library(
     hdrs = ["tpu_counter_ids_v7x.h"],
 )
 
+cc_test(
+    name = "tpu_counter_ids_v7x_test",
+    srcs = ["tpu_counter_ids_v7x_test.cc"],
+    data = ["tpu_counter_ids_v7x.h"],
+    deps = [
+        ":tpu_counter_ids_v7x",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/platform:test",
+    ],
+)
+
 cc_library(
     name = "tpu_counter_ids_v6e",
     hdrs = ["tpu_counter_ids_v6e.h"],

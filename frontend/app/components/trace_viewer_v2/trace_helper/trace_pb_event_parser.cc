@@ -116,11 +116,24 @@ void ParseAndProcessCompressedTraceEvents(
                                        Application::Instance().timeline());
 }
 
+void SetCompressedSearchResultsInWasm(uintptr_t data_ptr, size_t data_size) {
+  if (!Application::Instance().IsInitialized()) {
+    return;
+  }
+  // Ownership of data_ptr remains with the JS caller (see wasm_string_utils.ts).
+  const ParsedTraceEvents parsed_events =
+      ParseCompressedTraceEvents(data_ptr, data_size, emscripten::val::null());
+  Application::Instance().timeline().SetSearchResults(parsed_events);
+  Application::Instance().RequestRedraw();
+}
+
 EMSCRIPTEN_BINDINGS(trace_pb_event_parser) {
   emscripten::function(
       "processCompressedTraceEvents",
       static_cast<void (*)(uintptr_t, size_t, const emscripten::val&)>(
           &traceviewer::ParseAndProcessCompressedTraceEvents));
+  emscripten::function("setCompressedSearchResultsInWasm",
+                       &traceviewer::SetCompressedSearchResultsInWasm);
 }
 
 }  // namespace traceviewer

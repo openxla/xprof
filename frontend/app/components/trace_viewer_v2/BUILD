@@ -192,6 +192,14 @@ wasm_cc_binary(
 )
 
 ts_library(
+    name = "wasm_string_utils",
+    srcs = [
+        "wasm_string_utils.ts",
+    ],
+    visibility = ["//frontend:__subpackages__"],
+)
+
+ts_library(
     name = "app_bundle_ts",
     srcs = [
         "feature_flags.ts",
@@ -199,6 +207,7 @@ ts_library(
     ],
     visibility = ["//frontend:__subpackages__"],
     deps = [
+        ":wasm_string_utils",
         "@npm//@types/emscripten",
         "@npm//@webgpu/types",
     ],
@@ -210,9 +219,11 @@ ts_library(
     srcs = [
         "feature_flags_test.ts",
         "main_test.ts",
+        "wasm_string_utils_test.ts",
     ],
     deps = [
         ":app_bundle_ts",
+        ":wasm_string_utils",
         "//third_party/javascript/typings/jasmine",
         "@npm//@webgpu/types",
     ],

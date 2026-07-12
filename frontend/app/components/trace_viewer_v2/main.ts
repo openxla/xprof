@@ -1,5 +1,6 @@
 
 import {getDefaultFeatureFlag} from './feature_flags';
+import {withWasmHeapBuffer} from './wasm_string_utils';
 
 /**
  * The over-fetching factor for trace events.
@@ -181,7 +182,12 @@ declare global {
     normalizeTimestamps: boolean,
   ): void;
   getAllFlowCategories(): Array<{id: number; name: string}>;
-  setCompressedSearchResultsInWasm(data: Uint8Array): void;
+  /**
+   * Passes compressed protobuf search results from a WASM heap buffer.
+   * Caller owns `dataPtr` and must free it after this returns
+   * (use `withWasmHeapBuffer` from wasm_string_utils.ts).
+   */
+  setCompressedSearchResultsInWasm(dataPtr: number, dataSize: number): void;
   setSearchResultsInWasm(data: TraceData): void;
   loadTraceData?(url: string): Promise<void>;
   loadSearchResults?(url: string): Promise<void>;
@@ -524,29 +530,21 @@ function processPerfettoTrace(
   data: Uint8Array,
   traceviewerModule: TraceViewerV2Module,
 ) {
-  let dataPtr: number | undefined;
   try {
-    dataPtr = traceviewerModule._malloc(data.length);
-    if (!dataPtr) {
-      throw new Error('Failed to allocate WASM memory buffer');
-    }
-    traceviewerModule.HEAPU8.set(data, dataPtr);
-
-    traceviewerModule.processPerfettoTraceEvents(
-      dataPtr,
-      data.length,
-      undefined,
-      true,
-    );
+    // Heap buffer is freed even if processPerfettoTraceEvents throws.
+    withWasmHeapBuffer(traceviewerModule, data, (dataPtr, dataSize) => {
+      traceviewerModule.processPerfettoTraceEvents(
+        dataPtr,
+        dataSize,
+        undefined,
+        true,
+      );
+    });
   } catch (error) {
     dispatchErrorStatus(
       error instanceof Error ? error.message : String(error),
       error,
     );
-  } finally {
-    if (dataPtr !== undefined && dataPtr !== 0) {
-      traceviewerModule._free(dataPtr);
-    }
   }
 }
 
@@ -820,23 +818,17 @@ async function fetchAndProcessTraceData({
 
       performance.mark('traceProcessStart');
 
-      let dataPtr: number | undefined;
-      try {
-        dataPtr = traceviewerModule._malloc(buffer.byteLength);
-        if (!dataPtr) {
-          throw new Error('Failed to allocate WASM memory buffer');
-        }
-        traceviewerModule.HEAPU8.set(new Uint8Array(buffer), dataPtr);
-        traceviewerModule.processCompressedTraceEvents(
-          dataPtr,
-          buffer.byteLength,
-          timeRange,
-        );
-      } finally {
-        if (dataPtr !== undefined && dataPtr !== 0) {
-          traceviewerModule._free(dataPtr);
-        }
-      }
+      withWasmHeapBuffer(
+        traceviewerModule,
+        new Uint8Array(buffer),
+        (dataPtr, dataSize) => {
+          traceviewerModule.processCompressedTraceEvents(
+            dataPtr,
+            dataSize,
+            timeRange,
+          );
+        },
+      );
     } else {
       const jsonData = await loadJsonDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
@@ -1106,8 +1098,17 @@ export async function traceViewerV2Main(
 
       if (urlObj.pathname.endsWith('.pb')) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
-        traceviewerModule.setCompressedSearchResultsInWasm(
+        // Pointer+size transfer mirrors processCompressedTraceEvents and
+        // guarantees free-on-return via withWasmHeapBuffer.
+        withWasmHeapBuffer(
+          traceviewerModule,
           new Uint8Array(buffer),
+          (dataPtr, dataSize) => {
+            traceviewerModule.setCompressedSearchResultsInWasm(
+              dataPtr,
+              dataSize,
+            );
+          },
         );
       } else {
         const jsonData = (await loadJsonDataInternal(

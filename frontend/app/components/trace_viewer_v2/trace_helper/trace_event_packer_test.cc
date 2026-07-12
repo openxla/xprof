@@ -1,13 +1,24 @@
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event_packer.h"
 
+#include <string>
 #include <vector>
 
 #include "<gtest/gtest.h>"
 #include "absl/types/span.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/overlap_interval_test_fixtures.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
 namespace {
+
+using test_fixtures::ExclusiveEndpointScenario;
+using test_fixtures::ExpectedLevels;
+using test_fixtures::ExpectedNames;
+using test_fixtures::MakePackerEvents;
+using test_fixtures::NestedOverlapScenario;
+using test_fixtures::OverlapRowReuseScenario;
+using test_fixtures::OverlapScenarioEvent;
+using test_fixtures::PartialOverlapScenario;
 
 std::vector<const TraceEvent*> GetEventPointers(
     absl::Span<const TraceEvent> events) {
@@ -17,6 +28,26 @@ std::vector<const TraceEvent*> GetEventPointers(
     events_ptr.push_back(&event);
   }
   return events_ptr;
+}
+
+// Asserts packer preserves every input event and assigns the fixture's
+// expected visual levels. Shared with data_provider self-time tests via
+// overlap_interval_test_fixtures.h.
+void ExpectPackedMatchesScenario(
+    const std::vector<OverlapScenarioEvent>& scenario) {
+  const std::vector<TraceEvent> events = MakePackerEvents(scenario);
+  auto events_ptr = GetEventPointers(events);
+  const auto packed = PackTraceEvents(events_ptr);
+
+  // No events may be dropped or merged by packing.
+  ASSERT_EQ(packed.size(), scenario.size());
+
+  const std::vector<std::string> expected_names = ExpectedNames(scenario);
+  const std::vector<int> expected_levels = ExpectedLevels(scenario);
+  for (size_t i = 0; i < packed.size(); ++i) {
+    EXPECT_EQ(packed[i].event->name, expected_names[i]) << "index " << i;
+    EXPECT_EQ(packed[i].level, expected_levels[i]) << "index " << i;
+  }
 }
 
 TEST(TraceEventPackerTest, EmptyEvents) {
@@ -129,6 +160,25 @@ TEST(TraceEventPackerTest, IgnoresNullPointers) {
   EXPECT_EQ(packed[0].level, 0);
   EXPECT_EQ(packed[1].event->name, "B");
   EXPECT_EQ(packed[1].level, 1);
+}
+
+// --- Shared overlap fixtures (joint with data_provider self-time tests) ---
+
+TEST(TraceEventPackerTest, SharedFixtureNestedOverlap) {
+  ExpectPackedMatchesScenario(NestedOverlapScenario());
+}
+
+TEST(TraceEventPackerTest, SharedFixturePartialOverlap) {
+  ExpectPackedMatchesScenario(PartialOverlapScenario());
+}
+
+TEST(TraceEventPackerTest, SharedFixtureExclusiveEndpoint) {
+  // Exclusive end: B starts at A's end and must reuse level 0.
+  ExpectPackedMatchesScenario(ExclusiveEndpointScenario());
+}
+
+TEST(TraceEventPackerTest, SharedFixtureOverlapRowReuse) {
+  ExpectPackedMatchesScenario(OverlapRowReuseScenario());
 }
 
 }  // namespace

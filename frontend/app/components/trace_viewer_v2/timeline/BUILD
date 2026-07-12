@@ -132,6 +132,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@imgui",
         "@org_xprof//frontend/app/components/trace_viewer_v2/color:colors",
+        "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:overlap_interval_test_fixtures",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
         "@tsl//tsl/profiler/lib:context_types_hdrs",
     ],

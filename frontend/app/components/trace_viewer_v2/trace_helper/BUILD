@@ -181,10 +181,22 @@ wasm_cc_library(
     ],
 )
 
+# Header-only shared fixtures connecting packer row assignment and self-time
+# invariants (used by packer_test and timeline/data_provider_test).
+cc_library(
+    name = "overlap_interval_test_fixtures",
+    testonly = True,
+    hdrs = ["overlap_interval_test_fixtures.h"],
+    deps = [
+        ":trace_event",
+    ],
+)
+
 cc_test(
     name = "trace_event_packer_test",
     srcs = ["trace_event_packer_test.cc"],
     deps = [
+        ":overlap_interval_test_fixtures",
         ":trace_event",
         ":trace_event_packer",
         "@com_google_absl//absl/types:span",

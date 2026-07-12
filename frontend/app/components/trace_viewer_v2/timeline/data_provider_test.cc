@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +17,7 @@
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
+#include "frontend/app/components/trace_viewer_v2/trace_helper/overlap_interval_test_fixtures.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
@@ -23,9 +25,20 @@ namespace traceviewer {
 namespace {
 
 using ::testing::ElementsAre;
+using ::testing::ElementsAreArray;
 using ::testing::IsEmpty;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
+
+using test_fixtures::ExclusiveEndpointScenario;
+using test_fixtures::ExpectedLevels;
+using test_fixtures::ExpectedNames;
+using test_fixtures::ExpectedSelfTimes;
+using test_fixtures::MakeDataProviderEvents;
+using test_fixtures::NestedOverlapScenario;
+using test_fixtures::OverlapRowReuseScenario;
+using test_fixtures::OverlapScenarioEvent;
+using test_fixtures::PartialOverlapScenario;
 
 TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
                                ThreadId tid,
@@ -336,6 +349,60 @@ TEST_F(DataProviderTest, ProcessOverlappingNonNestedEvents) {
   EXPECT_THAT(data.entry_total_times, ElementsAre(50.0, 50.0));
   EXPECT_THAT(data.entry_self_times, ElementsAre(50.0, 50.0));
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
+}
+
+// Joint packing × self-time invariants for a shared overlap scenario.
+// Asserts: no events dropped, packer levels match fixture, self-times match
+// BuildTree expectations. Mirrors TraceEventPackerTest.SharedFixture* cases.
+void ExpectDataProviderMatchesScenario(
+    DataProvider& data_provider, Timeline& timeline,
+    const std::vector<OverlapScenarioEvent>& scenario) {
+  const std::vector<TraceEvent> events = MakeDataProviderEvents(scenario);
+  data_provider.ProcessTraceEvents({events, {}}, timeline);
+
+  const FlameChartTimelineData& data = timeline.timeline_data();
+
+  // Packer must not drop or merge events.
+  ASSERT_THAT(data.entry_names, SizeIs(scenario.size()));
+  EXPECT_THAT(data.entry_names, ElementsAreArray(ExpectedNames(scenario)));
+  EXPECT_THAT(data.entry_levels, ElementsAreArray(ExpectedLevels(scenario)));
+  EXPECT_THAT(data.entry_self_times,
+              ElementsAreArray(ExpectedSelfTimes(scenario)));
+
+  // Self-time is never negative and never exceeds wall (total) time.
+  for (size_t i = 0; i < data.entry_self_times.size(); ++i) {
+    EXPECT_GE(data.entry_self_times[i], 0.0) << "index " << i;
+    EXPECT_LE(data.entry_self_times[i], data.entry_total_times[i])
+        << "index " << i;
+  }
+}
+
+TEST_F(DataProviderTest, SharedFixtureNestedOverlapPackingAndSelfTime) {
+  const auto scenario = NestedOverlapScenario();
+  ExpectDataProviderMatchesScenario(data_provider_, timeline_, scenario);
+
+  // Pure nesting: sum of self-times equals the root wall time.
+  const auto self_times = ExpectedSelfTimes(scenario);
+  const double self_sum =
+      std::accumulate(self_times.begin(), self_times.end(), 0.0);
+  EXPECT_DOUBLE_EQ(self_sum, scenario.front().dur);
+}
+
+TEST_F(DataProviderTest, SharedFixturePartialOverlapPackingAndSelfTime) {
+  ExpectDataProviderMatchesScenario(data_provider_, timeline_,
+                                    PartialOverlapScenario());
+}
+
+TEST_F(DataProviderTest, SharedFixtureExclusiveEndpointPackingAndSelfTime) {
+  // Exclusive-end policy: adjacent events share level 0 and keep full
+  // self-time (same fixture as TraceEventPackerTest.SharedFixtureExclusiveEndpoint).
+  ExpectDataProviderMatchesScenario(data_provider_, timeline_,
+                                    ExclusiveEndpointScenario());
+}
+
+TEST_F(DataProviderTest, SharedFixtureOverlapRowReusePackingAndSelfTime) {
+  ExpectDataProviderMatchesScenario(data_provider_, timeline_,
+                                    OverlapRowReuseScenario());
 }
 
 TEST_F(DataProviderTest, ProcessNonOverlappingCompleteEventsSameThread) {

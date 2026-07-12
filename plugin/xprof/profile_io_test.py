@@ -294,9 +294,15 @@ class GcsFileSystemTest(absltest.TestCase):
     self.assertCountEqual(basenames, ['1.xplane.pb', '3.xplane.riegeli'])
 
   def test_get_xplane_basenames_exception(self):
-    """Checks exception handling in get_xplane_basenames."""
-    self.mock_client.list_blobs.side_effect = Exception('network error')
+    """Checks that expected GCS/OS errors degrade to an empty list."""
+    self.mock_client.list_blobs.side_effect = OSError('network error')
     self.assertEqual(self.fs.get_xplane_basenames('gs://bucket/path'), [])
+
+  def test_get_xplane_basenames_type_error_propagates(self):
+    """Programming errors from listing must not be swallowed."""
+    self.mock_client.list_blobs.side_effect = TypeError('bug in caller')
+    with self.assertRaises(TypeError):
+      self.fs.get_xplane_basenames('gs://bucket/path')
 
   def test_get_xplane_file_states_success(self):
     """Checks getting file states with md5 hash identification."""
@@ -324,9 +330,30 @@ class GcsFileSystemTest(absltest.TestCase):
     self.assertIsNone(self.fs.get_xplane_file_states('gs://bucket/path'))
 
   def test_get_xplane_file_states_exception(self):
-    """Checks Exception handling in get_xplane_file_states."""
-    self.mock_client.list_blobs.side_effect = Exception('network error')
+    """Checks that expected GCS/OS errors degrade to None."""
+    self.mock_client.list_blobs.side_effect = OSError('network error')
     self.assertIsNone(self.fs.get_xplane_file_states('gs://bucket/path'))
+
+  def test_gcs_errors_tuple_shape(self):
+    """_GCS_ERRORS always includes OSError/TimeoutError; never bare Exception."""
+    self.assertIn(OSError, profile_io._GCS_ERRORS)
+    self.assertIn(TimeoutError, profile_io._GCS_ERRORS)
+    self.assertNotIn(Exception, profile_io._GCS_ERRORS)
+    self.assertNotIn(TypeError, profile_io._GCS_ERRORS)
+    # GoogleAPICallError is included when the real GCS libs imported successfully.
+    self.assertTrue(
+        any(err.__name__ == 'GoogleAPICallError' for err in profile_io._GCS_ERRORS)
+        or all(
+            err in (OSError, TimeoutError, RuntimeError)
+            for err in profile_io._GCS_ERRORS
+        )
+    )
+
+  def test_get_xplane_file_states_type_error_propagates(self):
+    """Programming errors from listing must not be swallowed."""
+    self.mock_client.list_blobs.side_effect = TypeError('bug in caller')
+    with self.assertRaises(TypeError):
+      self.fs.get_xplane_file_states('gs://bucket/path')
 
   def test_dir_has_xplane_files(self):
     """Checks checking dir_has_xplane_files on GCS."""
@@ -341,8 +368,8 @@ class GcsFileSystemTest(absltest.TestCase):
     self.assertFalse(self.fs.dir_has_xplane_files('gs://bucket/path'))
 
   def test_dir_has_xplane_files_exception(self):
-    """Checks exception handling in dir_has_xplane_files."""
-    self.mock_client.list_blobs.side_effect = Exception('network error')
+    """Checks that TimeoutError degrades to False."""
+    self.mock_client.list_blobs.side_effect = TimeoutError('network error')
     self.assertFalse(self.fs.dir_has_xplane_files('gs://bucket/path'))
 
   def test_get_all_basenames(self):
@@ -356,8 +383,8 @@ class GcsFileSystemTest(absltest.TestCase):
     )
 
   def test_get_all_basenames_exception(self):
-    """Checks Exception handling in get_all_basenames."""
-    self.mock_client.list_blobs.side_effect = Exception('network error')
+    """Checks that OSError degrades to an empty list."""
+    self.mock_client.list_blobs.side_effect = OSError('network error')
     self.assertEqual(self.fs.get_all_basenames('gs://bucket/path'), [])
 
   def test_get_session_paths(self):
@@ -380,8 +407,8 @@ class GcsFileSystemTest(absltest.TestCase):
     self.assertEqual(paths, {})
 
   def test_get_session_paths_exception(self):
-    """Checks Exception handling in get_session_paths."""
-    self.mock_client.list_blobs.side_effect = Exception('network error')
+    """Checks that OSError degrades to an empty dict."""
+    self.mock_client.list_blobs.side_effect = OSError('network error')
     self.assertEqual(self.fs.get_session_paths('gs://bucket/path'), {})
 
   def test_read_json(self):

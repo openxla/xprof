@@ -44,22 +44,46 @@ except ImportError:
   gcs_exceptions = None
   storage = None
 
+# Errors that GcsFileSystem listing methods should catch and degrade on.
+# Programming errors (TypeError, AttributeError, etc.) intentionally propagate.
+if gcs_exceptions is not None:
+  _gcs_error_types = [gcs_exceptions.GoogleAPICallError, OSError, TimeoutError]
+  # RetryError is raised after exhausted retries; present on
+  # google.api_core.exceptions in some versions.
+  _retry_error = getattr(gcs_exceptions, 'RetryError', None)
+  if _retry_error is not None:
+    _gcs_error_types.append(_retry_error)
+  _GCS_ERRORS = tuple(_gcs_error_types)
+else:
+  _GCS_ERRORS = (OSError, TimeoutError, RuntimeError)
+
 
 @functools.lru_cache(maxsize=None)
 def get_storage_client():
-  """Returns a memoized storage client instance."""
+  """Returns a memoized storage client instance.
+
+  Builds the client with an AuthorizedSession that bypasses google-auth's
+  pyOpenSSL-based mTLS client-certificate path. On corporate machines,
+  pyOpenSSL is often installed and google-auth prefers it for mutual TLS, but
+  pyOpenSSL is incompatible with urllib3 >= 2.7. xprof only reads GCS blobs;
+  mutual TLS client certificates are intentionally not required for that use.
+
+  The ``_http=`` keyword is a private constructor argument on
+  ``google.cloud.storage.Client``. There is no public API to inject a custom
+  HTTP session while still using default credentials/project resolution, so
+  this private kwarg is intentionally retained.
+  """
   if storage is None:
     raise RuntimeError(
         'Google Cloud Storage libraries not found. gs:// paths are not'
         ' supported.'
     )
 
-  # google-auth tries to use pyOpenSSL for mTLS client
-  # certificates, but pyOpenSSL is incompatible with urllib3 >= 2.7.
-  # xprof only reads GCS blobs — mutual TLS is not required.
+  # Bypass google-auth's pyOpenSSL mTLS path (see docstring).
   if google_auth is not None and google_auth_requests is not None:
     credentials, project = google_auth.default()
     http_session = google_auth_requests.AuthorizedSession(credentials)
+    # _http= is private but required; no public session-injection API exists.
     return storage.Client(
         project=project, credentials=credentials, _http=http_session
     )
@@ -163,7 +187,7 @@ class GcsFileSystem(ProfileFileSystem):
           return None
         file_identifiers[os.path.basename(blob.name)] = md5_hash
       return file_identifiers
-    except Exception as e:  # pylint: disable=broad-except
+    except _GCS_ERRORS as e:
       logger.warning(
           'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
       )
@@ -178,7 +202,7 @@ class GcsFileSystem(ProfileFileSystem):
           if blob.name.endswith('.xplane.pb')
           or blob.name.endswith('.xplane.riegeli')
       ]
-    except Exception as e:  # pylint: disable=broad-except
+    except _GCS_ERRORS as e:
       logger.warning(
           'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
       )
@@ -192,7 +216,7 @@ class GcsFileSystem(ProfileFileSystem):
           or blob.name.endswith('.xplane.riegeli')
           for blob in blobs
       )
-    except Exception as e:  # pylint: disable=broad-except
+    except _GCS_ERRORS as e:
       logger.warning(
           'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
       )
@@ -202,7 +226,7 @@ class GcsFileSystem(ProfileFileSystem):
     try:
       blobs, _, _ = _list_gcs_dir(self._storage_client, dir_path)
       return [os.path.basename(blob.name) for blob in blobs]
-    except Exception as e:  # pylint: disable=broad-except
+    except _GCS_ERRORS as e:
       logger.warning(
           'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
       )
@@ -220,7 +244,7 @@ class GcsFileSystem(ProfileFileSystem):
           continue
         session_name = self._epath.Path(subdir_prefix).name
         path_by_session_name[session_name] = session_path_str
-    except Exception as e:  # pylint: disable=broad-except
+    except _GCS_ERRORS as e:
       logger.warning(
           'Error listing GCS directory %s: %r', dir_path, e, exc_info=True
       )

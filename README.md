@@ -358,6 +358,16 @@ workers for processing.
 For deploying a distributed XProf setup in a Kubernetes environment, see
 [Kubernetes Deployment Guide](docs/kubernetes_deployment.md).
 
+## Documentation
+
+User-facing guides live under [`docs/`](docs/). Markdown lint rules for those
+pages are defined in [`.markdownlint.yaml`](.markdownlint.yaml). To check docs
+locally (no repo npm dependency required):
+
+```
+$ npx markdownlint-cli2 "docs/**/*.md"
+```
+
 ## Resources
 
   * [JAX Profiling

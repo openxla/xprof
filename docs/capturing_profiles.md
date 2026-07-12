@@ -49,6 +49,30 @@ within your code. In JAX, for example, enabling
 will start an `xprof` server on your ML workload which is listening for the
 snapshot profiling trigger to start capturing profiles.
 
+You can also pass `enable_continuous_profiling: true` (and optionally
+`tpu_circular_buffer_tracing: true`) via
+[`profiler_options` / advanced configuration](advanced_profiler_options.md)
+when starting a trace. Continuous profiling is **off by default**.
+
+### Overhead
+
+While continuous profiling is active, tracers keep recording into circular
+buffers so a recent window of events is always available for `get_snapshot`.
+That ongoing collection has a non-trivial cost:
+
+- **CPU:** event recording runs alongside your training/inference step;
+- **Memory:** circular / max trace buffers stay resident for the session;
+- **I/O:** writing snapshots can produce large profile directories;
+- **Measurement noise:** long-running continuous collection can slightly
+  perturb step times relative to short programmatic or on-demand captures.
+
+Use continuous profiling when you need to freeze a timeline at the moment a
+problem appears (stragglers, rare stalls, production incidents). For routine
+tuning, prefer short programmatic or on-demand captures. Stop continuous
+profiling when you are done so the workload is no longer paying that overhead.
+Framework-specific start/stop/snapshot steps for JAX are in
+[Capture continuous profiling snapshots](jax_profiling.md#capture-continuous-profiling-snapshots).
+
 ## XProf and Tensorboard on Google Cloud
 
 On Google Cloud, we recommend using

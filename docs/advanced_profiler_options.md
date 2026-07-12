@@ -77,8 +77,33 @@ TPU.
 *   **`max_trace_buffers`** (Integer): Controls the maximum size of trace
     buffers.
 *   **`tpu_circular_buffer_tracing`** (Boolean): Enables circular buffer
-    tracing.
+    tracing. When enabled, trace events are written into fixed-size circular
+    buffers so recent history is retained without unbounded growth. Often used
+    together with continuous profiling (see below).
 *   **`enable_continuous_profiling`** (Boolean): Enables continuous profiling.
+    **Default:** `false` (disabled). When `true`, the profiler keeps collecting
+    events for the lifetime of the profiling session so you can take a
+    [snapshot at an arbitrary instant](capturing_profiles.md#continuous-profiling-snapshots)
+    rather than only for a pre-scheduled window.
+
+    **Overhead / resource impact:** Continuous profiling keeps device (and
+    optionally host) tracers active and typically relies on circular trace
+    buffers. Expect:
+
+    *   Ongoing CPU cost to record events while the workload runs;
+    *   Resident memory for circular / max trace buffers (see also
+        `max_trace_buffers` and `tpu_circular_buffer_tracing`);
+    *   Larger or more frequent on-disk profile dumps when snapshots are
+        taken;
+    *   Possible perturbation of step-time measurements compared with short,
+        targeted captures.
+
+    Prefer short diagnostic windows (enable → reproduce issue →
+    `get_snapshot` / stop) over leaving continuous profiling enabled for an
+    entire multi-hour training or inference job. For API-based continuous
+    snapshot capture, see
+    [Capture continuous profiling snapshots](jax_profiling.md#capture-continuous-profiling-snapshots)
+    and [Capturing profiles](capturing_profiles.md#continuous-profiling-snapshots).
 *   **`tpu_watched_sync_flag_number`** (Integer): Watched sync flag number.
 *   **`tpu_watched_sync_flag_mask`** (Integer): Watched sync flag mask.
 *   **`tpu_sc_dma`** (Boolean): Controls TPU SC DMA tracing.

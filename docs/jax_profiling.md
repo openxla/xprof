@@ -135,7 +135,12 @@ for more details on using the trace viewer.
 ## Capture continuous profiling snapshots
 
 The following are the instructions to capture a continuous profiling snapshot at
-any time instant.
+any time instant. Continuous profiling keeps tracers active so a recent window
+of events can be snapshotted on demand; it is **off by default** and has ongoing
+CPU/memory overhead. Prefer short enable → snapshot → stop windows. See
+[Advanced Profiler Options](advanced_profiler_options.md) and
+[Capturing profiles](capturing_profiles.md#continuous-profiling-snapshots) for
+defaults and resource impact.
 
 1. In the Python program or process you'd like to profile, add the following
 somewhere near the beginning:

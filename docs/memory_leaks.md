@@ -77,3 +77,21 @@ Use Memory Viewer for a detailed static analysis of buffer lifetimes.
     deallocate will have bars extending to the end.
 
     ![Memory Viewer tool showing buffer charts with long-lived allocations](./images/buffer_charts_memory_leaks.png)
+
+## Related: Trace Viewer WASM heap ownership (frontend)
+
+This guide focuses on **model** tensor and buffer lifetimes in captured
+profiles. Separately, Trace Viewer v2 allocates temporary buffers on the
+WebAssembly heap when transferring compressed or binary trace payloads from
+JavaScript into native code. Those allocations must be paired with `_free`
+(or an always-free helper) so the browser tab does not grow without bound
+during large trace loads or search.
+
+Verified free conventions and helpers live at:
+
+- [`frontend/app/components/trace_viewer_v2/wasm_string_utils.ts`](../frontend/app/components/trace_viewer_v2/wasm_string_utils.ts)
+  (lands with the WASM string free conventions change; path relative to the
+  repository root)
+
+Prefer `withWasmHeapBuffer` / `withWasmCString` / `freeWasmPtr` from that
+module at new call sites rather than raw `_malloc` / `_free` pairs.

@@ -1,0 +1,32 @@
+# Markdownlint configuration for XProf documentation under docs/.
+#
+# Install (optional, one-shot via npx — no repo dependency required):
+#   npx markdownlint-cli2 "docs/**/*.md"
+#
+# Or with a local install:
+#   npm install -g markdownlint-cli2
+#   markdownlint-cli2 "docs/**/*.md"
+#
+# Primary goal: catch recurring emphasis/bolding defects (e.g. spaces inside
+# **bold** markers) without failing the whole tree on historical style choices
+# such as long lines, inline HTML, or non-H1 first lines.
+
+default: true
+
+# Line length — many existing docs use long prose lines and tables.
+MD013: false
+
+# Duplicate headings are common across independent sections/pages.
+MD024: false
+
+# Ordered list style varies (all-1s vs incrementing) in historical docs.
+MD029: false
+
+# Allow inline HTML used for notes, images, and layout in docs/.
+MD033: false
+
+# Files may start with blockquotes / front matter-like notes before H1.
+MD041: false
+
+# Keep emphasis rules that catch broken **bold** / _italic_ (MD037 et al.).
+# MD037: spaces inside emphasis markers — enabled via default: true

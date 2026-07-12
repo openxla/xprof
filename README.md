@@ -358,6 +358,21 @@ workers for processing.
 For deploying a distributed XProf setup in a Kubernetes environment, see
 [Kubernetes Deployment Guide](docs/kubernetes_deployment.md).
 
+## Compatibility notes
+
+XProf depends on **`protobuf >= 3.19.6`** (see `requirements.in` /
+`plugin/setup.py`). Runtime version hard-checks were removed for install
+flexibility; if profile decoding fails after a dependency change, confirm your
+environment’s protobuf version is at least that floor and ideally close to the
+version pinned in `requirements_lock_3_*.txt`. More detail is in
+[OSS contribution and export hygiene](docs/contributing_oss_hygiene.md#3-protobuf-compatibility-bounds-soft-docs).
+
+## Contributing (OSS hygiene)
+
+Process expectations for dependency PRs, XLA pin smoke tests, Copybara/export
+subjects, and template lint notes live in
+[docs/contributing_oss_hygiene.md](docs/contributing_oss_hygiene.md).
+
 ## Resources
 
   * [JAX Profiling

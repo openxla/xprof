@@ -34,8 +34,8 @@
             <mat-icon class="material-symbols-outlined">edit_note</mat-icon>
             <span>Save Draft</span>
           </button>
-          <button class="playground-discard-btn" (click)="setActiveView('experiments')" title="Discard changes">
-            <mat-icon class="material-symbols-outlined">delete_outline</mat-icon>
+          <button class="playground-discard-btn" (click)="setActiveView('experiments')" title="Discard changes" aria-label="Discard changes">
+            <mat-icon class="material-symbols-outlined" aria-hidden="true">delete_outline</mat-icon>
           </button>
         }
       </div>
@@ -59,7 +59,12 @@
           <!-- Filter Chips (Left) -->
           <div class="market-filter-chips">
             @for (category of categories; track category) {
-              <button class="filter-chip" [class.active]="selectedCategory() === category" (click)="onCategoryChange(category)">
+              <button
+                class="filter-chip"
+                [class.active]="selectedCategory() === category"
+                [attr.aria-pressed]="selectedCategory() === category"
+                [attr.aria-label]="'Filter experiments by ' + category"
+                (click)="onCategoryChange(category)">
                 {{category}}
               </button>
             }
@@ -73,18 +78,28 @@
                 <input type="text" matInput class="market-search-input" placeholder="Search experiments..." aria-label="Search experiments" [value]="searchQuery()" (input)="onSearchChange($event)">
               </mat-form-field>
               @if (searchQuery()) {
-                <button class="market-search-clear-btn" (click)="clearSearch()" title="Clear search">
-                  <mat-icon class="material-symbols-outlined">close</mat-icon>
+                <button class="market-search-clear-btn" (click)="clearSearch()" title="Clear search" aria-label="Clear search">
+                  <mat-icon class="material-symbols-outlined" aria-hidden="true">close</mat-icon>
                 </button>
               }
             </div>
 
-            <div class="view-toggle-group">
-              <button [class.active]="displayMode() === 'grid'" (click)="setDisplayMode('grid')" title="Grid View">
-                <mat-icon class="material-symbols-outlined">grid_view</mat-icon>
+            <div class="view-toggle-group" role="group" aria-label="Experiment display mode">
+              <button
+                [class.active]="displayMode() === 'grid'"
+                [attr.aria-pressed]="displayMode() === 'grid'"
+                (click)="setDisplayMode('grid')"
+                title="Grid View"
+                aria-label="Grid view">
+                <mat-icon class="material-symbols-outlined" aria-hidden="true">grid_view</mat-icon>
               </button>
-              <button [class.active]="displayMode() === 'list'" (click)="setDisplayMode('list')" title="List View">
-                <mat-icon class="material-symbols-outlined">view_list</mat-icon>
+              <button
+                [class.active]="displayMode() === 'list'"
+                [attr.aria-pressed]="displayMode() === 'list'"
+                (click)="setDisplayMode('list')"
+                title="List View"
+                aria-label="List view">
+                <mat-icon class="material-symbols-outlined" aria-hidden="true">view_list</mat-icon>
               </button>
             </div>
           </div>
@@ -133,8 +148,14 @@
                       <div class="card-icon-box" [ngClass]="tool.colorClass ?? ''">
                         <mat-icon class="material-symbols-outlined">{{tool.icon}}</mat-icon>
                       </div>
-                      <button class="card-fav-btn" [class.favorite]="tool.isFavorite" (click)="toggleFavorite(tool)" title="Add to favorites">
-                        <mat-icon class="material-symbols-outlined">{{tool.isFavorite ? 'star' : 'star_border'}}</mat-icon>
+                      <button
+                        class="card-fav-btn"
+                        [class.favorite]="tool.isFavorite"
+                        [attr.aria-pressed]="!!tool.isFavorite"
+                        [attr.aria-label]="tool.isFavorite ? 'Remove ' + tool.label + ' from favorites' : 'Add ' + tool.label + ' to favorites'"
+                        (click)="toggleFavorite(tool)"
+                        title="Add to favorites">
+                        <mat-icon class="material-symbols-outlined" aria-hidden="true">{{tool.isFavorite ? 'star' : 'star_border'}}</mat-icon>
                       </button>
                     </div>
 
@@ -172,8 +193,8 @@
                   <!-- Card Actions -->
                   <div class="card-actions">
                     <button class="launch-btn" (click)="onLaunchTool(tool)">Launch</button>
-                    <button class="card-more-btn" title="More options">
-                      <mat-icon class="material-symbols-outlined">more_vert</mat-icon>
+                    <button class="card-more-btn" title="More options" [attr.aria-label]="'More options for ' + tool.label">
+                      <mat-icon class="material-symbols-outlined" aria-hidden="true">more_vert</mat-icon>
                     </button>
                   </div>
                 </div>

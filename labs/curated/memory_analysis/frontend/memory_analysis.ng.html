@@ -1,15 +1,21 @@
 <div class="memory-analysis-container" [class.sidebar-collapsed]="!sidebarExpanded()">
   @if (loading()) {
     <div class="loading-overlay">
-      <mat-spinner diameter="48"></mat-spinner>
+      <mat-spinner diameter="48" aria-label="Loading memory analysis"></mat-spinner>
     </div>
   }
 
   <div class="main-content-area">
     <!-- Top Controls Row -->
     <div class="top-controls-row">
-      <button mat-icon-button (click)="toggleSidebar()" matTooltip="Toggle Sidebar" class="sidebar-toggle-btn">
-        <mat-icon>{{sidebarExpanded() ? 'menu_open' : 'menu'}}</mat-icon>
+      <button
+        mat-icon-button
+        (click)="toggleSidebar()"
+        matTooltip="Toggle Sidebar"
+        class="sidebar-toggle-btn"
+        [attr.aria-label]="sidebarExpanded() ? 'Collapse memory breakdown sidebar' : 'Expand memory breakdown sidebar'"
+        [attr.aria-expanded]="sidebarExpanded()">
+        <mat-icon aria-hidden="true">{{sidebarExpanded() ? 'menu_open' : 'menu'}}</mat-icon>
       </button>
 
       @if (moduleList.length > 1) {

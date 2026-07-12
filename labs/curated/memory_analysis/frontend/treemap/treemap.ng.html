@@ -1,10 +1,10 @@
 <div class="treemap-container">
   <div class="toolbar-row">
-    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="zoomOut()" matTooltip="Zoom Out">
-      <mat-icon>arrow_upward</mat-icon>
+    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="zoomOut()" matTooltip="Zoom Out" aria-label="Zoom out treemap">
+      <mat-icon aria-hidden="true">arrow_upward</mat-icon>
     </button>
-    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="resetZoom()" matTooltip="Reset Zoom">
-      <mat-icon>home</mat-icon>
+    <button mat-icon-button [disabled]="zoomStack().length <= 1" (click)="resetZoom()" matTooltip="Reset Zoom" aria-label="Reset treemap zoom">
+      <mat-icon aria-hidden="true">home</mat-icon>
     </button>
     @if (zoomStack().length > 1) {
       <span class="breadcrumbs">

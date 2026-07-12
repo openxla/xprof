@@ -37,6 +37,12 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
     const absl::flat_hash_map<std::pair<uint64_t, uint64_t>, FlatOpMetricsDb>&
         sparse_core_metrics_map);
 
+// Native GPU device-trace path: parse a GPU XPlane into FlatOpMetricsDb using
+// DeviceFlatOpMetricsDbBuilder (aggregates XLA HLO ops via hlo_module_map and
+// TF ops via GpuEventStats). Owned exclusively by ConvertXSpaceToFlatOpMetricsDb
+// when device planes are GPU (not TPU tensor-core / sparse-core converters).
+// Do not also feed the same GPU plane through the TPU converters — that would
+// double-count events in the combined FlatOpMetricsDb.
 FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
     const XPlane& device_trace, const HloModuleMap& hlo_module_map);
 

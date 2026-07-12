@@ -3060,6 +3060,7 @@ cc_test(
     deps = [
         ":xplane_to_flat_op_metrics_db",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",

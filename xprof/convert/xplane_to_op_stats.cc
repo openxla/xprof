@@ -816,15 +816,19 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
   // KernelReportMap reports;
 
   // Handle device planes first. device_planes will contain either GPU or TPU.
+  // Call-path ownership for FlatOpMetricsDb (single converter per plane — do
+  // not also run the legacy OpMetricsDb GPU path into the same flat DB):
+  //   * TPU tensor-core planes →
+  //       ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb
+  //       (sparse-core planes first via
+  //        ConvertSparseCoreDeviceTraceXPlaneToFlatOpMetricsDb)
+  //   * GPU device planes → ConvertDeviceTraceXPlaneToFlatOpMetricsDb
+  //       (native GPU XPlane → FlatOpMetricsDb via DeviceFlatOpMetricsDbBuilder)
   std::vector<const XPlane*> device_planes =
       FindPlanesWithPrefix(space, kTpuPlanePrefix);
   const bool is_gpu = device_planes.empty();
   if (is_gpu) {
     device_planes = FindPlanesWithPrefix(space, kGpuPlanePrefix);
-    if (!device_planes.empty()) {
-      return absl::UnimplementedError(
-          "GPU not supported yet for FlatOpMetricsDb");
-    }
   }
   const bool is_tpu = !is_gpu;
   std::string hostname = Hostname(space);
@@ -908,10 +912,20 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
         // Safe to capture sparse_core_metrics_map by reference
         // as it is accessed as read-only in threads. All
         // modifications were completed sequentially on the main thread.
+        // Exactly one converter owns each plane: TPU tensor-core vs GPU
+        // ConvertDeviceTrace — never both for the same events.
         executor->Execute([device_plane, &op_metrics_db,
-                           &sparse_core_metrics_map]() {
-          op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
-              *device_plane, sparse_core_metrics_map);
+                           &sparse_core_metrics_map, is_tpu,
+                           &hlo_module_map]() {
+          if (is_tpu) {
+            op_metrics_db = ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
+                *device_plane, sparse_core_metrics_map);
+          } else {
+            // GPU: ConvertDeviceTraceXPlaneToFlatOpMetricsDb is the sole
+            // FlatOpMetricsDb producer for this plane (see #2840).
+            op_metrics_db = ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
+                *device_plane, hlo_module_map);
+          }
         });
       }
     }

@@ -21,15 +21,17 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "testing/base/public/gmock.h"
-#include "<gtest/gtest.h>"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/xplane_to_op_metrics_db.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/hlo_module_map.h"
 
 namespace tensorflow {
@@ -654,6 +656,99 @@ TEST_F(XPlaneToFlatOpMetricsDbTest, GpuEquivalenceTest) {
   EXPECT_EQ(legacy_db.metrics_db_size(), new_db.op_instances_size());
   EXPECT_EQ(legacy_db.total_op_time_ps(), new_db.total_op_time_ps());
   EXPECT_EQ(legacy_db.total_time_ps(), new_db.total_time_ps());
+
+  // No double registration: each op name appears exactly once in the flat DB.
+  absl::flat_hash_set<std::string> seen_names;
+  for (const auto& op : new_db.op_instances()) {
+    EXPECT_TRUE(seen_names.insert(op.hlo_name()).second)
+        << "Duplicate FlatOpMetrics registration for: " << op.hlo_name();
+  }
+}
+
+// Synthetic GPU stream with only TF ops (empty HloModuleMap): documents
+// expected occurrence/time counts for the sole GPU FlatOp path and asserts
+// that the same events are not double-counted under a second conversion.
+// GpuEventStats reads kTfOp from *event* stats (not event metadata).
+TEST_F(XPlaneToFlatOpMetricsDbTest, GpuSyntheticTfOpsSinglePathCounts) {
+  XLineBuilder stream = plane_builder_->GetOrCreateLine(1);
+  stream.SetName("Stream #0");
+
+  // Op A: 1000–1500 ns (500 ns = 500000 ps)
+  XEventBuilder op_a =
+      stream.AddEvent(*plane_builder_->GetOrCreateEventMetadata("kernel_a"));
+  op_a.SetTimestampNs(1000);
+  op_a.SetDurationNs(500);
+  op_a.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                        GetStatTypeStr(StatType::kDeviceOffsetPs)),
+                    int64_t{1000000});
+  op_a.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                        GetStatTypeStr(StatType::kDeviceDurationPs)),
+                    int64_t{500000});
+  // TF op fullname format is "name:type" (see ParseTfOpFullname).
+  op_a.AddStatValue(
+      *plane_builder_->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kTfOp)),
+      "layer/MatMul:MatMul");
+
+  // Op B: 2000–2600 ns (600 ns = 600000 ps), non-overlapping with A.
+  XEventBuilder op_b =
+      stream.AddEvent(*plane_builder_->GetOrCreateEventMetadata("kernel_b"));
+  op_b.SetTimestampNs(2000);
+  op_b.SetDurationNs(600);
+  op_b.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                        GetStatTypeStr(StatType::kDeviceOffsetPs)),
+                    int64_t{2000000});
+  op_b.AddStatValue(*plane_builder_->GetOrCreateStatMetadata(
+                        GetStatTypeStr(StatType::kDeviceDurationPs)),
+                    int64_t{600000});
+  op_b.AddStatValue(
+      *plane_builder_->GetOrCreateStatMetadata(GetStatTypeStr(StatType::kTfOp)),
+      "layer/Conv2D:Conv2D");
+
+  HloModuleMap empty_hlo_module_map;
+  FlatOpMetricsDb first =
+      ConvertDeviceTraceXPlaneToFlatOpMetricsDb(*xplane_, empty_hlo_module_map);
+  FlatOpMetricsDb second =
+      ConvertDeviceTraceXPlaneToFlatOpMetricsDb(*xplane_, empty_hlo_module_map);
+
+  // IDLE + two TF ops. Flat names are "tf_op_name/event_name".
+  ASSERT_EQ(first.op_instances_size(), 3);
+  absl::flat_hash_map<std::string, const FlatOpMetrics*> by_name;
+  for (const auto& op : first.op_instances()) {
+    by_name[op.hlo_name()] = &op;
+  }
+  ASSERT_EQ(by_name.size(), 3) << "expected unique op names (no double-count)";
+
+  ASSERT_TRUE(by_name.contains("layer/MatMul/kernel_a"));
+  EXPECT_EQ(by_name["layer/MatMul/kernel_a"]->occurrences(), 1);
+  EXPECT_EQ(by_name["layer/MatMul/kernel_a"]->time_ps(), 500000);
+  EXPECT_EQ(by_name["layer/MatMul/kernel_a"]->category(), "MatMul");
+
+  ASSERT_TRUE(by_name.contains("layer/Conv2D/kernel_b"));
+  EXPECT_EQ(by_name["layer/Conv2D/kernel_b"]->occurrences(), 1);
+  EXPECT_EQ(by_name["layer/Conv2D/kernel_b"]->time_ps(), 600000);
+  EXPECT_EQ(by_name["layer/Conv2D/kernel_b"]->category(), "Conv2D");
+
+  // Total span 1000–2600 ns → 1.6e6 ps; total op time 1.1e6 ps.
+  EXPECT_EQ(first.total_op_time_ps(), 1100000);
+  EXPECT_EQ(first.total_time_ps(), 1600000);
+
+  // Re-running the same sole GPU converter is deterministic (same counts).
+  EXPECT_EQ(first.op_instances_size(), second.op_instances_size());
+  EXPECT_EQ(first.total_op_time_ps(), second.total_op_time_ps());
+  EXPECT_EQ(first.total_time_ps(), second.total_time_ps());
+}
+
+// Empty GPU plane + empty HloModuleMap: helpers return idle-only DB without
+// crash (contract for missing module / empty device trace).
+TEST_F(XPlaneToFlatOpMetricsDbTest, GpuEmptyPlaneEmptyModuleMap) {
+  HloModuleMap empty_hlo_module_map;
+  FlatOpMetricsDb db =
+      ConvertDeviceTraceXPlaneToFlatOpMetricsDb(*xplane_, empty_hlo_module_map);
+  // Only the synthetic idle op when there are no device events.
+  ASSERT_EQ(db.op_instances_size(), 1);
+  EXPECT_EQ(db.op_instances(0).category(), kIdle);
+  EXPECT_EQ(db.total_time_ps(), 0);
+  EXPECT_EQ(db.total_op_time_ps(), 0);
 }
 
 }  // namespace

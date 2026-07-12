@@ -20,7 +20,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "<gtest/gtest.h>"
+#include "gtest/gtest.h"
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -715,6 +715,86 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, SourceInformationParsing) {
   EXPECT_EQ(metric.source_info().file_name(), "filename.cc");
   EXPECT_EQ(metric.source_info().line_number(), 123);
   EXPECT_EQ(metric.source_info().stack_frame(), "stack_frame_contents");
+}
+
+// Empty / malformed source helpers used by roofline FlatOpMetric path (#2898):
+// must not crash; file_name/line stay empty when parse fails.
+TEST_F(XEventsFlatOpMetricsDbBuilderTest, EmptyAndMalformedSourceInfoHelpers) {
+  auto run_with_source = [this](absl::string_view op_name,
+                                absl::string_view source_value) {
+    XPlane plane = CreateTestXPlane();
+    XPlaneBuilder plane_builder(&plane);
+    XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+    CreateXEvent(plane_builder, line_builder, op_name, 1000, 500, 1, 1);
+    XEventMetadata* meta = plane_builder.GetOrCreateEventMetadata(op_name);
+    XStatMetadata* source_meta =
+        plane_builder.GetOrCreateStatMetadata("source");
+    auto* stat_source = meta->add_stats();
+    stat_source->set_metadata_id(source_meta->id());
+    stat_source->set_str_value(std::string(source_value));
+
+    XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+    XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
+                                &plane.lines(0).events(0));
+    XEventsFlatOpMetricsDbBuilder local_builder;
+    local_builder.AddOpMetric(event_visitor);
+    return local_builder.Finalize();
+  };
+
+  // Empty source string: silent failure, empty source_info fields.
+  {
+    FlatOpMetricsDb db = run_with_source("op_empty_source", "");
+    ASSERT_EQ(db.op_instances_size(), 1);
+    const auto& metric = db.op_instances(0);
+    EXPECT_TRUE(metric.source_info().file_name().empty());
+    EXPECT_EQ(metric.source_info().line_number(), 0);
+  }
+
+  // Missing colon (not "file:line"): silent failure without crash.
+  {
+    FlatOpMetricsDb db = run_with_source("op_no_colon", "filename_only.cc");
+    ASSERT_EQ(db.op_instances_size(), 1);
+    const auto& metric = db.op_instances(0);
+    EXPECT_TRUE(metric.source_info().file_name().empty());
+    EXPECT_EQ(metric.source_info().line_number(), 0);
+  }
+
+  // Non-numeric line after colon.
+  {
+    FlatOpMetricsDb db = run_with_source("op_bad_line", "filename.cc:not_a_line");
+    ASSERT_EQ(db.op_instances_size(), 1);
+    const auto& metric = db.op_instances(0);
+    EXPECT_TRUE(metric.source_info().file_name().empty());
+    EXPECT_EQ(metric.source_info().line_number(), 0);
+  }
+
+  // Empty module-style stack only: source stack may be set without file:line.
+  {
+    XPlane plane = CreateTestXPlane();
+    XPlaneBuilder plane_builder(&plane);
+    XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+    CreateXEvent(plane_builder, line_builder, "op_empty_module_stack", 1000, 500,
+                 1, 1);
+    XEventMetadata* meta =
+        plane_builder.GetOrCreateEventMetadata("op_empty_module_stack");
+    XStatMetadata* stack_meta =
+        plane_builder.GetOrCreateStatMetadata("source_stack");
+    auto* stat_stack = meta->add_stats();
+    stat_stack->set_metadata_id(stack_meta->id());
+    stat_stack->set_str_value("<embedded module '_launcher'>");
+
+    XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+    XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
+                                &plane.lines(0).events(0));
+    builder_->AddOpMetric(event_visitor);
+    FlatOpMetricsDb db = builder_->Finalize();
+    ASSERT_EQ(db.op_instances_size(), 1);
+    const auto& metric = db.op_instances(0);
+    ASSERT_TRUE(metric.has_source_info());
+    EXPECT_TRUE(metric.source_info().file_name().empty());
+    EXPECT_EQ(metric.source_info().stack_frame(),
+              "<embedded module '_launcher'>");
+  }
 }
 
 }  // namespace

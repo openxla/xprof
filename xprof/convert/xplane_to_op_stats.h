@@ -16,10 +16,13 @@ limitations under the License.
 #ifndef XPROF_CONVERT_XPLANE_TO_OP_STATS_H_
 #define XPROF_CONVERT_XPLANE_TO_OP_STATS_H_
 
+#include <optional>
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
@@ -28,12 +31,30 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+using ::tsl::profiler::XPlaneVisitor;
+
 struct OpStatsOptions {
   bool maybe_drop_incomplete_steps = false;
   bool generate_op_metrics_db = false;
   bool generate_step_db = false;
   bool generate_kernel_stats_db = false;
 };
+
+// How CustomCall ops contribute to TPU duty-cycle / chip utilization.
+// Default is kLegacy (post-#2942): only IsOffDutyOp categories are off-duty;
+// CustomCall is not special-cased.
+enum class CustomCallDutyCycleMode {
+  kLegacy = 0,      // IsOffDutyOp only (default; env: "legacy")
+  kFlopsModel = 1,  // CustomCall off-duty iff flops==0 && model_flops==0
+  kIciAware = 2,    // flops_model + force on-duty when uses_ici != 0
+};
+
+// Parses a mode name. Empty / unknown values map to kLegacy.
+// Recognized: "legacy", "flops_model", "ici_aware".
+CustomCallDutyCycleMode ParseCustomCallDutyCycleMode(absl::string_view mode);
+
+// Reads XPROF_CUSTOM_CALL_DUTY_CYCLE_MODE (unset/empty/unknown -> kLegacy).
+CustomCallDutyCycleMode GetCustomCallDutyCycleModeFromEnv();
 
 // Converts XSpace to FlatOpMetricsDb.
 absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
@@ -62,7 +83,11 @@ PerfEnv MakePerfEnv(double peak_tera_flops_per_second,
 PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane);
 
 // Constructs a DutyCycleTracker from the given XPlaneVisitor.
-DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor);
+// When mode_override is nullopt, uses GetCustomCallDutyCycleModeFromEnv().
+// Default env mode is kLegacy (bit-identical to post-#2942 ConstructDutyCycleTracker).
+DutyCycleTracker ConstructDutyCycleTracker(
+    XPlaneVisitor& visitor,
+    std::optional<CustomCallDutyCycleMode> mode_override = std::nullopt);
 
 }  // namespace profiler
 }  // namespace tensorflow

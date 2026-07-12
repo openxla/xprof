@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -377,17 +378,110 @@ void UpdateFlatOpMetricsDbFromHloModuleMap(FlatOpMetricsDb& op_metrics_db,
   combiner.Combine(children_db);
 }
 
-DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
+CustomCallDutyCycleMode ParseCustomCallDutyCycleMode(absl::string_view mode) {
+  if (mode == "flops_model") {
+    return CustomCallDutyCycleMode::kFlopsModel;
+  }
+  if (mode == "ici_aware") {
+    return CustomCallDutyCycleMode::kIciAware;
+  }
+  // "legacy", empty, and any unknown value preserve post-#2942 defaults.
+  return CustomCallDutyCycleMode::kLegacy;
+}
+
+CustomCallDutyCycleMode GetCustomCallDutyCycleModeFromEnv() {
+  const char* env = std::getenv("XPROF_CUSTOM_CALL_DUTY_CYCLE_MODE");
+  if (env == nullptr) {
+    return CustomCallDutyCycleMode::kLegacy;
+  }
+  return ParseCustomCallDutyCycleMode(env);
+}
+
+namespace {
+
+// Returns true when a CustomCall event should be treated as off-duty under the
+// given non-legacy mode. Always returns false for kLegacy (caller should not
+// invoke this for the default path). Ported from commits 48cc8012 / f47b48c5.
+bool IsCustomCallOffDuty(
+    const std::optional<XStatVisitor>& hlo_category_stat,
+    const std::optional<XStatVisitor>& flops_stat,
+    const std::optional<XStatVisitor>& model_flops_stat,
+    const std::optional<XStatVisitor>& uses_ici_stat,
+    CustomCallDutyCycleMode mode) {
+  if (mode == CustomCallDutyCycleMode::kLegacy) {
+    return false;
+  }
+  // Custom-call check.
+  if (!hlo_category_stat.has_value() ||
+      hlo_category_stat->StrOrRefValue() !=
+          xla::HloOpcodeString(xla::HloOpcode::kCustomCall)) {
+    return false;
+  }
+  // ICI-aware: if it uses ICI, it is on-duty.
+  if (mode == CustomCallDutyCycleMode::kIciAware &&
+      uses_ici_stat.has_value() && uses_ici_stat->IntOrUintValue() != 0) {
+    return false;
+  }
+  // If metadata contains flop count (user-provided cost for Pallas),
+  // a count of 0 implies off-duty.
+  // If no flops stat is available, consider it as an off-duty op.
+  int64_t flops = flops_stat.has_value() ? flops_stat->IntOrUintValue() : 0;
+  int64_t model_flops =
+      model_flops_stat.has_value() ? model_flops_stat->IntOrUintValue() : 0;
+  return flops == 0 && model_flops == 0;
+}
+
+// Prefer metadata-level stats, then event-level (see c1723cbd / 48cc8012).
+std::optional<XStatVisitor> GetEventOrMetadataStat(const XEventVisitor& event,
+                                                   StatType stat_type) {
+  std::optional<XStatVisitor> stat = event.Metadata().GetStat(stat_type);
+  if (!stat) {
+    stat = event.GetStat(stat_type);
+  }
+  return stat;
+}
+
+}  // namespace
+
+DutyCycleTracker ConstructDutyCycleTracker(
+    XPlaneVisitor& visitor,
+    std::optional<CustomCallDutyCycleMode> mode_override) {
+  const CustomCallDutyCycleMode mode =
+      mode_override.value_or(GetCustomCallDutyCycleModeFromEnv());
   DutyCycleTracker duty_cycle_tracker;
   visitor.ForEachLine([&](const XLineVisitor& line) {
     if (line.Name() == tsl::profiler::kXlaOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
+        // kLegacy path is intentionally bit-identical to post-#2942:
+        // only Metadata hlo_category + IsOffDutyOp (no flops/model_flops/ICI).
+        if (mode == CustomCallDutyCycleMode::kLegacy) {
+          auto hlo_category_stat =
+              event.Metadata().GetStat(StatType::kHloCategory);
+          duty_cycle_tracker.AddInterval(
+              event.GetTimespan(),
+              !(hlo_category_stat &&
+                tsl::profiler::IsOffDutyOp(
+                    hlo_category_stat->StrOrRefValue())));
+          return;
+        }
+
         auto hlo_category_stat =
-            event.Metadata().GetStat(StatType::kHloCategory);
+            GetEventOrMetadataStat(event, StatType::kHloCategory);
+        std::optional<XStatVisitor> flops_stat =
+            GetEventOrMetadataStat(event, StatType::kFlops);
+        std::optional<XStatVisitor> model_flops_stat =
+            GetEventOrMetadataStat(event, StatType::kModelFlops);
+        std::optional<XStatVisitor> uses_ici_stat;
+        if (mode == CustomCallDutyCycleMode::kIciAware) {
+          uses_ici_stat = GetEventOrMetadataStat(event, StatType::kUsesIci);
+        }
+
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&
-              tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+              (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
+               IsCustomCallOffDuty(hlo_category_stat, flops_stat,
+                                   model_flops_stat, uses_ici_stat, mode))));
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {

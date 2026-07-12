@@ -22,7 +22,17 @@ of both variations:
   - **Average Step Time (training only)**: The step time averaged over all steps
     sampled.
   - **FLOPS Utilization**
-  - **TPU Duty Cycle**
+  - **TPU Duty Cycle**: Fraction of profiled module time that device ops are
+    considered "on-duty" (busy). By default (post-#2942), only standard
+    off-duty HLO categories (infeed, outfeed, host send/recv, async-done,
+    megacore fusion self-time) are idle; **CustomCall is not special-cased**.
+    Opt-in CustomCall semantics via env var
+    `XPROF_CUSTOM_CALL_DUTY_CYCLE_MODE`:
+    - `legacy` (default): IsOffDutyOp categories only.
+    - `flops_model`: CustomCall is off-duty only when both `flops` and
+      `model_flops` are zero/absent (Pallas-style cost metadata).
+    - `ici_aware`: same as `flops_model`, but CustomCall with `uses_ici != 0`
+      is forced on-duty (collective custom-calls).
   - **Memory Bandwidth Utilization**
   - **Program Goodput Efficiency**: Measures how your model is performing
     relative to ideal performance on this hardware.

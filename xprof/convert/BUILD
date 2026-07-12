@@ -1361,6 +1361,7 @@ cc_library(
         "@xla//xla/tsl/profiler/utils:xplane_builder",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
         "@xla//xla/tsl/profiler/utils:xplane_utils",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
         "@xla//xla/tsl/util:stats_calculator_portable",
     ],
 )
@@ -1414,6 +1415,7 @@ cc_test(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",

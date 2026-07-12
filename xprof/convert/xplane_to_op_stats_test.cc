@@ -16,6 +16,7 @@ limitations under the License.
 #include "xprof/convert/xplane_to_op_stats.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,6 +26,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -713,7 +715,29 @@ TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromSparseCore) {
   EXPECT_EQ(tracker.GetIdleTimePs(), 10);
 }
 
-TEST(ConvertXPlaneToOpStats, DISABLED_ConstructDutyCycleTrackerFromCustomCall) {
+TEST(ConvertXPlaneToOpStats, ParseCustomCallDutyCycleMode) {
+  struct Case {
+    absl::string_view input;
+    CustomCallDutyCycleMode expected;
+  };
+  const Case kCases[] = {
+      {"", CustomCallDutyCycleMode::kLegacy},
+      {"legacy", CustomCallDutyCycleMode::kLegacy},
+      {"flops_model", CustomCallDutyCycleMode::kFlopsModel},
+      {"ici_aware", CustomCallDutyCycleMode::kIciAware},
+      {"unknown", CustomCallDutyCycleMode::kLegacy},
+      {"FLOPS_MODEL", CustomCallDutyCycleMode::kLegacy},  // case-sensitive
+  };
+  for (const auto& c : kCases) {
+    EXPECT_EQ(ParseCustomCallDutyCycleMode(c.input), c.expected)
+        << "input=" << c.input;
+  }
+}
+
+// CustomCall flops scenarios (stats on the event, not metadata).
+// Module covers [5, 55) = 50ps.
+// Events: flops=0 [10,20), flops>0 [20,30), no flops stat [30,40).
+TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerFromCustomCallModes) {
   XSpace space;
   XPlane* device_plane = GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
@@ -723,23 +747,18 @@ TEST(ConvertXPlaneToOpStats, DISABLED_ConstructDutyCycleTrackerFromCustomCall) {
   XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
   op_line.SetName(kXlaOpLineName);
 
-  // CustomCall with flops = 0 -> off duty
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_0_flops",
                /*offset_ps=*/10,
                /*duration_ps=*/10,
                {{StatType::kHloCategory,
                  xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
                 {StatType::kFlops, int64_t{0}}});
-
-  // CustomCall with flops > 0 -> on duty
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_flops",
                /*offset_ps=*/20,
                /*duration_ps=*/10,
                {{StatType::kHloCategory,
                  xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
                 {StatType::kFlops, int64_t{5}}});
-
-  // CustomCall without flops stat -> off duty
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_flops",
                /*offset_ps=*/30,
                /*duration_ps=*/10,
@@ -753,16 +772,31 @@ TEST(ConvertXPlaneToOpStats, DISABLED_ConstructDutyCycleTrackerFromCustomCall) {
                /*duration_ps=*/50);
 
   XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
-  DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor);
 
-  // active time is op 2 (10ps)
-  EXPECT_EQ(tracker.GetActiveTimePs(), 10);
-  // idle time is 50ps (module) - 10ps (active) = 40ps
-  EXPECT_EQ(tracker.GetIdleTimePs(), 40);
+  struct ModeCase {
+    CustomCallDutyCycleMode mode;
+    int64_t expected_active_ps;
+    int64_t expected_idle_ps;
+    const char* name;
+  };
+  // kLegacy only reads Metadata hlo_category (stats are on the event), so all
+  // three CustomCalls count as on-duty: active=30, idle=20.
+  // kFlopsModel / kIciAware: only flops>0 is on-duty: active=10, idle=40.
+  const ModeCase kCases[] = {
+      {CustomCallDutyCycleMode::kLegacy, 30, 20, "legacy"},
+      {CustomCallDutyCycleMode::kFlopsModel, 10, 40, "flops_model"},
+      {CustomCallDutyCycleMode::kIciAware, 10, 40, "ici_aware"},
+  };
+  for (const auto& c : kCases) {
+    DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor, c.mode);
+    EXPECT_EQ(tracker.GetActiveTimePs(), c.expected_active_ps) << c.name;
+    EXPECT_EQ(tracker.GetIdleTimePs(), c.expected_idle_ps) << c.name;
+  }
 }
 
+// ICI + flops/model_flops CustomCall scenarios. Module covers [5, 95) = 90ps.
 TEST(ConvertXPlaneToOpStats,
-     DISABLED_ConstructDutyCycleTrackerFromCustomCallWithIci) {
+     ConstructDutyCycleTrackerFromCustomCallWithIciModes) {
   XSpace space;
   XPlane* device_plane = GetOrCreateTpuXPlane(
       &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
@@ -772,7 +806,7 @@ TEST(ConvertXPlaneToOpStats,
   XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
   op_line.SetName(kXlaOpLineName);
 
-  // CustomCall with uses_ici stat = 1 -> on duty (offset 10-20)
+  // CustomCall with uses_ici = 1 -> on duty under kIciAware (offset 10-20)
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_ici",
                /*offset_ps=*/10,
                /*duration_ps=*/10,
@@ -780,8 +814,7 @@ TEST(ConvertXPlaneToOpStats,
                  xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
                 {StatType::kUsesIci, int64_t{1}}});
 
-  // CustomCall with uses_ici = 0, no flops, no model flops -> off duty (offset
-  // 20-30)
+  // CustomCall with uses_ici = 0, no flops -> off duty under non-legacy
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_ici_no_flops",
                /*offset_ps=*/20,
                /*duration_ps=*/10,
@@ -789,7 +822,7 @@ TEST(ConvertXPlaneToOpStats,
                  xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
                 {StatType::kUsesIci, int64_t{0}}});
 
-  // CustomCall with uses_ici = 1, with flops -> on duty (offset 30-40)
+  // CustomCall with uses_ici = 1 and flops -> on duty (offset 30-40)
   CreateXEvent(&device_plane_builder, &op_line,
                "custom_call_with_ici_and_flops",
                /*offset_ps=*/30,
@@ -799,15 +832,14 @@ TEST(ConvertXPlaneToOpStats,
                 {StatType::kUsesIci, int64_t{1}},
                 {StatType::kFlops, int64_t{5}}});
 
-  // Regular CustomCall, no ici, no flops -> off duty (offset 40-50)
+  // Regular CustomCall, no ici, no flops -> off duty under non-legacy
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_ici",
                /*offset_ps=*/40,
                /*duration_ps=*/10,
                {{StatType::kHloCategory,
                  xla::HloOpcodeString(xla::HloOpcode::kCustomCall)}});
 
-  // CustomCall with uses_ici = 0, but with model_flops -> on duty (offset
-  // 50-60)
+  // CustomCall with model_flops -> on duty (offset 50-60)
   CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_model_flops",
                /*offset_ps=*/50,
                /*duration_ps=*/10,
@@ -816,14 +848,11 @@ TEST(ConvertXPlaneToOpStats,
                 {StatType::kUsesIci, int64_t{0}},
                 {StatType::kModelFlops, int64_t{5}}});
 
-  // Megacore event overlapping with on duty op -> should not double count
-  // (offset 15-25, overlaps with 10-20 and 20-30)
+  // Megacore event overlapping with ICI custom call (offset 15-25)
   CreateXEvent(&device_plane_builder, &op_line, "megacore_op",
                /*offset_ps=*/15,
                /*duration_ps=*/10, {{StatType::kHloCategory, "megacore"}});
 
-  // Non-custom call with uses_ici = 1 -> uses_ici shouldn't matter if it has
-  // flops (offset 60-70)
   CreateXEvent(&device_plane_builder, &op_line, "dot",
                /*offset_ps=*/60,
                /*duration_ps=*/10,
@@ -831,8 +860,6 @@ TEST(ConvertXPlaneToOpStats,
                 {StatType::kUsesIci, int64_t{1}},
                 {StatType::kFlops, int64_t{10}}});
 
-  // Non-custom call with uses_ici = 1, no flops -> it's active based on
-  // category unless IsOffDutyOp (offset 70-80)
   CreateXEvent(
       &device_plane_builder, &op_line, "add",
       /*offset_ps=*/70,
@@ -843,23 +870,72 @@ TEST(ConvertXPlaneToOpStats,
   xla_module_line.SetName(kXlaModuleLineName);
   CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
                /*offset_ps=*/5,
-               /*duration_ps=*/90);  // 5 to 95 (total length 90)
-
-  // Active times:
-  // 10-25 (custom call with ici from 10-20, extended to 25 by megacore_op)
-  // 30-40 (custom call with ici + flops)
-  // 50-60 (custom call with model flops)
-  // 60-70 (dot with flops)
-  // 70-80 (add)
-  // total active time = 15 + 10 + 10 + 10 + 10 = 55
-  // Module time = 90.
-  // Idle time = 90 - 55 = 35.
+               /*duration_ps=*/90);
 
   XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
-  DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor);
 
-  EXPECT_EQ(tracker.GetActiveTimePs(), 55);
-  EXPECT_EQ(tracker.GetIdleTimePs(), 35);
+  struct ModeCase {
+    CustomCallDutyCycleMode mode;
+    int64_t expected_active_ps;
+    int64_t expected_idle_ps;
+    const char* name;
+  };
+  // kLegacy: event-level hlo_category ignored -> all ops active: 10-80 = 70.
+  // kFlopsModel: ICI ignored; active = megacore(15-25)+flops(30-40)+
+  //   model_flops(50-60)+dot(60-70)+add(70-80) = 50.
+  // kIciAware: also custom_call_with_ici [10,20) merges with megacore to
+  //   [10,25) => active = 15+10+10+10+10 = 55 (historical f47b48c5 result).
+  const ModeCase kCases[] = {
+      {CustomCallDutyCycleMode::kLegacy, 70, 20, "legacy"},
+      {CustomCallDutyCycleMode::kFlopsModel, 50, 40, "flops_model"},
+      {CustomCallDutyCycleMode::kIciAware, 55, 35, "ici_aware"},
+  };
+  for (const auto& c : kCases) {
+    DutyCycleTracker tracker = ConstructDutyCycleTracker(visitor, c.mode);
+    EXPECT_EQ(tracker.GetActiveTimePs(), c.expected_active_ps) << c.name;
+    EXPECT_EQ(tracker.GetIdleTimePs(), c.expected_idle_ps) << c.name;
+  }
+}
+
+// Default ConstructDutyCycleTracker (no override) matches explicit kLegacy.
+TEST(ConvertXPlaneToOpStats, ConstructDutyCycleTrackerDefaultIsLegacy) {
+  // Ensure env default path is exercised (unset -> kLegacy).
+  unsetenv("XPROF_CUSTOM_CALL_DUTY_CYCLE_MODE");
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+  // Metadata-level infeed (classic off-duty) + event-level custom-call with
+  // flops=0. Legacy must treat infeed as idle and custom-call as active.
+  CreateXEventMetadata(&device_plane_builder, "infeed_op",
+                       {{StatType::kHloCategory, tsl::profiler::kHloInfeed}});
+  CreateXEvent(&device_plane_builder, &op_line, "infeed_op", /*offset_ps=*/10,
+               /*duration_ps=*/10);
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_0_flops",
+               /*offset_ps=*/20,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kFlops, int64_t{0}}});
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/5, /*duration_ps=*/50);
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker default_tracker = ConstructDutyCycleTracker(visitor);
+  DutyCycleTracker legacy_tracker =
+      ConstructDutyCycleTracker(visitor, CustomCallDutyCycleMode::kLegacy);
+  EXPECT_EQ(default_tracker.GetActiveTimePs(),
+            legacy_tracker.GetActiveTimePs());
+  EXPECT_EQ(default_tracker.GetIdleTimePs(), legacy_tracker.GetIdleTimePs());
+  // Only custom-call is active under legacy (infeed off-duty): active=10.
+  EXPECT_EQ(default_tracker.GetActiveTimePs(), 10);
+  EXPECT_EQ(default_tracker.GetIdleTimePs(), 40);
 }
 
 TEST(ConvertXPlaneToOpStats, MultiCoreChipBusyAndIdleTimeTest) {

@@ -40,6 +40,123 @@ import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 import {windowOpen} from 'safevalues/dom';
 
+/**
+ * Deep-link query schema version for {@link DataServiceV2.createToolUrl}.
+ * Bump when the set or meaning of tool-link query params changes.
+ */
+export const TOOL_URL_SCHEMA_VERSION = 1;
+
+/** Query parameter name for the tool URL schema version. */
+export const TOOL_URL_VERSION_PARAM = 'v';
+
+/** Reserved keys not treated as tool-specific params in a tool deep link. */
+const TOOL_URL_RESERVED_KEYS = new Set([
+  'tool',
+  'run',
+  'session_path',
+  'run_path',
+  TOOL_URL_VERSION_PARAM,
+]);
+
+/** Parsed createToolUrl-style deep link. */
+export interface ParsedToolUrl {
+  /** Schema version; missing `v` is treated as 1 for old bookmarks. */
+  schemaVersion: number;
+  toolName: string;
+  sessionId: string;
+  sessionPath: string;
+  runPath: string;
+  /** Tool-specific params (everything except reserved keys). */
+  params: Record<string, string>;
+}
+
+/**
+ * Builds URLSearchParams for a versioned tool deep link.
+ * Always sets `v=<TOOL_URL_SCHEMA_VERSION>`.
+ */
+export function buildToolUrlSearchParams(options: {
+  toolName: string;
+  sessionId: string;
+  params: Record<string, string>;
+  sessionPath?: string | null;
+  runPath?: string | null;
+}): URLSearchParams {
+  const linkParams = new URLSearchParams();
+  // Version first so bookmarks and logs show schema intent clearly.
+  linkParams.set(TOOL_URL_VERSION_PARAM, String(TOOL_URL_SCHEMA_VERSION));
+  linkParams.set('tool', options.toolName);
+  linkParams.set('run', options.sessionId);
+  for (const [key, value] of Object.entries(options.params)) {
+    if (value) {
+      linkParams.set(key, value);
+    }
+  }
+  if (options.sessionPath) {
+    linkParams.set('session_path', options.sessionPath);
+  }
+  if (options.runPath) {
+    linkParams.set('run_path', options.runPath);
+  }
+  return linkParams;
+}
+
+/**
+ * Parses createToolUrl-style deep-link query params.
+ *
+ * Missing or empty `v` is treated as schema version 1 so pre-versioned
+ * bookmarks keep working (FIX-013).
+ */
+export function parseToolUrlSearchParams(
+  searchParams: URLSearchParams | string,
+): ParsedToolUrl {
+  const params =
+    typeof searchParams === 'string'
+      ? new URLSearchParams(
+          searchParams.startsWith('?') ? searchParams.slice(1) : searchParams,
+        )
+      : searchParams;
+
+  const rawVersion = params.get(TOOL_URL_VERSION_PARAM);
+  // Compat: absent `v` means the original (v1) schema.
+  let schemaVersion = 1;
+  if (rawVersion != null && rawVersion !== '') {
+    const parsed = Number(rawVersion);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      schemaVersion = parsed;
+    }
+  }
+
+  const toolParams: Record<string, string> = {};
+  params.forEach((value, key) => {
+    if (!TOOL_URL_RESERVED_KEYS.has(key)) {
+      toolParams[key] = value;
+    }
+  });
+
+  return {
+    schemaVersion,
+    toolName: params.get('tool') ?? '',
+    sessionId: params.get('run') ?? '',
+    sessionPath: params.get('session_path') ?? '',
+    runPath: params.get('run_path') ?? '',
+    params: toolParams,
+  };
+}
+
+/**
+ * Parses a full tool deep-link URL (as produced by createToolUrl) or a
+ * raw query string. Used by tests and any consumer that receives a full href.
+ */
+export function parseToolUrl(urlOrSearch: string): ParsedToolUrl {
+  let search = urlOrSearch;
+  const q = urlOrSearch.indexOf('?');
+  if (q !== -1) {
+    const hash = urlOrSearch.indexOf('#', q);
+    search = hash === -1 ? urlOrSearch.slice(q + 1) : urlOrSearch.slice(q + 1, hash);
+  }
+  return parseToolUrlSearchParams(search);
+}
+
 /** The data service class that calls API and return response. */
 @Injectable()
 export class DataServiceV2 implements DataServiceV2Interface {
@@ -309,23 +426,14 @@ export class DataServiceV2 implements DataServiceV2Interface {
     params: Record<string, string>;
   }): string {
     if (!sessionId) return '';
-    const linkParams = new URLSearchParams();
-    linkParams.set('tool', toolName);
-    linkParams.set('run', sessionId);
-    for (const [key, value] of Object.entries(params)) {
-      if (value) {
-        linkParams.set(key, value);
-      }
-    }
     const searchParams = this.getSearchParams();
-    const sessionPath = searchParams.get('session_path');
-    const runPath = searchParams.get('run_path');
-    if (sessionPath) {
-      linkParams.set('session_path', sessionPath);
-    }
-    if (runPath) {
-      linkParams.set('run_path', runPath);
-    }
+    const linkParams = buildToolUrlSearchParams({
+      toolName,
+      sessionId,
+      params,
+      sessionPath: searchParams.get('session_path'),
+      runPath: searchParams.get('run_path'),
+    });
     return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
   }
 

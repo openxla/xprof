@@ -44,7 +44,13 @@ export interface DataServiceV2Interface {
   // Returns a string of comma separated module names.
   getModuleList(sessionId: string, graphType?: string): Observable<string>;
 
-  /** Creates a tool URL for cross tool linking. */
+  /**
+   * Creates a tool URL for cross tool linking.
+   *
+   * Deep links include `v=1` (query schema version). Consumers parsing these
+   * URLs must treat a missing `v` as version 1 so older bookmarks still work.
+   * See {@code buildToolUrlSearchParams} / {@code parseToolUrlSearchParams}.
+   */
   createToolUrl(options: {
     toolName: string;
     sessionId: string;

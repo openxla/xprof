@@ -32,6 +32,40 @@ static constexpr int kAll = -1;
 static constexpr int kNone = -2;
 }  // namespace FlowCategoryFilter
 
+// Pointer / keyboard interaction mode for the timeline track area.
+//
+// Mode state machine (primary gesture on left-drag; modifiers override):
+//
+//   kSelect (1)  — drag: rectangle-select events/counters
+//   kPan    (2)  — drag: pan X / scroll Y  (default)
+//   kZoom   (3)  — drag vertically: zoom about pivot
+//   kTiming (4)  — drag: create/edit selected time ranges (curtains)
+//
+// Cross-cutting modifiers and features (apply regardless of mode unless
+// noted; order on mouse-down / release matters for conflict resolution):
+//
+//   Shift+drag (non-kSelect)  → temporary timing selection (time range)
+//   Ctrl/Meta+click           → add bookmark at click time (feature:
+//                               bookmarks). Handled on mouse-up and
+//                               bypasses tiny time-range creation so a
+//                               slight move during the click does not
+//                               create a curtain.
+//   Edge hover on a curtain   → resize that selected time range (takes
+//                               priority over starting a new drag mode
+//                               action). Resize applies snap when enabled.
+//   Snap-to-time-range        → when enabled, timing selections and
+//                               curtain resizes snap edges to nearby
+//                               event edges / other curtains. Snap uses
+//                               only visible (non-hidden, non-collapsed
+//                               flame) tracks. Inactive in kSelect /
+//                               plain pan without Shift.
+//   Hide process track        → removes the process (and children) from
+//                               layout when track management is enabled;
+//                               hidden tracks are skipped for snap edge
+//                               discovery.
+//
+// Keyboard: 1/2/3/4 switch modes (see HandleKeyboard). Esc cancels an
+// in-progress selection or resize.
 enum class MouseMode {
   // Select events in an area (legacy mode 1)
   kSelect = 1,
@@ -284,12 +318,20 @@ class Timeline {
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
 
+  // Schema version for bookmark storage (see kBookmarkSchemaVersion).
+  // Persist this alongside bookmarks() when serializing so future schema
+  // changes can migrate; missing version in external storage means v1.
+  static constexpr int GetBookmarkSchemaVersion() {
+    return kBookmarkSchemaVersion;
+  }
+
   // Adds a bookmark at the specified time if one doesn't already exist nearby.
   void AddBookmark(Microseconds time);
 
   // Removes the specified bookmark.
   void RemoveBookmark(Microseconds time);
 
+  // Session-local bookmark timestamps in microseconds (schema v1 payload).
   const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
   void set_track_management_enabled(bool enabled) {
     track_management_enabled_ = enabled;

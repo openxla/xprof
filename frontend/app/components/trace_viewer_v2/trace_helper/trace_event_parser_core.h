@@ -19,6 +19,12 @@ GetPrettyNames();
 
 // Generates a stable event ID robust against sub-microsecond floating-point
 // representation differences (e.g. string round-tripping vs integer division).
+//
+// Algorithm version: kEventIdAlgorithmVersion (currently 1).
+// Formula (v1): Fingerprint64(StrCat(name, ":", round(ts*1e6), ":",
+// round(dur*1e6))) with ts/dur converted to integer picoseconds.
+// Do not change the formula without bumping kEventIdAlgorithmVersion and
+// updating consumers that persist EventId values.
 EventId GenerateEventId(absl::string_view name, Microseconds ts,
                         Microseconds dur);
 

@@ -132,6 +132,15 @@ inline constexpr ImU32 kBookmarkColor = kPink80;
 inline constexpr Pixel kBookmarkLabelPadding = 4.0f;
 inline constexpr Pixel kBookmarkThickness = 2.0f;
 // go/keep-sorted end
+//
+// Bookmark storage schema version.
+// Version 1: ordered list of timestamps in microseconds only (session-local).
+// Bump when the serialized / persisted representation gains fields (labels,
+// event ids, ranges, etc.). External storage that omits a version field must
+// be treated as version 1 for forward compatibility.
+// See also kEventIdAlgorithmVersion — EventId churn does not invalidate v1
+// bookmarks because they key on time, not event identity.
+inline constexpr int kBookmarkSchemaVersion = 1;
 
 // Close Button Constants
 // go/keep-sorted start

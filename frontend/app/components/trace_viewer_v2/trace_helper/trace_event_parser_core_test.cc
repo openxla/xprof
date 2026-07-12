@@ -203,6 +203,12 @@ TEST(TraceEventParserCoreTest, ProcessAsyncEventsBeginEndPair) {
             GenerateEventId("dma_transfer", 1.0, 4.0));
 }
 
+TEST(TraceEventParserCoreTest, EventIdAlgorithmVersionIsV1) {
+  // Documented algorithm version for GenerateEventId. Bump when the formula
+  // changes so consumers that persist EventIds can detect incompatibility.
+  EXPECT_EQ(kEventIdAlgorithmVersion, 1);
+}
+
 TEST(TraceEventParserCoreTest, GenerateEventIdTest) {
   // Stable hashing: Identical inputs produce the same ID
   EventId id1 = GenerateEventId("event_a", 10.123456, 5.654321);

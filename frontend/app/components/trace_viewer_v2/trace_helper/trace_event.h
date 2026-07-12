@@ -21,6 +21,15 @@ using ThreadId = uint64_t;
 // EventId is a unique identifier for an event.
 // Event timestamp, duration and its name are used to generate the event ID.
 // See http://shortn/_lVpPbx16ZS for more details.
+//
+// Algorithm version (kEventIdAlgorithmVersion):
+//   v1 — Fingerprint64 of "name:ts_ps:dur_ps" where ts/dur are rounded to
+//        picoseconds (see GenerateEventId). Stable across sub-us float noise.
+// Changing the algorithm invalidates consumers that key on EventId (search
+// navigation, deep links). Bump kEventIdAlgorithmVersion when the formula
+// changes. Session-local bookmarks (kBookmarkSchemaVersion) store timestamps
+// only and are unaffected by EventId algorithm churn.
+inline constexpr int kEventIdAlgorithmVersion = 1;
 using EventId = uint64_t;
 // Timestamps are in microseconds, as specified in go/trace-event-format.
 // An example ts: 6845940.1418570001

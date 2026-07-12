@@ -7971,6 +7971,213 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeWithSnapping) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
 }
 
+// =============================================================================
+// FIX-014 / FIX-024: TV2 interaction matrix (snap × resize × bookmarks × hide)
+// + bookmark schema version.
+//
+// Features landed close together (#2801 snap, #2846 resize, #2845 bookmarks,
+// #2855 hide). These tests pin critical cross-feature pairs and pointer-mode
+// conflict resolution documented on MouseMode in timeline.h.
+// =============================================================================
+
+TEST(TimelineTest, BookmarkSchemaVersionIsV1) {
+  // Session-local bookmarks store timestamps only (schema v1). Callers that
+  // persist bookmarks must include this version; missing version ≡ v1.
+  EXPECT_EQ(Timeline::GetBookmarkSchemaVersion(), kBookmarkSchemaVersion);
+  EXPECT_EQ(kBookmarkSchemaVersion, 1);
+  // EventId algorithm is independently versioned; v1 bookmarks key on time.
+  EXPECT_EQ(kEventIdAlgorithmVersion, 1);
+}
+
+TEST(TimelineTest, BookmarkSchemaVersionIndependentOfBookmarkContents) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.set_bookmarks_enabled(true);
+  EXPECT_EQ(timeline.GetBookmarkSchemaVersion(), 1);
+  timeline.AddBookmark(42.0);
+  timeline.AddBookmark(100.0);
+  EXPECT_EQ(timeline.GetBookmarkSchemaVersion(), 1);
+  EXPECT_THAT(timeline.bookmarks(), ElementsAre(42.0, 100.0));
+}
+
+// Snap must ignore event edges on hidden process tracks (group_visible_=false).
+TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsOnHiddenTracks) {
+  timeline_.set_snap_to_time_range_enabled(true);
+  timeline_.set_track_management_enabled(true);
+
+  FlameChartTimelineData data;
+  // Event on Process A from 100–200 us — would be a snap target if visible.
+  data.entry_levels = {0};
+  data.entry_total_times = {100.0};
+  data.entry_self_times = {100.0};
+  data.entry_start_times = {100.0};
+  data.entry_names = {"hidden_event"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "Process A", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.HideTrack("Process A");
+
+  SimulateFrame();
+  ASSERT_FALSE(timeline_.group_visible().empty());
+  EXPECT_FALSE(timeline_.group_visible()[0]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Drag near the hidden event edges (99→201 us). Without hide this snaps to
+  // 100–200; with hide, raw pixel times must be kept.
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+// Bookmarks are independent of hide/snap: adding a bookmark does not create a
+// time range, and hide does not clear existing bookmarks.
+TEST_F(TimelineDragSelectionTest, BookmarksSurviveHideAndDoNotCreateTimeRange) {
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_track_management_enabled(true);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {50.0};
+  data.entry_self_times = {50.0};
+  data.entry_start_times = {10.0};
+  data.entry_names = {"ev"};
+  data.entry_event_ids = {1};
+  data.entry_pids = {1};
+  data.entry_tids = {1};
+  data.entry_args = {{}};
+  data.groups = {{Group::Type::kFlame, "Process A", "", 0, 0, true}};
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+
+  timeline_.AddBookmark(25.0);
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(25.0));
+
+  timeline_.HideTrack("Process A");
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(25.0));
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  EXPECT_EQ(timeline_.GetBookmarkSchemaVersion(), 1);
+}
+
+// Resize drag (with or without Ctrl) must not add a bookmark — only pure
+// Ctrl/Meta+click does. Prevents resize×bookmark gesture conflict.
+TEST_F(TimelineTimeRangeResizeTest, ResizeDragDoesNotAddBookmarkEvenWithCtrl) {
+  timeline_.set_bookmarks_enabled(true);
+  AddSelectedTimeRange(50.0, 100.0);
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float origin_x = GetTimelineStartX();
+  constexpr double kPxPerTime = 10.0;
+
+  // Start on end edge and drag with Ctrl held (would bookmark if a click).
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMousePosEvent(origin_x + 100.0 * kPxPerTime, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMousePosEvent(origin_x + 150.0 * kPxPerTime, 50.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+  EXPECT_TRUE(timeline_.bookmarks().empty());
+}
+
+// Ctrl+click on a curtain edge adds a bookmark and does not mutate the range
+// (click distance under threshold → is_click; bookmark bypasses selection).
+TEST_F(TimelineTimeRangeResizeTest, CtrlClickOnRangeEdgeAddsBookmarkNotResize) {
+  timeline_.set_bookmarks_enabled(true);
+  AddSelectedTimeRange(50.0, 100.0);
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float origin_x = GetTimelineStartX();
+  constexpr double kPxPerTime = 10.0;
+
+  io.AddMousePosEvent(origin_x + 100.0 * kPxPerTime, 50.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+}
+
+// Parameterized: Ctrl+click adds a bookmark in every pointer mode without
+// creating a timing curtain (mode conflict matrix).
+class BookmarkAcrossMouseModesTest
+    : public TimelineDragSelectionTest,
+      public ::testing::WithParamInterface<MouseMode> {};
+
+TEST_P(BookmarkAcrossMouseModesTest, CtrlClickAddsBookmarkWithoutTimeRange) {
+  // Shift is on in TimelineDragSelectionTest SetUp; clear so only Ctrl matters.
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  SimulateFrame();
+
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.set_mouse_mode(GetParam());
+  EXPECT_EQ(timeline_.mouse_mode(), GetParam());
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float click_x = GetTimelineStartX() + 100.0f;
+  io.MousePos = ImVec2(click_x, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+
+  EXPECT_FALSE(timeline_.bookmarks().empty());
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+  // Mode must be unchanged by bookmark gesture.
+  EXPECT_EQ(timeline_.mouse_mode(), GetParam());
+}
+
+INSTANTIATE_TEST_SUITE_P(AllPointerModes, BookmarkAcrossMouseModesTest,
+                         ::testing::Values(MouseMode::kSelect, MouseMode::kPan,
+                                           MouseMode::kZoom,
+                                           MouseMode::kTiming));
+
+// Snap during resize still applies when the snap target is another curtain,
+// independent of bookmark feature flag (resize × snap matrix pair).
+TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToCurtainWithBookmarksEnabled) {
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+  timeline_.set_bookmarks_enabled(true);
+  timeline_.AddBookmark(75.0);  // bookmarks are not snap targets
+
+  AddSelectedTimeRange(100.0, 150.0);  // snap target curtain
+  AddSelectedTimeRange(10.0, 50.0);    // range under resize
+
+  // Threshold = 16/10 = 1.6us; drag end 50 → 99 should snap to 100, not 75.
+  Drag(50.0, 99.0, /*shift=*/true);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
+  EXPECT_THAT(timeline_.bookmarks(), ElementsAre(75.0));
+}
+
 TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenNavigatedEventNotPresent) {
   timeline_.SetTimelineData(
       CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));

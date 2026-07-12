@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/utils/performance_info_wrapper.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -23,6 +24,7 @@ limitations under the License.
 #include "xla/hlo/parser/hlo_parser.h"
 #include "xla/tsl/platform/test.h"
 #include "tsl/platform/protobuf.h"
+#include "xprof/utils/cost_utils.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/xprof_gpu_cost_analysis.h"
@@ -143,6 +145,65 @@ TEST(PerformanceInfoWrapper, TestMemoryAccessed) {
                   bytes_accessed: 300
                 })pb")));
 #endif  // PLATFORM_GOOGLE
+}
+
+// ValidHloCost: HloCostAnalysis uses -1 as "no cost"; only that sentinel is
+// remapped to 0. Other values pass through unchanged.
+TEST(ValidHloCost, SentinelNegativeOneMapsToZero) {
+  EXPECT_EQ(ValidHloCost(-1), 0);
+}
+
+TEST(ValidHloCost, PositiveAndZeroPassthrough) {
+  EXPECT_EQ(ValidHloCost(0), 0);
+  EXPECT_EQ(ValidHloCost(1), 1);
+  EXPECT_EQ(ValidHloCost(42), 42);
+  // Large values must not be clamped or truncated.
+  constexpr int64_t kLarge = int64_t{1} << 50;
+  EXPECT_EQ(ValidHloCost(kLarge), kLarge);
+}
+
+TEST(ValidHloCost, NonSentinelNegativesPassthrough) {
+  // Non-sentinel negatives are adjustments for higher-precision analysis.
+  EXPECT_EQ(ValidHloCost(-2), -2);
+  EXPECT_EQ(ValidHloCost(-100), -100);
+}
+
+// PerformanceInfoWrapper must apply ValidHloCost on flops/bytes without
+// mutating the owned PerformanceInfo proto.
+TEST(PerformanceInfoWrapper, SentinelCostsMapToZero) {
+  auto performance_info =
+      std::make_unique<PerformanceInfoWrapper::PerfInfoType>();
+  performance_info->set_flops(-1);
+  performance_info->set_bytes_accessed(-1);
+  const PerformanceInfoWrapper::PerfInfoType* raw = performance_info.get();
+
+  std::unique_ptr<PerformanceInfoWrapper> wrapper =
+      PerformanceInfoWrapper::Create(std::move(performance_info));
+
+  EXPECT_EQ(wrapper->ModelFlops(), 0);
+  EXPECT_EQ(wrapper->BytesAccessed(), 0);
+  EXPECT_EQ(wrapper->flops(), 0);
+  EXPECT_EQ(wrapper->bytes_accessed(), 0);
+  // Underlying proto is unchanged (no mutation).
+  EXPECT_EQ(raw->flops(), -1);
+  EXPECT_EQ(raw->bytes_accessed(), -1);
+}
+
+TEST(PerformanceInfoWrapper, PositiveCostsPassthrough) {
+  auto performance_info =
+      std::make_unique<PerformanceInfoWrapper::PerfInfoType>();
+  constexpr int64_t kFlops = int64_t{1} << 40;
+  constexpr int64_t kBytes = 123456789;
+  performance_info->set_flops(kFlops);
+  performance_info->set_bytes_accessed(kBytes);
+
+  std::unique_ptr<PerformanceInfoWrapper> wrapper =
+      PerformanceInfoWrapper::Create(std::move(performance_info));
+
+  EXPECT_EQ(wrapper->ModelFlops(), kFlops);
+  EXPECT_EQ(wrapper->BytesAccessed(), kBytes);
+  EXPECT_EQ(wrapper->flops(), kFlops);
+  EXPECT_EQ(wrapper->bytes_accessed(), kBytes);
 }
 
 }  // namespace

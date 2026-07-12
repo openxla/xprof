@@ -3017,13 +3017,31 @@ cc_library(
     srcs = ["unified_tools_registration.cc"],
     hdrs = ["unified_tools_registration.h"],
     deps = [
+        ":tool_options",
         ":unified_hlo_stats_processor",
         ":unified_memory_viewer_processor",
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
+)
+
+cc_test(
+    name = "unified_tools_registration_test",
+    srcs = ["unified_tools_registration_test.cc"],
+    deps = [
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_tools_registration",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+    ],
 )
 
 cc_library(

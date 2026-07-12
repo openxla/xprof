@@ -16,10 +16,17 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_UNIFIED_TOOLS_REGISTRATION_H_
 #define THIRD_PARTY_XPROF_CONVERT_UNIFIED_TOOLS_REGISTRATION_H_
 
+#include "absl/status/status.h"
+
 namespace xprof {
 // Registers unified profile processors for various profiling tools (e.g.,
 // hlo_stats, memory_viewer) with the processor factory.
 void RegisterUnifiedToolRegistrations();
-}
+
+// Registers unified tools and verifies that every expected tool can create a
+// processor. Returns FailedPrecondition if any expected tool is missing.
+// Expected tools: hlo_stats, memory_viewer, op_profile, overview_page.
+absl::Status EnsureUnifiedToolsRegistered();
+}  // namespace xprof
 
 #endif  // THIRD_PARTY_XPROF_CONVERT_UNIFIED_TOOLS_REGISTRATION_H_

@@ -194,7 +194,7 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolDataWithProfileProcessor(
   absl::Time start_time = absl::Now();
 
   if (absl::GetFlag(FLAGS_enable_unified_xprof)) {
-    xprof::RegisterUnifiedToolRegistrations();
+    TF_RETURN_IF_ERROR(xprof::EnsureUnifiedToolsRegistered());
     auto unified_processor =
         xprof::UnifiedProfileProcessorFactory::GetInstance().Create(
             tool_name, options);

@@ -968,14 +968,15 @@ void Timeline::EmitEventSelected(int event_index) {
   event_data.try_emplace(
       kEventSelectedPid,
       static_cast<double>(timeline_data_.entry_pids[event_index]));
-  auto& args = timeline_data_.entry_args[event_index];
-  if (auto it = args.find("uid"); it != args.end()) {
+  const absl::flat_hash_map<std::string, std::string>& args =
+      timeline_data_.entry_args[event_index];
+  if (const auto it = args.find("uid"); it != args.end()) {
     event_data.try_emplace(kEventSelectedUid, it->second);
   }
-  if (auto it = args.find(std::string(kHloModule)); it != args.end()) {
+  if (const auto it = args.find(kHloModule); it != args.end()) {
     event_data.try_emplace(kEventSelectedHloModuleName, it->second);
   }
-  if (auto it = args.find(std::string(kHloOp)); it != args.end()) {
+  if (const auto it = args.find(kHloOp); it != args.end()) {
     event_data.try_emplace(kEventSelectedHloOpName, it->second);
   }
   event_callback_(kEventSelected, event_data);
@@ -983,18 +984,17 @@ void Timeline::EmitEventSelected(int event_index) {
 
 void Timeline::EmitViewportChanged(const TimeRange& range) {
   EventData range_obj;
-  range_obj[std::string(kViewportChangedMin)] = range.start();
-  range_obj[std::string(kViewportChangedMax)] = range.end();
+  range_obj[kViewportChangedMin] = range.start();
+  range_obj[kViewportChangedMax] = range.end();
   EventData detail_obj;
-  detail_obj[std::string(kViewportChangedRange)] = range_obj;
+  detail_obj[kViewportChangedRange] = range_obj;
   event_callback_(kViewportChanged, detail_obj);
 }
 
 void Timeline::EmitMouseModeChanged() {
   if (!event_callback_) return;
   EventData event_data;
-  event_data.try_emplace(std::string(kMouseModeKey),
-                         static_cast<int>(mouse_mode_));
+  event_data.try_emplace(kMouseModeKey, static_cast<int>(mouse_mode_));
   event_callback_(kMouseModeChanged, event_data);
 }
 
@@ -2849,13 +2849,12 @@ void Timeline::HandleEventDeselection() {
         selected_counter_index_ = -1;
 
         EventData event_data;
-        event_data[std::string(kEventSelectedIndex)] = -1;
-        event_data[std::string(kEventSelectedName)] = std::string("");
-        event_data[std::string(kEventSelectedStart)] = 0.0;
-        event_data[std::string(kEventSelectedDuration)] = 0.0;
-        event_data[std::string(kEventSelectedStartFormatted)] = std::string("");
-        event_data[std::string(kEventSelectedDurationFormatted)] =
-            std::string("");
+        event_data.try_emplace(kEventSelectedIndex, -1);
+        event_data.try_emplace(kEventSelectedName, std::string());
+        event_data.try_emplace(kEventSelectedStart, 0.0);
+        event_data.try_emplace(kEventSelectedDuration, 0.0);
+        event_data.try_emplace(kEventSelectedStartFormatted, std::string());
+        event_data.try_emplace(kEventSelectedDurationFormatted, std::string());
 
         event_callback_(kEventSelected, event_data);
       }
@@ -3234,8 +3233,6 @@ void Timeline::SetSearchQuery(absl::string_view query) {
 
 void Timeline::RecomputeSearchResults() {
   const int num_entries = timeline_data_.entry_names.size();
-  search_results_.reserve(num_entries);
-  matching_event_indices_.reserve(num_entries);
   for (int i = 0; i < num_entries; ++i) {
     const std::string& name = timeline_data_.entry_names[i];
     if (absl::StartsWithIgnoreCase(name, search_query_lower_)) {
@@ -3260,10 +3257,8 @@ void Timeline::RecomputeSearchResults() {
   // Sort results horizontally by track hierarchy and start time.
   absl::c_sort(search_results_,
                [](const SearchResult& a, const SearchResult& b) {
-                 if (a.level != b.level) {
-                   return a.level < b.level;
-                 }
-                 return a.start_time < b.start_time;
+                 return std::tie(a.level, a.start_time, a.loaded_index) <
+                        std::tie(b.level, b.start_time, b.loaded_index);
                });
 
   if (redraw_callback_) redraw_callback_();

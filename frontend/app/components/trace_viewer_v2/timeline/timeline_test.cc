@@ -9193,9 +9193,13 @@ TEST_F(MockTimelineImGuiFixture,
   // Verify sorting order: evY (ts=100.0, index 1 in data) then evX (ts=200.0,
   // index 0 in data)
   EXPECT_EQ(timeline_.get_search_results_count(), 2);
+
   timeline_.NavigateToNextSearchResult();
+
   EXPECT_EQ(timeline_.selected_event_index(), 1);  // evY
+
   timeline_.NavigateToNextSearchResult();
+
   EXPECT_EQ(timeline_.selected_event_index(), 0);  // evX
 }
 
@@ -9579,12 +9583,12 @@ TEST_F(MockTimelineImGuiFixture,
 
   TraceEvent meta1{
       .ph = Phase::kMetadata, .pid = 1, .name = std::string(kProcessSortIndex)};
-  meta1.args.try_emplace(std::string(kSortIndex), "10.0");
+  meta1.args.try_emplace(kSortIndex, "10.0");
   search_results.flame_events.push_back(meta1);
 
   TraceEvent meta2{
       .ph = Phase::kMetadata, .pid = 2, .name = std::string(kProcessSortIndex)};
-  meta2.args.try_emplace(std::string(kSortIndex), "10.0");
+  meta2.args.try_emplace(kSortIndex, "10.0");
   search_results.flame_events.push_back(meta2);
 
   TraceEvent evB;
@@ -9787,7 +9791,9 @@ TEST_F(MockTimelineImGuiFixture,
   timeline_.SetSearchResults(search_results);
 
   EXPECT_EQ(timeline_.get_search_results_count(), 1);
+
   timeline_.NavigateToNextSearchResult();
+
   EXPECT_EQ(timeline_.selected_event_index(), 0);
 }
 
@@ -10043,6 +10049,316 @@ TEST_F(MockTimelineImGuiFixture, DrawEventInstantSearchMatchColor) {
   draw_list->PopClipRect();
   ImGui::End();
   ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, SetTimelineDataPopulatesMatchingEventIndices) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"target_event", 100.0, 50.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetSearchQuery("target");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"target_event", 100.0, 50.0, 0, 1, 1, 1001}}));
+
+  ASSERT_EQ(timeline_.get_search_results_count(), 1);
+
+  FlameChartTimelineData data2 = CreateTimelineData({
+      {"target_event", 100.0, 50.0, 0, 1, 1, 1001},
+  });
+  timeline_.SetTimelineData(std::move(data2));
+
+  EXPECT_TRUE(timeline_.get_matching_event_indices_for_test().contains(0));
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       RecomputeSearchResultsSortsSimultaneousEvents) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_simultaneous_A", 100.0, 50.0, 1, 1, 1, 1001},
+      {"ev_simultaneous_B", 100.0, 10.0, 1, 1, 1, 1002},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev_simultaneous");
+
+  ASSERT_EQ(timeline_.get_search_results_count(), 2);
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  EXPECT_EQ(results[0].event_id, 1001);
+  EXPECT_EQ(results[1].event_id, 1002);
+}
+
+TEST_F(MockTimelineImGuiFixture, SetSearchResultsWithPartialTimelineData) {
+  FlameChartTimelineData data;
+  // Keep entry_names empty so RecomputeSearchResults safely skips iteration,
+  // while SetSearchResults exercises the defensive bounds checks.
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(10.0);
+  data.entry_event_ids.push_back(100);
+
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev_partial", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 100);
+  EXPECT_EQ(results[0].level, -1);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsProcessesInstantDeprecatedEvents) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_deprecated", 100.0, 0.0, 0, 1, 1, 100},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ParsedTraceEvents search_results;
+  TraceEvent ev{.ph = Phase::kInstantDeprecated,
+                .event_id = 100,
+                .pid = 1,
+                .tid = 1,
+                .name = "ev_deprecated",
+                .ts = 100.0,
+                .dur = 0.0};
+  search_results.flame_events.push_back(ev);
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(search_results);
+
+  const std::vector<Timeline::SearchResult>& results =
+      timeline_.get_search_results_for_test();
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].event_id, 100);
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       SetSearchResultsPopulatesMatchingEventIndices) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_match", 100.0, 10.0, 0, 1, 1, 100},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev_match", 100.0, 10.0, 0, 1, 1, 100}}));
+
+  EXPECT_TRUE(timeline_.get_matching_event_indices_for_test().contains(0));
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoveredBaseColor) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"instant_event", 100.0, 0.0, 0, 1, 1, 1001},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(102.0f, 102.0f);
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  ASSERT_GE(draw_list->VtxBuffer.Size, 3);
+  EXPECT_EQ(draw_list->VtxBuffer[0].col >> IM_COL32_A_SHIFT, 255);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawEventClickSelectionAndDragThreshold) {
+  timeline_.SetTimelineData(CreateTimelineData({
+      {"ev_click", 100.0, 10.0, 0, 1, 1, 100},
+  }));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowSize(ImVec2(1000, 500));
+  ImGui::Begin(
+      "Timeline viewer", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  ASSERT_NE(window, nullptr);
+  ImDrawList* draw_list = window->DrawList;
+
+  draw_list->VtxBuffer.resize(0);
+  draw_list->CmdBuffer.resize(0);
+  draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(105.0f, 105.0f);
+  io.MouseDown[0] = false;
+  io.MouseReleased[0] = true;
+
+  EventRect rect{
+      .left = 100.0f, .top = 100.0f, .right = 110.0f, .bottom = 110.0f};
+
+  // 1. Simulate a drag exceeding kClickDistanceThresholdSquared originating on
+  // the event rect.
+  timeline_.set_selection_start_pos_for_test(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  EXPECT_EQ(timeline_.selected_event_index(), -1);
+
+  // 2. Simulate a valid click within threshold.
+  timeline_.set_selection_start_pos_for_test(ImVec2(104.0f, 104.0f));
+  timeline_.CallDrawEvent(0, 0, rect, draw_list);
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  draw_list->PopClipRect();
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, NavigateToSearchResultClampsMinDuration) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 100.0, 1.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().duration(), 10.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, NavigateToSearchResultClampsMaxDuration) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"root", 0.0, 10000000.0, 0, 1, 1, 0}}));
+  timeline_.set_data_time_range({0.0, 10000000.0});
+
+  timeline_.SetSearchQuery("event");
+  timeline_.SetSearchResults(
+      CreateSearchResults({{"ev", 0.0, 10000000.0, 0, 1, 1, 999}}));
+  timeline_.NavigateToNextSearchResult();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().duration(), 5000000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, NavigateToPrevSearchResultWithThreeResults) {
+  timeline_.SetTimelineData(
+      CreateTimelineData({{"evA", 100.0, 10.0, 0, 1, 1, 100},
+                          {"evB", 200.0, 10.0, 0, 1, 1, 101},
+                          {"evC", 300.0, 10.0, 0, 1, 1, 102}}));
+  timeline_.set_data_time_range({0.0, 1000.0});
+
+  timeline_.SetSearchQuery("ev");
+  timeline_.SetSearchResults(CreateSearchResults({
+      {"evA", 100.0, 10.0, 0, 1, 1, 100},
+      {"evB", 200.0, 10.0, 0, 1, 1, 101},
+      {"evC", 300.0, 10.0, 0, 1, 1, 102},
+  }));
+
+  timeline_.NavigateToNextSearchResult();
+  ASSERT_EQ(timeline_.get_current_search_result_index(), 0);
+
+  timeline_.NavigateToPrevSearchResult();
+
+  EXPECT_EQ(timeline_.get_current_search_result_index(), 2);
+  EXPECT_EQ(timeline_.selected_event_index(), 2);
+}
+
+TEST(TimelineTest, EmitViewportChangedContainsCorrectRangeAndMinMax) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // 1. Register event callback to capture the detail object emitted for
+  // viewport changes.
+  bool event_emitted = false;
+  EventData received_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kViewportChanged) {
+          event_emitted = true;
+          received_detail = detail;
+        }
+      });
+
+  // 2. Trigger viewport changed event with a known time range.
+  const TimeRange expected_range{100.5, 999.25};
+  timeline.emit_viewport_changed_for_test(expected_range);
+
+  // 3. Verify that the event was emitted and contains the range object.
+  ASSERT_TRUE(event_emitted);
+  ASSERT_TRUE(received_detail.contains(std::string(kViewportChangedRange)));
+
+  const auto range_it =
+      received_detail.find(std::string(kViewportChangedRange));
+  ASSERT_NE(range_it, received_detail.end());
+  const EventData range_obj = std::any_cast<EventData>(range_it->second);
+
+  ASSERT_TRUE(range_obj.contains(std::string(kViewportChangedMin)));
+  ASSERT_TRUE(range_obj.contains(std::string(kViewportChangedMax)));
+
+  const double actual_min = std::any_cast<double>(
+      range_obj.find(std::string(kViewportChangedMin))->second);
+  const double actual_max = std::any_cast<double>(
+      range_obj.find(std::string(kViewportChangedMax))->second);
+
+  EXPECT_DOUBLE_EQ(actual_min, 100.5);
+  EXPECT_DOUBLE_EQ(actual_max, 999.25);
+}
+
+TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  // 1. Set up data range and initial visible time range before zooming.
+  timeline.set_data_time_range({0.0, 20000.0});
+  timeline.SetVisibleRange({100.0, 300.0});
+
+  bool event_emitted = false;
+  EventData received_detail;
+  timeline.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kViewportChanged) {
+          event_emitted = true;
+          received_detail = detail;
+        }
+      });
+
+  // 2. Perform zoom-out operation on real Timeline instance with factor 2.0
+  // around pivot at 200.0 microseconds, expanding the duration from 200.0 to
+  // 400.0 centered around 200.0.
+  timeline.zoom_for_test(2.0f, 200.0);
+
+  // 3. Verify that real zooming triggered kViewportChanged and correctly
+  // updated min and max boundaries.
+  ASSERT_TRUE(event_emitted);
+  ASSERT_TRUE(received_detail.contains(std::string(kViewportChangedRange)));
+
+  const auto range_it =
+      received_detail.find(std::string(kViewportChangedRange));
+  ASSERT_NE(range_it, received_detail.end());
+  const EventData range_obj = std::any_cast<EventData>(range_it->second);
+
+  ASSERT_TRUE(range_obj.contains(std::string(kViewportChangedMin)));
+  ASSERT_TRUE(range_obj.contains(std::string(kViewportChangedMax)));
+
+  const double actual_min = std::any_cast<double>(
+      range_obj.find(std::string(kViewportChangedMin))->second);
+  const double actual_max = std::any_cast<double>(
+      range_obj.find(std::string(kViewportChangedMax))->second);
+
+  EXPECT_DOUBLE_EQ(actual_min, 0.0);
+  EXPECT_DOUBLE_EQ(actual_max, 400.0);
 }
 
 }  // namespace

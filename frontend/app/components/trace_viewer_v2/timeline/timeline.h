@@ -180,6 +180,21 @@ class Timeline {
   std::optional<EventId> get_pending_navigation_event_id_for_test() const {
     return pending_navigation_event_id_;
   }
+  const absl::flat_hash_set<int>& get_matching_event_indices_for_test() const {
+    return matching_event_indices_;
+  }
+  void set_selection_start_pos_for_test(std::optional<ImVec2> pos) {
+    selection_start_pos_ = pos;
+  }
+  void set_current_timeline_width_for_test(Pixel width) {
+    current_timeline_width_ = width;
+  }
+  void emit_viewport_changed_for_test(const TimeRange& range) {
+    EmitViewportChanged(range);
+  }
+  void zoom_for_test(float zoom_factor, Microseconds pivot) {
+    Zoom(zoom_factor, pivot);
+  }
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -447,6 +462,8 @@ class Timeline {
                  ImDrawList* absl_nonnull draw_list);
 
  private:
+  absl::flat_hash_set<int> matching_event_indices_;
+
   void NavigateToSearchResult(const SearchResult& result);
 
   // Applies snapping to selected time ranges for the given range.
@@ -686,7 +703,6 @@ class Timeline {
 
   std::string search_query_lower_;
   std::vector<SearchResult> search_results_;
-  absl::flat_hash_set<int> matching_event_indices_;
   int current_search_result_index_ = -1;
   std::optional<EventId> pending_navigation_event_id_;
 

@@ -26,7 +26,6 @@ from xprof.cli.tools import get_smart_suggestions_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools.oss import upload_trace_tool
-from xprof.cli.tools.oss import xprof_profile_tool
 
 
 def cli_main() -> dict[str, Any]:
@@ -41,11 +40,11 @@ def cli_main() -> dict[str, Any]:
       "detect_layout_mismatch_copies": (
           detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies
       ),
-      "detect_unnecessary_convert_reduce": (
-          detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce
-      ),
       "detect_unfused_reshapes": (
           detect_unfused_reshapes_tool.detect_unfused_reshapes
+      ),
+      "detect_unnecessary_convert_reduce": (
+          detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce
       ),
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,
@@ -60,8 +59,6 @@ def cli_main() -> dict[str, Any]:
           get_utilization_viewer_tool.get_utilization_viewer
       ),
       "upload_trace": upload_trace_tool.upload_trace,
-      "xprof_profile": xprof_profile_tool.xprof_profile,
-      "collect_profile": xprof_profile_tool.xprof_profile,
       # keep-sorted end
       # Tools to be migrated or consolidated to the above standard list.
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,

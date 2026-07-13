@@ -35,13 +35,18 @@
   <div [ngClass]="{'mat-subheading-2': true, 'disabled': !hosts.length}">
     Hosts ({{hosts.length}})
   </div>
-  <mat-form-field class="full-width" appearance="outline">
-    <mat-select #singleSelectHost="matSelect" panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
-      <mat-option *ngFor="let host of hosts" [value]="host">
-        {{host}}
-      </mat-option>
-    </mat-select>
-  </mat-form-field>
+  <div style="display: flex; align-items: baseline;">
+    <mat-form-field class="full-width" appearance="outline">
+      <mat-select #singleSelectHost="matSelect" panelClass="panel-override" [value]="selectedHost" [disabled]="!hosts.length" (selectionChange)="onHostSelectionChange($event.value)">
+        <mat-option *ngFor="let host of hosts" [value]="host">
+          {{host}}
+        </mat-option>
+      </mat-select>
+    </mat-form-field>
+    <button mat-icon-button title="Download XPlane profile" *ngIf="hosts.length && !is_hlo_tool" (click)="downloadXplane()">
+      <mat-icon>file_download</mat-icon>
+    </button>
+  </div>
 </div>
 
 <div class="item-container" *ngIf="isMultiHostsEnabled">

@@ -18,9 +18,11 @@ xprof_ng_module(
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@types/google.visualization",
+        "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
     ],
 )
 

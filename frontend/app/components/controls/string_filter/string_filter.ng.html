@@ -5,5 +5,20 @@
     [value]="value"
     (input)="value = $event.target.value; updateFilter()"
   />
-  <mat-icon matSuffix>search</mat-icon>
+  <div matSuffix style="display: flex; align-items: center;" *ngIf="matchToggle; else plainSearch">
+    <button
+      mat-icon-button
+      (click)="toggleExactMatch()"
+      [matTooltip]="exactMatch ? 'Switch from Exact Match to Contains' : 'Switch from Contains to Exact Match'"
+      [attr.aria-label]="exactMatch ? 'Switch from Exact Match to Contains' : 'Switch from Contains to Exact Match'"
+      style="padding: 0; width: 24px; height: 24px; line-height: 24px; margin-right: 4px;"
+      [style.background-color]="exactMatch ? 'rgba(0, 0, 0, 0.12)' : 'transparent'"
+    >
+      =
+    </button>
+    <mat-icon matSuffix>search</mat-icon>
+  </div>
+  <ng-template #plainSearch>
+    <mat-icon matSuffix>search</mat-icon>
+  </ng-template>
 </mat-form-field>

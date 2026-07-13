@@ -89,7 +89,7 @@
       all="All" (changed)="updateFilters($event)">
     </string-filter>
     <string-filter [dataTable]="dataTable" column="hlo_op_name"
-      [value]="hloOpNameSelected" [exactMatch]="true"
+      [value]="hloOpNameSelected" [exactMatch]="true" [matchToggle]="true"
       all="All" (changed)="updateFilters($event)">
     </string-filter>
     <string-filter [dataTable]="dataTable" column="hlo_op_expression"

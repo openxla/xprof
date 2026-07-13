@@ -1,4 +1,12 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+} from '@angular/core';
 
 /**
  * A string filter component.
@@ -6,22 +14,29 @@ import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, Change
  * If the value is empty, selects all the rows.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'string-filter',
   templateUrl: './string_filter.ng.html',
   styleUrls: ['./string_filter.scss'],
 })
 export class StringFilter implements OnChanges {
   @Input() dataTable?: google.visualization.DataTable;
-  @Input() column: number|string = -1;
+  @Input() column: number | string = -1;
   @Input() value = '';
   @Input() exactMatch = false;
+  @Input() matchToggle = false;
 
   columnIndex = -1;
   columnLabel = '';
 
   @Output()
   changed = new EventEmitter<google.visualization.DataTableCellFilter>();
+
+  toggleExactMatch() {
+    this.exactMatch = !this.exactMatch;
+    this.updateFilter();
+  }
 
   ngOnChanges(changes: SimpleChanges) {
     this.processData();
@@ -45,15 +60,16 @@ export class StringFilter implements OnChanges {
       return;
     }
 
-    const filter:
-        google.visualization.DataTableCellFilter = {column: this.columnIndex};
+    const filter: google.visualization.DataTableCellFilter = {
+      column: this.columnIndex,
+    };
     if (this.value) {
       if (this.exactMatch) {
         filter.test = (value: string) =>
-            value.toLowerCase().trim() === this.value.toLowerCase().trim();
+          value.toLowerCase().trim() === this.value.toLowerCase().trim();
       } else {
         filter.test = (value: string) =>
-            value.toLowerCase().indexOf(this.value.toLowerCase()) !== -1;
+          value.toLowerCase().indexOf(this.value.toLowerCase()) !== -1;
       }
     }
 

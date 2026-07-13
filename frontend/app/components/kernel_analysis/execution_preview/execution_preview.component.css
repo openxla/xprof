@@ -1,0 +1,108 @@
+:host {
+  display: block;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+}
+
+.section-title {
+  color: var(--mat-sys-on-surface);
+  margin: 0 0 var(--spacing-6) 0;
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: row;
+  gap: var(--spacing-10);
+  margin-bottom: var(--spacing-8);
+}
+
+.info-block {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--spacing-2);
+}
+
+.info-label {
+  color: var(--mat-sys-on-surface);
+}
+
+.info-value {
+  color: var(--mat-sys-on-surface);
+}
+.code-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.subsection-title {
+  color: var(--mat-sys-on-surface);
+  margin: 0;
+}
+
+.code-output-container {
+  background-color: var(--mat-sys-inverse-surface);
+  border-radius: var(--spacing-2);
+  overflow: hidden;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-3) var(--spacing-4);
+  /* Use a semi-transparent border to look good on the inverse surface */
+  border-bottom: 1px solid color-mix(in srgb, var(--mat-sys-inverse-on-surface) 12%, transparent);
+}
+
+.code-label {
+  color: var(--mat-sys-inverse-on-surface);
+  opacity: 0.7; /* Dim it slightly for visual hierarchy against the value */
+  text-transform: uppercase;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  color: var(--mat-sys-inverse-primary);
+  cursor: pointer;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--spacing-1);
+  transition: background-color 0.2s;
+}
+
+.copy-btn:hover {
+  /* Typical state layer opacity for dark backgrounds */
+  background-color: color-mix(in srgb, var(--mat-sys-inverse-on-surface) 8%, transparent);
+}
+
+.code-block {
+  padding: var(--spacing-4);
+  margin: 0;
+  color: var(--mat-sys-inverse-on-surface);
+  font-family: 'Roboto Mono', monospace;
+  overflow-x: auto;
+}
+
+
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.copy-btn.copied {
+  color: var(--mat-sys-primary);
+  background: var(--mat-sys-primary-container);
+  border-color: var(--mat-sys-primary);
+}
+
+.has-tooltip {
+  border-bottom: 1px dashed var(--mat-sys-outline-variant);
+  cursor: help;
+}

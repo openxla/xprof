@@ -75,6 +75,14 @@ ts_library(
 )
 
 ts_library(
+    name = "angular_material_button_toggle",
+    srcs = [],
+    deps = [
+        "@npm//@angular/material",
+    ],
+)
+
+ts_library(
     name = "angular_material_divider",
     srcs = [],
     deps = [
@@ -156,6 +164,14 @@ ts_library(
 
 ts_library(
     name = "angular_material_slider",
+    srcs = [],
+    deps = [
+        "@npm//@angular/material",
+    ],
+)
+
+ts_library(
+    name = "angular_material_stepper",
     srcs = [],
     deps = [
         "@npm//@angular/material",

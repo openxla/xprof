@@ -1,0 +1,18 @@
+@import 'frontend/app/styles/common';
+
+mat-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+div {
+  margin-top: 10px;
+}
+
+.mat-mdc-raised-button {
+  @include box-shadow-none;
+  @include border-black;
+}

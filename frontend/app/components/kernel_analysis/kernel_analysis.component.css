@@ -1,0 +1,62 @@
+app-kernel-analysis,
+.counter-selection-container,
+.info-callout-menu.mat-mdc-menu-panel {
+  --sys-spacing-multiplier: 1;
+  --sys-spacing-base: calc(4px * var(--sys-spacing-multiplier));
+  --spacing-1: calc(var(--sys-spacing-base) * 1);
+  --spacing-2: calc(var(--sys-spacing-base) * 2);
+  --spacing-3: calc(var(--sys-spacing-base) * 3);
+  --spacing-4: calc(var(--sys-spacing-base) * 4);
+  --spacing-5: calc(var(--sys-spacing-base) * 5);
+  --spacing-6: calc(var(--sys-spacing-base) * 6);
+  --spacing-8: calc(var(--sys-spacing-base) * 8);
+  --spacing-10: calc(var(--sys-spacing-base) * 10);
+  --spacing-12: calc(var(--sys-spacing-base) * 12);
+}
+
+app-kernel-analysis .kernel-analysis-container {
+  display: flex;
+  flex-direction: column;
+}
+
+app-kernel-analysis .stepper-actions {
+  display: flex;
+  gap: var(--spacing-4);
+  margin-top: var(--spacing-6);
+  justify-content: flex-end;
+}
+
+app-kernel-analysis .stepper-actions [matStepperPrevious] {
+  margin-right: auto;
+}
+
+/*
+  Provide standard overrides to prevent label truncation,
+  without breaking the default Material flex layout (vertical centering, etc).
+*/
+app-kernel-analysis .kernel-analysis-container .mat-step-header .mat-step-text-label.mat-step-text-label {
+  white-space: normal;
+  text-align: left;
+  padding-right: var(--spacing-2);
+}
+
+/* Spacing under the stepper */
+app-kernel-analysis .mat-horizontal-stepper-header-container {
+  margin-bottom: var(--spacing-4);
+}
+
+/* Make the gray fill smaller and rounder when selected */
+app-kernel-analysis .kernel-analysis-container .mat-step-header.mat-step-header {
+  border-radius: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-4);
+  margin: 0 var(--spacing-2);
+}
+
+/* Adjust the internal container sizes and padding within the step */
+app-kernel-analysis .kernel-analysis-container .mat-step-header .mat-step-label-container.mat-step-label-container {
+  margin: 0;
+}
+
+app-kernel-analysis .kernel-analysis-container .mat-step-header.mat-step-header[aria-selected="true"] {
+  background-color: var(--mat-sys-surface-container);
+}

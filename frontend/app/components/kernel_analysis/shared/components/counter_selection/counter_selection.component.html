@@ -1,0 +1,65 @@
+<div class="counter-selection-container" [class.compact]="density === 'compact'">
+  <div class="main-layout">
+    <div class="scrollable-content selection-pane">
+      <div class="search-header">
+        <form>
+          <mat-form-field appearance="outline" class="search-field no-outline" subscriptSizing="dynamic">
+            <input matInput [(ngModel)]="searchText" name="searchText" placeholder="Search counters" aria-label="Search counters">
+            <mat-icon matPrefix aria-hidden="true">search</mat-icon>
+          </mat-form-field>
+        </form>
+      </div>
+      <div *ngIf="filteredGroups.length === 0" class="no-results md-typescale-body-medium">No counters found matching "{{searchText}}"</div>
+      <mat-accordion multi="true">
+        <mat-expansion-panel *ngFor="let group of filteredGroups" [expanded]="group.expandByDefault">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              <mat-checkbox
+                [checked]="isAllSelected(group)"
+                [indeterminate]="isSomeSelected(group)"
+                (click)="$event.stopPropagation()"
+                (change)="toggleGroupSelection(group)"
+                [attr.aria-label]="'Select all counters in ' + group.name">
+              </mat-checkbox>
+              <span class="group-name md-typescale-label-medium">{{group.name}}</span>
+            </mat-panel-title>
+          </mat-expansion-panel-header>
+
+          <div class="counters-grid" [class.list-layout]="layout === 'list'" [class.column-layout]="layout === 'columns'">
+            <div *ngFor="let counter of group.counters" class="counter-item">
+              <mat-checkbox
+                [checked]="isSelected(counter.id)"
+                (change)="toggleSelection(counter.id)">
+                <div class="counter-label-container">
+                  <span class="counter-label md-typescale-body-medium" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
+                </div>
+              </mat-checkbox>
+            </div>
+          </div>
+        </mat-expansion-panel>
+      </mat-accordion>
+    </div>
+
+    <div class="selected-pane">
+      <div class="selected-header">
+        <span class="md-typescale-label-large">Selected Counters ({{selectedCounters.length}})</span>
+        <button type="button" mat-button color="primary" (click)="clearAll()" [disabled]="selectedCounters.length === 0">Clear all</button>
+      </div>
+      <div class="selected-list-container">
+        <div *ngIf="selectedCounters.length === 0" class="no-selections md-typescale-body-medium">No counters selected</div>
+        <mat-list>
+          <mat-list-item *ngFor="let counter of selectedCounters">
+            <span matListItemTitle class="md-typescale-body-small" [matTooltip]="counter.description" matTooltipShowDelay="500">{{counter.label}}</span>
+            <button type="button" mat-icon-button matListItemMeta (click)="toggleSelection(counter.id)" [attr.aria-label]="'Remove ' + counter.label">
+              <mat-icon aria-hidden="true">close</mat-icon>
+            </button>
+          </mat-list-item>
+        </mat-list>
+      </div>
+      <div class="actions-footer">
+        <button type="button" mat-button (click)="onCancel()">Cancel</button>
+        <button type="button" mat-flat-button color="primary" (click)="onApply()">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,17 @@
+<div class="section">
+  <div class="code-section">
+     <div class="code-output-container">
+        <div class="code-header">
+           <span class="code-label md-typescale-label-medium">Generated scripts</span>
+           <button type="button" class="copy-btn md-typescale-label-large" [class.copied]="copyState === 'Copied!'" (click)="copyCommand()">
+             <mat-icon *ngIf="copyState === 'Copied!'; else noCopy" style="font-size: var(--spacing-4); width: var(--spacing-4); height: var(--spacing-4); margin-right: var(--spacing-2);" aria-hidden="true">check</mat-icon>
+             <ng-template #noCopy>
+               <mat-icon style="font-size: var(--spacing-4); width: var(--spacing-4); height: var(--spacing-4); margin-right: var(--spacing-2);" aria-hidden="true">content_copy</mat-icon>
+             </ng-template>
+             {{ copyState }}
+           </button>
+        </div>
+        <div class="code-block md-typescale-body-small" style="white-space: pre-wrap; word-break: break-all;">{{ generatedCommand || 'No command generated yet' }}</div>
+     </div>
+  </div>
+</div>

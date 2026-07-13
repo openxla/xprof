@@ -1,0 +1,115 @@
+.section {
+  margin-bottom: 0;
+  padding-bottom: var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.section-title {
+  color: var(--mat-sys-primary);
+  margin: 0;
+}
+
+.component-selection button.in-use:not(.is-selected) {
+  color: green;
+}
+
+.objective-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+/* Make the radio button align nicely with the 2-line text */
+.objective-radio-item {
+  display: flex;
+  align-items: flex-start; /* Align radio circle to top */
+  padding: var(--spacing-2) 0;
+}
+
+/* Material component overrides for this specific alignment */
+::ng-deep .objective-radio-item .mdc-form-field.mdc-form-field {
+  align-items: flex-start;
+}
+::ng-deep .objective-radio-item .mdc-radio.mdc-radio {
+  margin-top: -2px; /* slight adjust to align with first line of text */
+}
+
+.objective-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.objective-title {
+  color: var(--mat-sys-on-surface);
+}
+
+.objective-desc {
+  color: var(--mat-sys-on-surface-variant);
+  white-space: normal; /* Allow the description to wrap */
+}
+
+.objective-payload-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: var(--mat-sys-surface-container);
+  border-radius: var(--spacing-2);
+}
+
+.summary-text {
+  color: var(--mat-sys-on-surface);
+}
+
+/* Custom Ingestion Panel Styles */
+.objective-payload-summary.custom-panel {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.custom-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.custom-panel-divider {
+  width: calc(100% + var(--spacing-8)); /* Full width of parent including padding */
+  margin-left: calc(var(--spacing-4) * -1); /* Pull left to negate padding */
+  border-top: 1px solid var(--mat-sys-outline-variant);
+  margin-top: var(--spacing-4);
+}
+
+.external-import-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4);
+}
+
+.import-section-title {
+  color: var(--mat-sys-on-surface-variant);
+  margin-bottom: var(--spacing-2);
+}
+
+.upload-alternative {
+  display: flex;
+  align-items: center;
+}
+
+.custom-status-row .summary-text {
+  flex: 1;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.file-name {
+  margin-left: var(--spacing-3);
+  color: var(--mat-sys-on-surface-variant);
+}

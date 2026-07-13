@@ -1,0 +1,32 @@
+<div class="kernel-analysis-container">
+  <form [formGroup]="kernelForm">
+    <mat-stepper [linear]="false" #stepper>
+      <mat-step>
+        <ng-template matStepLabel>Profiler<br>Options</ng-template>
+        <app-profiler-options [formGroup]="kernelForm"></app-profiler-options>
+        <div class="stepper-actions">
+          <button mat-flat-button color="primary" matStepperNext>Next</button>
+        </div>
+      </mat-step>
+
+      <mat-step>
+        <ng-template matStepLabel>Execution<br>Preview</ng-template>
+        <app-execution-preview
+            [estimatedPasses]="kernelPasses"
+            [path]="formValue['path']"
+            (pathChange)="kernelForm.get('path')?.setValue($event)"
+            [deviceName]="formValue['device_name']"
+            [tcSampling]="formValue['tc_sampling']"
+            [scsSampling]="formValue['scs_sampling']"
+            [sctcSampling]="formValue['sctc_sampling']"
+            [sctdSampling]="formValue['sctd_sampling']"
+            [cmnSampling]="formValue['cmn_sampling']"
+            [icrSampling]="formValue['icr_sampling']">
+        </app-execution-preview>
+        <div class="stepper-actions">
+          <button mat-button matStepperPrevious>Back</button>
+        </div>
+      </mat-step>
+    </mat-stepper>
+  </form>
+</div>

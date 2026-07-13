@@ -1,0 +1,99 @@
+<div *ngIf="formGroup" [formGroup]="formGroup" class="section">
+  <!-- Device type -->
+  <div class="field-container" style="margin-bottom: var(--spacing-2);">
+    <mat-form-field appearance="outline" class="full-width" style="width: 100%;">
+      <mat-label>Device type</mat-label>
+      <mat-select formControlName="device_name">
+        <mat-option *ngFor="let gen of tpuGenerations" [value]="gen">{{ gen.name }}</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <!-- Component Selection -->
+  <div class="component-selection" style="display: flex; gap: var(--spacing-2); flex-wrap: wrap;">
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'tc' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('tc_sampling')" [class.is-selected]="selectedComponent === 'tc'" (click)="selectedComponent = 'tc'">TC</button>
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'scs' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('scs_sampling')" [class.is-selected]="selectedComponent === 'scs'" (click)="selectedComponent = 'scs'">SCS</button>
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'sctc' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('sctc_sampling')" [class.is-selected]="selectedComponent === 'sctc'" (click)="selectedComponent = 'sctc'">SCTC</button>
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'sctd' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('sctd_sampling')" [class.is-selected]="selectedComponent === 'sctd'" (click)="selectedComponent = 'sctd'">SCTD</button>
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'cmn' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('cmn_sampling')" [class.is-selected]="selectedComponent === 'cmn'" (click)="selectedComponent = 'cmn'">CMN</button>
+    <button type="button" mat-stroked-button [color]="selectedComponent === 'icr' ? 'primary' : 'basic'" [class.in-use]="isComponentInUse('icr_sampling')" [class.is-selected]="selectedComponent === 'icr'" (click)="selectedComponent = 'icr'">ICR</button>
+  </div>
+
+  <mat-divider style="margin: 0 0 var(--spacing-4);"></mat-divider>
+
+  <!-- Settings for Selected Component -->
+  <!-- We use *ngIf blocks to safely bind to the correct FormGroup for each component -->
+
+  <div *ngIf="selectedComponent === 'tc'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'tc_sampling'}"></ng-container>
+  </div>
+  <div *ngIf="selectedComponent === 'scs'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'scs_sampling'}"></ng-container>
+  </div>
+  <div *ngIf="selectedComponent === 'sctc'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'sctc_sampling'}"></ng-container>
+  </div>
+  <div *ngIf="selectedComponent === 'sctd'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'sctd_sampling'}"></ng-container>
+  </div>
+  <div *ngIf="selectedComponent === 'cmn'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'cmn_sampling'}"></ng-container>
+  </div>
+  <div *ngIf="selectedComponent === 'icr'" class="sampling-settings">
+    <ng-container *ngTemplateOutlet="samplingFields; context: {groupName: 'icr_sampling'}"></ng-container>
+  </div>
+
+  <!-- Template for reusable sampling fields -->
+  <ng-template #samplingFields let-groupName="groupName">
+    <div [formGroup]="$any(formGroup.get(groupName))">
+      <div class="settings-grid" style="display: flex; flex-direction: column; gap: var(--spacing-4);">
+        <!-- Interval / Trigger -->
+        <div class="field-container row" style="display: flex; align-items: center; gap: var(--spacing-2);">
+          <mat-form-field appearance="outline" style="flex: 1;">
+            <mat-label>Interval (us)</mat-label>
+            <input matInput type="number" formControlName="interval_us">
+          </mat-form-field>
+          <mat-checkbox formControlName="is_external_trigger">Use external trigger</mat-checkbox>
+        </div>
+
+        <!-- Scaling -->
+        <div class="field-container">
+          <mat-form-field appearance="outline" class="full-width" style="width: 100%;">
+            <mat-label>Scaling</mat-label>
+            <input matInput type="number" formControlName="scaling" min="0" max="63">
+            <mat-hint>Amount to right shift 64-bit counter values</mat-hint>
+            <mat-error *ngIf="$any(formGroup.get(groupName + '.scaling'))?.hasError('min') || $any(formGroup.get(groupName + '.scaling'))?.hasError('max')">
+              Must be between 0 and 63
+            </mat-error>
+          </mat-form-field>
+        </div>
+
+        <!-- Counter Size Bits -->
+        <div class="field-container">
+          <mat-form-field appearance="outline" class="full-width" style="width: 100%;">
+            <mat-label>Counter Size Bits</mat-label>
+            <mat-select formControlName="counter_size_bits">
+              <mat-option [value]="0">8 bits (0)</mat-option>
+              <mat-option [value]="1">16 bits (1)</mat-option>
+              <mat-option [value]="2">32 bits (2)</mat-option>
+              <mat-option [value]="3">64 bits (3)</mat-option>
+            </mat-select>
+          </mat-form-field>
+        </div>
+
+        <!-- Indices -->
+        <div class="field-container">
+          <span class="label-text md-typescale-label-large" style="display: block; margin-bottom: var(--spacing-2);">Indices / Counters</span>
+          <div class="objective-payload-summary">
+            <span class="summary-text md-typescale-body-medium">
+              <strong>{{ getSelectedCountersCount(groupName) }}</strong> counters selected
+            </span>
+            <button type="button" mat-stroked-button color="primary" (click)="openCustomizeDialog(groupName)">
+              <mat-icon aria-hidden="true">tune</mat-icon> Customize
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ng-template>
+</div>

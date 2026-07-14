@@ -1842,6 +1842,44 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
   EXPECT_TRUE(timeline.timeline_data().groups[1].expanded);
 }
 
+TEST(TimelineTest, SetAllProcessesExpanded) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  FlameChartTimelineData data;
+  data.groups.push_back({.name = "Process 1",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = false});
+  data.groups.push_back({.name = "Thread 1",
+                         .start_level = 1,
+                         .nesting_level = 1,
+                         .expanded = false});
+  data.groups.push_back({.name = "Process 2",
+                         .start_level = 2,
+                         .nesting_level = 0,
+                         .expanded = true});
+  data.groups.push_back({.name = "Counter 1",
+                         .start_level = 3,
+                         .nesting_level = 1,
+                         .expanded = true});
+
+  timeline.SetTimelineData(std::move(data));
+
+  timeline.SetAllProcessesExpanded(true);
+  // Both processes (level 0) and threads (level 1) should be expanded
+  EXPECT_TRUE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline.timeline_data().groups[2].expanded);
+  // Counter is also level 1, so it gets set to true (it is already true)
+  EXPECT_TRUE(timeline.timeline_data().groups[3].expanded);
+
+  timeline.SetAllProcessesExpanded(false);
+  EXPECT_FALSE(timeline.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[2].expanded);
+  EXPECT_FALSE(timeline.timeline_data().groups[3].expanded);
+}
+
 TEST(TimelineTest, RevealEventInvalidIndex) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

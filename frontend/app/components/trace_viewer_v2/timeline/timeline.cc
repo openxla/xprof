@@ -411,6 +411,19 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
   if (redraw_callback_) redraw_callback_();
 }
 
+void Timeline::SetAllProcessesExpanded(bool expand) {
+  for (auto& group : timeline_data_.groups) {
+    if (group.nesting_level == kProcessNestingLevel ||
+        group.nesting_level == kThreadNestingLevel) {
+      group.expanded = expand;
+    }
+  }
+  UpdateLevelPositions(timeline_data_);
+  if (redraw_callback_) {
+    redraw_callback_();
+  }
+}
+
 void Timeline::Draw() {
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
@@ -458,6 +471,42 @@ void Timeline::Draw() {
 
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
+
+  // Draw Expand / Collapse All Button above the top process label and to
+  // the left of the timeline ruler.
+  bool all_processes_expanded = true;
+  int process_count = 0;
+  for (const auto& group : timeline_data_.groups) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      process_count++;
+      if (!group.expanded) {
+        all_processes_expanded = false;
+      }
+    }
+  }
+
+  const char* button_label =
+      (process_count > 0 && all_processes_expanded) ? "Collapse All"
+                                                    : "Expand All";
+
+  ImGui::PushFont(traceviewer::fonts::label_small);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 0.0f));
+
+  const float button_width = ImGui::CalcTextSize(button_label).x +
+                             ImGui::GetStyle().FramePadding.x * 2.0f;
+  const float x_pos = ruler_start_pos.x + label_width_ - kSplitterOffset -
+                      button_width - 8.0f;
+
+  ImGui::SetCursorPos(ImVec2(x_pos, ruler_start_pos.y + 1.0f));
+
+  if (ImGui::Button(button_label, ImVec2(button_width, kRulerHeight - 2.0f))) {
+    const bool target_expanded =
+        (absl::string_view(button_label) == "Expand All");
+    SetAllProcessesExpanded(target_expanded);
+  }
+
+  ImGui::PopStyleVar();
+  ImGui::PopFont();
 
   // Now move the cursor below the Ruler to start the Tracks child
   ImGui::SetCursorPos(

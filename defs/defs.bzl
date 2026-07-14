@@ -14,70 +14,71 @@
 
 """External-only delegates for various frontend BUILD rules."""
 
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("@npm//@bazel/concatjs:index.bzl", _concatjs_ts_library = "ts_library")
 
-def _convert_paths_to_absolute_impl(ctx):
-  """Implementation of convert_paths_to_absolute.
+def ts_library(name, srcs, assets = [], allow_warnings = None, **kwargs):
+    """Wrapper for ts_library in external BUILD rules"""
+    angular_deps = [
+        "@npm//@angular/animations",
+        "@npm//@angular/cdk",
+        "@npm//@angular/common",
+        "@npm//@angular/compiler",
+        "@npm//@angular/core",
+        "@npm//@angular/forms",
+        "@npm//@angular/localize",
+        "@npm//@angular/material",
+        "@npm//@angular/platform-browser",
+        "@npm//@angular/platform-browser-dynamic",
+        "@npm//@angular/router",
+        "@npm//@types/chai",
+        "@npm//@types/emscripten",
+        "@npm//@types/google.visualization",
+        "@npm//@types/jasmine",
+        "@npm//@types/node",
+        "@npm//@types/sinon",
+        "@npm//@webgpu/types",
+        "@npm//rxjs",
+        "@npm//safevalues",
+        "@npm//tslib",
+    ]
+    if "deps" not in kwargs:
+      kwargs["deps"] = []
+    for dep in angular_deps:
+      if dep not in kwargs["deps"]:
+        kwargs["deps"].append(dep)
 
-  Used on TypeScript source files to convert their relative import paths
-  to absolute import paths.
-  """
-  outputs = []
-  for src in ctx.files.srcs:
-    out_file = ctx.actions.declare_file(src.basename)
-    outputs.append(out_file)
+    if "tsconfig" not in kwargs:
+      kwargs["tsconfig"] = "//:tsconfig.json"
 
-    ctx.actions.run_shell(
-      inputs = [src],
-      outputs = [out_file],
-      command = """sed "s;from './;from 'org_xprof/%s/;g" '%s' > '%s'""" % (src.dirname, src.path, out_file.path)
+    use_angular_plugin = kwargs.pop("use_angular_plugin", False)
+
+    _concatjs_ts_library(
+        name = name,
+        supports_workers = True,
+        prodmode_target = "es2020",
+        devmode_target = "es2020",
+        devmode_module = "esnext",
+        use_angular_plugin = use_angular_plugin,
+        angular_assets = assets,
+        srcs = srcs,
+        **kwargs
     )
 
-  return [DefaultInfo(
-      files = depset(
-          outputs,
-      ),
-  )]
-
-convert_paths_to_absolute = rule(
-    implementation = _convert_paths_to_absolute_impl,
-    attrs = {
-        "srcs": attr.label_list(
-          doc = "Convert relative import paths to absolute for TypeScript source files.",
-          allow_files = [".ts", ".tsx"],
-          mandatory = True,
-        ),
-    },
-)
+def ts_declaration(name, srcs = [], **kwargs):
+    """Wrapper for ts_declaration in external BUILD rules"""
+    ts_library(
+        name = name,
+        srcs = srcs,
+        **kwargs
+    )
 
 def xprof_ng_module(name, srcs, assets = [], allow_warnings = None, **kwargs):
     """Wrapper for Angular modules for the external BUILD rules"""
-
-    # A hack for ngcc (Angular Ivy) compiler with rules_nodejs's
-    # ts_library rule which does not resolve Modules properly
-    # if their paths are relative. So we convert all our Module
-    # import paths from relative to absolute paths.
-    converted_srcs_name = "%s_converted_srcs" % name
-    convert_paths_to_absolute(
-      name = converted_srcs_name,
-      srcs = srcs
-    )
-    srcs = [":%s" % (converted_srcs_name)]
-
-    # A hack to include @angular/common, @angular/core since the ng_module
-    # macro in google3 automatically adds this dep.
-    # See: //javascript/angular2/ng_module.bzl
-    if "@npm//@angular/common" not in kwargs['deps']:
-      kwargs['deps'] += ["@npm//@angular/common"]
-    if "@npm//@angular/core" not in kwargs['deps']:
-      kwargs['deps'] += ["@npm//@angular/core"]
-
     ts_library(
         name = name,
-        compiler = "//defs:tsc_wrapped_with_angular",
-        supports_workers = True,
-        use_angular_plugin = True,
-        angular_assets = assets,
+        assets = assets,
         srcs = srcs,
+        allow_warnings = allow_warnings,
+        use_angular_plugin = False,
         **kwargs
     )

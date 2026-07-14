@@ -7977,7 +7977,7 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   io.MousePos = ImVec2(100.0f, 30.0f);
   SimulateFrame();
 
-  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {

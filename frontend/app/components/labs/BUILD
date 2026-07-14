@@ -16,7 +16,6 @@ xprof_ng_module(
         "labs.ng.html",
     ],
     deps = [
-        "//third_party/javascript/safevalues/dom",
         "@npm//@angular/common",
         "@npm//@angular/core",
         "@npm//@angular/core_rxjs_interop",
@@ -56,7 +55,6 @@ xprof_ng_module(
         ":labs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
-        "//third_party/javascript/safevalues/dom",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/core",
         "@npm//@angular/core_testing",

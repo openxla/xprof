@@ -18,4 +18,5 @@ export declare interface NavigationEvent {
   memorySpaceColor?: string;
   // Navigation controlling params
   firstLoad?: boolean;
+  base_session_id?: string;
 }

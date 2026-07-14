@@ -86,7 +86,6 @@ xprof_ng_module(
         "@npm//@angular/router",
         "@npm//rxjs",
         "@npm//safevalues",
-        "//third_party/javascript/safevalues/dom",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/constants:testing",
         "@org_xprof//frontend/app/common/interfaces",

@@ -1,6 +1,9 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
-package(default_visibility = ["//plugin:__subpackages__"])
+package(default_visibility = [
+    "//plugin:__subpackages__",
+    "@org_xprof//plugin:__subpackages__",
+])
 
 pytype_strict_library(
     name = "xprof_cli_lib",

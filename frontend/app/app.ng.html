@@ -1,17 +1,11 @@
-<div *ngIf="!loading; else progress_bar">
-  <div *ngIf="dataFound; else emptypage">
-    <main-page></main-page>
-  </div>
-</div>
-
-<ng-template #emptypage>
-  <empty-page></empty-page>
-</ng-template>
-
-<ng-template #progress_bar>
-  <div class="progress-container" *ngIf="loading">
+@if (loading) {
+  <div class="progress-container">
     <div class="loading-message">Initializing runs and tools...</div>
     <!-- TODO(go/progressbar-aria): Replace the aria-label with a better description, e.g. "Fetching user data" -->
     <mat-progress-bar color="primary" mode="indeterminate" aria-label="Loading"></mat-progress-bar>
   </div>
-</ng-template>
+} @else if (dataFound) {
+  <main-page></main-page>
+} @else {
+  <empty-page></empty-page>
+}

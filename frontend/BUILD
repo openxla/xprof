@@ -31,9 +31,9 @@ xprof_ng_module(
 
 rollup_bundle(
     name = "zone",
-    srcs = ["@npm//:node_modules/zone.js/dist/zone.js"],
+    srcs = ["@npm//:node_modules/zone.js/bundles/zone.umd.js"],
     config_file = "//:rollup.config.js",
-    entry_point = "@npm//:node_modules/zone.js/dist/zone.js",
+    entry_point = "@npm//:node_modules/zone.js/bundles/zone.umd.js",
     format = "iife",
     link_workspace_root = True,
     deps = [

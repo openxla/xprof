@@ -484,6 +484,15 @@ class Timeline {
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
+
+  // Draws a standard track row in the timeline.
+  // Returns true if layout update is needed.
+  bool DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
+                    const ImVec2& tracks_start_screen_pos,
+                    Pixel content_region_avail_width,
+                    double px_per_time_unit_val, Pixel scroll_y,
+                    Pixel window_height);
+
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.

@@ -509,207 +509,47 @@ void Timeline::Draw() {
   for (int group_index = start_idx; group_index < end_idx; ++group_index) {
     if (!group_visible_[group_index]) continue;
     Group& group = timeline_data_.groups[group_index];
-    ImGui::PushID(group_index);
-
-    // Set cursor to draw the label
-    ImGui::SetCursorPos(ImVec2(
-        tracks_start_pos.x, tracks_start_pos.y + group_offsets_[group_index]));
-
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
+    // 1. Hidden Track Check (Keep in caller to avoid Push/Pop ID issues)
     if (group.nesting_level == kProcessNestingLevel) {
       if (track_management_enabled_ &&
           hidden_track_names_.contains(group.name)) {
-        ImGui::PopID();
         continue;
       }
-      ImU32 bg_color =
-          group.expanded
-              ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
-                    .value_or(kProcessTrackExpandedColor)
-              : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
-                    .value_or(kProcessTrackCollapsedColor);
-      draw_list->AddRectFilled(
-          ImVec2(tracks_start_screen_pos.x,
-                 tracks_start_screen_pos.y + group_offsets_[group_index]),
-          ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
-                 tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
-          bg_color);
     }
 
-    // Push clip rect to prevent label text from bleeding into the track area
-    ImGui::PushClipRect(
-        ImVec2(tracks_start_screen_pos.x,
-               tracks_start_screen_pos.y + group_offsets_[group_index]),
-        ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
-               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
-        true);
-
+    // 2. Recalculate is_collapsed to manage skipping children in this loop
     const bool has_children =
         group_index + 1 < timeline_data_.groups.size() &&
         timeline_data_.groups[group_index + 1].nesting_level >
             group.nesting_level;
-    const int next_group_start_level =
-        GetNextGroupStartLevel(timeline_data_, group_index);
+    const int next_group_start_level = GetNextGroupStartLevel(
+        timeline_data_, group_index);
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
-
     const bool expandable = group.type == Group::Type::kFlame &&
                             (has_children || has_multiple_levels);
-
     const bool is_collapsed = expandable && !group.expanded;
-    Pixel group_height = kEventHeight;
-    if (group.nesting_level == kProcessNestingLevel) {
-      group_height = kProcessTrackHeight;
-    } else if (!is_collapsed) {
-      if (group.type == Group::Type::kCounter) {
-        group_height = kCounterTrackHeight;
-      } else if (group.type == Group::Type::kFlame) {
-        const int end_level =
-            GetNextGroupStartLevel(timeline_data_, group_index);
-        group_height = std::max(1, end_level - group.start_level) *
-                       (kEventHeight + kEventPaddingBottom);
-      }
+
+    // 3. Call DrawTrackRow
+    bool needs_update = DrawTrackRow(
+        group_index, tracks_start_pos, tracks_start_screen_pos,
+        content_region_avail_width, px_per_time_unit_val,
+        scroll_y, window_height);
+
+    if (needs_update) {
+      UpdateLevelPositions(timeline_data_);
+      if (redraw_callback_) redraw_callback_();
     }
 
-    const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
-    // We add 1 to the nesting level because ImGui::Indent(0) results in a
-    // default, potentially large indentation. By adding 1, even top-level
-    // groups (nesting_level 0) receive a base indentation of `kIndentSize`,
-    // ensuring consistent and controlled visual separation from the left edge.
-    Pixel indent_amount = (group.nesting_level + 1) * kIndentSize;
-    if (!expandable && group.nesting_level > 0) {
-      // If a group is not expandable (e.g., a thread with no sub-threads or
-      // only one level), align its label indentation with top-level groups
-      // (nesting_level 0) for better visual consistency.
-      indent_amount = kIndentSize;
-    }
-
-    const Pixel label_start_y = ImGui::GetCursorPosY();
-    // Use the first level's height for centering if the track has multiple
-    // levels, to keep the label near the top. Process track uses its height.
-    const Pixel centereable_height =
-        group.nesting_level == kProcessNestingLevel
-            ? kProcessTrackHeight
-            : (group.type == Group::Type::kFlame ? kEventHeight : group_height);
-
-    ImGui::Indent(indent_amount);
-
-    if (expandable) {
-      if (DrawExpandCollapseButton(group, group_index, centereable_height)) {
-        UpdateLevelPositions(timeline_data_);
-        if (redraw_callback_) redraw_callback_();
-      }
-    } else {
-      ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
-    }
-
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
-
-    ImGui::PushFont(traceviewer::fonts::label_large);
-    const Pixel text_height_large = ImGui::GetTextLineHeight();
-    ImGui::PopFont();
-
-    ImGui::PushFont(traceviewer::fonts::label_medium);
-    const Pixel text_height_medium = ImGui::GetTextLineHeight();
-    ImGui::PopFont();
-
-    const bool has_subtitle = !group.subtitle.empty();
-
-    // We let ImGui native stacking handle the gap.
-    const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
-    const Pixel total_text_height =
-        has_subtitle ? (text_height_large + spacing + text_height_medium)
-                     : text_height_large;
-
-    // Perfectly vertically center the text sequence within the track's height.
-    const Pixel vertical_offset =
-        (centereable_height - total_text_height) * 0.5f;
-    ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
-
-    // Begin a Group so both texts form a SINGLE item on the SameLine as the
-    // toggle arrow! This perfectly isolates the text so they stack normally
-    // without being pushed below the 50px Dummy.
-    ImGui::BeginGroup();
-
-    absl::string_view display_name = group.name;
-    if (has_subtitle) {
-      display_name.remove_prefix(group.subtitle.size() + 1);
-      if (!display_name.empty() && display_name.front() == '/') {
-        display_name.remove_prefix(1);
-      }
-    }
-
-    ImGui::PushFont(traceviewer::fonts::label_large);
-    ImGui::TextUnformatted(display_name.data(),
-                           display_name.data() + display_name.size());
-    ImGui::PopFont();
-
-    if (has_subtitle) {
-      ImGui::PushFont(traceviewer::fonts::label_medium);
-      ImGui::PushStyleColor(ImGuiCol_Text,
-                            palette_.GetColor(ColorPalette::Key::kSubtitle)
-                                .value_or(kOnSecondaryFixedVariantColor));
-      ImGui::TextUnformatted(group.subtitle.data());
-      ImGui::PopStyleColor();
-      ImGui::PopFont();
-    }
-
-    ImGui::EndGroup();
-
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
-      if (ImGui::IsMouseClicked(0)) {
-        ImGui::SetClipboardText(group.name.c_str());
-        traceviewer::CopyToClipboard(group.name);
-
-        copied_track_name_ = group.name;
-        copy_notification_timer_ = 2.0f;
-      }
-    }
-
-    // "Selecting text" visual effect when clicked/timer active
-    if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
-      ImVec2 group_min = ImGui::GetItemRectMin();
-      ImVec2 group_max = ImGui::GetItemRectMax();
-      // Draw a blue highlight over the text to simulate browser selection
-      ImGui::GetWindowDrawList()->AddRectFilled(group_min, group_max,
-                                                IM_COL32(66, 133, 244, 128));
-    }
-
-    ImGui::Unindent(indent_amount);
-    ImGui::SetCursorPosY(label_start_y);
-    ImGui::PopClipRect();
-
-    if (track_management_enabled_) {
-      if (group.nesting_level == kProcessNestingLevel) {
-        ImGui::SameLine();
-        const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
-        ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
-                            kSplitterOffset - kArrowSize);
-        const bool is_track_hidden = hidden_track_names_.contains(group.name);
-        DrawHideButton(
-            group_index, centereable_height, is_track_hidden);
-      }
-    }
-
-    ImGui::SetCursorPos(
-        ImVec2(tracks_start_pos.x + label_width_,
-               tracks_start_pos.y + group_offsets_[group_index]));
-
+    // 4. Skip children if collapsed
     if (is_collapsed) {
-      DrawGroupPreview(group_index, px_per_time_unit_val);
       int current_nesting_level = group.nesting_level;
       while (group_index + 1 < timeline_data_.groups.size() &&
              timeline_data_.groups[group_index + 1].nesting_level >
-                 current_nesting_level) {
+             current_nesting_level) {
         group_index++;
       }
-    } else {
-      DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
     }
-    ImGui::PopID();
   }
 
   // Create a dummy at the end to ensure the Tracks child has the right
@@ -815,6 +655,189 @@ void Timeline::Draw() {
   ImGui::PopStyleVar();  // WindowBorderSize
   ImGui::PopStyleVar();  // WindowRounding
   ImGui::End();          // Timeline viewer
+}
+
+bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
+                            const ImVec2& tracks_start_screen_pos,
+                            Pixel content_region_avail_width,
+                            double px_per_time_unit_val, Pixel scroll_y,
+                            Pixel window_height) {
+  bool needs_layout_update = false;
+  Group& group = timeline_data_.groups[group_index];
+  ImGui::PushID(group_index);
+
+  // Set cursor to draw the label
+  ImGui::SetCursorPos(ImVec2(
+      tracks_start_pos.x, tracks_start_pos.y + group_offsets_[group_index]));
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+  if (group.nesting_level == kProcessNestingLevel) {
+    ImU32 bg_color =
+        group.expanded
+            ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
+                  .value_or(kProcessTrackExpandedColor)
+            : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
+                  .value_or(kProcessTrackCollapsedColor);
+    draw_list->AddRectFilled(
+        ImVec2(tracks_start_screen_pos.x,
+               tracks_start_screen_pos.y + group_offsets_[group_index]),
+        ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
+               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+        bg_color);
+  }
+
+  // Push clip rect to prevent label text from bleeding into the track area
+  ImGui::PushClipRect(
+      ImVec2(tracks_start_screen_pos.x,
+             tracks_start_screen_pos.y + group_offsets_[group_index]),
+      ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
+             tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+      true);
+
+  const bool has_children =
+      group_index + 1 < timeline_data_.groups.size() &&
+      timeline_data_.groups[group_index + 1].nesting_level >
+          group.nesting_level;
+  const int next_group_start_level =
+      GetNextGroupStartLevel(timeline_data_, group_index);
+  const bool has_multiple_levels =
+      next_group_start_level - group.start_level > 1;
+
+  const bool expandable = group.type == Group::Type::kFlame &&
+                          (has_children || has_multiple_levels);
+
+  const bool is_collapsed = expandable && !group.expanded;
+  Pixel group_height = kEventHeight;
+  if (group.nesting_level == kProcessNestingLevel) {
+    group_height = kProcessTrackHeight;
+  } else if (!is_collapsed) {
+    if (group.type == Group::Type::kCounter) {
+      group_height = kCounterTrackHeight;
+    } else if (group.type == Group::Type::kFlame) {
+      const int end_level =
+          GetNextGroupStartLevel(timeline_data_, group_index);
+      group_height = std::max(1, end_level - group.start_level) *
+                     (kEventHeight + kEventPaddingBottom);
+    }
+  }
+
+  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+  Pixel indent_amount = (group.nesting_level + 1) * kIndentSize;
+  if (!expandable && group.nesting_level > 0) {
+    indent_amount = kIndentSize;
+  }
+
+  const Pixel label_start_y = ImGui::GetCursorPosY();
+  const Pixel centereable_height =
+      group.nesting_level == kProcessNestingLevel
+          ? kProcessTrackHeight
+          : (group.type == Group::Type::kFlame ? kEventHeight : group_height);
+
+  ImGui::Indent(indent_amount);
+
+  if (expandable) {
+    if (DrawExpandCollapseButton(group, group_index, centereable_height)) {
+      needs_layout_update = true;
+    }
+  } else {
+    ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
+  }
+
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
+
+  ImGui::PushFont(traceviewer::fonts::label_large);
+  const Pixel text_height_large = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  ImGui::PushFont(traceviewer::fonts::label_medium);
+  const Pixel text_height_medium = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  const bool has_subtitle = !group.subtitle.empty();
+
+  const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
+  const Pixel total_text_height =
+      has_subtitle ? (text_height_large + spacing + text_height_medium)
+                   : text_height_large;
+
+  const Pixel vertical_offset =
+      (centereable_height - total_text_height) * 0.5f;
+  ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
+
+  ImGui::BeginGroup();
+
+  absl::string_view display_name = group.name;
+  if (has_subtitle) {
+    display_name.remove_prefix(group.subtitle.size() + 1);
+    if (!display_name.empty() && display_name.front() == '/') {
+      display_name.remove_prefix(1);
+    }
+  }
+
+  ImGui::PushFont(traceviewer::fonts::label_large);
+  ImGui::TextUnformatted(display_name.data(),
+                         display_name.data() + display_name.size());
+  ImGui::PopFont();
+
+  if (has_subtitle) {
+    ImGui::PushFont(traceviewer::fonts::label_medium);
+    ImGui::PushStyleColor(ImGuiCol_Text,
+                          palette_.GetColor(ColorPalette::Key::kSubtitle)
+                              .value_or(kOnSecondaryFixedVariantColor));
+    ImGui::TextUnformatted(group.subtitle.data());
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+  }
+
+  ImGui::EndGroup();
+
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    if (ImGui::IsMouseClicked(0)) {
+      ImGui::SetClipboardText(group.name.c_str());
+      traceviewer::CopyToClipboard(group.name);
+
+      copied_track_name_ = group.name;
+      copy_notification_timer_ = 2.0f;
+    }
+  }
+
+  if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
+    ImVec2 group_min = ImGui::GetItemRectMin();
+    ImVec2 group_max = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddRectFilled(group_min, group_max,
+                                              IM_COL32(66, 133, 244, 128));
+  }
+
+  ImGui::Unindent(indent_amount);
+  ImGui::SetCursorPosY(label_start_y);
+  ImGui::PopClipRect();
+
+  if (track_management_enabled_) {
+    if (group.nesting_level == kProcessNestingLevel) {
+      ImGui::SameLine();
+      const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+      ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
+                          kSplitterOffset - kArrowSize);
+      const bool is_track_hidden = hidden_track_names_.contains(group.name);
+      DrawHideButton(group_index, centereable_height, is_track_hidden);
+    }
+  }
+
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x + label_width_,
+             tracks_start_pos.y + group_offsets_[group_index]));
+
+  if (is_collapsed) {
+    DrawGroupPreview(group_index, px_per_time_unit_val);
+  } else {
+    DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
+  }
+  ImGui::PopID();
+
+  return needs_layout_update;
 }
 
 EventRect Timeline::CalculateEventRect(

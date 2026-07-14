@@ -13,12 +13,14 @@ ImFont* caption = nullptr;
 ImFont* label_large = nullptr;
 ImFont* label_medium = nullptr;
 ImFont* label_small = nullptr;
+ImFont* title_small = nullptr;
 
 // The font sizes correspond to the GM3 Typography Type scale tokens.
 constexpr float kBodyLargeFontSize = 16.0f;
 constexpr float kLabelLargeFontSize = 14.0f;
 constexpr float kLabelMediumFontSize = 12.0f;
 constexpr float kLabelSmallFontSize = 11.0f;
+constexpr float kLabelSectionHeaderFontSize = 13.0f;
 
 void LoadFonts(float pixel_ratio) {
   ImGuiIO& io = ImGui::GetIO();

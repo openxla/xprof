@@ -110,9 +110,10 @@ inline constexpr Pixel kProcessTrackHeight = 50.0f;
 
 // Nesting Level Constants
 // go/keep-sorted start
-inline constexpr int kCounterNestingLevel = 1;
-inline constexpr int kProcessNestingLevel = 0;
-inline constexpr int kThreadNestingLevel = 1;
+inline constexpr int kCounterNestingLevel = 2;
+inline constexpr int kHeaderNestingLevel = 0;
+inline constexpr int kProcessNestingLevel = 1;
+inline constexpr int kThreadNestingLevel = 2;
 // go/keep-sorted end
 
 // Time Range Selection Constants
@@ -206,7 +207,9 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 
 // UI Strings Constants
 // go/keep-sorted start
+inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
+inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
 // go/keep-sorted end

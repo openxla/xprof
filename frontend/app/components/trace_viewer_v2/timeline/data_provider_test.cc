@@ -98,13 +98,13 @@ TEST(DataProviderNoFixtureTest, SyncProcessWithNamedThreadsWithoutEvents) {
   ASSERT_THAT(data.groups, SizeIs(4));
 
   EXPECT_EQ(data.groups[0].name, "Process_10");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread with events");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_EQ(data.groups[2].name, "Thread without events");
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].nesting_level, 2);
   EXPECT_EQ(data.groups[3].name, "Thread_3");
-  EXPECT_EQ(data.groups[3].nesting_level, 1);
+  EXPECT_EQ(data.groups[3].nesting_level, 2);
 
   EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 3"));
 }
@@ -168,9 +168,9 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
   ASSERT_THAT(data.groups, SizeIs(2));
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
@@ -208,9 +208,9 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
   ASSERT_THAT(data.groups, SizeIs(2));
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 }
 
 TEST_F(DataProviderTest, ProcessCompleteEvents) {
@@ -239,13 +239,13 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].start_level, 0);
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_EQ(data.groups[2].name, "Thread_102");
   EXPECT_EQ(data.groups[2].start_level, 1);
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(1000.0, 1100.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(200.0, 300.0));
@@ -290,10 +290,10 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].start_level, 0);
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 110.0, 120.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(100.0, 50.0, 20.0));
@@ -449,15 +449,15 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
   ASSERT_THAT(data.groups, SizeIs(5));
 
   EXPECT_EQ(data.groups[0].name, "Main_Process");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Worker Thread");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_EQ(data.groups[2].name, "Thread_102");
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].nesting_level, 2);
   EXPECT_EQ(data.groups[3].name, "Process_2");
-  EXPECT_EQ(data.groups[3].nesting_level, 0);
+  EXPECT_EQ(data.groups[3].nesting_level, 1);
   EXPECT_EQ(data.groups[4].name, "Thread_201");
-  EXPECT_EQ(data.groups[4].nesting_level, 1);
+  EXPECT_EQ(data.groups[4].nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(5000.0, 5500.0, 6000.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(1000.0, 1500.0, 500.0));
@@ -508,19 +508,19 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
 
   // Process A
   EXPECT_EQ(data.groups[0].name, "Process_A");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_A1");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_EQ(data.groups[1].start_level, 0);
   EXPECT_EQ(data.groups[2].name, "Thread_A2");
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].nesting_level, 2);
   EXPECT_EQ(data.groups[2].start_level, 1);
 
   // Process B
   EXPECT_EQ(data.groups[3].name, "Process_B");
-  EXPECT_EQ(data.groups[3].nesting_level, 0);
+  EXPECT_EQ(data.groups[3].nesting_level, 1);
   EXPECT_EQ(data.groups[4].name, "Thread_B1");
-  EXPECT_EQ(data.groups[4].nesting_level, 1);
+  EXPECT_EQ(data.groups[4].nesting_level, 2);
   EXPECT_EQ(data.groups[4].start_level, 2);
 
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
@@ -538,11 +538,11 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
   ASSERT_THAT(data.groups, SizeIs(2));  // Process group + Counter group
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_TRUE(data.groups[1].expanded);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
@@ -645,14 +645,14 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
               SizeIs(3));  // Process group + Thread group + Counter group
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
 
   EXPECT_EQ(data.groups[1].name, "Thread_1");
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 
   EXPECT_EQ(data.groups[2].name, "Counter A");
   EXPECT_EQ(data.groups[2].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(data.groups[2].nesting_level, 2);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(2));
 
@@ -686,17 +686,17 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
               SizeIs(4));  // Process 1, Counter A, Process 2, Thread 1
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 
   EXPECT_EQ(data.groups[2].name, "Process_2");
-  EXPECT_EQ(data.groups[2].nesting_level, 0);
+  EXPECT_EQ(data.groups[2].nesting_level, 1);
 
   EXPECT_EQ(data.groups[3].name, "Thread_1");
-  EXPECT_EQ(data.groups[3].nesting_level, 1);
+  EXPECT_EQ(data.groups[3].nesting_level, 2);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 }
@@ -2813,9 +2813,9 @@ TEST_F(DataProviderTest, UnnamedProcessWithEvents) {
   ASSERT_THAT(data.groups, SizeIs(2));  // Process group and thread group
 
   EXPECT_EQ(data.groups[0].name, "Process_4");  // Default name!
-  EXPECT_EQ(data.groups[0].nesting_level, 0);
+  EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_401");  // Default name!
-  EXPECT_EQ(data.groups[1].nesting_level, 1);
+  EXPECT_EQ(data.groups[1].nesting_level, 2);
 }
 
 TEST_F(DataProviderTest,

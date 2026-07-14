@@ -1268,7 +1268,7 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {{.name = "group",
            .start_level = 0,
-           .nesting_level = 0,
+           .nesting_level = kThreadNestingLevel,
            .expanded = true}},
          {},
          {}});
@@ -1324,7 +1324,7 @@ class TimelineImGuiTestFixture : public Test {
     // `GetTimelineArea()` which would trigger `HandleMouseDown`, ensuring only
     // resize happens.
     float resize_handle_x = win_x + GetTimelineStartX() - 2.0f;
-    float resize_handle_y = win_y + 50.0f;
+    float resize_handle_y = win_y + 30.0f;
 
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(resize_handle_x, resize_handle_y);
@@ -1540,7 +1540,7 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
@@ -1785,7 +1785,7 @@ TEST(TimelineTest, RevealEventAlreadyInView) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
@@ -1812,11 +1812,11 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Process 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kProcessNestingLevel,
                          .expanded = false});
   data.groups.push_back({.name = "Thread 1",
                          .start_level = 1,
-                         .nesting_level = 1,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = false});
 
   data.events_by_level.resize(2);
@@ -1950,7 +1950,7 @@ TEST(TimelineTest, RevealEventOutOfView) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
@@ -1977,7 +1977,7 @@ TEST(TimelineTest, RevealEventOutOfViewRight) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
@@ -2003,7 +2003,7 @@ TEST(TimelineTest, RevealEventOutToRight) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
@@ -2030,7 +2030,7 @@ TEST(TimelineTest, RevealEventOutToRightLarge) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
@@ -2142,7 +2142,7 @@ TEST(TimelineTest, SetSearchQuery) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
@@ -2234,7 +2234,7 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("apple");
@@ -2983,7 +2983,7 @@ TEST_F(MockTimelineImGuiFixture,
 
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0, 1, 2});
 
@@ -3051,7 +3051,7 @@ TEST_F(MockTimelineImGuiFixture,
   for (int i = 0; i < 20; ++i) {
     data.groups.push_back({.name = "Group " + std::to_string(i),
                            .start_level = i,
-                           .nesting_level = 1,  // Thread nesting level
+                           .nesting_level = kThreadNestingLevel,
                            .expanded = true});
     data.events_by_level.push_back({});
   }
@@ -3881,7 +3881,7 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
@@ -4469,7 +4469,8 @@ TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Process Group",
                          .start_level = 0,
-                         .nesting_level = 0,  // Process level
+                         .nesting_level =
+                            kProcessNestingLevel,  // Process level
                          .expanded = true});
 
   // Add one event covering the very end of visible range [99.95, 100.0]
@@ -4521,7 +4522,7 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Flame Group",
                          .start_level = 0,
-                         .nesting_level = 1,
+                         .nesting_level = 2,
                          .expanded = false});  // Collapsed triggers preview
 
   data.events_by_level.push_back({0});
@@ -4830,14 +4831,14 @@ TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Process Track",
                          .start_level = 0,
-                         .nesting_level = 0,
+                         .nesting_level = 1,
                          .expanded = false});
   // Group 1: Next track at same nesting level, starts at level 1.
   // This will cause the loop in timeline.cc to break and set end_level to 1.
   data.groups.push_back({.type = Group::Type::kFlame,
                          .name = "Next Track",
                          .start_level = 1,
-                         .nesting_level = 0,
+                         .nesting_level = 1,
                          .expanded = false});
 
   data.events_by_level.push_back({0});  // Level 0 has event 0
@@ -5312,7 +5313,7 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 1,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   // Event 0 is at level 30
   data.entry_names.push_back("event0");
@@ -5376,7 +5377,7 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 1,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   // Event 0 at level 5
   data.entry_names.push_back("event0");
@@ -5508,7 +5509,7 @@ TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 1,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(100);  // High level to trigger scrolling
@@ -5551,7 +5552,7 @@ TEST_F(RealTimelineImGuiFixture,
   FlameChartTimelineData data;
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
-                         .nesting_level = 1,
+                         .nesting_level = kThreadNestingLevel,
                          .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(100);
@@ -6101,7 +6102,8 @@ class TimelineMouseModeSelectTestSuite : public TimelineDragSelectionTest {
     data.entry_pids = {1, 1};
     data.entry_tids = {1, 1};
     data.entry_args = {{}, {}};
-    data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+    data.groups = {
+        {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
     data.events_by_level = {{0}, {1}};
     timeline_.SetTimelineData(data);
   }
@@ -6253,7 +6255,8 @@ TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -6291,7 +6294,8 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapWhenDisabled) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -6440,7 +6444,8 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -6479,7 +6484,8 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
   data.entry_pids = {1, 1};
   data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0, 1}};
   timeline_.SetTimelineData(data);
 
@@ -6520,7 +6526,8 @@ TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -6570,7 +6577,8 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, false}};
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
 
@@ -6612,7 +6620,8 @@ TEST_F(TimelineDragSelectionTest,
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
   // But it is NOT kFlame!
-  data.groups = {{Group::Type::kCounter, "group", "", 0, 0, false}};
+  data.groups = {
+      {Group::Type::kCounter, "group", "", 0, kCounterNestingLevel, false}};
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
 
@@ -6657,8 +6666,9 @@ TEST_F(TimelineDragSelectionTest,
   // Group 0 has another group after it, but it's not a child (nesting level is
   // not >). Thus, it should NOT be considered as having children, so it should
   // not be considered expandable/collapsed even if `expanded` is false.
-  data.groups = {{Group::Type::kFlame, "group1", "", 0, 0, false},
-                 {Group::Type::kFlame, "group2", "", 1, 0, false}};
+  data.groups = {
+      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, false},
+      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, false}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
 
@@ -6700,7 +6710,8 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is expanded.
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {
+      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7431,7 +7442,8 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
+                  kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7441,7 +7453,10 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   // Move mouse over the track label. The label column is 250px wide.
   // We indent by some amount, so X=100 should be on the text.
   // Y should be around 50px (first track).
-  io.MousePos = ImVec2(100.0f, 50.0f);
+  // Move mouse over the track label.
+  // Y should be inside the track height (kEventHeight = 23) +
+  // kRulerHeight (20).
+  io.MousePos = ImVec2(100.0f, 30.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
@@ -7454,14 +7469,15 @@ TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
+                  kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(100.0f, 50.0f);
+  io.MousePos = ImVec2(100.0f, 30.0f);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, true);
@@ -7485,17 +7501,20 @@ TEST_F(RealTimelineImGuiFixture,
   // Needs to test an expandable group, so has_multiple_levels or has_children.
   // Let's set start_level=0 and next_group_start_level=2 to simulate multiple
   // levels.
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0, 0, true}};
+  data.groups = {
+    {Group::Type::kFlame,
+     "Test Group Name", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};  // 2 levels, second level empty
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
 
   // Button is at X = (nesting_level + 1) * kIndentSize.
-  // We don't have kIndentSize exposed directly in tests, but it's probably ~16.
-  // So X=15 is a safe bet for the invisible button.
+  // For kThreadNestingLevel (2), indent is 3 * 10 = 30.
+  // Button width is around 13px. So X=35 is inside.
+  // Y should be inside the track (20-43).
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(15.0f, 50.0f);
+  io.MousePos = ImVec2(35.0f, 30.0f);
   SimulateFrame();
 
   // It should be a Hand cursor over the button
@@ -7653,48 +7672,48 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   FlameChartTimelineData data;
   data.events_by_level.resize(5);
 
-  // Group 0: Process A (nesting_level = 0, name = "Process A", start_level = 0)
+  // Group 0: Process A
   data.groups.push_back({
       .type = Group::Type::kFlame,
       .name = "Process A",
       .start_level = 0,
-      .nesting_level = 0,
+      .nesting_level = kProcessNestingLevel,
       .expanded = true,
   });
 
-  // Group 1: Thread A1 (nesting_level = 1, name = "Thread A1", start_level = 0)
+  // Group 1: Thread A1
   data.groups.push_back({
       .type = Group::Type::kFlame,
       .name = "Thread A1",
       .start_level = 0,
-      .nesting_level = 1,
+      .nesting_level = kThreadNestingLevel,
       .expanded = true,
   });
 
-  // Group 2: Thread A2 (nesting_level = 1, name = "Thread A2", start_level = 1)
+  // Group 2: Thread A2
   data.groups.push_back({
       .type = Group::Type::kFlame,
       .name = "Thread A2",
       .start_level = 1,
-      .nesting_level = 1,
+      .nesting_level = kThreadNestingLevel,
       .expanded = true,
   });
 
-  // Group 3: Process B (nesting_level = 0, name = "Process B", start_level = 2)
+  // Group 3: Process B
   data.groups.push_back({
       .type = Group::Type::kFlame,
       .name = "Process B",
       .start_level = 2,
-      .nesting_level = 0,
+      .nesting_level = kProcessNestingLevel,
       .expanded = true,
   });
 
-  // Group 4: Thread B1 (nesting_level = 1, name = "Thread B1", start_level = 2)
+  // Group 4: Thread B1
   data.groups.push_back({
       .type = Group::Type::kFlame,
       .name = "Thread B1",
       .start_level = 2,
-      .nesting_level = 1,
+      .nesting_level = kThreadNestingLevel,
       .expanded = true,
   });
 
@@ -7749,8 +7768,8 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
 
   // Process A is collapsed, but has children.
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, 1, true}
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
   };
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
@@ -7830,8 +7849,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
 
   // Process A is expanded, Thread A1 is expanded.
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
-      {Group::Type::kFlame, "Thread A1", "", 1, 1, true}
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Thread A1", "", 1, kThreadNestingLevel, true}
   };
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
@@ -9342,7 +9361,7 @@ TEST_F(MockTimelineImGuiFixture,
   FlameChartTimelineData data1;
   data1.groups.push_back({.name = "Group 1",
                           .start_level = 0,
-                          .nesting_level = 1,
+                          .nesting_level = kThreadNestingLevel,
                           .expanded = true});
   data1.events_by_level.push_back({0});
   data1.entry_names.push_back("");
@@ -9374,7 +9393,7 @@ TEST_F(MockTimelineImGuiFixture,
   FlameChartTimelineData data2;
   data2.groups.push_back({.name = "Group 1",
                           .start_level = 0,
-                          .nesting_level = 1,
+                          .nesting_level = kThreadNestingLevel,
                           .expanded = true});
   data2.events_by_level.push_back({0});
   data2.entry_names.push_back("");

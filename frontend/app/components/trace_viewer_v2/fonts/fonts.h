@@ -11,6 +11,7 @@ extern ImFont* caption;
 extern ImFont* label_large;
 extern ImFont* label_medium;
 extern ImFont* label_small;
+extern ImFont* title_small;
 
 }  // namespace traceviewer::fonts
 

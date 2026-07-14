@@ -80,7 +80,6 @@ export const LOADING_STATUS_UPDATE_EVENT_NAME = 'loadingstatusupdate';
  */
 export const DETAILS_RECEIVED_EVENT_NAME = 'details_received';
 
-/** Represents trace details toggles. */
 /** Supported trace detail keys. */
 export type TraceDetailKey = 'full_dma';
 
@@ -138,7 +137,19 @@ declare global {
   }
 }
 
+/** Interface extending the global Window object with WASM module loading definitions. */
+export interface WasmWindow {
+  loadWasmTraceViewerModule?: unknown;
+}
+
+/** Interface representing raw parsed JSON trace data structures. */
+export interface RawData {
+  traceEvents?: Array<{[key: string]: unknown}>;
+  [key: string]: unknown;
+}
+
   export declare interface TraceViewerV2Module extends EmscriptenModule {
+  _isProcessingFile?: string;
   HEAPU8: Uint8Array;
   _malloc(size: number): number;
   _free(ptr: number): void;
@@ -218,7 +229,17 @@ declare global {
 export declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
-  details?: TraceDetails;
+  details?:
+    | TraceDetails
+    | RawDetailsData
+    | Array<{name: string; value: boolean}>;
+}
+
+/**
+ * Interface representing raw details data with string index signatures.
+ */
+export interface RawDetailsData {
+  [key: string]: boolean | undefined;
 }
 
 /**
@@ -239,7 +260,7 @@ export function isTraceData(data: unknown): data is TraceData {
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
 function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+  const rawDetails = jsonData.details;
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
@@ -250,9 +271,9 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
-    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    const rawDetailsObj = rawDetails as RawDetailsData;
     if (rawDetailsObj['full_dma'] !== undefined) {
-      details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
+      details.set('full_dma', rawDetailsObj['full_dma']);
     }
   }
 
@@ -305,6 +326,10 @@ export function shutdownTraceViewerV2() {
   registeredEventListeners.length = 0;
 }
 
+interface GPUDeviceWithLost extends GPUDevice {
+  lost: Promise<GPUDeviceLostInfo>;
+}
+
 async function getWebGpuDevice(): Promise<GPUDevice> {
   const gpu = navigator.gpu;
   if (!gpu) {
@@ -320,8 +345,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  // tslint:disable-next-line:no-any
-  (device as any).lost
+  void (device as GPUDeviceWithLost).lost
     .then(() => {
       throw new Error('WebGPU Cannot be initialized - Device has been lost');
     })
@@ -372,8 +396,10 @@ async function loadAndStartWasm(
 }
 
 async function ensureWasmModuleIsLoaded(): Promise<void> {
-  // tslint:disable-next-line:no-any
-  if (typeof (window as any).loadWasmTraceViewerModule !== 'undefined') {
+  if (
+    typeof (window as Window & WasmWindow).loadWasmTraceViewerModule !==
+    'undefined'
+  ) {
     return;
   }
   return new Promise((resolve, reject) => {
@@ -573,7 +599,7 @@ function processJsonTrace(
   try {
     const decoder = new TextDecoder('utf-8');
     const fileContent = decoder.decode(data);
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const jsonData = JSON.parse(fileContent) as RawData;
 
     if (!isTraceData(jsonData)) {
       throw new Error('File does not contain valid trace events.');
@@ -607,6 +633,13 @@ async function processUploadedFile(
   traceviewerModule: TraceViewerV2Module,
   onFileProcessed?: () => void,
 ) {
+  if (traceviewerModule._isProcessingFile === file.name) return;
+  traceviewerModule._isProcessingFile = file.name;
+  window.dispatchEvent(
+    new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+      detail: {status: TraceViewerV2LoadingStatus.LOADING_DATA},
+    }),
+  );
   try {
     const arrayBuffer = await file.arrayBuffer();
     let uint8Array = new Uint8Array(arrayBuffer);
@@ -619,6 +652,12 @@ async function processUploadedFile(
       uint8Array = new Uint8Array(decompressed.buffer as ArrayBuffer);
     }
 
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.PROCESSING_DATA},
+      }),
+    );
+
     if (isPerfettoTrace(uint8Array, file.name)) {
       processPerfettoTrace(uint8Array, traceviewerModule);
     } else {
@@ -626,6 +665,11 @@ async function processUploadedFile(
     }
 
     onFileProcessed?.();
+    window.dispatchEvent(
+      new CustomEvent(LOADING_STATUS_UPDATE_EVENT_NAME, {
+        detail: {status: TraceViewerV2LoadingStatus.IDLE},
+      }),
+    );
   } catch (error) {
     dispatchErrorStatus(
       `Error processing file: ${
@@ -633,106 +677,8 @@ async function processUploadedFile(
       }`,
       error,
     );
-  }
-}
-
-/**
- * Updates a URL object in-place with a `resolution` parameter based on the
- * canvas width.
- *
- * The resolution is calculated to optimize the number of trace events fetched
- * from the backend, preventing over-fetching of data that would not be visible.
- * If certain trace options are present (like filtering), resolution is set to 0
- * to fetch all data.
- *
- * @param urlObj The URL object to update with resolution parameter.
- * @param canvas The canvas element used to determine the viewer width.
- */
-export function updateUrlWithResolution(
-  urlObj: URL,
-  canvas: HTMLCanvasElement | null | undefined,
-): void {
-  const params = urlObj.searchParams;
-
-  // Default resolution to 0, which fetches all data.
-  let resolution = 0;
-
-  if (!params.has(TRACE_OPTIONS.SELECTED_GROUP_IDS)) {
-    if (canvas) {
-      const viewerWidth = canvas.clientWidth - HEADING_WIDTH;
-
-      if (viewerWidth > 0) {
-        // Calculate resolution based on the number of visual bins and multiply
-        // by ZOOM_RATIO. This requests more data than strictly needed for the
-        // current view (over-fetching), allowing the user to zoom in up to
-        // ZOOM_RATIO times without losing detail (bins remain <=
-        // MIN_EVENT_WIDTH in the zoomed view), avoiding immediate re-fetches.
-        resolution = Math.round(viewerWidth / MIN_EVENT_WIDTH) * ZOOM_RATIO;
-      }
-    }
-  }
-
-  params.set(TRACE_VIEW_OPTION.RESOLUTION, resolution.toString());
-}
-
-function getTimeRangeFromUrl(urlObj: URL): [number, number] | undefined {
-  const params = urlObj.searchParams;
-  const viewStart = params.get(VIEW_START);
-  const viewEnd = params.get(VIEW_END);
-  if (viewStart && viewEnd) {
-    const start = Number(viewStart);
-    const end = Number(viewEnd);
-    if (isFinite(start) && isFinite(end)) {
-      return [start, end];
-    }
-  }
-  return undefined;
-}
-
-/**
- * Expands the time range of the given URL using the pre-defined FETCH_RATIO.
- */
-function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
-  const center = (timeRange[0] + timeRange[1]) / 2;
-  const duration = timeRange[1] - timeRange[0];
-  const expandedStart = Math.max(0, center - (duration * FETCH_RATIO) / 2);
-  const expandedEnd = center + (duration * FETCH_RATIO) / 2;
-
-  urlObj.searchParams.set(
-    TRACE_VIEW_OPTION.START_TIME_MS,
-    String(expandedStart),
-  );
-  urlObj.searchParams.set(TRACE_VIEW_OPTION.END_TIME_MS, String(expandedEnd));
-}
-
-// Fetches JSON data from the given URL. The `response.json()` method returns
-// `any`, so this function returns `unknown`. Validation of the data structure
-// (e.g., using `isTraceData`) is expected to be done by the caller.
-async function loadJsonDataInternal(url: string): Promise<unknown> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return await response.json();
-  } catch (e) {
-    console.error('Failed to load JSON data:', e);
-    throw e;
-  }
-}
-
-async function loadCompressedTraceDataInternal(
-  url: string,
-): Promise<ArrayBuffer> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return await response.arrayBuffer();
-  } catch (e) {
-    console.error('Failed to load compressed trace data:', e);
-    throw e;
+  } finally {
+    traceviewerModule._isProcessingFile = undefined;
   }
 }
 
@@ -905,6 +851,106 @@ async function fetchAndProcessTraceData({
         },
       }),
     );
+  }
+}
+
+/**
+ * Updates a URL object in-place with a `resolution` parameter based on the
+ * canvas width.
+ *
+ * The resolution is calculated to optimize the number of trace events fetched
+ * from the backend, preventing over-fetching of data that would not be visible.
+ * If certain trace options are present (like filtering), resolution is set to 0
+ * to fetch all data.
+ *
+ * @param urlObj The URL object to update with resolution parameter.
+ * @param canvas The canvas element used to determine the viewer width.
+ */
+export function updateUrlWithResolution(
+  urlObj: URL,
+  canvas: HTMLCanvasElement | null | undefined,
+): void {
+  const params = urlObj.searchParams;
+
+  // Default resolution to 0, which fetches all data.
+  let resolution = 0;
+
+  if (!params.has(TRACE_OPTIONS.SELECTED_GROUP_IDS)) {
+    if (canvas) {
+      const viewerWidth = canvas.clientWidth - HEADING_WIDTH;
+
+      if (viewerWidth > 0) {
+        // Calculate resolution based on the number of visual bins and multiply
+        // by ZOOM_RATIO. This requests more data than strictly needed for the
+        // current view (over-fetching), allowing the user to zoom in up to
+        // ZOOM_RATIO times without losing detail (bins remain <=
+        // MIN_EVENT_WIDTH in the zoomed view), avoiding immediate re-fetches.
+        resolution = Math.round(viewerWidth / MIN_EVENT_WIDTH) * ZOOM_RATIO;
+      }
+    }
+  }
+
+  params.set(TRACE_VIEW_OPTION.RESOLUTION, resolution.toString());
+}
+
+function getTimeRangeFromUrl(urlObj: URL): [number, number] | undefined {
+  const params = urlObj.searchParams;
+  const viewStart = params.get(VIEW_START);
+  const viewEnd = params.get(VIEW_END);
+  if (viewStart && viewEnd) {
+    const start = Number(viewStart);
+    const end = Number(viewEnd);
+    if (isFinite(start) && isFinite(end)) {
+      return [start, end];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Expands the time range of the given URL using the pre-defined FETCH_RATIO.
+ */
+function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
+  const center = (timeRange[0] + timeRange[1]) / 2;
+  const duration = timeRange[1] - timeRange[0];
+  const expandedStart = Math.max(0, center - (duration * FETCH_RATIO) / 2);
+  const expandedEnd = center + (duration * FETCH_RATIO) / 2;
+
+  urlObj.searchParams.set(
+    TRACE_VIEW_OPTION.START_TIME_MS,
+    String(expandedStart),
+  );
+  urlObj.searchParams.set(TRACE_VIEW_OPTION.END_TIME_MS, String(expandedEnd));
+}
+
+// Fetches JSON data from the given URL. The `response.json()` method returns
+// `any`, so this function returns `unknown`. Validation of the data structure
+// (e.g., using `isTraceData`) is expected to be done by the caller.
+async function loadJsonDataInternal(url: string): Promise<unknown> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.json();
+  } catch (e) {
+    console.error('Failed to load JSON data:', e);
+    throw e;
+  }
+}
+
+async function loadCompressedTraceDataInternal(
+  url: string,
+): Promise<ArrayBuffer> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return await response.arrayBuffer();
+  } catch (e) {
+    console.error('Failed to load compressed trace data:', e);
+    throw e;
   }
 }
 
@@ -1112,7 +1158,7 @@ export async function traceViewerV2Main(
       } else {
         const jsonData = (await loadJsonDataInternal(
           urlObj.toString(),
-        )) as Record<string, unknown>;
+        )) as RawData;
         // Mirror the legacy behavior: gently default to an empty array if
         // traceEvents is missing so that the WASM module can safely clear out
         // any previous search results.
@@ -1121,7 +1167,7 @@ export async function traceViewerV2Main(
           traceEvents: Array.isArray(jsonData?.['traceEvents'])
             ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
             : [],
-        };
+        } as TraceData;
         traceviewerModule.setSearchResultsInWasm(normalizedData);
       }
     } catch (e) {

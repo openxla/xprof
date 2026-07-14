@@ -9,8 +9,14 @@ import {
 } from '@angular/core';
 import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {ActivatedRoute} from '@angular/router';
+import {Store} from '@ngrx/store';
 import {combineLatest, Observable, of} from 'rxjs';
-import {map, switchMap, tap} from 'rxjs/operators';
+import {catchError, map, switchMap, tap} from 'rxjs/operators';
+
+import {
+  setCurrentToolStateAction,
+  setLoadingStateAction,
+} from 'org_xprof/frontend/app/store/actions';
 
 import type {
   CategorySummaries,
@@ -210,12 +216,14 @@ export class MemoryAnalysis {
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly store = inject(Store);
 
   /** Total memory in MiB (exposed for testing). */
   totalMemoryMib = 0;
   selectedModule = '';
   moduleList: string[] = [];
   readonly loading = signal(false);
+  errorMessage = '';
 
   result: MemoryAnalysisResult | null = null;
   readonly filteredBuffers = signal<MemoryAnalysisBuffer[]>([]);
@@ -275,12 +283,20 @@ export class MemoryAnalysis {
   private fullBuffers: MemoryAnalysisBuffer[] = [];
 
   constructor() {
+    this.store.dispatch(
+      setCurrentToolStateAction({currentTool: 'memory_analysis'}),
+    );
     combineLatest([this.route.params, this.route.queryParams])
       .pipe(
         tap(([params, queryParams]) => {
           this.sessionId = params['sessionId'] ?? this.sessionId;
           this.host = queryParams['host'] ?? '';
           this.loading.set(true);
+          this.store.dispatch(
+            setLoadingStateAction({
+              loadingState: {loading: true, message: 'Loading modules...'},
+            }),
+          );
         }),
         switchMap(([, queryParams]) => {
           const initialModule =
@@ -316,6 +332,10 @@ export class MemoryAnalysis {
                 return of({moduleList: [], selectedModule: '', data: null});
               }
             }),
+            catchError((error) => {
+              this.errorMessage = error.message;
+              return of({moduleList: [], selectedModule: '', data: null});
+            }),
           );
         }),
         takeUntilDestroyed(this.destroyRef),
@@ -329,6 +349,11 @@ export class MemoryAnalysis {
 
   private loadModuleDataObservable(): Observable<unknown> {
     this.loading.set(true);
+    this.store.dispatch(
+      setLoadingStateAction({
+        loadingState: {loading: true, message: 'Loading module data...'},
+      }),
+    );
     return this.dataService.getDataByModuleNameAndMemorySpace(
       'memory_analysis',
       this.sessionId,
@@ -340,7 +365,13 @@ export class MemoryAnalysis {
 
   private loadModuleData(): void {
     this.loadModuleDataObservable()
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(
+        catchError((error) => {
+          this.errorMessage = error.message;
+          return of(null);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe((data) => {
         this.handleModuleData(data);
       });
@@ -348,6 +379,11 @@ export class MemoryAnalysis {
 
   private handleModuleData(data: unknown): void {
     this.loading.set(false);
+    this.store.dispatch(
+      setLoadingStateAction({
+        loadingState: {loading: false, message: ''},
+      }),
+    );
     if (data) {
       this.selectedSpace = 'all';
       // Cast unknown data to RawMemoryAnalysisResult

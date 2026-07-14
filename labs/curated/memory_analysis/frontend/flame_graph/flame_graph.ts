@@ -155,7 +155,7 @@ export class MemoryFlameGraph {
 
   readonly viewWidth = 1200;
 
-  private readonly barHeight = 60;
+  private readonly barHeight = 42;
   private readonly rowSpacing = 2;
 
   private lastRootNode?: TreeNode;

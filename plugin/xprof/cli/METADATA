@@ -1,0 +1,8 @@
+# go/google3metadata
+# proto-file: devtools/metadata/metadata.proto
+# proto-message: MetaData
+
+presubmit: {
+  path_expression: "//depot/google3/third_party/xprof/plugin/xprof/cli/..."
+  review_notify: "xprof-agent-team"
+}

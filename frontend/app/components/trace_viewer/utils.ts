@@ -72,7 +72,7 @@ export function parseEventsSelectedData(dataString: string): {
   let isCounter = false;
 
   try {
-    const data = JSON.parse(dataString) as unknown;
+    const data = JSON.parse(dataString) as Record<string, unknown>;
 
     let metricsData: MetricsItem[] = [];
     let countersData: CounterSelectionItem[] = [];

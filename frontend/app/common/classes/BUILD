@@ -1,4 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("//defs:defs.bzl", "ts_library")
 
 package(default_visibility = ["@org_xprof//frontend:__subpackages__"])
 

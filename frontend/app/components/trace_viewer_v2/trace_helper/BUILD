@@ -1,9 +1,8 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 load("@rules_proto//proto:defs.bzl", "proto_library")
+load("//defs:defs.bzl", "ts_library")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",

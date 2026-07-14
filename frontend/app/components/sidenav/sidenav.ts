@@ -79,7 +79,7 @@ export class SideNav implements OnInit, OnDestroy {
     // TODO(b/241842487): stream is not updated when the state change, should
     // trigger subscribe reactively
     this.runToolsMap$.subscribe((runTools: RunToolsMap) => {
-      this.runToolsMap = runTools;
+      this.runToolsMap = runTools || {};
       this.runs = Object.keys(this.runToolsMap);
     });
     this.currentRun$.subscribe((run) => {
@@ -100,39 +100,43 @@ export class SideNav implements OnInit, OnDestroy {
 
   // Getter for valid run given url router or user selection.
   get selectedRun() {
+    const list = Array.isArray(this.runs) ? this.runs : [];
     return (
-      this.runs.find((validRun) => validRun === this.selectedRunInternal) ||
-      this.runs[0] ||
+      list.find((validRun) => validRun === this.selectedRunInternal) ||
+      list[0] ||
       ''
     );
   }
 
   // Getter for valid tag given url router or user selection.
   get selectedTag() {
+    const list = Array.isArray(this.tags) ? this.tags : [];
     return (
-      this.tags.find((validTag) =>
+      list.find((validTag) =>
         validTag.startsWith(this.selectedTagInternal),
       ) ||
-      this.tags[0] ||
+      list[0] ||
       ''
     );
   }
 
   // Getter for valid host given url router or user selection.
   get selectedHost() {
+    const list = Array.isArray(this.hosts) ? this.hosts : [];
     return (
-      this.hosts.find((host) => host === this.selectedHostInternal) ||
-      this.hosts[0] ||
+      list.find((host) => host === this.selectedHostInternal) ||
+      list[0] ||
       ''
     );
   }
 
   get selectedModule() {
+    const list = Array.isArray(this.moduleList) ? this.moduleList : [];
     return (
-      this.moduleList.find(
+      list.find(
         (module) => module === this.selectedModuleInternal,
       ) ||
-      this.moduleList[0] ||
+      list[0] ||
       ''
     );
   }

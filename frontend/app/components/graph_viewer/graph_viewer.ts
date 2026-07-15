@@ -809,9 +809,9 @@ export class GraphViewer implements OnDestroy {
       return;
     } else {
       this.loadingGraph = false;
-      const htmlSize = (
-        document.getElementById('graph-html') as HTMLIFrameElement
-      ).contentDocument!.documentElement.innerHTML.length;
+      const iframe = this.graphRef?.nativeElement as HTMLIFrameElement;
+      const htmlSize =
+        iframe?.contentDocument?.documentElement?.innerHTML?.length || 0;
       if (htmlSize > GRAPH_HTML_THRESHOLD) {
         this.onCompleteLoad({
           warnings: [

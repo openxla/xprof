@@ -88,23 +88,21 @@ xprof_ng_module(
     srcs = [
         "graph_viewer_screenshot_test.ts",
     ],
-    assets = [
-        ":graph_viewer_css",
-        "graph_viewer.ng.html",
-    ],
     tags = ["requires-net:external"],
     deps = [
         ":graph_viewer",
         "//javascript/angular2/testing/catalyst/async",
+        "//learning/brain/mobile/lite/tooling/model_graph_visualizer",
         # ksf,
         "@npm//@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@npm//@angular/router",
         "@npm//rxjs",
+        "@npm//safevalues",
+        "//third_party/javascript/safevalues/dom",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
-        "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/common/utils:testing",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
@@ -119,4 +117,14 @@ sass_binary(
     deps = [
         "@org_xprof//frontend/app/styles:common",
     ],
+)
+
+filegroup(
+    name = "scuba_goldens",
+    srcs = ["@org_xprof//frontend/app/components/graph_viewer/scuba_goldens"],
+)
+
+filegroup(
+    name = "testdata",
+    srcs = glob(["testdata/*.html"]),
 )

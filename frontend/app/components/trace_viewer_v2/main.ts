@@ -213,10 +213,24 @@ declare global {
 }
 
 /**
+ * Interface representing raw trace event data with string index signatures.
+ */
+export interface RawData {
+  [key: string]: string | number;
+}
+
+/**
+ * Interface representing raw details data with string index signatures.
+ */
+export interface RawDetailsData {
+  [key: string]: boolean | undefined;
+}
+
+/**
  * Interface for the trace data loaded by the trace viewer.
  */
 export declare interface TraceData {
-  traceEvents: Array<{[key: string]: unknown}>;
+  traceEvents: RawData[];
   fullTimespan?: [number, number];
   details?: TraceDetails;
 }
@@ -239,7 +253,7 @@ export function isTraceData(data: unknown): data is TraceData {
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
 function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+  const rawDetails = jsonData.details;
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
@@ -250,9 +264,9 @@ function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
-    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    const rawDetailsObj = rawDetails as unknown as RawDetailsData;
     if (rawDetailsObj['full_dma'] !== undefined) {
-      details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
+      details.set('full_dma', rawDetailsObj['full_dma']);
     }
   }
 
@@ -1119,7 +1133,7 @@ export async function traceViewerV2Main(
         const normalizedData: TraceData = {
           ...jsonData,
           traceEvents: Array.isArray(jsonData?.['traceEvents'])
-            ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
+            ? (jsonData['traceEvents'] as RawData[])
             : [],
         };
         traceviewerModule.setSearchResultsInWasm(normalizedData);

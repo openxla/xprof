@@ -915,7 +915,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     const {name, module} = getHloNameAndModule(this.selectedEventProperties);
-    if (!name || !module) return;
+    if (!name || !module || module === 'default' || module === 'NO_MODULE') {
+      return;
+    }
 
     const key = `${name}-${module}`;
     const cachedAdjNodes = this.hloAdjacentNodesCache.get(key);

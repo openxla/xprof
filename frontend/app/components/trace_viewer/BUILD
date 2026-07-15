@@ -62,6 +62,8 @@ xprof_ng_module(
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/common",
+        "@npm//@angular/core",
+        "@npm//@angular/core_testing",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//rxjs",

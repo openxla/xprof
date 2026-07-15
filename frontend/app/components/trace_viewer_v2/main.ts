@@ -215,10 +215,30 @@ declare global {
 /**
  * Interface for the trace data loaded by the trace viewer.
  */
-export declare interface TraceData {
-  traceEvents: Array<{[key: string]: unknown}>;
+export interface RawData {
+  [key: string]: string | number;
+}
+
+export interface RawDetailsData {
+  [key: string]: boolean | undefined;
+}
+
+export interface RawDetailItem {
+  name?: string;
+  value?: boolean;
+}
+
+export interface RawTraceData {
+  [key: string]: RawData[] | [number, number] | TraceDetails | RawDetailsData | RawDetailItem[] | undefined;
+  traceEvents?: RawData[];
   fullTimespan?: [number, number];
-  details?: TraceDetails;
+  details?: TraceDetails | RawDetailsData | RawDetailItem[];
+}
+
+export declare interface TraceData {
+  traceEvents: RawData[];
+  fullTimespan?: [number, number];
+  details?: TraceDetails | RawDetailsData | RawDetailItem[];
 }
 
 /**
@@ -239,20 +259,24 @@ export function isTraceData(data: unknown): data is TraceData {
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
 function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+  const rawDetails = jsonData.details;
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
   if (Array.isArray(rawDetails)) {
     for (const d of rawDetails) {
-      if (d && typeof d === 'object' && d.name === 'full_dma') {
+      if (d && typeof d === 'object' && d.name === 'full_dma' && d.value !== undefined) {
         details.set('full_dma', d.value);
       }
     }
+  } else if (rawDetails instanceof Map) {
+    if (rawDetails.has('full_dma')) {
+      details.set('full_dma', rawDetails.get('full_dma')!);
+    }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
-    const rawDetailsObj = rawDetails as Record<string, unknown>;
+    const rawDetailsObj = rawDetails as RawDetailsData;
     if (rawDetailsObj['full_dma'] !== undefined) {
-      details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
+      details.set('full_dma', rawDetailsObj['full_dma']);
     }
   }
 
@@ -1112,14 +1136,14 @@ export async function traceViewerV2Main(
       } else {
         const jsonData = (await loadJsonDataInternal(
           urlObj.toString(),
-        )) as Record<string, unknown>;
+        )) as RawTraceData;
         // Mirror the legacy behavior: gently default to an empty array if
         // traceEvents is missing so that the WASM module can safely clear out
         // any previous search results.
         const normalizedData: TraceData = {
           ...jsonData,
           traceEvents: Array.isArray(jsonData?.['traceEvents'])
-            ? (jsonData['traceEvents'] as Array<{[key: string]: unknown}>)
+            ? (jsonData['traceEvents'] as RawData[])
             : [],
         };
         traceviewerModule.setSearchResultsInWasm(normalizedData);

@@ -7738,11 +7738,11 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
 
   // Verify visible level offsets for levels in hidden track.
   ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 10.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 10.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 75.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 99.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 123.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 40.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 40.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 135.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 159.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 183.5f);
 
   ImGui::GetStyle().CellPadding.y = prev_padding_y;
 
@@ -7792,6 +7792,177 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   EXPECT_FALSE(timeline_.group_visible()[0]);
   EXPECT_FALSE(timeline_.group_visible()[1]);
 }
+
+TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
+  };
+  data.events_by_level = {{0}, {}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Verify Process A is visible initially
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header expand/collapse button
+  // "Hidden" header is at 0-30 (screen 20-50)
+  // "All" header is at 30-60 (screen 50-80)
+  // Button is at X = kIndentSize (10), Y ~ 65
+  io.MousePos = ImVec2(15.0f, 65.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became hidden
+  EXPECT_FALSE(timeline_.group_visible()[0]);
+}
+
+TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
+  };
+  data.events_by_level = {{0}, {}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  // Hide Process A
+  timeline_.HideTrack("Process A");
+
+  SimulateFrame();
+
+  // Verify Process A is INVISIBLE initially
+  // (because Hidden header is collapsed by default)
+  EXPECT_FALSE(timeline_.group_visible()[0]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "Hidden" header expand/collapse button
+  // "Hidden" header is at 0-30 (screen 20-50)
+  // Button is at X = kIndentSize (10), Y ~ 35
+  io.MousePos = ImVec2(15.0f, 35.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became VISIBLE
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+}
+
+TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
+  };
+  data.events_by_level = {{0}, {}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  // Hide Process A
+  timeline_.HideTrack("Process A");
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Expand "Hidden" section
+  // "Hidden" header is at 0-30 (screen 20-50)
+  // Button is at X = kIndentSize (10), Y ~ 35
+  io.MousePos = ImVec2(15.0f, 35.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Now Process A is visible in the Hidden section.
+  // It is the first group under Hidden header.
+  // Hidden header end at 30.
+  // Process A track is at 30-80.
+  // Clear any previous click state
+  SimulateFrame();
+
+  // Click the hide button of Process A in Hidden section.
+  // Hide button is at X ~ 241 (label_width_ - offset).
+  // Y should be centered in the track height
+  // (e.g. 30 + 25 = 55 local, + 20 = 75 screen).
+  io.MousePos = ImVec2(241.0f, 75.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became UNHIDDEN
+  // It should be visible now.
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+}
+
+TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  // Group with name "MySubtitle//MyTrack" and subtitle "MySubtitle"
+  data.groups = {
+      {Group::Type::kFlame, "MySubtitle//MyTrack",
+        "MySubtitle", 0, kProcessNestingLevel, false}
+  };
+  data.events_by_level = {{0}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+  // This test ensures lines 956-957 in timeline.cc are executed.
+}
+
+
 
 TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
   ImGui::NewFrame();

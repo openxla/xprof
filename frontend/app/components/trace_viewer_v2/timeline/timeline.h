@@ -325,11 +325,12 @@ class Timeline {
   }
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
-  void HideTrack(const absl::string_view name);
+  void HideTrack(absl::string_view name);
 
   void Draw();
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
+  void BuildFlattenedGroups(const FlameChartTimelineData& data);
 
   // Expands the minimum necessary tracks to make the event visible.
   void ExpandRelatedTracks(int event_index);
@@ -485,6 +486,12 @@ class Timeline {
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
+  // Draws a header row (All or Hidden) in the timeline.
+  // Returns true if layout update is needed.
+  bool DrawHeaderRow(const Group* group_ptr, const ImVec2& tracks_start_pos,
+                     const ImVec2& tracks_start_screen_pos, Pixel group_top,
+                     Pixel group_bottom);
+
   // Draws a standard track row in the timeline.
   // Returns true if layout update is needed.
   bool DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
@@ -492,7 +499,6 @@ class Timeline {
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
                     Pixel window_height);
-
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.
@@ -511,7 +517,7 @@ class Timeline {
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  void DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
+  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -601,6 +607,30 @@ class Timeline {
   static constexpr ImGuiWindowFlags kTrackFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
+  // Returns the y-coordinate of the top of the given group in the track area.
+  Pixel GetGroupTop(const Group* group) const;
+  // Returns the y-coordinate of the bottom of the given group in the track
+  // area.
+  Pixel GetGroupBottom(const Group* group) const;
+
+  // Flattened sequence of virtual headers and group tracks.
+  // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  std::vector<const Group*> flattened_groups_;
+  // Synthetic groups for headers.
+  Group header_all_{.name = kAllHeaderName,
+                    .nesting_level = kHeaderNestingLevel};
+  Group header_hidden_{.name = kHiddenHeaderName,
+                      .nesting_level = kHeaderNestingLevel};
+  // Y coordinate offsets of section headers cached from layout computation.
+  Pixel header_all_offset_ = 0.0f;
+  Pixel header_hidden_offset_ = 0.0f;
+  // Persistent expansion/collapse states of section headers.
+  bool header_hidden_expanded_ = false;
+  bool header_all_expanded_ = true;
+  // Caching counts of unhidden and hidden process tracks.
+  int all_processes_count_ = 0;
+  int hidden_processes_count_ = 0;
+
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;
 
@@ -623,6 +653,7 @@ class Timeline {
   // This prevents memory access out of bounds when `group_offsets_.back()`
   // is called during rendering before timeline_data_ has been fully loaded.
   std::vector<Pixel> group_offsets_ = {0.0f};
+  std::vector<Pixel> group_heights_;
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;

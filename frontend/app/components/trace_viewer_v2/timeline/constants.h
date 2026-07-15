@@ -80,6 +80,7 @@ inline constexpr Pixel kThreadTrackGap = 4.0f;
 // Padding on the right to prevent content from touching the window edge.
 inline constexpr Pixel kTimelinePaddingRight = 1.0f;
 inline constexpr Pixel kToastCornerRounding = 4.0f;
+inline constexpr Pixel kVirtualHeaderHeight = 30.0f;
 inline constexpr double kEpsilon = 0.001;
 // The scale factor applied to the font size to determine the arrow / icon size.
 inline constexpr float kIconSizeScale = 0.7f;
@@ -115,6 +116,13 @@ inline constexpr int kHeaderNestingLevel = 0;
 inline constexpr int kProcessNestingLevel = 1;
 inline constexpr int kThreadNestingLevel = 2;
 // go/keep-sorted end
+
+// Virtual Header ID Constants
+// go/keep-sorted start
+inline constexpr int kAllHeaderId = 100000;
+inline constexpr int kHiddenHeaderId = 200000;
+// go/keep-sorted end
+
 
 // Time Range Selection Constants
 // go/keep-sorted start

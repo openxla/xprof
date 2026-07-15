@@ -96,6 +96,11 @@
         </div>
       </div>
     </div>
+    <div *ngIf="isFullscreenEnabled" class="fullscreen-container">
+      <button type="button" mat-icon-button (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
+      </button>
+    </div>
     <div class="spacer"></div>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>

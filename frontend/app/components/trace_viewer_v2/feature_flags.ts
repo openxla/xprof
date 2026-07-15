@@ -37,6 +37,11 @@ const FEATURE_FLAGS = {
     description: 'Enable the track management feature in Trace Viewer.',
     default: false,
   },
+  'fullscreen': {
+    name: 'Fullscreen Mode',
+    description: 'Enable the fullscreen button in the Trace Viewer.',
+    default: false,
+  },
 } as const;
 
 /**

@@ -25,6 +25,7 @@ import {MatProgressSpinnerModule} from '@angular/material/progress-spinner';
 import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {AngularSplitModule} from 'angular-split';
 import {
   isSearchEventsEvent,
@@ -227,6 +228,7 @@ declare interface TfTraceViewer {
     MatSortModule,
     MatTableModule,
     MatTabsModule,
+    MatTooltipModule,
   ],
 })
 export class TraceViewerContainer
@@ -241,6 +243,25 @@ export class TraceViewerContainer
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
+  /** Whether the fullscreen button should be shown. */
+  @Input() isFullscreenEnabled = false;
+
+  /** Whether the component is currently in fullscreen mode. */
+  isFullscreen = false;
+
+  /** Toggles the fullscreen mode for the trace viewer component. */
+  toggleFullscreen(): void {
+    const element = this.el.nativeElement as HTMLElement;
+    if (this.isFullscreen) {
+      if (document.exitFullscreen) {
+        void document.exitFullscreen();
+      }
+    } else {
+      if (element.requestFullscreen) {
+        void element.requestFullscreen();
+      }
+    }
+  }
 
   isSingleEventTable(): boolean {
     return this.eventDetailColumns.length <= 2;
@@ -382,7 +403,7 @@ export class TraceViewerContainer
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
-  constructor() {
+  constructor(private readonly el: ElementRef) {
     this.search$
       .pipe(
         debounceTime(300),
@@ -424,6 +445,10 @@ export class TraceViewerContainer
       MOUSE_MODE_CHANGED_EVENT_NAME,
       this.mouseModeChangedEventListener,
     );
+    document.addEventListener(
+      'fullscreenchange',
+      this.fullscreenChangeEventListener,
+    );
   }
 
   ngAfterViewInit() {
@@ -455,6 +480,10 @@ export class TraceViewerContainer
     window.removeEventListener(
       MOUSE_MODE_CHANGED_EVENT_NAME,
       this.mouseModeChangedEventListener,
+    );
+    document.removeEventListener(
+      'fullscreenchange',
+      this.fullscreenChangeEventListener,
     );
     if (!this.useTraceViewerV2) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
@@ -532,6 +561,10 @@ export class TraceViewerContainer
     if (isMouseModeChangedEvent(e)) {
       this.setMouseMode(e.detail.mouseMode);
     }
+  };
+
+  private readonly fullscreenChangeEventListener = () => {
+    this.isFullscreen = !!document.fullscreenElement;
   };
 
   private readonly eventSelectedEventListener = (e: Event) => {

@@ -17,6 +17,8 @@ pytype_strict_library(
         "@org_xprof//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_graph_viewer_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "@org_xprof//plugin/xprof/cli/tools:get_llo_analysis_tool",
+        "@org_xprof//plugin/xprof/cli/tools:get_llo_debug_string_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_memory_profile_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_overview_tool",
         "@org_xprof//plugin/xprof/cli/tools:get_peak_allocations_tool",

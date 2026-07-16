@@ -3,9 +3,11 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   inject,
   ViewEncapsulation,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {
   FormBuilder,
   FormGroup,
@@ -92,6 +94,8 @@ export class KernelAnalysisComponent {
   private readonly fb = inject(FormBuilder);
   private readonly cdr = inject(ChangeDetectorRef);
 
+  private readonly destroyRef = inject(DestroyRef);
+
   constructor() {
     this.kernelForm = this.fb.nonNullable.group({
       'path': [''],
@@ -123,7 +127,7 @@ export class KernelAnalysisComponent {
     // Disable/Enable interval_us based on is_external_trigger
     for (const groupName of samplingGroups) {
       const group = this.kernelForm.get(groupName) as FormGroup;
-      group.get('is_external_trigger')?.valueChanges.subscribe((isExternal) => {
+      group.get('is_external_trigger')?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((isExternal) => {
         const intervalCtrl = group.get('interval_us');
         if (isExternal) {
           intervalCtrl?.disable();
@@ -133,14 +137,14 @@ export class KernelAnalysisComponent {
       });
     }
 
-    this.kernelForm.get('device_name')?.valueChanges.subscribe(() => {
+    this.kernelForm.get('device_name')?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       for (const groupName of samplingGroups) {
         const group = this.kernelForm.get(groupName) as FormGroup;
         group.get('indices')?.setValue([]);
       }
     });
 
-    this.kernelForm.valueChanges.subscribe(() => {
+    this.kernelForm.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
       this.cdr.markForCheck();
     });
   }

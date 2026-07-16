@@ -1,6 +1,6 @@
 /** CSS for an hlo stats component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -31,7 +31,7 @@
 }
 
 .table {
-  border: 1px solid $border-color;
+  border: 1px solid common.$border-color;
   margin: 0 16px;
 }
 
@@ -45,6 +45,6 @@
 }
 
 .control-title {
-  color: $content-secondary-color;
+  color: common.$content-secondary-color;
   margin-bottom: 5px;
 }

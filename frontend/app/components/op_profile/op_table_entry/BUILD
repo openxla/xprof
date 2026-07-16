@@ -48,5 +48,6 @@ sass_binary(
     sourcemap = False,
     deps = [
         "@org_xprof//frontend/app/components/op_profile:op_profile_common",
+        "@org_xprof//frontend/app/styles:common",
     ],
 )

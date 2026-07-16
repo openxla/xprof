@@ -1,6 +1,6 @@
 /** CSS for an overview page component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -27,7 +27,7 @@
 }
 
 .full-column {
-  @include border-right-gray;
+  @include common.border-right-gray;
   width: 100%;
 }
 

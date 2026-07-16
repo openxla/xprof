@@ -1,6 +1,6 @@
 /** CSS for an op talbe view component. */
 
-@import 'frontend/app/components/op_profile/op_profile_common';
+@use 'frontend/app/components/op_profile/op_profile_common';
 
 .header {
   display: flex;

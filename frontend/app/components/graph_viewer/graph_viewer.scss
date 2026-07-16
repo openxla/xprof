@@ -1,6 +1,6 @@
 /** CSS for a graph viewer component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: flex;

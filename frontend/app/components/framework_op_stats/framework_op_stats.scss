@@ -1,6 +1,6 @@
 /** CSS for a tensorflow stats component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -23,10 +23,10 @@
 }
 
 .mat-mdc-raised-button {
-  @include box-shadow-none;
-  @include border-black;
+  @include common.box-shadow-none;
+  @include common.border-black;
   border-radius: 0;
-  color: $button-focus-color;
+  color: common.$button-focus-color;
 }
 
 model-properties {

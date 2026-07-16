@@ -1,6 +1,6 @@
 /** CSS for a memory breakdown table component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 :host {
   display: block;
@@ -12,7 +12,7 @@ mat-form-field {
 }
 
 mat-icon {
-  color: $button-focus-color;
+  color: common.$button-focus-color;
   vertical-align: bottom;
 }
 

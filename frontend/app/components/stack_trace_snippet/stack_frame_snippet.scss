@@ -1,4 +1,4 @@
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 .stack-frame-snippet {
   border-radius: 0;
@@ -16,12 +16,12 @@
   border-radius: 0;
   min-height: 20px;
   max-height: 20px;
-  font-family: $code-font-family;
+  font-family: common.$code-font-family;
   white-space: nowrap;
 }
 
 .stack-frame-snippet code {
-  font-family: $code-font-family;
+  font-family: common.$code-font-family;
   font-size: 0.8125em;
 }
 

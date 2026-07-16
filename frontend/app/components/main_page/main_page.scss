@@ -1,6 +1,6 @@
 /** CSS for a main page component. */
 
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 mat-sidenav-container {
   background-color: #fff;
@@ -9,7 +9,7 @@ mat-sidenav-container {
 mat-sidenav {
   background: transparent;
   width: 340px;
-  @include border-right-gray
+  @include common.border-right-gray
 }
 
 mat-progress-bar {

@@ -119,13 +119,22 @@ function isEntrySelectedEvent(
 /**
  * The interface for a selected event.
  */
-export declare interface SelectedEvent {
+export interface SelectedEvent {
+  eventIndex?: number;
   name: string;
+  startUs?: number;
+  durationUs?: number;
   startUsFormatted?: string;
   durationUsFormatted?: string;
   stackTraceLinkHtml?: string;
   rooflineModelLinkHtml?: string;
   graphViewerLinkHtml?: string;
+  hloModule?: string;
+  hloOpName?: string;
+  args?: Record<string, unknown>;
+  pid?: number;
+  uid?: string;
+  [key: string]: unknown;
 }
 
 /**

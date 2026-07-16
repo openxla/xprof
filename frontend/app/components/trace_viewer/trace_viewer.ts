@@ -30,6 +30,7 @@ import {
 } from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {
   FeatureFlag,
+  getDefaultFeatureFlag,
   getFeatureFlags,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
@@ -223,16 +224,37 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly searchQuery = new ReplaySubject<string>(1);
   /** Returns whether compressed protobuf trace format (.pb) is enabled via query/localStorage. */
   get usePb(): boolean {
+    if (!this.useTraceViewerV2) {
+      return false;
+    }
+    const isJsonFormat =
+      new URLSearchParams(window.location.search).get('format') === 'json' ||
+      new URLSearchParams(window.location.search).get('use_pb') === 'false';
+    if (isJsonFormat) {
+      return false;
+    }
     const isPbFormat =
       new URLSearchParams(window.location.search).get('format') === 'pb';
     if (isPbFormat) {
       return true;
     }
     try {
-      return window.localStorage.getItem('use_pb_format') === 'true';
-    } catch {
-      return false;
-    }
+      const ffValue = window.localStorage.getItem(
+        FEATURE_FLAG_STORAGE_PREFIX + 'use_pb',
+      );
+      if (ffValue !== null) {
+        return ffValue === 'true';
+      }
+      const pbStorage = window.localStorage.getItem('use_pb_format');
+      if (pbStorage !== null) {
+        return pbStorage === 'true';
+      }
+      const oldKey = window.localStorage.getItem('use_pb');
+      if (oldKey !== null) {
+        return oldKey !== 'false';
+      }
+    } catch {}
+    return getDefaultFeatureFlag('use_pb');
   }
   /** @export */
   get searchQueryForTesting(): Observable<string> {

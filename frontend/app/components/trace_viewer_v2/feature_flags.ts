@@ -12,15 +12,12 @@ export declare interface FeatureFlag {
   default: boolean;
 }
 
-/**
- * The list of all available feature flags.
- * Enforced to be unique by design using object keys.
- */
 const FEATURE_FLAGS = {
   'use_pb': {
     name: 'Use Protobuf Pipeline in Trace Viewer',
-    description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
-    default: false,
+    description:
+      'Use the high-performance protobuf data pipeline in Trace Viewer. Uncheck to fallback to JSON.',
+    default: true,
   },
   'bookmarks': {
     name: 'Enable Bookmarks',
@@ -42,7 +39,6 @@ const FEATURE_FLAGS = {
 
 /**
  * Represents the union of all valid feature flag identifiers.
- * Derived dynamically from the keys of the static FEATURE_FLAGS configuration.
  */
 export type FeatureFlagId = keyof typeof FEATURE_FLAGS;
 
@@ -50,8 +46,14 @@ export type FeatureFlagId = keyof typeof FEATURE_FLAGS;
 const FEATURE_FLAGS_ARRAY: FeatureFlag[] = Object.entries(FEATURE_FLAGS).map(
   ([id, flag]) => ({
     id,
-    ...flag,
+    name: flag.name,
+    description: flag.description,
+    default: flag.default,
   }),
+);
+
+const FEATURE_FLAGS_MAP = new Map<string, FeatureFlag>(
+  FEATURE_FLAGS_ARRAY.map((f) => [f.id, f]),
 );
 
 /**
@@ -77,8 +79,7 @@ export function getDefaultFeatureFlag(id: string): boolean {
   const flags = featureFlagsInternal.getFeatureFlags();
   // Fast path for production: avoid iterating or allocating when using static flags.
   if (flags === FEATURE_FLAGS_ARRAY) {
-    const flag = FEATURE_FLAGS[id as FeatureFlagId];
-    return flag?.default ?? false;
+    return FEATURE_FLAGS_MAP.get(id)?.default ?? false;
   }
   // Fallback path for unit tests to support spies/mocks.
   const flag = flags.find((f) => f.id === id);
@@ -91,4 +92,49 @@ export function getDefaultFeatureFlag(id: string): boolean {
  */
 export function getAllFeatureFlags(): FeatureFlag[] {
   return FEATURE_FLAGS_ARRAY;
+}
+
+/**
+ * Storage key prefix for feature flags in localStorage.
+ */
+export const FEATURE_FLAG_STORAGE_PREFIX = 'xprof_ff_';
+
+/**
+ * Reads a feature flag's persisted value from localStorage.
+ */
+export function getStoredFeatureFlag(id: string): boolean {
+  try {
+    const storedValue = window.localStorage.getItem(
+      FEATURE_FLAG_STORAGE_PREFIX + id,
+    );
+    if (storedValue === 'true') return true;
+    if (storedValue === 'false') return false;
+  } catch {
+    // Ignore localStorage access failures (e.g. sandboxed iframe).
+  }
+  return getDefaultFeatureFlag(id);
+}
+
+/**
+ * Saves a feature flag's value to localStorage, purging default values and legacy keys.
+ */
+export function saveFeatureFlag(
+  id: string,
+  value: boolean,
+  defaultValue: boolean,
+): void {
+  const key = FEATURE_FLAG_STORAGE_PREFIX + id;
+  try {
+    if (value === defaultValue) {
+      window.localStorage.removeItem(key);
+    } else {
+      window.localStorage.setItem(key, value ? 'true' : 'false');
+    }
+    if (id === 'use_pb') {
+      window.localStorage.removeItem('use_pb');
+      window.localStorage.removeItem('use_pb_format');
+    }
+  } catch {
+    // Ignore localStorage write failures (e.g. sandboxed iframe).
+  }
 }

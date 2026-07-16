@@ -55,6 +55,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     window.sessionStorage.removeItem('searchParams');
 
     const searchParamsFromUrl = new URLSearchParams(platformLocation.search);
+    searchParamsFromUrl.delete('use_pb');
     if (searchParamsFromUrl.toString()) {
       window.sessionStorage.setItem(
         'searchParams',

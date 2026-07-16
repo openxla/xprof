@@ -93,6 +93,19 @@ interface TraceData {
 }
 
 /**
+ * Represents a selected event in the trace viewer, extending the base
+ * SelectedEvent with HLO and process metadata.
+ */
+export interface TraceViewerSelectedEvent extends SelectedEvent {
+  hloModule?: string;
+  hloOpName?: string;
+  args?: Record<string, unknown>;
+  pid?: number;
+  uid?: string;
+  [key: string]: unknown;
+}
+
+/**
  * An interface extending `FeatureFlag` to include the current boolean value
  * of the feature flag. This is used within the TraceViewer component to manage
  * and display feature flags, allowing users to toggle them and persist their
@@ -208,6 +221,19 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private queryString = '';
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
+  /** Returns whether compressed protobuf trace format (.pb) is enabled via query/localStorage. */
+  get usePb(): boolean {
+    const isPbFormat =
+      new URLSearchParams(window.location.search).get('format') === 'pb';
+    if (isPbFormat) {
+      return true;
+    }
+    try {
+      return window.localStorage.getItem('use_pb_format') === 'true';
+    } catch {
+      return false;
+    }
+  }
   /** @export */
   get searchQueryForTesting(): Observable<string> {
     return this.searchQuery;
@@ -587,6 +613,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       if (value) {
         additionalParams.set(key, 'true');
       }
+    }
+
+    if (this.usePb) {
+      additionalParams.set('format', 'pb');
     }
 
     const traceDataUrl = this.dataService.getDataUrl(

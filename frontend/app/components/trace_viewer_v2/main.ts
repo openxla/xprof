@@ -135,6 +135,11 @@ declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
+    gtag?: (
+      event: string,
+      action: string,
+      params: Record<string, unknown>,
+    ) => void;
   }
 }
 
@@ -218,7 +223,8 @@ declare global {
 export declare interface TraceData {
   traceEvents: Array<{[key: string]: unknown}>;
   fullTimespan?: [number, number];
-  details?: TraceDetails;
+  details?: unknown;
+  [key: string]: unknown;
 }
 
 /**
@@ -230,8 +236,8 @@ export function isTraceData(data: unknown): data is TraceData {
   return (
     typeof data === 'object' &&
     data !== null &&
-    data.hasOwnProperty('traceEvents') &&
-    Array.isArray((data as TraceData).traceEvents)
+    Object.prototype.hasOwnProperty.call(data, 'traceEvents') &&
+    Array.isArray((data as Record<string, unknown>)['traceEvents'])
   );
 }
 
@@ -239,20 +245,24 @@ export function isTraceData(data: unknown): data is TraceData {
  * Dispatches a DETAILS_RECEIVED_EVENT if the trace data contains details.
  */
 function maybeDispatchDetailsReceivedEvent(jsonData: TraceData) {
-  const rawDetails = jsonData.details as unknown;
+  const rawDetails = jsonData['details'];
   if (!rawDetails) return;
 
   const details: TraceDetails = new Map();
   if (Array.isArray(rawDetails)) {
     for (const d of rawDetails) {
-      if (d && typeof d === 'object' && d.name === 'full_dma') {
-        details.set('full_dma', d.value);
+      if (d && typeof d === 'object') {
+        const item = d as Record<string, unknown>;
+        if (item['name'] === 'full_dma' && typeof item['value'] === 'boolean') {
+          details.set('full_dma', item['value']);
+        }
       }
     }
   } else if (typeof rawDetails === 'object' && rawDetails !== null) {
     const rawDetailsObj = rawDetails as Record<string, unknown>;
-    if (rawDetailsObj['full_dma'] !== undefined) {
-      details.set('full_dma', rawDetailsObj['full_dma'] as boolean);
+    const fullDmaValue = rawDetailsObj['full_dma'];
+    if (typeof fullDmaValue === 'boolean') {
+      details.set('full_dma', fullDmaValue);
     }
   }
 
@@ -305,6 +315,27 @@ export function shutdownTraceViewerV2() {
   registeredEventListeners.length = 0;
 }
 
+/**
+ * Extension of GPUDevice that includes the lost promise for device disconnection handling.
+ */
+export interface GPUDeviceWithLost extends GPUDevice {
+  readonly lost: Promise<GPUDeviceLostInfo>;
+}
+
+/**
+ * Monitors a WebGPU device for disconnection and dispatches an error status event when lost.
+ */
+export function monitorDeviceLost(device: GPUDeviceWithLost): void {
+  void device.lost
+    .then((info) => {
+      const msg = `WebGPU Cannot be initialized - Device has been lost: ${
+        info?.message ?? 'unknown'
+      }`;
+      dispatchErrorStatus(msg, new Error(msg));
+    })
+    .catch(() => {});
+}
+
 async function getWebGpuDevice(): Promise<GPUDevice> {
   const gpu = navigator.gpu;
   if (!gpu) {
@@ -320,12 +351,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
       'WebGPU cannot be initialized - failed to get WebGPU device.',
     );
   }
-  // tslint:disable-next-line:no-any
-  (device as any).lost
-    .then(() => {
-      throw new Error('WebGPU Cannot be initialized - Device has been lost');
-    })
-    .catch(() => {});
+  monitorDeviceLost(device as GPUDeviceWithLost);
   return device;
 }
 
@@ -799,7 +825,10 @@ async function fetchAndProcessTraceData({
   updateUrlWithResolution(urlObj, traceviewerModule.canvas);
 
   try {
-    if (urlObj.pathname.endsWith('.pb')) {
+    if (
+      urlObj.pathname.endsWith('.pb') ||
+      urlObj.searchParams.get('format') === 'pb'
+    ) {
       const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
       if (isAbortRequested()) return;
 
@@ -1104,7 +1133,10 @@ export async function traceViewerV2Main(
         return;
       }
 
-      if (urlObj.pathname.endsWith('.pb')) {
+      if (
+        urlObj.pathname.endsWith('.pb') ||
+        urlObj.searchParams.get('format') === 'pb'
+      ) {
         const buffer = await loadCompressedTraceDataInternal(urlObj.toString());
         traceviewerModule.setCompressedSearchResultsInWasm(
           new Uint8Array(buffer),

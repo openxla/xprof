@@ -44,6 +44,17 @@ py_test(
 )
 
 py_test(
+    name = "get_llo_report_tool_test",
+    srcs = ["get_llo_report_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/tools:get_llo_report_tool",
+        "@tsl//tsl/profiler/protobuf:xplane_py_pb2",
+    ],
+)
+
+py_test(
     name = "get_kpi_metrics_tool_test",
     srcs = ["get_kpi_metrics_tool_test.py"],
     visibility = ["//visibility:public"],

@@ -43,6 +43,19 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "get_llo_report_tool",
+    srcs = ["get_llo_report_tool.py"],
+    visibility = ["//plugin:__subpackages__"],
+    deps = [
+        "@org_xprof//plugin/xprof/cli/internal:decorators",
+        "@org_xprof//plugin/xprof/cli/internal/oss:llo_parser",
+        "@org_xprof//plugin/xprof/cli/internal/oss:llo_report_generator",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "@tsl//tsl/profiler/protobuf:xplane_py_pb2",
+    ],
+)
+
+pytype_strict_library(
     name = "get_peak_allocations_tool",
     srcs = ["get_peak_allocations_tool.py"],
     visibility = ["//plugin:__subpackages__"],

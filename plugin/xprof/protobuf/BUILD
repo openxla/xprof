@@ -159,7 +159,10 @@ xprof_proto_library(
 xprof_proto_library(
     name = "steps_db_proto",
     srcs = ["steps_db.proto"],
-    protodeps = [":op_metrics_proto"],
+    protodeps = [
+        ":op_metrics_proto",
+        ":flat_op_metrics_proto",
+    ],
 )
 
 xprof_proto_library(

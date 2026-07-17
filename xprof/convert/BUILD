@@ -940,6 +940,35 @@ cc_library(
 )
 
 cc_library(
+    name = "flat_op_metrics_to_record",
+    srcs = ["flat_op_metrics_to_record.cc"],
+    hdrs = ["flat_op_metrics_to_record.h"],
+    deps = [
+        ":op_metrics_to_record",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_test(
+    name = "flat_op_metrics_to_record_test",
+    srcs = ["flat_op_metrics_to_record_test.cc"],
+    deps = [
+        ":flat_op_metrics_to_record",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
+    ],
+)
+
+cc_library(
     name = "op_stack",
     hdrs = ["op_stack.h"],
     deps = [
@@ -992,11 +1021,15 @@ cc_library(
     hdrs = ["op_stats_to_roofline_model.h"],
     deps = [
         ":data_table_utils",
+        ":flat_op_metrics_db_combiner",
+        ":flat_op_metrics_to_record",
         ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":source_info_utils",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -1269,6 +1302,7 @@ cc_library(
     srcs = ["step_events_to_steps_db.cc"],
     hdrs = ["step_events_to_steps_db.h"],
     deps = [
+        ":flat_op_metrics_db_combiner",
         ":op_metrics_db_combiner",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
@@ -1276,6 +1310,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/platform:logging",
@@ -1437,9 +1472,9 @@ cc_library(
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
-        "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:tf_op_utils",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:timespan",
@@ -1638,6 +1673,7 @@ cc_test(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:power_metrics_proto_cc",

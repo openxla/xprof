@@ -22,6 +22,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "xla/tsl/platform/types.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/power_metrics.pb.h"
@@ -232,6 +233,64 @@ TEST(CombineAllOpStatsTest, CombineDisaggregatedServingStats) {
   // (10 * 100 + 20 * 200) / 30 = 5000 / 30 = 166.666...
   EXPECT_NEAR(166.666666666, dst_serving_stats.decode_step_time_us().avg(),
               1e-6);
+}
+
+TEST(CombineAllOpStatsTest, CombineFlatOpMetricsDb) {
+  OpStats dst_op_stats, src_op_stats_1, src_op_stats_2;
+
+  auto* flat_db_1 = src_op_stats_1.mutable_flat_device_op_metrics_db();
+  auto* metric_1 = flat_db_1->add_op_instances();
+  metric_1->set_hlo_module_id(1);
+  metric_1->set_symbol_id(1);
+  metric_1->set_hlo_name("metric_1");
+  metric_1->set_time_ps(100);
+
+  auto* flat_db_2 = src_op_stats_2.mutable_flat_device_op_metrics_db();
+  auto* metric_2 = flat_db_2->add_op_instances();
+  metric_2->set_hlo_module_id(1);
+  metric_2->set_symbol_id(2);
+  metric_2->set_hlo_name("metric_2");
+  metric_2->set_time_ps(200);
+
+  auto* step_seq_1 = src_op_stats_1.mutable_step_db()->add_step_sequence();
+  step_seq_1->set_step_num(1);
+  auto* hlo_1 = step_seq_1->mutable_flat_hlo_metrics_db();
+  auto* hlo_metric_1 = hlo_1->add_op_instances();
+  hlo_metric_1->set_hlo_module_id(2);
+  hlo_metric_1->set_symbol_id(1);
+  hlo_metric_1->set_hlo_name("hlo_1");
+  hlo_metric_1->set_time_ps(50);
+
+  auto* step_seq_2 = src_op_stats_2.mutable_step_db()->add_step_sequence();
+  step_seq_2->set_step_num(1);
+  auto* hlo_2 = step_seq_2->mutable_flat_hlo_metrics_db();
+  auto* hlo_metric_2 = hlo_2->add_op_instances();
+  hlo_metric_2->set_hlo_module_id(2);
+  hlo_metric_2->set_symbol_id(2);
+  hlo_metric_2->set_hlo_name("hlo_2");
+  hlo_metric_2->set_time_ps(150);
+
+  OpStatsInfo op_stats_info_1(&src_op_stats_1, TPU, 0);
+  OpStatsInfo op_stats_info_2(&src_op_stats_2, TPU, 1);
+
+  std::vector<OpStatsInfo> all_op_stats_info = {op_stats_info_1,
+                                                op_stats_info_2};
+
+  absl::flat_hash_map<uint32_t /*host_id*/, const StepDatabaseResult*> result;
+  result.insert({0, &src_op_stats_1.step_db()});
+  result.insert({1, &src_op_stats_2.step_db()});
+  StepIntersection dummy_step_intersection = StepIntersection(1, result);
+
+  CombineAllOpStats(all_op_stats_info, dummy_step_intersection, &dst_op_stats,
+                    /*combine_flat_op_metrics_db=*/true);
+
+  EXPECT_EQ(dst_op_stats.flat_device_op_metrics_db().op_instances_size(), 2);
+  EXPECT_EQ(dst_op_stats.flat_hlo_metrics_db_complete_steps_only()
+                .op_instances_size(),
+            2);
+  // Negative invariants: Traditional DBs should be absent/empty.
+  EXPECT_FALSE(dst_op_stats.has_device_op_metrics_db());
+  EXPECT_FALSE(dst_op_stats.has_hlo_metrics_db_complete_steps_only());
 }
 
 }  // namespace

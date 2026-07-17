@@ -64,12 +64,17 @@ struct HLOTracker {
   bool is_eager;
   const HloInstructionWrapper* hlo_instruction = nullptr;
   std::string hlo_op_name;
+  uint64_t flops = 0;
+  uint64_t bytes_accessed = 0;
+  uint64_t occurrences = 0;
 
   void Reset() {
     duration = program_id = group_id = 0;
     vdd_energy_j = 0.0;
     hlo_op_name.clear();
     hlo_instruction = nullptr;
+    flops = bytes_accessed = 0;
+    occurrences = 0;
   }
 };
 
@@ -490,10 +495,15 @@ void AggregateHloFunc(HLOTracker& current, DeviceOpMetricsDbBuilder& metricDb) {
 
   DeviceOpMetricsDbBuilder::OpData event_data = {
       .is_eager = current.is_eager,
-      .occurrences = 1,
+      .occurrences = current.occurrences,
       .time_ps = current.duration,
       .children_time_ps = 0,
       .perf_info = current.hlo_instruction->GetPerformanceInfoWrapper(),
+      // TODO: Differentiate flops and model flops to account for data type
+      // variance.
+      .flops = static_cast<int64_t>(current.flops),
+      .bytes_accessed = static_cast<int64_t>(current.bytes_accessed),
+      .model_flops = static_cast<int64_t>(current.flops),
       .vdd_energy_j = current.vdd_energy_j,
   };
 
@@ -527,21 +537,29 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
               stats.group_id != current.group_id) {
             AggregateHloFunc(current, device_op_metrics_db_builder);
           }
-          // Merge identical and contiguous HLOs.
-          current.hlo_instruction = hlo_instruction;
-          current.hlo_op_name = stats.hlo_op_names.back();
+          if (current.occurrences == 0) {
+            current.hlo_instruction = hlo_instruction;
+            current.hlo_op_name = stats.hlo_op_names.back();
+            current.program_id = *stats.program_id;
+            if (stats.group_id.has_value()) {
+              current.group_id = *stats.group_id;
+            }
+            current.is_eager = stats.is_eager;
+          }
+          current.occurrences++;
           current.duration += event.DurationPs();
           event.ForEachStat(
               [&current](const tsl::profiler::XStatVisitor& stat) {
                 if (stat.Name() == "vdd_energy_j") {
                   current.vdd_energy_j += stat.DoubleValue();
+                } else if (stat.Name() == "flops") {
+                  // Store single occurrence value, assume identical for merged
+                  // ops.
+                  current.flops = stat.IntOrUintValue();
+                } else if (stat.Name() == "bytes_accessed") {
+                  current.bytes_accessed = stat.IntOrUintValue();
                 }
               });
-          current.is_eager = stats.is_eager;
-          current.program_id = *stats.program_id;
-          if (stats.group_id.has_value()) {
-            current.group_id = *stats.group_id;
-          }
         }
       } else if (stats.IsTfOp()) {
         AggregateHloFunc(current, device_op_metrics_db_builder);

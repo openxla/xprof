@@ -753,6 +753,63 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithSourceInfo) {
 #endif
 }
 
+TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithPerformanceInfo) {
+  std::string hlo_string = R"(
+    HloModule TestModule
+
+    ENTRY test {
+      p0 = f32[100,100]{1,0} parameter(0)
+      ROOT custom-call.1 = (f32[100,100]{1,0}) custom-call(p0),
+      custom_call_target="triton_kernel_call_ffi",
+      backend_config="{cost_estimate_json = \"{\\\"flops\\\": 1000, \\\"bytes_accessed\\\": 2000}\"}"
+    }
+  )";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+  HloModuleMap hlo_module_map;
+  auto cost_analysis = tensorflow::profiler::CreateXprofGpuCostAnalysis();
+  hlo_module_map.try_emplace(
+      /*program_id=*/1,
+      HloModuleWrapper(std::move(hlo_module), std::move(cost_analysis)));
+
+  XSpace xspace;
+  XPlane* xplane =
+      tsl::profiler::GetOrCreateGpuXPlane(&xspace, /*device_ordinal=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+
+  // Create two contiguous events for the same XLA op.
+  tsl::profiler::CreateXEvent(&device_plane, &stream1, "custom-call.1",
+                              /*offset_ps=*/100,
+                              /*duration_ps=*/10,
+                              {{StatType::kHloOp, "xla::op::custom-call.1"},
+                               {StatType::kProgramId, 1}});
+  tsl::profiler::CreateXEvent(&device_plane, &stream1, "custom-call.1",
+                              /*offset_ps=*/110,
+                              /*duration_ps=*/15,
+                              {{StatType::kHloOp, "xla::op::custom-call.1"},
+                               {StatType::kProgramId, 1}});
+
+  OpMetricsDb op_metrics =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane, hlo_module_map);
+
+  // We expect 2 metrics: the custom-call op, and IDLE.
+  ASSERT_EQ(2, op_metrics.metrics_db_size());
+
+  OpMetrics op = op_metrics.metrics_db().at(0);
+  EXPECT_EQ(op.name(), "custom-call.1");
+  EXPECT_EQ(op.occurrences(), 2);
+  EXPECT_EQ(op.time_ps(), 25);  // 10 + 15
+
+  // Costs should be scaled by occurrences (2).
+  EXPECT_EQ(op.flops(), 2000);  // 1000 * 2
+  EXPECT_EQ(op.flops_v2(), 2000.0);
+  EXPECT_EQ(op.bytes_accessed(), 4000);  // 2000 * 2
+
+  OpMetrics idle = op_metrics.metrics_db().at(1);
+  EXPECT_EQ(idle.name(), "IDLE");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

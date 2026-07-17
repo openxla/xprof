@@ -1,4 +1,4 @@
-@import 'frontend/app/styles/common';
+@use 'frontend/app/styles/common';
 
 mat-dialog-content {
   display: flex;
@@ -13,6 +13,6 @@ div {
 }
 
 .mat-mdc-raised-button {
-  @include box-shadow-none;
-  @include border-black;
+  @include common.box-shadow-none;
+  @include common.border-black;
 }

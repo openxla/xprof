@@ -1,6 +1,3 @@
-> [!IMPORTANT]
-> XProf is hiring\! Apply now at <https://g.co/jobs/xprof>
-
 <div align="center">
 <h1>XProf (+ Tensorboard Profiler Plugin)</h1>
 <p>An open, scalable, and extensible profiler for the modern ML stack.</p>

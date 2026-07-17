@@ -217,6 +217,9 @@ mat-progress-bar {
 }
 
 .callout header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   color: #fff;
   line-height: 24px;
   font-weight: 500;

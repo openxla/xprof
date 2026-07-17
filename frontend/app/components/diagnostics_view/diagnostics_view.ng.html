@@ -1,19 +1,34 @@
-<div *ngIf="diagnostics.errors.length" class="callout is-critical">
-  <header>Errors</header>
+<div *ngIf="showErrors && diagnostics.errors.length" class="callout is-critical">
+  <header>
+    <span>Errors</span>
+    <button mat-icon-button (click)="showErrors = false">
+      <mat-icon>close</mat-icon>
+    </button>
+  </header>
   <ul class="callout-list">
     <li *ngFor="let error of diagnostics.errors" [innerHtml]="error">
     </li>
   </ul>
 </div>
-<div *ngIf="diagnostics.warnings.length" class="callout is-important">
-  <header>Warnings</header>
+<div *ngIf="showWarnings && diagnostics.warnings.length" class="callout is-important">
+  <header>
+    <span>Warnings</span>
+    <button mat-icon-button (click)="showWarnings = false">
+      <mat-icon>close</mat-icon>
+    </button>
+  </header>
   <ul class="callout-list">
     <li *ngFor="let warning of diagnostics.warnings" [innerHtml]="warning">
     </li>
   </ul>
 </div>
-<div *ngIf="diagnostics.info.length" class="callout is-helpful">
-  <header>Info</header>
+<div *ngIf="showInfo && diagnostics.info.length" class="callout is-helpful">
+  <header>
+    <span>Info</span>
+    <button mat-icon-button (click)="showInfo = false">
+      <mat-icon>close</mat-icon>
+    </button>
+  </header>
   <ul class="callout-list">
     <li *ngFor="let info of diagnostics.info" [innerHtml]="info">
     </li>

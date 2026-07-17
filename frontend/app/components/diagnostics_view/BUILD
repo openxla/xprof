@@ -15,6 +15,8 @@ xprof_ng_module(
     ],
     deps = [
         "@npm//@angular/core",
+        "@org_xprof//frontend/app/common/angular:angular_material_button",
+        "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )

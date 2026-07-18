@@ -40,6 +40,9 @@ FlatOpMetricsDb ConvertTensorCoreDeviceTraceXPlaneToFlatOpMetricsDb(
 FlatOpMetricsDb ConvertDeviceTraceXPlaneToFlatOpMetricsDb(
     const XPlane& device_trace, const HloModuleMap& hlo_module_map);
 
+FlatOpMetricsDb ConvertHostThreadsXPlaneToFlatOpMetricsDb(
+    const XPlane& host_trace);
+
 }  // namespace profiler
 }  // namespace tensorflow
 

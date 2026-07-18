@@ -144,6 +144,12 @@ void FlatOpMetricsDbCombiner::Combine(const FlatOpMetricsDb& src,
   dst->set_busy_time_ps(src.busy_time_ps() + dst->busy_time_ps());
   dst->set_normalized_total_op_time_ps(src.normalized_total_op_time_ps() +
                                        dst->normalized_total_op_time_ps());
+  dst->set_total_host_infeed_enq_duration_ps(
+      src.total_host_infeed_enq_duration_ps() +
+      dst->total_host_infeed_enq_duration_ps());
+  dst->set_total_host_infeed_enq_start_timestamp_ps_diff(
+      src.total_host_infeed_enq_start_timestamp_ps_diff() +
+      dst->total_host_infeed_enq_start_timestamp_ps_diff());
 
   // Removed assignment of perf_env, device_type, and program_id_to_name_map
   // as they were removed from the proto definition.

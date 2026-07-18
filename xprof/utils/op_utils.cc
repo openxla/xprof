@@ -345,5 +345,41 @@ void DeviceFlatOpMetricsDbBuilder::EnterOp(const OpIdentifier& op_id,
   db()->set_total_op_time_ps(db()->total_op_time_ps() + self_time_ps);
 }
 
+void HostFlatOpMetricsDbBuilder::EnterOp(absl::string_view name,
+                                         absl::string_view category,
+                                         bool is_eager, uint64_t time_ps,
+                                         uint64_t children_time_ps,
+                                         int64_t id) {
+  uint64_t self_time_ps = time_ps - children_time_ps;
+  DCHECK_GE(time_ps, self_time_ps);
+  FlatOpMetrics* op_metrics =
+      LookupOrInsertNewFlatOpMetrics(/*hlo_module_id=*/id, name);
+  if (op_metrics->category().empty())
+    op_metrics->set_category(category.data(), category.size());
+  op_metrics->set_num_cores(1);
+  op_metrics->set_is_eager(op_metrics->is_eager() || is_eager);
+  op_metrics->set_occurrences(op_metrics->occurrences() + 1);
+  op_metrics->set_time_ps(op_metrics->time_ps() + time_ps);
+  op_metrics->set_self_time_ps(op_metrics->self_time_ps() + self_time_ps);
+  db()->set_total_op_time_ps(db()->total_op_time_ps() + self_time_ps);
+}
+
+void HostFlatOpMetricsDbBuilder::EnterHostInfeedEnqueue(
+    tsl::profiler::Timespan host_infeed_enqueue) {
+  if (!last_host_infeed_enqueue_.Empty()) {
+    // Expect non-overlapping InfeedEnqueue timespans sorted by time.
+    DCHECK_GE(host_infeed_enqueue.end_ps(),
+              last_host_infeed_enqueue_.begin_ps());
+    db()->set_total_host_infeed_enq_duration_ps(
+        db()->total_host_infeed_enq_duration_ps() +
+        last_host_infeed_enqueue_.duration_ps());
+    db()->set_total_host_infeed_enq_start_timestamp_ps_diff(
+        db()->total_host_infeed_enq_start_timestamp_ps_diff() +
+        (host_infeed_enqueue.begin_ps() -
+         last_host_infeed_enqueue_.begin_ps()));
+  }
+  last_host_infeed_enqueue_ = host_infeed_enqueue;
+}
+
 }  // namespace profiler
 }  // namespace tensorflow

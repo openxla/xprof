@@ -28,6 +28,7 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
@@ -82,6 +83,9 @@ StepSummary ComputeStepTimeSummaryInMs(
 void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
                         InputPipelineAnalysisResult* result);
 
+void GenerateHostResult(const FlatOpMetricsDb& host_tf_metrics_db,
+                        InputPipelineAnalysisResult* result);
+
 InputPipelineAnalysisRecommendation GenerateRecommendation();
 
 // For TPU, we may have mis-regarded some host overhead as idle time.
@@ -90,6 +94,11 @@ InputPipelineAnalysisRecommendation GenerateRecommendation();
 void MayFixTpuStepAnalysis(
     const StepEvents& host_step_events, const OpMetricsDb& device_op_metrics_db,
     StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
+
+void MayFixTpuStepAnalysis(
+    const StepEvents& host_step_events,
+    const FlatOpMetricsDb& flat_op_metrics_db, StepDatabaseResult& step_db,
     const tsl::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
 
 // Returns a struct that describes the performance bottleneck of the

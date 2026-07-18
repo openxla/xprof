@@ -47,6 +47,7 @@ limitations under the License.
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
 #include "xprof/convert/op_metrics_to_record.h"
+#include "xprof/convert/flat_op_metrics_to_record.h"
 #include "xprof/convert/profile_time_breakdown.h"
 #include "xprof/convert/step_events_to_steps_db.h"
 #include "xprof/convert/tpu_input_pipeline_analysis_constants.h"
@@ -59,6 +60,7 @@ limitations under the License.
 #include "xprof/utils/event_span.h"
 #include "xprof/utils/html_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/tpu_step_breakdown_utils.h"
 #include "xprof/utils/tpu_step_details_utils.h"
 
@@ -379,6 +381,22 @@ struct InputOpMetrics {
   uint64_t input_op_time_ps = 0;
 };
 
+struct FlatInputOpMetrics {
+  std::vector<const FlatOpMetrics*> input_op_metrics;
+  uint64_t input_op_time_ps = 0;
+};
+
+FlatInputOpMetrics SelectInputOpMetrics(const FlatOpMetricsDb& all_op_metrics) {
+  FlatInputOpMetrics input_op_metrics;
+  for (const FlatOpMetrics* op_metrics : SortedOpMetricsDb(all_op_metrics)) {
+    if (IsInputOp(op_metrics->category())) {
+      input_op_metrics.input_op_metrics.push_back(op_metrics);
+      input_op_metrics.input_op_time_ps += op_metrics->self_time_ps();
+    }
+  }
+  return input_op_metrics;
+}
+
 InputOpMetrics SelectInputOpMetrics(const OpMetricsDb& all_op_metrics) {
   InputOpMetrics input_op_metrics;
   for (const OpMetrics* op_metrics : SortedOpMetricsDb(all_op_metrics)) {
@@ -409,9 +427,54 @@ InputOpDetails ConvertOpMetricsToInputOpDetails(const OpMetrics& op_metrics,
   return details;
 }
 
+InputOpDetails ConvertOpMetricsToInputOpDetails(const FlatOpMetrics& op_metrics,
+                                                uint64_t input_op_time_ps,
+                                                InputOpCategory category) {
+  InputOpDetails details;
+  details.set_op_name(op_metrics.hlo_name());
+  details.set_count(op_metrics.occurrences());
+  details.set_time_in_ms(tsl::profiler::PicoToMilli(op_metrics.time_ps()));
+  details.set_self_time_in_ms(
+      tsl::profiler::PicoToMilli(op_metrics.self_time_ps()));
+  details.set_time_in_percent(
+      100.0 *
+      tsl::profiler::SafeDivide(op_metrics.time_ps(), input_op_time_ps));
+  details.set_self_time_in_percent(
+      100.0 *
+      tsl::profiler::SafeDivide(op_metrics.self_time_ps(), input_op_time_ps));
+  details.set_category(InputOpCategoryString(category));
+  return details;
+}
+
 // Returns the ratio of the host-to-device time in each step to the step-time.
 double RatioOfHostToDeviceTimeToStepTime(
     const OpMetricsDb& host_tf_metrics_db,
+    const InputPipelineAnalysisResult& input_pipeline_analysis) {
+  // For TPU execution that uses infeed.
+  std::optional<double> host_infeed_enqueue_ratio =
+      HostInfeedEnqueueRatio(host_tf_metrics_db);
+  if (host_infeed_enqueue_ratio.has_value()) {
+    return host_infeed_enqueue_ratio.value();
+  }
+  // For GPU and TPU execution that do not use infeed.
+  double avg_step_time_ms =
+      input_pipeline_analysis.step_time_summary().average();
+  if (avg_step_time_ms > 0) {
+    // Uses the on-device step time.
+    GenericStepTimeBreakdown generic_breakdown;
+    if (input_pipeline_analysis.step_time_breakdown().UnpackTo(
+            &generic_breakdown)) {
+      double avg_host_to_device_time_ms =
+          generic_breakdown.host_to_device_ms_summary().average();
+      return tsl::profiler::SafeDivide(avg_host_to_device_time_ms,
+                                       avg_step_time_ms);
+    }
+  }
+  return 0.0;
+}
+
+double RatioOfHostToDeviceTimeToStepTime(
+    const FlatOpMetricsDb& host_tf_metrics_db,
     const InputPipelineAnalysisResult& input_pipeline_analysis) {
   // For TPU execution that uses infeed.
   std::optional<double> host_infeed_enqueue_ratio =
@@ -702,6 +765,15 @@ bool HasTpuInfeedOp(const OpMetricsDb& device_op_metrics_db) {
   return false;
 }
 
+bool HasTpuInfeedOp(const FlatOpMetricsDb& flat_op_metrics_db) {
+  for (const FlatOpMetrics& metrics : flat_op_metrics_db.op_instances()) {
+    if (tsl::profiler::IsHostOrSparseCoreV0Infeed(metrics.category())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Returns the time spent waiting for input for generic hardware.
 uint64_t TotalInputPs(const StepDetails& step_details) {
   uint64_t total_input_ps = 0;
@@ -884,6 +956,69 @@ class MinMap {
  private:
   absl::flat_hash_map<uint64_t /*id*/, uint64_t /*min*/> min_map_;
 };
+
+void MayFixTpuStepAnalysisInternal(
+    const StepEvents& host_step_events, StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+        core_details_map) {
+  for (PerCoreStepInfo& per_core_step_info :
+       *(step_db.mutable_step_sequence())) {
+    uint32_t step_num = per_core_step_info.step_num();
+    // TODO(ckluk): step_num is obtained from tf_op_stats, which is based on the
+    // step-tracking mechanism with the on-device training loop. However, this
+    // step_num is different from the group_id. So, what we are doing here is
+    // only an approximation, assuming that all steps exhibit similar
+    // breakdown. Once grouping works on TPU device, we need to replace step_num
+    // by the group_id from TPU device.
+    const StepDetails* step_details =
+        tsl::gtl::FindOrNull(host_step_events, step_num);
+    if (step_details == nullptr) {
+      continue;  // step_num not in host_step_events, we don't know how to fix.
+    }
+    uint64_t total_input_ps = TotalInputPs(*step_details);
+    if (total_input_ps == 0) {
+      continue;  // no host input events.
+    }
+    PerTpuStepDetails tpu_step_data =
+        ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
+    double tc_idle_ms = tpu_step_data.tc_idle_time_ms();
+    double adjusted_input_ratio =
+        std::min(tsl::profiler::SafeDivide(
+                     tsl::profiler::PicoToMilli(total_input_ps), tc_idle_ms),
+                 1.0);
+    for (auto& [core_id, step_info] :
+         *per_core_step_info.mutable_step_info_per_core()) {
+      // skip sparse cores for this.
+      if (core_id >= kSparseCoreIndexStart) continue;
+      if (TpuStepBreakdown tpu; step_info.step_breakdown().UnpackTo(&tpu)) {
+        DCHECK_EQ(tpu.infeed_duration_ps(), 0);
+        if (tpu.tc_idle_ps() > 0) {
+          // Extract the infeed fraction of idle time.
+          tpu.set_infeed_duration_ps(tpu.tc_idle_ps() * adjusted_input_ratio);
+          tpu.set_tc_idle_ps(tpu.tc_idle_ps() - tpu.infeed_duration_ps());
+          step_info.mutable_step_breakdown()->PackFrom(tpu);
+        }
+      } else if (tensorflow::profiler::GenericStepBreakdown generic;
+                 step_info.step_breakdown().UnpackTo(&generic)) {
+        uint64_t& infeed_time_ps =
+            (*generic.mutable_category_ps())[xla::HloOpcodeString(
+                xla::HloOpcode::kInfeed)];
+        uint64_t& idle_time_ps =
+            (*generic.mutable_category_ps())[tensorflow::profiler::kIdle];
+        DCHECK_EQ(infeed_time_ps, 0);
+        if (idle_time_ps > 0) {
+          infeed_time_ps = idle_time_ps * adjusted_input_ratio;
+          idle_time_ps -= infeed_time_ps;
+          step_info.mutable_step_breakdown()->PackFrom(generic);
+        }
+      } else {
+        // Likely encountered an ScStepBreakdown instance which can be skipped
+        // as we only care about attributing TC idle time to host.
+        LOG(INFO) << "Unable to unpack step_breakdown.";
+      }
+    }
+  }
+}
 
 }  // namespace
 
@@ -1155,63 +1290,17 @@ void MayFixTpuStepAnalysis(
   // input via host infeed or via sparsecorev0 infeed, there's nothing to do.
   if (HasTpuInfeedOp(device_op_metrics_db)) return;
 
-  for (PerCoreStepInfo& per_core_step_info :
-       *(step_db.mutable_step_sequence())) {
-    uint32_t step_num = per_core_step_info.step_num();
-    // TODO(ckluk): step_num is obtained from tf_op_stats, which is based on the
-    // step-tracking mechanism with the on-device training loop. However, this
-    // step_num is different from the group_id. So, what we are doing here is
-    // only an approximation, assuming that all steps exhibit similar
-    // breakdown. Once grouping works on TPU device, we need to replace step_num
-    // by the group_id from TPU device.
-    const StepDetails* step_details =
-        tsl::gtl::FindOrNull(host_step_events, step_num);
-    if (step_details == nullptr) {
-      continue;  // step_num not in host_step_events, we don't know how to fix.
-    }
-    uint64_t total_input_ps = TotalInputPs(*step_details);
-    if (total_input_ps == 0) {
-      continue;  // no host input events.
-    }
-    PerTpuStepDetails tpu_step_data =
-        ComputeTpuPerStepDataAcrossCores(per_core_step_info, core_details_map);
-    double tc_idle_ms = tpu_step_data.tc_idle_time_ms();
-    double adjusted_input_ratio =
-        std::min(tsl::profiler::SafeDivide(
-                     tsl::profiler::PicoToMilli(total_input_ps), tc_idle_ms),
-                 1.0);
-    for (auto& [core_id, step_info] :
-         *per_core_step_info.mutable_step_info_per_core()) {
-      // skip sparse cores for this.
-      if (core_id >= kSparseCoreIndexStart) continue;
-      if (TpuStepBreakdown tpu; step_info.step_breakdown().UnpackTo(&tpu)) {
-        DCHECK_EQ(tpu.infeed_duration_ps(), 0);
-        if (tpu.tc_idle_ps() > 0) {
-          // Extract the infeed fraction of idle time.
-          tpu.set_infeed_duration_ps(tpu.tc_idle_ps() * adjusted_input_ratio);
-          tpu.set_tc_idle_ps(tpu.tc_idle_ps() - tpu.infeed_duration_ps());
-          step_info.mutable_step_breakdown()->PackFrom(tpu);
-        }
-      } else if (tensorflow::profiler::GenericStepBreakdown generic;
-                 step_info.step_breakdown().UnpackTo(&generic)) {
-        uint64_t& infeed_time_ps =
-            (*generic.mutable_category_ps())[xla::HloOpcodeString(
-                xla::HloOpcode::kInfeed)];
-        uint64_t& idle_time_ps =
-            (*generic.mutable_category_ps())[tensorflow::profiler::kIdle];
-        DCHECK_EQ(infeed_time_ps, 0);
-        if (idle_time_ps > 0) {
-          infeed_time_ps = idle_time_ps * adjusted_input_ratio;
-          idle_time_ps -= infeed_time_ps;
-          step_info.mutable_step_breakdown()->PackFrom(generic);
-        }
-      } else {
-        // Likely encountered an ScStepBreakdown instance which can be skipped
-        // as we only care about attributing TC idle time to host.
-        LOG(INFO) << "Unable to unpack step_breakdown.";
-      }
-    }
-  }
+  MayFixTpuStepAnalysisInternal(host_step_events, step_db, core_details_map);
+}
+
+void MayFixTpuStepAnalysis(
+    const StepEvents& host_step_events,
+    const FlatOpMetricsDb& flat_op_metrics_db, StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, tensorflow::profiler::CoreDetails>&
+        core_details_map) {
+  if (HasTpuInfeedOp(flat_op_metrics_db)) return;
+
+  MayFixTpuStepAnalysisInternal(host_step_events, step_db, core_details_map);
 }
 
 TpuBottleneckAnalysis ComputeTpuBottleneckAnalysis(
@@ -1375,6 +1464,73 @@ void GenerateHostResult(const OpMetricsDb& host_tf_metrics_db,
       unclassified_non_enqueue_time_us);
 }
 
+void GenerateHostResult(const FlatOpMetricsDb& host_tf_metrics_db,
+                        InputPipelineAnalysisResult* result) {
+  FlatInputOpMetrics input_op_metrics =
+      SelectInputOpMetrics(host_tf_metrics_db);
+  // Returns if the program is not using an input pipeline with
+  // instrumentation and hence no input ops are found.
+  if (input_op_metrics.input_op_metrics.empty()) return;
+
+  absl::flat_hash_map<InputOpCategory, double> aggregated_input_op_times_us;
+  for (const FlatOpMetrics* op_metrics : input_op_metrics.input_op_metrics) {
+    InputOpCategory category = InputOpCategory::kUnknown;
+    std::string category_str = op_metrics->category();
+    if (IsInputOpNew(category_str)) {
+      category = CategorizeInputOpNew(category_str);
+    } else {
+      category = CategorizeInputOp(op_metrics->hlo_name(),
+                                   op_metrics->category());
+    }
+    *result->add_input_op_details() = ConvertOpMetricsToInputOpDetails(
+        *op_metrics, input_op_metrics.input_op_time_ps, category);
+    aggregated_input_op_times_us[category] +=
+        tsl::profiler::PicoToMicro(op_metrics->self_time_ps());
+  }
+
+  double enqueue_time_us =
+      aggregated_input_op_times_us[InputOpCategory::kEnqueue];
+  double total_input_op_time_us =
+      aggregated_input_op_times_us[InputOpCategory::kDemandedFileRead] +
+      aggregated_input_op_times_us[InputOpCategory::kAdvancedFileRead] +
+      aggregated_input_op_times_us[InputOpCategory::kPreprocessing];
+
+  double ratio = std::min(
+      1.0, RatioOfHostToDeviceTimeToStepTime(host_tf_metrics_db, *result));
+  DCHECK_GE(ratio, 0.0);
+  double non_enqueue_time_us = (ratio != 0.0)
+                                   ? (enqueue_time_us * (1.0 - ratio) / ratio)
+                                   : total_input_op_time_us;
+
+  // Scales the various input-time components wrt to non_enqueue_time_us.
+  double scaled_demanded_fileread_time_us = tsl::profiler::SafeDivide(
+      non_enqueue_time_us *
+          aggregated_input_op_times_us[InputOpCategory::kDemandedFileRead],
+      total_input_op_time_us);
+  double scaled_advanced_fileread_time_us = tsl::profiler::SafeDivide(
+      non_enqueue_time_us *
+          aggregated_input_op_times_us[InputOpCategory::kAdvancedFileRead],
+      total_input_op_time_us);
+  double scaled_preprocessing_time_us = tsl::profiler::SafeDivide(
+      non_enqueue_time_us *
+          aggregated_input_op_times_us[InputOpCategory::kPreprocessing],
+      total_input_op_time_us);
+  double unclassified_non_enqueue_time_us = std::max(
+      0.0, non_enqueue_time_us - scaled_demanded_fileread_time_us -
+               scaled_advanced_fileread_time_us - scaled_preprocessing_time_us);
+
+  InputTimeBreakdown* input_time_breakdown =
+      result->mutable_input_time_breakdown();
+  input_time_breakdown->set_enqueue_us(enqueue_time_us);
+  input_time_breakdown->set_demanded_file_read_us(
+      scaled_demanded_fileread_time_us);
+  input_time_breakdown->set_advanced_file_read_us(
+      scaled_advanced_fileread_time_us);
+  input_time_breakdown->set_preprocessing_us(scaled_preprocessing_time_us);
+  input_time_breakdown->set_unclassified_non_enqueue_us(
+      unclassified_non_enqueue_time_us);
+}
+
 InputPipelineAnalysisRecommendation GenerateRecommendation() {
   const absl::string_view kDatasetIntro =
       "https://www.tensorflow.org/programmers_guide/datasets";
@@ -1453,7 +1609,11 @@ InputPipelineAnalysisResult ConvertOpStatsToInputPipelineAnalysis(
   result.set_hardware_type(HardwareType_Name(hardware_type));
 
   PopulateStepDiagnostics(op_stats, result.mutable_diagnostics());
-  GenerateHostResult(op_stats.host_op_metrics_db(), &result);
+  if (op_stats.has_flat_host_op_metrics_db()) {
+    GenerateHostResult(op_stats.flat_host_op_metrics_db(), &result);
+  } else {
+    GenerateHostResult(op_stats.host_op_metrics_db(), &result);
+  }
 
   InputPipelineAnalysisRecommendation recommendation = GenerateRecommendation();
   if (hardware_type == tensorflow::profiler::TPU) {

@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -41,7 +42,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
@@ -308,7 +308,8 @@ FlatOpMetrics CreateFusionChildMetrics(
 }
 
 void AddFusionChildrenToFlatOpMetrics(
-    FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
+    const FlatOpMetricMeta& parent_op_metrics,
+    FlatOpMetrics::TpuCoreType core_type,
     const HloInstructionWrapper* instr_wrapper, FlatOpMetricsDb& children_db) {
   if (instr_wrapper->FusedChildren().empty()) return;
   for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {
@@ -807,7 +808,7 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
   FlatOpMetricsDb& flat_op_metrics_db =
       *op_stats.mutable_flat_device_op_metrics_db();
   StepEvents step_events;
-  // TODO : PropagateXSpaceDiagnosticsToOpStats(space, &op_stats);
+  PropagateXSpaceDiagnosticsToOpStats(space, &op_stats);
   // Convert device planes.
 
   FlatOpMetricsDbCombiner flat_op_metrics_db_combiner(&flat_op_metrics_db);
@@ -827,12 +828,12 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
     }
   }
   const bool is_tpu = !is_gpu;
+  bool has_device = !device_planes.empty();
   std::string hostname = Hostname(space);
-  // TODO : See if below is required
-  // auto& core_id_to_details_map = *op_stats.mutable_core_id_to_details();
-  // if (is_gpu) {
-  //   core_id_to_details_map[kDefaultGpuLocalCoreId].set_hostname(hostname);
-  // }
+  auto& core_id_to_details_map = *op_stats.mutable_core_id_to_details();
+  if (is_gpu) {
+    core_id_to_details_map[kDefaultGpuLocalCoreId].set_hostname(hostname);
+  }
   DutyCycleCombiner duty_cycle_combiner;
   // TODO(b/161942993) parallelize XPlane processing per thread.
   HloModuleMap hlo_module_map;
@@ -854,7 +855,7 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
     ProcessHloModuleMapFromXSpace(hlo_module_map, &space, create_cost_analysis);
   }
   {
-    LOG(INFO) << "ConvertXSpaceToOpStats: creating op_stats_threads "
+    LOG(INFO) << "ConvertXSpaceToFlatOpMetricsDb: creating op_stats_threads "
                  "XprofThreadPoolExecutor";
     auto executor =
         std::make_unique<XprofThreadPoolExecutor>("op_stats_threads");
@@ -873,12 +874,13 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
                                                  &flat_op_metrics_db_combiner,
                                                  &hlo_module_map,
                                                  &flat_op_metrics_db]() {
-      LOG(INFO) << "ConvertXSpaceToOpStats: Combining "
+      LOG(INFO) << "ConvertXSpaceToFlatOpMetricsDb: Combining "
                 << all_flat_op_metrics_dbs.size() << " op_metrics_dbs.";
       for (auto& flat_op_metrics_db_here : all_flat_op_metrics_dbs) {
         flat_op_metrics_db_combiner.Combine(flat_op_metrics_db_here);
       }
-      LOG(INFO) << "ConvertXSpaceToOpStats: Finished combining op_metrics_dbs.";
+      LOG(INFO) << "ConvertXSpaceToFlatOpMetricsDb: Finished combining "
+                   "op_metrics_dbs.";
       UpdateFlatOpMetricsDbFromHloModuleMap(flat_op_metrics_db, hlo_module_map);
     });
 
@@ -915,27 +917,174 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
         });
       }
     }
-    LOG(INFO) << "ConvertXSpaceToOpStats: Scheduled " << device_planes.size()
-              << " OpMetricsDb generation tasks.";
+
+    // StepDb Generation.
+    std::vector<StepEvents> all_step_events;
+
+    // Ensure step_events threads are joined and results combined when the
+    // function exits.
+    auto step_events_cleanup =
+        absl::MakeCleanup([&all_step_events, &step_events, is_tpu]() {
+          for (auto& device_step_events : all_step_events) {
+            if (device_step_events.empty()) {
+              continue;
+            }
+            if (is_tpu) {
+              // In TPU, we take the intersection of step events across cores
+              // as well as hosts.see b/158249775 and cl/331842545.
+              IntersectCombineStepEvents(device_step_events, &step_events);
+            } else {
+              UnionCombineStepEvents(device_step_events, &step_events);
+            }
+          }
+        });
+
+    if (options.generate_step_db) {
+      all_step_events.resize(device_planes.size());
+      for (size_t i = 0; i < device_planes.size(); ++i) {
+        const XPlane* device_trace = device_planes[i];
+        auto& current_step_events = all_step_events[i];
+        executor->Execute([device_trace, &current_step_events]() {
+          current_step_events = ConvertDeviceTraceXPlaneToStepEvents(
+              *device_trace, /*for_flat_profile=*/true);
+        });
+      }
+    }
+
+    // Device Trace generation for TPU.
+    struct DeviceTraceResult {
+      DutyCycleTracker duty_cycle_tracker;
+      std::optional<CoreDetails> core_details;
+    };
+    std::vector<DeviceTraceResult> device_trace_results;
+
+    // Ensure device_trace threads are joined and results processed when the
+    // function exits.
+    auto device_trace_cleanup =
+        absl::MakeCleanup([&device_trace_results, &device_planes,
+                           &core_id_to_details_map, &duty_cycle_combiner,
+                           is_tpu]() {
+          if (!is_tpu) return;
+          for (size_t i = 0; i < device_planes.size(); ++i) {
+            const XPlane* device_trace = device_planes[i];
+            const auto& result = device_trace_results[i];
+            if (result.core_details.has_value()) {
+              core_id_to_details_map[device_trace->id()] = *result.core_details;
+              duty_cycle_combiner.CombineCore(
+                  result.duty_cycle_tracker,
+                  result.core_details->local_chip_id());
+            } else {
+              LOG(WARNING) << "No CoreDetails found for TPU device plane: "
+                           << device_trace->name();
+              duty_cycle_combiner.CombineChip(result.duty_cycle_tracker);
+            }
+          }
+        });
+
+    if (is_tpu) {
+      device_trace_results.resize(device_planes.size());
+      for (size_t i = 0; i < device_planes.size(); ++i) {
+        const XPlane* device_trace = device_planes[i];
+        auto& device_trace_result = device_trace_results[i];
+        executor->Execute([device_trace, &hostname, &device_trace_result]() {
+          XPlaneVisitor visitor =
+              tsl::profiler::CreateTfXPlaneVisitor(device_trace);
+          DutyCycleTracker duty_cycle_tracker =
+              ConstructDutyCycleTracker(visitor);
+          std::optional<CoreDetails> core_details;
+          if (std::optional<XStatVisitor> core_details_stat =
+                  visitor.GetStat(StatType::kCoreDetails)) {
+            core_details.emplace();
+            absl::string_view core_details_bytes =
+                core_details_stat->BytesValue();
+            if (core_details->ParseFromString(core_details_bytes)) {
+              core_details->set_hostname(hostname);
+              core_details->set_is_sparse_core(
+                  tsl::profiler::GetSparseCoreId(device_trace->name())
+                      .has_value());
+            } else {
+              core_details.reset();
+            }
+          }
+          device_trace_result = {duty_cycle_tracker, core_details};
+        });
+      }
+    }
+
+    LOG(INFO) << "ConvertXSpaceToFlatOpMetricsDb: Scheduled "
+              << device_planes.size() << " OpMetricsDb generation tasks.";
 
     executor->JoinAll();  // Wait for all scheduled tasks to complete.
                           // The cleanup blocks will execute after this step.
+  }
+
+  // Convert a host plane.
+  const XPlane* host_plane = tsl::profiler::FindPlaneWithName(
+      space, tsl::profiler::kHostThreadsPlaneName);
+  StepEvents host_step_events;
+  if (host_plane) {
+    if (options.generate_op_metrics_db) {
+      *op_stats.mutable_flat_host_op_metrics_db() =
+          ConvertHostThreadsXPlaneToFlatOpMetricsDb(*host_plane);
+    }
+    host_step_events =
+        ConvertHostThreadsXPlaneToStepEvents(*host_plane, nullptr);
+    if (options.generate_step_db && !has_device) {
+      UnionCombineStepEvents(host_step_events, &step_events);
+    }
+  }
+
+  // Start combining data.
+  if (is_tpu) {
+    flat_op_metrics_db.set_idle_time_ps(
+        duty_cycle_combiner.GetTotalIdleTimePs());
+    flat_op_metrics_db.set_busy_time_ps(
+        duty_cycle_combiner.GetTotalActiveTimePs());
+  }
+
+  if (options.generate_step_db) {
+    if (is_tpu) {
+      *op_stats.mutable_step_db() = ConvertStepEventsToStepDb(
+          has_device, /*maybe_drop_incomplete_steps=*/false,
+          step_events);
+      *op_stats.mutable_device_op_metrics_db()->mutable_precision_stats() =
+          ComputePrecisionStats(step_events);
+      FlatOpMetricsDbCombiner flat_combiner(
+          op_stats.mutable_flat_hlo_metrics_db_complete_steps_only());
+      for (const auto& step_info : op_stats.step_db().step_sequence()) {
+        flat_combiner.Combine(step_info.flat_hlo_metrics_db());
+      }
+      if (host_plane != nullptr) {
+        MayFixTpuStepAnalysis(host_step_events,
+                              op_stats.flat_device_op_metrics_db(),
+                              *op_stats.mutable_step_db(),
+                              op_stats.core_id_to_details());
+      }
+    } else {
+      StepEvents nonoverlapped_step_events =
+          ToNonOverlappedStepEvents(step_events);
+      *op_stats.mutable_step_db() = ConvertStepEventsToStepDb(
+          has_device, options.maybe_drop_incomplete_steps,
+          nonoverlapped_step_events);
+      *op_stats.mutable_device_op_metrics_db()->mutable_precision_stats() =
+          ComputePrecisionStats(nonoverlapped_step_events);
+    }
   }
 
   // Removed assignment of program_id_to_name_map as it was removed from
   // FlatOpMetricsDb proto.
 
   size_t final_size = op_stats.ByteSizeLong();
-  LOG(INFO) << "ConvertXSpaceToOpStats: Final FlatOpMetricsDb size: "
+  LOG(INFO) << "ConvertXSpaceToFlatOpMetricsDb: Final FlatOpMetricsDb size: "
             << final_size << " bytes (" << (final_size / 1024.0 / 1024.0)
             << " MiB).";
   if (final_size > std::numeric_limits<int32_t>::max()) {
     return absl::DataLossError(absl::StrCat(
-        "ConvertXSpaceToOpStats: FlatOpMetricsDb size ", final_size,
+        "ConvertXSpaceToFlatOpMetricsDb: FlatOpMetricsDb size ", final_size,
         " bytes exceeds 2GB protobuf limit and cannot be serialized."));
   }
 
-  LOG(INFO) << "FLAT OP METRICS PROCESSING TIME ENDED";
+
   return op_stats;
 }
 

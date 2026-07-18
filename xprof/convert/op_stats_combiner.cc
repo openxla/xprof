@@ -18,6 +18,7 @@ limitations under the License.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -43,6 +44,34 @@ namespace tensorflow {
 namespace profiler {
 
 namespace {
+
+// Combines the src PerCoreStepInfo into the dst PerCoreStepInfo.
+void CombinePerCoreStepInfo(
+    int src_host_id, const PerCoreStepInfo& src, bool use_incomplete_step,
+    PerCoreStepInfo* dst,
+    FlatOpMetricsDbCombiner* flat_hlo_metrics_db_complete_steps_only_combiner,
+    FlatOpMetricsDbCombiner* flat_hlo_metrics_db_per_step_combiner) {
+  CombineCoreIdMap(src_host_id, src.step_info_per_core(),
+                   dst->mutable_step_info_per_core());
+
+  // Since we have assigned a new step number to the combined result, update
+  // the step number on each core to this new step number.
+  uint32_t new_step_num = dst->step_num();
+  for (auto& percore_stepinfo : *dst->mutable_step_info_per_core()) {
+    auto& stepinfo = percore_stepinfo.second;
+    stepinfo.set_step_num(new_step_num);
+  }
+
+  if (!use_incomplete_step) {
+    flat_hlo_metrics_db_complete_steps_only_combiner->Combine(
+        src.flat_hlo_metrics_db());
+  }
+  flat_hlo_metrics_db_per_step_combiner->Combine(src.flat_hlo_metrics_db());
+  CombineCoreIdMap(src_host_id, src.all_reduce_db_per_core(),
+                   dst->mutable_all_reduce_db_per_core());
+  CombineCoreIdMap(src_host_id, src.core_id_to_replica_id_map(),
+                   dst->mutable_core_id_to_replica_id_map());
+}
 
 // Combines the src PerCoreStepInfo into the dst PerCoreStepInfo.
 void CombinePerCoreStepInfo(
@@ -75,15 +104,27 @@ void CombineStepDatabase(
     int src_host_id, const StepIntersection& step_intersection,
     const StepDatabaseResult& src, StepDatabaseResult* dst,
     OpMetricsDbCombiner* hlo_metrics_db_complete_steps_only_combiner,
-    std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners) {
+    std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners,
+    FlatOpMetricsDbCombiner* flat_hlo_metrics_db_complete_steps_only_combiner,
+    std::vector<FlatOpMetricsDbCombiner>*
+        flat_hlo_metrics_db_per_step_combiners,
+        bool combine_flat_op_metrics_db) {
   if (src.use_incomplete_step()) dst->set_use_incomplete_step(true);
   uint32_t src_first_step_idx = step_intersection.FirstStepIndex(src_host_id);
   for (uint32_t i = 0; i < step_intersection.NumSteps(); i++) {
-    CombinePerCoreStepInfo(
-        src_host_id, src.step_sequence(src_first_step_idx + i),
-        src.use_incomplete_step(), dst->mutable_step_sequence(i),
-        hlo_metrics_db_complete_steps_only_combiner,
-        &(*hlo_metrics_db_per_step_combiners)[i]);
+    if (combine_flat_op_metrics_db) {
+      CombinePerCoreStepInfo(
+          src_host_id, src.step_sequence(src_first_step_idx + i),
+          src.use_incomplete_step(), dst->mutable_step_sequence(i),
+          flat_hlo_metrics_db_complete_steps_only_combiner,
+          &(*flat_hlo_metrics_db_per_step_combiners)[i]);
+    } else {
+      CombinePerCoreStepInfo(
+          src_host_id, src.step_sequence(src_first_step_idx + i),
+          src.use_incomplete_step(), dst->mutable_step_sequence(i),
+          hlo_metrics_db_complete_steps_only_combiner,
+          &(*hlo_metrics_db_per_step_combiners)[i]);
+    }
   }
 }
 
@@ -189,21 +230,35 @@ void CombineOpStats(
     bool no_accelerator_in_system, int src_host_id, HardwareType hardware_type,
     const StepIntersection& step_intersection, const OpStats& src, OpStats* dst,
     OpMetricsDbCombiner* host_op_metrics_db_combiner,
+    FlatOpMetricsDbCombiner* flat_host_op_metrics_db_combiner,
     OpMetricsDbCombiner* device_op_metrics_db_combiner,
-    FlatOpMetricsDbCombiner* flat_op_metrics_db_combiner,
+    FlatOpMetricsDbCombiner* flat_device_op_metrics_db_combiner,
     OpMetricsDbCombiner* hlo_metrics_db_complete_steps_only_combiner,
-    std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners) {
-  // Combine host_metrics_db.
-  // Host OpMetricsDb does not need to update the number of cores a certain op
-  // occurs.
-  host_op_metrics_db_combiner->Combine(src.host_op_metrics_db(),
-                                       /*update_num_cores=*/false);
-  // Combine device_metrics_db.
-  device_op_metrics_db_combiner->Combine(src.device_op_metrics_db());
-
-  // Combine flat_device_op_metrics_db.
-  if (src.has_flat_device_op_metrics_db()) {
-    flat_op_metrics_db_combiner->Combine(src.flat_device_op_metrics_db());
+    std::vector<OpMetricsDbCombiner>* hlo_metrics_db_per_step_combiners,
+    FlatOpMetricsDbCombiner* flat_hlo_metrics_db_complete_steps_only_combiner,
+    std::vector<FlatOpMetricsDbCombiner>*
+        flat_hlo_metrics_db_per_step_combiners,
+    bool combine_flat_op_metrics_db) {
+  if (combine_flat_op_metrics_db) {
+    // Combine flat_host_op_metrics_db.
+    if (src.has_flat_host_op_metrics_db()) {
+      flat_host_op_metrics_db_combiner->Combine(src.flat_host_op_metrics_db());
+    }
+    // Combine flat_device_op_metrics_db.
+    if (src.has_flat_device_op_metrics_db()) {
+      flat_device_op_metrics_db_combiner->Combine(
+          src.flat_device_op_metrics_db());
+    }
+  } else {
+    // Combine host_metrics_db.
+    // Host OpMetricsDb does not need to update the number of cores a certain op
+    // occurs.
+    host_op_metrics_db_combiner->Combine(src.host_op_metrics_db(),
+                                         /*update_num_cores=*/false);
+    // Combine device_metrics_db.
+    if (src.has_device_op_metrics_db()) {
+      device_op_metrics_db_combiner->Combine(src.device_op_metrics_db());
+    }
   }
 
   // Combine step_db.
@@ -211,7 +266,10 @@ void CombineOpStats(
     CombineStepDatabase(src_host_id, step_intersection, src.step_db(),
                         dst->mutable_step_db(),
                         hlo_metrics_db_complete_steps_only_combiner,
-                        hlo_metrics_db_per_step_combiners);
+                        hlo_metrics_db_per_step_combiners,
+                        flat_hlo_metrics_db_complete_steps_only_combiner,
+                        flat_hlo_metrics_db_per_step_combiners,
+                        combine_flat_op_metrics_db);
   }
 
   // Combine run environment info.
@@ -316,7 +374,8 @@ StepIntersection ComputeStepIntersectionToMergeOpStats(
 
 void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
                        const StepIntersection& step_intersection,
-                       OpStats* combined_op_stats) {
+                       OpStats* combined_op_stats,
+                       bool combine_flat_op_metrics_db) {
   // A shortcut code path for a single OpStats. There is no need to merge.
   if (all_op_stats_info.size() == 1) {
     *combined_op_stats = *all_op_stats_info[0].op_stats;
@@ -334,22 +393,55 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
 
   combined_step_db->set_empty_intersect(step_intersection.EmptyIntersect());
 
-  // Initialize all the OpMetricsDbCombiners.
-  OpMetricsDbCombiner host_op_metrics_db_combiner(
-      combined_op_stats->mutable_host_op_metrics_db());
-  OpMetricsDbCombiner device_op_metrics_db_combiner(
-      combined_op_stats->mutable_device_op_metrics_db());
-  FlatOpMetricsDbCombiner flat_op_metrics_db_combiner(
-      combined_op_stats->mutable_flat_device_op_metrics_db());
-  OpMetricsDbCombiner hlo_metrics_db_complete_steps_only_combiner(
-      combined_op_stats->mutable_hlo_metrics_db_complete_steps_only());
+  std::unique_ptr<OpMetricsDbCombiner> host_op_metrics_db_combiner;
+  std::unique_ptr<FlatOpMetricsDbCombiner> flat_host_op_metrics_db_combiner;
+  std::unique_ptr<OpMetricsDbCombiner> device_op_metrics_db_combiner;
+  std::unique_ptr<FlatOpMetricsDbCombiner> flat_device_op_metrics_db_combiner;
+  std::unique_ptr<OpMetricsDbCombiner>
+      hlo_metrics_db_complete_steps_only_combiner;
+  std::unique_ptr<FlatOpMetricsDbCombiner>
+      flat_hlo_metrics_db_complete_steps_only_combiner;
+
+  if (combine_flat_op_metrics_db) {
+    flat_host_op_metrics_db_combiner =
+        std::make_unique<FlatOpMetricsDbCombiner>(
+            combined_op_stats->mutable_flat_host_op_metrics_db());
+    flat_device_op_metrics_db_combiner =
+        std::make_unique<FlatOpMetricsDbCombiner>(
+            combined_op_stats->mutable_flat_device_op_metrics_db());
+    flat_hlo_metrics_db_complete_steps_only_combiner =
+        std::make_unique<FlatOpMetricsDbCombiner>(
+            combined_op_stats
+                ->mutable_flat_hlo_metrics_db_complete_steps_only());
+  } else {
+    host_op_metrics_db_combiner = std::make_unique<OpMetricsDbCombiner>(
+        combined_op_stats->mutable_host_op_metrics_db());
+    device_op_metrics_db_combiner = std::make_unique<OpMetricsDbCombiner>(
+        combined_op_stats->mutable_device_op_metrics_db());
+    hlo_metrics_db_complete_steps_only_combiner =
+        std::make_unique<OpMetricsDbCombiner>(
+            combined_op_stats->mutable_hlo_metrics_db_complete_steps_only());
+  }
+
   std::vector<OpMetricsDbCombiner> hlo_metrics_db_per_step_combiners;
+  std::vector<FlatOpMetricsDbCombiner> flat_hlo_metrics_db_per_step_combiners;
+
+  if (combine_flat_op_metrics_db) {
+    flat_hlo_metrics_db_per_step_combiners.reserve(
+      combined_step_db->step_sequence_size());
+  } else {
   hlo_metrics_db_per_step_combiners.reserve(
       combined_step_db->step_sequence_size());
+  }
   for (PerCoreStepInfo& step_info :
        *combined_step_db->mutable_step_sequence()) {
+    if (combine_flat_op_metrics_db) {
+      flat_hlo_metrics_db_per_step_combiners.emplace_back(
+          step_info.mutable_flat_hlo_metrics_db());
+    } else {
     hlo_metrics_db_per_step_combiners.emplace_back(
         step_info.mutable_hlo_metrics_db());
+    }
   }
 
   bool no_accelerator_in_system = NoAcceleratorInSystem(all_op_stats_info);
@@ -358,10 +450,15 @@ void CombineAllOpStats(const std::vector<OpStatsInfo>& all_op_stats_info,
     CombineOpStats(no_accelerator_in_system, op_stats_info.src_host_id,
                    op_stats_info.hardware_type, step_intersection,
                    *op_stats_info.op_stats, combined_op_stats,
-                   &host_op_metrics_db_combiner, &device_op_metrics_db_combiner,
-                   &flat_op_metrics_db_combiner,
-                   &hlo_metrics_db_complete_steps_only_combiner,
-                   &hlo_metrics_db_per_step_combiners);
+                   host_op_metrics_db_combiner.get(),
+                   flat_host_op_metrics_db_combiner.get(),
+                   device_op_metrics_db_combiner.get(),
+                   flat_device_op_metrics_db_combiner.get(),
+                   hlo_metrics_db_complete_steps_only_combiner.get(),
+                   &hlo_metrics_db_per_step_combiners,
+                   flat_hlo_metrics_db_complete_steps_only_combiner.get(),
+                   &flat_hlo_metrics_db_per_step_combiners,
+                   combine_flat_op_metrics_db);
   }
 
   // Sorts all the kernel reports that have been merged by CombineTfOpStats and

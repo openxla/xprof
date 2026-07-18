@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -41,7 +42,6 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
@@ -308,7 +308,8 @@ FlatOpMetrics CreateFusionChildMetrics(
 }
 
 void AddFusionChildrenToFlatOpMetrics(
-    FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
+    const FlatOpMetricMeta& parent_op_metrics,
+    FlatOpMetrics::TpuCoreType core_type,
     const HloInstructionWrapper* instr_wrapper, FlatOpMetricsDb& children_db) {
   if (instr_wrapper->FusedChildren().empty()) return;
   for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {
@@ -915,11 +916,78 @@ absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
         });
       }
     }
+
+    // StepDb Generation.
+    std::vector<StepEvents> all_step_events;
+
+    // Ensure step_events threads are joined and results combined when the
+    // function exits.
+    auto step_events_cleanup =
+        absl::MakeCleanup([&all_step_events, &step_events, is_tpu]() {
+          for (auto& device_step_events : all_step_events) {
+            if (device_step_events.empty()) {
+              continue;
+            }
+            if (is_tpu) {
+              // In TPU, we take the intersection of step events across cores
+              // as well as hosts.see b/158249775 and cl/331842545.
+              IntersectCombineStepEvents(device_step_events, &step_events);
+            } else {
+              UnionCombineStepEvents(device_step_events, &step_events);
+            }
+          }
+        });
+
+    if (options.generate_step_db) {
+      all_step_events.resize(device_planes.size());
+      for (size_t i = 0; i < device_planes.size(); ++i) {
+        const XPlane* device_trace = device_planes[i];
+        auto& current_step_events = all_step_events[i];
+        executor->Execute([device_trace, &current_step_events]() {
+          current_step_events = ConvertDeviceTraceXPlaneToStepEvents(
+              *device_trace, /*for_flat_profile=*/true);
+        });
+      }
+    }
+
     LOG(INFO) << "ConvertXSpaceToOpStats: Scheduled " << device_planes.size()
               << " OpMetricsDb generation tasks.";
 
     executor->JoinAll();  // Wait for all scheduled tasks to complete.
                           // The cleanup blocks will execute after this step.
+  }
+
+  // Convert a host plane.
+  const XPlane* host_plane = tsl::profiler::FindPlaneWithName(
+      space, tsl::profiler::kHostThreadsPlaneName);
+  if (host_plane) {
+    if (options.generate_op_metrics_db) {
+      *op_stats.mutable_flat_host_op_metrics_db() =
+          ConvertHostThreadsXPlaneToFlatOpMetricsDb(*host_plane);
+    }
+  }
+
+  if (options.generate_step_db) {
+    if (is_tpu) {
+      *op_stats.mutable_step_db() = ConvertStepEventsToStepDb(
+          /*has_device=*/true, /*maybe_drop_incomplete_steps=*/false,
+          step_events);
+      *op_stats.mutable_device_op_metrics_db()->mutable_precision_stats() =
+          ComputePrecisionStats(step_events);
+      FlatOpMetricsDbCombiner flat_combiner(
+          op_stats.mutable_flat_hlo_metrics_db_complete_steps_only());
+      for (const auto& step_info : op_stats.step_db().step_sequence()) {
+        flat_combiner.Combine(step_info.flat_hlo_metrics_db());
+      }
+    } else {
+      StepEvents nonoverlapped_step_events =
+          ToNonOverlappedStepEvents(step_events);
+      *op_stats.mutable_step_db() = ConvertStepEventsToStepDb(
+          /*has_device=*/true, options.maybe_drop_incomplete_steps,
+          nonoverlapped_step_events);
+      *op_stats.mutable_device_op_metrics_db()->mutable_precision_stats() =
+          ComputePrecisionStats(nonoverlapped_step_events);
+    }
   }
 
   // Removed assignment of program_id_to_name_map as it was removed from

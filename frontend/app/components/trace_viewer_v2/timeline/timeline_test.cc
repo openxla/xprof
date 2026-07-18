@@ -2862,9 +2862,9 @@ TEST_F(MockTimelineImGuiFixture,
 
   ImGui::NewFrame();
   ImGui::SetNextWindowSize(ImVec2(1000, 500));
-  ImGui::Begin("TestWindow", nullptr,
-               ImGuiWindowFlags_NoScrollbar |
-                   ImGuiWindowFlags_NoScrollWithMouse);
+  ImGui::Begin(
+      "TestWindow", nullptr,
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
   ImGuiWindow* window = ImGui::GetCurrentWindow();
   ImGuiIO& io = ImGui::GetIO();
@@ -2937,9 +2937,9 @@ TEST_F(MockTimelineImGuiFixture,
   auto measure_max_y = [&](bool hovered) {
     ImGui::NewFrame();
     ImGui::SetNextWindowSize(ImVec2(1000, 500));
-    ImGui::Begin("TestWindow", nullptr,
-                 ImGuiWindowFlags_NoScrollbar |
-                     ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::Begin(
+        "TestWindow", nullptr,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     ImGuiIO& io = ImGui::GetIO();
 
@@ -4466,12 +4466,12 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
 
 TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Process Group",
-                         .start_level = 0,
-                         .nesting_level =
-                            kProcessNestingLevel,  // Process level
-                         .expanded = true});
+  data.groups.push_back(
+      {.type = Group::Type::kFlame,
+       .name = "Process Group",
+       .start_level = 0,
+       .nesting_level = kProcessNestingLevel,  // Process level
+       .expanded = true});
 
   // Add one event covering the very end of visible range [99.95, 100.0]
   data.events_by_level.push_back({0});
@@ -5257,7 +5257,6 @@ TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
   // We'll peek through the buffers looking for `kHoverMaskColor` directly.
   ImU32 original_opaque_test_color = 0;
 
-
   for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
     if (std::string(w->Name).find(child_id) != std::string::npos) {
       for (const auto& vtx : w->DrawList->VtxBuffer) {
@@ -5267,7 +5266,7 @@ TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
           // If not the outline or the mask, it is the primary triangle fill.
           // Capture one of its colors.
           if (vtx.col != 0) {
-             original_opaque_test_color = vtx.col;
+            original_opaque_test_color = vtx.col;
           }
         }
       }
@@ -6265,12 +6264,12 @@ TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6318,6 +6317,92 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapWhenDisabled) {
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};  // level 0 in group 1, level 1 in group 2
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {100.0, 120.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  data.groups = {
+      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
+      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float hover_y_group2 = 55.0f;
+
+  // Drag selection near group2 event (120.0us).
+  // Drag from 50.0us (500px) to 121.0us (1210px).
+  // Distance to event2 (120.0us) is 1.0us (< 1.6us).
+  // It SHOULD snap to 120.0us because we are hovering group2.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, hover_y_group2);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1210.0f, hover_y_group2);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 120.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};  // level 0 in group 1, level 1 in group 2
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {100.0, 120.0};
+  data.entry_names = {"event1", "event2"};
+  data.entry_event_ids = {1, 2};
+  data.entry_pids = {1, 1};
+  data.entry_tids = {1, 1};
+  data.entry_args = {{}, {}};
+  data.groups = {
+      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
+      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float hover_y_group2 = 55.0f;
+
+  // Drag selection near group1 event (100.0us) while hovering group2.
+  // Drag from 50.0us (500px) to 101.0us (1010px).
+  // Distance to event1 (100.0us) is 1.0us (< 1.6us).
+  // It should NOT snap to 100.0us because we are hovering group2.
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, hover_y_group2);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1010.0f, hover_y_group2);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 50.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 101.0);
 }
 
 TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
@@ -6494,7 +6579,7 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start drag at 50.0us (500px).
-  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
@@ -6502,7 +6587,7 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
   // Distance to 100.0 is 1.2us (12px).
   // Distance to 102.0 is 0.8us (8px).
   // Should snap to 102.0us.
-  io.MousePos = ImVec2(GetTimelineStartX() + 1012.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 1012.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6544,13 +6629,13 @@ TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
   // programmatically instead of dragging, or drag accurately. Actually, we can
   // just call ApplySnapping manually if it were public, but it's private.
   // Dragging: start at 10.0us (10 * 33.1 = 331px).
-  io.MousePos = ImVec2(GetTimelineStartX() + 331.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 331.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // End at 59.8us to snap to 60.0us (event start).
   // 59.8 * 33.1 = 1979.38px
-  io.MousePos = ImVec2(GetTimelineStartX() + 1979.38f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 1979.38f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6587,12 +6672,12 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6630,12 +6715,12 @@ TEST_F(TimelineDragSelectionTest,
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6678,12 +6763,12 @@ TEST_F(TimelineDragSelectionTest,
 
   // Try snapping to event1 in group1
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6724,12 +6809,14 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  // We place the mouse at 35.0f to be vertically inside the group's bounding
+  // box so `is_group_hovered` allows the snap event detection.
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, 35.0f);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame(0.0f, 20.0f);
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, 35.0f);
   SimulateFrame(0.0f, 20.0f);
 
   io.AddMouseButtonEvent(0, false);
@@ -6759,25 +6846,25 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
-  // Use a scroll of 43.0f (which equals y_bottom) so that the bottom edge of
-  // the event (which is at 43.0f) is exactly at the top visible edge of the
-  // window. This verifies the strict < comparison for skipping events outside
-  // view.
-  SimulateFrame(43.0f, 1000.0f);
+  // Use a scroll of 23.0f (which is just below y_bottom) so that the bottom
+  // edge of the event is just visible at the top visible edge of the window.
+  SimulateFrame(23.0f, 1000.0f);
 
   ImGuiIO& io = ImGui::GetIO();
 
+  // We place the mouse at 35.0f on screen to be inside the group.
+  float hover_y = 35.0f;
   // Start near 100.0 us (990px -> 99.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, hover_y);
   io.AddMouseButtonEvent(0, true);
-  SimulateFrame(43.0f, 1000.0f);
+  SimulateFrame(23.0f, 1000.0f);
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
-  SimulateFrame(43.0f, 1000.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, hover_y);
+  SimulateFrame(23.0f, 1000.0f);
 
   io.AddMouseButtonEvent(0, false);
-  SimulateFrame(43.0f, 1000.0f);
+  SimulateFrame(23.0f, 1000.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   // It should snap
@@ -6926,11 +7013,11 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Drag near 100.0 us
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
-  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -6963,11 +7050,11 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
   ImGuiIO& io = ImGui::GetIO();
 
   // Drag near 100.0 us
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kFirstEventY);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
 
-  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kEmptyAreaY);
+  io.MousePos = ImVec2(GetTimelineStartX() + 1500.0f, kFirstEventY);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, false);
@@ -7408,7 +7495,6 @@ TEST_F(RealTimelineImGuiFixture, PanFullyZoomedOutNoNotification) {
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(), "");
 }
 
-
 TEST_F(RealTimelineImGuiFixture, DrawNotificationToastFades) {
   timeline_.set_data_time_range({0.0, 1000.0});
   timeline_.SetVisibleRange({10.0, 100.0});
@@ -7501,9 +7587,8 @@ TEST_F(RealTimelineImGuiFixture,
   // Needs to test an expandable group, so has_multiple_levels or has_children.
   // Let's set start_level=0 and next_group_start_level=2 to simulate multiple
   // levels.
-  data.groups = {
-    {Group::Type::kFlame,
-     "Test Group Name", "", 0, kThreadNestingLevel, true}};
+  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
+                  kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};  // 2 levels, second level empty
   timeline_.SetTimelineData(data);
 
@@ -7733,8 +7818,8 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   EXPECT_FALSE(timeline_.CallGroupVisible()[1]);
   // Thread A2 hidden (child of hidden Process A)
   EXPECT_FALSE(timeline_.CallGroupVisible()[2]);
-  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
-  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);  // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);  // Thread B1 visible
 
   // Verify visible level offsets for levels in hidden track.
   ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
@@ -7754,8 +7839,8 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Process A visible again
   EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Thread A1 visible again
   EXPECT_TRUE(timeline_.CallGroupVisible()[2]);  // Thread A2 visible again
-  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);   // Process B visible
-  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);   // Thread B1 visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[3]);  // Process B visible
+  EXPECT_TRUE(timeline_.CallGroupVisible()[4]);  // Thread B1 visible
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
@@ -7769,8 +7854,7 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   // Process A is collapsed, but has children.
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
-  };
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
   timeline_.set_track_management_enabled(true);
@@ -7803,8 +7887,7 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
 
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
-  };
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -7845,8 +7928,7 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
 
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
-  };
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -7890,8 +7972,7 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
 
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}
-  };
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -7949,10 +8030,8 @@ TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {
   data.entry_names = {"event"};
 
   // Group with name "MySubtitle//MyTrack" and subtitle "MySubtitle"
-  data.groups = {
-      {Group::Type::kFlame, "MySubtitle//MyTrack",
-        "MySubtitle", 0, kProcessNestingLevel, false}
-  };
+  data.groups = {{Group::Type::kFlame, "MySubtitle//MyTrack", "MySubtitle", 0,
+                  kProcessNestingLevel, false}};
   data.events_by_level = {{0}};
 
   timeline_.set_track_management_enabled(true);
@@ -7961,8 +8040,6 @@ TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {
   SimulateFrame();
   // This test ensures lines 956-957 in timeline.cc are executed.
 }
-
-
 
 TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
   ImGui::NewFrame();
@@ -8021,8 +8098,7 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // Process A is expanded, Thread A1 is expanded.
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
-      {Group::Type::kFlame, "Thread A1", "", 1, kThreadNestingLevel, true}
-  };
+      {Group::Type::kFlame, "Thread A1", "", 1, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
   timeline_.set_track_management_enabled(true);
@@ -8043,8 +8119,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // [label_width - splitter_offset - arrow_size,
   //  label_width - splitter_offset].
   // Set position to the center of the range.
-  io.MousePos = ImVec2(
-      label_width - splitter_offset - arrow_size * 0.5f, 45.0f);
+  io.MousePos =
+      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 45.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -8052,8 +8128,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // Under correct code, this is outside. Cursor should NOT be Hand.
   // Under mutated code (Mutant 612), arrow_size is increased by 1px,
   // making the range wider to the left, so it would be Hand.
-  io.MousePos = ImVec2(
-      label_width - splitter_offset - arrow_size - 0.5f, 45.0f);
+  io.MousePos =
+      ImVec2(label_width - splitter_offset - arrow_size - 0.5f, 45.0f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -8065,8 +8141,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // so cursor would be Hand.
   // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
   // Y = 20.0f). Its center Y is 20.0f + 54.0f + 23.0f * 0.5f = 85.5f.
-  io.MousePos = ImVec2(
-      label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
+  io.MousePos =
+      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }

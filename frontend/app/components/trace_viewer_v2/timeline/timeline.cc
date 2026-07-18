@@ -626,11 +626,10 @@ void Timeline::Draw() {
   const Pixel window_height = ImGui::GetWindowHeight();
 
   // Find first visible item or item intersecting scroll_y using binary search.
-  auto it = std::lower_bound(
-      flattened_groups_.begin(), flattened_groups_.end(), scroll_y,
-      [this](const Group* group, Pixel y) {
-        return this->GetGroupBottom(group) < y;
-      });
+  auto it = std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
+                             scroll_y, [this](const Group* group, Pixel y) {
+                               return this->GetGroupBottom(group) < y;
+                             });
 
   // Draw visible groups.
   for (; it != flattened_groups_.end(); ++it) {
@@ -663,8 +662,8 @@ void Timeline::Draw() {
     }
 
     if (DrawTrackRow(group_index, tracks_start_pos, tracks_start_screen_pos,
-                      content_region_avail_width, px_per_time_unit_val,
-                      scroll_y, window_height)) {
+                     content_region_avail_width, px_per_time_unit_val, scroll_y,
+                     window_height)) {
       needs_layout_update = true;
     }
   }
@@ -782,8 +781,7 @@ void Timeline::Draw() {
 bool Timeline::DrawHeaderRow(const Group* group_ptr,
                              const ImVec2& tracks_start_pos,
                              const ImVec2& tracks_start_screen_pos,
-                             Pixel group_top,
-                             Pixel group_bottom) {
+                             Pixel group_top, Pixel group_bottom) {
   bool needs_layout_update = false;
 
   int header_id =
@@ -792,15 +790,14 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
 
   // Limit text clip region to label column
   ImGui::PushClipRect(
-      ImVec2(tracks_start_screen_pos.x,
-             tracks_start_screen_pos.y + group_top),
+      ImVec2(tracks_start_screen_pos.x, tracks_start_screen_pos.y + group_top),
       ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
              tracks_start_screen_pos.y + group_bottom),
       true);
 
   // Position for expand/collapse button
-  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + kIndentSize,
-                             tracks_start_pos.y + group_top));
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x + kIndentSize, tracks_start_pos.y + group_top));
 
   bool toggled = false;
   if (group_ptr->name == kAllHeaderName) {
@@ -851,18 +848,17 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   ImGui::PushID(group_index);
 
   // Set cursor to draw the label
-  ImGui::SetCursorPos(ImVec2(
-      tracks_start_pos.x, tracks_start_pos.y + group_offsets_[group_index]));
+  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x,
+                             tracks_start_pos.y + group_offsets_[group_index]));
 
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
   if (group.nesting_level == kProcessNestingLevel) {
     ImU32 bg_color =
-        group.expanded
-            ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
-                  .value_or(kProcessTrackExpandedColor)
-            : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
-                  .value_or(kProcessTrackCollapsedColor);
+        group.expanded ? palette_.GetColor(ColorPalette::Key::kExpandedHeader)
+                             .value_or(kProcessTrackExpandedColor)
+                       : palette_.GetColor(ColorPalette::Key::kCollapsedHeader)
+                             .value_or(kProcessTrackCollapsedColor);
     draw_list->AddRectFilled(
         ImVec2(tracks_start_screen_pos.x,
                tracks_start_screen_pos.y + group_offsets_[group_index]),
@@ -899,8 +895,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     if (group.type == Group::Type::kCounter) {
       group_height = kCounterTrackHeight;
     } else if (group.type == Group::Type::kFlame) {
-      const int end_level =
-          GetNextGroupStartLevel(timeline_data_, group_index);
+      const int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
       group_height = std::max(1, end_level - group.start_level) *
                      (kEventHeight + kEventPaddingBottom);
     }
@@ -946,8 +941,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
       has_subtitle ? (text_height_large + spacing + text_height_medium)
                    : text_height_large;
 
-  const Pixel vertical_offset =
-      (centereable_height - total_text_height) * 0.5f;
+  const Pixel vertical_offset = (centereable_height - total_text_height) * 0.5f;
   ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
 
   ImGui::BeginGroup();
@@ -1003,8 +997,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     if (group.nesting_level == kProcessNestingLevel) {
       ImGui::SameLine();
       const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
-      ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ -
-                          kSplitterOffset - kArrowSize);
+      ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                           kArrowSize);
       const bool is_track_hidden = hidden_track_names_.contains(group.name);
       if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
         needs_layout_update = true;
@@ -1012,9 +1006,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     }
   }
 
-  ImGui::SetCursorPos(
-      ImVec2(tracks_start_pos.x + label_width_,
-             tracks_start_pos.y + group_offsets_[group_index]));
+  ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
+                             tracks_start_pos.y + group_offsets_[group_index]));
 
   if (is_collapsed) {
     DrawGroupPreview(group_index, px_per_time_unit_val);
@@ -1332,7 +1325,6 @@ void Timeline::HideTrack(absl::string_view name) {
   if (redraw_callback_) redraw_callback_();
 }
 
-
 void Timeline::CalculateBezierControlPoints(float start_x, float start_y,
                                             float end_x, float end_y,
                                             ImVec2& cp0, ImVec2& cp1) {
@@ -1498,10 +1490,31 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
 
   Pixel current_scroll_y = ImGui::GetScrollY();
   Pixel window_height = ImGui::GetWindowHeight();
+  ImVec2 mouse_pos = ImGui::GetMousePos();
 
   for (int group_index = 0; group_index < timeline_data_.groups.size();
        ++group_index) {
     if (group_index >= group_visible_.size() || !group_visible_[group_index]) {
+      continue;
+    }
+
+    // Determine the bottom edge of this group by finding the next visible group
+    Pixel group_bottom_offset = group_offsets_.back();
+    for (int next_visible_group = group_index + 1;
+         next_visible_group < group_visible_.size(); ++next_visible_group) {
+      if (group_visible_[next_visible_group]) {
+        group_bottom_offset = group_offsets_[next_visible_group];
+        break;
+      }
+    }
+
+    Pixel group_top_y =
+        tracks_start_screen_pos_.y + group_offsets_[group_index];
+    Pixel group_bottom_y = tracks_start_screen_pos_.y + group_bottom_offset;
+
+    bool is_group_hovered =
+        mouse_pos.y >= group_top_y && mouse_pos.y <= group_bottom_y;
+    if (!is_group_hovered) {
       continue;
     }
 
@@ -1768,8 +1781,8 @@ void Timeline::DrawEvent(int group_index, int event_index,
           ImVec2(rect.left + kInstantEventChevronHalfWidth,
                  rect.top + kInstantEventChevronHeight));
     } else {
-      is_hovered = ImGui::IsMouseHoveringRect(
-          ImVec2(rect.left, rect.top), ImVec2(rect.right, rect.bottom));
+      is_hovered = ImGui::IsMouseHoveringRect(ImVec2(rect.left, rect.top),
+                                              ImVec2(rect.right, rect.bottom));
     }
 
     const Pixel corner_rounding =
@@ -1793,17 +1806,17 @@ void Timeline::DrawEvent(int group_index, int event_index,
     ImVec2 top, left_bottom, right_bottom;
     if (is_instant) {
       const Pixel centerX = rect.left;
-      const Pixel chevron_half_width =
-          is_hovered ? kInstantEventHoverChevronHalfWidth
-                     : kInstantEventChevronHalfWidth;
+      const Pixel chevron_half_width = is_hovered
+                                           ? kInstantEventHoverChevronHalfWidth
+                                           : kInstantEventChevronHalfWidth;
       const Pixel chevron_height = is_hovered ? kInstantEventHoverChevronHeight
                                               : kInstantEventChevronHeight;
 
       top = ImVec2(centerX, rect.top);
-      left_bottom = ImVec2(centerX - chevron_half_width,
-                           rect.top + chevron_height);
-      right_bottom = ImVec2(centerX + chevron_half_width,
-                            rect.top + chevron_height);
+      left_bottom =
+          ImVec2(centerX - chevron_half_width, rect.top + chevron_height);
+      right_bottom =
+          ImVec2(centerX + chevron_half_width, rect.top + chevron_height);
 
       // Add transparency (0.6 opacity) to the event color of instant events
       // to help distinguish overlapping ones. Use full opacity when hovered.
@@ -1887,9 +1900,9 @@ void Timeline::DrawEvent(int group_index, int event_index,
         const Pixel chevron_half_width =
             is_hovered ? kInstantEventHoverChevronHalfWidth
                        : kInstantEventChevronHalfWidth;
-        const Pixel chevron_height =
-            is_hovered ? kInstantEventHoverChevronHeight
-                       : kInstantEventChevronHeight;
+        const Pixel chevron_height = is_hovered
+                                         ? kInstantEventHoverChevronHeight
+                                         : kInstantEventChevronHeight;
 
         ImVec2 top(centerX, rect.top);
         ImVec2 left_bottom(centerX - chevron_half_width,
@@ -2762,8 +2775,8 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
   return clicked;
 }
 
-bool Timeline::DrawHideButton(int group_index,
-                                Pixel height, bool is_track_hidden) {
+bool Timeline::DrawHideButton(int group_index, Pixel height,
+                              bool is_track_hidden) {
   const Group& group = timeline_data_.groups[group_index];
 
   // Base size to determine the icon's drawing area and the button's width.
@@ -3278,7 +3291,7 @@ void Timeline::HandleMouseRelease() {
     if (!HandleBookmarkAddition(is_click)) {
       HandleSelectionOrTimeRangeAddition();
       if (redraw_callback_)
-          redraw_callback_();  // Trigger redraw to show points
+        redraw_callback_();  // Trigger redraw to show points
     }
 
     selection_start_pos_.reset();
@@ -3318,9 +3331,9 @@ bool Timeline::HandleSelectionOrTimeRangeAddition() {
       if (redraw_callback_)
         redraw_callback_();  // Trigger redraw to show points
       return true;
-      } else {
-        // Simple click in Select mode clears rectangle selection in UI.
-        CalculateAndEmitMetrics();
+    } else {
+      // Simple click in Select mode clears rectangle selection in UI.
+      CalculateAndEmitMetrics();
     }
   } else if (current_selected_time_range_ &&
              current_selected_time_range_->duration() > 0) {
@@ -3721,8 +3734,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
 
         const auto& events = timeline_data_.events_by_level[level];
         const Pixel y_top = tracks_start_screen_pos_.y +
-                            visible_level_offsets_[level] -
-                            kEventHeight * 0.5f;
+                            visible_level_offsets_[level] - kEventHeight * 0.5f;
         const Pixel y_bottom = y_top + kEventHeight;
 
         if (y_bottom < selection_rect.Min.y || y_top > selection_rect.Max.y) {
@@ -3766,8 +3778,7 @@ void Timeline::FindSelectedEvents(const ImRect& selection_rect) {
         }
       }
     } else if (group.type == Group::Type::kCounter) {
-      Pixel y_top =
-          tracks_start_screen_pos_.y + group_offsets_[group_index];
+      Pixel y_top = tracks_start_screen_pos_.y + group_offsets_[group_index];
       Pixel group_height = kCounterTrackHeight;
       Pixel y_bottom = y_top + group_height;
 

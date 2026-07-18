@@ -161,6 +161,13 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
     valueKey: 'device_duty_cycle_percent',
   },
   {
+    title: 'TPU Duty Cycle (High Confidence)',
+    tooltip:
+        'Percentage of the device time that is busy (including all custom calls).',
+    goodMetric: true,
+    valueKey: 'device_duty_cycle_high_confidence_percent',
+  },
+  {
     title: 'Memory Bandwidth Utilization',
     tooltip:
         'Why two numbers: The first number shows the memory bandwidth utilization based on the hardware performance counters for HBM. The second one shows the bandwidth compared to the program\'s optimal performance considering the bytes accessed based on the input/output size and data type.',

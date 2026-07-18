@@ -63,6 +63,7 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane);
 
 // Constructs a DutyCycleTracker from the given XPlaneVisitor.
 DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor);
+DutyCycleTracker ConstructHCDutyCycleTracker(XPlaneVisitor& visitor);
 
 }  // namespace profiler
 }  // namespace tensorflow

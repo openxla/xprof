@@ -1305,11 +1305,23 @@ cc_library(
 )
 
 cc_library(
+    name = "custom_call_duty_cycle",
+    srcs = ["custom_call_duty_cycle.cc"],
+    hdrs = ["custom_call_duty_cycle.h"],
+    deps = [
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
+cc_library(
     name = "xplane_to_op_stats",
     srcs = ["xplane_to_op_stats.cc"],
     hdrs = ["xplane_to_op_stats.h"],
     visibility = ["//visibility:public"],
     deps = [
+        ":custom_call_duty_cycle",
         ":duty_cycle_combiner",
         ":duty_cycle_tracker",
         ":flat_op_metrics_db_combiner",
@@ -1414,6 +1426,7 @@ cc_test(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",

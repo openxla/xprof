@@ -127,6 +127,31 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, BasicEventProcessing) {
 }
 
 // -----------------------------------------------------------------------------
+// Test Case: GetFlatOpKeyFromXEvent
+// -----------------------------------------------------------------------------
+TEST_F(XEventsFlatOpMetricsDbBuilderTest, GetFlatOpKeyFromXEvent) {
+  XPlane plane = CreateTestXPlane();
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+
+  // Create event with program_id=123, symbol_id=456
+  CreateXEvent(plane_builder, line_builder, "op1", 1000, 500, 123, 456);
+
+  XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+  XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
+                              &plane.lines(0).events(0));
+
+  XEventsFlatOpMetricsDbBuilder::OpKey key =
+      XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(event_visitor);
+
+  ASSERT_TRUE(key.program_id.has_value());
+  EXPECT_EQ(*key.program_id, 123);
+  ASSERT_TRUE(key.symbol_id.has_value());
+  EXPECT_EQ(*key.symbol_id, 456);
+}
+
+
+// -----------------------------------------------------------------------------
 // Test Case 2: Aggregation of Multiple Instances
 // -----------------------------------------------------------------------------
 TEST_F(XEventsFlatOpMetricsDbBuilderTest, AggregateMultipleInstances) {
@@ -715,6 +740,116 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, SourceInformationParsing) {
   EXPECT_EQ(metric.source_info().file_name(), "filename.cc");
   EXPECT_EQ(metric.source_info().line_number(), 123);
   EXPECT_EQ(metric.source_info().stack_frame(), "stack_frame_contents");
+}
+
+// -----------------------------------------------------------------------------
+// Tests for CreateTfMetricsDbFromDeviceOpMetricsDb
+// -----------------------------------------------------------------------------
+
+TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
+  FlatOpMetricsDb device_db;
+  device_db.set_total_op_time_ps(1000);
+  device_db.set_total_time_ps(1500);
+
+  // Op 1 with provenance
+  auto* op1 = device_db.add_op_instances();
+  op1->set_hlo_name("hlo1");
+  op1->set_provenance("TfOp1:TfOpType1");
+  op1->set_time_ps(500);
+  op1->set_self_time_ps(400);
+  op1->set_flops(100);
+  op1->set_flops_v2(101);
+  op1->set_model_flops(102);
+  op1->set_model_flops_v2(103);
+  op1->set_bytes_accessed(1000);
+  op1->set_occurrences(1);
+
+  // Op 2 with same provenance
+  auto* op2 = device_db.add_op_instances();
+  op2->set_hlo_name("hlo2");
+  op2->set_provenance("TfOp1:TfOpType1");
+  op2->set_time_ps(300);
+  op2->set_self_time_ps(300);
+  op2->set_flops(50);
+  op2->set_flops_v2(51);
+  op2->set_model_flops(52);
+  op2->set_model_flops_v2(53);
+  op2->set_bytes_accessed(500);
+  op2->set_occurrences(2);
+
+  // Op 3 with empty provenance
+  auto* op3 = device_db.add_op_instances();
+  op3->set_hlo_name("hlo3");
+  op3->set_time_ps(200);
+  op3->set_self_time_ps(200);
+  op3->set_flops(20);
+  op3->set_bytes_accessed(200);
+  op3->set_occurrences(1);
+
+  // Idle Op
+  auto* idle_op = device_db.add_op_instances();
+  idle_op->set_category(kIdle);
+  idle_op->set_time_ps(500);
+  idle_op->set_self_time_ps(500);
+
+  // Test with_idle = true
+  {
+    FlatOpMetricsDb tf_db =
+        CreateTfMetricsDbFromDeviceOpMetricsDb(device_db, /*with_idle=*/true);
+
+    EXPECT_EQ(tf_db.total_op_time_ps(), 1000);
+    EXPECT_EQ(tf_db.total_time_ps(), 1500);
+    ASSERT_EQ(tf_db.op_instances_size(), 3);
+
+    // Find ops
+    const FlatOpMetrics* tf_op1 = nullptr;
+    const FlatOpMetrics* tf_op3 = nullptr;
+    const FlatOpMetrics* tf_idle = nullptr;
+
+    for (const auto& op : tf_db.op_instances()) {
+      if (op.hlo_name() == "TfOp1")
+        tf_op1 = &op;
+      else if (op.hlo_name() == "hlo3")
+        tf_op3 = &op;
+      else if (op.hlo_name() == kIdle)
+        tf_idle = &op;
+    }
+
+    ASSERT_NE(tf_op1, nullptr);
+    EXPECT_EQ(tf_op1->category(), "TfOpType1");
+    EXPECT_EQ(tf_op1->time_ps(), 800);          // 500 + 300
+    EXPECT_EQ(tf_op1->self_time_ps(), 700);     // 400 + 300
+    EXPECT_EQ(tf_op1->flops(), 150);            // 100 + 50
+    EXPECT_EQ(tf_op1->flops_v2(), 152);         // 101 + 51
+    EXPECT_EQ(tf_op1->model_flops(), 154);      // 102 + 52
+    EXPECT_EQ(tf_op1->model_flops_v2(), 156);   // 103 + 53
+    EXPECT_EQ(tf_op1->bytes_accessed(), 1500);  // 1000 + 500
+    EXPECT_EQ(tf_op1->occurrences(), 2);         // max(1, 2)
+
+    ASSERT_NE(tf_op3, nullptr);
+    EXPECT_EQ(tf_op3->category(), "Unknown");
+    EXPECT_EQ(tf_op3->time_ps(), 200);
+
+    ASSERT_NE(tf_idle, nullptr);
+    EXPECT_EQ(tf_idle->category(), kIdle);
+    EXPECT_EQ(tf_idle->time_ps(), 500);
+  }
+
+  // Test with_idle = false
+  {
+    FlatOpMetricsDb tf_db =
+        CreateTfMetricsDbFromDeviceOpMetricsDb(device_db, /*with_idle=*/false);
+
+    EXPECT_EQ(tf_db.total_op_time_ps(), 1000);
+    EXPECT_EQ(tf_db.total_time_ps(), 1000);  // Should be total_op_time_ps
+    ASSERT_EQ(tf_db.op_instances_size(), 2);  // Idle should be skipped
+
+    const FlatOpMetrics* tf_idle = nullptr;
+    for (const auto& op : tf_db.op_instances()) {
+      if (op.hlo_name() == kIdle) tf_idle = &op;
+    }
+    EXPECT_EQ(tf_idle, nullptr);
+  }
 }
 
 }  // namespace

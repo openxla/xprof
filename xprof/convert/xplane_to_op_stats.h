@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_XPLANE_TO_OP_STATS_H_
 #define XPROF_CONVERT_XPLANE_TO_OP_STATS_H_
 
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
@@ -61,8 +62,29 @@ PerfEnv MakePerfEnv(double peak_tera_flops_per_second,
 // Extracts PerfEnv from XPlane stats.
 PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane);
 
-// Constructs a DutyCycleTracker from the given XPlaneVisitor.
-DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor);
+// Contains duty cycle trackers constructed in a single pass over an XPlane.
+struct DutyCycleTrackers {
+  // Standard duty cycle tracker for all operations. Treats all custom calls as
+  // active (on-duty) compute intervals.
+  DutyCycleTracker duty_cycle_tracker;
+
+  // High Confidence (HC) duty cycle tracker. Provides a strict lower bound on
+  // active compute time by excluding off-duty ops and zero-FLOP custom calls
+  // without ICI usage (via IsCustomCallEventOffDuty).
+  DutyCycleTracker duty_cycle_hc_tracker;
+};
+
+// Constructs both standard and High Confidence DutyCycleTrackers in a single
+// pass over the given XPlaneVisitor.
+DutyCycleTrackers ConstructDutyCycleTrackers(XPlaneVisitor& visitor);
+
+inline DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
+  return ConstructDutyCycleTrackers(visitor).duty_cycle_tracker;
+}
+
+inline DutyCycleTracker ConstructHCDutyCycleTracker(XPlaneVisitor& visitor) {
+  return ConstructDutyCycleTrackers(visitor).duty_cycle_hc_tracker;
+}
 
 }  // namespace profiler
 }  // namespace tensorflow

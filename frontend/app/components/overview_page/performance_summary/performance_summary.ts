@@ -1,8 +1,22 @@
-import {Component, inject, Input, OnChanges, OnInit, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
-import {type GeneralAnalysis, type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {GeneralProps, SummaryInfo, SummaryInfoConfig} from 'org_xprof/frontend/app/common/interfaces/summary_info';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  Input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
+import {
+  type GeneralAnalysis,
+  type InputPipelineAnalysis,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  GeneralProps,
+  SummaryInfo,
+  SummaryInfoConfig,
+} from 'org_xprof/frontend/app/common/interfaces/summary_info';
 import {DATA_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-
 
 /**
  * Configuration Assumptions:
@@ -48,7 +62,6 @@ const GENERIC_SUMMARY_INFO_BEFORE: SummaryInfoConfig[] = [
   },
 ];
 
-
 /** Generic summary info, display on bottom of the list */
 const GENERIC_SUMMARY_INFO_AFTER: SummaryInfoConfig[] = [
   {
@@ -58,12 +71,12 @@ const GENERIC_SUMMARY_INFO_AFTER: SummaryInfoConfig[] = [
     childrenInfoConfig: [
       {title: 'Host', valueKey: 'host_tf_op_percent'},
       {title: 'Device', valueKey: 'device_tf_op_percent'},
-    ]
+    ],
   },
   {
     title: 'Op Time Spent on Eager Execution',
     tooltip:
-        'Out of the total op execution time on host (device), excluding idle time, the percentage of which used eager execution.',
+      'Out of the total op execution time on host (device), excluding idle time, the percentage of which used eager execution.',
     goodMetric: false,
     childrenInfoConfig: [
       {title: 'Host', valueKey: 'host_op_time_eager_percent'},
@@ -142,17 +155,17 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
     title: 'FLOPS Utilization',
     goodMetric: true,
     tooltip:
-        'Why two numbers: The first number shows the hardware utilization based on the hardware performance counter. The second one shows the performance compared to the program\'s optimal performance considering the instruction mix (i.e., the ratio of floating-point operations and memory operations).',
+      "Why two numbers: The first number shows the hardware utilization based on the hardware performance counter. The second one shows the performance compared to the program's optimal performance considering the instruction mix (i.e., the ratio of floating-point operations and memory operations).",
     childrenInfoConfig: [
       {
         title: 'Utilization of TPU Matrix Units',
         valueKey: 'mxu_utilization_percent',
       },
       {
-        title: 'Compared to Program\'s Optimal FLOPS',
+        title: "Compared to Program's Optimal FLOPS",
         valueKey: 'flop_rate_utilization_relative_to_roofline',
       },
-    ]
+    ],
   },
   {
     title: 'TPU Duty Cycle',
@@ -161,9 +174,16 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
     valueKey: 'device_duty_cycle_percent',
   },
   {
+    title: 'TPU Duty Cycle (High Confidence)',
+    tooltip:
+      'Percentage of the device time that is busy (including all custom calls).',
+    goodMetric: true,
+    valueKey: 'device_duty_cycle_high_confidence_percent',
+  },
+  {
     title: 'Memory Bandwidth Utilization',
     tooltip:
-        'Why two numbers: The first number shows the memory bandwidth utilization based on the hardware performance counters for HBM. The second one shows the bandwidth compared to the program\'s optimal performance considering the bytes accessed based on the input/output size and data type.',
+      "Why two numbers: The first number shows the memory bandwidth utilization based on the hardware performance counters for HBM. The second one shows the bandwidth compared to the program's optimal performance considering the bytes accessed based on the input/output size and data type.",
     goodMetric: true,
     childrenInfoConfig: [
       {
@@ -171,7 +191,7 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
         valueKey: 'hbm_utilization_percent',
       },
       {
-        title: 'Compared to Program\'s Optimal Bandwidth (VMem + SpMem + HBM)',
+        title: "Compared to Program's Optimal Bandwidth (VMem + SpMem + HBM)",
         valueKey: 'memory_bw_utilization_relative_to_hw_limit',
       },
     ],
@@ -179,27 +199,28 @@ const TPU_SUMMARY_INFO: SummaryInfoConfig[] = [
   {
     title: 'Firmware Power Metrics (Power/Timescale)',
     tooltip:
-        'Max power consumption of different components/rails with different timescale.',
+      'Max power consumption of different components/rails with different timescale.',
     getChildValues: (props) =>
-        (((props as GeneralProps)['fw_power_metrics']))?.split('##') || [],
+      (props as GeneralProps)['fw_power_metrics']?.split('##') || [],
   },
   {
     title: 'SPI Sampler Power Metrics',
     tooltip:
-        'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
+      'Avg/Max power consumption of different components/rails, including max of moving average of window size of 100us/1ms/10ms/1s.',
     description:
-        'HBM: HBM SPI Sampler Power Meter; Core: VDD Core SPI Sampler Power Meter',
+      'HBM: HBM SPI Sampler Power Meter; Core: VDD Core SPI Sampler Power Meter',
     getChildValues: (props) =>
-        (((props as GeneralProps)['spi_power_metrics']))?.split('##') || [],
+      (props as GeneralProps)['spi_power_metrics']?.split('##') || [],
   },
 ];
 
 /** A performance summary view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'performance-summary',
   templateUrl: './performance_summary.ng.html',
-  styleUrls: ['./performance_summary.scss']
+  styleUrls: ['./performance_summary.scss'],
 })
 export class PerformanceSummary implements OnChanges, OnInit {
   private readonly dataService = inject(DATA_SERVICE_INTERFACE_TOKEN);
@@ -228,19 +249,21 @@ export class PerformanceSummary implements OnChanges, OnInit {
   }
 
   get generalProps() {
-    return (this.generalAnalysis || {}).p as GeneralProps || {};
+    return ((this.generalAnalysis || {}).p as GeneralProps) || {};
   }
 
   get inputPipelineProps() {
-    return (this.inputPipelineAnalysis || {}).p as GeneralProps || {};
+    return ((this.inputPipelineAnalysis || {}).p as GeneralProps) || {};
   }
 
   get inferenceLatencyProps() {
-    return (this.inferenceLatencyData || {}).p as GeneralProps || {};
+    return ((this.inferenceLatencyData || {}).p as GeneralProps) || {};
   }
 
   get disaggregatedServingLatencyProps() {
-    return (this.disaggregatedServingLatencyData || {}).p as GeneralProps || {};
+    return (
+      ((this.disaggregatedServingLatencyData || {}).p as GeneralProps) || {}
+    );
   }
 
   get remarkText() {
@@ -262,33 +285,52 @@ export class PerformanceSummary implements OnChanges, OnInit {
   parseSummaryData() {
     this.summaryInfoCombined = [];
     this.parseDataFromConfig(
-        GENERIC_SUMMARY_INFO_BEFORE, this.inputPipelineProps,
-        this.summaryInfoCombined, 1);
+      GENERIC_SUMMARY_INFO_BEFORE,
+      this.inputPipelineProps,
+      this.summaryInfoCombined,
+      1,
+    );
     if (this.isTpu) {
       this.parseDataFromConfig(
-          TPU_SUMMARY_INFO, this.generalProps, this.summaryInfoCombined, 1);
+        TPU_SUMMARY_INFO,
+        this.generalProps,
+        this.summaryInfoCombined,
+        1,
+      );
     } else {
       this.parseDataFromConfig(
-          NON_TPU_SUMMARY_INFO, this.inputPipelineProps,
-          this.summaryInfoCombined, 1);
+        NON_TPU_SUMMARY_INFO,
+        this.inputPipelineProps,
+        this.summaryInfoCombined,
+        1,
+      );
     }
     this.parseDataFromConfig(
-        GENERIC_SUMMARY_INFO_AFTER, this.generalProps, this.summaryInfoCombined,
-        1);
+      GENERIC_SUMMARY_INFO_AFTER,
+      this.generalProps,
+      this.summaryInfoCombined,
+      1,
+    );
   }
 
   readSummaryInfoFromConfig(
-      config: SummaryInfoConfig, props: GeneralProps,
-      customInput?: google.visualization.DataObjectCell[]): SummaryInfo|null {
+    config: SummaryInfoConfig,
+    props: GeneralProps,
+    customInput?: google.visualization.DataObjectCell[],
+  ): SummaryInfo | null {
     if (config.trainingOnly && this.isInference) return null;
     if (config.inferenceOnly && !this.isInference) return null;
 
     const descriptions = [];
     // We've seen 'nan' in the sdv value
-    if (config.sdvKey &&
-        (props[config.sdvKey] && props[config.sdvKey] !== 'nan')) {
+    if (
+      config.sdvKey &&
+      props[config.sdvKey] &&
+      props[config.sdvKey] !== 'nan'
+    ) {
       descriptions.push(
-          `(σ = ${props[config.sdvKey] || ''} ${config.unit || ''})`);
+        `(σ = ${props[config.sdvKey] || ''} ${config.unit || ''})`,
+      );
     }
     if (config.goodMetric !== undefined) {
       descriptions.push(`${config.goodMetric ? 'higher' : 'lower'} is better.`);
@@ -306,9 +348,9 @@ export class PerformanceSummary implements OnChanges, OnInit {
       value = config.getValue(customInput);
       valueStr = config.unit ? `${value} ${config.unit}` : value;
     }
-    const propertyValues = config.getChildValues ?
-        config.getChildValues(customInput || props) :
-        [];
+    const propertyValues = config.getChildValues
+      ? config.getChildValues(customInput || props)
+      : [];
 
     // Add dynamic Roofline link with preserved parameters
     if (config.valueKey === 'flop_rate_utilization_relative_to_roofline') {
@@ -319,7 +361,10 @@ export class PerformanceSummary implements OnChanges, OnInit {
     const childrenInfoCombined: SummaryInfo[] = [];
     if (config.childrenInfoConfig) {
       this.parseDataFromConfig(
-          config.childrenInfoConfig, props, childrenInfoCombined);
+        config.childrenInfoConfig,
+        props,
+        childrenInfoCombined,
+      );
     }
     if (value || childrenInfoCombined.length > 0 || propertyValues.length > 0) {
       return {
@@ -337,13 +382,19 @@ export class PerformanceSummary implements OnChanges, OnInit {
 
   // TODO: Remove customInput argument, read all metrics from property
   parseDataFromConfig(
-      summaryConfigs: SummaryInfoConfig[]|undefined, props: GeneralProps,
-      summaryInfoCombined: SummaryInfo[], level = 0,
-      customInput?: google.visualization.DataObjectCell[]) {
+    summaryConfigs: SummaryInfoConfig[] | undefined,
+    props: GeneralProps,
+    summaryInfoCombined: SummaryInfo[],
+    level = 0,
+    customInput?: google.visualization.DataObjectCell[],
+  ) {
     if (!summaryConfigs) return;
     summaryConfigs.forEach((config: SummaryInfoConfig) => {
-      const summaryInfo =
-          this.readSummaryInfoFromConfig(config, props, customInput);
+      const summaryInfo = this.readSummaryInfoFromConfig(
+        config,
+        props,
+        customInput,
+      );
       if (summaryInfo) {
         summaryInfoCombined.push({...summaryInfo, level});
       }

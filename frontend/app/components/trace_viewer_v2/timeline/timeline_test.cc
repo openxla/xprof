@@ -17,6 +17,7 @@
 #include "<gtest/gtest.h>"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -94,6 +95,30 @@ class MockTimeline : public Timeline {
   void CallDrawEvent(int group_index, int event_index, const EventRect& rect,
                      ImDrawList* absl_nonnull draw_list) {
     DrawEvent(group_index, event_index, rect, draw_list);
+  }
+
+  bool CallDrawPinButton(int group_index, Pixel height, bool is_pinned) {
+    return DrawPinButton(group_index, height, is_pinned);
+  }
+
+  bool CallDrawHideButton(int group_index, Pixel height, bool is_track_hidden) {
+    return DrawHideButton(group_index, height, is_track_hidden);
+  }
+
+  const absl::flat_hash_set<std::string>& GetPinnedTrackNames() const {
+    return pinned_track_names_;
+  }
+
+  const absl::flat_hash_set<std::string>& GetHiddenTrackNames() const {
+    return hidden_track_names_;
+  }
+
+  void SetPinnedTrackNames(const absl::flat_hash_set<std::string>& names) {
+    pinned_track_names_ = names;
+  }
+
+  void SetHiddenTrackNames(const absl::flat_hash_set<std::string>& names) {
+    hidden_track_names_ = names;
   }
 
  private:
@@ -2742,6 +2767,129 @@ TEST_F(MockTimelineImGuiFixture, DrawBookmarks_InvalidPxPerTimeUnit) {
   SimulateFrame();
 
   EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawPinButton_Insert) {
+  // Frame 1: Register window and layout
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawPinButton(0, 20.0f, /*is_pinned=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2: Inject click
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+
+  EXPECT_TRUE(timeline_.CallDrawPinButton(0, 20.0f, /*is_pinned=*/false));
+  EXPECT_EQ(timeline_.GetPinnedTrackNames().size(), 1);
+  EXPECT_TRUE(timeline_.GetPinnedTrackNames().contains("group"));
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawPinButton_Erase) {
+  timeline_.SetPinnedTrackNames({"group"});
+
+  // Frame 1: Register window and layout
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawPinButton(0, 20.0f, /*is_pinned=*/true);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2: Inject click
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+
+  EXPECT_TRUE(timeline_.CallDrawPinButton(0, 20.0f, /*is_pinned=*/true));
+  EXPECT_EQ(timeline_.GetPinnedTrackNames().size(), 0);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawHideButton_Insert) {
+  // Frame 1: Register window and layout
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawHideButton(0, 20.0f, /*is_track_hidden=*/false);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2: Inject click
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+
+  EXPECT_TRUE(
+      timeline_.CallDrawHideButton(0, 20.0f, /*is_track_hidden=*/false));
+  EXPECT_EQ(timeline_.GetHiddenTrackNames().size(), 1);
+  EXPECT_TRUE(timeline_.GetHiddenTrackNames().contains("group"));
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawHideButton_Erase) {
+  timeline_.SetHiddenTrackNames({"group"});
+
+  // Frame 1: Register window and layout
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+  timeline_.CallDrawHideButton(0, 20.0f, /*is_track_hidden=*/true);
+  ImGui::End();
+  ImGui::EndFrame();
+
+  // Frame 2: Inject click
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMousePosEvent(105.0f, 105.0f);
+  io.AddMouseButtonEvent(0, true);
+
+  ImGui::NewFrame();
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+  ImGui::SetNextWindowSize(ImVec2(1000.0f, 1000.0f));
+  ImGui::Begin("TestWindow");
+  ImGui::SetCursorScreenPos(ImVec2(100.0f, 100.0f));
+
+  EXPECT_TRUE(timeline_.CallDrawHideButton(0, 20.0f, /*is_track_hidden=*/true));
+  EXPECT_EQ(timeline_.GetHiddenTrackNames().size(), 0);
+
+  ImGui::End();
+  ImGui::EndFrame();
 }
 
 // =============================================================================

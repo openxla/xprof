@@ -838,6 +838,72 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   return needs_layout_update;
 }
 
+void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height) {
+  ImGui::PushFont(traceviewer::fonts::label_large);
+  const Pixel text_height_large = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  ImGui::PushFont(traceviewer::fonts::label_medium);
+  const Pixel text_height_medium = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  const bool has_subtitle = !group.subtitle.empty();
+
+  const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
+  const Pixel total_text_height =
+      has_subtitle ? (text_height_large + spacing + text_height_medium)
+                   : text_height_large;
+
+  const Pixel vertical_offset = (centereable_height - total_text_height) * 0.5f;
+  const Pixel label_start_y = ImGui::GetCursorPosY();
+  ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
+
+  ImGui::BeginGroup();
+
+  absl::string_view display_name = group.name;
+  if (has_subtitle) {
+    display_name.remove_prefix(group.subtitle.size() + 1);
+    if (!display_name.empty() && display_name.front() == '/') {
+      display_name.remove_prefix(1);
+    }
+  }
+
+  ImGui::PushFont(traceviewer::fonts::label_large);
+  ImGui::TextUnformatted(display_name.data(),
+                         display_name.data() + display_name.size());
+  ImGui::PopFont();
+
+  if (has_subtitle) {
+    ImGui::PushFont(traceviewer::fonts::label_medium);
+    ImGui::PushStyleColor(ImGuiCol_Text,
+                          palette_.GetColor(ColorPalette::Key::kSubtitle)
+                              .value_or(kOnSecondaryFixedVariantColor));
+    ImGui::TextUnformatted(group.subtitle.data());
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+  }
+
+  ImGui::EndGroup();
+
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    if (ImGui::IsMouseClicked(0)) {
+      ImGui::SetClipboardText(group.name.c_str());
+      traceviewer::CopyToClipboard(group.name);
+
+      copied_track_name_ = group.name;
+      copy_notification_timer_ = 2.0f;
+    }
+  }
+
+  if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
+    ImVec2 group_min = ImGui::GetItemRectMin();
+    ImVec2 group_max = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddRectFilled(group_min, group_max,
+                                              IM_COL32(66, 133, 244, 128));
+  }
+}
+
 bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
                             const ImVec2& tracks_start_screen_pos,
                             Pixel content_region_avail_width,
@@ -2791,7 +2857,8 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   const ImVec2 buttonSize(kIconDrawSize, kButtonVisibleHeight);
 
   bool toggled = false;
-  if (ImGui::InvisibleButton("##hide", buttonSize)) {
+  if (ImGui::InvisibleButton("##hide", buttonSize,
+                               ImGuiButtonFlags_PressedOnClick)) {
     auto it = hidden_track_names_.find(group.name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
@@ -2827,6 +2894,113 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
                  is_track_hidden);
   }
   return toggled;
+}
+
+bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
+  const Group& group = timeline_data_.groups[group_index];
+
+  // Base size to determine the icon's drawing area and the button's width.
+  const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
+  const Pixel kButtonVisibleHeight = height;
+
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 buttonSize(kIconDrawSize, kButtonVisibleHeight);
+
+  bool toggled = false;
+  if (ImGui::InvisibleButton("##pin", buttonSize,
+                               ImGuiButtonFlags_PressedOnClick)) {
+    if (is_pinned) {
+      pinned_track_names_.erase(group.name);
+    } else {
+      pinned_track_names_.insert(group.name);
+    }
+    toggled = true;
+  }
+
+  // Calculate the center point for drawing the icon.
+  Pixel center_x = p.x + kIconDrawSize * 0.5f;
+  Pixel center_y = p.y + kButtonVisibleHeight * 0.5f;
+
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImU32 icon_col = ImGui::GetColorU32(ImGuiCol_Text);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    icon_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+    ImGui::SetTooltip(is_pinned ? kUnpinTrackTooltip : kPinTrackTooltip);
+  }
+
+  const Pixel content_region_avail_width =
+      ImGui::GetWindowWidth() - ImGui::GetStyle().ScrollbarSize;
+  const bool is_row_hovered = ImGui::IsMouseHoveringRect(
+      ImVec2(tracks_start_screen_pos_.x,
+             tracks_start_screen_pos_.y + group_offsets_[group_index]),
+      ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
+             tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
+
+  if (is_row_hovered || is_pinned) {
+    // Draw the icon using the same base size.
+    DrawPinIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
+                is_pinned);
+  }
+  return toggled;
+}
+
+bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
+                                          const ImVec2& tracks_start_pos,
+                                          Pixel centereable_height) {
+  if (!track_management_enabled_) return false;
+  if (group.nesting_level != kProcessNestingLevel) return false;
+
+  bool needs_layout_update = false;
+  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+
+  // Position and draw Pin button
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                       kArrowSize * 2.0f - kButtonGap);
+  const bool is_pinned = pinned_track_names_.contains(group.name);
+  if (DrawPinButton(group_index, centereable_height, is_pinned)) {
+    needs_layout_update = true;
+  }
+
+  // Position and draw Hide button
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                       kArrowSize);
+  const bool is_track_hidden = hidden_track_names_.contains(group.name);
+  if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
+    needs_layout_update = true;
+  }
+
+  return needs_layout_update;
+}
+
+// Draws a pushpin icon inside a kIconDrawSize * kIconDrawSize square area.
+// The icon's drawing coordinates are relative to the center and will not
+// exceed the boundaries defined by kIconDrawSize.
+void Timeline::DrawPinIcon(ImDrawList* draw_list, Pixel center_x,
+                           Pixel center_y, Pixel icon_draw_size, ImU32 icon_col,
+                           bool is_pinned) {
+  float r = icon_draw_size * 0.5f;
+
+  // Horizontal head bar at the top
+  draw_list->AddLine(ImVec2(center_x - r * 0.6f, center_y - r * 0.6f),
+                     ImVec2(center_x + r * 0.6f, center_y - r * 0.6f), icon_col,
+                     1.2f);
+  // Head connection stem
+  draw_list->AddLine(ImVec2(center_x, center_y - r * 0.6f),
+                     ImVec2(center_x, center_y - r * 0.4f), icon_col, 1.2f);
+  // Body center cylinder (filled if pinned, outline if unpinned)
+  ImVec2 body_min(center_x - r * 0.4f, center_y - r * 0.4f);
+  ImVec2 body_max(center_x + r * 0.4f, center_y + r * 0.2f);
+  if (is_pinned) {
+    draw_list->AddRectFilled(body_min, body_max, icon_col);
+  } else {
+    draw_list->AddRect(body_min, body_max, icon_col, 0.0f, 0, 1.2f);
+  }
+  // Pin point needle pointing down
+  draw_list->AddLine(ImVec2(center_x, center_y + r * 0.2f),
+                     ImVec2(center_x, center_y + r * 0.8f), icon_col, 1.2f);
 }
 
 // Draws the hide/unhide icon in a kIconDrawSize * kIconDrawSize square area.

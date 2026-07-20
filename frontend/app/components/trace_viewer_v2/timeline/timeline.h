@@ -462,10 +462,18 @@ class Timeline {
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
+  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
+  bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
+                   Pixel icon_draw_size, ImU32 icon_col, bool is_pinned);
+
  private:
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
+
+  Pixel GetGroupTop(const Group* group) const;
+  Pixel GetGroupBottom(const Group* group) const;
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -492,6 +500,9 @@ class Timeline {
                      const ImVec2& tracks_start_screen_pos, Pixel group_top,
                      Pixel group_bottom);
 
+  // Draws the label for a track row.
+  void DrawTrackLabel(const Group& group, Pixel centereable_height);
+
   // Draws a standard track row in the timeline.
   // Returns true if layout update is needed.
   bool DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
@@ -517,7 +528,10 @@ class Timeline {
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
+  bool DrawTrackManagementButtons(int group_index, const Group& group,
+                                  const ImVec2& tracks_start_pos,
+                                  Pixel centereable_height);
+
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -607,29 +621,25 @@ class Timeline {
   static constexpr ImGuiWindowFlags kTrackFlags =
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
-  // Returns the y-coordinate of the top of the given group in the track area.
-  Pixel GetGroupTop(const Group* group) const;
-  // Returns the y-coordinate of the bottom of the given group in the track
-  // area.
-  Pixel GetGroupBottom(const Group* group) const;
-
-  // Flattened sequence of virtual headers and group tracks.
-  // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
-  std::vector<const Group*> flattened_groups_;
   // Synthetic groups for headers.
   Group header_all_{.name = kAllHeaderName,
                     .nesting_level = kHeaderNestingLevel};
   Group header_hidden_{.name = kHiddenHeaderName,
                       .nesting_level = kHeaderNestingLevel};
+  Group header_pinned_{.name = kPinnedHeaderName,
+                       .nesting_level = kHeaderNestingLevel};
   // Y coordinate offsets of section headers cached from layout computation.
   Pixel header_all_offset_ = 0.0f;
   Pixel header_hidden_offset_ = 0.0f;
+  Pixel header_pinned_offset_ = 0.0f;
   // Persistent expansion/collapse states of section headers.
   bool header_hidden_expanded_ = false;
   bool header_all_expanded_ = true;
-  // Caching counts of unhidden and hidden process tracks.
+  bool header_pinned_expanded_ = true;
+  // Caching counts of unhidden, hidden, and pinned process tracks.
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
+  int pinned_processes_count_ = 0;
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;
@@ -760,7 +770,14 @@ class Timeline {
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
+
+ protected:
   absl::flat_hash_set<std::string> hidden_track_names_;
+  absl::flat_hash_set<std::string> pinned_track_names_;
+
+  // Flattened sequence of virtual headers and group tracks.
+  // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  std::vector<const Group*> flattened_groups_;
 };
 
 }  // namespace traceviewer

@@ -57,6 +57,7 @@ inline constexpr int kMinorTickDivisions = 5;
 inline constexpr ImDrawFlags kImDrawFlags = ImDrawFlags_RoundCornersDefault_;
 inline constexpr ImU32 kDefaultTextColor = kBlackColor;
 inline constexpr Microseconds kMinVisibleEventDuration = 1000.0;
+inline constexpr Pixel kButtonGap = 4.0f;
 inline constexpr Pixel kCornerRounding = 0.0f;
 inline constexpr Pixel kDefaultLabelWidth = 250.0f;
 inline constexpr Pixel kEventHeight = 23.0f;
@@ -121,6 +122,7 @@ inline constexpr int kThreadNestingLevel = 2;
 // go/keep-sorted start
 inline constexpr int kAllHeaderId = 100000;
 inline constexpr int kHiddenHeaderId = 200000;
+inline constexpr int kPinnedHeaderId = 300000;
 // go/keep-sorted end
 
 
@@ -219,7 +221,10 @@ inline constexpr char kAllHeaderName[] = "All";
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHideTrackTooltip[] = "Hide track";
+inline constexpr char kPinTrackTooltip[] = "Pin track";
+inline constexpr char kPinnedHeaderName[] = "Pinned";
 inline constexpr char kUnhideTrackTooltip[] = "Unhide track";
+inline constexpr char kUnpinTrackTooltip[] = "Unpin track";
 // go/keep-sorted end
 }  // namespace traceviewer
 

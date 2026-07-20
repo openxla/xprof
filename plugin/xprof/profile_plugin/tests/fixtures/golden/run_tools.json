@@ -1,0 +1,6 @@
+{
+  "tools": ["overview_page", "trace_viewer@", "kernel_stats"],
+  "first": "overview_page",
+  "has_trace_viewer_at": true,
+  "has_plain_trace_viewer": false
+}

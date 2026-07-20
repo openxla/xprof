@@ -49,11 +49,23 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:steps_db_proto_cc",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/utils:timespan",
+    ],
+)
+
+cc_test(
+    name = "event_span_test",
+    srcs = ["event_span_test.cc"],
+    deps = [
+        ":event_span",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
     ],
 )
 

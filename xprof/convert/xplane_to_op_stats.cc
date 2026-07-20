@@ -308,7 +308,8 @@ FlatOpMetrics CreateFusionChildMetrics(
 }
 
 void AddFusionChildrenToFlatOpMetrics(
-    FlatOpMetricMeta parent_op_metrics, FlatOpMetrics::TpuCoreType core_type,
+    const FlatOpMetricMeta& parent_op_metrics,
+    FlatOpMetrics::TpuCoreType core_type,
     const HloInstructionWrapper* instr_wrapper, FlatOpMetricsDb& children_db) {
   if (instr_wrapper->FusedChildren().empty()) return;
   for (const HloInstructionWrapper* child : instr_wrapper->FusedChildren()) {

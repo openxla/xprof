@@ -1,6 +1,6 @@
 import {Component, OnDestroy, OnInit, ChangeDetectionStrategy} from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
-import {ActivatedRouteSnapshot, Router} from '@angular/router';
+import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {
   DEFAULT_HOST,
@@ -20,7 +20,7 @@ import {
   getRunToolsMap,
 } from 'org_xprof/frontend/app/store/selectors';
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
-import {takeUntil} from 'rxjs/operators';
+import {takeUntil, filter} from 'rxjs/operators';
 
 /** A side navigation component. */
 @Component({
@@ -171,6 +171,7 @@ export class SideNav implements OnInit, OnDestroy {
         : params.get('hosts');
     const sessionPath = params.get('session_path') ?? '';
     const runPath = params.get('run_path') ?? '';
+    const baseSessionId = params.get('base_session_id') ?? '';
     const label = params.get('label') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';
     const moduleName = params.get('module_name') ?? '';
@@ -184,6 +185,7 @@ export class SideNav implements OnInit, OnDestroy {
     this.runPathInternal = runPath;
     this.sessionPathInternal = sessionPath;
     this.labelInternal = label;
+    this.dataService.setBaseSessionId(baseSessionId);
 
     if (this.multiHostEnabledTools.includes(tag)) {
       if (hostsParam) {
@@ -204,6 +206,14 @@ export class SideNav implements OnInit, OnDestroy {
   ngOnInit() {
     this.navigateWithUrl();
     this.fetchProfilerConfig();
+    this.router.events
+      ?.pipe(
+        filter((event) => event instanceof NavigationEnd),
+        takeUntil(this.destroyed),
+      )
+      .subscribe((event) => {
+        this.navigateWithUrl();
+      });
   }
 
   async fetchProfilerConfig() {
@@ -236,6 +246,10 @@ export class SideNav implements OnInit, OnDestroy {
     }
     if (this.sessionPathInternal) {
       navigationEvent.session_path = this.sessionPathInternal;
+    }
+    const baseSessionId = this.dataService.getBaseSessionId();
+    if (baseSessionId) {
+      navigationEvent.base_session_id = baseSessionId;
     }
     return navigationEvent;
   }

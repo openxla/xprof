@@ -46,6 +46,8 @@ build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:
 build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
 build:ci_windows_amd64 --color=yes
 build:ci_windows_amd64 --enable_runfiles
+# Required for --enable_runfiles to work on Windows (TF/XLA/TensorStore)
+startup --windows_enable_symlinks
 
 
 # Fixes C++17 and /FORCE:MULTIPLE for clang-cl without passing raw MSVC flags into WASM cross-compilation toolchain.

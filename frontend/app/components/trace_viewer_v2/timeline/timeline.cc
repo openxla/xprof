@@ -607,13 +607,12 @@ void Timeline::Draw() {
   ruler_screen_y_ = ruler_start_screen_pos.y;
 
   // Draw Ruler background anchored to the top (outside the scrollable child
-  // window). The background starts *after* the left label area according to
-  // user request.
+  // window). The background covers the entire row.
   ImGui::GetWindowDrawList()->AddRectFilled(
-      ImVec2(ruler_start_screen_pos.x + label_width_, ruler_start_screen_pos.y),
+      ImVec2(ruler_start_screen_pos.x, ruler_start_screen_pos.y),
       ImVec2(ruler_start_screen_pos.x + content_region_avail_width,
              ruler_start_screen_pos.y + kRulerHeight),
-      palette_.GetColor(ColorPalette::Key::kBackground).value_or(kWhiteColor));
+      palette_.GetColor(ColorPalette::Key::kMidtone).value_or(kLightGrayColor));
 
   ImGui::SetCursorPos(ruler_start_pos);
   DrawRulerUI(tick_info, current_timeline_width_);
@@ -1007,7 +1006,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     if (group.type == Group::Type::kCounter) {
       group_height = kCounterTrackHeight;
     } else if (group.type == Group::Type::kFlame) {
-      const int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
+      const int end_level =
+          GetNextGroupStartLevel(timeline_data_, group_index);
       group_height = std::max(1, end_level - group.start_level) *
                      (kEventHeight + kEventPaddingBottom);
     }
@@ -2908,6 +2908,15 @@ bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
   const bool is_track_hidden = hidden_track_names_.contains(group.name);
   if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
     needs_layout_update = true;
+    // The state was toggled inside DrawHideButton, so we should check the
+    // new state or invert the old state. Since is_track_hidden holds the
+    // old state:
+    // If it WAS hidden (true), it is now UNHIDDEN.
+    // If it WAS visible (false), it is now HIDDEN.
+    ShowNavigationWarningNotification(
+        is_track_hidden
+            ? absl::StrCat(kUnhiddenProcessNotificationPrefix, group.name)
+            : absl::StrCat(kHiddenProcessNotificationPrefix, group.name));
   }
 
   return needs_layout_update;
@@ -2954,7 +2963,6 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   ImU32 icon_col = ImGui::GetColorU32(ImGuiCol_Text);
   if (ImGui::IsItemHovered()) {
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-    icon_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
     ImGui::SetTooltip(is_track_hidden ? kUnhideTrackTooltip
                                       : kHideTrackTooltip);
   }

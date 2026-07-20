@@ -156,6 +156,12 @@ Build the pip Package: Use Bazel to build the XProf pip package:
 
 ```
 bazel run --config=public_cache plugin:build_pip_package
+
+For local macOS arm64 cold-rebuild timings and a CLT-only Xcode pin (when full
+Xcode.app is not installed), see
+[docs/bazel-pip-package-build-benchmark.md](docs/bazel-pip-package-build-benchmark.md).
+On the measured host the fastest clean rebuild used `--config=macos` without
+`public_cache`, plus `//tools/xcode:host_xcodes`.
 ```
 
 Navigate to the Bazel Output Directory and install:

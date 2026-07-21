@@ -2831,6 +2831,13 @@ TEST_F(MockTimelineImGuiFixture, DrawPinButton_Erase) {
 }
 
 TEST_F(MockTimelineImGuiFixture, DrawHideButton_Insert) {
+  timeline_.set_track_management_enabled(true);
+  FlameChartTimelineData data;
+  data.groups = {
+      {.name = "group", .nesting_level = kProcessNestingLevel},
+      {.name = "group2", .nesting_level = kProcessNestingLevel}};
+  timeline_.SetTimelineData(data);
+
   // Frame 1: Register window and layout
   ImGui::NewFrame();
   ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
@@ -7852,11 +7859,15 @@ TEST_F(RealTimelineImGuiFixture, PanLeftOutOfBounds) {
   timeline_.SetVisibleRange({10.0, 100.0});
   SimulateFrame();
 
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
   timeline_.Pan(-2000.0f);
 
   EXPECT_FLOAT_EQ(timeline_.get_bounds_notification_timer_for_test(), 2.0f);
   EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
             "Cannot pan further left: reached the beginning of the trace.");
+  EXPECT_TRUE(redraw_called);
 }
 
 TEST_F(RealTimelineImGuiFixture, PanRightOutOfBounds) {
@@ -8275,15 +8286,17 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   // Process A is collapsed, but has children.
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};
-  timeline_.SetTimelineData(data);
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, false}
+  };
+  data.events_by_level = {{0}, {}, {}};
   timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
 
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 45.0f);
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 135.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -8296,6 +8309,47 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   // Verify Process A became hidden
   EXPECT_FALSE(timeline_.group_visible()[0]);
   EXPECT_FALSE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CannotHideLastVisibleProcess) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
+  data.events_by_level = {{0}, {}};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Verify initial state
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+  EXPECT_TRUE(timeline_.get_bounds_notification_message_for_test().empty());
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on the hide button of Process A.
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 10.0f, 135.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A is STILL visible
+  EXPECT_TRUE(timeline_.group_visible()[0]);
+
+  // Verify notification
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            kCannotHideLastProcessNotification);
 }
 
 TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
@@ -8423,6 +8477,9 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   // Clear any previous click state
   SimulateFrame();
 
+  bool redraw_called = false;
+  timeline_.set_redraw_callback([&redraw_called]() { redraw_called = true; });
+
   // Click the hide button of Process A in Hidden section.
   // Hide button is at X ~ 241 (label_width_ - offset).
   // Y should be centered in the track height
@@ -8441,6 +8498,7 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   // Verify Process A became UNHIDDEN
   // It should be visible now.
   EXPECT_TRUE(timeline_.group_visible()[0]);
+  EXPECT_TRUE(redraw_called);
 }
 
 TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {

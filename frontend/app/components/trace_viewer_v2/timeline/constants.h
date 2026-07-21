@@ -222,6 +222,8 @@ inline constexpr double kEventNavigationZoomFactor = 2.5;
 // UI Strings Constants
 // go/keep-sorted start
 inline constexpr char kAllHeaderName[] = "All";
+inline constexpr char kCannotHideLastProcessNotification[] =
+    "Cannot hide the last visible process.";
 inline constexpr char kCounterTooltipFormat[] = "Time: %s\nValue: %.2f";
 inline constexpr char kHiddenHeaderName[] = "Hidden";
 inline constexpr char kHideTrackTooltip[] = "Hide track";

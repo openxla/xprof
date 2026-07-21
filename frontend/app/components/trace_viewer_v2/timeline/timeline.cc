@@ -1243,8 +1243,8 @@ void Timeline::EmitMouseModeChanged() {
   event_callback_(kMouseModeChanged, event_data);
 }
 
-void Timeline::ShowBoundsNotification(const std::string& message) {
-  bounds_notification_message_ = message;
+void Timeline::ShowNavigationWarningNotification(absl::string_view message) {
+  bounds_notification_message_ = std::string(message);
   bounds_notification_timer_ = 2.0f;
   if (redraw_callback_) redraw_callback_();
 }
@@ -1393,10 +1393,10 @@ void Timeline::Pan(Pixel pixel_amount) {
 
   if (!showing_entire_trace) {
     if (pixel_amount < 0.0 && new_range.start() < data_time_range_.start()) {
-      ShowBoundsNotification(
+      ShowNavigationWarningNotification(
           "Cannot pan further left: reached the beginning of the trace.");
     } else if (pixel_amount > 0.0 && new_range.end() > data_time_range_.end()) {
-      ShowBoundsNotification(
+      ShowNavigationWarningNotification(
           "Cannot pan further right: reached the end of the trace.");
     }
   }
@@ -1447,7 +1447,7 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
 
   if (zoom_factor < 1.0) {
     if (new_range.duration() < kMinDurationMicros) {
-      ShowBoundsNotification(
+      ShowNavigationWarningNotification(
           "Cannot zoom in further: minimum zoom duration reached.");
     }
   } else if (zoom_factor > 1.0) {
@@ -1456,7 +1456,7 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
     if (constrained_range.duration() < new_range.duration() ||
         (visible_range_.target().start() <= data_time_range_.start() &&
          visible_range_.target().end() >= data_time_range_.end())) {
-      ShowBoundsNotification(
+      ShowNavigationWarningNotification(
           "Cannot zoom out further: showing the entire trace.");
     }
   }
@@ -2934,10 +2934,16 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
     auto it = hidden_track_names_.find(group.name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
+      toggled = true;
     } else {
-      hidden_track_names_.insert(group.name);
+      if (all_processes_count_ > 1) {
+        hidden_track_names_.insert(group.name);
+        toggled = true;
+      } else {
+        ShowNavigationWarningNotification(
+            kCannotHideLastProcessNotification);
+      }
     }
-    toggled = true;
   }
 
   // Calculate the center point for drawing the icon.

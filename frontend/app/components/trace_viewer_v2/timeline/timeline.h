@@ -489,7 +489,7 @@ class Timeline {
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
-  void ShowBoundsNotification(const std::string& message);
+  void ShowNavigationWarningNotification(absl::string_view message);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);

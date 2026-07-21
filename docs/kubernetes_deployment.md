@@ -68,7 +68,7 @@ spec:
         args:
           - "--port=10000"
           - "--worker_service_address=dns:///xprof-worker-service.default.svc.cluster.local:8891"
-          - "-gp=50051"
+          - "--grpc_port=50051"
           - "--hide_capture_profile_button"
         ports:
         - containerPort: 10000
@@ -118,7 +118,7 @@ spec:
         imagePullPolicy: Never
         args:
           - "--port=9999"
-          - "-gp=8891"
+          - "--grpc_port=8891"
           - "--hide_capture_profile_button"
         ports:
         - containerPort: 8891

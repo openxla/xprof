@@ -19,8 +19,9 @@ export declare interface FeatureFlag {
 const FEATURE_FLAGS = {
   'use_pb': {
     name: 'Use Protobuf Pipeline in Trace Viewer',
-    description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
-    default: false,
+    description:
+      'Use the high-performance protobuf data pipeline in Trace Viewer. Uncheck to fallback to JSON.',
+    default: true,
   },
   'snap_to_time_range': {
     name: 'Snap to Time Range',

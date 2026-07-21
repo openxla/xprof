@@ -2882,28 +2882,27 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
                           button_pos.y + button_size);
 
   bool clicked = false;
-  if (ImGui::IsMouseHoveringRect(hover_rect.Min, hover_rect.Max)) {
-    ImU32 button_color = kCloseButtonColor;
-    if (ImGui::IsMouseHoveringRect(button_min, button_max)) {
-      button_color = kCloseButtonHoverColor;
-      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-      if (ImGui::IsMouseClicked(0)) {
-        clicked = true;
-      }
+  ImU32 button_color = kCloseButtonColor;
+
+  if (ImGui::IsMouseHoveringRect(button_min, button_max)) {
+    button_color = kCloseButtonHoverColor;
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if (ImGui::IsMouseClicked(0)) {
+      clicked = true;
     }
-
-    const ImVec2 center(button_min.x + button_size / 2.0f,
-                        button_min.y + button_size / 2.0f);
-    draw_list->AddCircleFilled(center, button_size / 2.0f, button_color);
-
-    const Pixel x_radius = button_size * 0.25f;
-    draw_list->AddLine(ImVec2(center.x - x_radius, center.y - x_radius),
-                       ImVec2(center.x + x_radius, center.y + x_radius),
-                       kWhiteColor);
-    draw_list->AddLine(ImVec2(center.x - x_radius, center.y + x_radius),
-                       ImVec2(center.x + x_radius, center.y - x_radius),
-                       kWhiteColor);
   }
+
+  const ImVec2 center(button_min.x + button_size / 2.0f,
+                      button_min.y + button_size / 2.0f);
+  draw_list->AddCircleFilled(center, button_size / 2.0f, button_color);
+
+  const Pixel x_radius = button_size * 0.25f;
+  draw_list->AddLine(ImVec2(center.x - x_radius, center.y - x_radius),
+                     ImVec2(center.x + x_radius, center.y + x_radius),
+                     kWhiteColor);
+  draw_list->AddLine(ImVec2(center.x - x_radius, center.y + x_radius),
+                     ImVec2(center.x + x_radius, center.y - x_radius),
+                     kWhiteColor);
   return clicked;
 }
 

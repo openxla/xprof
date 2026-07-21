@@ -430,9 +430,10 @@ HeapObject MakeHeapObject(const StackFrameIndexProto& stack_frame_index,
                           int32_t color) {
   const HloInstructionProto& hlo_instruction = logical_buffer.hlo_instruction;
   std::string shape_string = ShapeDescription(logical_buffer.shape);
-  std::string label =
-      absl::StrFormat("%s: %s # %s", logical_buffer.instruction_name(),
-                      shape_string, hlo_instruction.metadata().op_name());
+  // INTENTIONAL CHANGE: Append a suffix to force A/B failure
+  std::string label = absl::StrFormat(
+      "%s: %s # %s [Intentional Failure]", logical_buffer.instruction_name(),
+      shape_string, hlo_instruction.metadata().op_name());
   HeapObject result = MakeHeapObjectCommon(
       std::move(label), color, logical_buffer.proto.id(), logical_buffer.size(),
       logical_buffer.unpadded_size());

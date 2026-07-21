@@ -38,13 +38,29 @@ xprof_ng_module(
 )
 
 xprof_ng_module(
+    name = "diff_service",
+    srcs = [
+        "diff_service.ts",
+    ],
+    deps = [
+        ":data_service_v2_interface",
+        "@npm//@angular/core",
+        "@npm//rxjs",
+        "@org_xprof//frontend/app/common/interfaces",
+    ],
+)
+
+xprof_ng_module(
     name = "tests",
     testonly = True,
     srcs = [
         "data_service_v2_test.ts",
+        "diff_service_test.ts",
     ],
     deps = [
         ":data_service_v2",
+        ":data_service_v2_interface",
+        ":diff_service",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/common",

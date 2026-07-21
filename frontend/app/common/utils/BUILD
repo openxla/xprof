@@ -27,6 +27,13 @@ ts_library(
 )
 
 ts_library(
+    name = "diff_utils",
+    srcs = [
+        "diff_utils.ts",
+    ],
+)
+
+ts_library(
     name = "tests",
     testonly = True,
     srcs = [

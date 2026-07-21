@@ -1,4 +1,5 @@
 import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {Store} from '@ngrx/store';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {getKernelStatsDataState} from 'org_xprof/frontend/app/store/common_data_store/selectors';
@@ -19,6 +20,7 @@ export class KernelStats {
 
   constructor(store: Store<{}>) {
     store.select(getKernelStatsDataState)
+        .pipe(takeUntilDestroyed())
         .subscribe((data: SimpleDataTable|null) => {
           this.update(data);
         });

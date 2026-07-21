@@ -195,7 +195,7 @@ export class HloStats extends Dashboard implements OnDestroy {
         }
       });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
-    this.tableColumnsControl.valueChanges.subscribe((newValue) => {
+    this.tableColumnsControl.valueChanges.pipe(takeUntil(this.destroyed)).subscribe((newValue) => {
       this.updateTableColumns(newValue || []);
     });
 

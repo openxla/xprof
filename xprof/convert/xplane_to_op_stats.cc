@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/log/vlog_is_on.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -41,11 +42,11 @@ limitations under the License.
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/custom_call_duty_cycle.h"
 #include "xprof/convert/duty_cycle_combiner.h"
 #include "xprof/convert/duty_cycle_tracker.h"
 #include "xprof/convert/flat_op_metrics_db_combiner.h"
@@ -385,10 +386,49 @@ DutyCycleTracker ConstructDutyCycleTracker(XPlaneVisitor& visitor) {
       line.ForEachEvent([&](const XEventVisitor& event) {
         auto hlo_category_stat =
             event.Metadata().GetStat(StatType::kHloCategory);
+        if (!hlo_category_stat) {
+          hlo_category_stat = event.GetStat(StatType::kHloCategory);
+        }
+
         duty_cycle_tracker.AddInterval(
             event.GetTimespan(),
             !(hlo_category_stat &&
               tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue())));
+      });
+    } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        //  TODO(b/397774568): Add support for SC off-duty ops.
+        duty_cycle_tracker.AddInterval(event.GetTimespan(), /*is_active=*/true);
+      });
+    } else if (line.Name() == tsl::profiler::kXlaModuleLineName ||
+               line.Name() == tsl::profiler::kSparseCoreModuleLineName) {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        duty_cycle_tracker.AddInterval(event.GetTimespan(),
+                                       /*is_active=*/false);
+      });
+    }
+  });
+  return duty_cycle_tracker;
+}
+
+DutyCycleTracker ConstructHCDutyCycleTracker(XPlaneVisitor& visitor) {
+  DutyCycleTracker duty_cycle_tracker;
+  visitor.ForEachLine([&](const XLineVisitor& line) {
+    if (line.Name() == tsl::profiler::kXlaOpLineName) {
+      line.ForEachEvent([&](const XEventVisitor& event) {
+        auto hlo_category_stat =
+            event.Metadata().GetStat(StatType::kHloCategory);
+        if (!hlo_category_stat) {
+          hlo_category_stat = event.GetStat(StatType::kHloCategory);
+        }
+
+        // HC duty cycle filters out off-duty ops and off-duty custom calls
+        // via the IsCustomCallEventOffDuty check.
+        duty_cycle_tracker.AddInterval(
+            event.GetTimespan(),
+            !(hlo_category_stat &&
+              (tsl::profiler::IsOffDutyOp(hlo_category_stat->StrOrRefValue()) ||
+               xprof::IsCustomCallEventOffDuty(event))));
       });
     } else if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
       line.ForEachEvent([&](const XEventVisitor& event) {
@@ -480,6 +520,7 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     core_id_to_details_map[kDefaultGpuLocalCoreId].set_hostname(hostname);
   }
   DutyCycleCombiner duty_cycle_combiner;
+  DutyCycleCombiner duty_cycle_hc_combiner;
   // TODO(b/161942993) parallelize XPlane processing per thread.
   HloModuleMap hlo_module_map;
 
@@ -636,15 +677,16 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     // Device Trace generation.
     struct DeviceTraceResult {
       DutyCycleTracker duty_cycle_tracker;
+      DutyCycleTracker duty_cycle_hc_tracker;
       std::optional<CoreDetails> core_details;
     };
     std::vector<DeviceTraceResult> device_trace_results;
 
     // Ensure device_trace threads are joined and results processed when the
     // function exits.
-    auto device_trace_cleanup =
-        absl::MakeCleanup([&device_trace_results, &device_planes,
-                           &core_id_to_details_map, &duty_cycle_combiner]() {
+    auto device_trace_cleanup = absl::MakeCleanup(
+        [&device_trace_results, &device_planes, &core_id_to_details_map,
+         &duty_cycle_combiner, &duty_cycle_hc_combiner]() {
           for (size_t i = 0; i < device_planes.size(); ++i) {
             const XPlane* device_trace = device_planes[i];
             const auto& result = device_trace_results[i];
@@ -653,10 +695,14 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
               duty_cycle_combiner.CombineCore(
                   result.duty_cycle_tracker,
                   result.core_details->local_chip_id());
+              duty_cycle_hc_combiner.CombineCore(
+                  result.duty_cycle_hc_tracker,
+                  result.core_details->local_chip_id());
             } else {
               LOG(WARNING) << "No CoreDetails found for TPU device plane: "
                            << device_trace->name();
               duty_cycle_combiner.CombineChip(result.duty_cycle_tracker);
+              duty_cycle_hc_combiner.CombineChip(result.duty_cycle_hc_tracker);
             }
           }
         });
@@ -669,6 +715,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
             tsl::profiler::CreateTfXPlaneVisitor(device_trace);
         DutyCycleTracker duty_cycle_tracker =
             ConstructDutyCycleTracker(visitor);
+        DutyCycleTracker duty_cycle_hc_tracker =
+            ConstructHCDutyCycleTracker(visitor);
         std::optional<CoreDetails> core_details;
         if (std::optional<XStatVisitor> core_details_stat =
                 visitor.GetStat(StatType::kCoreDetails)) {
@@ -684,7 +732,8 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
             core_details.reset();
           }
         }
-        device_trace_result = {duty_cycle_tracker, core_details};
+        device_trace_result = {duty_cycle_tracker, duty_cycle_hc_tracker,
+                               core_details};
       });
     }
     // All event generation should end in this block before we start combining
@@ -706,6 +755,10 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
     OpMetricsDb& op_metrics_db = *op_stats.mutable_device_op_metrics_db();
     op_metrics_db.set_idle_time_ps(duty_cycle_combiner.GetTotalIdleTimePs());
     op_metrics_db.set_busy_time_ps(duty_cycle_combiner.GetTotalActiveTimePs());
+    op_metrics_db.set_busy_time_high_confidence_ps(
+        duty_cycle_hc_combiner.GetTotalActiveTimePs());
+    op_metrics_db.set_idle_time_high_confidence_ps(
+        duty_cycle_hc_combiner.GetTotalIdleTimePs());
   }
 
   // Combine into reports.

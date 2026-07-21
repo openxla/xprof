@@ -452,11 +452,14 @@ class Timeline {
   // terms to allow general usage.
   int FindFirstVisibleAncestorIndex(int start_idx) const;
 
+  Pixel GetGroupTop(const Group* group) const;
+  Pixel GetGroupBottom(const Group* group) const;
+
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
   void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
-                    Pixel kIconDrawSize, ImU32 icon_col,
+                    Pixel icon_draw_size, ImU32 icon_col,
                     bool is_track_hidden = false);
 
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
@@ -471,9 +474,6 @@ class Timeline {
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
-
-  Pixel GetGroupTop(const Group* group) const;
-  Pixel GetGroupBottom(const Group* group) const;
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);

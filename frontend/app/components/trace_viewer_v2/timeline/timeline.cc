@@ -195,7 +195,8 @@ int GetNextGroupStartLevel(const FlameChartTimelineData& data,
 // Checks if a group is one of the virtual headers (Hidden or All).
 bool IsVirtualHeader(const Group* group) {
   return group->nesting_level == kHeaderNestingLevel &&
-         (group->name == kHiddenHeaderName || group->name == kAllHeaderName);
+         (group->name == kHiddenHeaderName || group->name == kAllHeaderName ||
+          group->name == kPinnedHeaderName);
 }
 
 // Formats the header text with the process count.
@@ -230,6 +231,7 @@ Pixel Timeline::GetGroupTop(const Group* group) const {
   if (IsVirtualHeader(group)) {
     if (group->name == kHiddenHeaderName) return header_hidden_offset_;
     if (group->name == kAllHeaderName) return header_all_offset_;
+    if (group->name == kPinnedHeaderName) return header_pinned_offset_;
   }
   int group_index = group - &timeline_data_.groups[0];
   return group_offsets_[group_index];
@@ -243,6 +245,9 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
     if (group->name == kAllHeaderName) {
       return header_all_offset_ + kVirtualHeaderHeight;
     }
+    if (group->name == kPinnedHeaderName) {
+      return header_pinned_offset_ + kVirtualHeaderHeight;
+    }
   }
   int group_index = group - &timeline_data_.groups[0];
   return group_offsets_[group_index] + group_heights_[group_index];
@@ -252,60 +257,84 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   flattened_groups_.clear();
   const int group_count = data.groups.size();
 
+  all_processes_count_ = 0;
+  hidden_processes_count_ = 0;
+  pinned_processes_count_ = 0;
+
   if (!track_management_enabled_) {
     flattened_groups_.reserve(group_count);
     for (int i = 0; i < group_count; ++i) {
       flattened_groups_.push_back(&data.groups[i]);
+      if (data.groups[i].nesting_level == kProcessNestingLevel) {
+        all_processes_count_++;
+      }
     }
     return;
   }
 
-  // Pre-calculate track visibility states. Since a process and all its nested
-  // subtracks form a visual block, we propagate the process's hidden status
-  // down to its descendant tracks. Caching this avoids performing redundant
-  // string-key lookup queries on `hidden_track_names_` during layout building.
-  std::vector<bool> group_is_hidden(group_count, false);
+  // Pre-categorize groups into hidden, pinned, and all sections.
+  // Since a process and all its nested subtracks form a visual block, we
+  // propagate the process's status (hidden/pinned) down to its descendant
+  // tracks. Retaining this state across iterations avoids performing
+  // redundant string-key lookup queries on `hidden_track_names_` and
+  // `pinned_track_names_` for every subtrack.
+  std::vector<const Group*> hidden_groups;
+  std::vector<const Group*> pinned_groups;
+  std::vector<const Group*> all_groups;
+  hidden_groups.reserve(group_count);
+  pinned_groups.reserve(group_count);
+  all_groups.reserve(group_count);
+
   bool current_process_hidden = false;
-  all_processes_count_ = 0;
-  hidden_processes_count_ = 0;
+  bool current_process_pinned = false;
 
   for (int i = 0; i < group_count; ++i) {
     const Group& group = data.groups[i];
     if (group.nesting_level == kProcessNestingLevel) {
       current_process_hidden = hidden_track_names_.contains(group.name);
+      current_process_pinned =
+          !current_process_hidden && pinned_track_names_.contains(group.name);
+
       if (current_process_hidden) {
         hidden_processes_count_++;
+      } else if (current_process_pinned) {
+        pinned_processes_count_++;
       } else {
         all_processes_count_++;
       }
     }
-    group_is_hidden[i] = current_process_hidden;
+
+    if (current_process_hidden) {
+      hidden_groups.push_back(&data.groups[i]);
+    } else if (current_process_pinned) {
+      pinned_groups.push_back(&data.groups[i]);
+    } else {
+      all_groups.push_back(&data.groups[i]);
+    }
   }
 
   // Reserve capacity on flattened_groups_ to prevent multiple internal
-  // reallocations as elements are added (since we will add exactly
-  // group_count + 2 items).
-  flattened_groups_.reserve(group_count + 2);
+  // reallocations as elements are added (headers + groups).
+  flattened_groups_.reserve(3 + hidden_groups.size() + pinned_groups.size() +
+                            all_groups.size());
 
   // 1. Hidden processes / "Hidden" Header
   flattened_groups_.push_back(&header_hidden_);
-
   // 2. Hidden processes and their children
-  for (int i = 0; i < group_count; ++i) {
-    if (group_is_hidden[i]) {
-      flattened_groups_.push_back(&data.groups[i]);
-    }
-  }
+  flattened_groups_.insert(flattened_groups_.end(), hidden_groups.begin(),
+                           hidden_groups.end());
 
-  // 3. All Processes / "All" Header
+  // 3. Pinned processes / "Pinned" Header
+  flattened_groups_.push_back(&header_pinned_);
+  // 4. Pinned processes and their children
+  flattened_groups_.insert(flattened_groups_.end(), pinned_groups.begin(),
+                           pinned_groups.end());
+
+  // 5. All Processes / "All" Header
   flattened_groups_.push_back(&header_all_);
-
-  // 4. Unhidden processes and their children
-  for (int i = 0; i < group_count; ++i) {
-    if (!group_is_hidden[i]) {
-      flattened_groups_.push_back(&data.groups[i]);
-    }
-  }
+  // 6. All processes and their children
+  flattened_groups_.insert(flattened_groups_.end(), all_groups.begin(),
+                           all_groups.end());
 }
 
 void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
@@ -341,6 +370,14 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
       if (group_ptr->name == kHiddenHeaderName) {
         header_hidden_offset_ = current_offset;
         section_collapsed = !header_hidden_expanded_;
+        current_offset += kVirtualHeaderHeight;
+        // Reset collapsed ancestor tracker between sections
+        hidden_nesting_level = std::numeric_limits<int>::max();
+        continue;
+      }
+      if (group_ptr->name == kPinnedHeaderName) {
+        header_pinned_offset_ = current_offset;
+        section_collapsed = !header_pinned_expanded_;
         current_offset += kVirtualHeaderHeight;
         // Reset collapsed ancestor tracker between sections
         hidden_nesting_level = std::numeric_limits<int>::max();
@@ -784,8 +821,12 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
                              Pixel group_top, Pixel group_bottom) {
   bool needs_layout_update = false;
 
-  int header_id =
-      (group_ptr->name == kAllHeaderName) ? kAllHeaderId : kHiddenHeaderId;
+  int header_id = kAllHeaderId;
+  if (group_ptr->name == kHiddenHeaderName) {
+    header_id = kHiddenHeaderId;
+  } else if (group_ptr->name == kPinnedHeaderName) {
+    header_id = kPinnedHeaderId;
+  }
   ImGui::PushID(header_id);
 
   // Limit text clip region to label column
@@ -806,6 +847,9 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   } else if (group_ptr->name == kHiddenHeaderName) {
     toggled =
         DrawExpandCollapseButton(header_hidden_expanded_, kVirtualHeaderHeight);
+  } else if (group_ptr->name == kPinnedHeaderName) {
+    toggled =
+        DrawExpandCollapseButton(header_pinned_expanded_, kVirtualHeaderHeight);
   }
 
   if (toggled) {
@@ -828,6 +872,8 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
     header_text = FormatHeaderText(kHiddenHeaderName, hidden_processes_count_);
   } else if (group_ptr->name == kAllHeaderName) {
     header_text = FormatHeaderText(kAllHeaderName, all_processes_count_);
+  } else if (group_ptr->name == kPinnedHeaderName) {
+    header_text = FormatHeaderText(kPinnedHeaderName, pinned_processes_count_);
   }
   ImGui::TextUnformatted(header_text.c_str());
   ImGui::PopFont();
@@ -992,84 +1038,15 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   ImGui::SameLine();
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
-  ImGui::PushFont(traceviewer::fonts::label_large);
-  const Pixel text_height_large = ImGui::GetTextLineHeight();
-  ImGui::PopFont();
-
-  ImGui::PushFont(traceviewer::fonts::label_medium);
-  const Pixel text_height_medium = ImGui::GetTextLineHeight();
-  ImGui::PopFont();
-
-  const bool has_subtitle = !group.subtitle.empty();
-
-  const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
-  const Pixel total_text_height =
-      has_subtitle ? (text_height_large + spacing + text_height_medium)
-                   : text_height_large;
-
-  const Pixel vertical_offset = (centereable_height - total_text_height) * 0.5f;
-  ImGui::SetCursorPosY(label_start_y + std::max(0.0f, vertical_offset));
-
-  ImGui::BeginGroup();
-
-  absl::string_view display_name = group.name;
-  if (has_subtitle) {
-    display_name.remove_prefix(group.subtitle.size() + 1);
-    if (!display_name.empty() && display_name.front() == '/') {
-      display_name.remove_prefix(1);
-    }
-  }
-
-  ImGui::PushFont(traceviewer::fonts::label_large);
-  ImGui::TextUnformatted(display_name.data(),
-                         display_name.data() + display_name.size());
-  ImGui::PopFont();
-
-  if (has_subtitle) {
-    ImGui::PushFont(traceviewer::fonts::label_medium);
-    ImGui::PushStyleColor(ImGuiCol_Text,
-                          palette_.GetColor(ColorPalette::Key::kSubtitle)
-                              .value_or(kOnSecondaryFixedVariantColor));
-    ImGui::TextUnformatted(group.subtitle.data());
-    ImGui::PopStyleColor();
-    ImGui::PopFont();
-  }
-
-  ImGui::EndGroup();
-
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
-    if (ImGui::IsMouseClicked(0)) {
-      ImGui::SetClipboardText(group.name.c_str());
-      traceviewer::CopyToClipboard(group.name);
-
-      copied_track_name_ = group.name;
-      copy_notification_timer_ = 2.0f;
-    }
-  }
-
-  if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
-    ImVec2 group_min = ImGui::GetItemRectMin();
-    ImVec2 group_max = ImGui::GetItemRectMax();
-    ImGui::GetWindowDrawList()->AddRectFilled(group_min, group_max,
-                                              IM_COL32(66, 133, 244, 128));
-  }
+  DrawTrackLabel(group, centereable_height);
 
   ImGui::Unindent(indent_amount);
   ImGui::SetCursorPosY(label_start_y);
   ImGui::PopClipRect();
 
-  if (track_management_enabled_) {
-    if (group.nesting_level == kProcessNestingLevel) {
-      ImGui::SameLine();
-      const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
-      ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
-                           kArrowSize);
-      const bool is_track_hidden = hidden_track_names_.contains(group.name);
-      if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
-        needs_layout_update = true;
-      }
-    }
+  if (DrawTrackManagementButtons(group_index, group, tracks_start_pos,
+                                 centereable_height)) {
+    needs_layout_update = true;
   }
 
   ImGui::SetCursorPos(ImVec2(tracks_start_pos.x + label_width_,
@@ -2906,6 +2883,36 @@ bool Timeline::DrawCloseButton(ImDrawList* draw_list, const ImVec2& button_pos,
   return clicked;
 }
 
+bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
+                                          const ImVec2& tracks_start_pos,
+                                          Pixel centereable_height) {
+  if (!track_management_enabled_) return false;
+  if (group.nesting_level != kProcessNestingLevel) return false;
+
+  bool needs_layout_update = false;
+  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+
+  // Position and draw Pin button
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                       kArrowSize * 2.0f - kButtonGap);
+  const bool is_pinned = pinned_track_names_.contains(group.name);
+  if (DrawPinButton(group_index, centereable_height, is_pinned)) {
+    needs_layout_update = true;
+  }
+
+  // Position and draw Hide button
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
+                       kArrowSize);
+  const bool is_track_hidden = hidden_track_names_.contains(group.name);
+  if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
+    needs_layout_update = true;
+  }
+
+  return needs_layout_update;
+}
+
 bool Timeline::DrawHideButton(int group_index, Pixel height,
                               bool is_track_hidden) {
   const Group& group = timeline_data_.groups[group_index];
@@ -2954,7 +2961,7 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
       ImVec2(tracks_start_screen_pos_.x + content_region_avail_width,
              tracks_start_screen_pos_.y + group_offsets_[group_index + 1]));
 
-  if (is_row_hovered) {
+  if (is_row_hovered || is_track_hidden) {
     DrawHideIcon(draw_list, center_x, center_y, kIconDrawSize, icon_col,
                  is_track_hidden);
   }
@@ -3010,36 +3017,6 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
   return toggled;
 }
 
-bool Timeline::DrawTrackManagementButtons(int group_index, const Group& group,
-                                          const ImVec2& tracks_start_pos,
-                                          Pixel centereable_height) {
-  if (!track_management_enabled_) return false;
-  if (group.nesting_level != kProcessNestingLevel) return false;
-
-  bool needs_layout_update = false;
-  const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
-
-  // Position and draw Pin button
-  ImGui::SameLine();
-  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
-                       kArrowSize * 2.0f - kButtonGap);
-  const bool is_pinned = pinned_track_names_.contains(group.name);
-  if (DrawPinButton(group_index, centereable_height, is_pinned)) {
-    needs_layout_update = true;
-  }
-
-  // Position and draw Hide button
-  ImGui::SameLine();
-  ImGui::SetCursorPosX(tracks_start_pos.x + label_width_ - kSplitterOffset -
-                       kArrowSize);
-  const bool is_track_hidden = hidden_track_names_.contains(group.name);
-  if (DrawHideButton(group_index, centereable_height, is_track_hidden)) {
-    needs_layout_update = true;
-  }
-
-  return needs_layout_update;
-}
-
 // Draws a pushpin icon inside a kIconDrawSize * kIconDrawSize square area.
 // The icon's drawing coordinates are relative to the center and will not
 // exceed the boundaries defined by kIconDrawSize.
@@ -3072,9 +3049,9 @@ void Timeline::DrawPinIcon(ImDrawList* draw_list, Pixel center_x,
 // The icon's drawing coordinates are relative to the center and will not
 // exceed the boundaries defined by kIconDrawSize.
 void Timeline::DrawHideIcon(ImDrawList* draw_list, Pixel center_x,
-                            Pixel center_y, Pixel kIconDrawSize, ImU32 icon_col,
-                            bool is_track_hidden) {
-  float r = kIconDrawSize * 0.5f;
+                            Pixel center_y, Pixel icon_draw_size,
+                            ImU32 icon_col, bool is_track_hidden) {
+  float r = icon_draw_size * 0.5f;
 
   // Curve approximation using segments
   ImVec2 p0(center_x - r, center_y);

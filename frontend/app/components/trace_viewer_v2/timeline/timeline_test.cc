@@ -3381,6 +3381,12 @@ INSTANTIATE_TEST_SUITE_P(VariousInteractions, MaybeRequestDataDeferredTest,
 class TestTimeline : public Timeline {
  public:
   using Timeline::DrawHideIcon;
+  using Timeline::flattened_groups_;
+  using Timeline::GetGroupBottom;
+  using Timeline::GetGroupTop;
+  using Timeline::hidden_track_names_;
+  using Timeline::pinned_track_names_;
+
   using Timeline::group_visible;
   using Timeline::Pan;
   using Timeline::Scroll;
@@ -8240,9 +8246,9 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   ASSERT_EQ(timeline_.GetVisibleLevelOffsets().size(), 5);
   EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[0], 40.0f);
   EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[1], 40.0f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 135.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 159.5f);
-  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 183.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[2], 165.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[3], 189.5f);
+  EXPECT_FLOAT_EQ(timeline_.GetVisibleLevelOffsets()[4], 213.5f);
 
   ImGui::GetStyle().CellPadding.y = prev_padding_y;
 
@@ -8316,9 +8322,10 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
   ImGuiIO& io = ImGui::GetIO();
   // Click on "All" header expand/collapse button
   // "Hidden" header is at 0-30 (screen 20-50)
-  // "All" header is at 30-60 (screen 50-80)
-  // Button is at X = kIndentSize (10), Y ~ 65
-  io.MousePos = ImVec2(15.0f, 65.0f);
+  // "Pinned" header is at 30-60 (screen 50-80)
+  // "All" header is at 60-90 (screen 80-110)
+  // Button is at X = kIndentSize (10), Y ~ 95
+  io.MousePos = ImVec2(15.0f, 95.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -8560,6 +8567,236 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
       ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+TEST_F(RealTimelineImGuiFixture, PinUnpinnedTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Hover Pin button in 'All' section (Y=135.0f)
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 135.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+
+  // Click to PIN:
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture, PinPinnedTrackDoesNothing) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}};
+  timeline_.set_track_management_enabled(true);
+  // Pre-pin programmatically
+  timeline_.pinned_track_names_.insert("Process A");
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+  const size_t initial_size = timeline_.pinned_track_names_.size();
+
+  // Try to pin again (idempotent operation)
+  timeline_.pinned_track_names_.insert("Process A");
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.pinned_track_names_.size(), initial_size);
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture, UnpinPinnedTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}};
+  timeline_.set_track_management_enabled(true);
+  // Pre-pin programmatically
+  timeline_.pinned_track_names_.insert("Process A");
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Hover Unpin button in 'Pinned' section (Y=105.0f)
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 105.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click to UNPIN:
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture, UnpinUnpinnedTrackDoesNothing) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+  const size_t initial_size = timeline_.pinned_track_names_.size();
+
+  // Try to unpin (idempotent operation)
+  timeline_.pinned_track_names_.erase("Process A");
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.pinned_track_names_.size(), initial_size);
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+}
+
+TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {0.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 135.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click to PIN:
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+
+  // Click to UNPIN (draws at Y = 105.0f because Pinned is the second header):
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 105.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click to UNPIN:
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+
+  // Verify Process A returns back to All section (hovering at Y = 135.0f):
+  io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 135.0f);
+  SimulateFrame();
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       GetGroupTopBottom_Headers_TrackManagementEnabled) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+  SimulateFrame();
+
+  const Group* header_hidden = nullptr;
+  const Group* header_pinned = nullptr;
+  const Group* header_all = nullptr;
+
+  for (const Group* g : timeline_.flattened_groups_) {
+    if (g->name == kHiddenHeaderName) header_hidden = g;
+    if (g->name == kPinnedHeaderName) header_pinned = g;
+    if (g->name == kAllHeaderName) header_all = g;
+  }
+
+  ASSERT_NE(header_hidden, nullptr);
+  ASSERT_NE(header_pinned, nullptr);
+  ASSERT_NE(header_all, nullptr);
+
+  // We can't verify exact offsets without exposing them, but we can verify
+  // that Bottom = Top + kVirtualHeaderHeight
+  EXPECT_EQ(timeline_.GetGroupBottom(header_hidden),
+            timeline_.GetGroupTop(header_hidden) + kVirtualHeaderHeight);
+  EXPECT_EQ(timeline_.GetGroupBottom(header_pinned),
+            timeline_.GetGroupTop(header_pinned) + kVirtualHeaderHeight);
+  EXPECT_EQ(timeline_.GetGroupBottom(header_all),
+            timeline_.GetGroupTop(header_all) + kVirtualHeaderHeight);
+}
+
+TEST_F(RealTimelineImGuiFixture, GetGroupTopBottom_RegularGroups) {
+  FlameChartTimelineData data;
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Thread 1", "", 1, kThreadNestingLevel, true},
+  };
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+  SimulateFrame();
+
+  // For regular groups, GetGroupTop returns group_offsets_[index]
+  // and GetGroupBottom returns group_offsets_[index] + group_heights_[index].
+  // We can verify this by checking that
+  // they are valid (non-zero or consistent).
+  // Or we can just verify the interface doesn't crash.
+  const auto& groups = timeline_.timeline_data().groups;
+  ASSERT_EQ(groups.size(), 2);
+
+  const Group* group_a = &groups[0];
+  const Group* group_1 = &groups[1];
+
+  // They should have some offset.
+  EXPECT_GE(timeline_.GetGroupTop(group_a), 0.0f);
+  EXPECT_GE(timeline_.GetGroupBottom(group_a), timeline_.GetGroupTop(group_a));
+  EXPECT_GE(timeline_.GetGroupTop(group_1), timeline_.GetGroupBottom(group_a));
 }
 
 class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {

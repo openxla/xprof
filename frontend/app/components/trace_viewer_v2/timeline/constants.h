@@ -12,6 +12,7 @@ using Pixel = float;
 
 // Default colors
 // go/keep-sorted start
+
 // Black color with 100% opacity, rgba(0, 0, 0, 1).
 inline constexpr ImU32 kBlackColor = IM_COL32(0, 0, 0, 255);
 // Blue color with 100% opacity, rgba(0, 0, 255, 1).
@@ -20,6 +21,8 @@ inline constexpr ImU32 kBlueColor = IM_COL32(0, 0, 255, 255);
 inline constexpr ImU32 kDarkGrayColor = IM_COL32(100, 100, 100, 255);
 // A light gray line,  #E3E3E3 (GM3 Grey 90)
 inline constexpr ImU32 kLightGrayColor = IM_COL32(0xE3, 0xE3, 0xE3, 255);
+// Red color with 100% opacity, rgba(255, 0, 0, 1).
+inline constexpr ImU32 kRedColor = IM_COL32(255, 0, 0, 255);
 // Black color with 30% opacity for subtle dimming.
 inline constexpr ImU32 kSubtleDimmingColor = IM_COL32(0, 0, 0, 77);
 // White color with 30% opacity, rgba(255, 255, 255, 0.3).
@@ -125,13 +128,14 @@ inline constexpr int kHiddenHeaderId = 200000;
 inline constexpr int kPinnedHeaderId = 300000;
 // go/keep-sorted end
 
-
 // Time Range Selection Constants
 // go/keep-sorted start
 // A solid blue for the curtain border. #A1C9FFFF at 100% opacity.
 inline constexpr ImU32 kSelectedTimeRangeColor = 0xFFFFC9A1;
 inline constexpr Pixel kSelectedTimeRangeTextBottomPadding = 10.0f;
 inline constexpr Pixel kSelectedTimeRangeTextTopPadding = 5.0f;
+// Default element dimensions
+inline constexpr Pixel kSelectedTimeRangeThickness = 1.0f;
 // The threshold in pixels within which the mouse is considered to be over an
 // edge of a selected time range for resizing.
 inline constexpr Pixel kSelectionEdgeThreshold = 5.0f;

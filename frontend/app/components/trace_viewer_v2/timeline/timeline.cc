@@ -1499,7 +1499,8 @@ void Timeline::ApplySnapping(TimeRange& range) {
   }
   // Snapping only applies when in measuring mode (kTiming) or when Shift+Drag
   // is used to select a time range.
-  if (mouse_mode_ != MouseMode::kTiming && !ImGui::GetIO().KeyShift) {
+  if (mouse_mode_ != MouseMode::kTiming && !ImGui::GetIO().KeyShift &&
+      !time_range_resizing_state_.has_value()) {
     return;
   }
   const double px_per_time = px_per_time_unit();
@@ -1516,21 +1517,35 @@ void Timeline::ApplySnapping(TimeRange& range) {
   bool snapped_start = false;
   bool snapped_end = false;
 
-  // 1. Check selected time ranges
-  for (const auto& sel_range : selected_time_ranges_) {
-    ApplySnappingToEdge(range.start(), threshold,
-                        {sel_range.start(), sel_range.end()}, best_diff_start,
-                        snapped_start_time, snapped_start);
-    ApplySnappingToEdge(range.end(), threshold,
-                        {sel_range.start(), sel_range.end()}, best_diff_end,
-                        snapped_end_time, snapped_end);
+  bool is_resizing = time_range_resizing_state_.has_value();
+  bool resize_start = is_resizing && time_range_resizing_state_->is_start_edge;
+  bool resize_end = is_resizing && !time_range_resizing_state_->is_start_edge;
+
+  // 1. Check selected time ranges (ONLY if we are NOT resizing!)
+  if (!is_resizing) {
+    for (const auto& sel_range : selected_time_ranges_) {
+      if (!is_resizing || resize_start) {
+        ApplySnappingToEdge(range.start(), threshold,
+                            {sel_range.start(), sel_range.end()},
+                            best_diff_start, snapped_start_time, snapped_start);
+      }
+      if (!is_resizing || resize_end) {
+        ApplySnappingToEdge(range.end(), threshold,
+                            {sel_range.start(), sel_range.end()}, best_diff_end,
+                            snapped_end_time, snapped_end);
+      }
+    }
   }
 
   // 2. Check all visible events
-  FindNearestEventEdge(range.start(), threshold, best_diff_start,
-                       snapped_start_time, snapped_start);
-  FindNearestEventEdge(range.end(), threshold, best_diff_end, snapped_end_time,
-                       snapped_end);
+  if (!is_resizing || resize_start) {
+    FindNearestEventEdge(range.start(), threshold, best_diff_start,
+                         snapped_start_time, snapped_start);
+  }
+  if (!is_resizing || resize_end) {
+    FindNearestEventEdge(range.end(), threshold, best_diff_end,
+                         snapped_end_time, snapped_end);
+  }
 
   if (is_pan) {
     if (snapped_start) {
@@ -1580,6 +1595,14 @@ void Timeline::FindNearestEventEdge(Microseconds time, Microseconds threshold,
 
     bool is_group_hovered =
         mouse_pos.y >= group_top_y && mouse_pos.y <= group_bottom_y;
+
+    // If we are actively resizing, the mouse might drift vertically out of the
+    // original track bounding box, but we STILL ONLY want to snap to the
+    // hovered track. If the mouse vertically leaves the track but the user is
+    // still dragging horizontally, they don't want snapping to suddenly jump to
+    // the adjacent track their mouse fell into. However, since we don't save
+    // the original track, finding the vertically hovered one is the best we can
+    // do.
     if (!is_group_hovered) {
       continue;
     }
@@ -2651,7 +2674,8 @@ void Timeline::DrawFlows(Pixel timeline_width, Pixel timeline_y_start) {
 void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                                      Pixel timeline_width,
                                      double px_per_time_unit_val,
-                                     bool show_delete_button) {
+                                     bool show_delete_button,
+                                     std::optional<size_t> range_index) {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   const Pixel timeline_x_start = viewport->Pos.x + label_width_;
   const ImU32 color = palette_.GetColor(ColorPalette::Key::kSelection)
@@ -2687,9 +2711,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
 
     // Only draw the border if the edge of the time range is visible.
     if (time_range_x_start >= timeline_x_start) {
-      draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
-                         ImVec2(time_range_x_start, rect_y_max), color);
-      // Check for hovering on the start edge.
+      bool is_hovering_start = false;
       if (!is_dragging_ &&
           std::abs(ImGui::GetMousePos().x - time_range_x_start) <=
               kSelectionEdgeThreshold &&
@@ -2697,19 +2719,63 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
               ImVec2(time_range_x_start - kSelectionEdgeThreshold, rect_y_min),
               ImVec2(time_range_x_start + kSelectionEdgeThreshold,
                      rect_y_max))) {
+        is_hovering_start = true;
+      }
+
+      ImU32 start_edge_color = color;
+      bool is_resizing_start = false;
+      if (range_index.has_value()) {
+        is_resizing_start =
+            time_range_resizing_state_.has_value() &&
+            time_range_resizing_state_->range_index == *range_index &&
+            time_range_resizing_state_->is_start_edge;
+      } else if (is_dragging_ && is_selecting_) {
+        is_resizing_start =
+            std::abs(ImGui::GetMousePos().x - time_range_x_start) <
+            std::abs(ImGui::GetMousePos().x - time_range_x_end);
+      }
+      if (is_hovering_start || is_resizing_start) {
+        start_edge_color = kRedColor;
+      }
+      draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
+                         ImVec2(time_range_x_start, rect_y_max),
+                         start_edge_color,
+                         /*thickness=*/kSelectedTimeRangeThickness);
+
+      if (is_hovering_start) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
       }
     }
     if (time_range_x_end <= timeline_x_start + timeline_width) {
-      draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
-                         ImVec2(time_range_x_end, rect_y_max), color);
-      // Check for hovering on the end edge.
+      bool is_hovering_end = false;
       if (!is_dragging_ &&
           std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
               kSelectionEdgeThreshold &&
           ImGui::IsMouseHoveringRect(
               ImVec2(time_range_x_end - kSelectionEdgeThreshold, rect_y_min),
               ImVec2(time_range_x_end + kSelectionEdgeThreshold, rect_y_max))) {
+        is_hovering_end = true;
+      }
+
+      ImU32 end_edge_color = color;
+      bool is_resizing_end = false;
+      if (range_index.has_value()) {
+        is_resizing_end =
+            time_range_resizing_state_.has_value() &&
+            time_range_resizing_state_->range_index == *range_index &&
+            !time_range_resizing_state_->is_start_edge;
+      } else if (is_dragging_ && is_selecting_) {
+        is_resizing_end = std::abs(ImGui::GetMousePos().x - time_range_x_end) <=
+                          std::abs(ImGui::GetMousePos().x - time_range_x_start);
+      }
+      if (is_hovering_end || is_resizing_end) {
+        end_edge_color = kRedColor;
+      }
+      draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
+                         ImVec2(time_range_x_end, rect_y_max), end_edge_color,
+                         /*thickness=*/kSelectedTimeRangeThickness);
+
+      if (is_hovering_end) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
       }
     }
@@ -3055,8 +3121,10 @@ void Timeline::DrawSelectedTimeRanges(Pixel timeline_width,
   // (typically very few), not the trace events, so this copy is negligible in
   // terms of memory and performance.
   std::vector<TimeRange> ranges_to_draw = selected_time_ranges_;
-  for (const auto& range : ranges_to_draw) {
-    DrawSelectedTimeRange(range, timeline_width, px_per_time_unit_val);
+  for (size_t i = 0; i < ranges_to_draw.size(); ++i) {
+    DrawSelectedTimeRange(ranges_to_draw[i], timeline_width,
+                          px_per_time_unit_val,
+                          /*show_delete_button=*/true, /*range_index=*/i);
   }
 
   if (current_selected_time_range_) {
@@ -3383,7 +3451,23 @@ void Timeline::HandleMouseDrag(Pixel timeline_origin_x) {
         end = current_time;
       }
 
-      TimeRange new_range(std::min(start, end), std::max(start, end));
+      if (start > end) {
+        time_range_resizing_state_->is_start_edge =
+            !time_range_resizing_state_->is_start_edge;
+        std::swap(start, end);
+      } else if (start == end) {
+        // If they exactly cross over on this pixel, we nudge one by a
+        // microscopic amount so that duration doesn't become zero and vanish
+        // from rendering. It also breaks the exact symmetry so it doesn't get
+        // stuck rendering 0 width.
+        end += current_time * 0.000000001;
+        if (start > end) {
+          time_range_resizing_state_->is_start_edge =
+              !time_range_resizing_state_->is_start_edge;
+          std::swap(start, end);
+        }
+      }
+      TimeRange new_range(start, end);
       ApplySnapping(new_range);
       range = new_range;
     } else if (is_selecting_) {

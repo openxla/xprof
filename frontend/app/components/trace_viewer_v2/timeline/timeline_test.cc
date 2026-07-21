@@ -6292,6 +6292,239 @@ TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
                    (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
+TEST_F(TimelineDragSelectionTest, ActiveEdgeIsRedWhileDragging) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  const float start_x = GetTimelineStartX() + 100.0f;
+  const float end_x = GetTimelineStartX() + 300.0f;
+
+  // Start drag
+  io.MousePos = ImVec2(start_x, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag to end_x
+  io.MousePos = ImVec2(end_x, kEmptyAreaY);
+  SimulateFrame();
+
+  // Draw timeline and inspect draw list
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  // Expected start edge X (100px from timeline start)
+  const float expected_start_edge_x = start_x;
+  // Expected end edge X (300px - 1px padding)
+  const float expected_end_edge_x = end_x - 1.0f;
+
+  auto has_red_vtx_near_x = [&](float target_x) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // End edge is active (closer to mouse), should be red
+  EXPECT_TRUE(has_red_vtx_near_x(expected_end_edge_x));
+  // Start edge is inactive, should NOT be red
+  EXPECT_FALSE(has_red_vtx_near_x(expected_start_edge_x));
+
+  ImGui::EndFrame();
+
+  // Clean up drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
+TEST_F(TimelineDragSelectionTest, ResizingEdgeIsRedWhileDragging) {
+  // Add an existing range
+  timeline_.AddSelectedTimeRange({50.0, 100.0});
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag on the start edge (50.0us -> 500px)
+  const float start_edge_x = GetTimelineStartX() + 500.0f;
+  io.MousePos = ImVec2(start_edge_x, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();  // This should trigger resize start
+
+  // Drag to 40.0us (400px)
+  const float new_start_x = GetTimelineStartX() + 400.0f;
+  io.MousePos = ImVec2(new_start_x, kEmptyAreaY);
+  SimulateFrame();
+
+  // Draw timeline and inspect draw list
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  auto has_red_vtx_near_x = [&](float target_x) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // The start edge is being resized, so it should be red at its new position
+  // (400px)
+  EXPECT_TRUE(has_red_vtx_near_x(new_start_x));
+
+  // The end edge is at 100.0us (1000px - 1px padding = 999px), it should NOT be
+  // red
+  const float expected_end_edge_x = GetTimelineStartX() + 1000.0f - 1.0f;
+  EXPECT_FALSE(has_red_vtx_near_x(expected_end_edge_x));
+
+  ImGui::EndFrame();
+
+  // Clean up drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
+TEST_F(TimelineDragSelectionTest, DragSelectionLeftwardsHighlightsStartEdge) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  const float start_x = GetTimelineStartX() + 300.0f;
+  const float end_x = GetTimelineStartX() + 100.0f;
+
+  // Start drag at 300px
+  io.MousePos = ImVec2(start_x, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag left to 100px
+  io.MousePos = ImVec2(end_x, kEmptyAreaY);
+  SimulateFrame();
+
+  // Draw timeline and inspect draw list
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  // Expected start edge X (100px from timeline start)
+  const float expected_start_edge_x = end_x;
+  // Expected end edge X (300px - 1px padding)
+  const float expected_end_edge_x = start_x - 1.0f;
+
+  auto has_red_vtx_near_x = [&](float target_x) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Start edge is active (closer to mouse), should be red
+  EXPECT_TRUE(has_red_vtx_near_x(expected_start_edge_x));
+  // End edge is inactive, should NOT be red
+  EXPECT_FALSE(has_red_vtx_near_x(expected_end_edge_x));
+
+  ImGui::EndFrame();
+
+  // Clean up drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
+TEST_F(TimelineDragSelectionTest,
+       ResizingEdgeCrossesOverHighlightsNewActiveEdge) {
+  // Add an existing range 50.0us to 100.0us (500px to 1000px)
+  timeline_.AddSelectedTimeRange({50.0, 100.0});
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Start drag on the start edge (50.0us -> 500px)
+  const float start_edge_x = GetTimelineStartX() + 500.0f;
+  io.MousePos = ImVec2(start_edge_x, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Drag start edge past end edge, to 120.0us (1200px)
+  const float new_end_x = GetTimelineStartX() + 1200.0f;
+  io.MousePos = ImVec2(new_end_x, kEmptyAreaY);
+  SimulateFrame();
+
+  // Draw timeline and inspect draw list
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* overlay_window = nullptr;
+  ImGuiWindow* timeline_window = ImGui::FindWindowByName("Timeline viewer");
+  ASSERT_NE(timeline_window, nullptr);
+  for (ImGuiWindow* child : timeline_window->DC.ChildWindows) {
+    if (absl::StrContains(child->Name, "SelectionOverlay")) {
+      overlay_window = child;
+      break;
+    }
+  }
+  ASSERT_NE(overlay_window, nullptr);
+  ImDrawList* draw_list = overlay_window->DrawList;
+
+  auto has_red_vtx_near_x = [&](float target_x) {
+    for (const auto& vtx : draw_list->VtxBuffer) {
+      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // The start edge crossed over and is now the end edge (at 1200px - 1px
+  // padding = 1199px). It is the active edge (following mouse), so it should be
+  // red.
+  const float expected_end_edge_x = new_end_x - 1.0f;
+  EXPECT_TRUE(has_red_vtx_near_x(expected_end_edge_x));
+
+  // The old end edge is now the start edge (at 1000px). It is inactive, so it
+  // should NOT be red.
+  const float expected_start_edge_x = GetTimelineStartX() + 1000.0f;
+  EXPECT_FALSE(has_red_vtx_near_x(expected_start_edge_x));
+
+  ImGui::EndFrame();
+
+  // Clean up drag
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+}
+
 TEST_F(TimelineDragSelectionTest, EscapeCancelsSelection) {
   ImGuiIO& io = ImGui::GetIO();
 
@@ -6585,6 +6818,40 @@ TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 150.0);
+}
+
+TEST_F(TimelineDragSelectionTest, SnapsEndToOtherSelectedRange) {
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  ImGuiIO& io = ImGui::GetIO();
+
+  // Create first selection 50.0us to 100.0us (500px to 1000px)
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1000.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Second drag: start at 10.0us (100px), end near 100.0us (1010px -> 101.0 us)
+  io.MousePos = ImVec2(GetTimelineStartX() + 100.0f, kEmptyAreaY);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX() + 1010.0f, kEmptyAreaY);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 10.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
 }
 
 TEST_F(TimelineDragSelectionTest, SnapsDuringTimingMode) {
@@ -8311,17 +8578,18 @@ class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {
     timeline_.AddSelectedTimeRange(TimeRange(start, end));
   }
 
-  void Drag(Microseconds from_time, Microseconds to_time, bool shift = false) {
+  void Drag(Microseconds from_time, Microseconds to_time, bool shift = false,
+            float mouse_y = 50.0f) {
     ImGuiIO& io = ImGui::GetIO();
     float origin_x = GetTimelineStartX();
     double px_per_time = 10.0;
 
-    io.AddMousePosEvent(origin_x + from_time * px_per_time, 50.0f);
+    io.AddMousePosEvent(origin_x + from_time * px_per_time, mouse_y);
     io.AddMouseButtonEvent(0, true);
     if (shift) io.KeyShift = true;
     SimulateFrame();
 
-    io.AddMousePosEvent(origin_x + to_time * px_per_time, 50.0f);
+    io.AddMousePosEvent(origin_x + to_time * px_per_time, mouse_y);
     SimulateFrame();
 
     io.AddMouseButtonEvent(0, false);
@@ -8364,25 +8632,133 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSwapsStartAndEnd) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
 }
 
-TEST_F(TimelineTimeRangeResizeTest, ResizeWithSnapping) {
+TEST_F(TimelineTimeRangeResizeTest, ResizeIgnoresGlobalRanges) {
   timeline_.set_mouse_mode(MouseMode::kTiming);
   timeline_.set_snap_to_time_range_enabled(true);
 
-  // Create a snap point at 100.0
+  // Create a selected time range at 100.0
   AddSelectedTimeRange(100.0, 150.0);
 
   // Create another range to resize (index 1)
   AddSelectedTimeRange(10.0, 50.0);
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
 
-  // Resize end of second range (50.0) near snap point (100.0)
+  // Resize end of second range (50.0) near the other range (100.0)
   // Threshold = 16 / 10 = 1.6us.
-  // Drag to 99.0, it should snap to 100.0.
+  // Drag to 99.0, it should NOT snap to 100.0 because global ranges are ignored
+  // during resize.
   Drag(50.0, 99.0, /*shift=*/true);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 2);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].start(), 10.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[1].end(), 99.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {100.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  AddSelectedTimeRange(50.0, 80.0);
+
+  // Resize end of the range.
+  // Origin X and py_per_time = 10.0.
+  // Hovering mouse over Process A (mouse_y = 30.0f).
+  // The threshold is 1.6us. We drag to 99.0, it should snap to the event at
+  // 100.0.
+  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/30.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeDoesNotSnapWhenOutsideTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {100.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  AddSelectedTimeRange(50.0, 80.0);
+
+  // Resize end of the range, but dragging way outside the track (mouse_y =
+  // 500.0f). It should NOT snap, landing exactly at the dragged coordinate
+  // (99.0).
+  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/500.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 99.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {5.0};
+  data.entry_self_times = {5.0};
+  data.entry_start_times = {40.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  AddSelectedTimeRange(50.0, 80.0);
+
+  // Resize start of the range (50.0) near event start (40.0).
+  // Drag to 41.0, it should snap to 40.0.
+  // Hovering mouse over Process A (mouse_y = 30.0f).
+  Drag(50.0, 41.0, /*shift=*/false, /*mouse_y=*/30.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 40.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 80.0);
+}
+
+TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0};
+  data.entry_total_times = {10.0};
+  data.entry_self_times = {10.0};
+  data.entry_start_times = {100.0};
+  data.entry_names = {"event"};
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+  };
+  data.events_by_level = {{0}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_mouse_mode(MouseMode::kTiming);
+  timeline_.set_snap_to_time_range_enabled(true);
+
+  AddSelectedTimeRange(50.0, 80.0);
+
+  // Resize start of the range (50.0) past end (80.0) to near event (100.0).
+  // Drag to 99.0, it should crossover and snap to 100.0.
+  Drag(50.0, 99.0, /*shift=*/false, /*mouse_y=*/30.0f);
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 80.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
 }
 
 TEST_F(MockTimelineImGuiFixture, TriggersZoomWhenNavigatedEventNotPresent) {

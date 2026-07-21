@@ -556,7 +556,8 @@ class Timeline {
   // time range.
   void DrawSelectedTimeRange(const TimeRange& range, Pixel timeline_width,
                              double px_per_time_unit_val,
-                             bool show_delete_button = true);
+                             bool show_delete_button = true,
+                             std::optional<size_t> range_index = std::nullopt);
   void DrawDeleteButton(ImDrawList* draw_list, const ImVec2& button_pos,
                         const ImRect& hover_rect, const TimeRange& range);
 

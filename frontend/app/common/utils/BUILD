@@ -15,6 +15,7 @@ ts_library(
 ts_library(
     name = "utils",
     srcs = [
+        "diff_utils.ts",
         "utils.ts",
     ],
     deps = [
@@ -30,6 +31,7 @@ ts_library(
     name = "tests",
     testonly = True,
     srcs = [
+        "diff_utils_test.ts",
         "utils_test.ts",
     ],
     deps = [

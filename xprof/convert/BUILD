@@ -272,6 +272,49 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_utilization_viewer_processor",
+    srcs = ["unified_utilization_viewer_processor.cc"],
+    hdrs = ["unified_utilization_viewer_processor.h"],
+    deps = [
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_utilization_viewer",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_test(
+    name = "unified_utilization_viewer_processor_test",
+    srcs = ["unified_utilization_viewer_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        ":unified_tools_registration",
+        ":unified_utilization_viewer_processor",
+        "//file/base",
+        "//file/base:path",
+        "//third_party/jsoncpp:json_compat",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@jsoncpp_git//:jsoncpp",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_library(
     name = "overview_page_processor",
     srcs = ["overview_page_processor.cc"],
     hdrs = ["overview_page_processor.h"],
@@ -3022,6 +3065,7 @@ cc_library(
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
+        ":unified_utilization_viewer_processor",
     ],
     alwayslink = 1,
 )

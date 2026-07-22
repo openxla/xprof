@@ -32,6 +32,7 @@ xprof_ng_module(
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/core",
+        "@npm//@angular/core_testing",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils:testing",

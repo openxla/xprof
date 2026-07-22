@@ -1,36 +1,40 @@
-<div *ngIf="showErrors && diagnostics.errors.length" class="callout is-critical">
-  <header>
-    <span>Errors</span>
-    <button mat-icon-button (click)="showErrors = false">
-      <mat-icon>close</mat-icon>
-    </button>
-  </header>
-  <ul class="callout-list">
-    <li *ngFor="let error of diagnostics.errors" [innerHtml]="error">
-    </li>
-  </ul>
-</div>
-<div *ngIf="showWarnings && diagnostics.warnings.length" class="callout is-important">
-  <header>
-    <span>Warnings</span>
-    <button mat-icon-button (click)="showWarnings = false">
-      <mat-icon>close</mat-icon>
-    </button>
-  </header>
-  <ul class="callout-list">
-    <li *ngFor="let warning of diagnostics.warnings" [innerHtml]="warning">
-    </li>
-  </ul>
-</div>
-<div *ngIf="showInfo && diagnostics.info.length" class="callout is-helpful">
-  <header>
-    <span>Info</span>
-    <button mat-icon-button (click)="showInfo = false">
-      <mat-icon>close</mat-icon>
-    </button>
-  </header>
-  <ul class="callout-list">
-    <li *ngFor="let info of diagnostics.info" [innerHtml]="info">
-    </li>
-  </ul>
-</div>
+<ng-container *ngIf="showErrors && diagnostics?.errors?.length">
+  <div *ngFor="let error of diagnostics.errors; let i = index" class="callout is-critical">
+    <header>
+      <span>Error</span>
+      <button mat-icon-button (click)="dismissError(i)">
+        <mat-icon>close</mat-icon>
+      </button>
+    </header>
+    <ul class="callout-list">
+      <li [innerHtml]="error"></li>
+    </ul>
+  </div>
+</ng-container>
+<ng-container *ngIf="showWarnings && diagnostics?.warnings?.length">
+  <div *ngFor="let warning of diagnostics.warnings; let i = index" class="callout is-important">
+    <header>
+      <span>Warning</span>
+      <button mat-icon-button (click)="dismissWarning(i)">
+        <mat-icon>close</mat-icon>
+      </button>
+    </header>
+    <ul class="callout-list">
+      <li [innerHtml]="warning"></li>
+    </ul>
+  </div>
+</ng-container>
+<ng-container *ngIf="showInfo && diagnostics?.info?.length">
+  <div *ngFor="let info of diagnostics.info; let i = index" class="callout is-helpful">
+    <header>
+      <span>Info</span>
+      <button mat-icon-button (click)="dismissInfo(i)">
+        <mat-icon>close</mat-icon>
+      </button>
+    </header>
+    <ul class="callout-list">
+      <li [innerHtml]="info"></li>
+    </ul>
+  </div>
+</ng-container>
+

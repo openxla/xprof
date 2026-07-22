@@ -7,6 +7,8 @@ message SmartSuggestion {
   string rule_name = 1;
   // The detailed suggestion text to display to the user.
   string suggestion_text = 2;
+  // If true, this suggestion should suppress all other suggestions.
+  bool suppress_others = 3;
 }
 
 message SmartSuggestionReport {

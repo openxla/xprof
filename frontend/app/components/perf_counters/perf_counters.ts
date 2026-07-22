@@ -1,22 +1,21 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  inject,
   OnDestroy,
+  inject,
 } from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
-import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
-import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
-import {
-  DATA_SERVICE_INTERFACE_TOKEN,
-  DataServiceV2Interface,
-} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
+
+import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
+import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
+import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {Dashboard} from 'org_xprof/frontend/app/components/chart/dashboard/dashboard';
+import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
+import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 
 /** A perf counters component. */
 @Component({
@@ -33,9 +32,7 @@ export class PerfCounters extends Dashboard implements OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
   readonly pageSizeOptions = [30, 50, 100, 200];
   private readonly throbber = new Throbber(this.tool);
-  private readonly dataService: DataServiceV2Interface = inject(
-    DATA_SERVICE_INTERFACE_TOKEN,
-  );
+  private readonly diffService = inject(BaseDiffService);
 
   sessionId = '';
   showZeroValues = false;
@@ -70,15 +67,95 @@ export class PerfCounters extends Dashboard implements OnDestroy {
     const params = new Map<string, string>([
       ['show_zeros', this.showZeroValues ? '1' : '0'],
     ]);
-    this.dataService
-      .getData(this.sessionId, this.tool, '', params)
+    this.diffService
+      .getDiffData(this.sessionId, this.tool, {
+        parameters: params,
+      })
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
+      .subscribe(({active, baseline}) => {
         this.throbber.stop();
         setLoadingState(false, this.store);
-        this.parseData(data as SimpleDataTable | null);
+        this.parseData(
+          this.mergeTables(
+            active as SimpleDataTable | null,
+            baseline as SimpleDataTable | null,
+          ),
+        );
       });
   }
+
+  mergeTables(
+    active: SimpleDataTable | null,
+    baseline: SimpleDataTable | null,
+  ): SimpleDataTable | null {
+    if (!active || !active.cols) return null;
+    if (!baseline || !baseline.cols) return active;
+
+    const counterCol = active.cols.findIndex((col) => col.id === 'Counter');
+    const descCol = active.cols.findIndex((col) => col.id === 'Description');
+    const valueCol = active.cols.findIndex((col) => col.id === 'Value (Hex)');
+
+    if (counterCol === -1 || valueCol === -1) {
+      return active;
+    }
+
+    const getRowKey = (row: google.visualization.DataObjectRow) => {
+      return row.c?.[counterCol]?.v?.toString() ?? '';
+    };
+
+    const activeRows = active.rows || [];
+    const baselineRows = baseline.rows || [];
+    const aligned = alignTables(activeRows, baselineRows, getRowKey);
+
+    const newCols = [...active.cols];
+    const baselineValueColIndex = newCols.length;
+    newCols.push({
+      id: 'baseline_value',
+      label: 'Baseline Value',
+      type: 'number',
+    });
+
+    const newRows: google.visualization.DataObjectRow[] = [];
+
+    for (const compRow of aligned.values()) {
+      const activeRow = compRow.active;
+      const baselineRow = compRow.baseline;
+
+      const newCells: google.visualization.DataObjectCell[] = [];
+      const baseRow = activeRow || baselineRow;
+      if (!baseRow) continue;
+
+      if (counterCol !== -1) {
+        newCells[counterCol] = {...(baseRow.c?.[counterCol] || {v: ''})};
+      }
+      if (descCol !== -1) {
+        newCells[descCol] = {...(baseRow.c?.[descCol] || {v: ''})};
+      }
+
+      const activeVal = Number(activeRow?.c?.[valueCol]?.v ?? 0);
+      const baselineVal = Number(baselineRow?.c?.[valueCol]?.v ?? 0);
+      const diffVal = activeVal - baselineVal;
+
+      newCells[valueCol] = {
+        v: diffVal,
+        f: diffVal >= 0 ? `0x${diffVal.toString(16)}` : `-0x${Math.abs(diffVal).toString(16)}`,
+      };
+
+      newCells[baselineValueColIndex] = {
+        v: baselineVal,
+        f: baselineVal >= 0 ? `0x${baselineVal.toString(16)}` : `-0x${Math.abs(baselineVal).toString(16)}`,
+      };
+
+      newRows.push({c: newCells});
+    }
+
+    return {
+      cols: newCols,
+      rows: newRows,
+      p: active.p,
+    };
+  }
+
 
   override parseData(data: SimpleDataTable | null) {
     if (!data) return;

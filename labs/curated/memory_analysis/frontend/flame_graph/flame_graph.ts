@@ -70,54 +70,56 @@ function getColor(options: {
   const {node, isHovered, colorMode} = options;
   if (isHovered) return '#1a73e8';
 
+  if (colorMode === 'padding' && node.isLeaf) {
+    const ratio =
+      node.totalValue > 0 ? node.paddingValue / node.totalValue : 0;
+    if (ratio < 0.05) {
+      return 'hsl(138, 35%, 91%)';
+    }
+    const hue = 138 - ratio * 138;
+    const saturation = 35 + ratio * 35;
+    const lightness = 91 - ratio * 5;
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  }
+
+  if (colorMode === 'category' && node.isLeaf) {
+    const category = node.buffer?.category ?? 'Other';
+    switch (category) {
+      case 'Weight':
+        return '#d3e4ff';
+      case 'Input':
+        return '#c2eed0';
+      case 'Optimizer State':
+        return '#ffe0b2';
+      case 'SparseCore':
+        return '#e8def8';
+      case 'Temporary/Activation':
+      case 'Temporary':
+        return '#ffdad6';
+      case 'Gradient':
+        return '#ffdbb5';
+      case 'Output':
+        return '#c2f0fc';
+      default:
+        return '#f3f0f4';
+    }
+  }
+
+  let hash = 0;
+  for (let i = 0; i < node.name.length; i++) {
+    hash = node.name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash);
+  const warmHue = (h % 45) + 10;
   if (node.isLeaf) {
-    if (colorMode === 'padding') {
-      const ratio =
-        node.totalValue > 0 ? node.paddingValue / node.totalValue : 0;
-      if (ratio < 0.05) {
-        return 'hsl(138, 35%, 91%)';
-      }
-      const hue = 138 - ratio * 138;
-      const saturation = 35 + ratio * 35;
-      const lightness = 91 - ratio * 5;
-      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    }
-
-    if (colorMode === 'category') {
-      const category = node.buffer?.category ?? 'Other';
-      switch (category) {
-        case 'Weight':
-          return '#d3e4ff';
-        case 'Input':
-          return '#c2eed0';
-        case 'Optimizer State':
-          return '#ffe0b2';
-        case 'SparseCore':
-          return '#e8def8';
-        case 'Temporary/Activation':
-        case 'Temporary':
-          return '#ffdad6';
-        case 'Gradient':
-          return '#ffdbb5';
-        case 'Output':
-          return '#c2f0fc';
-        default:
-          return '#f3f0f4';
-      }
-    }
-
-    let hash = 0;
-    for (let i = 0; i < node.name.length; i++) {
-      hash = node.name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const h = Math.abs(hash);
-    const warmHue = (h % 45) + 10;
     const s = 80 + (h % 12);
     const l = 60 + (h % 12);
     return `hsl(${warmHue}, ${s}%, ${l}%)`;
+  } else {
+    const s = 65 + (h % 15);
+    const l = 75 + (h % 10);
+    return `hsl(${warmHue}, ${s}%, ${l}%)`;
   }
-
-  return 'hsl(240, 6%, 95%)';
 }
 
 /**
@@ -196,14 +198,18 @@ export class MemoryFlameGraph {
 
   private reconstructZoomStackForPath(path: string): void {
     const root = this.rootNode();
-    if (!root) return;
-    const pathSegments = path.split('/').filter(Boolean);
+    if (!root || !path) {
+      if (root) {
+        this.currentRoot.set(root);
+        this.zoomStack.set([root]);
+      }
+      return;
+    }
     let current = root;
     const newStack: TreeNode[] = [current];
-    for (const segment of pathSegments) {
-      if (current === root && segment === root.name) continue;
+    while (current && !current.isLeaf) {
       const childNode = current.children.find(
-        (childNode) => childNode.name === segment,
+        (child) => path === child.path || path.startsWith(`${child.path}/`),
       );
       if (childNode) {
         if (childNode.isLeaf) break;

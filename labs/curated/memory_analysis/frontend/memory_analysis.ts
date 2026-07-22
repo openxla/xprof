@@ -234,7 +234,7 @@ export class MemoryAnalysis {
   activeTab = 0;
   hierarchyType: 'jax' | 'category' = 'jax';
   sizeMetric: 'total' | 'padding' = 'total';
-  colorMode: ColorMode = 'category';
+  colorMode: ColorMode = 'classic';
   readonly sidebarExpanded = signal(true);
 
   rootNode: TreeNode | null = null;
@@ -496,9 +496,15 @@ export class MemoryAnalysis {
         );
       }
     } else if (this.hierarchyType === 'category') {
-      const segments = node.path.split('/').filter(Boolean);
-      if (segments.length > 0) {
-        this.selectedCategories = new Set([segments[0]]);
+      const activeCategoryNames = this.activeCategorySummaries().map(
+        (s) => s.name,
+      );
+      const matchedCategory = activeCategoryNames.find(
+        (catName) =>
+          node.path === catName || node.path.startsWith(`${catName}/`),
+      );
+      if (matchedCategory) {
+        this.selectedCategories = new Set([matchedCategory]);
       }
     }
 

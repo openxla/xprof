@@ -272,6 +272,45 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_utilization_viewer_processor",
+    srcs = ["unified_utilization_viewer_processor.cc"],
+    hdrs = ["unified_utilization_viewer_processor.h"],
+    deps = [
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_utilization_viewer",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+    alwayslink = 1,
+)
+
+cc_test(
+    name = "unified_utilization_viewer_processor_test",
+    srcs = ["unified_utilization_viewer_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_tools_registration",
+        ":unified_utilization_viewer_processor",
+        "//file/base",
+        "//file/base:path",
+        "//third_party/jsoncpp:json_compat",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
+        "@jsoncpp_git//:jsoncpp",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_library(
     name = "overview_page_processor",
     srcs = ["overview_page_processor.cc"],
     hdrs = ["overview_page_processor.h"],
@@ -785,6 +824,24 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@jsoncpp_git//:jsoncpp",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "unified_memory_profile_processor_test",
+    srcs = ["unified_memory_profile_processor_test.cc"],
+    deps = [
+        ":tool_options",
+        ":unified_memory_profile_processor",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        ":unified_tools_registration",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
@@ -2995,6 +3052,27 @@ cc_test(
 )
 
 cc_library(
+    name = "unified_memory_profile_processor",
+    srcs = ["unified_memory_profile_processor.cc"],
+    hdrs = ["unified_memory_profile_processor.h"],
+    deps = [
+        ":preprocess_single_host_xplane",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_memory_profile",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "unified_memory_viewer_processor",
     srcs = ["unified_memory_viewer_processor.cc"],
     hdrs = ["unified_memory_viewer_processor.h"],
@@ -3018,10 +3096,12 @@ cc_library(
     hdrs = ["unified_tools_registration.h"],
     deps = [
         ":unified_hlo_stats_processor",
+        ":unified_memory_profile_processor",
         ":unified_memory_viewer_processor",
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
+        ":unified_utilization_viewer_processor",
     ],
     alwayslink = 1,
 )

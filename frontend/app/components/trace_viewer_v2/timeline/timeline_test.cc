@@ -10916,6 +10916,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoverColor) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   EventRect rect{
@@ -10933,6 +10934,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoverColor) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   timeline_.CallDrawEvent(0, 0, rect, draw_list);
@@ -11014,6 +11016,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventClipsNonPositiveWidth) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   EventRect inverted_rect{
@@ -11122,6 +11125,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventInstantSearchMatchColor) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   EventRect rect{
@@ -11251,6 +11255,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventInstantHoveredBaseColor) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   ImGuiIO& io = ImGui::GetIO();
@@ -11285,6 +11290,7 @@ TEST_F(MockTimelineImGuiFixture, DrawEventClickSelectionAndDragThreshold) {
 
   draw_list->VtxBuffer.resize(0);
   draw_list->CmdBuffer.resize(0);
+  draw_list->CmdBuffer.push_back(ImDrawCmd());
   draw_list->PushClipRect(ImVec2(0, 0), ImVec2(1000, 500));
 
   ImGuiIO& io = ImGui::GetIO();

@@ -753,6 +753,195 @@ TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithSourceInfo) {
 #endif
 }
 
+TEST(ConvertXPlaneToOpMetricsDb, DeviceOpMetricsDbWithMergingByProgramId) {
+  std::string hlo_string = R"(
+    HloModule TestModule
+
+    ENTRY test {
+      input0 = f32[3,3]{1,0} parameter(0)
+      input1 = f32[3,3]{1,0} parameter(1)
+      ROOT add.1 = f32[3,3]{1,0} add(input0, input1)
+    }
+  )";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module1,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module2,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+
+  HloModuleMap hlo_module_map;
+  hlo_module_map.try_emplace(
+      /*program_id=*/1,
+      HloModuleWrapper(std::move(hlo_module1), /*cost_analysis=*/nullptr));
+  hlo_module_map.try_emplace(
+      /*program_id=*/2,
+      HloModuleWrapper(std::move(hlo_module2), /*cost_analysis=*/nullptr));
+
+  XSpace xspace;
+  XPlane* xplane =
+      tsl::profiler::GetOrCreateGpuXPlane(&xspace, /*device_ordinal=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+
+  // Two contiguous events with the same name but different program_id.
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/100,
+      /*duration_ps=*/10,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 1}});
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/110,
+      /*duration_ps=*/20,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 2}});
+
+  OpMetricsDb op_metrics =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane, hlo_module_map);
+
+  // Verifies that they are NOT merged contiguously because of different
+  // program_id.
+  // The metrics database should contain:
+  // 1. "add.1" (program_id=1)
+  // 2. "add.1" (program_id=2)
+  // 3. "IDLE"
+  EXPECT_EQ(3, op_metrics.metrics_db_size());
+
+  bool found_p1 = false;
+  bool found_p2 = false;
+  for (const auto& op : op_metrics.metrics_db()) {
+    if (op.name() == "add.1") {
+      if (op.hlo_module_id() == 1) {
+        found_p1 = true;
+        EXPECT_EQ(op.time_ps(), 10);
+        EXPECT_EQ(op.occurrences(), 1);
+      } else if (op.hlo_module_id() == 2) {
+        found_p2 = true;
+        EXPECT_EQ(op.time_ps(), 20);
+        EXPECT_EQ(op.occurrences(), 1);
+      }
+    }
+  }
+  EXPECT_TRUE(found_p1);
+  EXPECT_TRUE(found_p2);
+}
+
+TEST(ConvertXPlaneToOpMetricsDb,
+     DeviceOpMetricsDbWithMergingByProgramIdContiguous) {
+  std::string hlo_string = R"(
+    HloModule TestModule
+
+    ENTRY test {
+      input0 = f32[3,3]{1,0} parameter(0)
+      input1 = f32[3,3]{1,0} parameter(1)
+      ROOT add.1 = f32[3,3]{1,0} add(input0, input1)
+    }
+  )";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+
+  HloModuleMap hlo_module_map;
+  hlo_module_map.try_emplace(
+      /*program_id=*/1,
+      HloModuleWrapper(std::move(hlo_module), /*cost_analysis=*/nullptr));
+
+  XSpace xspace;
+  XPlane* xplane =
+      tsl::profiler::GetOrCreateGpuXPlane(&xspace, /*device_ordinal=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+
+  // Two contiguous events with the same name and same program_id.
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/100,
+      /*duration_ps=*/10,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 1}});
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/110,
+      /*duration_ps=*/20,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 1}});
+
+  OpMetricsDb op_metrics =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane, hlo_module_map);
+
+  // Verifies that contiguous identical events from the same program are merged.
+  // The metrics database should contain:
+  // 1. "add.1" (program_id=1, duration=30, occurrences=1)
+  // 2. "IDLE"
+  EXPECT_EQ(2, op_metrics.metrics_db_size());
+
+  const auto& op = op_metrics.metrics_db(0);
+  EXPECT_EQ(op.name(), "add.1");
+  EXPECT_EQ(op.hlo_module_id(), 1);
+  EXPECT_EQ(op.time_ps(), 30);
+  EXPECT_EQ(op.occurrences(), 1);
+}
+
+TEST(ConvertXPlaneToOpMetricsDb,
+     DeviceOpMetricsDbWithMergingByProgramIdOmitted) {
+  std::string hlo_string = R"(
+    HloModule TestModule
+
+    ENTRY test {
+      input0 = f32[3,3]{1,0} parameter(0)
+      input1 = f32[3,3]{1,0} parameter(1)
+      ROOT add.1 = f32[3,3]{1,0} add(input0, input1)
+    }
+  )";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<xla::HloModule> hlo_module,
+                       xla::ParseAndReturnUnverifiedModule(hlo_string));
+
+  HloModuleMap hlo_module_map;
+  hlo_module_map.try_emplace(
+      /*program_id=*/1,
+      HloModuleWrapper(std::move(hlo_module), /*cost_analysis=*/nullptr));
+
+  XSpace xspace;
+  XPlane* xplane =
+      tsl::profiler::GetOrCreateGpuXPlane(&xspace, /*device_ordinal=*/0);
+  XPlaneBuilder device_plane(xplane);
+  XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
+
+  // Contiguous events with NO program_id should merge.
+  tsl::profiler::CreateXEvent(&device_plane, &stream1, "Add", /*offset_ps=*/100,
+                              /*duration_ps=*/10,
+                              {{StatType::kHloOp, "xla::op::add.1"}});
+  tsl::profiler::CreateXEvent(&device_plane, &stream1, "Add", /*offset_ps=*/110,
+                              /*duration_ps=*/20,
+                              {{StatType::kHloOp, "xla::op::add.1"}});
+
+  // A third event with program_id=1 should remain isolated.
+  tsl::profiler::CreateXEvent(
+      &device_plane, &stream1, "Add", /*offset_ps=*/130,
+      /*duration_ps=*/5,
+      {{StatType::kHloOp, "xla::op::add.1"}, {StatType::kProgramId, 1}});
+
+  OpMetricsDb op_metrics =
+      ConvertDeviceTraceXPlaneToOpMetricsDb(*xplane, hlo_module_map);
+
+  // Verifies that contiguous unlabeled events merge together while remaining
+  // isolated from explicitly labeled events.
+  // The metrics database should contain:
+  // 1. "add.1" (program_id=0/omitted, duration=30, occurrences=1)
+  // 2. "add.1" (program_id=1, duration=5, occurrences=1)
+  // 3. "IDLE"
+  EXPECT_EQ(3, op_metrics.metrics_db_size());
+
+  bool found_unlabeled = false;
+  bool found_labeled = false;
+  for (const auto& op : op_metrics.metrics_db()) {
+    if (op.name() == "add.1") {
+      if (op.hlo_module_id() == 0) {
+        found_unlabeled = true;
+        EXPECT_EQ(op.time_ps(), 30);
+        EXPECT_EQ(op.occurrences(), 1);
+      } else if (op.hlo_module_id() == 1) {
+        found_labeled = true;
+        EXPECT_EQ(op.time_ps(), 5);
+        EXPECT_EQ(op.occurrences(), 1);
+      }
+    }
+  }
+  EXPECT_TRUE(found_unlabeled);
+  EXPECT_TRUE(found_labeled);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

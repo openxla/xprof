@@ -77,8 +77,8 @@ HloCostAnalysisWrapper::GeneratePerformanceInfo(
         [&](int64_t bytes_accessed, bool is_read,
             PerformanceInfo::MemoryAccessed::MemorySpace memory_space) {
           bytes_accessed = cost_adjustment_fn(bytes_accessed);
-          // Only export non-zero bytes.
-          if (bytes_accessed == 0) {
+          // Only export positive bytes (skip 0 and -1 / unknown).
+          if (bytes_accessed <= 0) {
             return;
           }
           auto* memory_accessed =

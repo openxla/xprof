@@ -161,3 +161,13 @@ pytype_strict_contrib_test(
         "@xla//xla/service:hlo_proto_py",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "detect_unfused_updates_tool_test",
+    srcs = ["detect_unfused_updates_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/tools:detect_unfused_updates_tool",
+    ],
+)

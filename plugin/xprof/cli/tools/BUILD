@@ -120,6 +120,7 @@ pytype_strict_library(
     deps = [
         ":get_top_hlo_ops_tool",
         "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "@xla//xla/python:xla_client",
     ],
 )
 

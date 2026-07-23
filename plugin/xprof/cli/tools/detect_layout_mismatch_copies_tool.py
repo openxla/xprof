@@ -2,6 +2,7 @@
 
 import collections
 from collections.abc import Mapping, Sequence
+import functools
 import itertools
 import json
 import logging
@@ -15,6 +16,11 @@ from xprof.cli.internal.oss import (
 from xprof.cli.tools import (
     get_top_hlo_ops_tool,
 )
+
+try:
+  from tensorflow.compiler.xla.python import xla_client  # pylint: disable=g-import-not-at-top
+except ImportError:
+  xla_client = None
 
 _PRIMITIVE_TYPE_NAMES = {
     0: "PRIMITIVE_TYPE_INVALID",
@@ -424,16 +430,25 @@ def check_minor_dimension_optimality(
   return True, None, None
 
 
-def is_compute_custom_call(instr: Any) -> bool:
+def is_compute_custom_call(
+    instr: Any, proto_instr_by_id: Mapping[int, Any] | None = None
+) -> bool:
   """Determines if a custom-call HLO instruction is compute-intensive.
 
   Args:
     instr: The CustomCall instruction proto to check.
+    proto_instr_by_id: Optional fallback mapping to protobuf objects.
 
   Returns:
     True if the custom call matches a heavy compute kernel, False otherwise.
   """
   target = getattr(instr, "custom_call_target", "")
+  if callable(target):
+    target = target()
+  if not target and proto_instr_by_id is not None:
+    proto_instr = proto_instr_by_id.get(_get_id(instr))
+    if proto_instr:
+      target = getattr(proto_instr, "custom_call_target", "")
   if not target:
     return False
 
@@ -470,60 +485,172 @@ def is_compute_custom_call(instr: Any) -> bool:
   return True
 
 
+def _get_id(obj):
+  if isinstance(obj, (int, str)):
+    return obj
+  if hasattr(obj, "id"):
+    return obj.id
+  name = getattr(obj, "name", "")
+  return name() if callable(name) else name
+
+
+def _get_opcode_lower(instr: Any) -> str:
+  """Gets the lowercased opcode string for an HLO instruction."""
+  op = getattr(instr, "opcode_name", instr.opcode)
+  if callable(op):
+    op = op()
+  if isinstance(op, str):
+    res = op.lower()
+  elif hasattr(op, "name"):
+    name_val = op.name
+    res = (name_val() if callable(name_val) else name_val).lower()
+  else:
+    res = str(op).lower()
+  if res.startswith("k"):
+    # C++ enum values often start with 'k' like kCopy, kFusion, etc.
+    res = res[1:]
+
+  # C++ enums don't have hyphens, so kCustomCall -> customcall
+  # But protobuf has 'custom-call'
+  # Actually, we can just replace hyphens and compare without hyphens,
+  # or map them.
+  # Let's map a few common ones
+  mapping = {
+      "customcall": "custom-call",
+      "gettupleelement": "get-tuple-element",
+  }
+  return mapping.get(res, res)
+
+
+def _get_called_comp_ids(
+    instr: Any, comp_id_by_name: Mapping[str, int]
+) -> list[int]:
+  """Gets the IDs of computations called by this instruction."""
+  if hasattr(instr, "called_computation_ids"):
+    called_ids = instr.called_computation_ids
+    return list(called_ids() if callable(called_ids) else called_ids)
+
+  called_names = getattr(instr, "called_computation_names", None)
+  if called_names is not None:
+    names = called_names() if callable(called_names) else called_names
+    return [comp_id_by_name[n] for n in names if n in comp_id_by_name]
+
+  called_comps = getattr(instr, "called_computations", None)
+  if called_comps is not None:
+    comps = called_comps() if callable(called_comps) else called_comps
+    res = []
+    for c in comps:
+      cid = _get_id(c)
+      if isinstance(cid, int):
+        res.append(cid)
+      elif cid in comp_id_by_name:
+        res.append(comp_id_by_name[cid])
+    return res
+
+  return []
+
+
 def is_compute_stage(
     instr: Any,
     comp_by_id: Mapping[int, Any],
+    comp_id_by_name: Mapping[str, int],
     visited_fusions: set[int] | None = None,
+    memo: dict[int, bool] | None = None,
+    proto_instr_by_id: Mapping[int, Any] | None = None,
 ) -> bool:
   """Checks if an HLO instruction is a compute-intensive stage.
 
   Args:
     instr: The HLO instruction proto to check.
     comp_by_id: A mapping from computation IDs to computation protos.
-    visited_fusions: A set of fusion instruction IDs already visited to prevent
-      infinite recursion.
+    comp_id_by_name: A mapping from computation names to IDs.
+    visited_fusions: A set of fusion instruction IDs already visited.
+    memo: Optional dictionary to cache whether an instruction is a compute
+      stage.
+    proto_instr_by_id: Optional fallback mapping to protobuf objects.
 
   Returns:
     True if the instruction is a compute-intensive stage, False otherwise.
   """
+  if memo is not None and _get_id(instr) in memo:
+    return memo[_get_id(instr)]
+
   if visited_fusions is None:
     visited_fusions = set()
-
-  opcode_lower = instr.opcode.lower()
+  opcode_lower = _get_opcode_lower(instr)
+  result = False
 
   if any(keyword in opcode_lower for keyword in _COMPUTE_KEYWORDS):
-    return True
-
-  if opcode_lower == "custom-call":
-    return is_compute_custom_call(instr)
-
-  if opcode_lower == "fusion":
-    if instr.id in visited_fusions:
+    result = True
+  elif opcode_lower == "custom-call":
+    result = is_compute_custom_call(instr, proto_instr_by_id)
+  elif opcode_lower == "fusion":
+    if _get_id(instr) in visited_fusions:
       return False
-    visited_fusions.add(instr.id)
+    visited_fusions.add(_get_id(instr))
 
-    for comp_id in instr.called_computation_ids:
+    called_names = getattr(instr, "called_computation_names", None)
+    if called_names is not None:
+      called_comp_names = (
+          called_names() if callable(called_names) else called_names
+      )
+    else:
+      called_comp_names = [
+          comp_by_id[cid].name
+          for cid in getattr(instr, "called_computation_ids", [])
+          if cid in comp_by_id
+      ]
+
+    for comp_name in called_comp_names:
+      comp_id = comp_id_by_name.get(comp_name)
+      if comp_id is None:
+        continue
       comp = comp_by_id.get(comp_id)
       if comp:
-        for inner_instr in comp.instructions:
-          inner_op = inner_instr.opcode.lower()
+        inner_instrs = (
+            comp.instructions()
+            if callable(getattr(comp, "instructions", None))
+            else comp.instructions
+        )
+        for inner_instr in inner_instrs:
+          inner_op = _get_opcode_lower(inner_instr)
           if any(keyword in inner_op for keyword in _COMPUTE_KEYWORDS):
-            return True
-          if inner_op == "custom-call" and is_compute_custom_call(inner_instr):
-            return True
+            result = True
+            break
+          if inner_op == "custom-call" and is_compute_custom_call(
+              inner_instr, proto_instr_by_id
+          ):
+            result = True
+            break
           if inner_op == "fusion":
-            if is_compute_stage(inner_instr, comp_by_id, visited_fusions):
-              return True
-  return False
+            if is_compute_stage(
+                inner_instr,
+                comp_by_id,
+                comp_id_by_name,
+                visited_fusions,
+                memo,
+                proto_instr_by_id,
+            ):
+              result = True
+              break
+        if result:
+          break
+
+  if memo is not None:
+    memo[_get_id(instr)] = result
+  return result
 
 
 def find_upstream_compute_stages(
     copy_instr_id: int,
     instr_by_id: Mapping[int, Any],
     comp_by_id: Mapping[int, Any],
+    comp_id_by_name: Mapping[str, int],
     comp_id_by_instr_id: Mapping[int, int],
     callers_by_comp_id: Mapping[int, Sequence[int]],
     max_depth: int = 5,
+    memo: dict[int, bool] | None = None,
+    proto_instr_by_id: Mapping[int, Any] | None = None,
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive producers upstream from a copy instruction.
 
@@ -533,11 +660,15 @@ def find_upstream_compute_stages(
     copy_instr_id: The instruction ID of the starting HLO Copy operation.
     instr_by_id: A mapping from HLO instruction IDs to instruction protos.
     comp_by_id: A mapping from computation IDs to computation protos.
+    comp_id_by_name: A mapping from computation names to IDs.
     comp_id_by_instr_id: A mapping from instruction IDs to their computation ID.
     callers_by_comp_id: A mapping from computation IDs to their caller
       instruction IDs.
     max_depth: The maximum depth of the dataflow graph traversal (in number of
       hops).
+    memo: Optional dictionary to cache whether an instruction is a compute
+      stage.
+    proto_instr_by_id: Optional fallback mapping to protobuf objects.
 
   Returns:
     A sequence of tuples, where each tuple contains:
@@ -554,22 +685,29 @@ def find_upstream_compute_stages(
     curr_instr = instr_by_id[curr_id]
 
     if dist > 0:
-      if is_compute_stage(curr_instr, comp_by_id):
+      if is_compute_stage(
+          curr_instr,
+          comp_by_id,
+          comp_id_by_name,
+          memo=memo,
+          proto_instr_by_id=proto_instr_by_id,
+      ):
         upstream_producers.append((curr_instr, dist))
         continue
-      if curr_instr.opcode.lower() == "constant":
+      opcode_lower = _get_opcode_lower(curr_instr)
+      if opcode_lower == "constant":
         upstream_producers.append((curr_instr, dist))
         continue
 
       curr_comp_id = comp_id_by_instr_id.get(curr_id)
-      if curr_instr.opcode.lower() == "parameter" and (
+      if opcode_lower == "parameter" and (
           curr_comp_id not in callers_by_comp_id
       ):
         upstream_producers.append((curr_instr, dist))
         continue
 
     if dist < max_depth:
-      opcode = curr_instr.opcode.lower()
+      opcode = _get_opcode_lower(curr_instr)
 
       if opcode == "parameter":
         curr_comp_id = comp_id_by_instr_id.get(curr_id)
@@ -579,29 +717,35 @@ def find_upstream_compute_stages(
           caller = instr_by_id.get(caller_id)
           if not caller:
             continue
-
-          caller_opcode = caller.opcode.lower()
+          caller_opcode = _get_opcode_lower(caller)
+          caller_operands = (
+              caller.operands()
+              if callable(getattr(caller, "operands", None))
+              else getattr(caller, "operand_ids", [])
+          )
           if caller_opcode == "conditional":
-            for branch_idx, comp_id in enumerate(caller.called_computation_ids):
+            for branch_idx, comp_id in enumerate(
+                _get_called_comp_ids(caller, comp_id_by_name)
+            ):
               if comp_id == curr_comp_id:
-                if branch_idx + 1 < len(caller.operand_ids):
-                  target_id = caller.operand_ids[branch_idx + 1]
+                if branch_idx + 1 < len(caller_operands):
+                  target_id = _get_id(caller_operands[branch_idx + 1])
                   if (target_id, shape_idx) not in visited:
                     visited.add((target_id, shape_idx))
                     queue.append((target_id, shape_idx, dist + 1))
           elif caller_opcode in ("fusion", "call"):
-            if param_num < len(caller.operand_ids):
-              target_id = caller.operand_ids[param_num]
+            if param_num < len(caller_operands):
+              target_id = _get_id(caller_operands[param_num])
               if (target_id, shape_idx) not in visited:
                 visited.add((target_id, shape_idx))
                 queue.append((target_id, shape_idx, dist + 1))
           elif caller_opcode == "while":
-            if param_num < len(caller.operand_ids):
-              init_id = caller.operand_ids[param_num]
+            if param_num < len(caller_operands):
+              init_id = _get_id(caller_operands[param_num])
               if (init_id, shape_idx) not in visited:
                 visited.add((init_id, shape_idx))
                 queue.append((init_id, shape_idx, dist + 1))
-            body_comp_id = caller.called_computation_ids[1]
+            body_comp_id = _get_called_comp_ids(caller, comp_id_by_name)[1]
             body_comp = comp_by_id.get(body_comp_id)
             if body_comp and body_comp.root_id:
               if (body_comp.root_id, shape_idx) not in visited:
@@ -611,35 +755,51 @@ def find_upstream_compute_stages(
       elif opcode == "get-tuple-element":
         idx = getattr(curr_instr, "tuple_index", 0)
         parent_idx = (idx,) + shape_idx
-        if curr_instr.operand_ids:
-          target_id = curr_instr.operand_ids[0]
+        operands = (
+            curr_instr.operands()
+            if callable(getattr(curr_instr, "operands", None))
+            else getattr(curr_instr, "operand_ids", [])
+        )
+        if operands:
+          target_id = _get_id(operands[0])
           if (target_id, parent_idx) not in visited:
             visited.add((target_id, parent_idx))
             queue.append((target_id, parent_idx, dist + 1))
 
       elif opcode == "tuple":
+        operands = (
+            curr_instr.operands()
+            if callable(getattr(curr_instr, "operands", None))
+            else getattr(curr_instr, "operand_ids", [])
+        )
         if shape_idx:
           idx = shape_idx[0]
           remaining_idx = shape_idx[1:]
-          if idx < len(curr_instr.operand_ids):
-            target_id = curr_instr.operand_ids[idx]
+          if idx < len(operands):
+            target_id = _get_id(operands[idx])
             if (target_id, remaining_idx) not in visited:
               visited.add((target_id, remaining_idx))
               queue.append((target_id, remaining_idx, dist + 1))
         else:
-          for target_id in curr_instr.operand_ids:
+          for op in operands:
+            target_id = _get_id(op)
             if (target_id, ()) not in visited:
               visited.add((target_id, ()))
               queue.append((target_id, (), dist + 1))
 
       elif opcode == "while":
-        if curr_instr.operand_ids:
-          init_id = curr_instr.operand_ids[0]
+        operands = (
+            curr_instr.operands()
+            if callable(getattr(curr_instr, "operands", None))
+            else getattr(curr_instr, "operand_ids", [])
+        )
+        if operands:
+          init_id = _get_id(operands[0])
           if (init_id, shape_idx) not in visited:
             visited.add((init_id, shape_idx))
             queue.append((init_id, shape_idx, dist + 1))
-        if len(curr_instr.called_computation_ids) > 1:
-          body_comp_id = curr_instr.called_computation_ids[1]
+        if len(_get_called_comp_ids(curr_instr, comp_id_by_name)) > 1:
+          body_comp_id = _get_called_comp_ids(curr_instr, comp_id_by_name)[1]
           body_comp = comp_by_id.get(body_comp_id)
           if body_comp and body_comp.root_id:
             if (body_comp.root_id, shape_idx) not in visited:
@@ -647,8 +807,8 @@ def find_upstream_compute_stages(
               queue.append((body_comp.root_id, shape_idx, dist + 1))
 
       elif opcode == "call":
-        if curr_instr.called_computation_ids:
-          called_comp_id = curr_instr.called_computation_ids[0]
+        if _get_called_comp_ids(curr_instr, comp_id_by_name):
+          called_comp_id = _get_called_comp_ids(curr_instr, comp_id_by_name)[0]
           called_comp = comp_by_id.get(called_comp_id)
           if called_comp and called_comp.root_id:
             if (called_comp.root_id, shape_idx) not in visited:
@@ -656,13 +816,16 @@ def find_upstream_compute_stages(
               queue.append((called_comp.root_id, shape_idx, dist + 1))
 
       else:
-        for operand_id in curr_instr.operand_ids:
-          if (
-              operand_id,
-              shape_idx,
-          ) not in visited and operand_id in instr_by_id:
-            visited.add((operand_id, shape_idx))
-            queue.append((operand_id, shape_idx, dist + 1))
+        operands = (
+            curr_instr.operands()
+            if callable(getattr(curr_instr, "operands", None))
+            else getattr(curr_instr, "operand_ids", [])
+        )
+        for op in operands:
+          op_id = _get_id(op)
+          if (op_id, shape_idx) not in visited and op_id in instr_by_id:
+            visited.add((op_id, shape_idx))
+            queue.append((op_id, shape_idx, dist + 1))
 
   return upstream_producers
 
@@ -672,10 +835,13 @@ def find_downstream_compute_stages(
     instr_by_id: Mapping[int, Any],
     users_by_id: Mapping[int, Sequence[int]],
     comp_by_id: Mapping[int, Any],
+    comp_id_by_name: Mapping[str, int],
     comp_id_by_instr_id: Mapping[int, int],
     callers_by_comp_id: Mapping[int, Sequence[int]],
     root_id_by_comp_id: Mapping[int, int],
     max_depth: int = 5,
+    memo: dict[int, bool] | None = None,
+    proto_instr_by_id: Mapping[int, Any] | None = None,
 ) -> Sequence[tuple[Any, int]]:
   """Finds compute-intensive consumers downstream from a copy instruction.
 
@@ -686,13 +852,17 @@ def find_downstream_compute_stages(
     instr_by_id: A mapping from HLO instruction IDs to instruction protos.
     users_by_id: A mapping from instruction IDs to their user instruction IDs.
     comp_by_id: A mapping from computation IDs to computation protos.
+    comp_id_by_name: A mapping from computation names to computation IDs.
     comp_id_by_instr_id: A mapping from instruction IDs to their computation ID.
     callers_by_comp_id: A mapping from computation IDs to their caller
       instruction IDs.
-    root_id_by_comp_id: A mapping from computation IDs to their root
-      instruction ID.
+    root_id_by_comp_id: A mapping from computation IDs to their root instruction
+      ID.
     max_depth: The maximum depth of the dataflow graph traversal (in number of
       hops).
+    memo: Optional dictionary to cache whether an instruction is a compute
+      stage.
+    proto_instr_by_id: Optional fallback mapping to protobuf objects.
 
   Returns:
     A sequence of tuples, where each tuple contains:
@@ -708,12 +878,18 @@ def find_downstream_compute_stages(
     curr_instr = instr_by_id[curr_id]
 
     if dist > 0:
-      if is_compute_stage(curr_instr, comp_by_id):
+      if is_compute_stage(
+          curr_instr,
+          comp_by_id,
+          comp_id_by_name,
+          memo=memo,
+          proto_instr_by_id=proto_instr_by_id,
+      ):
         compute_consumers.append((curr_instr, dist))
         continue
 
     if dist < max_depth:
-      opcode = curr_instr.opcode.lower()
+      opcode = _get_opcode_lower(curr_instr)
       curr_comp_id = comp_id_by_instr_id.get(curr_id)
       root_id = root_id_by_comp_id.get(curr_comp_id)
 
@@ -723,24 +899,25 @@ def find_downstream_compute_stages(
           caller = instr_by_id.get(caller_id)
           if not caller:
             continue
-          caller_opcode = caller.opcode.lower()
+          caller_opcode = _get_opcode_lower(caller)
 
           if caller_opcode == "while":
-            if caller.called_computation_ids:
-              if len(caller.called_computation_ids) > 1:
-                body_comp_id = caller.called_computation_ids[1]
+            if _get_called_comp_ids(caller, comp_id_by_name):
+              if len(_get_called_comp_ids(caller, comp_id_by_name)) > 1:
+                body_comp_id = _get_called_comp_ids(caller, comp_id_by_name)[1]
               else:
-                body_comp_id = caller.called_computation_ids[0]
+                body_comp_id = _get_called_comp_ids(caller, comp_id_by_name)[0]
               body_comp = comp_by_id.get(body_comp_id)
               if body_comp:
-                for inner_i in body_comp.instructions:
+                for inner_i in body_comp.instructions():
                   if (
-                      inner_i.opcode.lower() == "parameter"
+                      getattr(inner_i, "opcode_name", inner_i.opcode).lower()
+                      == "parameter"
                       and inner_i.parameter_number == 0
                   ):
-                    if (inner_i.id, shape_idx) not in visited:
-                      visited.add((inner_i.id, shape_idx))
-                      queue.append((inner_i.id, shape_idx, dist + 1))
+                    if (_get_id(inner_i), shape_idx) not in visited:
+                      visited.add((_get_id(inner_i), shape_idx))
+                      queue.append((_get_id(inner_i), shape_idx, dist + 1))
 
             for user_id in users_by_id.get(caller_id, []):
               if (user_id, shape_idx) not in visited and user_id in instr_by_id:
@@ -757,7 +934,7 @@ def find_downstream_compute_stages(
           user_instr = instr_by_id.get(user_id)
           if not user_instr:
             continue
-          if user_instr.opcode.lower() == "get-tuple-element":
+          if _get_opcode_lower(user_instr) == "get-tuple-element":
             idx = getattr(user_instr, "tuple_index", 0)
             if shape_idx and shape_idx[0] == idx:
               remaining_idx = shape_idx[1:]
@@ -782,18 +959,18 @@ def find_downstream_compute_stages(
             queue.append((user_id, new_idx, dist + 1))
 
       elif opcode == "while":
-        if len(curr_instr.called_computation_ids) > 1:
-          body_comp_id = curr_instr.called_computation_ids[1]
+        if len(_get_called_comp_ids(curr_instr, comp_id_by_name)) > 1:
+          body_comp_id = _get_called_comp_ids(curr_instr, comp_id_by_name)[1]
           body_comp = comp_by_id.get(body_comp_id)
           if body_comp:
-            for inner_i in body_comp.instructions:
+            for inner_i in body_comp.instructions():
               if (
-                  inner_i.opcode.lower() == "parameter"
+                  _get_opcode_lower(inner_i) == "parameter"
                   and inner_i.parameter_number == 0
               ):
-                if (inner_i.id, shape_idx) not in visited:
-                  visited.add((inner_i.id, shape_idx))
-                  queue.append((inner_i.id, shape_idx, dist + 1))
+                if (_get_id(inner_i), shape_idx) not in visited:
+                  visited.add((_get_id(inner_i), shape_idx))
+                  queue.append((_get_id(inner_i), shape_idx, dist + 1))
 
         for user_id in users_by_id.get(curr_id, []):
           if (user_id, shape_idx) not in visited and user_id in instr_by_id:
@@ -801,26 +978,32 @@ def find_downstream_compute_stages(
             queue.append((user_id, shape_idx, dist + 1))
 
       elif opcode == "call":
-        if curr_instr.called_computation_ids:
-          called_comp_id = curr_instr.called_computation_ids[0]
+        if _get_called_comp_ids(curr_instr, comp_id_by_name):
+          called_comp_id = _get_called_comp_ids(curr_instr, comp_id_by_name)[0]
           called_comp = comp_by_id.get(called_comp_id)
           if called_comp:
-            for inner_i in called_comp.instructions:
+            for inner_i in called_comp.instructions():
               if (
-                  inner_i.opcode.lower() == "parameter"
+                  _get_opcode_lower(inner_i) == "parameter"
                   and inner_i.parameter_number == 0
               ):
-                if (inner_i.id, shape_idx) not in visited:
-                  visited.add((inner_i.id, shape_idx))
-                  queue.append((inner_i.id, shape_idx, dist + 1))
+                if (_get_id(inner_i), shape_idx) not in visited:
+                  visited.add((_get_id(inner_i), shape_idx))
+                  queue.append((_get_id(inner_i), shape_idx, dist + 1))
 
       else:
         for user_id in users_by_id.get(curr_id, []):
           user_instr = instr_by_id.get(user_id)
           if not user_instr:
             continue
-          if user_instr.opcode.lower() == "tuple":
-            for operand_idx, operand_id in enumerate(user_instr.operand_ids):
+          if _get_opcode_lower(user_instr) == "tuple":
+            if callable(getattr(user_instr, "operands", None)):
+              operands = [
+                  _get_id(op) for op in getattr(user_instr, "operands")()
+              ]
+            else:
+              operands = getattr(user_instr, "operand_ids", [])
+            for operand_idx, operand_id in enumerate(operands):
               if operand_id == curr_id:
                 new_shape_idx = shape_idx + (operand_idx,)
                 if (user_id, new_shape_idx) not in visited:
@@ -832,6 +1015,29 @@ def find_downstream_compute_stages(
               queue.append((user_id, shape_idx, dist + 1))
 
   return compute_consumers
+
+
+@functools.lru_cache(maxsize=16)
+def _get_c_modules(session_id: str) -> list[Any]:
+  """Fetches and caches the C++ HloModules to avoid repeated serialization."""
+  debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
+  c_modules = []
+  for hlo_proto in debug_info.hlo_proto:
+    if xla_client is None:
+      c_modules.append(None)
+      continue
+    try:
+      c_modules.append(
+          xla_client.hlo.HloModule.from_serialized_hlo_module_proto(  # type: ignore
+              hlo_proto.hlo_module.SerializeToString()
+          )
+      )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning(
+          "Failed to parse C++ HloModule, falling back to Python: %s", e
+      )
+      c_modules.append(None)
+  return c_modules
 
 
 def detect_layout_mismatch_copies(
@@ -855,7 +1061,9 @@ def detect_layout_mismatch_copies(
   try:
     total_start_time = time.time()
 
+    fetch_time_start = time.time()
     debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
+    fetch_time_end = time.time()
     if not debug_info.hlo_proto:
       return json.dumps({"error": "No HLO proto found in the session."})
 
@@ -890,67 +1098,166 @@ def detect_layout_mismatch_copies(
 
     inefficient_ops = []
 
-    for hlo_proto in debug_info.hlo_proto:
+    dict_build_time_total = 0.0
+    bfs_time_total = 0.0
+    copy_count = 0
+
+    load_start = time.time()
+    c_modules = _get_c_modules(session_id)
+    load_time_s = time.time() - load_start
+
+    for idx, hlo_proto in enumerate(debug_info.hlo_proto):
+      dict_build_start = time.time()
       module_proto = hlo_proto.hlo_module
 
       instr_by_id = {}
       comp_by_id = {}
       users_by_id = collections.defaultdict(list)
 
-      comp_name_by_id = {
-          comp.id: comp.name for comp in module_proto.computations
-      }
-      instr_id_to_comp_id = {}
-      callers_by_comp_id = collections.defaultdict(list)
-      comp_id_by_instr_id = {}
+      comp_name_by_id = {}
+      comp_id_by_name = {}
       root_id_by_comp_id = {}
 
       for comp in module_proto.computations:
         comp_by_id[comp.id] = comp
+        comp_name_by_id[comp.id] = comp.name
+        comp_id_by_name[comp.name] = comp.id
         root_id_by_comp_id[comp.id] = comp.root_id
+
+      instr_id_to_comp_id = {}
+      callers_by_comp_id = collections.defaultdict(list)
+      comp_id_by_instr_id = {}
+      compute_stage_memo = {}
+
+      # Use C++ xla_client to bypass lazy Python Protobuf instantiation
+      # over massive graphs
+      c_module = c_modules[idx] if idx < len(c_modules) else None
+
+      proto_instr_by_id = {}
+      for comp in module_proto.computations:
         for instr in comp.instructions:
-          instr_id_to_comp_id[instr.id] = comp.id
-          comp_id_by_instr_id[instr.id] = comp.id
-          instr_by_id[instr.id] = instr
-          for comp_id in instr.called_computation_ids:
-            callers_by_comp_id[comp_id].append(instr.id)
-          for operand_id in instr.operand_ids:
-            users_by_id[operand_id].append(instr.id)
+          proto_instr_by_id[_get_id(instr)] = instr
+          if instr.name:
+            proto_instr_by_id[instr.name] = instr
+      if c_module:
+        c_computations = (
+            c_module.computations()
+            if callable(getattr(c_module, "computations", None))
+            else c_module.computations
+        )
+        for c_comp in c_computations:
+          comp_id = comp_id_by_name.get(
+              c_comp.name, getattr(c_comp, "id", c_comp.name)
+          )
+          comp_by_id[comp_id] = c_comp  # Overwrite with fast C++ object
+          c_instructions = (
+              c_comp.instructions()
+              if callable(getattr(c_comp, "instructions", None))
+              else c_comp.instructions
+          )
+          for c_instr in c_instructions:
+            c_instr_name = (
+                c_instr.name()
+                if callable(getattr(c_instr, "name", None))
+                else c_instr.name
+            )
+            instr_id = getattr(c_instr, "id", c_instr_name)
+            instr_id_to_comp_id[instr_id] = comp_id
+            comp_id_by_instr_id[instr_id] = comp_id
+            instr_by_id[instr_id] = c_instr
+            c_called_names = (
+                c_instr.called_computation_names()
+                if callable(getattr(c_instr, "called_computation_names", None))
+                else getattr(c_instr, "called_computation_names", [])
+            )
+            for comp_name in c_called_names:
+              called_comp_id = comp_id_by_name.get(comp_name)
+              if called_comp_id is not None:
+                callers_by_comp_id[called_comp_id].append(instr_id)
+            c_users = (
+                c_instr.users()
+                if callable(getattr(c_instr, "users", None))
+                else getattr(c_instr, "users", [])
+            )
+            for u in c_users:
+              u_name = (
+                  u.name() if callable(getattr(u, "name", None)) else u.name
+              )
+              users_by_id[instr_id].append(getattr(u, "id", u_name))
+      else:
+        for comp in module_proto.computations:
+          comp_by_id[comp.id] = comp
+          for instr in comp.instructions:
+            instr_id = _get_id(instr)
+            instr_id_to_comp_id[instr_id] = comp.id
+            comp_id_by_instr_id[instr_id] = comp.id
+            instr_by_id[instr_id] = instr
+            for called_id in getattr(instr, "called_computation_ids", []):
+              callers_by_comp_id[called_id].append(instr_id)
+            for op_id in getattr(instr, "operand_ids", []):
+              users_by_id[op_id].append(instr_id)
+
+      dict_build_time_total += time.time() - dict_build_start
 
       for instr in instr_by_id.values():
-        if instr.opcode.lower() != "copy":
+        opcode = _get_opcode_lower(instr)
+        if opcode != "copy":
           continue
 
-        if not instr.operand_ids:
+        if callable(getattr(instr, "operands", None)):
+          operands = getattr(instr, "operands")()
+        else:
+          operands = getattr(instr, "operand_ids", [])
+
+        if not operands:
           continue
 
-        operand_id = instr.operand_ids[0]
+        operand_id = (
+            _get_id(operands[0])
+            if hasattr(operands[0], "id") or hasattr(operands[0], "name")
+            else operands[0]
+        )
         operand_instr = instr_by_id.get(operand_id)
         if not operand_instr:
           continue
 
+        copy_count += 1
+        bfs_start = time.time()
         upstream_producers = find_upstream_compute_stages(
-            instr.id,
+            _get_id(instr),
             instr_by_id,
             comp_by_id,
+            comp_id_by_name,
             comp_id_by_instr_id,
             callers_by_comp_id,
             max_depth=5,
+            memo=compute_stage_memo,
+            proto_instr_by_id=proto_instr_by_id,
         )
         downstream_stages = find_downstream_compute_stages(
-            instr.id,
+            _get_id(instr),
             instr_by_id,
             users_by_id,
             comp_by_id,
+            comp_id_by_name,
             comp_id_by_instr_id,
             callers_by_comp_id,
             root_id_by_comp_id,
             max_depth=5,
+            memo=compute_stage_memo,
+            proto_instr_by_id=proto_instr_by_id,
         )
+        bfs_time_total += time.time() - bfs_start
 
         if upstream_producers and downstream_stages:
-          source_shape = operand_instr.shape
-          target_shape = instr.shape
+          proto_instr = proto_instr_by_id.get(_get_id(instr))
+          proto_operand = proto_instr_by_id.get(operand_id)
+
+          if not proto_instr or not proto_operand:
+            continue
+
+          source_shape = proto_operand.shape
+          target_shape = proto_instr.shape
 
           source_shape_str = format_shape(source_shape)
           target_shape_str = format_shape(target_shape)
@@ -965,11 +1272,11 @@ def detect_layout_mismatch_copies(
           )
 
           upstream_names_str = ", ".join(
-              f"'{u.name}' ({u.opcode}, dist={d})"
+              f"'{u.name}' ({_get_opcode_lower(u)}, dist={d})"
               for u, d in upstream_producers
           )
           downstream_names_str = ", ".join(
-              f"'{d.name}' ({d.opcode}, dist={dist})"
+              f"'{d.name}' ({_get_opcode_lower(d)}, dist={dist})"
               for d, dist in downstream_stages
           )
 
@@ -1022,7 +1329,7 @@ def detect_layout_mismatch_copies(
           recommendation = "".join(recommendation_parts)
 
           metrics = {}
-          instr_comp_id = instr_id_to_comp_id.get(instr.id)
+          instr_comp_id = instr_id_to_comp_id.get(_get_id(instr))
           if instr_comp_id:
             instr_comp_name = comp_name_by_id.get(instr_comp_id, "")
             metrics = op_metrics.get((instr_comp_name, instr.name), {})
@@ -1040,11 +1347,19 @@ def detect_layout_mismatch_copies(
               source_minor_dim_optimal=source_optimal,
               target_minor_dim_optimal=target_optimal,
               upstream_stages=[
-                  UpstreamProducer(name=u.name, opcode=u.opcode, distance=d)
+                  UpstreamProducer(
+                      name=u.name,
+                      opcode=_get_opcode_lower(u),
+                      distance=d,
+                  )
                   for u, d in upstream_producers
               ],
               downstream_stages=[
-                  DownstreamStage(name=d.name, opcode=d.opcode, distance=dist)
+                  DownstreamStage(
+                      name=d.name,
+                      opcode=_get_opcode_lower(d),
+                      distance=dist,
+                  )
                   for d, dist in downstream_stages
               ],
               total_self_time_ms=self_time_ms,
@@ -1069,20 +1384,26 @@ def detect_layout_mismatch_copies(
       message = "No layout mismatch copy bottlenecks detected."
 
     core_logic_end_time = time.time()
-    core_logic_time_ms = (core_logic_end_time - core_logic_start_time) * 1000.0
     core_logic_time_s = core_logic_end_time - core_logic_start_time
     total_end_time = time.time()
-    total_time_ms = (total_end_time - total_start_time) * 1000.0
     total_time_s = total_end_time - total_start_time
 
     logging.info(
-        "Layout mismatch copy detection metrics - "
-        "Total wall clock time: %.2fs (%.2fms), "
-        "Core logic processing time: %.2fs (%.2fms)",
+        "Layout mismatch copy detection metrics - Session ID: %s, "
+        "Fetch time: %.2fs, "
+        "Load time: %.2fs, "
+        "Total wall clock time: %.2fs, "
+        "Core logic processing time: %.2fs, "
+        "Dict build time: %.2fs, "
+        "BFS time for %d copies: %.2fs",
+        session_id,
+        fetch_time_end - fetch_time_start,
+        load_time_s,
         total_time_s,
-        total_time_ms,
         core_logic_time_s,
-        core_logic_time_ms,
+        dict_build_time_total,
+        copy_count,
+        bfs_time_total,
     )
 
     return json.dumps(

@@ -3,38 +3,87 @@
 import collections
 import json
 import logging
+import os
 import pathlib
 import re
 import statistics
 from typing import Any, Iterator
 
-from xprof import profile_data as profiler  # pytype: disable=import-error
+# pylint: disable=g-import-not-at-top
+try:
+  from xprof import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+except ImportError:
+  try:
+    from xprof import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+  except ImportError:
+    from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
 
 from xprof.cli.internal import decorators
 
 from . import xprof_client
 
 
-def _iter_planes(session_id: str) -> Iterator[Any]:
-  """Yields all XPlanes across all hosts for a session.
+def iter_planes(source: Any) -> Iterator[Any]:
+  """Yields all XPlanes from a session ID, file path, or in-memory object.
 
-  Parses each .xplane.pb file independently so multi-host sessions work
-  correctly (no byte concatenation).
+  Supports polymorphic inputs to eliminate repeated filesystem I/O and JSON
+  conversions across client loops:
+
+  - str session_id (e.g., "xid/..."): Fetches from XProf server.
+  - str path or os.PathLike: Reads .xplane.pb files from a directory or file.
+  - bytes: Deserializes as a serialized XSpace proto.
+  - ProfileData / XSpace / any object with .planes: Yields planes directly.
 
   Args:
-    session_id: The unique XProf session ID.
+    source: The XProf session ID, local file/directory path, serialized XSpace
+      bytes, or an in-memory ProfileData/XSpace object.
 
   Yields:
     Each XPlane proto found in the session's XSpace.
   """
-  client = xprof_client.get_client()
-  run_dir = client.get_run_dir(session_id)
-  xspace_paths = client.get_xspace_paths(run_dir)
+  # Handle in-memory objects (ProfileData, XSpace, etc.) with .planes attribute.
+  if hasattr(source, "planes"):
+    yield from source.planes
+    return
 
-  for path in xspace_paths:
-    with open(path, "rb") as f:
-      pd = profiler.ProfileData.from_serialized_xspace(f.read())
+  # Handle raw bytes (serialized XSpace proto).
+  if isinstance(source, bytes):
+    pd = profiler.ProfileData.from_serialized_xspace(source)
     yield from pd.planes
+    return
+
+  # Handle os.PathLike by converting to string.
+  if isinstance(source, os.PathLike):
+    source = str(source)
+
+  # Handle string inputs.
+  if isinstance(source, str):
+    # If it's a local path (file or directory).
+    if os.path.exists(source) or source.startswith("/"):
+      if os.path.isdir(source):
+        xplane_paths = sorted(pathlib.Path(source).glob("**/*.xplane.pb"))
+        for path in xplane_paths:
+          with open(path, "rb") as f:
+            pd = profiler.ProfileData.from_serialized_xspace(f.read())
+          yield from pd.planes
+      elif os.path.isfile(source):
+        with open(source, "rb") as f:
+          pd = profiler.ProfileData.from_serialized_xspace(f.read())
+        yield from pd.planes
+      return
+
+    # Otherwise, treat as session_id and fetch from XProf server.
+    client = xprof_client.get_client()
+    run_dir = client.get_run_dir(source)
+    xspace_paths = client.get_xspace_paths(run_dir)
+
+    for path in xspace_paths:
+      with open(path, "rb") as f:
+        pd = profiler.ProfileData.from_serialized_xspace(f.read())
+      yield from pd.planes
+    return
+
+  raise TypeError(f"Unsupported source type: {type(source)}")
 
 
 @decorators.cached(expire=86_400)
@@ -80,7 +129,7 @@ def list_xplane_events(
     p_re = re.compile(plane_regex)
     e_re = re.compile(event_regex)
 
-    for plane in _iter_planes(session_id):
+    for plane in iter_planes(session_id):
       if not p_re.search(plane.name):
         continue
 
@@ -178,7 +227,7 @@ def aggregate_xplane_events(
 
     stats_data = collections.defaultdict(list)
 
-    for plane in _iter_planes(session_id):
+    for plane in iter_planes(session_id):
       if not p_re.search(plane.name):
         continue
 

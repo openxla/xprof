@@ -59,16 +59,19 @@ using ::tsl::profiler::GetDeviceEventTimespan;
 struct HLOTracker {
   uint64_t duration = 0;
   double vdd_energy_j = 0.0;
-  uint64_t program_id = 0;
-  uint64_t group_id = 0;
-  bool is_eager;
+  std::optional<uint64_t> program_id;
+  std::optional<uint64_t> group_id;
+  bool is_eager = false;
   const HloInstructionWrapper* hlo_instruction = nullptr;
   std::string hlo_op_name;
 
   void Reset() {
-    duration = program_id = group_id = 0;
+    duration = 0;
+    program_id = std::nullopt;
+    group_id = std::nullopt;
     vdd_energy_j = 0.0;
     hlo_op_name.clear();
+    is_eager = false;
     hlo_instruction = nullptr;
   }
 };
@@ -476,26 +479,29 @@ void ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(
 }
 
 void AggregateHloFunc(HLOTracker& current, DeviceOpMetricsDbBuilder& metricDb) {
-  if (current.hlo_instruction == nullptr) return;
+  if (current.hlo_op_name.empty()) return;
 
-  DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
-      .program_id = current.program_id,
-      .name = current.hlo_op_name,
-      .category = current.hlo_instruction->Category(),
-      .provenance = current.hlo_instruction->TfOpName(),
-      .deduplicated_name = current.hlo_instruction->DeduplicatedName(),
-      .long_name = current.hlo_instruction->Expression(),
-      .op_source_info = current.hlo_instruction->SourceInfo(),
-  };
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id;
+  op_id.program_id = current.program_id.value_or(0);
+  op_id.name = current.hlo_op_name;
 
-  DeviceOpMetricsDbBuilder::OpData event_data = {
-      .is_eager = current.is_eager,
-      .occurrences = 1,
-      .time_ps = current.duration,
-      .children_time_ps = 0,
-      .perf_info = current.hlo_instruction->GetPerformanceInfoWrapper(),
-      .vdd_energy_j = current.vdd_energy_j,
-  };
+  if (current.hlo_instruction != nullptr) {
+    op_id.category = current.hlo_instruction->Category();
+    op_id.provenance = current.hlo_instruction->TfOpName();
+    op_id.deduplicated_name = current.hlo_instruction->DeduplicatedName();
+    op_id.long_name = current.hlo_instruction->Expression();
+    op_id.op_source_info = current.hlo_instruction->SourceInfo();
+  }
+
+  DeviceOpMetricsDbBuilder::OpData event_data;
+  event_data.is_eager = current.is_eager;
+  event_data.occurrences = 1;
+  event_data.time_ps = current.duration;
+  event_data.children_time_ps = 0;
+  event_data.vdd_energy_j = current.vdd_energy_j;
+  if (current.hlo_instruction != nullptr) {
+    event_data.perf_info = current.hlo_instruction->GetPerformanceInfoWrapper();
+  }
 
   metricDb.EnterOp(op_id, event_data);
   current.Reset();
@@ -522,14 +528,10 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
       if (stats.IsXlaOp()) {
         const auto* hlo_instruction = GetHloInstruction(
             hlo_module_map, stats.program_id, stats.hlo_op_names.back());
-        if (hlo_instruction != nullptr) {
-          if (stats.hlo_op_names.back() != current.hlo_op_name ||
-              stats.group_id != current.group_id) {
-            AggregateHloFunc(current, device_op_metrics_db_builder);
-          }
-          // Merge identical and contiguous HLOs.
-          current.hlo_instruction = hlo_instruction;
-          current.hlo_op_name = stats.hlo_op_names.back();
+        if (stats.hlo_op_names.back() == current.hlo_op_name &&
+            stats.group_id == current.group_id &&
+            stats.program_id == current.program_id) {
+          // Contiguous HLO events from the same program and group are merged.
           current.duration += event.DurationPs();
           event.ForEachStat(
               [&current](const tsl::profiler::XStatVisitor& stat) {
@@ -537,12 +539,23 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
                   current.vdd_energy_j += stat.DoubleValue();
                 }
               });
-          current.is_eager = stats.is_eager;
-          current.program_id = *stats.program_id;
-          if (stats.group_id.has_value()) {
-            current.group_id = *stats.group_id;
-          }
+          return;
         }
+        // The current operation is different from the tracked one, or this is
+        // the start of the first operation. Finalize the previous operation
+        // before tracking the new one.
+        AggregateHloFunc(current, device_op_metrics_db_builder);
+        current.hlo_instruction = hlo_instruction;
+        current.hlo_op_name = stats.hlo_op_names.back();
+        current.duration = event.DurationPs();
+        event.ForEachStat([&current](const tsl::profiler::XStatVisitor& stat) {
+          if (stat.Name() == "vdd_energy_j") {
+            current.vdd_energy_j += stat.DoubleValue();
+          }
+        });
+        current.is_eager = stats.is_eager;
+        current.program_id = stats.program_id;
+        current.group_id = stats.group_id;
       } else if (stats.IsTfOp()) {
         AggregateHloFunc(current, device_op_metrics_db_builder);
         tsl::profiler::TfOp tf_op =

@@ -575,6 +575,7 @@ class Timeline {
 
   // Processes any pending vertical scroll request to reveal a specific event.
   void ProcessPendingScroll();
+  void ReorderTrack(int source_index, int target_index);
 
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
@@ -694,6 +695,8 @@ class Timeline {
   int selected_counter_index_ = -1;
   bool should_restore_scroll_ = false;
   float last_scroll_y_ = 0.0f;
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
 
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
   // Flag to track if an event was clicked in the current frame. This is used

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -570,9 +571,16 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 }
 
 void Timeline::Draw() {
+  bool needs_layout_update = false;
+  if (pending_reorder_source_ != -1 && pending_reorder_target_ != -1) {
+    ReorderTrack(pending_reorder_source_, pending_reorder_target_);
+    pending_reorder_source_ = -1;
+    pending_reorder_target_ = -1;
+    needs_layout_update = true;
+  }
+
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
-  bool needs_layout_update = false;
 
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
@@ -3266,6 +3274,163 @@ void Timeline::ProcessPendingScroll() {
 
   // Reset request flag to prevent repeated scrolling.
   event_index_to_scroll_to_ = -1;
+}
+
+void Timeline::ReorderTrack(int source_index, int target_index) {
+  if (source_index == target_index) return;
+  if (source_index < 0 || source_index >= timeline_data_.groups.size()) return;
+  if (target_index < 0 || target_index >= timeline_data_.groups.size()) return;
+
+  if (timeline_data_.groups[source_index].nesting_level !=
+      timeline_data_.groups[target_index].nesting_level) {
+    return;
+  }
+
+  auto& groups = timeline_data_.groups;
+  auto& levels = timeline_data_.events_by_level;
+
+  int drag_group_end_idx = source_index + 1;
+  while (drag_group_end_idx < groups.size() &&
+         groups[drag_group_end_idx].nesting_level >
+             groups[source_index].nesting_level) {
+    drag_group_end_idx++;
+  }
+
+  if (!(target_index >= source_index && target_index < drag_group_end_idx)) {
+    // Calculate level counts for each group
+    std::vector<int> level_counts;
+    level_counts.reserve(groups.size());
+    for (size_t i = 0; i < groups.size(); ++i) {
+      level_counts.push_back(
+          (i + 1 < groups.size() ? groups[i + 1].start_level : levels.size()) -
+          groups[i].start_level);
+    }
+
+    int level_start_idx = groups[source_index].start_level;
+    int level_end_idx = drag_group_end_idx < groups.size()
+                            ? groups[drag_group_end_idx].start_level
+                            : levels.size();
+
+    // Determine the drop index in the erased groups vector
+    int current_drop_idx = target_index;
+    if (target_index >= drag_group_end_idx) {
+      current_drop_idx -= (drag_group_end_idx - source_index);
+    }
+
+    // Prepare parallel vectors to track original indices
+    std::vector<int> original_group_indices(groups.size());
+    for (size_t i = 0; i < groups.size(); ++i) {
+      original_group_indices[i] = i;
+    }
+
+    std::vector<int> original_level_indices(levels.size());
+    for (size_t i = 0; i < levels.size(); ++i) {
+      original_level_indices[i] = i;
+    }
+
+    // Move blocks in original indices vectors first
+    std::vector<int> moved_group_indices(
+        original_group_indices.begin() + source_index,
+        original_group_indices.begin() + drag_group_end_idx);
+    std::vector<int> moved_level_indices(
+        original_level_indices.begin() + level_start_idx,
+        original_level_indices.begin() + level_end_idx);
+
+    original_group_indices.erase(
+        original_group_indices.begin() + source_index,
+        original_group_indices.begin() + drag_group_end_idx);
+    original_level_indices.erase(
+        original_level_indices.begin() + level_start_idx,
+        original_level_indices.begin() + level_end_idx);
+
+    // Calculate level insert index from erased state
+    int level_insert_idx = 0;
+    for (int i = 0; i < current_drop_idx; ++i) {
+      level_insert_idx += level_counts[original_group_indices[i]];
+    }
+
+    // Now do the actual movement on groups and levels
+    std::vector<Group> moved_groups(groups.begin() + source_index,
+                                    groups.begin() + drag_group_end_idx);
+    std::vector<std::vector<int>> moved_levels(levels.begin() + level_start_idx,
+                                               levels.begin() + level_end_idx);
+
+    groups.erase(groups.begin() + source_index,
+                 groups.begin() + drag_group_end_idx);
+    levels.erase(levels.begin() + level_start_idx,
+                 levels.begin() + level_end_idx);
+
+    // Insert into new positions
+    groups.insert(groups.begin() + current_drop_idx, moved_groups.begin(),
+                  moved_groups.end());
+    levels.insert(levels.begin() + level_insert_idx, moved_levels.begin(),
+                  moved_levels.end());
+
+    // Insert into parallel index vectors
+    original_group_indices.insert(
+        original_group_indices.begin() + current_drop_idx,
+        moved_group_indices.begin(), moved_group_indices.end());
+    original_level_indices.insert(
+        original_level_indices.begin() + level_insert_idx,
+        moved_level_indices.begin(), moved_level_indices.end());
+
+    // Update start_level for all groups
+    int cur_level = 0;
+    for (size_t i = 0; i < groups.size(); ++i) {
+      groups[i].start_level = cur_level;
+      cur_level += level_counts[original_group_indices[i]];
+    }
+
+    // 1. Update entry_levels for all events
+    for (size_t l = 0; l < levels.size(); ++l) {
+      for (int event_idx : levels[l]) {
+        timeline_data_.entry_levels[event_idx] = l;
+      }
+    }
+
+    // 2. Update counter_data_by_group_index
+    std::map<int, CounterData> new_counter_data;
+    for (size_t i = 0; i < groups.size(); ++i) {
+      int original_j = original_group_indices[i];
+      auto it = timeline_data_.counter_data_by_group_index.find(original_j);
+      if (it != timeline_data_.counter_data_by_group_index.end()) {
+        new_counter_data[i] = it->second;
+      }
+    }
+    timeline_data_.counter_data_by_group_index = std::move(new_counter_data);
+
+    // 3. Update FlowLines
+    std::vector<int> old_to_new_level(original_level_indices.size());
+    for (size_t i = 0; i < original_level_indices.size(); ++i) {
+      old_to_new_level[original_level_indices[i]] = i;
+    }
+
+    for (auto& flow : timeline_data_.flow_lines) {
+      if (flow.source_level >= 0 &&
+          flow.source_level < old_to_new_level.size()) {
+        flow.source_level = old_to_new_level[flow.source_level];
+      }
+      if (flow.target_level >= 0 &&
+          flow.target_level < old_to_new_level.size()) {
+        flow.target_level = old_to_new_level[flow.target_level];
+      }
+    }
+
+    for (auto& [flow_id, flow_lines] : timeline_data_.flow_lines_by_flow_id) {
+      for (auto& flow : flow_lines) {
+        if (flow.source_level >= 0 &&
+            flow.source_level < old_to_new_level.size()) {
+          flow.source_level = old_to_new_level[flow.source_level];
+        }
+        if (flow.target_level >= 0 &&
+            flow.target_level < old_to_new_level.size()) {
+          flow.target_level = old_to_new_level[flow.target_level];
+        }
+      }
+    }
+
+    UpdateLevelPositions(timeline_data_);
+  }
 }
 
 void Timeline::HandleEventDeselection() {

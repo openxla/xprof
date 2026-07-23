@@ -193,7 +193,6 @@ cc_library(
         ":performance_info_wrapper",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
-        "@org_xprof//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:op_metrics_proto_cc",
         "@org_xprof//plugin/xprof/protobuf:source_info_proto_cc",
         "@org_xprof//xprof/convert:op_metrics_db_combiner",

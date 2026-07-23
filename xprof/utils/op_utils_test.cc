@@ -299,6 +299,39 @@ TEST(DeviceOpMetricsDbBuilderTest, EnterOpHandlesGPUFields) {
             100);  // 50 * 2
 }
 
+TEST(DeviceOpMetricsDbBuilderTest, EnterOpHandlesGPUNegativeBytesFallback) {
+  OpMetricsDb db;
+  DeviceOpMetricsDbBuilder builder(&db);
+
+  DeviceOpMetricsDbBuilder::OpIdentifier op_id = {
+      .program_id = 123,
+      .name = "gpu_op",
+  };
+
+  auto perf_info = std::make_unique<PerformanceInfoWrapper::PerfInfoType>();
+  auto* mem = perf_info->mutable_memory_accessed_breakdown()->Add();
+  mem->set_memory_space(
+      PerformanceInfoWrapper::PerfInfoType::MemoryAccessed::HBM);
+  mem->set_is_read(true);
+  mem->set_bytes_accessed(-50);  // Negative bytes
+
+  std::unique_ptr<PerformanceInfoWrapper> perf_info_wrapper =
+      PerformanceInfoWrapper::Create(std::move(perf_info));
+
+  DeviceOpMetricsDbBuilder::OpData event_data = {
+      .occurrences = 2,
+      .perf_info = perf_info_wrapper.get(),
+  };
+
+  builder.EnterOp(op_id, event_data);
+
+  ASSERT_EQ(db.metrics_db_size(), 1);
+  const OpMetrics& metrics = db.metrics_db(0);
+  ASSERT_EQ(metrics.memory_accessed_breakdown_size(), 1);
+  EXPECT_EQ(metrics.memory_accessed_breakdown(0).bytes_accessed(),
+            0);  // Should fall back to 0
+}
+
 TEST(DeviceOpMetricsDbBuilderTest, EnterOpMetadataPopulatesMetadata) {
   OpMetricsDb db;
   DeviceOpMetricsDbBuilder builder(&db);

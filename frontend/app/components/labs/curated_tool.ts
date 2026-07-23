@@ -9,6 +9,7 @@ export declare interface CuratedTool {
   readonly description: string;
   readonly icon: string;
   readonly url?: string;
+  readonly route?: string;
   readonly tags: readonly string[];
   readonly isFeatured: boolean;
   readonly owner?: string;

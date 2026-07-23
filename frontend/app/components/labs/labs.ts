@@ -200,6 +200,13 @@ export class LabsComponent implements OnInit {
   }
 
   onLaunchTool(tool: CuratedTool): void {
+    if (tool.route) {
+      this.router.navigate([tool.route, this.sessionId], {
+        queryParams: this.route.snapshot.queryParams,
+      });
+      return;
+    }
+
     if (!tool.url) {
       this.snackBar.open(
         `${tool.label} is an upcoming curated experiment. Check back soon!`,

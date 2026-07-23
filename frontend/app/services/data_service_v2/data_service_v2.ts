@@ -1,6 +1,6 @@
 import {PlatformLocation} from '@angular/common';
 import {HttpClient, HttpErrorResponse, HttpParams} from '@angular/common/http';
-import {Injectable} from '@angular/core';
+import {inject, Injectable} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {
   API_PREFIX,
@@ -27,6 +27,7 @@ import {
 } from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {type Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
+import {GraphTypeObject} from 'org_xprof/frontend/app/common/interfaces/graph_viewer';
 import {HostMetadata} from 'org_xprof/frontend/app/common/interfaces/hosts';
 import {type SmartSuggestionReport} from 'org_xprof/frontend/app/common/interfaces/smart_suggestion.jsonpb_decls';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -40,17 +41,22 @@ import {Observable, of} from 'rxjs';
 import {catchError} from 'rxjs/operators';
 import {windowOpen} from 'safevalues/dom';
 
+interface HttpGetOptions {
+  params?: HttpParams;
+  responseType?: string;
+  [key: string]: string | HttpParams | undefined;
+}
+
 /** The data service class that calls API and return response. */
 @Injectable()
 export class DataServiceV2 implements DataServiceV2Interface {
+  private readonly httpClient = inject(HttpClient);
+  private readonly store = inject(Store<{}>);
   isLocalDevelopment = false;
   pathPrefix = '';
 
-  constructor(
-    private readonly httpClient: HttpClient,
-    platformLocation: PlatformLocation,
-    private readonly store: Store<{}>,
-  ) {
+  constructor() {
+    const platformLocation = inject(PlatformLocation);
     // Clear previous searchParams from session storage
     window.sessionStorage.removeItem('searchParams');
 
@@ -73,11 +79,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
 
   private get<T>(
     url: string,
-    // tslint:disable-next-line:no-any
-    options: {[key: string]: any} = {},
+    options: HttpGetOptions = {},
     notifyError = true,
   ): Observable<T | null> {
-    return this.httpClient.get<T>(url, options).pipe(
+    return this.httpClient.get<T>(url, options as {params?: HttpParams; responseType?: 'json'}).pipe(
       catchError((error: HttpErrorResponse) => {
         console.log(error);
         let errorMessage = '';
@@ -274,7 +279,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     moduleName: string,
     opName: string,
     programId = '',
-  ) {
+  ): string {
     if (moduleName && opName) {
       const linkParams = new URLSearchParams();
       linkParams.set('tool', 'graph_viewer');
@@ -329,7 +334,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return `${window.parent.location.origin}?${linkParams.toString()}#profile`;
   }
 
-  getGraphTypes(sessionId: string) {
+  getGraphTypes(sessionId: string): Observable<GraphTypeObject[]> {
     const types = [
       {
         value: GRAPH_TYPE_DEFAULT,
@@ -377,7 +382,10 @@ export class DataServiceV2 implements DataServiceV2Interface {
     return of('');
   }
 
-  getMeGraphJson(sessionId: string, params: Map<string, string>) {
+  getMeGraphJson(
+    sessionId: string,
+    params: Map<string, string>,
+  ): Observable<string> {
     const queryParams = this.getHttpParamsWithPath()
       .set('run', sessionId)
       .set('tag', 'graph_viewer')
@@ -433,7 +441,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     moduleName: string,
     opName: string,
     programId = '',
-  ) {
+  ): string {
     if (moduleName && opName) {
       const linkParams = new URLSearchParams();
       linkParams.set('tag', 'graph_viewer');
@@ -461,7 +469,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     moduleName: string,
     opName: string,
     programId = '',
-  ) {
+  ): string {
     if (moduleName && opName) {
       // TODO(xprof): Add program id support in 3p frontend.
       return `${window.parent.location.origin}/${
@@ -557,7 +565,7 @@ export class DataServiceV2 implements DataServiceV2Interface {
     host: string,
     tqx = '',
     additionalParams: Map<string, string> = new Map(),
-  ) {
+  ): void {
     let params = this.getHttpParamsWithPath();
     params = params
       .set('run', sessionId)

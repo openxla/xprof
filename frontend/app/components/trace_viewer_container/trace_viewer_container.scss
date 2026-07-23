@@ -322,10 +322,10 @@ canvas {
 
   .single-event-details {
     padding: 16px;
-    border: 1px solid var(--md-sys-color--outline-variant);
     border-radius: 8px;
     background-color: var(--md-sys-color--surface);
     margin-bottom: 16px;
+    border: none;
 
     h3 {
       margin-top: 0;
@@ -333,15 +333,32 @@ canvas {
       color: var(--md-sys-color--on-surface);
     }
 
+
+
     .split-area-left {
-      background-color: var(--md-sys-color--surface);
-      padding: 8px;
-      border-radius: 8px;
+      box-sizing: border-box;
+      padding: 4px;
+      overflow: visible;
+
+      .split-area-inner {
+        background-color: var(--md-sys-color--surface);
+      }
     }
 
     .split-area-right {
-      background-color: var(--md-sys-color--surface-container);
-      padding: 8px;
+      box-sizing: border-box;
+      padding: 4px;
+      overflow: visible;
+
+      .split-area-inner {
+        background-color: var(--md-sys-color--surface-container);
+      }
+    }
+
+    .split-area-inner {
+      box-sizing: border-box;
+      height: 100%;
+      padding: 12px;
       border-radius: 8px;
     }
 

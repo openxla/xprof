@@ -33,6 +33,28 @@ TEST(OpStatsToOverviewPageTest, TpuDutyCycle) {
 
   EXPECT_DOUBLE_EQ(overview_page.analysis().device_duty_cycle_percent(), 70.0);
 }
+
+TEST(OpStatsToOverviewPageTest, HighConfidenceTpuDutyCycle) {
+  OpStats op_stats;
+  op_stats.mutable_run_environment()->set_device_type("TPU");
+  op_stats.mutable_device_op_metrics_db()->set_busy_time_ps(70);
+  op_stats.mutable_device_op_metrics_db()->set_idle_time_ps(30);
+
+  // Set high-confidence metrics
+  op_stats.mutable_device_op_metrics_db()->set_busy_time_high_confidence_ps(60);
+  op_stats.mutable_device_op_metrics_db()->set_idle_time_high_confidence_ps(20);
+
+  OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
+
+  // Still standard Duty Cycle is 70%
+  EXPECT_DOUBLE_EQ(overview_page.analysis().device_duty_cycle_percent(), 70.0);
+  // HC Duty Cycle is 60 / (60 + 20) = 75%
+  EXPECT_DOUBLE_EQ(
+      overview_page.analysis().device_duty_cycle_high_confidence_percent(),
+      75.0);
+  EXPECT_DOUBLE_EQ(overview_page.analysis().idle_time_high_confidence_ps(),
+                   20.0);
+}
 TEST(OpStatsToOverviewPageTest, RooflineMetrics) {
   OpStats op_stats;
   OpMetricsDb* hlo_db = op_stats.mutable_hlo_metrics_db_complete_steps_only();

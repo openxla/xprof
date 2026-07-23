@@ -25,6 +25,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -1457,6 +1458,164 @@ TEST(ConvertXPlaneToOpStats, PopulateDisaggregatedServingLatency) {
   ASSERT_EQ(
       op_stats.disaggregated_serving_latency().decode_step_time_us().avg(),
       expected_avg_duration_us);
+}
+
+TEST(ConvertXPlaneToOpStats, ConstructHCDutyCycleTrackerFromCustomCall) {
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+
+  // CustomCall with flops = 0 -> off duty due to High Confidence definition
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_0_flops",
+               /*offset_ps=*/10,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kFlops, int64_t{0}}});
+
+  // CustomCall with flops > 0 -> on duty
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_flops",
+               /*offset_ps=*/20,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kFlops, int64_t{5}}});
+
+  // CustomCall without flops stat -> off duty due to High Confidence
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_flops",
+               /*offset_ps=*/30,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)}});
+
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/5,
+               /*duration_ps=*/50);
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker tracker = ConstructHCDutyCycleTracker(visitor);
+
+  // High confidence tracker filters out unknown custom calls (off-duty).
+  // Active times: 20-30 (custom_call_with_flops) => 10ps total
+  EXPECT_EQ(tracker.GetActiveTimePs(), 10);
+  // idle time is 50ps (module) - 10ps (active) = 40ps
+  EXPECT_EQ(tracker.GetIdleTimePs(), 40);
+}
+
+TEST(ConvertXPlaneToOpStats, ConstructHCDutyCycleTrackerFromCustomCallWithIci) {
+  XSpace space;
+  XPlane* device_plane = GetOrCreateTpuXPlane(
+      &space, /*device_ordinal=*/0, /*device_type=*/"TPU v4",
+      /*peak_tera_flops_per_second=*/0,
+      /*peak_hbm_bw_gigabytes_per_second=*/0);
+  XPlaneBuilder device_plane_builder(device_plane);
+  XLineBuilder op_line = device_plane_builder.GetOrCreateLine(0);
+  op_line.SetName(kXlaOpLineName);
+
+  // CustomCall with uses_ici stat = 1 -> on duty (offset 10-20)
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_ici",
+               /*offset_ps=*/10,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kUsesIci, int64_t{1}}});
+
+  // CustomCall with uses_ici = 0, no flops, no model flops -> off duty for
+  // HC (offset 20-30)
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_ici_no_flops",
+               /*offset_ps=*/20,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kUsesIci, int64_t{0}}});
+
+  // CustomCall with uses_ici = 1, with flops -> on duty (offset 30-40)
+  CreateXEvent(&device_plane_builder, &op_line,
+               "custom_call_with_ici_and_flops",
+               /*offset_ps=*/30,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kUsesIci, int64_t{1}},
+                {StatType::kFlops, int64_t{5}}});
+
+  // Regular CustomCall, no ici, no flops -> off duty for HC (offset 40-50)
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_no_ici",
+               /*offset_ps=*/40,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)}});
+
+  // CustomCall with uses_ici = 0, but with model_flops -> on duty
+  // (offset 50-60)
+  CreateXEvent(&device_plane_builder, &op_line, "custom_call_with_model_flops",
+               /*offset_ps=*/50,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory,
+                 xla::HloOpcodeString(xla::HloOpcode::kCustomCall)},
+                {StatType::kUsesIci, int64_t{0}},
+                {StatType::kModelFlops, int64_t{5}}});
+
+  // Megacore event overlapping with on duty op -> should not double count
+  // (offset 15-25)
+  CreateXEvent(&device_plane_builder, &op_line, "megacore_op",
+               /*offset_ps=*/15,
+               /*duration_ps=*/10, {{StatType::kHloCategory, "megacore"}});
+
+  // Non-custom call (category "dot") -> on duty based on compute category;
+  // custom-call FLOPs/ICI checks do not apply (offset 60-70)
+  CreateXEvent(&device_plane_builder, &op_line, "dot",
+               /*offset_ps=*/60,
+               /*duration_ps=*/10,
+               {{StatType::kHloCategory, "dot"},
+                {StatType::kUsesIci, int64_t{1}},
+                {StatType::kFlops, int64_t{10}}});
+
+  // Non-custom call (category "add") without flops -> on duty based on
+  // compute category unless IsOffDutyOp returns true (offset 70-80)
+  CreateXEvent(
+      &device_plane_builder, &op_line, "add",
+      /*offset_ps=*/70,
+      /*duration_ps=*/10,
+      {{StatType::kHloCategory, "add"}, {StatType::kUsesIci, int64_t{1}}});
+
+  XLineBuilder xla_module_line = device_plane_builder.GetOrCreateLine(1);
+  xla_module_line.SetName(kXlaModuleLineName);
+  CreateXEvent(&device_plane_builder, &xla_module_line, "module.1",
+               /*offset_ps=*/5,
+               /*duration_ps=*/90);  // 5 to 95 (total length 90)
+
+  // Under High Confidence (HC) Duty Cycle tracking:
+  // - CustomCalls without FLOPs and without ICI are treated as off-duty
+  //   (filtered out). Thus custom_call_no_ici_no_flops (20-30ps) and
+  //   custom_call_no_ici (40-50ps) are excluded.
+  // - Standard compute ops ("dot", "add", "megacore") remain on-duty based
+  //   on their HLO category.
+  //
+  // Active Time Calculation:
+  // - 10-25ps: custom_call_with_ici (10-20ps) merged with overlapping
+  //   megacore_op (15-25ps) = 15ps
+  // - 30-40ps: custom_call_with_ici_and_flops = 10ps
+  // - 50-60ps: custom_call_with_model_flops = 10ps
+  // - 60-70ps: dot = 10ps
+  // - 70-80ps: add = 10ps
+  //
+  // Total Active Time = 15ps + 10ps + 10ps + 10ps + 10ps = 55ps.
+  // Total Module Time = 90ps (5-95ps).
+  // Total Idle Time = 90ps - 55ps = 35ps.
+
+  XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(device_plane);
+  DutyCycleTracker tracker = ConstructHCDutyCycleTracker(visitor);
+
+  EXPECT_EQ(tracker.GetActiveTimePs(), 55);
+  EXPECT_EQ(tracker.GetIdleTimePs(), 35);
 }
 
 }  // namespace

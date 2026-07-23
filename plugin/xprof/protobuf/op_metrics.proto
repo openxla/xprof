@@ -196,7 +196,7 @@ message PrecisionStats {
 }
 
 // A database for OpMetrics.
-// Next ID: 17
+// Next ID: 19
 message OpMetricsDb {
   // A bunch of OpMetrics.
   repeated OpMetrics metrics_db = 10;
@@ -220,5 +220,9 @@ message OpMetricsDb {
   uint64 idle_time_ps = 14;
   // For duty cycle, a device is busy if any of the cores is busy.
   uint64 busy_time_ps = 15;
+  // For duty cycle high confidence, including all custom calls.
+  uint64 busy_time_high_confidence_ps = 17;
+  // Idle time for high confidence duty cycle.
+  uint64 idle_time_high_confidence_ps = 18;
   reserved 1, 4, 5, 6, 7, 8, 9;
 }

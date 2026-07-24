@@ -1017,6 +1017,24 @@ def find_downstream_compute_stages(
   return compute_consumers
 
 
+def _find_proto_instr_by_id(
+    module_proto: Any, proto_cache: dict[Any, Any], target_id: Any
+) -> Any | None:
+  """On-demand lazy-cached search for a protobuf instruction in module_proto."""
+  if target_id in proto_cache:
+    return proto_cache[target_id]
+  if not proto_cache:
+    for comp in module_proto.computations:
+      for instr in comp.instructions:
+        proto_cache[_get_id(instr)] = instr
+        if hasattr(instr, "name") and instr.name:
+          proto_cache[instr.name] = instr
+        if hasattr(instr, "id"):
+          proto_cache[str(instr.id)] = instr
+          proto_cache[instr.id] = instr
+  return proto_cache.get(target_id)
+
+
 @functools.lru_cache(maxsize=16)
 def _get_c_modules(session_id: str) -> list[Any]:
   """Fetches and caches the C++ HloModules to avoid repeated serialization."""
@@ -1045,7 +1063,7 @@ def detect_layout_mismatch_copies(
     get_top_hlo_ops_fn: Callable[
         ..., str
     ] = get_top_hlo_ops_tool.get_top_hlo_ops,
-    limit: int = 100,
+    limit: int = 50,
 ) -> str:
   """Detects layout mismatch copy ops sandwiched between compute stages.
 
@@ -1067,32 +1085,42 @@ def detect_layout_mismatch_copies(
     if not debug_info.hlo_proto:
       return json.dumps({"error": "No HLO proto found in the session."})
 
-    op_metrics = {}
-    try:
-      top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
-      if top_ops_json:
-        ops_data = json.loads(top_ops_json)
-        all_profiled_ops = itertools.chain(
-            ops_data.get("top_by_time", []),
-            ops_data.get("top_by_flops", []),
-            ops_data.get("top_by_bytes_accessed", []),
+    op_metrics = None
+    top_ops_fetch_time = 0.0
+
+    def _get_op_metrics() -> dict[tuple[str, str], Any]:
+      nonlocal op_metrics, top_ops_fetch_time
+      if op_metrics is not None:
+        return op_metrics
+      op_metrics = {}
+      try:
+        top_ops_fetch_start = time.time()
+        top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
+        top_ops_fetch_time = time.time() - top_ops_fetch_start
+        if top_ops_json:
+          ops_data = json.loads(top_ops_json)
+          all_profiled_ops = itertools.chain(
+              ops_data.get("top_by_time", []),
+              ops_data.get("top_by_flops", []),
+              ops_data.get("top_by_bytes_accessed", []),
+          )
+          for op in all_profiled_ops:
+            raw_name = op.get("name", "")
+            parts = raw_name.split("/")
+            if len(parts) > 1:
+              comp_name = parts[0]
+              instr_name_part = parts[-1].split(" and its ")[0]
+              instr_name = instr_name_part.replace("%", "").strip()
+              op_metrics[(comp_name, instr_name)] = op
+            else:
+              instr_name_part = raw_name.split(" and its ")[0]
+              instr_name = instr_name_part.replace("%", "").strip()
+              op_metrics[("", instr_name)] = op
+      except (json.JSONDecodeError, TypeError) as e:
+        logging.warning(
+            "Failed to fetch or parse top HLO ops: %r", e, exc_info=True
         )
-        for op in all_profiled_ops:
-          raw_name = op.get("name", "")
-          parts = raw_name.split("/")
-          if len(parts) > 1:
-            comp_name = parts[0]
-            instr_name_part = parts[-1].split(" and its ")[0]
-            instr_name = instr_name_part.replace("%", "").strip()
-            op_metrics[(comp_name, instr_name)] = op
-          else:
-            instr_name_part = raw_name.split(" and its ")[0]
-            instr_name = instr_name_part.replace("%", "").strip()
-            op_metrics[("", instr_name)] = op
-    except (json.JSONDecodeError, TypeError) as e:
-      logging.warning(
-          "Failed to fetch or parse top HLO ops: %r", e, exc_info=True
-      )
+      return op_metrics
 
     core_logic_start_time = time.time()
 
@@ -1134,11 +1162,6 @@ def detect_layout_mismatch_copies(
       c_module = c_modules[idx] if idx < len(c_modules) else None
 
       proto_instr_by_id = {}
-      for comp in module_proto.computations:
-        for instr in comp.instructions:
-          proto_instr_by_id[_get_id(instr)] = instr
-          if instr.name:
-            proto_instr_by_id[instr.name] = instr
       if c_module:
         c_computations = (
             c_module.computations()
@@ -1192,6 +1215,9 @@ def detect_layout_mismatch_copies(
             instr_id_to_comp_id[instr_id] = comp.id
             comp_id_by_instr_id[instr_id] = comp.id
             instr_by_id[instr_id] = instr
+            proto_instr_by_id[instr_id] = instr
+            if hasattr(instr, "name") and instr.name:
+              proto_instr_by_id[instr.name] = instr
             for called_id in getattr(instr, "called_computation_ids", []):
               callers_by_comp_id[called_id].append(instr_id)
             for op_id in getattr(instr, "operand_ids", []):
@@ -1250,8 +1276,12 @@ def detect_layout_mismatch_copies(
         bfs_time_total += time.time() - bfs_start
 
         if upstream_producers and downstream_stages:
-          proto_instr = proto_instr_by_id.get(_get_id(instr))
-          proto_operand = proto_instr_by_id.get(operand_id)
+          proto_instr = _find_proto_instr_by_id(
+              module_proto, proto_instr_by_id, _get_id(instr)
+          )
+          proto_operand = _find_proto_instr_by_id(
+              module_proto, proto_instr_by_id, operand_id
+          )
 
           if not proto_instr or not proto_operand:
             continue
@@ -1332,9 +1362,9 @@ def detect_layout_mismatch_copies(
           instr_comp_id = instr_id_to_comp_id.get(_get_id(instr))
           if instr_comp_id:
             instr_comp_name = comp_name_by_id.get(instr_comp_id, "")
-            metrics = op_metrics.get((instr_comp_name, instr.name), {})
+            metrics = _get_op_metrics().get((instr_comp_name, instr.name), {})
           if not metrics:
-            metrics = op_metrics.get(("", instr.name), {})
+            metrics = _get_op_metrics().get(("", instr.name), {})
 
           self_time_ms = metrics.get("total_self_time_ms", 0.0)
           bytes_accessed = metrics.get("bytes_accessed", 0)
@@ -1391,6 +1421,7 @@ def detect_layout_mismatch_copies(
     logging.info(
         "Layout mismatch copy detection metrics - Session ID: %s, "
         "Fetch time: %.2fs, "
+        "Top Ops Fetch time: %.2fs, "
         "Load time: %.2fs, "
         "Total wall clock time: %.2fs, "
         "Core logic processing time: %.2fs, "
@@ -1398,6 +1429,7 @@ def detect_layout_mismatch_copies(
         "BFS time for %d copies: %.2fs",
         session_id,
         fetch_time_end - fetch_time_start,
+        top_ops_fetch_time,
         load_time_s,
         total_time_s,
         core_logic_time_s,

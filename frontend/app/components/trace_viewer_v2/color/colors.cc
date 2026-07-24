@@ -188,4 +188,14 @@ ImU32 GetTextColorForContrast(ImU32 background_color, ImU32 on_surface_color,
                                      : inverse_on_surface_color;
 }
 
+ImU32 GetUtilizationColor(float u) {
+  u = std::clamp(u, 0.0f, 1.0f);
+  int r =
+      static_cast<int>(std::round(255.0f * std::min(1.0f, 2.0f * (1.0f - u))));
+  int g = static_cast<int>(std::round(255.0f * std::min(1.0f, 2.0f * u)));
+  int b = 0;
+  int a = 255;
+  return IM_COL32(r, g, b, a);
+}
+
 }  // namespace traceviewer

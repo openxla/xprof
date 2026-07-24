@@ -397,7 +397,11 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
       .function("setVisibleFlowCategory",
                 &traceviewer::Application::SetVisibleFlowCategory)
       .function("setVisibleFlowCategories",
-                &traceviewer::Application::SetVisibleFlowCategories);
+                &traceviewer::Application::SetVisibleFlowCategories)
+      .function("setBrushingMarkers",
+                &traceviewer::Application::SetBrushingMarkers)
+      .function("clearTimelineMarkers",
+                &traceviewer::Application::ClearTimelineMarkers);
 }
 
 }  // namespace traceviewer

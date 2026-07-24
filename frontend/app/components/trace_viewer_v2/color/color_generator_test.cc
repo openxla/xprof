@@ -111,5 +111,22 @@ TEST(ColorsTest, GetTextColorForContrast_DarkMode) {
             on_surface);
 }
 
+TEST(ColorsTest, GetUtilizationColor) {
+  EXPECT_EQ(GetUtilizationColor(0.0f),
+            IM_COL32(255, 0, 0, 255));  // Red (0xFF0000FF in 0xAABBGGRR)
+  EXPECT_EQ(GetUtilizationColor(0.5f),
+            IM_COL32(255, 255, 0, 255));  // Yellow (0xFF00FFFF in 0xAABBGGRR)
+  EXPECT_EQ(GetUtilizationColor(1.0f),
+            IM_COL32(0, 255, 0, 255));  // Green (0xFF00FF00 in 0xAABBGGRR)
+  // Verify intermediate linear interpolation values (U=0.25 Orange and U=0.75
+  // Lime in 0xAABBGGRR ImGui byte format)
+  EXPECT_EQ(GetUtilizationColor(0.25f),
+            IM_COL32(255, 128, 0, 255));  // 0xFF0080FF
+  EXPECT_EQ(GetUtilizationColor(0.75f),
+            IM_COL32(128, 255, 0, 255));  // 0xFF00FF80
+  EXPECT_EQ(GetUtilizationColor(-0.5f), IM_COL32(255, 0, 0, 255));
+  EXPECT_EQ(GetUtilizationColor(1.5f), IM_COL32(0, 255, 0, 255));
+}
+
 }  // namespace
 }  // namespace traceviewer

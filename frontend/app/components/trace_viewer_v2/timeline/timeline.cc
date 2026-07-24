@@ -780,6 +780,7 @@ void Timeline::Draw() {
   DrawFlows(current_timeline_width_, tracks_start_screen_pos.y);
   DrawSelectedTimeRanges(current_timeline_width_, px_per_time_unit_val);
   DrawBookmarks(current_timeline_width_, px_per_time_unit_val);
+  DrawBrushingMarkers();
   DrawSelectionRectangle();
 
   // Draw vertical split line between sidebar and tracks
@@ -2178,8 +2179,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
         TimeToScreenX(data.timestamps.front(), pos.x, px_per_time_unit_val);
     const Pixel x_end =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
-    draw_list->AddRectFilled(ImVec2(x_start, y), ImVec2(x_end, y_base),
-                             kCounterTrackColor);
+    float u = (data.min_value > 0.0) ? 0.5f : 0.0f;
+    ImU32 col = utilization_color_coding_enabled_ ? GetUtilizationColor(u)
+                                                  : kCounterTrackColor;
+    draw_list->AddRectFilled(ImVec2(x_start, y), ImVec2(x_end, y_base), col);
     return;
   }
 
@@ -2195,8 +2198,11 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     // visible as a thin line instead of completely disappearing.
     y = std::min(y, y_base - 1.0f);
 
-    draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base),
-                             kCounterTrackColor);
+    float u =
+        static_cast<float>((data.values[i] - data.min_value) / value_range);
+    ImU32 col = utilization_color_coding_enabled_ ? GetUtilizationColor(u)
+                                                  : kCounterTrackColor;
+    draw_list->AddRectFilled(ImVec2(x1, y), ImVec2(x2, y_base), col);
   }
 
   // For the last point, draw a 1px wide bar to show its value.
@@ -2204,8 +2210,11 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
     Pixel x =
         TimeToScreenX(data.timestamps.back(), pos.x, px_per_time_unit_val);
     Pixel y = y_base - (data.values.back() - data.min_value) * y_ratio;
-    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base),
-                             kCounterTrackColor);
+    float u =
+        static_cast<float>((data.values.back() - data.min_value) / value_range);
+    ImU32 col = utilization_color_coding_enabled_ ? GetUtilizationColor(u)
+                                                  : kCounterTrackColor;
+    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y_base), col);
   }
 
   // Draw selected points from rectangle selection.
@@ -2530,11 +2539,15 @@ void Timeline::DrawUtilizationAreaChart(int start_level, int end_level,
   // Draw each bin as a bar.
   for (size_t i = 0; i < utilization_bins_.size(); ++i) {
     if (utilization_bins_[i] > 0.0f) {
-      Pixel h = (utilization_bins_[i] / max_util) * group_height;
-      draw_list->AddRectFilled(
-          ImVec2(pos.x + i, pos.y + group_height - h),
-          ImVec2(pos.x + i + 1, pos.y + group_height),
-          palette_.GetColor(ColorPalette::Key::kFlameHeader).value_or(kBlue70));
+      float u = static_cast<float>(utilization_bins_[i] / max_util);
+      Pixel h = u * group_height;
+      ImU32 col = utilization_color_coding_enabled_
+                      ? GetUtilizationColor(u)
+                      : palette_.GetColor(ColorPalette::Key::kFlameHeader)
+                            .value_or(kBlue70);
+      draw_list->AddRectFilled(ImVec2(pos.x + i, pos.y + group_height - h),
+                               ImVec2(pos.x + i + 1, pos.y + group_height),
+                               col);
     }
   }
 
@@ -4184,6 +4197,27 @@ void Timeline::RemoveBookmark(Microseconds time) {
   if (it != bookmarks_.end()) {
     bookmarks_.erase(it);
     if (redraw_callback_) redraw_callback_();
+  }
+}
+
+void Timeline::DrawBrushingMarkers() {
+  if (brushing_markers_.empty() || px_per_time_unit() <= 0) return;
+  const ImRect timeline_area = GetTimelineArea();
+  const Pixel screen_x_offset = timeline_area.Min.x;
+  ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+  const ImU32 kHighlighterColor =
+      IM_COL32(255, 42, 42, 255);  // Prominent bright XProf red (#DC2A2A)
+  const float kHighlighterThickness =
+      3.5f;  // Bold, thick vertical highlighter reference line
+
+  for (const Microseconds time : brushing_markers_) {
+    const Pixel x = TimeToScreenX(time, screen_x_offset, px_per_time_unit());
+    if (x < timeline_area.Min.x || x > timeline_area.Max.x) continue;
+    // Stretch vertically across full canvas view from top header to bottom
+    // floor
+    draw_list->AddLine(ImVec2(x, timeline_area.Min.y),
+                       ImVec2(x, timeline_area.Max.y), kHighlighterColor,
+                       kHighlighterThickness);
   }
 }
 

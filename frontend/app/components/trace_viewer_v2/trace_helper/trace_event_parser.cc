@@ -365,6 +365,16 @@ EMSCRIPTEN_BINDINGS(trace_event_parser) {
                   dict.set(static_cast<double>(pid), host_part);
                 }
                 return dict;
+              }))
+      .function(
+          "getProcessNames",
+          emscripten::optional_override(
+              [](const traceviewer::DataProvider& dp) {
+                emscripten::val dict = emscripten::val::object();
+                for (const auto& [pid, process_name] : dp.GetProcessNames()) {
+                  dict.set(static_cast<double>(pid), process_name);
+                }
+                return dict;
               }));
 
   emscripten::function("processTraceEvents",

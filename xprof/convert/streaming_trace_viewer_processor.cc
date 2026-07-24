@@ -353,6 +353,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
     tensorflow::profiler::DeltaSeriesProtoConversionOptions proto_options;
     proto_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
+    proto_options.trace_filter_config =
+        profiler_trace_options.trace_filter_config;
     absl::StatusOr<std::string> compressed_result =
         tensorflow::profiler::ConvertTraceDataToCompressedDeltaSeriesProto(
             proto_options, merged_trace_container);
@@ -374,6 +376,8 @@ absl::Status StreamingTraceViewerProcessor::SerializeAndSetOutput(
     }
     json_trace_options.details =
         TraceOptionsToDetails(device_type, profiler_trace_options);
+    json_trace_options.trace_filter_config =
+        profiler_trace_options.trace_filter_config;
     IOBufferAdapter adapter(&trace_viewer_json);
     absl::Time json_start_time = absl::Now();
     TraceEventsToJson<IOBufferAdapter, TraceEventsContainer, RawData>(

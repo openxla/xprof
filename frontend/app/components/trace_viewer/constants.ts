@@ -14,13 +14,6 @@ export const FILTER_FIELD_EVENT_DURATION = 'duration';
 // TODO(jonahweaver) strip start_time_ms and end_time_ms from the filter category
 export const FILTER_FIELDS: FilterField[] = [
   {
-    value: FilterFieldCategory.HOST,
-    info: {category: FilterFieldCategory.HOST},
-    displayName: 'host',
-    operatorTypes: [FilterOperatorType.EXACT, FilterOperatorType.REGEX],
-    hasMultiSelectOptions: true,
-  },
-  {
     value: FilterFieldCategory.PROCESS,
     info: {category: FilterFieldCategory.PROCESS},
     displayName: 'process',

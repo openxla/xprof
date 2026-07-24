@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -26,6 +27,7 @@ namespace profiler {
 struct DeltaSeriesProtoConversionOptions {
   bool mpmd_pipeline_view = false;
   JsonTraceOptions::Details details;
+  absl::flat_hash_set<uint32_t> sort_resources_by_name;
 };
 
 // Internal class handling the stateful conversion of trace events.

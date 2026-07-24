@@ -213,6 +213,8 @@ declare global {
       setMouseMode(mode: number): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
+      setBrushingMarkers?(timestamps: number[]): void;
+      clearTimelineMarkers?(): void;
     };
   };
 }

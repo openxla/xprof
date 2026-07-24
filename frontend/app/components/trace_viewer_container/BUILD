@@ -32,6 +32,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
+        "@org_xprof//frontend/app/common/interfaces:chart",
+        "@org_xprof//frontend/app/components/chart",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
         "@org_xprof//frontend/app/pipes",
     ],
@@ -47,6 +49,7 @@ xprof_ng_module(
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/platform-browser",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/utils:testing",
         "@org_xprof//frontend/app/components/trace_viewer_v2:app_bundle_ts",
     ],
 )

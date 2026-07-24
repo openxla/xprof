@@ -1,3 +1,4 @@
+// tslint:disable:no-any
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {CommonModule} from '@angular/common';
@@ -27,6 +28,9 @@ import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {AngularSplitModule} from 'angular-split';
+import type {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {
   isSearchEventsEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
@@ -238,6 +242,7 @@ declare interface TfTraceViewer {
     MatTableModule,
     MatTabsModule,
     MatTooltipModule,
+    ChartModule,
   ],
 })
 export class TraceViewerContainer
@@ -252,6 +257,10 @@ export class TraceViewerContainer
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
+  @Input() histogramDataInfo?: ChartDataInfo | null;
+  @Input() isGoogleChartsLoaded = false;
+  readonly ChartType = ChartType;
+  private checkChartsTimer?: ReturnType<typeof setTimeout>;
   /** Whether the fullscreen button should be shown. */
   @Input() isFullscreenEnabled = false;
 
@@ -433,6 +442,7 @@ export class TraceViewerContainer
 
   ngOnInit() {
     clearDeprecatedStorageKeys();
+    this.checkGoogleChartsLoaded();
 
     window.addEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
@@ -470,6 +480,10 @@ export class TraceViewerContainer
   }
 
   ngOnDestroy() {
+    if (this.checkChartsTimer) {
+      clearTimeout(this.checkChartsTimer);
+      this.checkChartsTimer = undefined;
+    }
     window.removeEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -502,6 +516,20 @@ export class TraceViewerContainer
     this.destroyed.next();
     this.destroyed.complete();
     this.stopTutorialRotation();
+  }
+
+  private checkGoogleChartsLoaded(): void {
+    if (
+      (window as any).google &&
+      ((window as any).google.visualization || (window as any).google.charts)
+    ) {
+      this.isGoogleChartsLoaded = true;
+    } else {
+      this.checkChartsTimer = setTimeout(
+        () => this.checkGoogleChartsLoaded(),
+        200,
+      );
+    }
   }
 
   ngOnChanges(changes: SimpleChanges) {

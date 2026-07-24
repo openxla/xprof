@@ -141,20 +141,27 @@
             </div>
 
             <div *ngIf="!isSingleEventTable()">
-              <mat-tab-group *ngIf="metricsDataSource.data.length > 0 && countersDataSource.data.length > 0">
-                <mat-tab label="Profile Metrics">
+              <mat-tab-group *ngIf="(metricsDataSource.data.length > 0 && countersDataSource.data.length > 0) || (countersDataSource.data.length > 0 && histogramDataInfo)">
+                <mat-tab *ngIf="metricsDataSource.data.length > 0" label="Profile Metrics">
                   <ng-template matTabContent>
                     <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
                   </ng-template>
                 </mat-tab>
-                <mat-tab label="Counters">
+                <mat-tab *ngIf="countersDataSource.data.length > 0" label="Counters">
                   <ng-template matTabContent>
                     <ng-container *ngTemplateOutlet="countersTable"></ng-container>
                   </ng-template>
                 </mat-tab>
+                <mat-tab *ngIf="countersDataSource.data.length > 0 && histogramDataInfo" label="Value Distribution">
+                  <ng-template matTabContent>
+                    <div *ngIf="isGoogleChartsLoaded && histogramDataInfo && histogramDataInfo.data && $any(histogramDataInfo.data).rows?.length > 0" class="histogram-container" style="padding: 16px; height: 300px;">
+                      <chart [chartType]="ChartType.HISTOGRAM" [dataInfo]="histogramDataInfo"></chart>
+                    </div>
+                  </ng-template>
+                </mat-tab>
               </mat-tab-group>
 
-              <div *ngIf="!(metricsDataSource.data.length > 0 && countersDataSource.data.length > 0)">
+              <div *ngIf="!((metricsDataSource.data.length > 0 && countersDataSource.data.length > 0) || (countersDataSource.data.length > 0 && histogramDataInfo))">
                 <ng-container *ngIf="metricsDataSource.data.length > 0">
                   <ng-container *ngTemplateOutlet="metricsTable"></ng-container>
                 </ng-container>

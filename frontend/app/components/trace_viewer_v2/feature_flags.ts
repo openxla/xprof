@@ -42,6 +42,12 @@ const FEATURE_FLAGS = {
     description: 'Enable the fullscreen button in the Trace Viewer.',
     default: false,
   },
+  'utilization_color_coding': {
+    name: 'Enable Counter Utilization Color-Coding',
+    description:
+      'Enable red-yellow-green spectrum utilization color-coding for counter tracks and area charts.',
+    default: false,
+  },
 } as const;
 
 /**

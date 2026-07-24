@@ -1,3 +1,4 @@
+// tslint:disable:no-any
 import 'org_xprof/frontend/app/common/interfaces/window';
 
 import {PlatformLocation} from '@angular/common';
@@ -164,6 +165,34 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
   }
 }
 
+import {type ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
+import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
+
+/**
+ * Data provider for multi-counter clustered histograms supporting dynamic range brushing.
+ */
+export class HistogramBrushingDataProvider extends DefaultDataProvider {
+  constructor(private readonly onSelectCallback: (selection: any[]) => void) {
+    super();
+  }
+  override setChart(chart: any): void {
+    super.setChart(chart);
+    if (chart && (window as any).google?.visualization?.events) {
+      (window as any).google.visualization.events.addListener(
+        chart,
+        'select',
+        () => {
+          const selection =
+            chart && typeof chart.getSelection === 'function'
+              ? chart.getSelection()
+              : [];
+          this.onSelectCallback(selection || []);
+        },
+      );
+    }
+  }
+}
+
 /** A trace viewer component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -212,6 +241,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   selectionStartFormat?: string;
   selectionExtentFormat?: string;
+  histogramDataInfo: ChartDataInfo | null = null;
+  isGoogleChartsLoaded = false;
+  private checkChartsTimer?: ReturnType<typeof setTimeout>;
   private readonly eventArgsCache = new Map<string, Record<string, string>>();
   private readonly hloAdjacentNodesCache = new Map<
     string,
@@ -472,7 +504,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       });
   }
 
+  private checkGoogleChartsLoaded(): void {
+    if (
+      (window as any).google &&
+      ((window as any).google.visualization || (window as any).google.charts)
+    ) {
+      this.isGoogleChartsLoaded = true;
+    } else {
+      this.checkChartsTimer = setTimeout(
+        () => this.checkGoogleChartsLoaded(),
+        200,
+      );
+    }
+  }
+
   ngOnInit(): void {
+    this.checkGoogleChartsLoaded();
     this.searchQuery
       .pipe(
         takeUntil(this.destroyed),
@@ -646,6 +693,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.checkChartsTimer) {
+      clearTimeout(this.checkChartsTimer);
+      this.checkChartsTimer = undefined;
+    }
     this.isDestroyed = true;
     try {
       if (this.useTraceViewerV2 || this.traceViewerModule !== null) {
@@ -791,6 +842,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       this.selectedEventProperties = [];
       this.selectionStartFormat = undefined;
       this.selectionExtentFormat = undefined;
+      this.histogramDataInfo = null;
       return;
     }
 
@@ -815,10 +867,226 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
           'avgWallDuration',
         ];
       }
+
+      const counterItems = (
+        result.properties as SelectedEventProperty[]
+      ).filter(
+        (p) =>
+          p &&
+          (p.hasOwnProperty('counter') ||
+            (result.isCounter && p.hasOwnProperty('value'))) &&
+          !isNaN(Number(p['value'])),
+      );
+
+      if (counterItems.length > 0) {
+        // Step 1: Deterministically identify all unique selected counter tracks (R5)
+        const uniqueCounters = Array.from(
+          new Set(
+            counterItems.map((p) =>
+              String(p['counter'] ?? p['series'] ?? 'Value'),
+            ),
+          ),
+        ).sort();
+
+        const isMultiCounter = uniqueCounters.length > 1;
+
+        // Step 2: Build columns dynamically for single or clustered multi-series distribution
+        const cols: Array<{id: string; label: string; type: string}> = [
+          {
+            id: isMultiCounter ? 'sample' : 'counter',
+            label: isMultiCounter ? 'Sample ID' : 'Counter Name',
+            type: 'string',
+          },
+        ];
+
+        if (!isMultiCounter) {
+          cols.push({
+            id: 'value',
+            label: 'Value',
+            type: 'number',
+          });
+        } else {
+          uniqueCounters.forEach((counterName, idx) => {
+            cols.push({
+              id: `counter_${idx}`,
+              label: counterName,
+              type: 'number',
+            });
+          });
+        }
+
+        // Step 3: Map rows with 1-to-1 correspondence (sparse mapping for multi-counter)
+        const rows = counterItems.map((p) => {
+          const counterName = String(p['counter'] ?? p['series'] ?? 'Value');
+          const numVal = Number(p['value']);
+
+          if (!isMultiCounter) {
+            return {
+              c: [{v: counterName}, {v: numVal}],
+            };
+          }
+
+          const seriesIndex = uniqueCounters.indexOf(counterName);
+          const cells: Array<{v: string | number | null}> = [{v: counterName}];
+
+          for (let i = 0; i < uniqueCounters.length; i++) {
+            cells.push({v: i === seriesIndex ? numVal : null});
+          }
+
+          return {c: cells};
+        });
+
+        this.histogramDataInfo = {
+          data: {cols, rows},
+          dataProvider: new HistogramBrushingDataProvider((selection) => {
+            this.onHistogramRangeSelected(selection, counterItems);
+          }),
+          options: {
+            title: isMultiCounter
+              ? 'Multi-Counter Clustered Value Distribution'
+              : 'Counter Value Distribution',
+            legend: {position: 'top'},
+            histogram: {bucketSize: 1, hideBucketItems: false},
+            chartArea: {width: '85%', height: '70%', bottom: 50, top: 40},
+            hAxis: {
+              title: 'Counter Value',
+              viewWindowMode: 'pretty',
+              textStyle: {fontSize: 12},
+              gridlines: {color: '#eee'},
+            },
+            vAxis: {title: 'Frequency', viewWindow: {min: 0}},
+          },
+        };
+      } else {
+        this.histogramDataInfo = null;
+      }
     } catch (e) {
       console.error('Failed to parse events selected data:', e);
       this.selectedEventProperties = [];
       this.eventDetailColumns = [...DEFAULT_EVENT_DETAIL_COLUMNS];
+      this.histogramDataInfo = null;
+    }
+  }
+
+  onHistogramRangeSelected(
+    selection: any[],
+    counterItems: SelectedEventProperty[],
+  ): void {
+    const app = this.traceViewerModule?.application?.instance?.();
+    const instance = (app || null) as any;
+
+    // Helper to clear timeline markers (ZERO track dimming / opacity mutation!)
+    const clearMarkers = () => {
+      if (instance && typeof instance.clearTimelineMarkers === 'function') {
+        instance.clearTimelineMarkers();
+      }
+    };
+
+    if (
+      !selection ||
+      selection.length === 0 ||
+      !counterItems ||
+      counterItems.length === 0
+    ) {
+      clearMarkers();
+      return;
+    }
+
+    const firstItem = selection[0];
+    if (!firstItem || (firstItem.row == null && firstItem.column == null)) {
+      clearMarkers();
+      return;
+    }
+
+    let query = '';
+    const colIndex =
+      typeof firstItem.column === 'number' ? firstItem.column : -1;
+    const selectedIndices = selection
+      .map((item: any) => item?.row)
+      .filter(
+        (idx: any) =>
+          typeof idx === 'number' && idx >= 0 && idx < counterItems.length,
+      );
+
+    // Stage 1: R5 Column-Based Series Resolution for multi-series clustered selection
+    if (
+      colIndex >= 1 &&
+      this.histogramDataInfo &&
+      this.histogramDataInfo.data &&
+      (this.histogramDataInfo.data as any).cols
+    ) {
+      const colDef = (this.histogramDataInfo.data as any).cols[colIndex];
+      const colLabel = colDef ? String(colDef.label ?? colDef.id ?? '') : '';
+      if (colLabel && colLabel !== 'Value' && colLabel !== 'Counter Name') {
+        query = colLabel;
+      }
+    }
+
+    // Stage 2: R2/R5 Fallback to row-level extraction if series was not resolved from column header
+    if (!query && selectedIndices.length > 0) {
+      const selectedItem = counterItems[selectedIndices[0]];
+      query = String(
+        selectedItem['counter'] ??
+          selectedItem['series'] ??
+          selectedItem['value'] ??
+          '',
+      );
+    }
+
+    if (!query && selectedIndices.length === 0) {
+      clearMarkers();
+      return;
+    }
+
+    if (instance) {
+      // PER MANDATORY UI REFINEMENT:
+      // Exclusively draw R6 markers! DO NOT invoke setSearchQuery or mutate track opacity/dimming/gray-out!
+
+      // Clear any previous markers before drawing new ones
+      if (typeof instance.clearTimelineMarkers === 'function') {
+        instance.clearTimelineMarkers();
+      }
+
+      // Stage 3: R6 Match timeline events for the selected value or interval
+      let matchingEvents: SelectedEventProperty[] = [];
+      if (selectedIndices.length === 1) {
+        // Single sample selected: locate all occurrences of this exact counter value in active view
+        const targetItem = counterItems[selectedIndices[0]];
+        const targetCounter = String(
+          targetItem['counter'] ?? targetItem['series'] ?? '',
+        );
+        const targetVal = Number(targetItem['value']);
+        matchingEvents = counterItems.filter((item) => {
+          const itemCounter = String(item['counter'] ?? item['series'] ?? '');
+          return (
+            itemCounter === targetCounter && Number(item['value']) === targetVal
+          );
+        });
+      } else if (selectedIndices.length > 1) {
+        // Range bucket selected: include all sample occurrences aggregated inside the selected bucket
+        matchingEvents = selectedIndices.map((idx) => counterItems[idx]);
+      }
+
+      // Stage 4: R6 Mandatory Guardrail - sort chronologically and strictly cap at first 10 occurrences
+      const cappedTimestamps = matchingEvents
+        .map((item) => Number(item['time']))
+        .filter((ts) => typeof ts === 'number' && !isNaN(ts))
+        .sort((a, b) => a - b)
+        .slice(0, 10);
+
+      // Stage 5: R6 Invoke native Wasm thick highlighter line API with immediate repaint
+      if (typeof instance.setBrushingMarkers === 'function') {
+        instance.setBrushingMarkers(cappedTimestamps);
+      } else if (typeof instance.addTimelineMarker === 'function') {
+        cappedTimestamps.forEach((time) => {
+          instance.addTimelineMarker(time, {
+            color: '#DC2A2A',
+            style: 'vertical_highlighter_line',
+            thickness: 3.5,
+            label: query,
+          });
+        });
+      }
     }
   }
 

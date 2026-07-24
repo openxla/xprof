@@ -11,6 +11,7 @@ import {MatIconModule} from '@angular/material/icon';
 import {MatMenuModule} from '@angular/material/menu';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {MatTooltipModule} from '@angular/material/tooltip';
+import {ChartModule} from 'org_xprof/frontend/app/components/chart/chart';
 import {TraceViewerContainer} from 'org_xprof/frontend/app/components/trace_viewer_container/trace_viewer_container';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
@@ -37,6 +38,7 @@ import {TraceViewer} from './trace_viewer';
     MatTooltipModule,
     PipesModule,
     TraceViewerContainer,
+    ChartModule,
   ],
   providers: [DataServiceV2],
   exports: [TraceViewer],

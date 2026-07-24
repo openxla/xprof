@@ -439,6 +439,47 @@ TEST(DeltaSeriesProtoConverterTest, PopulatesFullTimespan) {
   EXPECT_THAT(response.full_timespan_end_ps(), Eq(67890000));
 }
 
+TEST(DeltaSeriesProtoConverterTest, SuppressesSortIndexForCustomSortResources) {
+  Trace trace;
+  Device device;
+  device.set_name("MPMD Custom Device");
+
+  Resource resource1;
+  resource1.set_name("B_Program");
+  (*device.mutable_resources())[20] = resource1;
+
+  Resource resource2;
+  resource2.set_name("A_Program");
+  (*device.mutable_resources())[10] = resource2;
+
+  (*trace.mutable_devices())[5] = device;
+
+  TestTraceEventsContainer container(trace);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sort_resources_by_name.insert(5);  // Device ID 5
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.metadata().processes_size(), 1);
+  EXPECT_EQ(response.metadata().processes(0).id(), 5);
+  ASSERT_EQ(response.metadata().processes(0).threads_size(), 2);
+
+  // Verify that sort_index is NOT populated for threads belonging to device 5
+  // Since the actual resource IDs are 20 and 10, a default value of 0 verifies
+  // omission.
+  EXPECT_EQ(response.metadata().processes(0).threads(0).sort_index(), 0);
+  EXPECT_EQ(response.metadata().processes(0).threads(1).sort_index(), 0);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

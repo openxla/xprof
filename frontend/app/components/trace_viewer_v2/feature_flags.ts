@@ -12,6 +12,12 @@ export declare interface FeatureFlag {
   default: boolean;
 }
 
+interface FlagValue {
+  readonly name: string;
+  readonly description: string;
+  readonly default: boolean;
+}
+
 /**
  * The list of all available feature flags.
  * Enforced to be unique by design using object keys.
@@ -19,8 +25,9 @@ export declare interface FeatureFlag {
 const FEATURE_FLAGS = {
   'use_pb': {
     name: 'Use Protobuf Pipeline in Trace Viewer',
-    description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
-    default: false,
+    description:
+      'Use the high-performance protobuf data pipeline in Trace Viewer. Uncheck to fallback to JSON.',
+    default: true,
   },
   'snap_to_time_range': {
     name: 'Snap to Time Range',
@@ -51,12 +58,12 @@ const FEATURE_FLAGS = {
 export type FeatureFlagId = keyof typeof FEATURE_FLAGS;
 
 /** Pre-computed array of feature flags to avoid GC allocation on every call. */
-const FEATURE_FLAGS_ARRAY: FeatureFlag[] = Object.entries(FEATURE_FLAGS).map(
-  ([id, flag]) => ({
-    id,
-    ...flag,
-  }),
-);
+const FEATURE_FLAGS_ARRAY: FeatureFlag[] = Object.entries(
+  FEATURE_FLAGS as unknown as Record<string, FlagValue>,
+).map(([id, flag]) => ({
+  id,
+  ...flag,
+}));
 
 /**
  * Wrapper around feature flags to allow spying in tests.
@@ -81,7 +88,8 @@ export function getDefaultFeatureFlag(id: string): boolean {
   const flags = featureFlagsInternal.getFeatureFlags();
   // Fast path for production: avoid iterating or allocating when using static flags.
   if (flags === FEATURE_FLAGS_ARRAY) {
-    const flag = FEATURE_FLAGS[id as FeatureFlagId];
+    const flagsRecord = FEATURE_FLAGS as unknown as Record<string, FlagValue>;
+    const flag = flagsRecord[id];
     return flag?.default ?? false;
   }
   // Fallback path for unit tests to support spies/mocks.

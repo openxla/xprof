@@ -458,17 +458,12 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
-  void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
-                    Pixel icon_draw_size, ImU32 icon_col,
-                    bool is_track_hidden = false);
 
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
-  void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
-                   Pixel icon_draw_size, ImU32 icon_col, bool is_pinned);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;

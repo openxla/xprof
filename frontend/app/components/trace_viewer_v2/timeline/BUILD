@@ -17,6 +17,16 @@ cc_library(
 )
 
 wasm_cc_library(
+    name = "draw_helpers",
+    srcs = ["draw_helpers.cc"],
+    hdrs = ["draw_helpers.h"],
+    deps = [
+        ":constants",
+        "@imgui",
+    ],
+)
+
+wasm_cc_library(
     name = "time_range",
     srcs = ["time_range.cc"],
     hdrs = ["time_range.h"],
@@ -46,6 +56,7 @@ wasm_cc_library(
     ],
     deps = [
         ":constants",
+        ":draw_helpers",
         ":time_range",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:nullability",
@@ -74,6 +85,7 @@ cc_test(
     srcs = ["timeline_test.cc"],
     deps = [
         ":constants",
+        ":draw_helpers",
         ":time_range",
         ":timeline",
         "@com_google_absl//absl/base:nullability",

@@ -30,6 +30,7 @@
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/helper/time_formatter.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/draw_helpers.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
@@ -3387,7 +3388,6 @@ INSTANTIATE_TEST_SUITE_P(VariousInteractions, MaybeRequestDataDeferredTest,
 
 class TestTimeline : public Timeline {
  public:
-  using Timeline::DrawHideIcon;
   using Timeline::flattened_groups_;
   using Timeline::GetGroupBottom;
   using Timeline::GetGroupTop;
@@ -8529,12 +8529,12 @@ TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
 
   // Call DrawHideIcon with is_track_hidden = true to cover the slashing line
   // logic (line 2451)
-  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
-                         /*is_track_hidden=*/true);
+  DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+               /*is_track_hidden=*/true);
 
   // Also call with is_track_hidden = false to cover the other branch
-  timeline_.DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
-                         /*is_track_hidden=*/false);
+  DrawHideIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+               /*is_track_hidden=*/false);
 
   ImGui::End();
   ImGui::EndFrame();

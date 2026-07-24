@@ -96,6 +96,7 @@ ts_library(
         "heap_object.ts",
         "hosts.ts",
         "navigation_event.ts",
+        "op_profile_diff.ts",
         "roofline_model.ts",
         "smart_suggestion.jsonpb_decls.d.ts",
         "source_info.jsonpb_decls.d.ts",

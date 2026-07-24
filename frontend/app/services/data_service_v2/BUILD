@@ -6,6 +6,7 @@ xprof_ng_module(
     name = "data_service_v2",
     srcs = [
         "data_service_v2.ts",
+        "diff_service.ts",
     ],
     deps = [
         ":data_service_v2_interface",
@@ -42,9 +43,11 @@ xprof_ng_module(
     testonly = True,
     srcs = [
         "data_service_v2_test.ts",
+        "diff_service_test.ts",
     ],
     deps = [
         ":data_service_v2",
+        ":data_service_v2_interface",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/common",

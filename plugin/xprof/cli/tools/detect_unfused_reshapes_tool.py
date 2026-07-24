@@ -189,3 +189,8 @@ def detect_unfused_reshapes(
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error detecting unfused reshapes")
     return json.dumps({"error": f"Internal error during detection: {e}"})
+
+
+def clear_caches() -> None:
+  """Clears in-memory HLO and client LRU caches."""
+  hlo_tools.clear_hlo_memory_caches()

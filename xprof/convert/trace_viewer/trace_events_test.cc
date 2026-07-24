@@ -609,5 +609,39 @@ TEST(TraceEventsZoomLevelTest, SafetyGuardForFallbackFlowEvents) {
   EXPECT_TRUE(found_c_at_level_9);
 }
 
+TEST(TraceEventsZoomLevelTest, StoreAsLevelDbTablesSortsEventsProperly) {
+  using TestContainer = TraceEventsContainerBase<EventFactory, RawData>;
+  TestContainer container;
+
+  Device* device = container.MutableDevice(1);
+  device->set_device_id(1);
+  device->set_name("TestDevice");
+
+  Resource* resource = &(*device->mutable_resources())[2];
+  resource->set_resource_id(2);
+  resource->set_name("TestResource");
+
+  // Add events with identical timestamps but reverse-alphabetical names to
+  // ensure they require sorting via TraceEventsComparator during nway_merge.
+  container.AddCompleteEvent("Z_Event", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(1000, 2000), nullptr);
+  container.AddCompleteEvent("M_Event", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(1000, 2000), nullptr);
+  container.AddCompleteEvent("A_Event", /*resource_id=*/2, /*device_id=*/1,
+                             Timespan::FromEndPoints(1000, 2000), nullptr);
+
+  std::string f1 = GetTempFilename("events_sort_test.ldb");
+  std::string f2 = GetTempFilename("metadata_sort_test.ldb");
+  std::string f3 = GetTempFilename("trie_sort_test.ldb");
+
+  std::unique_ptr<tsl::WritableFile> wf1, wf2, wf3;
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(f1, &wf1));
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(f2, &wf2));
+  ASSERT_OK(tsl::Env::Default()->NewWritableFile(f3, &wf3));
+
+  EXPECT_OK(container.StoreAsLevelDbTables(std::move(wf1), std::move(wf2),
+                                           std::move(wf3)));
+}
+
 }  // namespace
 }  // namespace tensorflow::profiler

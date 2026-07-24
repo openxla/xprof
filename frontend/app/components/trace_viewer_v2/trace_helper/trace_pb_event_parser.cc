@@ -45,6 +45,9 @@ ParsedTraceEvents ParseCompressedTraceEvents(
     for (const auto& detail : response.details()) {
       details_map.call<void>("set", emscripten::val(detail.name()),
                              emscripten::val(detail.value()));
+      if (detail.name() == "mpmd_pipeline_view") {
+        result.mpmd_pipeline_view = detail.value();
+      }
     }
     emscripten::val detail_obj = emscripten::val::object();
     detail_obj.set("details", details_map);

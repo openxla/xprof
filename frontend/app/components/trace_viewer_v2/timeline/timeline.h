@@ -78,6 +78,40 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
+
+  int original_index = -1;
+  int level_count = 0;
+  bool has_children = false;
+
+  mutable Pixel offset = 0.0f;
+  mutable Pixel height = 0.0f;
+  mutable bool visible = true;
+};
+
+struct GroupNode {
+  GroupNode() = default;
+  GroupNode(const GroupNode&) = default;
+  GroupNode(GroupNode&&) = default;
+  GroupNode& operator=(const GroupNode&) = default;
+  GroupNode& operator=(GroupNode&&) = default;
+
+  // Implicit conversion constructors from Group struct
+  GroupNode(const Group& g) : group(g) {}
+  GroupNode(Group&& g) : group(std::move(g)) {}
+
+  GroupNode& operator=(const Group& g) {
+    group = g;
+    children.clear();
+    return *this;
+  }
+  GroupNode& operator=(Group&& g) {
+    group = std::move(g);
+    children.clear();
+    return *this;
+  }
+
+  Group group;
+  std::vector<GroupNode> children = {};
 };
 
 struct FlowLine {
@@ -109,7 +143,7 @@ struct FlameChartTimelineData {
   std::vector<ProcessId> entry_pids;
   std::vector<ThreadId> entry_tids;
   std::vector<absl::flat_hash_map<std::string, std::string>> entry_args;
-  std::vector<Group> groups;
+  std::vector<GroupNode> groups;
   // A map from level to a list of event indices at that level.
   // This is used to quickly draw events at a given level.
   // Technically, we can calculate this in the Timeline class, but doing it here
@@ -155,6 +189,8 @@ class Timeline {
   Timeline(ColorPalette& palette) : palette_(palette) {}
   // This is necessary because MockTimeline in the tests inherits from Timeline.
   virtual ~Timeline() = default;
+
+  std::vector<Group*> flat_groups() const;
 
   // For testing only
   float get_copy_notification_timer_for_test() const {
@@ -308,7 +344,10 @@ class Timeline {
 
   const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
   void set_track_management_enabled(bool enabled) {
-    track_management_enabled_ = enabled;
+    if (track_management_enabled_ != enabled) {
+      track_management_enabled_ = enabled;
+      UpdateLevelPositions();
+    }
   }
   bool track_management_enabled() const { return track_management_enabled_; }
 
@@ -344,8 +383,8 @@ class Timeline {
 
   void Draw();
 
-  void UpdateLevelPositions(const FlameChartTimelineData& data);
-  void BuildFlattenedGroups(const FlameChartTimelineData& data);
+  void UpdateLevelPositions();
+  std::vector<Group*> BuildFlattenedGroups();
 
   // Expands the minimum necessary tracks to make the event visible.
   void ExpandRelatedTracks(int event_index);
@@ -445,6 +484,8 @@ class Timeline {
   // panning behavior.
   virtual void Pan(Pixel pixel_amount);
 
+  void ReorderTrack(int source_org_idx, int target_org_idx, bool drop_after);
+
   // Scrolls the visible time range by the given pixel amount.
   // This method is virtual to allow derived classes to customize or extend
   // panning behavior.
@@ -465,7 +506,7 @@ class Timeline {
                                   const ImVec2& pos, const ImVec2& max,
                                   Pixel event_height, Pixel padding_bottom);
 
-  virtual void DrawGroup(int group_index, double px_per_time_unit_val,
+  virtual void DrawGroup(Group* group_ptr, double px_per_time_unit_val,
                          Pixel scroll_y, Pixel window_height);
 
   // Finds the index of the first visible ancestor (or the group itself if it is
@@ -509,6 +550,17 @@ class Timeline {
   void EmitMouseModeChanged();
   void ShowNavigationWarningNotification(absl::string_view message);
 
+  struct ParentInfo {
+    GroupNode* parent = nullptr;
+    std::vector<GroupNode>* siblings = nullptr;
+    int index_in_siblings = -1;
+  };
+
+  ParentInfo FindParentInfo(Group* target_group);
+  Group* GetGroupByOriginalIndex(int original_index);
+  int FindFlatIndex(const Group* group);
+  void UpdateStartLevels();
+
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
@@ -523,7 +575,7 @@ class Timeline {
 
   // Draws a standard track row in the timeline.
   // Returns true if layout update is needed.
-  bool DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
+  bool DrawTrackRow(Group* group_ptr, const ImVec2& tracks_start_pos,
                     const ImVec2& tracks_start_screen_pos,
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
@@ -538,19 +590,19 @@ class Timeline {
                      ImDrawList* absl_nonnull draw_list,
                      ImU32 text_color) const;
 
-  void DrawCounterTooltip(int group_index, const CounterData& counter_data,
+  void DrawCounterTooltip(Group* group_ptr, const CounterData& counter_data,
                           double px_per_time_unit_val, const ImVec2& pos,
                           Pixel height, float y_ratio, ImDrawList* draw_list);
 
-  void DrawCounterTrack(int group_index, const CounterData& counter_data,
+  void DrawCounterTrack(Group* group_ptr, const CounterData& counter_data,
                         double px_per_time_unit_val, const ImVec2& pos,
                         Pixel height);
 
-  bool DrawTrackManagementButtons(int group_index, const Group& group,
+  bool DrawTrackManagementButtons(Group* group_ptr,
                                   const ImVec2& tracks_start_pos,
                                   Pixel centereable_height);
 
-  void DrawGroupPreview(int group_index, double px_per_time_unit_val);
+  void DrawGroupPreview(Group* group_ptr, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
                              double px_per_time_unit_val, const ImVec2& pos,
                              Pixel group_height, ImDrawList* draw_list);
@@ -655,9 +707,9 @@ class Timeline {
   bool header_all_expanded_ = true;
   bool header_pinned_expanded_ = true;
   // Caching counts of unhidden, hidden, and pinned process tracks.
-  int all_processes_count_ = 0;
-  int hidden_processes_count_ = 0;
-  int pinned_processes_count_ = 0;
+  mutable int all_processes_count_ = 0;
+  mutable int hidden_processes_count_ = 0;
+  mutable int pinned_processes_count_ = 0;
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;
@@ -677,11 +729,7 @@ class Timeline {
   // Stores the relative Y coordinate offset of the center of each level from
   // the top of the track area. Precalculated upon updates to the tree state.
   std::vector<Pixel> visible_level_offsets_;
-  // Initialized to {0.0f} to represent the total height of 0 groups.
-  // This prevents memory access out of bounds when `group_offsets_.back()`
-  // is called during rendering before timeline_data_ has been fully loaded.
-  std::vector<Pixel> group_offsets_ = {0.0f};
-  std::vector<Pixel> group_heights_;
+  Pixel total_height_ = 0.0f;
   // Stores whether each group is visible (not hidden by a collapsed parent).
   // Precalculated in UpdateLevelPositions.
   std::vector<bool> group_visible_;
@@ -789,6 +837,10 @@ class Timeline {
   float copy_notification_timer_ = 0.0f;
   // The name of the track that was recently copied to the clipboard.
   std::string copied_track_name_ = "";
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
+  bool pending_reorder_drop_after_ = false;
+  Pixel dnd_preview_line_y_ = -1.0f;
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
@@ -799,9 +851,7 @@ class Timeline {
   absl::flat_hash_set<std::string> hidden_track_names_;
   absl::flat_hash_set<std::string> pinned_track_names_;
 
-  // Flattened sequence of virtual headers and group tracks.
-  // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
-  std::vector<const Group*> flattened_groups_;
+  void RebuildFlatGroups();
 };
 
 }  // namespace traceviewer

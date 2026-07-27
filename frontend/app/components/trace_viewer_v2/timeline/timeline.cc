@@ -718,19 +718,24 @@ void Timeline::Draw() {
   ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
 
   // Handle label resizing manually since we removed the table
-  ImGui::SetCursorPos(ImVec2(
-      tracks_start_pos.x + label_width_ - kSplitterOffset, tracks_start_pos.y));
-  ImGui::InvisibleButton("##LabelResizer",
-                         ImVec2(kSplitterWidth, group_offsets_.back()));
-  if (ImGui::IsItemActive()) {
-    label_width_ += ImGui::GetIO().MouseDelta.x;
-    label_width_ = std::max(10.0f, label_width_);
-    is_resizing_label_column_ = true;
+  if (group_offsets_.back() > 0.0f) {
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
+               tracks_start_pos.y));
+    ImGui::InvisibleButton("##LabelResizer",
+                           ImVec2(kSplitterWidth, group_offsets_.back()));
+    if (ImGui::IsItemActive()) {
+      label_width_ += ImGui::GetIO().MouseDelta.x;
+      label_width_ = std::max(10.0f, label_width_);
+      is_resizing_label_column_ = true;
+    } else {
+      is_resizing_label_column_ = false;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
   } else {
     is_resizing_label_column_ = false;
-  }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
   }
 
   HandleEventDeselection();

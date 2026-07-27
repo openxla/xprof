@@ -56,6 +56,9 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     op1.metrics.occurrences = 1
     op1.metrics.raw_flops = 100
     op1.metrics.raw_bytes_accessed_array.append(200)
+    op1.xla.source_info.file_name = "/path/to/model.py"
+    op1.xla.source_info.line_number = 42
+    op1.xla.source_info.stack_frame = "main()\n"
 
     # Op 2: Med Time, High FLOPs, Low Memory
     op2 = root.children.add()
@@ -145,6 +148,32 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
 
     self.assertIn("error", result)
     self.assertStartsWith(result["error"], "Failed to fetch op_profile")
+
+  def test_get_top_hlo_ops_source_info(self):
+    real_profile = self._create_fake_profile()
+    fake_bytes = real_profile.SerializeToString()
+    self.mock_client.fetch.return_value = (None, fake_bytes)
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=1)
+    )
+    op = result["top_by_time"][0]
+    self.assertEqual(op["source_file"], "/path/to/model.py")
+    self.assertEqual(op["source_line"], 42)
+    self.assertEqual(op["stack_frame"], "main()\n")
+
+  def test_get_top_hlo_ops_category_filter(self):
+    real_profile = self._create_fake_profile()
+    fake_bytes = real_profile.SerializeToString()
+    self.mock_client.fetch.return_value = (None, fake_bytes)
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops(
+            "test_session", limit=10, category_filter="Convolution"
+        )
+    )
+    self.assertLen(result["top_by_time"], 1)
+    self.assertEqual(result["top_by_time"][0]["name"], "root/Op2")
 
 
 if __name__ == "__main__":

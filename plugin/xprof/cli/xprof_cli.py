@@ -14,10 +14,12 @@ from xprof.cli.internal import xprof_data
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
+from xprof.cli.tools import check_host_boundness_tool
 from xprof.cli.tools import detect_layout_mismatch_copies_tool
 from xprof.cli.tools import detect_unfused_reshapes_tool
 from xprof.cli.tools import detect_unnecessary_convert_reduce_tool
 from xprof.cli.tools import get_graph_viewer_tool
+from xprof.cli.tools import get_kernel_stats_tool
 from xprof.cli.tools import get_kpi_metrics_tool
 from xprof.cli.tools import get_llo_analysis_tool
 from xprof.cli.tools import get_llo_debug_string_tool
@@ -39,6 +41,7 @@ def cli_main() -> dict[str, Any]:
   return {
       # Standard tools to be exposed as skills through CLI.
       # keep-sorted start
+      "check_host_boundness": check_host_boundness_tool.check_host_boundness,
       "detect_layout_mismatch_copies": (
           detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies
       ),
@@ -48,9 +51,11 @@ def cli_main() -> dict[str, Any]:
       "detect_unfused_reshapes": (
           detect_unfused_reshapes_tool.detect_unfused_reshapes
       ),
+      "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,
       "get_hlo_text": hlo_tools.get_hlo_text,
+      "get_kernel_stats": get_kernel_stats_tool.get_kernel_stats,
       "get_kpi_metrics": get_kpi_metrics_tool.get_kpi_metrics,
       "get_llo_analysis": get_llo_analysis_tool.get_llo_analysis,
       "get_llo_debug_string": get_llo_debug_string_tool.get_llo_debug_string,

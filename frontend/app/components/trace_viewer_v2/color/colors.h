@@ -30,10 +30,28 @@ inline constexpr ImU32 kBlue60 = 0xFFFA8237;
 inline constexpr ImU32 kBlue70 = 0xFFF7AA7B;
 // Blue 80: #A1C9FF
 inline constexpr ImU32 kBlue80 = 0xFFFFC9A1;
+// Cyan 70: #00BBDF
+inline constexpr ImU32 kCyan70 = 0xFFDFBB00;
+// Cyan80: #A1E4F2
+inline constexpr ImU32 kCyan80 = 0xFFF2E4A1;
 // Green 80: #80DA88
 inline constexpr ImU32 kGreen80 = 0xFF88DA80;
+// Orange 80: #FFB683
+inline constexpr ImU32 kOrange80 = 0xFF83B6FF;
+// Pink 70: #FF7DD2
+inline constexpr ImU32 kPink70 = 0xFFD27FFF;
+// Pink 80: #FFAEE4
+inline constexpr ImU32 kPink80 = 0xFFE4AEFF;
 // Purple 70: #C597FF
 inline constexpr ImU32 kPurple70 = 0xFFFF97C5;
+// Purple80: #D7AEFB
+inline constexpr ImU32 kPurple80 = 0xFFFBAED7;
+// Red 70: #FF8983
+inline constexpr ImU32 kRed70 = 0xFF8389FF;
+// Red80: #F6AEA9
+inline constexpr ImU32 kRed80 = 0xFFA9AEF6;
+// Yellow80: #FDE293
+inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 // Yellow 90: #FFE07C
 inline constexpr ImU32 kYellow90 = 0xFF7CE0FF;
 // go/keep-sorted end
@@ -52,23 +70,6 @@ inline constexpr ImU32 kOutlineColor = 0xFF757774;
 inline constexpr ImU32 kOutlineVariantColor = 0xFFC5C7C4;
 // Color schemes/Secondary colors/Secondary container (#C2E7FF)
 inline constexpr ImU32 kSecondaryContainerColor = 0xFFFFE7C2;
-// go/keep-sorted end
-
-// palette for flow categories:
-// kBlue80 and kGreen80 are also used for flow categories.
-// go/keep-sorted start
-// Cyan80: #A1E4F2
-inline constexpr ImU32 kCyan80 = 0xFFF2E4A1;
-// Orange80: #FDC69C
-inline constexpr ImU32 kOrange80 = 0xFF9CC6FD;
-// Pink 80: #FFAEE4
-inline constexpr ImU32 kPink80 = 0xFFE4AEFF;
-// Purple80: #D7AEFB
-inline constexpr ImU32 kPurple80 = 0xFFFBAED7;
-// Red80: #F6AEA9
-inline constexpr ImU32 kRed80 = 0xFFA9AEF6;
-// Yellow80: #FDE293
-inline constexpr ImU32 kYellow80 = 0xFF93E2FD;
 // go/keep-sorted end
 
 constexpr size_t kMaxColors = 24;
@@ -115,7 +116,8 @@ class ColorPalette {
           .selection = 0xFFFFC9A1,
           .on_surface = kOnSurfaceColor,
           .inverse_on_surface = kInverseOnSurfaceColor,
-          .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90},
+          .trace_colors = {kPurple70, kGreen80, kBlue80, kYellow90,
+                           kOrange80, kPink70, kCyan70},
           .flow_colors = {kCyan80, kOrange80, kPurple80, kRed80, kYellow80}};
     }
   };

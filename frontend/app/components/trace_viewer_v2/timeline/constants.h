@@ -179,13 +179,19 @@ inline constexpr float kMaxAccelerateFactor = 30.0f;
 // too much that time durations (mathmatically) become zero or negative.
 inline constexpr float kMinZoomFactor = 0.001f;
 // The sensitivity of zooming with the mouse wheel, measured in units per pixel.
-inline constexpr float kMouseWheelZoomSpeed = 0.01f;
+inline constexpr float kMouseWheelZoomSpeed = 0.2f;
 // The base speed of timeline panning, measured in pixels per second.
-inline constexpr float kPanningSpeed = 250.0f;
+inline constexpr float kPanningSpeed = 1000.0f;
 // The base speed of timeline scrolling, measured in pixels per second.
 inline constexpr float kScrollSpeed = 160.0f;
+// The multiplier applied to panning speed when Shift is held down (matches v1
+// ratio: 0.5 / 0.3).
+inline constexpr float kShiftPanAccelerateFactor = 0.5f / 0.3f;
+// The multiplier applied to zooming speed when Shift is held down (matches v1
+// ratio: 10 / 1.5).
+inline constexpr float kShiftZoomAccelerateFactor = 10.0f / 1.5f;
 // The base speed of timeline zooming, measured in units per second.
-inline constexpr float kZoomSpeed = 0.5f;
+inline constexpr float kZoomSpeed = 1.5f;
 // go/keep-sorted end
 
 // Time Range Constants

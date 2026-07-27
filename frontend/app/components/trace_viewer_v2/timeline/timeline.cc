@@ -99,20 +99,25 @@ void ApplySnappingToEdge(Microseconds time, Microseconds threshold,
     }
   }
 }
-// Calculates a speed multiplier based on how long a key has been held down.
+// Calculates a speed multiplier based on how long a key has been held down and
+// whether the Shift modifier key is pressed.
 // Provides acceleration for continuous actions like panning and zooming.
-float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key) {
+float GetSpeedMultiplier(const ImGuiIO& io, ImGuiKey key,
+                         float shift_factor = 1.0f) {
   const float down_duration = ImGui::GetKeyData(key)->DownDuration;
-  if (down_duration < kAccelerateThreshold) {
-    return 1.0f;
+  float multiplier = 1.0f;
+
+  if (down_duration >= kAccelerateThreshold) {
+    const float accelerated_time = down_duration - kAccelerateThreshold;
+    multiplier +=
+        std::min(accelerated_time * kAccelerateRate, kMaxAccelerateFactor);
   }
 
-  const float accelerated_time = down_duration - kAccelerateThreshold;
+  if (io.KeyShift) {
+    multiplier *= shift_factor;
+  }
 
-  const float multiplier =
-      std::min(accelerated_time * kAccelerateRate, kMaxAccelerateFactor);
-
-  return 1.0f + multiplier;
+  return multiplier;
 }
 
 // Extracts process sort indices from metadata events in search results.
@@ -3052,13 +3057,15 @@ bool Timeline::HandleKeyboard() {
 
   // Pan left
   if (ImGui::IsKeyDown(ImGuiKey_A)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_A);
+    float multiplier =
+        GetSpeedMultiplier(io, ImGuiKey_A, kShiftPanAccelerateFactor);
     Pan(-kPanningSpeed * io.DeltaTime * multiplier);
     is_interacting = true;
   }
   // Pan right
   if (ImGui::IsKeyDown(ImGuiKey_D)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_D);
+    float multiplier =
+        GetSpeedMultiplier(io, ImGuiKey_D, kShiftPanAccelerateFactor);
     Pan(kPanningSpeed * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -3077,13 +3084,15 @@ bool Timeline::HandleKeyboard() {
 
   // Zoom in
   if (ImGui::IsKeyDown(ImGuiKey_W)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_W);
+    float multiplier =
+        GetSpeedMultiplier(io, ImGuiKey_W, kShiftZoomAccelerateFactor);
     Zoom(1.0f - kZoomSpeed * io.DeltaTime * multiplier);
     is_interacting = true;
   }
   // Zoom out
   if (ImGui::IsKeyDown(ImGuiKey_S)) {
-    float multiplier = GetSpeedMultiplier(io, ImGuiKey_S);
+    float multiplier =
+        GetSpeedMultiplier(io, ImGuiKey_S, kShiftZoomAccelerateFactor);
     Zoom(1.0f + kZoomSpeed * io.DeltaTime * multiplier);
     is_interacting = true;
   }

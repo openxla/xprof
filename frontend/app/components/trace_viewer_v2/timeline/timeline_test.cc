@@ -3473,6 +3473,28 @@ TEST_F(MockTimelineImGuiFixture, PanRightWithDKey_MaxAccelerated) {
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture, PanLeftWithAKey_ShiftAccelerated) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiKey_A, true);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  EXPECT_CALL(timeline_, Pan(FloatEq(-kPanningSpeed * io.DeltaTime *
+                                     kShiftPanAccelerateFactor)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, PanRightWithDKey_ShiftAccelerated) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiKey_D, true);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  EXPECT_CALL(timeline_, Pan(FloatEq(kPanningSpeed * io.DeltaTime *
+                                     kShiftPanAccelerateFactor)));
+
+  SimulateFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture, PanRightWithHorizontalMouseWheel) {
   ImGui::GetIO().AddMouseWheelEvent(1.0f, 0.0f);
 
@@ -3906,6 +3928,30 @@ TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_Accelerated) {
   EXPECT_CALL(
       timeline_,
       Zoom(FloatEq(1.0f - kZoomSpeed * ImGui::GetIO().DeltaTime * 5.0f), _));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomInWithWKey_ShiftAccelerated) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiKey_W, true);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f - kZoomSpeed * io.DeltaTime *
+                                                 kShiftZoomAccelerateFactor),
+                              _));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey_ShiftAccelerated) {
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiKey_S, true);
+  io.AddKeyEvent(ImGuiMod_Shift, true);
+
+  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + kZoomSpeed * io.DeltaTime *
+                                                 kShiftZoomAccelerateFactor),
+                              _));
 
   SimulateFrame();
 }

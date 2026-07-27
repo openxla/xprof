@@ -14,10 +14,19 @@ namespace {
 ImGuiKey TranslateKey(absl::string_view code) {
   if (code == "KeyA") return ImGuiKey_A;
   if (code == "KeyD") return ImGuiKey_D;
+  if (code == "KeyE") return ImGuiKey_E;
   if (code == "KeyS") return ImGuiKey_S;
   if (code == "KeyW") return ImGuiKey_W;
+  if (code == "Comma") return ImGuiKey_Comma;
+  if (code == "KeyO") return ImGuiKey_O;
+  if (code == "KeyF") return ImGuiKey_F;
+  if (code == "KeyG") return ImGuiKey_G;
+  if (code == "KeyM") return ImGuiKey_M;
   if (code == "ArrowDown") return ImGuiKey_DownArrow;
+  if (code == "ArrowLeft") return ImGuiKey_LeftArrow;
+  if (code == "ArrowRight") return ImGuiKey_RightArrow;
   if (code == "ArrowUp") return ImGuiKey_UpArrow;
+  if (code == "Digit0") return ImGuiKey_0;
   if (code == "Digit1") return ImGuiKey_1;
   if (code == "Digit2") return ImGuiKey_2;
   if (code == "Digit3") return ImGuiKey_3;

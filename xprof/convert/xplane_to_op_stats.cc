@@ -192,6 +192,18 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
         vmem_wr_bw_giga_bytes_per_second.has_value()
             ? vmem_wr_bw_giga_bytes_per_second->DoubleValue()
             : 0.0;
+    std::optional<XStatVisitor> spmem_rd_bw_giga_bytes_per_second =
+        visitor.GetStat(StatType::kDevCapPeakSpmemRdBwGigabytesPerSecond);
+    double spmem_rd_bw_giga_bytes_per_second_val =
+        spmem_rd_bw_giga_bytes_per_second.has_value()
+            ? spmem_rd_bw_giga_bytes_per_second->DoubleValue()
+            : 0.0;
+    std::optional<XStatVisitor> spmem_wr_bw_giga_bytes_per_second =
+        visitor.GetStat(StatType::kDevCapPeakSpmemWrBwGigabytesPerSecond);
+    double spmem_wr_bw_giga_bytes_per_second_val =
+        spmem_wr_bw_giga_bytes_per_second.has_value()
+            ? spmem_wr_bw_giga_bytes_per_second->DoubleValue()
+            : 0.0;
     std::optional<XStatVisitor> has_megacore =
         visitor.GetStat(StatType::kDevHasMegacore);
     bool has_megacore_val =
@@ -208,7 +220,9 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
          /**CMEM_RD=*/cmem_rd_bw_giga_bytes_per_second_val,
          /**CMEM_WR=*/cmem_wr_bw_giga_bytes_per_second_val,
          /**VMEM_RD=*/vmem_rd_bw_giga_bytes_per_second_val,
-         /**VMEM_WR=*/vmem_wr_bw_giga_bytes_per_second_val},
+         /**VMEM_WR=*/vmem_wr_bw_giga_bytes_per_second_val,
+         /**SPMEM_RD=*/spmem_rd_bw_giga_bytes_per_second_val,
+         /**SPMEM_WR=*/spmem_wr_bw_giga_bytes_per_second_val},
         has_merged_vmem_val, has_megacore_val);
   }
 }

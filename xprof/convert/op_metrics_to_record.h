@@ -33,12 +33,16 @@ namespace profiler {
 std::vector<const OpMetrics*> SortedOpMetricsDb(const OpMetricsDb& metrics_db,
                                                 int max_records = -1);
 
+std::vector<const OpMetrics*> ScSortedOpMetricsDb(const OpMetricsDb& metrics_db,
+                                                  int max_records = -1);
+
 inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Normalized flop rate if running on default pstate.
@@ -60,7 +64,8 @@ inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.model_flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.model_flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Return ByteAccessed for memory_space and operation_type.
@@ -353,6 +358,61 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
   record->set_bound_by(std::string(bottleneck_resource));
   record->set_bottleneck_operational_intensity(
       bottleneck_operational_intensity);
+}
+
+template <typename Record>
+inline void SetSparseCoreRooflineMetrics(const OpMetrics& metrics,
+                                         const PerfEnv& perf_env,
+                                         const RunEnvironment& run_env,
+                                         Record* record,
+                                         bool apply_time_scale_factor = false) {
+  record->set_measured_flop_rate(GigaFlopsPerSecondPerCore(metrics));
+  record->set_model_flop_rate(GigaModelFlopsPerSecondPerCore(metrics));
+  record->set_measured_memory_bw(GibiBytesPerSecondPerCore(
+      metrics, tensorflow::profiler::MemorySpace::MEMORY_SPACE_ALL,
+      OpMetrics::MemoryAccessed::UNKNOWN));
+  record->set_flops_v2(std::max(0.0, metrics.flops_v2()));
+  record->set_bytes_accessed(metrics.bytes_accessed());
+  record->set_operational_intensity(tsl::profiler::SafeDivide(
+      std::max(0.0, metrics.flops_v2()), metrics.bytes_accessed()));
+
+  uint64_t hbm_bytes = 0;
+  uint64_t spmem_read_bytes = 0;
+  uint64_t spmem_write_bytes = 0;
+  for (const auto& memory_access : metrics.memory_accessed_breakdown()) {
+    if (memory_access.memory_space() == PerformanceInfo::MemoryAccessed::HBM) {
+      hbm_bytes += memory_access.bytes_accessed();
+    } else if (memory_access.memory_space() == 7 /* SPMEM */ ||
+               memory_access.memory_space() == 8) {
+      if (memory_access.operation_type() == OpMetrics::MemoryAccessed::READ) {
+        spmem_read_bytes += memory_access.bytes_accessed();
+      } else if (memory_access.operation_type() ==
+                 OpMetrics::MemoryAccessed::WRITE) {
+        spmem_write_bytes += memory_access.bytes_accessed();
+      }
+    }
+  }
+  if (metrics.memory_accessed_breakdown_size() == 0) {
+    hbm_bytes = metrics.bytes_accessed();
+  }
+  int64_t device_time_ps = apply_time_scale_factor
+                               ? metrics.normalized_time_ps()
+                               : metrics.time_ps();
+  record->set_hbm_bw(tsl::profiler::GibibytesPerSecond(
+      hbm_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+  record->set_spmem_read_bw(tsl::profiler::GibibytesPerSecond(
+      spmem_read_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+  record->set_spmem_write_bw(tsl::profiler::GibibytesPerSecond(
+      spmem_write_bytes, tsl::profiler::PicoToNano(metrics.time_ps())));
+
+  record->set_hbm_operational_intensity(
+      tsl::profiler::SafeDivide(std::max(0.0, metrics.flops_v2()), hbm_bytes));
+  record->set_spmem_read_operational_intensity(tsl::profiler::SafeDivide(
+      std::max(0.0, metrics.flops_v2()), spmem_read_bytes));
+  record->set_spmem_write_operational_intensity(tsl::profiler::SafeDivide(
+      std::max(0.0, metrics.flops_v2()), spmem_write_bytes));
+  record->set_bottleneck_operational_intensity(tsl::profiler::SafeDivide(
+      std::max(0.0, metrics.flops_v2()), metrics.bytes_accessed()));
 }
 
 }  // namespace profiler

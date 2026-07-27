@@ -2936,7 +2936,7 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
 
   bool toggled = false;
   if (ImGui::InvisibleButton("##hide", buttonSize,
-                               ImGuiButtonFlags_PressedOnClick)) {
+                             ImGuiButtonFlags_PressedOnClick)) {
     auto it = hidden_track_names_.find(group.name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
@@ -2946,8 +2946,7 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
         hidden_track_names_.insert(group.name);
         toggled = true;
       } else {
-        ShowNavigationWarningNotification(
-            kCannotHideLastProcessNotification);
+        ShowNavigationWarningNotification(kCannotHideLastProcessNotification);
       }
     }
   }
@@ -2992,7 +2991,7 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
 
   bool toggled = false;
   if (ImGui::InvisibleButton("##pin", buttonSize,
-                               ImGuiButtonFlags_PressedOnClick)) {
+                             ImGuiButtonFlags_PressedOnClick)) {
     if (is_pinned) {
       pinned_track_names_.erase(group.name);
     } else {
@@ -3059,14 +3058,14 @@ bool Timeline::HandleKeyboard() {
   if (ImGui::IsKeyDown(ImGuiKey_A)) {
     float multiplier =
         GetSpeedMultiplier(io, ImGuiKey_A, kShiftPanAccelerateFactor);
-    Pan(-kPanningSpeed * io.DeltaTime * multiplier);
+    Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
   // Pan right
   if (ImGui::IsKeyDown(ImGuiKey_D)) {
     float multiplier =
         GetSpeedMultiplier(io, ImGuiKey_D, kShiftPanAccelerateFactor);
-    Pan(kPanningSpeed * io.DeltaTime * multiplier);
+    Pan(panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
 
@@ -3086,14 +3085,14 @@ bool Timeline::HandleKeyboard() {
   if (ImGui::IsKeyDown(ImGuiKey_W)) {
     float multiplier =
         GetSpeedMultiplier(io, ImGuiKey_W, kShiftZoomAccelerateFactor);
-    Zoom(1.0f - kZoomSpeed * io.DeltaTime * multiplier);
+    Zoom(1.0f - zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
   // Zoom out
   if (ImGui::IsKeyDown(ImGuiKey_S)) {
     float multiplier =
         GetSpeedMultiplier(io, ImGuiKey_S, kShiftZoomAccelerateFactor);
-    Zoom(1.0f + kZoomSpeed * io.DeltaTime * multiplier);
+    Zoom(1.0f + zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
 
@@ -3144,7 +3143,7 @@ bool Timeline::HandleWheel() {
   if (io.KeyCtrl || io.KeySuper) {
     // If the mouse wheel is being used with the control or command key, zoom
     // in or out.
-    const float zoom_factor = 1.0f + io.MouseWheel * kMouseWheelZoomSpeed;
+    const float zoom_factor = 1.0f + io.MouseWheel * mouse_wheel_zoom_speed_;
     Zoom(zoom_factor);
     return true;
   }

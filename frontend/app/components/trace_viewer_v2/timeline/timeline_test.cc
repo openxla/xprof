@@ -2834,9 +2834,8 @@ TEST_F(MockTimelineImGuiFixture, DrawPinButton_Erase) {
 TEST_F(MockTimelineImGuiFixture, DrawHideButton_Insert) {
   timeline_.set_track_management_enabled(true);
   FlameChartTimelineData data;
-  data.groups = {
-      {.name = "group", .nesting_level = kProcessNestingLevel},
-      {.name = "group2", .nesting_level = kProcessNestingLevel}};
+  data.groups = {{.name = "group", .nesting_level = kProcessNestingLevel},
+                 {.name = "group2", .nesting_level = kProcessNestingLevel}};
   timeline_.SetTimelineData(data);
 
   // Frame 1: Register window and layout
@@ -4019,6 +4018,36 @@ TEST_F(MockTimelineImGuiFixture, ZoomOutWithSKey) {
   // kAccelerateThreshold (0.25f).
   EXPECT_CALL(timeline_,
               Zoom(FloatEq(1.0f + kZoomSpeed * ImGui::GetIO().DeltaTime), _));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ConfigurablePanningSpeed) {
+  timeline_.set_panning_speed(500.0f);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
+
+  EXPECT_CALL(timeline_, Pan(FloatEq(500.0f * ImGui::GetIO().DeltaTime)));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ConfigurableZoomSpeed) {
+  timeline_.set_zoom_speed(2.5f);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
+
+  EXPECT_CALL(timeline_,
+              Zoom(FloatEq(1.0f - 2.5f * ImGui::GetIO().DeltaTime), _));
+
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, ConfigurableMouseWheelZoomSpeed) {
+  timeline_.set_mouse_wheel_zoom_speed(0.5f);
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddMouseWheelEvent(0.0f, 1.0f);
+  io.AddKeyEvent(ImGuiMod_Ctrl, true);
+
+  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + 1.0f * 0.5f), _));
 
   SimulateFrame();
 }
@@ -8333,8 +8362,7 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true},
-      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, false}
-  };
+      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, false}};
   data.events_by_level = {{0}, {}, {}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);

@@ -149,6 +149,9 @@ declare global {
   _free(ptr: number): void;
   getFeatureFlag?(name: string): boolean;
   SetPalette(paletteName: string): void;
+  SetPanningSpeed?(speed: number): void;
+  SetZoomSpeed?(speed: number): void;
+  SetMouseWheelZoomSpeed?(speed: number): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;

@@ -80,9 +80,24 @@ EMSCRIPTEN_KEEPALIVE void SetColor(ColorPalette::Key key, ImU32 color) {
   Application::Instance().RequestRedraw();
 }
 
+EMSCRIPTEN_KEEPALIVE void SetPanningSpeed(float speed) {
+  Application::Instance().SetPanningSpeed(speed);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetZoomSpeed(float speed) {
+  Application::Instance().SetZoomSpeed(speed);
+}
+
+EMSCRIPTEN_KEEPALIVE void SetMouseWheelZoomSpeed(float speed) {
+  Application::Instance().SetMouseWheelZoomSpeed(speed);
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
+  emscripten::function("SetPanningSpeed", &SetPanningSpeed);
+  emscripten::function("SetZoomSpeed", &SetZoomSpeed);
+  emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {

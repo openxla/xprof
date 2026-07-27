@@ -81,6 +81,24 @@ class Application {
     }
   }
 
+  void SetPanningSpeed(float speed) {
+    if (timeline_) {
+      timeline_->set_panning_speed(speed);
+    }
+  }
+
+  void SetZoomSpeed(float speed) {
+    if (timeline_) {
+      timeline_->set_zoom_speed(speed);
+    }
+  }
+
+  void SetMouseWheelZoomSpeed(float speed) {
+    if (timeline_) {
+      timeline_->set_mouse_wheel_zoom_speed(speed);
+    }
+  }
+
   void NavigateToNextSearchResult() {
     if (timeline_) {
       timeline_->NavigateToNextSearchResult();

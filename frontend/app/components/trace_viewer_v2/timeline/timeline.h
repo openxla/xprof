@@ -311,6 +311,17 @@ class Timeline {
   }
   bool track_management_enabled() const { return track_management_enabled_; }
 
+  void set_panning_speed(float speed) { panning_speed_ = speed; }
+  float panning_speed() const { return panning_speed_; }
+
+  void set_zoom_speed(float speed) { zoom_speed_ = speed; }
+  float zoom_speed() const { return zoom_speed_; }
+
+  void set_mouse_wheel_zoom_speed(float speed) {
+    mouse_wheel_zoom_speed_ = speed;
+  }
+  float mouse_wheel_zoom_speed() const { return mouse_wheel_zoom_speed_; }
+
   void set_mouse_mode(MouseMode mode) { mouse_mode_ = mode; }
   MouseMode mouse_mode() const { return mouse_mode_; }
 
@@ -458,7 +469,6 @@ class Timeline {
   // Returns the cached group visibility array.
   const std::vector<bool>& group_visible() const { return group_visible_; }
 
-
   void DrawEvent(int group_index, int event_index, const EventRect& rect,
                  ImDrawList* absl_nonnull draw_list);
 
@@ -526,7 +536,6 @@ class Timeline {
   bool DrawTrackManagementButtons(int group_index, const Group& group,
                                   const ImVec2& tracks_start_pos,
                                   Pixel centereable_height);
-
 
   void DrawGroupPreview(int group_index, double px_per_time_unit_val);
   void DrawFlameGroupPreview(int start_level, int end_level,
@@ -621,7 +630,7 @@ class Timeline {
   Group header_all_{.name = kAllHeaderName,
                     .nesting_level = kHeaderNestingLevel};
   Group header_hidden_{.name = kHiddenHeaderName,
-                      .nesting_level = kHeaderNestingLevel};
+                       .nesting_level = kHeaderNestingLevel};
   Group header_pinned_{.name = kPinnedHeaderName,
                        .nesting_level = kHeaderNestingLevel};
   // Y coordinate offsets of section headers cached from layout computation.
@@ -721,6 +730,10 @@ class Timeline {
   bool snap_to_time_range_enabled_ = false;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
+
+  float panning_speed_ = kPanningSpeed;
+  float zoom_speed_ = kZoomSpeed;
+  float mouse_wheel_zoom_speed_ = kMouseWheelZoomSpeed;
 
   bool mpmd_pipeline_view_enabled_ = false;
 

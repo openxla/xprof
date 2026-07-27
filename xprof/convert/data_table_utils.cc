@@ -12,6 +12,7 @@ limitations under the License.
 #include "xprof/convert/data_table_utils.h"
 
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
@@ -68,7 +69,7 @@ std::string convertBytesToHumanReadableFormat(int64_t num_bytes) {
   while (num_bytes >= int64_t{1024} * int64_t{1024}) {
     num_bytes /= int64_t{1024};
     ++unit;
-    CHECK(unit < units + ABSL_ARRAYSIZE(units));
+    CHECK(unit < units + std::size(units));
   }
 
   return absl::StrFormat("%s%.*f%c", neg_str, (*unit == 'K') ? 1 : 2,

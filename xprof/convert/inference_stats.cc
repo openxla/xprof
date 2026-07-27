@@ -20,6 +20,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
@@ -1366,7 +1367,7 @@ void ParseTfstreamzForBatchingParameter(
     if (!absl::StartsWith(stat.Name(), kBatchingParamPrefix)) return;
 
     absl::string_view param_detail =
-        stat.Name().substr(ABSL_ARRAYSIZE(kBatchingParamPrefix) - 1);
+        stat.Name().substr(std::size(kBatchingParamPrefix) - 1);
     auto [parse_success, model_id_tfstreamz] = ParseModelName(param_detail);
     if (!parse_success) {
       return;

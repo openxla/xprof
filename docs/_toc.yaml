@@ -17,6 +17,8 @@ toc:
   path: /xprof
 - title: Terminology
   path: /xprof/terminology
+- title: Events
+  path: /xprof/events
 - title: Tools Documentation
   section:
   - title: Overview Page

@@ -25,6 +25,16 @@ pytype_library(
 )
 
 pytype_library(
+    name = "kernel_stats_tools",
+    srcs = ["kernel_stats_tools.py"],
+    # strict_deps = False,
+    deps = [
+        ":xplane_tools",
+        "@org_xprof//plugin/xprof:profile_data",
+    ],
+)
+
+pytype_library(
     name = "xprof_client",
     srcs = ["xprof_client.py"],
     # strict_deps = False,

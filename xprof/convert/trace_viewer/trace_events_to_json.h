@@ -20,6 +20,7 @@ limitations under the License.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -264,7 +265,7 @@ class JsonEventCounter {
       "async",
   };
 
-  static constexpr size_t kNumEventTypes = ABSL_ARRAYSIZE(kEventTypeName);
+  static constexpr size_t kNumEventTypes = std::size(kEventTypeName);
 
   absl::FixedArray<size_t> event_count_;
 };

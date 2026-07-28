@@ -484,9 +484,18 @@ class Timeline {
 
   bool DrawHideButton(int group_index, Pixel height, bool is_track_hidden);
   bool DrawPinButton(int group_index, Pixel height, bool is_pinned);
+  bool DrawCollapseExpandAllButton(
+      std::vector<const Group*>::const_iterator flattened_it, Pixel height,
+      bool all_expanded, bool is_row_hovered);
+  void DrawCollapseExpandAllIcon(ImDrawList* draw_list, Pixel center_x,
+                                 Pixel center_y, Pixel icon_draw_size,
+                                 ImU32 icon_col, bool all_expanded);
 
  private:
   absl::flat_hash_set<int> matching_event_indices_;
+
+  bool IsGroupExpandable(int group_index,
+                         const FlameChartTimelineData& data) const;
 
   void NavigateToSearchResult(const SearchResult& result);
 
@@ -514,7 +523,8 @@ class Timeline {
 
   // Draws a header row (All or Hidden) in the timeline.
   // Returns true if layout update is needed.
-  bool DrawHeaderRow(const Group* group_ptr, const ImVec2& tracks_start_pos,
+  bool DrawHeaderRow(std::vector<const Group*>::const_iterator it,
+                     const ImVec2& tracks_start_pos,
                      const ImVec2& tracks_start_screen_pos, Pixel group_top,
                      Pixel group_bottom);
 
@@ -658,6 +668,14 @@ class Timeline {
   int all_processes_count_ = 0;
   int hidden_processes_count_ = 0;
   int pinned_processes_count_ = 0;
+
+  struct HeaderAggregateState {
+    bool any_expandable = false;
+    bool all_expanded = true;
+  };
+  HeaderAggregateState header_all_state_;
+  HeaderAggregateState header_hidden_state_;
+  HeaderAggregateState header_pinned_state_;
 
   FlameChartTimelineData timeline_data_;
   std::vector<float> utilization_bins_;

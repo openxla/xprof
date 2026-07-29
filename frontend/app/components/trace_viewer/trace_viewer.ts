@@ -308,6 +308,30 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     window.location.reload();
   }
 
+  get enableCustomization(): boolean {
+    if (
+      window.getFeatureFlag &&
+      window.getFeatureFlag('enable_customization')
+    ) {
+      return true;
+    }
+    try {
+      if (
+        window.localStorage.getItem('xprof_ff_enable_customization') === 'true'
+      ) {
+        return true;
+      }
+    } catch (e) {
+      // ignore
+    }
+    const flag = this.featureFlags.find((f) => f.id === 'enable_customization');
+    return flag?.value ?? false;
+  }
+
+  openCustomizationSettings(): void {
+    this.container?.openCustomizationPanel();
+  }
+
   /**
    * Opens the feature flags settings dialog and captures initial state.
    */

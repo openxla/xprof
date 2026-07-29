@@ -194,13 +194,16 @@ wasm_cc_binary(
 ts_library(
     name = "app_bundle_ts",
     srcs = [
+        "customization_panel.ts",
         "feature_flags.ts",
         "main.ts",
     ],
     visibility = ["//frontend:__subpackages__"],
     deps = [
+        "@npm//@material/web",
         "@npm//@types/emscripten",
         "@npm//@webgpu/types",
+        "@npm//lit",
     ],
 )
 
@@ -208,6 +211,7 @@ ts_library(
     name = "tests",
     testonly = True,
     srcs = [
+        "customization_panel_test.ts",
         "feature_flags_test.ts",
         "main_test.ts",
     ],

@@ -61,6 +61,9 @@
         <button mat-menu-item (click)="openColorPaletteSettings()">
           <mat-icon>palette</mat-icon> Color Palette
         </button>
+        <button mat-menu-item (click)="openCustomizationSettings()" *ngIf="enableCustomization">
+          <mat-icon>tune</mat-icon> Preferences
+        </button>
         <button mat-menu-item (click)="openFeatureFlagsSettings()">
           <mat-icon>flag</mat-icon> Feature Flags
         </button>

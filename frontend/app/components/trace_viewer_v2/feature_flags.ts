@@ -42,6 +42,12 @@ const FEATURE_FLAGS = {
     description: 'Enable the fullscreen button in the Trace Viewer.',
     default: false,
   },
+  'enable_customization': {
+    name: 'Enable User Customization',
+    description:
+      'Enable user customization of timeline settings, including zooming/panning speed, color palettes, and shortcuts, etc.',
+    default: false,
+  },
 } as const;
 
 /**

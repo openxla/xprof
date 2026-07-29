@@ -1,10 +1,12 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
+import 'org_xprof/frontend/app/components/trace_viewer_v2/customization_panel';
 
 import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  CUSTOM_ELEMENTS_SCHEMA,
   ElementRef,
   EventEmitter,
   Input,
@@ -220,6 +222,7 @@ declare interface TfTraceViewer {
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
   standalone: true,
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
   selector: 'trace-viewer-container',
   templateUrl: './trace_viewer_container.ng.html',
   styleUrls: ['./trace_viewer_container.scss'],
@@ -805,5 +808,12 @@ export class TraceViewerContainer
     const count = instance.getSearchResultsCount();
     const index = instance.getCurrentSearchResultIndex();
     this.searchResultCountText = `${index === -1 ? 0 : index + 1} / ${count}`;
+  }
+
+  openCustomizationPanel(): void {
+    const panel = this.el.nativeElement.querySelector(
+      'trace-viewer-customization-panel',
+    ) as {openDialog?: () => void} | null;
+    panel?.openDialog?.();
   }
 }

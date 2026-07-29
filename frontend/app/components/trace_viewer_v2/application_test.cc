@@ -93,5 +93,18 @@ TEST_F(ApplicationTest, IsFeatureEnabledCachesValue) {
   EXPECT_EQ(EM_ASM_INT({ return window.getFeatureFlagCallCount; }), 1);
 }
 
+TEST_F(ApplicationTest, EnableCustomizationFlagReadsFromJs) {
+  Application& app = Application::Instance();
+  app.Shutdown();
+
+  EM_ASM({
+    window.getFeatureFlag = (name) => {
+      return name === 'enable_customization';
+    };
+  });
+
+  EXPECT_TRUE(app.IsFeatureEnabled("enable_customization"));
+}
+
 }  // namespace
 }  // namespace traceviewer

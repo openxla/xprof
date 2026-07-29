@@ -102,6 +102,7 @@
       </button>
     </div>
     <div class="spacer"></div>
+    <trace-viewer-customization-panel></trace-viewer-customization-panel>
     <div class="incremental-loading" *ngIf="searching || (!isInitialLoading && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.IDLE && traceViewerV2LoadingStatus !== TraceViewerV2LoadingStatus.ERROR)">
       <div class="loading-status">Loading more data...</div>
       <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>

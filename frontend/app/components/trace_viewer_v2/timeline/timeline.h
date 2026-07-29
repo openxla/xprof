@@ -289,6 +289,13 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
+  void set_utilization_color_coding_enabled(bool enabled) {
+    utilization_color_coding_enabled_ = enabled;
+  }
+  bool utilization_color_coding_enabled() const {
+    return utilization_color_coding_enabled_;
+  }
+
   void set_snap_to_time_range_enabled(bool enabled) {
     snap_to_time_range_enabled_ = enabled;
   }
@@ -306,6 +313,20 @@ class Timeline {
   void RemoveBookmark(Microseconds time);
 
   const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
+  void SetBrushingMarkers(const std::vector<Microseconds>& markers) {
+    brushing_markers_ = markers;
+    if (redraw_callback_) redraw_callback_();
+  }
+  void ClearBrushingMarkers() {
+    if (!brushing_markers_.empty()) {
+      brushing_markers_.clear();
+      if (redraw_callback_) redraw_callback_();
+    }
+  }
+  void DrawBrushingMarkers();
+  const std::vector<Microseconds>& brushing_markers() const {
+    return brushing_markers_;
+  }
   void set_track_management_enabled(bool enabled) {
     track_management_enabled_ = enabled;
   }
@@ -730,6 +751,7 @@ class Timeline {
   bool snap_to_time_range_enabled_ = false;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
+  bool utilization_color_coding_enabled_ = false;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;
@@ -742,6 +764,7 @@ class Timeline {
 
   std::vector<TimeRange> selected_time_ranges_;
   std::vector<Microseconds> bookmarks_;
+  std::vector<Microseconds> brushing_markers_;
 
   std::optional<ImVec2> selection_start_pos_;
   std::optional<ImVec2> selection_end_pos_;

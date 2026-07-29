@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -177,6 +178,8 @@ void Application::Initialize() {
   timeline_->set_track_management_enabled(
       IsFeatureEnabled("enable_track_management"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
+  timeline_->set_utilization_color_coding_enabled(
+      IsFeatureEnabled("utilization_color_coding"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {
         EventManager::Instance().DispatchEvent(type, event_data);
@@ -351,6 +354,24 @@ void Application::SetVisibleFlowCategories(
     const emscripten::val& category_ids) {
   timeline_->SetVisibleFlowCategories(
       emscripten::vecFromJSArray<int>(category_ids));
+}
+
+void Application::SetBrushingMarkers(const emscripten::val& timestamps_js) {
+  if (!timeline_) return;
+  std::vector<Microseconds> markers;
+  const int length = timestamps_js["length"].as<int>();
+  for (int i = 0; i < length; ++i) {
+    markers.push_back(timestamps_js[i].as<double>());
+  }
+  timeline_->SetBrushingMarkers(markers);
+  RequestRedraw();  // Guarantee instantaneous canvas repaint
+}
+
+void Application::ClearTimelineMarkers() {
+  if (timeline_) {
+    timeline_->ClearBrushingMarkers();
+    RequestRedraw();  // Guarantee instantaneous canvas repaint
+  }
 }
 
 bool Application::IsFeatureEnabled(const std::string& name) {

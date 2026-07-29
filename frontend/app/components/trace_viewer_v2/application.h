@@ -75,6 +75,9 @@ class Application {
     }
   }
 
+  void SetBrushingMarkers(const emscripten::val& timestamps_js);
+  void ClearTimelineMarkers();
+
   void SetMouseMode(int mode) {
     if (timeline_) {
       timeline_->set_mouse_mode(static_cast<MouseMode>(mode));

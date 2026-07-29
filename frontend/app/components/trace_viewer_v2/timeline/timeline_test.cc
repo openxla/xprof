@@ -2677,6 +2677,30 @@ TEST(TimelineTest, RemoveBookmark_RemovesBookmark) {
   EXPECT_TRUE(timeline.bookmarks().empty());
 }
 
+TEST(TimelineTest, SetBrushingMarkers_SetsMarkersAndTriggersRedraw) {
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  int redraw_calls = 0;
+  timeline.set_redraw_callback([&] { redraw_calls++; });
+
+  timeline.SetBrushingMarkers({100.0, 200.0, 300.0});
+  EXPECT_THAT(timeline.brushing_markers(), ElementsAre(100.0, 200.0, 300.0));
+  EXPECT_EQ(redraw_calls, 1);
+
+  timeline.ClearBrushingMarkers();
+  EXPECT_TRUE(timeline.brushing_markers().empty());
+  EXPECT_EQ(redraw_calls, 2);
+}
+
+TEST_F(MockTimelineImGuiFixture, DrawBrushingMarkers_DrawsMarkers) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0});
+  timeline_.SetBrushingMarkers({100.0, 200.0});
+
+  SimulateFrame();
+  EXPECT_THAT(timeline_.brushing_markers(), ElementsAre(100.0, 200.0));
+}
+
 TEST(TimelineTest, AddBookmark_Disabled) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -4696,6 +4720,102 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
 
   // Check if anything was drawn to this window's draw list.
   EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture, DrawCounterTrackUtilizationColors) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 20.0, 30.0, 40.0};
+  counter_data.values = {0.0, 50.0, 100.0, 100.0};
+  counter_data.min_value = 0.0;
+  counter_data.max_value = 100.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.set_utilization_color_coding_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+  EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  bool found_red = false;
+  bool found_yellow = false;
+  bool found_green = false;
+  for (const auto& vtx : counter_window->DrawList->VtxBuffer) {
+    if (vtx.col == IM_COL32(255, 0, 0, 255)) found_red = true;
+    if (vtx.col == IM_COL32(255, 255, 0, 255)) found_yellow = true;
+    if (vtx.col == IM_COL32(0, 255, 0, 255)) found_green = true;
+  }
+
+  EXPECT_TRUE(found_red);
+  EXPECT_TRUE(found_yellow);
+  EXPECT_TRUE(found_green);
+
+  ImGui::EndFrame();
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       DrawCounterTrackConstantValueUtilizationColor) {
+  FlameChartTimelineData data;
+  data.groups.push_back({.type = Group::Type::kCounter,
+                         .name = "Constant Counter Group",
+                         .start_level = 0,
+                         .nesting_level = 0,
+                         .expanded = true});
+
+  CounterData counter_data;
+  counter_data.timestamps = {10.0, 50.0, 90.0};
+  counter_data.values = {50.0, 50.0, 50.0};
+  counter_data.min_value = 50.0;
+  counter_data.max_value = 50.0;
+  data.counter_data_by_group_index[0] = std::move(counter_data);
+
+  timeline_.set_utilization_color_coding_enabled(true);
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.SetVisibleRange({0.0, 100.0});
+
+  ImGui::NewFrame();
+  timeline_.Draw();
+
+  ImGuiWindow* counter_window = nullptr;
+  const std::string child_id = "TimelineChild_Constant Counter Group_0";
+  for (ImGuiWindow* w : ImGui::GetCurrentContext()->Windows) {
+    if (std::string(w->Name).find(child_id) != std::string::npos) {
+      counter_window = w;
+      break;
+    }
+  }
+  ASSERT_NE(counter_window, nullptr);
+  EXPECT_FALSE(counter_window->DrawList->VtxBuffer.empty());
+
+  bool found_yellow = false;
+  for (const auto& vtx : counter_window->DrawList->VtxBuffer) {
+    if (vtx.col == IM_COL32(255, 255, 0, 255)) {
+      found_yellow = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found_yellow);
 
   ImGui::EndFrame();
 }

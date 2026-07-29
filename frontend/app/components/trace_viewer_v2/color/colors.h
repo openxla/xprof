@@ -85,6 +85,11 @@ float CalculateContrastRatio(ImU32 color1, ImU32 color2);
 ImU32 GetTextColorForContrast(ImU32 background_color, ImU32 on_surface_color,
                               ImU32 inverse_on_surface_color);
 
+// Calculates an interpolated Red-Yellow-Green color for a normalized
+// utilization ratio u in [0.0, 1.0] (0.0 = Red/Stall, 0.5 = Yellow/Medium, 1.0
+// = Green/Max).
+ImU32 GetUtilizationColor(float u);
+
 class ColorPalette {
  public:
   struct Preset {

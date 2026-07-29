@@ -217,6 +217,7 @@ ts_library(
     ],
     deps = [
         ":app_bundle_ts",
+        # ksf,
         "//third_party/javascript/typings/jasmine",
         "@npm//@webgpu/types",
     ],

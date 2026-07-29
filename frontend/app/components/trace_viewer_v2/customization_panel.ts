@@ -85,7 +85,7 @@ export class TraceViewerCustomizationPanel extends LitElement {
 
   private checkFeatureFlag(): boolean {
     const flagName = 'enable_customization';
-    if (window.getFeatureFlag) {
+    if (window.getFeatureFlag !== undefined) {
       return window.getFeatureFlag(flagName);
     }
     try {

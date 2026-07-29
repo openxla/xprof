@@ -5,7 +5,11 @@ import logging
 import pathlib
 from typing import Any
 
-from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error
+# pylint: disable=g-import-not-at-top
+try:
+  from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+except ImportError:
+  from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
 
 
 class LocalXprofClient:
@@ -48,6 +52,18 @@ class LocalXprofClient:
       ValueError: If the logdir has not been set.
       FileNotFoundError: If the run directory cannot be found.
     """
+    try:
+      session_path = pathlib.Path(session_id).expanduser()
+      if session_path.is_dir() and session_path.exists():
+        plugins_dir = session_path / "plugins" / "profile"
+        if plugins_dir.is_dir() and plugins_dir.exists():
+          subdirs = [d for d in plugins_dir.iterdir() if d.is_dir()]
+          if len(subdirs) == 1:
+            return subdirs[0]
+        return session_path
+    except (ValueError, TypeError, RuntimeError, OSError):
+      pass
+
     if not self._logdir:
       raise ValueError("Logdir not set. Please configure logdir first.")
 
@@ -90,13 +106,13 @@ class LocalXprofClient:
       FileNotFoundError: If no .xplane.pb or .xspace.pb files are found.
     """
     paths = []
-    for pattern in ("*.xplane.pb", "*.xspace.pb"):
+    for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
       paths.extend(str(p) for p in run_dir.glob(pattern))
     if not paths:
       raise FileNotFoundError(
           f"No .xplane.pb or .xspace.pb files found in {run_dir}"
       )
-    return sorted(paths)
+    return sorted(list(set(paths)))
 
   def fetch(
       self,

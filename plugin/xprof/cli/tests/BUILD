@@ -149,6 +149,15 @@ py_test(
 )
 
 pytype_strict_contrib_test(
+    name = "oss_xplane_tools_test",
+    srcs = ["oss_xplane_tools_test.py"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xplane_tools",
+    ],
+)
+
+pytype_strict_contrib_test(
     name = "detect_unnecessary_convert_reduce_tool_test",
     srcs = ["detect_unnecessary_convert_reduce_tool_test.py"],
     visibility = ["//visibility:public"],

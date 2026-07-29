@@ -7,6 +7,7 @@ import functools
 import getpass
 import json
 import pathlib
+import random
 import sqlite3
 import tempfile
 import textwrap
@@ -147,8 +148,39 @@ class Cache:
     except sqlite3.Error:
       pass
 
+  @contextlib.contextmanager
+  def transact(self):
+    """Acquires a transaction lock on the database."""
+    conn = self._get_conn()
+    try:
+      conn.execute("BEGIN IMMEDIATE")
+      try:
+        yield
+        conn.commit()
+      except Exception:
+        if conn.in_transaction:
+          conn.rollback()
+        raise
+    finally:
+      conn.close()
+
   def close(self) -> None:
     """Closes the cache (noop for this implementation)."""
+
+
+def _add_cache_indicator(value: Any) -> Any:
+  """Adds a cache indicator to the value if it's a dict or JSON string."""
+  if isinstance(value, dict):
+    return {**value, "__cached__": True}
+  if isinstance(value, str):
+    try:
+      data = json.loads(value)
+      if isinstance(data, dict):
+        data["__cached__"] = True
+        return json.dumps(data)
+    except json.JSONDecodeError:
+      pass
+  return value
 
 
 def _get_cache_dir() -> pathlib.Path:
@@ -248,7 +280,7 @@ def cached(
         value = cache_instance.get(key, default=_UNKNOWN)
         if value is not _UNKNOWN:
           logging.debug("Cache hit for %s", getattr(func, "__name__", ""))
-          return value
+          return _add_cache_indicator(value)
 
       # 3. MISS or BYPASS.
       logging.debug("Cache miss for %s", getattr(func, "__name__", ""))
@@ -279,6 +311,80 @@ def cached(
         wrapper.__signature__ = new_sig  # pytype: disable=attribute-error
       except Exception:  # pylint: disable=broad-except
         pass
+
+    return wrapper
+
+  return decorator
+
+
+class _SharedRateLimiter:
+  """Process-safe token bucket rate limiter backed by Cache."""
+
+  def __init__(self, cache_instance: Cache, key: str, rate: float, burst: int):
+    self._cache = cache_instance
+    self._key = f"ratelimit:{key}"
+    self._rate = rate
+    self._burst = burst
+
+  def sleep_and_advance(self) -> None:
+    """Blocks until a token is available."""
+    while True:
+      try:
+        with self._cache.transact():
+          now = time.time()
+          tokens, last_update = self._cache.get(
+              self._key, default=(self._burst, now)
+          )
+          elapsed = now - last_update
+          tokens = min(self._burst, tokens + elapsed * self._rate)
+
+          if tokens >= 1.0:
+            self._cache.set(self._key, (tokens - 1.0, now))
+            return
+
+          wait_time = (1.0 - tokens) / self._rate
+      except sqlite3.OperationalError:
+        # Handle lock contention with a short randomized jitter before retry.
+        time.sleep(random.uniform(0.01, 0.05))
+        continue
+      except (sqlite3.Error, TypeError, ValueError):
+        # Fallback best effort if database schema/cache is degraded.
+        return
+
+      if wait_time > 5.0:
+        logging.info(
+            "Rate limit reached for %s. Waiting %.2f seconds before"
+            " retrying...",
+            self._key,
+            wait_time,
+        )
+      # Add jitter to prevent concurrent thundering herd wakeups.
+      time.sleep(max(0.01, wait_time) * random.uniform(0.95, 1.05))
+
+
+def rate_limited(
+    rate: float = 1.0, burst: int = 1
+) -> Callable[[Callable[..., _T]], Callable[..., _T]]:
+  """Rate limits function calls across processes.
+
+  Args:
+    rate: The rate limit in calls per second.
+    burst: The maximum number of calls that can be made in a burst.
+
+  Returns:
+    The decorated function.
+  """
+
+  def decorator(func: Callable[..., _T]) -> Callable[..., _T]:
+    key = (
+        f"{getattr(func, '__module__', '')}.{getattr(func, '__qualname__', '')}"
+    )
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> _T:
+      limiter = _SharedRateLimiter(get_cache(), key, rate, burst)
+      limiter.sleep_and_advance()
+      return func(*args, **kwargs)
 
     return wrapper
 

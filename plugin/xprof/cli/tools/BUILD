@@ -3,7 +3,11 @@ load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_
 pytype_strict_library(
     name = "get_overview_tool",
     srcs = ["get_overview_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
+        "//learning/performance/agents:__subpackages__",
+        "//plugin:__subpackages__",
+    ],
     deps = [
         "@org_xprof//plugin/xprof/cli/internal:decorators",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
@@ -13,7 +17,11 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_memory_profile_tool",
     srcs = ["get_memory_profile_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
+        "//learning/performance/agents:__subpackages__",
+        "//plugin:__subpackages__",
+    ],
     deps = [
         "@org_xprof//plugin/xprof/cli/internal:decorators",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
@@ -45,7 +53,11 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_peak_allocations_tool",
     srcs = ["get_peak_allocations_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
+        "//learning/performance/agents:__subpackages__",
+        "//plugin:__subpackages__",
+    ],
     deps = [
         "@org_xprof//plugin/xprof/cli/internal:decorators",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
@@ -55,7 +67,11 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_utilization_viewer_tool",
     srcs = ["get_utilization_viewer_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
+        "//learning/performance/agents:__subpackages__",
+        "//plugin:__subpackages__",
+    ],
     deps = [
         "@org_xprof//plugin/xprof/cli/internal:decorators",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
@@ -65,7 +81,11 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_top_hlo_ops_tool",
     srcs = ["get_top_hlo_ops_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = [
+        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
+        "//learning/performance/agents:__subpackages__",
+        "//plugin:__subpackages__",
+    ],
     deps = [
         "@org_xprof//plugin/xprof/cli/internal:decorators",
         "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",

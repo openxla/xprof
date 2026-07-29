@@ -11,23 +11,30 @@ import traceback
 from typing import Any, Dict, Generator
 
 from google.protobuf import json_format
-from google.protobuf.message import DecodeError
+from google.protobuf import message
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
+DecodeError = message.DecodeError
+
 
 @decorators.cached(expire=86400)
-def get_top_hlo_ops(session_id: str, *, limit: int = 10) -> str:
+def get_top_hlo_ops(
+    session_id: str, *, limit: int = 10, category_filter: str | None = None
+) -> str:
   """Fetches top HLO operations sorted by Time, FLOPs, and Bytes Accessed.
 
   Args:
       session_id: The unique XProf session ID.
       limit: Number of top operations to return per list (default is 10).
+      category_filter: Optional HLO op category name to filter by (e.g.,
+        'convolution' or 'fusion').
 
   Returns:
-      A JSON-formatted string containing three lists of top operations.
+      A JSON-formatted string containing three lists of top operations with
+      mandatory source provenance metadata whenever available.
   """
   client = xprof_client.get_client()
   try:
@@ -99,14 +106,20 @@ def get_top_hlo_ops(session_id: str, *, limit: int = 10) -> str:
           if metrics.raw_bytes_accessed_array
           else 0
       )
-      yield {
+      item = {
           "name": full_name,
           "category": node.xla.category,
-          "raw_time": metrics.raw_time,
+          "total_self_time_ms": metrics.raw_time / 1e9,
           "occurrences": metrics.occurrences,
           "flops": metrics.raw_flops,
           "bytes_accessed": total_bytes,
       }
+      if node.xla.HasField("source_info"):
+        item["source_file"] = node.xla.source_info.file_name
+        item["source_line"] = node.xla.source_info.line_number
+        if node.xla.source_info.stack_frame:
+          item["stack_frame"] = node.xla.source_info.stack_frame
+      yield item
 
     for child in node.children:
       yield from traverse(child, full_name)
@@ -122,6 +135,13 @@ def get_top_hlo_ops(session_id: str, *, limit: int = 10) -> str:
     ops_iterable = []
 
   flat_ops = list(ops_iterable)
+  if category_filter:
+    target_cat = category_filter.strip().lower()
+    flat_ops = [
+        op
+        for op in flat_ops
+        if op.get("category", "").strip().lower() == target_cat
+    ]
 
   if not flat_ops:
     return json.dumps(
@@ -132,17 +152,13 @@ def get_top_hlo_ops(session_id: str, *, limit: int = 10) -> str:
         indent=2,
     )
 
-  top_by_time = heapq.nlargest(limit, flat_ops, key=lambda x: x["raw_time"])
+  top_by_time = heapq.nlargest(
+      limit, flat_ops, key=lambda x: x["total_self_time_ms"]
+  )
   top_by_flops = heapq.nlargest(limit, flat_ops, key=lambda x: x["flops"])
   top_by_bytes = heapq.nlargest(
       limit, flat_ops, key=lambda x: x["bytes_accessed"]
   )
-
-  # Convert raw_time (ps) to total_self_time_ms for output
-  for op in top_by_time + top_by_flops + top_by_bytes:
-    if "raw_time" in op:
-      op["total_self_time_ms"] = op["raw_time"] / 1e9
-      del op["raw_time"]
 
   return json.dumps(
       {

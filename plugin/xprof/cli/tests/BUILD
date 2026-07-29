@@ -4,6 +4,30 @@ load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_
 package(default_visibility = ["//plugin:__subpackages__"])
 
 py_test(
+    name = "get_kernel_stats_tool_test",
+    srcs = ["get_kernel_stats_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//third_party/py/pandas",
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/internal:decorators",
+        "@org_xprof//plugin/xprof/cli/internal/oss:events_db_tools",
+        "@org_xprof//plugin/xprof/cli/tools:get_kernel_stats_tool",
+        "@org_xprof//plugin/xprof/cli/tools/oss:f1_utils",
+    ],
+)
+
+py_test(
+    name = "oss_kernel_stats_tools_test",
+    srcs = ["oss_kernel_stats_tools_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_xprof//plugin/xprof/cli/internal/oss:kernel_stats_tools",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xplane_tools",
+    ],
+)
+
+py_test(
     name = "get_memory_profile_tool_test",
     srcs = ["get_memory_profile_tool_test.py"],
     visibility = ["//visibility:public"],

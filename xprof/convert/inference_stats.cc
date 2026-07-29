@@ -660,12 +660,18 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
       HostEventType::kScheduleWithEagerSplit,
       HostEventType::kASBSQueueSchedule};
 
-  // Events marked with "_r:-1" are user defined root events.
+  // Events marked with "_r:-1" are user defined root events. We also treat
+  // "ModelServerRequest_" events with "_r:1" as user defined root events
+  // to support Orbax Serving profiles, allowing them to be initialized as
+  // requests and resolve model IDs from their children.
   std::vector<const XEventVisitor*> user_defined_root_events;
   for (const auto& [_, events] : host_events_by_type) {
     for (const auto& event : events) {
       std::optional<XStatVisitor> stat = event.GetStat(StatType::kIsRoot);
-      if (stat.has_value() && stat->IntValue() == -1) {
+      if (stat.has_value() &&
+          (stat->IntValue() == -1 ||
+           (stat->IntValue() == 1 &&
+            absl::StartsWith(event.Name(), "ModelServerRequest_")))) {
         user_defined_root_events.push_back(&event);
       }
     }
@@ -691,6 +697,12 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
       InitializeModelIdMap(host_events_by_type, user_defined_root_events);
 
   // Initialize RequestEventsMap.
+  // Requests are identified and initialized via two Pass mechanisms:
+  // Pass 1 (Type ID): Explicitly hardcoded known request types (e.g.,
+  // kTfrtModelRun). Pass 2 (User-Defined Roots): Fallback for custom root
+  // events (e.g., ModelServerRequest_). This is crucial when standard events
+  // are missing, or when they are nested inside batch events and share group
+  // IDs with them, causing standard processing to skip them.
   bool is_batching_request =
       host_events_by_type.contains(HostEventType::kBatchingSessionRun);
   bool is_tfrt_request =
@@ -708,10 +720,24 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
   } else {
     request_types = absl::Span<const int64_t>(kNonBatchingRequestTypes);
   }
+  // Track initialized group IDs to prevent duplicate initialization
+  // (e.g., adding duplicate related batch IDs) if a request is captured
+  // by both standard request events and user-defined root events.
+  absl::flat_hash_set<int64_t> initialized_group_ids;
+  // Pass 1: Initialize requests from known request types (Type ID based).
   for (const int64_t request_type : request_types) {
     if (const auto* request_events =
             FindOrNull(host_events_by_type, request_type)) {
       for (const XEventVisitor& request_event : *request_events) {
+        std::optional<XStatVisitor> optional_group_id =
+            request_event.GetStat(StatType::kGroupId);
+        if (!optional_group_id.has_value()) continue;
+        int64_t group_id = optional_group_id->IntValue();
+        // Skip if this group ID belongs to a Batch execution context,
+        // ensuring internal batch processing is not mistaken for requests.
+        if (process_batch_group_ids.contains(group_id)) continue;
+        if (!initialized_group_ids.insert(group_id).second) continue;
+
         InitializeRequestEvents(request_event, group_metadata_map,
                                 process_batch_group_ids, model_id_map,
                                 is_batching_request,
@@ -721,7 +747,17 @@ void BuildRequestEventsMap(const std::vector<XPlane*>& device_traces,
     }
   }
 
+  // Pass 2: Initialize requests from user-defined root events
+  // (Fallback/Custom).
   for (const XEventVisitor* event : user_defined_root_events) {
+    std::optional<XStatVisitor> optional_group_id =
+        event->GetStat(StatType::kGroupId);
+    if (!optional_group_id.has_value()) continue;
+    int64_t group_id = optional_group_id->IntValue();
+    // Skip if this group ID belongs to a Batch execution context.
+    if (process_batch_group_ids.contains(group_id)) continue;
+    if (!initialized_group_ids.insert(group_id).second) continue;
+
     InitializeRequestEvents(
         *event, group_metadata_map, process_batch_group_ids, model_id_map,
         /*is_batching_request=*/false,

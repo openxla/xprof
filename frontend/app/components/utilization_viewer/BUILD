@@ -33,6 +33,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/components/controls/category_filter",
         "@org_xprof//frontend/app/components/controls/export_as_csv",
         "@org_xprof//frontend/app/components/controls/view_architecture",
+        "@org_xprof//frontend/app/services/data_service_v2",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/store",
     ],

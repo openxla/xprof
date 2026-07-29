@@ -6,16 +6,18 @@
 
 .row {
   display: flex;
+  margin-bottom: 24px;
 }
 
 .bar-chart {
   height: fit-content;
   width: fit-content;
-  margin: 8px 8px 8px 0;
+  margin: 16px 16px 24px 0;
 }
 
 .bar-chart .mat-title {
-  margin-bottom: 0;
+  margin-bottom: 12px;
+  font-weight: 500;
 }
 
 .flex-space {

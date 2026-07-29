@@ -2,7 +2,6 @@
 
 import collections
 from collections.abc import Callable
-import enum
 import json
 import logging
 import time
@@ -66,12 +65,28 @@ _F16_TYPE = 10
 _F32_TYPE = 11
 _BF16_TYPE = 16
 
+# Numerical classes of a reduction's summand. Only non-negative,
+# cancellation-free sums (squares / non-negatives) are safe to keep in bf16.
+_REDUCER_SUM_OF_SQUARES = "SUM_OF_SQUARES"
+_REDUCER_SUM_NONNEG = "SUM_NONNEG"
+_REDUCER_SUM_SIGNED = "SUM_SIGNED"
+_REDUCER_PRODUCT = "PRODUCT"
+_REDUCER_OTHER = "OTHER"
+_NONNEG_REDUCER_CLASSES = frozenset(
+    {_REDUCER_SUM_OF_SQUARES, _REDUCER_SUM_NONNEG}
+)
 
-class _ReductionContext(str, enum.Enum):
-  LOSS = "LOSS"
-  NORM = "NORM"
-  SOFTMAX = "SOFTMAX"
-  GENERAL = "GENERAL"
+# Precision-transparent, single-operand ops we can look through when reasoning
+# about the sign/structure of a reduction's summand.
+_PASSTHROUGH_OPCODES = frozenset({
+    "reshape",
+    "broadcast",
+    "transpose",
+    "copy",
+    "convert",
+    "bitcast",
+    "slice",
+})
 
 
 class _HloModuleTracer:
@@ -82,6 +97,9 @@ class _HloModuleTracer:
     self.instructions = {}
     self.instruction_to_computation = {}
     self.fusion_callers = {}
+    # Records EVERY call site of a computation (fusion_callers keeps only the
+    # last), so the escape analysis traces all exit paths of shared comps.
+    self.computation_callers = collections.defaultdict(list)
     self.consumers = collections.defaultdict(list)
     self.computation_parameters = collections.defaultdict(dict)
     self.instructions_by_name = {}
@@ -106,95 +124,41 @@ class _HloModuleTracer:
         # Track fusion callers
         for called_comp_id in instruction.called_computation_ids:
           self.fusion_callers[called_comp_id] = (computation.id, instruction)
+          self.computation_callers[called_comp_id].append(
+              (computation.id, instruction)
+          )
 
     self.phase = _classify_execution_phase(module_proto)
+    self.entry_computation_id = module_proto.entry_computation_id
 
-  def verify_reducer(self, instr: Any) -> bool:
-    """Verifies reducer root opcode is add/multiply (case-insensitive)."""
-    if not instr.called_computation_ids:
-      return False
-
-    comp = self.computations.get(instr.called_computation_ids[0])
-    if not comp:
-      return False
-
-    root_instr = self.instructions.get(comp.root_id)
-    if root_instr and root_instr.opcode.lower() in {"add", "multiply"}:
-      return True
-
-    return any(
-        kw in comp.name.lower() for kw in ("add", "sum", "mul", "multiply")
-    )
-
-  def classify_context(self, instr: Any) -> _ReductionContext:
-    """Classifies context as NORM, SOFTMAX, LOSS, or GENERAL."""
-    names_to_check = []
-
-    comp_id = self.instruction_to_computation.get(instr.id)
-    comp = self.computations.get(comp_id) if comp_id is not None else None
-    if comp:
-      names_to_check.append(comp.name)
-      fusion_caller = self.fusion_callers.get(comp_id)
-      if fusion_caller:
-        _, caller_instr = fusion_caller
-        names_to_check.append(caller_instr.name)
-        if caller_instr.HasField("metadata") and caller_instr.metadata.op_name:
-          names_to_check.append(caller_instr.metadata.op_name)
-
-    if instr.HasField("metadata") and instr.metadata.op_name:
-      names_to_check.append(instr.metadata.op_name)
-
-    has_loss = False
-    has_norm = False
-    has_softmax = False
-
-    loss_keywords = {"loss", "entropy", "criterion", "nll"}
-    norm_keywords = {"norm", "variance", "mean"}
-
-    for name in names_to_check:
-      name_lower = name.lower()
-      if any(kw in name_lower for kw in loss_keywords):
-        has_loss = True
-      if any(kw in name_lower for kw in norm_keywords):
-        has_norm = True
-      if "softmax" in name_lower:
-        has_softmax = True
-
-    # Prioritize LOSS > NORM > SOFTMAX to resolve overlapping metadata
-    # scopes (e.g., loss-internal softmax) to the most specific
-    # precision-safety domain.
-    if has_loss:
-      return _ReductionContext.LOSS
-    if has_norm:
-      return _ReductionContext.NORM
-    if has_softmax:
-      return _ReductionContext.SOFTMAX
-
-    if comp and any(
-        i.opcode.lower() == "exponential" for i in comp.instructions
-    ):
-      return _ReductionContext.SOFTMAX
-
-    return _ReductionContext.GENERAL
-
-  def trace_upcast(self, start_instr_id: int) -> Any | None:
+  def trace_upcast(
+      self, start_instr_id: int, max_nodes: int = 10000
+  ) -> Any | None:
     """Traces upstream from an instruction to locate an F32 upcast."""
     # Stack holds: (instruction_id, tuple_index, call_stack)
     # call_stack tracks active fusion callers to prevent context-sensitivity
     # collision.
     stack = [(start_instr_id, None, ())]
 
-    # FIX: Track (instruction_id, tuple_index) to prevent cycle detection
-    # collision across different tuple elements of a shared tuple.
+    # Track (instruction_id, tuple_index, call_stack) so different tuple
+    # elements and different fusion-caller contexts are explored independently.
     visited = set()
+    count = 0
 
     while stack:
       curr_id, tuple_index, call_stack = stack.pop()
 
-      state_key = (curr_id, tuple_index)
+      state_key = (curr_id, tuple_index, call_stack)
       if state_key in visited:
         continue
       visited.add(state_key)
+
+      count += 1
+      if count > max_nodes:
+        # Give up conservatively on a pathological graph: report no upcast
+        # found so the caller skips this op rather than emitting a
+        # potentially unsafe recommendation.
+        return None
 
       instr = self.instructions.get(curr_id)
       if not instr:
@@ -283,20 +247,45 @@ class _HloModuleTracer:
 
     return None
 
-  def trace_downcast(self, start_instr_id: int) -> bool:
-    """Traces downstream from an instruction to locate a downcast to BF16/F16."""
-    # Stack holds: (instruction_id, tuple_index, prev_instruction_id,
-    # call_stack)
-    stack = [(start_instr_id, None, None, ())]
-    visited = set()  # holds (instruction_id, tuple_index)
+  def _reaches_f32_sink(
+      self,
+      start_id: int,
+      stop_ids: frozenset[int] = frozenset(),
+      max_nodes: int = 10000,
+  ) -> bool:
+    """Returns True if the f32 value from ``start_id`` reaches an f32 sink.
+
+    A sink consumes the value while still f32 (dot/conv/custom-call or module
+    output); a downcast to bf16/f16 or a ``stop_ids`` node caps the path.
+
+    Args:
+      start_id: Instruction id whose f32 result is traced forward.
+      stop_ids: Ids that legitimately consume the value (not escapes).
+      max_nodes: Traversal cap; exceeding it conservatively returns True.
+    """
+    # Stack: (id, tuple_index, prev_instruction_id, call_stack).
+    stack = [(start_id, None, None, ())]
+    visited = set()  # holds (id, tuple_index, prev_instruction_id, call_stack)
+    count = 0
 
     while stack:
       curr_id, tuple_index, prev_instr_id, call_stack = stack.pop()
 
-      state_key = (curr_id, tuple_index)
+      state_key = (curr_id, tuple_index, prev_instr_id, call_stack)
       if state_key in visited:
         continue
       visited.add(state_key)
+
+      count += 1
+      if count > max_nodes:
+        # Give up conservatively: assume the value escapes so we do not emit a
+        # potentially unsafe recommendation on a pathological graph.
+        return True
+
+      # A stop node marks a legitimate consumption of the f32 value; the path
+      # through it is not an escape.
+      if curr_id in stop_ids:
+        continue
 
       instr = self.instructions.get(curr_id)
       if not instr:
@@ -304,59 +293,72 @@ class _HloModuleTracer:
 
       opcode = instr.opcode.lower()
       comp_id = self.instruction_to_computation.get(curr_id)
-
-      # 1. Exiting Fusion (Root Node of a Computation reached)
       comp = self.computations.get(comp_id) if comp_id is not None else None
+
+      # 1. Exiting a fusion: hand off from the comp root to its caller(s).
       if comp and curr_id == comp.root_id:
-        caller_instr = None
-        new_call_stack = call_stack
-
-        # FIX: Resolve context using active call stack if available
+        # Known call site -> return to that caller; otherwise fan out to ALL
+        # call sites so shared computations don't hide an escape path.
+        callers = []  # list of (caller_instr, new_call_stack)
         if call_stack:
-          caller_id = call_stack[-1]
-          caller_instr = self.instructions.get(caller_id)
-          new_call_stack = call_stack[:-1]
+          caller_instr = self.instructions.get(call_stack[-1])
+          if caller_instr:
+            callers.append((caller_instr, call_stack[:-1]))
         else:
-          # Fall back to static map
-          fusion_caller = self.fusion_callers.get(comp_id)
-          if fusion_caller:
-            _, caller_instr = fusion_caller
+          for _, caller_instr in self.computation_callers.get(comp_id, []):
+            callers.append((caller_instr, ()))
 
-        if caller_instr:
-          if opcode == "tuple" and prev_instr_id is not None:
-            indices = [
-                i
-                for i, op_id in enumerate(instr.operand_ids)
-                if op_id == prev_instr_id
-            ]
-            for idx in reversed(indices):
-              stack.append(
-                  (caller_instr.id, idx, caller_instr.id, new_call_stack)
-              )
-          else:
-            stack.append(
-                (caller_instr.id, tuple_index, caller_instr.id, new_call_stack)
-            )
-          continue  # Handoff complete
+        if callers:
+          for caller_instr, new_call_stack in callers:
+            if opcode == "tuple" and prev_instr_id is not None:
+              indices = [
+                  i
+                  for i, op_id in enumerate(instr.operand_ids)
+                  if op_id == prev_instr_id
+              ]
+              for idx in reversed(indices):
+                stack.append(
+                    (caller_instr.id, idx, caller_instr.id, new_call_stack)
+                )
+            else:
+              stack.append((
+                  caller_instr.id,
+                  tuple_index,
+                  caller_instr.id,
+                  new_call_stack,
+              ))
+          continue
+
+        # No caller: this is a top-level computation root. If it is the module
+        # entry root, the f32 value is a module output -> escape.
+        if comp_id == self.entry_computation_id:
+          return True
+        continue
 
       if opcode not in _ALLOWED_TRACING_OPCODES:
         continue
 
-      # 2. General Consumer Traversal
+      # 2. Consumer traversal.
       for consumer in reversed(self.consumers.get(curr_id, [])):
         consumer_op = consumer.opcode.lower()
-        if consumer_op not in _ALLOWED_TRACING_OPCODES:
+
+        # A. Downcast to bf16/f16 caps the path (f32 precision discarded here).
+        if consumer_op == "convert":
+          if tuple_index is None and consumer.shape.element_type in {
+              _BF16_TYPE,
+              _F16_TYPE,
+          }:
+            continue
+          stack.append((consumer.id, tuple_index, curr_id, call_stack))
           continue
 
-        # A. Match Downcast Pattern
-        if consumer_op == "convert":
-          if tuple_index is None:
-            if consumer.shape.element_type in {_BF16_TYPE, _F16_TYPE}:
-              return True
-          stack.append((consumer.id, tuple_index, curr_id, call_stack))
+        # Any consumer we cannot trace through consumes the value while still
+        # f32 -> f32 sink.
+        if consumer_op not in _ALLOWED_TRACING_OPCODES:
+          return True
 
         # B. Get-Tuple-Element
-        elif consumer_op == "get-tuple-element":
+        if consumer_op == "get-tuple-element":
           if tuple_index is None or consumer.tuple_index == tuple_index:
             stack.append((consumer.id, None, curr_id, call_stack))
 
@@ -385,7 +387,6 @@ class _HloModuleTracer:
                     idx
                 )
                 if param_instr is not None:
-                  # Add consumer.id (fusion instruction) to call_stack
                   stack.append((
                       param_instr.id,
                       tuple_index,
@@ -393,15 +394,99 @@ class _HloModuleTracer:
                       call_stack + (consumer.id,),
                   ))
 
-        # E. General Fallback
+        # E. General precision-transparent op
         else:
           stack.append((consumer.id, tuple_index, curr_id, call_stack))
 
     return False
 
+  def result_escapes_as_f32(self, reduce_id: int) -> bool:
+    """True if the reduce's f32 result is used as f32 anywhere (not fully discarded)."""
+    return self._reaches_f32_sink(reduce_id)
+
+  def upcast_serves_only_reduce(self, upcast_id: int, reduce_id: int) -> bool:
+    """True if the upcast's f32 result only feeds ``reduce_id``."""
+    return not self._reaches_f32_sink(
+        upcast_id, stop_ids=frozenset({reduce_id})
+    )
+
+  def classify_reducer(self, reduce_instr: Any) -> str:
+    """Classifies the reduction's numerical behavior (see _REDUCER_* constants)."""
+    if not reduce_instr.called_computation_ids:
+      return _REDUCER_OTHER
+    comp = self.computations.get(reduce_instr.called_computation_ids[0])
+    if not comp:
+      return _REDUCER_OTHER
+
+    root_instr = self.instructions.get(comp.root_id)
+    root_op = root_instr.opcode.lower() if root_instr else ""
+
+    if root_op == "multiply":
+      return _REDUCER_PRODUCT
+
+    if root_op != "add":
+      return _REDUCER_OTHER
+
+    if not reduce_instr.operand_ids:
+      return _REDUCER_SUM_SIGNED
+    summand = self.instructions.get(reduce_instr.operand_ids[0])
+    return self._classify_summand(summand)
+
+  def _classify_summand(self, instr: Any, depth: int = 0) -> str:
+    """Classifies a summand as sum-of-squares / non-negative / signed."""
+    if instr is None or depth > 8:
+      return _REDUCER_SUM_SIGNED
+
+    opcode = instr.opcode.lower()
+
+    if opcode == "multiply":
+      # x * x is a square (non-negative) regardless of the sign of x.
+      if (
+          len(instr.operand_ids) == 2
+          and instr.operand_ids[0] == instr.operand_ids[1]
+      ):
+        return _REDUCER_SUM_OF_SQUARES
+      # Product of two provably non-negative operands stays non-negative.
+      if (
+          len(instr.operand_ids) == 2
+          and self._is_nonneg(self.instructions.get(instr.operand_ids[0]))
+          and self._is_nonneg(self.instructions.get(instr.operand_ids[1]))
+      ):
+        return _REDUCER_SUM_NONNEG
+      return _REDUCER_SUM_SIGNED
+
+    if opcode in {"abs", "exponential"}:
+      return _REDUCER_SUM_NONNEG
+
+    if opcode in _PASSTHROUGH_OPCODES and instr.operand_ids:
+      return self._classify_summand(
+          self.instructions.get(instr.operand_ids[0]), depth + 1
+      )
+
+    return _REDUCER_SUM_SIGNED
+
+  def _is_nonneg(self, instr: Any, depth: int = 0) -> bool:
+    """Best-effort static check that ``instr`` produces non-negative values."""
+    if instr is None or depth > 6:
+      return False
+    opcode = instr.opcode.lower()
+    if opcode in {"abs", "exponential"}:
+      return True
+    if (
+        opcode == "multiply"
+        and len(instr.operand_ids) == 2
+        and instr.operand_ids[0] == instr.operand_ids[1]
+    ):
+      return True
+    if opcode in _PASSTHROUGH_OPCODES and instr.operand_ids:
+      return self._is_nonneg(
+          self.instructions.get(instr.operand_ids[0]), depth + 1
+      )
+    return False
+
 
 def _classify_execution_phase(module_proto: Any) -> str:
-  """Classifies execution phase (TRAINING vs INFERENCE) using case-insensitive computation name matches."""
+  """Classifies execution phase as TRAINING or INFERENCE by computation name."""
   training_keywords = {
       "grad",
       "backward",
@@ -431,39 +516,6 @@ def _calculate_reduction_size(shape_proto: Any, dimensions: list[int]) -> int:
       return 0
     product *= dim_size
   return product
-
-
-def _evaluate_optimization(
-    phase: str,
-    context: _ReductionContext,
-    reduction_size: int,
-) -> tuple[bool, str, str, bool]:
-  """Applies rules matrix and returns (is_inefficient, recommendation, warning, is_low_priority)."""
-  rec = (
-      "Keep intermediate reduction calculation in BF16/F16 precision to match"
-      " inputs."
-  )
-
-  if phase == "TRAINING":
-    if context == _ReductionContext.GENERAL:
-      return (
-          True,
-          "",
-          "Low priority: Training upcast detected on a general reduction.",
-          True,
-      )
-    return False, "", "", False
-
-  if context in {_ReductionContext.NORM, _ReductionContext.SOFTMAX}:
-    warning = ""
-    if reduction_size > 1024:
-      warning = (
-          "Warning: The reduction size is large (>1024). Verify model accuracy"
-          " after downcasting to avoid precision loss issues."
-      )
-    return True, rec, warning, False
-
-  return True, rec, "", False
 
 
 def detect_unnecessary_convert_reduce(
@@ -593,27 +645,18 @@ def detect_unnecessary_convert_reduce(
         if reduce_instr.shape.element_type != _F32_TYPE:
           continue
 
-        if not tracer.verify_reducer(reduce_instr):
+        # Context gate 1: skip training (must stay high precision).
+        if tracer.phase == "TRAINING":
           continue
 
-        # Trace upstream for upcast
-        upcast_found = False
-        upcast_instr = None
-        for op_id in reduce_instr.operand_ids:
-          upcast_instr = tracer.trace_upcast(op_id)
-          if upcast_instr is not None:
-            upcast_found = True
-            break
-
-        if not upcast_found or upcast_instr is None:
+        # Context gate 2: only non-negative, cancellation-free sums
+        # (sum-of-squares / sum-of-non-negatives) are safe to keep in bf16.
+        reducer_class = tracer.classify_reducer(reduce_instr)
+        if reducer_class not in _NONNEG_REDUCER_CLASSES:
           continue
 
-        # Trace downstream for downcast
-        found_downcast = tracer.trace_downcast(reduce_instr.id)
-        if not found_downcast:
-          continue
-
-        # Calculate reduction size
+        # Reduction size N, reported for context: bf16 accumulation error grows
+        # with N, so large N warrants numerical validation before downgrading.
         reduction_size = 0
         if reduce_instr.operand_ids:
           operand_shape = tracer.instructions[reduce_instr.operand_ids[0]].shape
@@ -621,49 +664,67 @@ def detect_unnecessary_convert_reduce(
               operand_shape, list(reduce_instr.dimensions)
           )
 
-        context = tracer.classify_context(reduce_instr)
+        # Locate the bf16/f16 -> f32 upcast feeding the reduction.
+        upcast_instr = None
+        for op_id in reduce_instr.operand_ids:
+          upcast_instr = tracer.trace_upcast(op_id)
+          if upcast_instr is not None:
+            break
 
-        # Classify execution phase
+        if upcast_instr is None:
+          continue
+
+        # Structural gate (WS1): reject if the f32 result reaches any f32 sink
+        # (i.e. it is used as f32, not fully downcast back to bf16/f16).
+        if tracer.result_escapes_as_f32(reduce_instr.id):
+          continue
+
+        # Structural gate (WS1): the upcast must feed only this reduction.
+        if not tracer.upcast_serves_only_reduce(
+            upcast_instr.id, reduce_instr.id
+        ):
+          continue
+
+        # Match: the f32 convert before this reduction is unnecessary.
         phase = tracer.phase
 
-        # Evaluate rules matrix
-        is_inefficient, recommendation, warning, is_low_priority = (
-            _evaluate_optimization(phase, context, reduction_size)
+        upcast_comp_id = tracer.instruction_to_computation.get(upcast_instr.id)
+        fusion_caller = (
+            tracer.fusion_callers.get(upcast_comp_id)
+            if upcast_comp_id is not None
+            else None
+        )
+        fusion_name = fusion_caller[1].name if fusion_caller else ""
+
+        formatted_rec = (
+            "Detected candidate unnecessary promotion (bf16/f16 -> f32 ->"
+            f" reduce -> bf16/f16) involving upcast '{upcast_instr.name}'"
+            f" before reduce '{reduce_instr.name}' in module '{full_mod_name}'."
+            " Recommendation: consider keeping the reduction accumulation in"
+            f" bf16/f16 to match inputs. Reduction size N={reduction_size}; for"
+            " large N validate numerically first, since bf16 accumulation"
+            " error grows with N (tree reduction stays accurate, sequential"
+            " does not)."
+            f" [reducer_class={reducer_class}] [fusion_name={fusion_name}]"
+        )
+        explanation = (
+            f"Phase: {phase}\nReducer: {reducer_class}\n"
+            f"Reduction Size: {reduction_size}"
         )
 
-        if is_inefficient:
-          upcast_comp_id = tracer.instruction_to_computation.get(
-              upcast_instr.id
-          )
-          fusion_caller = (
-              tracer.fusion_callers.get(upcast_comp_id)
-              if upcast_comp_id is not None
-              else None
-          )
-          fusion_name = fusion_caller[1].name if fusion_caller else ""
-
-          # Format output recommendation
-          formatted_rec = (
-              "Detected unnecessary promotion pattern (bf16/f16 -> f32 ->"
-              f" reduce -> bf16/f16) involving upcast '{upcast_instr.name}'"
-              f" before reduce '{reduce_instr.name}' in module"
-              f" '{full_mod_name}'. Recommendation: {recommendation}"
-          )
-          explanation = (
-              f"Phase: {phase}\nContext: {context}\nReduction Size:"
-              f" {reduction_size}\nWarning: {warning}"
-          )
-
-          bottleneck = {
-              "name": f"by_program/{full_mod_name}/{upcast_instr.name}",
-              "instruction": upcast_instr.name,
-              "fusion_name": fusion_name,
-              "recommendation": formatted_rec,
-              "explanation": explanation,
-              "is_low_priority": is_low_priority,
-              "total_self_time_ms": op.get("total_self_time_ms", 0.0),
-          }
-          inefficient_ops.append(bottleneck)
+        bottleneck = {
+            "name": f"by_program/{full_mod_name}/{upcast_instr.name}",
+            "category": op.get("category", ""),
+            "total_self_time_ms": op.get("total_self_time_ms", 0.0),
+            "occurrences": op.get("occurrences", 1),
+            "flops": op.get("flops", 0),
+            "bytes_accessed": op.get("bytes_accessed", 0),
+            "instruction": upcast_instr.name,
+            "fusion_name": fusion_name,
+            "recommendation": formatted_rec,
+            "explanation": explanation,
+        }
+        inefficient_ops.append(bottleneck)
 
     # De-duplicate bottlenecks by name
     inefficient_ops = list({op["name"]: op for op in inefficient_ops}.values())

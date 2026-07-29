@@ -149,92 +149,6 @@ class DetectReduceConvertToolTest(absltest.TestCase):
         "INFERENCE",
     )
 
-  def test_verify_reducer(self):
-    # Case A: Valid reducer (Add)
-    hlo_add = """
-    HloModule test_prog
-    %add_reducer (x: f32[], y: f32[]) -> f32[] {
-      %x = f32[] parameter(0)
-      %y = f32[] parameter(1)
-      ROOT %add = f32[] add(%x, %y)
-    }
-    ENTRY %main {
-      %p0 = f32[10,10] parameter(0)
-      %c0 = f32[] constant(0)
-      ROOT %reduce = f32[10] reduce(%p0, %c0), dimensions={1}, to_apply=%add_reducer
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_add)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    reduce_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "reduce"
-    )
-    self.assertTrue(tracer.verify_reducer(reduce_instr))
-
-    # Case B: Invalid reducer (Maximum)
-    hlo_max = """
-    HloModule test_prog
-    %max_reducer (x: f32[], y: f32[]) -> f32[] {
-      %x = f32[] parameter(0)
-      %y = f32[] parameter(1)
-      ROOT %maximum = f32[] maximum(%x, %y)
-    }
-    ENTRY %main {
-      %p0 = f32[10,10] parameter(0)
-      %c0 = f32[] constant(0)
-      ROOT %reduce = f32[10] reduce(%p0, %c0), dimensions={1}, to_apply=%max_reducer
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_max)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    reduce_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "reduce"
-    )
-    self.assertFalse(tracer.verify_reducer(reduce_instr))
-
-  def test_verify_reducer_collective(self):
-    # Case A: Valid all-reduce
-    hlo_all_reduce = """
-    HloModule test_prog
-    %add_reducer (x: f32[], y: f32[]) -> f32[] {
-      %x = f32[] parameter(0)
-      %y = f32[] parameter(1)
-      ROOT %add = f32[] add(%x, %y)
-    }
-    ENTRY %main {
-      %p0 = f32[10,10] parameter(0)
-      ROOT %all-reduce = f32[10,10] all-reduce(%p0),
-        replica_groups={}, to_apply=%add_reducer
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_all_reduce)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    ar_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "all-reduce"
-    )
-    self.assertTrue(tracer.verify_reducer(ar_instr))
-
-    # Case B: Valid reduce-scatter
-    hlo_reduce_scatter = """
-    HloModule test_prog
-    %add_reducer (x: f32[], y: f32[]) -> f32[] {
-      %x = f32[] parameter(0)
-      %y = f32[] parameter(1)
-      ROOT %add = f32[] add(%x, %y)
-    }
-    ENTRY %main {
-      %p0 = f32[10,10] parameter(0)
-      ROOT %reduce-scatter = f32[5,10] reduce-scatter(%p0),
-        dimensions={0}, replica_groups={}, to_apply=%add_reducer
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_reduce_scatter)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    rs_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "reduce-scatter"
-    )
-    self.assertTrue(tracer.verify_reducer(rs_instr))
-
   def test_no_inefficient_ops(self):
     def mock_get_top_ops(session_id, limit):
       del session_id, limit
@@ -355,97 +269,6 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     found_upcast = tracer.trace_upcast(abs_instr.id)
     self.assertIsNone(found_upcast)
 
-  def test_trace_downcast_downstream_direct(self):
-    # Setup HLO: %abs -> %convert (f32 -> bf16)
-    hlo_text = """
-    HloModule test_module
-    ENTRY %entry_computation {
-      %p0 = f32[100] parameter(0)
-      %abs.1 = f32[100] abs(%p0)
-      ROOT %convert.1 = bf16[100] convert(%abs.1)
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_text)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    abs_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "abs"
-    )
-
-    # Trace downstream from abs.1.
-    found_downcast = tracer.trace_downcast(abs_instr.id)
-    self.assertTrue(found_downcast)
-
-  def test_trace_downcast_downstream_through_fusion_entry(self):
-    # Setup HLO: entry passes f32 to fusion. Inside fusion, abs -> convert.
-    hlo_text = """
-    HloModule test_module
-    %fused_comp (p0.1: f32[100]) -> bf16[100] {
-      %p0.1 = f32[100] parameter(0)
-      %abs.1 = f32[100] abs(%p0.1)
-      ROOT %convert.1 = bf16[100] convert(%abs.1)
-    }
-    ENTRY %entry_computation {
-      %p0 = f32[100] parameter(0)
-      ROOT %fusion.1 = bf16[100] fusion(%p0), kind=kLoop, calls=%fused_comp
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_text)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    p0_instr = next(
-        i
-        for i in tracer.instructions.values()
-        if i.opcode == "parameter" and i.name == "p0"
-    )
-
-    # Trace downstream starting from parameter p0.
-    found_downcast = tracer.trace_downcast(p0_instr.id)
-    self.assertTrue(found_downcast)
-
-  def test_trace_downcast_downstream_through_fusion_exit(self):
-    # Setup HLO: inside fusion is abs (f32). convert is outside fusion.
-    hlo_text = """
-    HloModule test_module
-    %fused_comp (p0.1: f32[100]) -> f32[100] {
-      %p0.1 = f32[100] parameter(0)
-      ROOT %abs.1 = f32[100] abs(%p0.1)
-    }
-    ENTRY %entry_computation {
-      %p0 = f32[100] parameter(0)
-      %fusion.1 = f32[100] fusion(%p0), kind=kLoop, calls=%fused_comp
-      ROOT %convert.1 = bf16[100] convert(%fusion.1)
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_text)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    abs_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "abs"
-    )
-
-    # Trace downstream from abs.1 inside fusion.
-    found_downcast = tracer.trace_downcast(abs_instr.id)
-    self.assertTrue(found_downcast)
-
-  def test_trace_downcast_downstream_aborts_on_heavy_math(self):
-    # Setup HLO: abs -> dot -> convert
-    hlo_text = """
-    HloModule test_module
-    ENTRY %entry_computation {
-      %p0 = f32[100,100] parameter(0)
-      %abs.1 = f32[100,100] abs(%p0)
-      %dot.1 = f32[100,100] dot(%abs.1, %abs.1), lhs_contracting_dims={1}, rhs_contracting_dims={0}
-      ROOT %convert.1 = bf16[100,100] convert(%dot.1)
-    }
-    """
-    proto = _parse_hlo_text_to_proto(hlo_text)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    abs_instr = next(
-        i for i in tracer.instructions.values() if i.opcode == "abs"
-    )
-
-    # Trace downstream starting from abs.1.
-    found_downcast = tracer.trace_downcast(abs_instr.id)
-    self.assertFalse(found_downcast)
-
   def test_detect_unnecessary_convert_reduce_integration(self):
     hlo_content = """
     HloModule jit_my_entry_comp
@@ -471,40 +294,13 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     }
     """
 
-    def mock_get_top_ops(session_id, limit):
-      del session_id, limit
-      return json.dumps({
-          "top_by_time": [{
-              "name": "by_program/jit_my_entry_comp/fusion.1",
-              "total_self_time_ms": 10.0,
-          }],
-          "top_by_bytes_accessed": [],
-      })
-
-    def mock_fetch_debug_info(session_id):
-      del session_id
-      hlo_proto_mock = MockHloProto(_parse_hlo_text_to_proto(hlo_content))
-      return MockDebugInfoCollection([hlo_proto_mock], [123])
-
-    self.enter_context(
-        mock.patch.object(
-            hlo_tools, "_fetch_debug_info", side_effect=mock_fetch_debug_info
-        )
-    )
-
-    result_json = detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce(
-        "session_123",
-        get_top_hlo_ops_fn=mock_get_top_ops,
-    )
-    result = json.loads(result_json)
-    if not result.get("bottlenecks_found"):
-      print(f"DEBUG: result = {result_json}")
-    self.assertTrue(result["bottlenecks_found"])
+    result = self._run_detect(hlo_content)
+    self.assertTrue(result["bottlenecks_found"], msg=result)
     self.assertLen(result["inefficient_ops"], 1)
     self.assertEqual(result["inefficient_ops"][0]["instruction"], "convert.1")
     self.assertEqual(result["inefficient_ops"][0]["fusion_name"], "fusion.1")
     self.assertIn(
-        "Detected unnecessary promotion pattern",
+        "Detected candidate unnecessary promotion",
         result["inefficient_ops"][0]["recommendation"],
     )
 
@@ -536,11 +332,24 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     }
     """
 
+    result = self._run_detect(hlo_content)
+    self.assertTrue(
+        result["bottlenecks_found"],
+        "Failed to detect bottleneck due to mismatched parameter names!"
+        f" Result: {result}",
+    )
+    self.assertLen(result["inefficient_ops"], 1)
+    self.assertEqual(result["inefficient_ops"][0]["instruction"], "convert.1")
+    self.assertEqual(result["inefficient_ops"][0]["fusion_name"], "fusion.1")
+
+  def _run_detect(
+      self, hlo_content, target="fusion.1", module="jit_my_entry_comp"
+  ):
     def mock_get_top_ops(session_id, limit):
       del session_id, limit
       return json.dumps({
           "top_by_time": [{
-              "name": "by_program/jit_my_entry_comp/fusion.1",
+              "name": f"by_program/{module}/{target}",
               "total_self_time_ms": 10.0,
           }],
           "top_by_bytes_accessed": [],
@@ -556,20 +365,96 @@ class DetectReduceConvertToolTest(absltest.TestCase):
             hlo_tools, "_fetch_debug_info", side_effect=mock_fetch_debug_info
         )
     )
+    return json.loads(
+        detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce(
+            "session_123", get_top_hlo_ops_fn=mock_get_top_ops
+        )
+    )
 
-    result_json = detect_unnecessary_convert_reduce_tool.detect_unnecessary_convert_reduce(
-        "session_123",
-        get_top_hlo_ops_fn=mock_get_top_ops,
-    )
-    result = json.loads(result_json)
-    self.assertTrue(
-        result["bottlenecks_found"],
-        "Failed to detect bottleneck due to mismatched parameter names!"
-        f" Result: {result_json}",
-    )
-    self.assertLen(result["inefficient_ops"], 1)
-    self.assertEqual(result["inefficient_ops"][0]["instruction"], "convert.1")
-    self.assertEqual(result["inefficient_ops"][0]["fusion_name"], "fusion.1")
+  def test_detect_skips_fan_out_f32_result(self):
+    # Regression: the reduce result is downcast to bf16 AND also output as f32.
+    # The f32 is not discarded, so the upcast must NOT be flagged.
+    hlo_content = """
+    HloModule jit_my_entry_comp
+
+    %add_comp (x: f32[], y: f32[]) -> f32[] {
+      %x = f32[] parameter(0)
+      %y = f32[] parameter(1)
+      ROOT %add = f32[] add(%x, %y)
+    }
+
+    %my_fusion (param_0.1: bf16[100]) -> (bf16[], f32[]) {
+      %param_0.1 = bf16[100] parameter(0)
+      %convert.1 = f32[100] convert(%param_0.1)
+      %sq = f32[100] multiply(%convert.1, %convert.1)
+      %constant.0 = f32[] constant(0)
+      %reduce.1 = f32[] reduce(%sq, %constant.0), dimensions={0}, to_apply=add_comp
+      %convert.2 = bf16[] convert(%reduce.1)
+      ROOT %t = (bf16[], f32[]) tuple(%convert.2, %reduce.1)
+    }
+
+    ENTRY my_entry_comp (param_0: bf16[100]) -> (bf16[], f32[]) {
+      %param_0 = bf16[100] parameter(0)
+      ROOT %fusion.1 = (bf16[], f32[]) fusion(%param_0), kind=kLoop, calls=my_fusion
+    }
+    """
+    result = self._run_detect(hlo_content)
+    self.assertFalse(result["bottlenecks_found"], msg=result)
+
+  def test_detect_skips_signed_reduction(self):
+    # A plain signed sum (no square/abs/exp) may need f32 accumulation; skip it.
+    hlo_content = """
+    HloModule jit_my_entry_comp
+
+    %add_comp (x: f32[], y: f32[]) -> f32[] {
+      %x = f32[] parameter(0)
+      %y = f32[] parameter(1)
+      ROOT %add = f32[] add(%x, %y)
+    }
+
+    %my_fusion (param_0.1: bf16[100]) -> bf16[] {
+      %param_0.1 = bf16[100] parameter(0)
+      %convert.1 = f32[100] convert(%param_0.1)
+      %constant.0 = f32[] constant(0)
+      %reduce.1 = f32[] reduce(%convert.1, %constant.0), dimensions={0}, to_apply=add_comp
+      ROOT %convert.2 = bf16[] convert(%reduce.1)
+    }
+
+    ENTRY my_entry_comp (param_0: bf16[100]) -> bf16[] {
+      %param_0 = bf16[100] parameter(0)
+      ROOT %fusion.1 = bf16[] fusion(%param_0), kind=kLoop, calls=my_fusion
+    }
+    """
+    result = self._run_detect(hlo_content)
+    self.assertFalse(result["bottlenecks_found"], msg=result)
+
+  def test_detect_skips_training(self):
+    # Even a matchable non-negative reduction is skipped in training modules.
+    hlo_content = """
+    HloModule jit_my_entry_comp
+
+    %add_comp (x: f32[], y: f32[]) -> f32[] {
+      %x = f32[] parameter(0)
+      %y = f32[] parameter(1)
+      ROOT %add = f32[] add(%x, %y)
+    }
+
+    %my_fusion_backward (param_0.1: bf16[100]) -> bf16[] {
+      %param_0.1 = bf16[100] parameter(0)
+      %convert.1 = f32[100] convert(%param_0.1)
+      %abs.1 = f32[100] abs(%convert.1)
+      %constant.0 = f32[] constant(0)
+      %reduce.1 = f32[] reduce(%abs.1, %constant.0), dimensions={0}, to_apply=add_comp
+      ROOT %convert.2 = bf16[] convert(%reduce.1)
+    }
+
+    ENTRY my_entry_comp (param_0: bf16[100]) -> bf16[] {
+      %param_0 = bf16[100] parameter(0)
+      ROOT %fusion.1 = bf16[] fusion(%param_0), kind=kLoop, calls=my_fusion_backward
+    }
+    """
+    result = self._run_detect(hlo_content)
+    self.assertFalse(result["bottlenecks_found"], msg=result)
 
   def test_calculate_reduction_size(self):
     shape = xla_data_pb2.ShapeProto()
@@ -596,153 +481,227 @@ class DetectReduceConvertToolTest(absltest.TestCase):
     )
     self.assertEqual(size_oob, 10)
 
-  def test_classify_context(self):
-    # Setup HLO module to parse
-    hlo_text = """
-    HloModule test_module
-    ENTRY %entry_computation {
-      p0 = f32[10] parameter(0)
-      ROOT r = f32[10] abs(p0)
-    }
+  def test_classify_reducer(self):
+    tool = detect_unnecessary_convert_reduce_tool
+    add_reducer = """
+      %add (x: f32[], y: f32[]) -> f32[] {
+        %x = f32[] parameter(0)
+        %y = f32[] parameter(1)
+        ROOT %a = f32[] add(%x, %y)
+      }
     """
-    proto = _parse_hlo_text_to_proto(hlo_text)
-    tracer = detect_unnecessary_convert_reduce_tool._HloModuleTracer(proto)
-    instr = next(i for i in tracer.instructions.values() if i.opcode == "abs")
 
-    # Case 1: Metadata op_name contains LOSS
-    instr.metadata.op_name = "layer_26.block/mlp/loss_fn/reduce_sum"
+    def _reduce_class(entry_body):
+      hlo = f"HloModule m\n{add_reducer}\nENTRY e {{\n{entry_body}\n}}"
+      tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo))
+      reduce_instr = next(
+          i for i in tracer.instructions.values() if i.opcode == "reduce"
+      )
+      return tracer.classify_reducer(reduce_instr)
+
+    # x * x -> sum of squares.
     self.assertEqual(
-        tracer.classify_context(instr),
-        detect_unnecessary_convert_reduce_tool._ReductionContext.LOSS,
+        _reduce_class(
+            "  p0 = f32[100] parameter(0)\n"
+            "  sq = f32[100] multiply(p0, p0)\n"
+            "  c0 = f32[] constant(0)\n"
+            "  ROOT r = f32[] reduce(sq, c0), dimensions={0}, to_apply=%add"
+        ),
+        tool._REDUCER_SUM_OF_SQUARES,
+    )
+    # abs -> non-negative.
+    self.assertEqual(
+        _reduce_class(
+            "  p0 = f32[100] parameter(0)\n"
+            "  a = f32[100] abs(p0)\n"
+            "  c0 = f32[] constant(0)\n"
+            "  ROOT r = f32[] reduce(a, c0), dimensions={0}, to_apply=%add"
+        ),
+        tool._REDUCER_SUM_NONNEG,
+    )
+    # exponential -> non-negative.
+    self.assertEqual(
+        _reduce_class(
+            "  p0 = f32[100] parameter(0)\n"
+            "  e = f32[100] exponential(p0)\n"
+            "  c0 = f32[] constant(0)\n"
+            "  ROOT r = f32[] reduce(e, c0), dimensions={0}, to_apply=%add"
+        ),
+        tool._REDUCER_SUM_NONNEG,
+    )
+    # Raw (signed) input -> signed sum (not matched by the tool).
+    self.assertEqual(
+        _reduce_class(
+            "  p0 = f32[100] parameter(0)\n"
+            "  c0 = f32[] constant(0)\n"
+            "  ROOT r = f32[] reduce(p0, c0), dimensions={0}, to_apply=%add"
+        ),
+        tool._REDUCER_SUM_SIGNED,
     )
 
-    # Case 2: Metadata op_name contains NORM
-    instr.metadata.op_name = "layer_26.block/mlp/pre_ffw_norm/reduce_sum"
-    self.assertEqual(
-        tracer.classify_context(instr),
-        detect_unnecessary_convert_reduce_tool._ReductionContext.NORM,
-    )
-
-    # Case 3: Metadata op_name contains SOFTMAX
-    instr.metadata.op_name = "layer_26.block/mlp/attention/softmax/reduce_sum"
-    self.assertEqual(
-        tracer.classify_context(instr),
-        detect_unnecessary_convert_reduce_tool._ReductionContext.SOFTMAX,
-    )
-
-    # Case 4: Upstream exponential check
-    hlo_exp = """
-    HloModule test_module
-    %add_reducer (x: f32[], y: f32[]) -> f32[] {
+    # Product reducer.
+    hlo_prod = """
+    HloModule m
+    %mul (x: f32[], y: f32[]) -> f32[] {
       %x = f32[] parameter(0)
       %y = f32[] parameter(1)
-      ROOT %add = f32[] add(%x, %y)
+      ROOT %m = f32[] multiply(%x, %y)
     }
-    ENTRY %entry_computation {
+    ENTRY e {
       p0 = f32[100] parameter(0)
-      exp1 = f32[100] exponential(p0)
-      ROOT reduce1 = f32[] reduce(exp1, exp1), dimensions={0}, to_apply=%add_reducer
+      c1 = f32[] constant(1)
+      ROOT r = f32[] reduce(p0, c1), dimensions={0}, to_apply=%mul
     }
     """
-    proto_exp = _parse_hlo_text_to_proto(hlo_exp)
-    tracer_exp = detect_unnecessary_convert_reduce_tool._HloModuleTracer(
-        proto_exp
-    )
+    tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo_prod))
     reduce_instr = next(
-        i for i in tracer_exp.instructions.values() if i.opcode == "reduce"
+        i for i in tracer.instructions.values() if i.opcode == "reduce"
     )
     self.assertEqual(
-        tracer_exp.classify_context(reduce_instr),
-        detect_unnecessary_convert_reduce_tool._ReductionContext.SOFTMAX,
+        tracer.classify_reducer(reduce_instr), tool._REDUCER_PRODUCT
     )
 
-    # Case 5: GENERAL default
-    hlo_gen = """
-    HloModule test_module
-    %add_reducer (x: f32[], y: f32[]) -> f32[] {
+  def test_result_escapes_as_f32(self):
+    tool = detect_unnecessary_convert_reduce_tool
+    reducer = """
+    %add (x: f32[], y: f32[]) -> f32[] {
       %x = f32[] parameter(0)
       %y = f32[] parameter(1)
-      ROOT %add = f32[] add(%x, %y)
-    }
-    ENTRY %pooling_computation {
-      p0 = f32[100] parameter(0)
-      ROOT reduce1 = f32[] reduce(p0, p0), dimensions={0}, to_apply=%add_reducer
+      ROOT %a = f32[] add(%x, %y)
     }
     """
-    proto_gen = _parse_hlo_text_to_proto(hlo_gen)
-    tracer_gen = detect_unnecessary_convert_reduce_tool._HloModuleTracer(
-        proto_gen
+
+    # Fully discarded: the reduce result is only downcast back to bf16.
+    hlo_ok = f"""
+    HloModule m
+    {reducer}
+    ENTRY e (p: bf16[100]) -> bf16[] {{
+      %p = bf16[100] parameter(0)
+      %c = f32[100] convert(%p)
+      %sq = f32[100] multiply(%c, %c)
+      %z = f32[] constant(0)
+      %r = f32[] reduce(%sq, %z), dimensions={{0}}, to_apply=%add
+      ROOT %d = bf16[] convert(%r)
+    }}
+    """
+    tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo_ok))
+    r = next(i for i in tracer.instructions.values() if i.opcode == "reduce")
+    self.assertFalse(tracer.result_escapes_as_f32(r.id))
+
+    # Fan-out: the reduce result also leaves the module as f32 (reported bug).
+    hlo_escape = f"""
+    HloModule m
+    {reducer}
+    ENTRY e (p: bf16[100]) -> (bf16[], f32[]) {{
+      %p = bf16[100] parameter(0)
+      %c = f32[100] convert(%p)
+      %sq = f32[100] multiply(%c, %c)
+      %z = f32[] constant(0)
+      %r = f32[] reduce(%sq, %z), dimensions={{0}}, to_apply=%add
+      %d = bf16[] convert(%r)
+      ROOT %t = (bf16[], f32[]) tuple(%d, %r)
+    }}
+    """
+    tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo_escape))
+    r = next(i for i in tracer.instructions.values() if i.opcode == "reduce")
+    self.assertTrue(tracer.result_escapes_as_f32(r.id))
+
+  def test_result_escapes_via_shared_computation(self):
+    tool = detect_unnecessary_convert_reduce_tool
+    # %shared is called by BOTH %fb and %fa. Through %fa the result is downcast
+    # to bf16 (safe), but through %fb it escapes the module as f32. %fa is
+    # defined last, so a single-caller (overwriting) map would only follow the
+    # safe path and wrongly report no escape. All callers must be traced.
+    hlo = """
+    HloModule m
+    %add (x: f32[], y: f32[]) -> f32[] {
+      %x = f32[] parameter(0)
+      %y = f32[] parameter(1)
+      ROOT %a = f32[] add(%x, %y)
+    }
+    %shared (p: bf16[100]) -> f32[] {
+      %p = bf16[100] parameter(0)
+      %c = f32[100] convert(%p)
+      %sq = f32[100] multiply(%c, %c)
+      %z = f32[] constant(0)
+      ROOT %r = f32[] reduce(%sq, %z), dimensions={0}, to_apply=%add
+    }
+    ENTRY e (a: bf16[100], b: bf16[100]) -> (bf16[], f32[]) {
+      %a = bf16[100] parameter(0)
+      %b = bf16[100] parameter(1)
+      %fb = f32[] fusion(%b), kind=kLoop, calls=%shared
+      %fa = f32[] fusion(%a), kind=kLoop, calls=%shared
+      %da = bf16[] convert(%fa)
+      ROOT %t = (bf16[], f32[]) tuple(%da, %fb)
+    }
+    """
+    tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo))
+    shared_comp = next(
+        c for c in tracer.computations.values() if c.name == "shared"
     )
-    reduce_instr_gen = next(
-        i for i in tracer_gen.instructions.values() if i.opcode == "reduce"
-    )
-    self.assertEqual(
-        tracer_gen.classify_context(reduce_instr_gen),
-        detect_unnecessary_convert_reduce_tool._ReductionContext.GENERAL,
+    # Both call sites are recorded.
+    self.assertLen(tracer.computation_callers[shared_comp.id], 2)
+    r = next(i for i in tracer.instructions.values() if i.opcode == "reduce")
+    self.assertTrue(tracer.result_escapes_as_f32(r.id))
+
+  def test_upcast_serves_only_reduce(self):
+    tool = detect_unnecessary_convert_reduce_tool
+    reducer = """
+    %add (x: f32[], y: f32[]) -> f32[] {
+      %x = f32[] parameter(0)
+      %y = f32[] parameter(1)
+      ROOT %a = f32[] add(%x, %y)
+    }
+    """
+
+    def _f32_convert_and_reduce(hlo):
+      tracer = tool._HloModuleTracer(_parse_hlo_text_to_proto(hlo))
+      upcast = next(
+          i
+          for i in tracer.instructions.values()
+          if i.opcode == "convert" and i.shape.element_type == tool._F32_TYPE
+      )
+      reduce_instr = next(
+          i for i in tracer.instructions.values() if i.opcode == "reduce"
+      )
+      return tracer, upcast, reduce_instr
+
+    # Exclusive: the upcast only feeds the reduction.
+    hlo_excl = f"""
+    HloModule m
+    {reducer}
+    ENTRY e (p: bf16[100]) -> bf16[] {{
+      %p = bf16[100] parameter(0)
+      %c = f32[100] convert(%p)
+      %sq = f32[100] multiply(%c, %c)
+      %z = f32[] constant(0)
+      %r = f32[] reduce(%sq, %z), dimensions={{0}}, to_apply=%add
+      ROOT %d = bf16[] convert(%r)
+    }}
+    """
+    tracer, upcast, reduce_instr = _f32_convert_and_reduce(hlo_excl)
+    self.assertTrue(
+        tracer.upcast_serves_only_reduce(upcast.id, reduce_instr.id)
     )
 
-  def test_evaluate_optimization(self):
-    # 1. TRAINING phase
-    # General context gets low priority alert
-    is_ineff, rec, warn, is_low = (
-        detect_unnecessary_convert_reduce_tool._evaluate_optimization(
-            "TRAINING",
-            detect_unnecessary_convert_reduce_tool._ReductionContext.GENERAL,
-            500,
-        )
+    # Shared: the upcast also escapes the module as f32.
+    hlo_shared = f"""
+    HloModule m
+    {reducer}
+    ENTRY e (p: bf16[100]) -> (bf16[], f32[100]) {{
+      %p = bf16[100] parameter(0)
+      %c = f32[100] convert(%p)
+      %sq = f32[100] multiply(%c, %c)
+      %z = f32[] constant(0)
+      %r = f32[] reduce(%sq, %z), dimensions={{0}}, to_apply=%add
+      %d = bf16[] convert(%r)
+      ROOT %t = (bf16[], f32[100]) tuple(%d, %c)
+    }}
+    """
+    tracer, upcast, reduce_instr = _f32_convert_and_reduce(hlo_shared)
+    self.assertFalse(
+        tracer.upcast_serves_only_reduce(upcast.id, reduce_instr.id)
     )
-    self.assertTrue(is_ineff)
-    self.assertTrue(is_low)
-    self.assertEqual(rec, "")
-    self.assertIn("Low priority", warn)
-
-    # Norm context in training gets silently skipped
-    is_ineff, _, _, _ = (
-        detect_unnecessary_convert_reduce_tool._evaluate_optimization(
-            "TRAINING",
-            detect_unnecessary_convert_reduce_tool._ReductionContext.NORM,
-            500,
-        )
-    )
-    self.assertFalse(is_ineff)
-
-    # 2. INFERENCE phase
-    # General context in inference gets standard alert, no precision warning
-    is_ineff, rec, warn, is_low = (
-        detect_unnecessary_convert_reduce_tool._evaluate_optimization(
-            "INFERENCE",
-            detect_unnecessary_convert_reduce_tool._ReductionContext.GENERAL,
-            2048,
-        )
-    )
-    self.assertTrue(is_ineff)
-    self.assertFalse(is_low)
-    self.assertIn("Keep intermediate reduction calculation", rec)
-    self.assertEqual(warn, "")
-
-    # Softmax context in inference: size <= 1024 gets no warning
-    is_ineff, rec, warn, _ = (
-        detect_unnecessary_convert_reduce_tool._evaluate_optimization(
-            "INFERENCE",
-            detect_unnecessary_convert_reduce_tool._ReductionContext.SOFTMAX,
-            500,
-        )
-    )
-    self.assertTrue(is_ineff)
-    self.assertIn("Keep intermediate reduction calculation", rec)
-    self.assertEqual(warn, "")
-
-    # Softmax context in inference: size > 1024 gets extra precision warning
-    is_ineff, rec, warn, _ = (
-        detect_unnecessary_convert_reduce_tool._evaluate_optimization(
-            "INFERENCE",
-            detect_unnecessary_convert_reduce_tool._ReductionContext.SOFTMAX,
-            2048,
-        )
-    )
-    self.assertTrue(is_ineff)
-    self.assertIn("Keep intermediate reduction calculation", rec)
-    self.assertIn("Warning: The reduction size is large", warn)
 
   def test_deep_graph_recursion_limit(self):
     # Generates a very deep computation chain to verify the iterative

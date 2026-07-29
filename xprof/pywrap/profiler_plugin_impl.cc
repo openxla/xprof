@@ -61,6 +61,7 @@ static const absl::NoDestructor<absl::flat_hash_set<std::string>>
         "trace_viewer",
         "trace_viewer@",
         "op_profile",
+        "utilization_viewer",
     });
 
 namespace xprof {

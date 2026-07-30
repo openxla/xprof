@@ -12,3 +12,9 @@
   width: 1200px;
   height: 100px;
 }
+
+:host ::ng-deep {
+  svg > g > g.google-visualization-tooltip {
+    pointer-events: none;
+  }
+}

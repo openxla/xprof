@@ -44,13 +44,16 @@ export class MaxHeapChart implements OnChanges, OnInit {
       return;
     }
 
-    const data = [0].concat(this.maxHeap.map(heapObject => {
+    const data: Array<string|number> = ([''] as Array<string|number>).concat(this.maxHeap.map(heapObject => {
       return heapObject ? heapObject.sizeMiB || 0 : 0;
     }));
     const chartItemColors = this.maxHeap.map(
         heapObject => utils.getChartItemColorByIndex(heapObject.color || 0));
+    const headers = [''].concat(this.maxHeap.map(heapObject => {
+      return heapObject ? heapObject.instructionName || '' : '';
+    }));
     const dataTable = google.visualization.arrayToDataTable([
-      Array.from<string>({length: data.length}).fill(''),
+      headers,
       data,
     ]);
 
@@ -66,7 +69,7 @@ export class MaxHeapChart implements OnChanges, OnInit {
       isStacked: 'percent',
       legend: {position: 'none'},
       orientation: 'vertical',
-      tooltip: {trigger: 'none'},
+      tooltip: {showColorCode: true},
       hAxis: {baselineColor: 'transparent'},
       vAxis: {baselineColor: 'transparent'},
     };

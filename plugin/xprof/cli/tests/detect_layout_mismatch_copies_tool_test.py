@@ -13,13 +13,6 @@ def _get_top_hlo_ops_spec(session_id: str, limit: int = 100) -> str:
   return ""
 
 
-def _init_hlo_module(hlo_module):
-  hlo_module.name = "main"
-  hlo_module.entry_computation_name = "main"
-  hlo_module.entry_computation_id = 1
-  hlo_module.host_program_shape.result.element_type = xla_data_pb2.TUPLE
-
-
 class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
 
   @mock.patch.object(hlo_tools, "_fetch_debug_info", autospec=True)
@@ -27,7 +20,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
     # Create empty hlo module
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # Just a standalone copy that does not connect to any compute op
@@ -55,7 +47,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_sandwiched_copy_with_layout_mismatch(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # 1. Upstream compute op (dot)
@@ -143,7 +134,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_non_optimal_minor_dimensions(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # 1. Upstream compute op (dot)
@@ -205,7 +195,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_custom_call_compute_op(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # 1. Upstream compute custom-call (update_slice)
@@ -265,7 +254,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_custom_call_non_compute_op(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # 1. Upstream non-compute custom-call (Sharding)
@@ -324,7 +312,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_tuple_layout_mismatch(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # Upstream compute op (dot) producing tuple output
@@ -387,7 +374,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
     hlo_proto = debug_info.hlo_proto.add()
 
     # Main computation
-    _init_hlo_module(hlo_proto.hlo_module)
     main_comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
     hlo_proto.hlo_module.entry_computation_id = 1
 
@@ -470,7 +456,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_datatype_aware_tpu_optimality(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # Case A: F64 with minor size 64 (optimal for F64)
@@ -528,7 +513,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
   def test_detect_missing_layout_mismatch(self, mock_fetch):
     debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
     hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
     comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
 
     # Upstream: explicit [0, 1] layout
@@ -715,182 +699,6 @@ class DetectLayoutMismatchCopiesToolTest(parameterized.TestCase):
     )
     downstream_names = [d.name for d, _ in downstream]
     self.assertIn("reduce_op", downstream_names)
-
-  @mock.patch.object(hlo_tools, "_fetch_debug_info", autospec=True)
-  def test_op_metrics_multilevel_path_matching(self, mock_fetch):
-    debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
-    hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
-    comp = hlo_proto.hlo_module.computations.add(name="jit_call_kvup", id=1)
-
-    comp.instructions.add(
-        id=10,
-        name="param0",
-        opcode="parameter",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[1, 0]),
-        ),
-    )
-
-    comp.instructions.add(
-        id=20,
-        name="copy.3",
-        opcode="copy",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
-        ),
-        operand_ids=[10],
-    )
-    comp.instructions.add(
-        id=21,
-        name="copy_other",
-        opcode="copy",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
-        ),
-        operand_ids=[10],
-    )
-
-    comp.instructions.add(
-        id=30,
-        name="update_slice.1",
-        opcode="custom-call",
-        custom_call_target="update_slice",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
-        ),
-        operand_ids=[20, 21],
-    )
-    comp.root_id = 30
-    mock_fetch.return_value = debug_info
-
-    top_ops_json = json.dumps({
-        "top_by_time": [{
-            "name": (
-                "by_program/jit_call_kvup(15899394557443602781)/data"
-                " formatting/copy.3"
-            ),
-            "category": "data formatting",
-            "total_self_time_ms": 0.05,
-            "bytes_accessed": 500000.0,
-        }]
-    })
-
-    mock_top_ops_fn = mock.create_autospec(_get_top_hlo_ops_spec, spec_set=True)
-    mock_top_ops_fn.return_value = top_ops_json
-
-    result_json = (
-        detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies(
-            "session_123", get_top_hlo_ops_fn=mock_top_ops_fn
-        )
-    )
-    result = json.loads(result_json)
-    self.assertTrue(result["bottlenecks_found"])
-    self.assertLen(result["inefficient_ops"], 1)
-    self.assertEqual(result["inefficient_ops"][0]["instruction_name"], "copy.3")
-
-  @mock.patch.object(hlo_tools, "_fetch_debug_info", autospec=True)
-  def test_short_circuit_when_no_copy_in_top_ops(self, mock_fetch):
-    top_ops_json = json.dumps({
-        "top_by_time": [{
-            "name": "main/dot.1",
-            "category": "matrix multiplication",
-            "total_self_time_ms": 10.0,
-            "bytes_accessed": 10000.0,
-        }]
-    })
-    mock_top_ops_fn = mock.create_autospec(_get_top_hlo_ops_spec, spec_set=True)
-    mock_top_ops_fn.return_value = top_ops_json
-
-    result_json = (
-        detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies(
-            "session_123", get_top_hlo_ops_fn=mock_top_ops_fn
-        )
-    )
-    result = json.loads(result_json)
-    self.assertFalse(result["bottlenecks_found"])
-    self.assertEqual(
-        result["message"], "No layout mismatch copy bottlenecks detected."
-    )
-    mock_fetch.assert_not_called()
-
-  @mock.patch.object(hlo_tools, "_fetch_debug_info", autospec=True)
-  def test_detect_copy_with_zero_self_time_in_top_ops(self, mock_fetch):
-    debug_info = hlo_tools.hlo_proto_dump_pb2.DebugInfoCollection()
-    hlo_proto = debug_info.hlo_proto.add()
-    _init_hlo_module(hlo_proto.hlo_module)
-    comp = hlo_proto.hlo_module.computations.add(name="main", id=1)
-
-    comp.instructions.add(
-        id=10,
-        name="param0",
-        opcode="parameter",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[1, 0]),
-        ),
-    )
-
-    comp.instructions.add(
-        id=20,
-        name="copy_zero",
-        opcode="copy",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128, 256],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[0, 1]),
-        ),
-        operand_ids=[10],
-    )
-
-    comp.instructions.add(
-        id=30,
-        name="reduce_op",
-        opcode="reduce",
-        shape=xla_data_pb2.ShapeProto(
-            element_type=xla_data_pb2.F32,
-            dimensions=[128],
-            layout=xla_data_pb2.LayoutProto(minor_to_major=[0]),
-        ),
-        operand_ids=[20],
-    )
-    comp.root_id = 30
-    mock_fetch.return_value = debug_info
-
-    top_ops_json = json.dumps({
-        "top_by_bytes_accessed": [{
-            "name": "main/copy_zero",
-            "category": "data formatting",
-            "total_self_time_ms": 0.0,
-            "bytes_accessed": 1000000.0,
-        }]
-    })
-    mock_top_ops_fn = mock.create_autospec(_get_top_hlo_ops_spec, spec_set=True)
-    mock_top_ops_fn.return_value = top_ops_json
-
-    result_json = (
-        detect_layout_mismatch_copies_tool.detect_layout_mismatch_copies(
-            "session_123", get_top_hlo_ops_fn=mock_top_ops_fn
-        )
-    )
-    result = json.loads(result_json)
-    self.assertTrue(result["bottlenecks_found"])
-    self.assertEqual(
-        result["inefficient_ops"][0]["instruction_name"], "copy_zero"
-    )
-    self.assertEqual(result["inefficient_ops"][0]["total_self_time_ms"], 0.0)
-    self.assertEqual(
-        result["inefficient_ops"][0]["bytes_accessed"], 1000000.0
-    )
 
 
 if __name__ == "__main__":

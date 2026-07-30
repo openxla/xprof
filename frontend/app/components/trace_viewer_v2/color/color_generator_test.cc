@@ -1,12 +1,18 @@
 #include "frontend/app/components/trace_viewer_v2/color/color_generator.h"
 
+#include <vector>
+
+#include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "imgui.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
 
 namespace traceviewer {
 namespace {
+
+using ::testing::status::StatusIs;
 
 TEST(ColorGeneratorTest, ReturnsSameColorForSameId) {
   static constexpr ImU32 kColors[] = {0xFF0000FF, 0xFF00FF00, 0xFFFF0000};
@@ -109,6 +115,33 @@ TEST(ColorsTest, GetTextColorForContrast_DarkMode) {
   ImU32 both_ok_bg = 0xFF767676;
   EXPECT_EQ(GetTextColorForContrast(both_ok_bg, on_surface, inverse_on_surface),
             on_surface);
+}
+
+TEST(ColorPaletteTest, SetTraceColors_ValidInput) {
+  ColorPalette palette = ColorPalette::Default();
+  std::vector<ImU32> new_colors = {0xFF112233, 0xFF445566, 0xFF778899,
+                                   0xFFAABBCC};
+
+  EXPECT_OK(palette.SetTraceColors(new_colors));
+  EXPECT_EQ(palette.GetTraceColors().size(), 4);
+  EXPECT_EQ(palette.GetTraceColors()[0], 0xFF112233);
+  EXPECT_EQ(palette.GetTraceColors()[3], 0xFFAABBCC);
+}
+
+TEST(ColorPaletteTest, SetTraceColors_EmptyInputFails) {
+  ColorPalette palette = ColorPalette::Default();
+  std::vector<ImU32> empty_colors;
+
+  EXPECT_THAT(palette.SetTraceColors(empty_colors),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(ColorPaletteTest, SetTraceColors_ExceedingMaxColorsFails) {
+  ColorPalette palette = ColorPalette::Default();
+  std::vector<ImU32> too_many_colors(kMaxColors + 1, 0xFFFFFFFF);
+
+  EXPECT_THAT(palette.SetTraceColors(too_many_colors),
+              StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 }  // namespace

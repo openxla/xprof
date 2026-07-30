@@ -154,6 +154,7 @@ class ColorPalette {
   absl::Status SetColor(Key key, ImU32 color);
 
   absl::Status SetTraceColor(int index, ImU32 color);
+  absl::Status SetTraceColors(absl::Span<const ImU32> colors);
   absl::Status PushTraceColor(ImU32 color);
   absl::Status PopTraceColor();
 

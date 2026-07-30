@@ -152,6 +152,7 @@ declare global {
   SetPanningSpeed?(speed: number): void;
   SetZoomSpeed?(speed: number): void;
   SetMouseWheelZoomSpeed?(speed: number): void;
+  SetCustomTraceColors?(colors: number[]): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;
@@ -322,7 +323,7 @@ export function shutdownTraceViewerV2() {
  * Returns the currently active Trace Viewer v2 WASM module, or null if
  * the module has not been initialized or has been shut down.
  */
-export function getActiveWasmModule(): TraceViewerV2Module|null {
+export function getActiveWasmModule(): TraceViewerV2Module | null {
   return activeWasmModule;
 }
 

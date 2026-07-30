@@ -97,6 +97,20 @@ absl::Status ColorPalette::SetTraceColor(int index, ImU32 color) {
   return absl::OkStatus();
 }
 
+absl::Status ColorPalette::SetTraceColors(absl::Span<const ImU32> colors) {
+  if (colors.empty()) {
+    return absl::InvalidArgumentError("At least one trace color is required");
+  }
+  if (colors.size() > kMaxColors) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Cannot set more than ", kMaxColors, " trace colors"));
+  }
+  trace_colors_.assign(colors.begin(), colors.end());
+  trace_version_++;
+  version_++;
+  return absl::OkStatus();
+}
+
 absl::Status ColorPalette::PushTraceColor(ImU32 color) {
   if (trace_colors_.size() >= kMaxColors) {
     return absl::ResourceExhaustedError(

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -92,12 +93,36 @@ EMSCRIPTEN_KEEPALIVE void SetMouseWheelZoomSpeed(float speed) {
   Application::Instance().SetMouseWheelZoomSpeed(speed);
 }
 
+EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
+    const emscripten::val& colors_val) {
+  if (!colors_val.isArray()) {
+    LOG(ERROR) << "Failed to set custom trace colors: input is not an array";
+    return;
+  }
+  const unsigned int length = colors_val["length"].as<unsigned int>();
+  if (length > kMaxColors) {
+    LOG(ERROR) << "Failed to set custom trace colors: length " << length
+               << " exceeds max allowed (" << kMaxColors << ")";
+    return;
+  }
+  std::vector<ImU32> trace_colors =
+      emscripten::vecFromJSArray<ImU32>(colors_val);
+  ColorPalette& palette = Application::Instance().GetPalette();
+  absl::Status status = palette.SetTraceColors(trace_colors);
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to set custom trace colors: " << status;
+    return;
+  }
+  Application::Instance().RequestRedraw();
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
   emscripten::function("SetPanningSpeed", &SetPanningSpeed);
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
+  emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {

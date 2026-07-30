@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -65,9 +66,17 @@ struct DmaFlowMetadata {
   uint64_t last_write_start_cycle = 0;
 };
 
+struct DeduplicatedFusionMetadata {
+  std::string duplicate_of;
+};
+
 struct LiteIngestionMetadata {
   absl::flat_hash_map<uint64_t, DmaFlowMetadata> dma_flow_map;
   tsl::profiler::GroupMetadataMap group_metadata_map;
+  absl::flat_hash_map<std::pair<const tsl::profiler::XLine*, uint32_t>,
+                      DeduplicatedFusionMetadata>
+      dedup_fusion_map;
+  absl::flat_hash_map<std::string, std::string> dedup_name_to_hlo_text;
 };
 
 struct TraceEventLiteContainer {

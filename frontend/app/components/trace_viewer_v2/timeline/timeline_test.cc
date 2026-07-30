@@ -19,6 +19,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "imgui.h"
@@ -8848,8 +8849,9 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
   SimulateFrame();
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
-
   EXPECT_TRUE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kPinnedProcessNotificationPrefix, "Process A"));
 
   // Click to UNPIN (draws at Y = 105.0f because Pinned is the second header):
   io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 105.0f);
@@ -8864,6 +8866,8 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
   SimulateFrame();
 
   EXPECT_FALSE(timeline_.pinned_track_names_.contains("Process A"));
+  EXPECT_EQ(timeline_.get_bounds_notification_message_for_test(),
+            absl::StrCat(kUnpinnedProcessNotificationPrefix, "Process A"));
 
   // Verify Process A returns back to All section (hovering at Y = 135.0f):
   io.MousePos = ImVec2(timeline_.GetLabelWidth() - 20.0f, 135.0f);

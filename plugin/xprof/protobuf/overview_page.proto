@@ -17,7 +17,7 @@ message OverviewTfOp {
   // The amount of time that this Op takes by itself
   // as fraction of the total execution time on the device or host.
   double self_time_fraction = 3;
-  // The cumulative time upto this Op as fraction of the total execution time.
+  // The cumulative time up to this Op as fraction of the total execution time.
   double cumulative_time_fraction = 4;
   // How many GFlops/sec that this Op achieves.
   double flop_rate = 5;
@@ -72,6 +72,10 @@ message OverviewPageAnalysis {
   // BEGIN-INTERNAL
   // Program Goodput metric in percentage.
   double program_goodput_percent = 18;
+  // Program Goodput High Confidence metric in percentage.
+  double program_goodput_high_confidence_percent = 61;
+  // Duty Cycle High Confidence metric in percentage.
+  double device_duty_cycle_high_confidence_percent = 62;
   // Sparse core step time in ms average.
   double sc_step_time_ms_average = 19;
   // Sparse core infeed time in ms average.
@@ -96,6 +100,10 @@ message OverviewPageAnalysis {
   double fw_max_hbm_pl3_power_watts = 29;
   // Max FW HBM PL4 power metrics in watts.
   double fw_max_hbm_pl4_power_watts = 30;
+  // Whether the profile has valid Program Goodput fields.
+  bool has_program_goodput = 63;
+  // Idle time for high confidence duty cycle.
+  double idle_time_high_confidence_ps = 64;
   // END-INTERNAL
 }
 

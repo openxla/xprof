@@ -10,17 +10,13 @@ import time
 import types
 from typing import Any, Callable, TypedDict
 
+from tensorflow.compiler.xla.python import xla_client
 from xprof.cli.internal.oss import (
     hlo_tools,
 )
 from xprof.cli.tools import (
     get_top_hlo_ops_tool,
 )
-
-try:
-  from tensorflow.compiler.xla.python import xla_client  # pylint: disable=g-import-not-at-top
-except ImportError:
-  xla_client = None
 
 _PRIMITIVE_TYPE_NAMES = {
     0: "PRIMITIVE_TYPE_INVALID",
@@ -494,6 +490,22 @@ def _get_id(obj):
   return name() if callable(name) else name
 
 
+def _get_name(obj: Any) -> str:
+  """Gets the string name of an HLO instruction or object."""
+  if isinstance(obj, str):
+    return obj
+  name = getattr(obj, "name", "")
+  return str(name() if callable(name) else name)
+
+
+def _get_operands(instr: Any) -> Sequence[Any]:
+  """Gets operands list for either C++ HloInstruction or Protobuf HloInstructionProto."""
+  operands_fn = getattr(instr, "operands", None)
+  if callable(operands_fn):
+    return operands_fn()  # type: ignore
+  return getattr(instr, "operand_ids", [])
+
+
 def _get_opcode_lower(instr: Any) -> str:
   """Gets the lowercased opcode string for an HLO instruction."""
   op = getattr(instr, "opcode_name", instr.opcode)
@@ -718,11 +730,7 @@ def find_upstream_compute_stages(
           if not caller:
             continue
           caller_opcode = _get_opcode_lower(caller)
-          caller_operands = (
-              caller.operands()
-              if callable(getattr(caller, "operands", None))
-              else getattr(caller, "operand_ids", [])
-          )
+          caller_operands = _get_operands(caller)
           if caller_opcode == "conditional":
             for branch_idx, comp_id in enumerate(
                 _get_called_comp_ids(caller, comp_id_by_name)
@@ -755,11 +763,7 @@ def find_upstream_compute_stages(
       elif opcode == "get-tuple-element":
         idx = getattr(curr_instr, "tuple_index", 0)
         parent_idx = (idx,) + shape_idx
-        operands = (
-            curr_instr.operands()
-            if callable(getattr(curr_instr, "operands", None))
-            else getattr(curr_instr, "operand_ids", [])
-        )
+        operands = _get_operands(curr_instr)
         if operands:
           target_id = _get_id(operands[0])
           if (target_id, parent_idx) not in visited:
@@ -767,11 +771,7 @@ def find_upstream_compute_stages(
             queue.append((target_id, parent_idx, dist + 1))
 
       elif opcode == "tuple":
-        operands = (
-            curr_instr.operands()
-            if callable(getattr(curr_instr, "operands", None))
-            else getattr(curr_instr, "operand_ids", [])
-        )
+        operands = _get_operands(curr_instr)
         if shape_idx:
           idx = shape_idx[0]
           remaining_idx = shape_idx[1:]
@@ -788,11 +788,7 @@ def find_upstream_compute_stages(
               queue.append((target_id, (), dist + 1))
 
       elif opcode == "while":
-        operands = (
-            curr_instr.operands()
-            if callable(getattr(curr_instr, "operands", None))
-            else getattr(curr_instr, "operand_ids", [])
-        )
+        operands = _get_operands(curr_instr)
         if operands:
           init_id = _get_id(operands[0])
           if (init_id, shape_idx) not in visited:
@@ -816,11 +812,7 @@ def find_upstream_compute_stages(
               queue.append((called_comp.root_id, shape_idx, dist + 1))
 
       else:
-        operands = (
-            curr_instr.operands()
-            if callable(getattr(curr_instr, "operands", None))
-            else getattr(curr_instr, "operand_ids", [])
-        )
+        operands = _get_operands(curr_instr)
         for op in operands:
           op_id = _get_id(op)
           if (op_id, shape_idx) not in visited and op_id in instr_by_id:
@@ -1023,19 +1015,13 @@ def _get_c_modules(session_id: str) -> list[Any]:
   debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
   c_modules = []
   for hlo_proto in debug_info.hlo_proto:
-    if xla_client is None:
-      c_modules.append(None)
-      continue
     try:
       c_modules.append(
           xla_client.hlo.HloModule.from_serialized_hlo_module_proto(  # type: ignore
               hlo_proto.hlo_module.SerializeToString()
           )
       )
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning(
-          "Failed to parse C++ HloModule, falling back to Python: %s", e
-      )
+    except Exception:  # pylint: disable=broad-exception-caught
       c_modules.append(None)
   return c_modules
 
@@ -1045,7 +1031,7 @@ def detect_layout_mismatch_copies(
     get_top_hlo_ops_fn: Callable[
         ..., str
     ] = get_top_hlo_ops_tool.get_top_hlo_ops,
-    limit: int = 100,
+    limit: int = 1000,
 ) -> str:
   """Detects layout mismatch copy ops sandwiched between compute stages.
 
@@ -1061,16 +1047,15 @@ def detect_layout_mismatch_copies(
   try:
     total_start_time = time.time()
 
-    fetch_time_start = time.time()
-    debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
-    fetch_time_end = time.time()
-    if not debug_info.hlo_proto:
-      return json.dumps({"error": "No HLO proto found in the session."})
-
     op_metrics = {}
+    fetch_top_ops_time_s = 0.0
+    parse_top_ops_time_s = 0.0
     try:
+      fetch_top_ops_start_time = time.time()
       top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
+      fetch_top_ops_time_s = time.time() - fetch_top_ops_start_time
       if top_ops_json:
+        parse_top_ops_start_time = time.time()
         ops_data = json.loads(top_ops_json)
         all_profiled_ops = itertools.chain(
             ops_data.get("top_by_time", []),
@@ -1080,26 +1065,55 @@ def detect_layout_mismatch_copies(
         for op in all_profiled_ops:
           raw_name = op.get("name", "")
           parts = raw_name.split("/")
+          instr_name_part = parts[-1].split(" and its ")[0]
+          instr_name = instr_name_part.replace("%", "").strip()
+          op_metrics[("", instr_name)] = op
           if len(parts) > 1:
-            comp_name = parts[0]
-            instr_name_part = parts[-1].split(" and its ")[0]
-            instr_name = instr_name_part.replace("%", "").strip()
-            op_metrics[(comp_name, instr_name)] = op
-          else:
-            instr_name_part = raw_name.split(" and its ")[0]
-            instr_name = instr_name_part.replace("%", "").strip()
-            op_metrics[("", instr_name)] = op
+            op_metrics[(parts[0], instr_name)] = op
+          if len(parts) > 2:
+            comp_part = parts[1].split("(")[0].strip()
+            op_metrics[(comp_part, instr_name)] = op
+        parse_top_ops_time_s = time.time() - parse_top_ops_start_time
     except (json.JSONDecodeError, TypeError) as e:
       logging.warning(
           "Failed to fetch or parse top HLO ops: %r", e, exc_info=True
       )
 
-    core_logic_start_time = time.time()
+    has_copy_in_metrics = any(
+        "copy" in k[1].lower() or "copy" in k[0].lower()
+        for k in op_metrics
+    )
+    if op_metrics and not has_copy_in_metrics:
+      total_wall_time_s = time.time() - total_start_time
+      logging.info(
+          "Layout mismatch copy detection metrics - Session ID: %s, Fetch HLO"
+          " Proto time: 0.00s, Fetch Top Ops time: %.2fs, Parse Top Ops time:"
+          " %.2fs, C++ Module Load time: 0.00s, Dict build time: 0.00s, Copy"
+          " scan time: 0.00s, BFS time (0 copies): 0.00s, Report gen time:"
+          " 0.00s, Sort & Format time: 0.00s, Total wall clock time: %.2fs",
+          session_id,
+          fetch_top_ops_time_s,
+          parse_top_ops_time_s,
+          total_wall_time_s,
+      )
+      return json.dumps({
+          "bottlenecks_found": False,
+          "inefficient_ops": [],
+          "message": "No layout mismatch copy bottlenecks detected.",
+      })
+
+    fetch_time_start = time.time()
+    debug_info = hlo_tools._fetch_debug_info(session_id)  # pylint: disable=protected-access
+    fetch_time_end = time.time()
+    if not debug_info.hlo_proto:
+      return json.dumps({"error": "No HLO proto found in the session."})
 
     inefficient_ops = []
 
     dict_build_time_total = 0.0
+    copy_scan_time_total = 0.0
     bfs_time_total = 0.0
+    report_gen_time_total = 0.0
     copy_count = 0
 
     load_start = time.time()
@@ -1124,13 +1138,10 @@ def detect_layout_mismatch_copies(
         comp_id_by_name[comp.name] = comp.id
         root_id_by_comp_id[comp.id] = comp.root_id
 
-      instr_id_to_comp_id = {}
       callers_by_comp_id = collections.defaultdict(list)
       comp_id_by_instr_id = {}
       compute_stage_memo = {}
 
-      # Use C++ xla_client to bypass lazy Python Protobuf instantiation
-      # over massive graphs
       c_module = c_modules[idx] if idx < len(c_modules) else None
 
       proto_instr_by_id = {}
@@ -1139,87 +1150,70 @@ def detect_layout_mismatch_copies(
           proto_instr_by_id[_get_id(instr)] = instr
           if instr.name:
             proto_instr_by_id[instr.name] = instr
+
       if c_module:
-        c_computations = (
-            c_module.computations()
-            if callable(getattr(c_module, "computations", None))
-            else c_module.computations
-        )
-        for c_comp in c_computations:
-          comp_id = comp_id_by_name.get(
-              c_comp.name, getattr(c_comp, "id", c_comp.name)
-          )
-          comp_by_id[comp_id] = c_comp  # Overwrite with fast C++ object
-          c_instructions = (
-              c_comp.instructions()
-              if callable(getattr(c_comp, "instructions", None))
-              else c_comp.instructions
-          )
-          for c_instr in c_instructions:
-            c_instr_name = (
-                c_instr.name()
-                if callable(getattr(c_instr, "name", None))
-                else c_instr.name
-            )
-            instr_id = getattr(c_instr, "id", c_instr_name)
-            instr_id_to_comp_id[instr_id] = comp_id
+        for c_comp in c_module.computations():
+          comp_id = comp_id_by_name.get(_get_id(c_comp), _get_id(c_comp))
+          comp_by_id[comp_id] = c_comp
+          for c_instr in c_comp.instructions():
+            instr_id = _get_id(c_instr)
             comp_id_by_instr_id[instr_id] = comp_id
             instr_by_id[instr_id] = c_instr
-            c_called_names = (
-                c_instr.called_computation_names()
-                if callable(getattr(c_instr, "called_computation_names", None))
-                else getattr(c_instr, "called_computation_names", [])
-            )
-            for comp_name in c_called_names:
-              called_comp_id = comp_id_by_name.get(comp_name)
-              if called_comp_id is not None:
-                callers_by_comp_id[called_comp_id].append(instr_id)
-            c_users = (
-                c_instr.users()
-                if callable(getattr(c_instr, "users", None))
-                else getattr(c_instr, "users", [])
-            )
-            for u in c_users:
-              u_name = (
-                  u.name() if callable(getattr(u, "name", None)) else u.name
-              )
-              users_by_id[instr_id].append(getattr(u, "id", u_name))
+            called_comp_ids = _get_called_comp_ids(c_instr, comp_id_by_name)
+            for called_comp_id in called_comp_ids:
+              callers_by_comp_id[called_comp_id].append(instr_id)
+            for u in c_instr.users():
+              users_by_id[instr_id].append(_get_id(u))
       else:
         for comp in module_proto.computations:
-          comp_by_id[comp.id] = comp
           for instr in comp.instructions:
             instr_id = _get_id(instr)
-            instr_id_to_comp_id[instr_id] = comp.id
             comp_id_by_instr_id[instr_id] = comp.id
             instr_by_id[instr_id] = instr
-            for called_id in getattr(instr, "called_computation_ids", []):
-              callers_by_comp_id[called_id].append(instr_id)
-            for op_id in getattr(instr, "operand_ids", []):
+            for called_comp_id in _get_called_comp_ids(instr, comp_id_by_name):
+              callers_by_comp_id[called_comp_id].append(instr_id)
+            for op_id in instr.operand_ids:
               users_by_id[op_id].append(instr_id)
 
       dict_build_time_total += time.time() - dict_build_start
 
       for instr in instr_by_id.values():
+        copy_scan_start = time.time()
         opcode = _get_opcode_lower(instr)
         if opcode != "copy":
+          copy_scan_time_total += time.time() - copy_scan_start
           continue
 
-        if callable(getattr(instr, "operands", None)):
-          operands = getattr(instr, "operands")()
-        else:
-          operands = getattr(instr, "operand_ids", [])
-
+        operands = _get_operands(instr)
         if not operands:
+          copy_scan_time_total += time.time() - copy_scan_start
           continue
 
-        operand_id = (
-            _get_id(operands[0])
-            if hasattr(operands[0], "id") or hasattr(operands[0], "name")
-            else operands[0]
-        )
+        operand_id = _get_id(operands[0])
         operand_instr = instr_by_id.get(operand_id)
         if not operand_instr:
+          copy_scan_time_total += time.time() - copy_scan_start
           continue
+
+        instr_comp_id = comp_id_by_instr_id.get(_get_id(instr))
+        instr_comp_name = (
+            comp_name_by_id.get(instr_comp_id, "") if instr_comp_id else ""
+        )
+        instr_id = _get_id(instr)
+        instr_name_str = getattr(instr, "name", "")
+        if callable(instr_name_str):
+          instr_name_str = instr_name_str()
+        metrics = (
+            op_metrics.get((instr_comp_name, instr_name_str), {})
+            or op_metrics.get(("", instr_name_str), {})
+            or op_metrics.get((instr_comp_name, instr_id), {})
+            or op_metrics.get(("", instr_id), {})
+        )
+        if op_metrics and not metrics:
+          copy_scan_time_total += time.time() - copy_scan_start
+          continue
+
+        copy_scan_time_total += time.time() - copy_scan_start
 
         copy_count += 1
         bfs_start = time.time()
@@ -1250,10 +1244,12 @@ def detect_layout_mismatch_copies(
         bfs_time_total += time.time() - bfs_start
 
         if upstream_producers and downstream_stages:
+          report_gen_start = time.time()
           proto_instr = proto_instr_by_id.get(_get_id(instr))
           proto_operand = proto_instr_by_id.get(operand_id)
 
           if not proto_instr or not proto_operand:
+            report_gen_time_total += time.time() - report_gen_start
             continue
 
           source_shape = proto_operand.shape
@@ -1272,19 +1268,20 @@ def detect_layout_mismatch_copies(
           )
 
           upstream_names_str = ", ".join(
-              f"'{u.name}' ({_get_opcode_lower(u)}, dist={d})"
+              f"'{_get_name(u)}' ({_get_opcode_lower(u)}, dist={d})"
               for u, d in upstream_producers
           )
           downstream_names_str = ", ".join(
-              f"'{d.name}' ({_get_opcode_lower(d)}, dist={dist})"
+              f"'{_get_name(d)}' ({_get_opcode_lower(d)}, dist={dist})"
               for d, dist in downstream_stages
           )
 
           recommendation_parts = []
           recommendation_parts.append(
-              f"Copy op '{instr.name}' is sandwiched between upstream producers"
-              f" (compute, parameters, or constants) [{upstream_names_str}]"
-              f" and downstream compute stages [{downstream_names_str}]."
+              f"Copy op '{instr_name_str}' is sandwiched between upstream"
+              f" producers (compute, parameters, or constants)"
+              f" [{upstream_names_str}] and downstream compute stages"
+              f" [{downstream_names_str}]."
           )
 
           if layout_mismatch:
@@ -1328,19 +1325,11 @@ def detect_layout_mismatch_copies(
           )
           recommendation = "".join(recommendation_parts)
 
-          metrics = {}
-          instr_comp_id = instr_id_to_comp_id.get(_get_id(instr))
-          if instr_comp_id:
-            instr_comp_name = comp_name_by_id.get(instr_comp_id, "")
-            metrics = op_metrics.get((instr_comp_name, instr.name), {})
-          if not metrics:
-            metrics = op_metrics.get(("", instr.name), {})
-
           self_time_ms = metrics.get("total_self_time_ms", 0.0)
           bytes_accessed = metrics.get("bytes_accessed", 0)
 
           bottleneck_entry = BottleneckEntry(
-              instruction_name=instr.name,
+              instruction_name=instr_name_str,
               source_shape=source_shape_str,
               target_shape=target_shape_str,
               layout_mismatch=layout_mismatch,
@@ -1348,7 +1337,7 @@ def detect_layout_mismatch_copies(
               target_minor_dim_optimal=target_optimal,
               upstream_stages=[
                   UpstreamProducer(
-                      name=u.name,
+                      name=_get_name(u),
                       opcode=_get_opcode_lower(u),
                       distance=d,
                   )
@@ -1356,7 +1345,7 @@ def detect_layout_mismatch_copies(
               ],
               downstream_stages=[
                   DownstreamStage(
-                      name=d.name,
+                      name=_get_name(d),
                       opcode=_get_opcode_lower(d),
                       distance=dist,
                   )
@@ -1367,7 +1356,9 @@ def detect_layout_mismatch_copies(
               recommendation=recommendation,
           )
           inefficient_ops.append(bottleneck_entry)
+          report_gen_time_total += time.time() - report_gen_start
 
+    sort_format_start = time.time()
     inefficient_ops.sort(
         key=lambda x: (x["total_self_time_ms"], x["bytes_accessed"]),
         reverse=True,
@@ -1383,30 +1374,7 @@ def detect_layout_mismatch_copies(
     else:
       message = "No layout mismatch copy bottlenecks detected."
 
-    core_logic_end_time = time.time()
-    core_logic_time_s = core_logic_end_time - core_logic_start_time
-    total_end_time = time.time()
-    total_time_s = total_end_time - total_start_time
-
-    logging.info(
-        "Layout mismatch copy detection metrics - Session ID: %s, "
-        "Fetch time: %.2fs, "
-        "Load time: %.2fs, "
-        "Total wall clock time: %.2fs, "
-        "Core logic processing time: %.2fs, "
-        "Dict build time: %.2fs, "
-        "BFS time for %d copies: %.2fs",
-        session_id,
-        fetch_time_end - fetch_time_start,
-        load_time_s,
-        total_time_s,
-        core_logic_time_s,
-        dict_build_time_total,
-        copy_count,
-        bfs_time_total,
-    )
-
-    return json.dumps(
+    result_json = json.dumps(
         {
             "bottlenecks_found": bottlenecks_found,
             "inefficient_ops": inefficient_ops,
@@ -1414,6 +1382,38 @@ def detect_layout_mismatch_copies(
         },
         indent=2,
     )
+    sort_format_time_s = time.time() - sort_format_start
+
+    total_end_time = time.time()
+    total_time_s = total_end_time - total_start_time
+
+    logging.info(
+        "Layout mismatch copy detection metrics - Session ID: %s, "
+        "Fetch HLO Proto time: %.2fs, "
+        "Fetch Top Ops time: %.2fs, "
+        "Parse Top Ops time: %.2fs, "
+        "C++ Module Load time: %.2fs, "
+        "Dict build time: %.2fs, "
+        "Copy scan time: %.2fs, "
+        "BFS time (%d copies): %.2fs, "
+        "Report gen time: %.2fs, "
+        "Sort & Format time: %.2fs, "
+        "Total wall clock time: %.2fs",
+        session_id,
+        fetch_time_end - fetch_time_start,
+        fetch_top_ops_time_s,
+        parse_top_ops_time_s,
+        load_time_s,
+        dict_build_time_total,
+        copy_scan_time_total,
+        copy_count,
+        bfs_time_total,
+        report_gen_time_total,
+        sort_format_time_s,
+        total_time_s,
+    )
+
+    return result_json
 
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error detecting layout mismatch copy operations")

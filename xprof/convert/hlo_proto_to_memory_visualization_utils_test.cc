@@ -15,8 +15,11 @@ limitations under the License.
 
 #include "xprof/convert/hlo_proto_to_memory_visualization_utils.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
@@ -381,6 +384,8 @@ struct DoubleRectInfo {
   double height = 0.0;
   uint64_t offset = 0;
   uint64_t size = 0;
+  std::string label;
+  double fontsize = 0.0;
 };
 
 std::vector<DoubleRectInfo> ParseLogicalBuffersFromDot(absl::string_view dot) {
@@ -428,7 +433,7 @@ std::vector<DoubleRectInfo> ParseLogicalBuffersFromDot(absl::string_view dot) {
     if (width_end == absl::string_view::npos) continue;
     std::string width_str =
         std::string(dot.substr(width_start, width_end - width_start));
-    double width = std::stod(width_str);
+    double width = std::stod(width_str) * 72.0;
 
     size_t height_start = dot.find("height=\"", width_end);
     if (height_start == absl::string_view::npos) continue;
@@ -437,7 +442,32 @@ std::vector<DoubleRectInfo> ParseLogicalBuffersFromDot(absl::string_view dot) {
     if (height_end == absl::string_view::npos) continue;
     std::string height_str =
         std::string(dot.substr(height_start, height_end - height_start));
-    double height = std::stod(height_str);
+    double height = std::stod(height_str) * 72.0;
+
+    size_t fontsize_start = dot.find("fontsize=", height_end);
+    double fontsize = 0.0;
+    if (fontsize_start != absl::string_view::npos) {
+      fontsize_start += 9;
+      size_t fontsize_end = dot.find_first_of(", ]", fontsize_start);
+      if (fontsize_end != absl::string_view::npos) {
+        std::string fontsize_str = std::string(
+            dot.substr(fontsize_start, fontsize_end - fontsize_start));
+        fontsize = std::stod(fontsize_str);
+      }
+    }
+
+    size_t label_start = dot.find("label=\"", height_end);
+    std::string label_val;
+    size_t next_search_start = height_end;
+    if (label_start != absl::string_view::npos) {
+      label_start += 7;
+      size_t label_end = dot.find('"', label_start);
+      if (label_end != absl::string_view::npos) {
+        label_val = std::string(
+            dot.substr(label_start, label_end - label_start));
+        next_search_start = label_end;
+      }
+    }
 
     uint64_t buffer_offset = 0;
     size_t offset_pos = tooltip.find("\noffset:");
@@ -451,9 +481,9 @@ std::vector<DoubleRectInfo> ParseLogicalBuffersFromDot(absl::string_view dot) {
       buffer_size = std::stoull(tooltip.substr(size_pos + 6));
     }
 
-    buffer_rects.push_back(
-        {tooltip, pos_x, pos_y, width, height, buffer_offset, buffer_size});
-    offset = height_end + 1;
+    buffer_rects.push_back({tooltip, pos_x, pos_y, width, height, buffer_offset,
+                            buffer_size, label_val, fontsize});
+    offset = next_search_start + 1;
   }
   return buffer_rects;
 }
@@ -918,6 +948,249 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
 
+TEST(MemoryViewerTest, TestAllocationTimelineLabels) {
+  static constexpr char kHLOForLabels[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "very_long_instruction_name_that_might_need_truncation_or_not"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "short"
+          id: 1
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 524288 }
+        assigned { logical_buffer_id: 2 offset: 524288 size: 524288 }
+      }
+      logical_buffers {
+        id: 1
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 524288
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 2 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+      }
+    }
+  )pb";
+
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOForLabels, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.timeline_option.render_timeline = true;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_FALSE(result.allocation_timeline().empty());
+
+  std::vector<DoubleRectInfo> rects =
+      ParseLogicalBuffersFromDot(result.allocation_timeline());
+
+  ASSERT_EQ(rects.size(), 2);
+
+  // Buffer 1: "very_long_instruction_name_that_might_need_truncation_or_not{0}"
+  // Width in points: 2 * (4096 / 4) = 2048.
+  // Height in points: 524288 * (4096 / 1048576) = 2048.
+  // It should fit completely because 2048 is huge.
+  EXPECT_EQ(rects[0].label,
+            "very_long_instruction_name_that_might_need_truncation_or_not");
+
+  // Buffer 2: "short"
+  // It should also fit.
+  EXPECT_EQ(rects[1].label, "short");
+}
+
+TEST(MemoryViewerTest, TestAllocationTimelineLabelsTruncation) {
+  static constexpr char kHLOBaseForLabels[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "very_long_instruction_name_that_should_be_truncated"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1048576
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 1048576 }
+      }
+      logical_buffers {
+        id: 1
+        size: 1048576
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: FREE buffer_id: 1 }
+      }
+    }
+  )pb";
+
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOBaseForLabels, &hlo_proto).ok());
+
+  // Mutate heap simulator trace to have 100 events.
+  // The first buffer will span from 0 to 1.
+  auto* trace = hlo_proto.mutable_buffer_assignment()
+                    ->mutable_heap_simulator_traces(0);
+  // It already has 2 events (ALLOC 1, FREE 1).
+  // Add 98 more dummy events.
+  for (int i = 0; i < 49; ++i) {
+    auto* alloc = trace->add_events();
+    alloc->set_kind(xla::HeapSimulatorTrace::Event::ALLOC);
+    alloc->set_buffer_id(1);  // reuse buffer_id 1
+    auto* free = trace->add_events();
+    free->set_kind(xla::HeapSimulatorTrace::Event::FREE);
+    free->set_buffer_id(1);
+  }
+  // Now total events = 100.
+  // Buffer 1 span is 0 to 1 (width 1).
+  // scale_x = 4096 / 100 = 40.96.
+  // width_points = 40.96.
+  // available_width = 40.96 - 2.88 = 38.08.
+  // limit = floor(38.08 / 5.5) = 6.
+  // Expected label: "very_long_instruction_name_that_should_be_truncated{0}"
+  // length 54.
+  // Truncated to: "ver..." (6-3 = 3 chars prefix).
+
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.timeline_option.render_timeline = true;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_FALSE(result.allocation_timeline().empty());
+
+  std::vector<DoubleRectInfo> rects =
+      ParseLogicalBuffersFromDot(result.allocation_timeline());
+
+  ASSERT_EQ(rects.size(), 1);
+  EXPECT_EQ(rects[0].label, "v...");
+}
+
+
+TEST(MemoryViewerTest, TestAllocationTimelineFontSizeScaling) {
+  static constexpr char kHLOFontSizeScaling[] = R"pb(
+    hlo_module {
+      name: "test_module"
+      entry_computation_name: "test_computation"
+      computations {
+        name: "test_computation"
+        instructions {
+          name: "large_buffer"
+          id: 0
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "medium_buffer"
+          id: 1
+          shape { tuple_shapes { element_type: U64 } }
+        }
+        instructions {
+          name: "small_buffer"
+          id: 2
+          shape { tuple_shapes { element_type: U64 } }
+        }
+      }
+    }
+    buffer_assignment {
+      buffer_allocations {
+        index: 0
+        size: 1000000
+        color: 1
+        assigned { logical_buffer_id: 1 offset: 0 size: 995000 }
+        assigned { logical_buffer_id: 2 offset: 995000 size: 4000 }
+        assigned { logical_buffer_id: 3 offset: 999000 size: 1000 }
+      }
+      logical_buffers {
+        id: 1
+        size: 995000
+        color: 1
+        defined_at { instruction_id: 0 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 2
+        size: 4000
+        color: 1
+        defined_at { instruction_id: 1 shape_index: 0 }
+      }
+      logical_buffers {
+        id: 3
+        size: 1000
+        color: 1
+        defined_at { instruction_id: 2 shape_index: 0 }
+      }
+      heap_simulator_traces {
+        events { kind: ALLOC buffer_id: 1 }
+        events { kind: ALLOC buffer_id: 2 }
+        events { kind: ALLOC buffer_id: 3 }
+        events { kind: FREE buffer_id: 1 }
+        events { kind: FREE buffer_id: 2 }
+        events { kind: FREE buffer_id: 3 }
+      }
+    }
+  )pb";
+
+  xla::HloProto hlo_proto;
+  ASSERT_TRUE(ParseTextFormatFromString(kHLOFontSizeScaling, &hlo_proto).ok());
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  option.timeline_option.render_timeline = true;
+  option.memory_color = 1;
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+  EXPECT_FALSE(result.allocation_timeline().empty());
+
+  std::vector<DoubleRectInfo> rects =
+      ParseLogicalBuffersFromDot(result.allocation_timeline());
+
+  ASSERT_EQ(rects.size(), 3);
+
+  // Large buffer: size 995000, rect_h = 4075.52.
+  // Font size should clamp to 14.0.
+  EXPECT_NEAR(rects[0].fontsize, 14.0, 0.01);
+
+  // Medium buffer: size 4000, rect_h = 16.384.
+  // Font size = 16.384 * 0.6 = 9.83 -> 9.8 in DOT.
+  EXPECT_NEAR(rects[1].fontsize, 9.8, 0.01);
+
+  // Small buffer: size 1000, rect_h = 4.096.
+  // Font size = 4.096 * 0.6 = 2.46 -> clamped to 8.0.
+  EXPECT_NEAR(rects[2].fontsize, 8.0, 0.01);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow
+

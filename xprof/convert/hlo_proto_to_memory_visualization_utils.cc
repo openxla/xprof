@@ -38,6 +38,7 @@ limitations under the License.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/substitute.h"
 #include "absl/types/span.h"
 #include "nlohmann/json.hpp"
 #include "google/protobuf/json/json.h"
@@ -72,8 +73,57 @@ using ::xla::Shape;
 using ::xla::ShapeUtil;
 using ::xla::StackFrameIndexProto;
 
+// Graphviz and Font Constants
+constexpr double kPointsPerInch = 72.0;
+constexpr double kGraphMarginInches = 0.02;
+constexpr double kGraphMarginPoints = kGraphMarginInches * kPointsPerInch;
+
+// Arial font heuristics.
+// Font height is ~1.2x of font size.
+constexpr double kFontHeightScale = 1.2;
+// Average char width is ~0.55x of font size.
+constexpr double kFontWidthScale = 0.55;
+
+constexpr absl::string_view kEllipsis = "...";
+
+// Dynamic font size configuration for timeline blocks.
+constexpr double kFontSizeToHeightRatio = 0.6;
+constexpr double kMinFontSize = 8.0;
+constexpr double kMaxFontSize = 14.0;
+
 std::string RenderTimelineGraph(absl::string_view dot) {
   return tensorflow::profiler::WrapDotInHtml(dot, "neato");
+}
+
+std::string GetFittingLabel(absl::string_view label, double width_pts,
+                            double height_pts, double fontsize) {
+  if (label.empty()) {
+    return "";
+  }
+  const double kHeightThreshold = kFontHeightScale * fontsize;
+  const double kCharWidth = kFontWidthScale * fontsize;
+
+  double usable_height = height_pts - 2.0 * kGraphMarginPoints;
+  double usable_width = width_pts - 2.0 * kGraphMarginPoints;
+
+  if (usable_height < kHeightThreshold || usable_width < kCharWidth) {
+    return "";
+  }
+
+  int max_chars = static_cast<int>(usable_width / kCharWidth);
+
+  if (label.length() <= max_chars) {
+    return std::string(label);
+  }
+
+  // We need at least one character of the original label plus the ellipsis.
+  const int kMinCharsForTruncation = kEllipsis.length() + 1;
+  if (max_chars >= kMinCharsForTruncation) {
+    return absl::StrCat(label.substr(0, max_chars - kEllipsis.length()),
+                        kEllipsis);
+  }
+
+  return "";
 }
 
 Shape ResolveShapeIndex(const xla::ShapeProto& shape_proto,
@@ -936,7 +986,8 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
 
   int node_id = 0;
   auto add_rect = [&](size_t x, size_t y, size_t width, size_t height,
-                      std::string_view description, absl::string_view color) {
+                      std::string_view description, absl::string_view color,
+                      absl::string_view raw_label) {
     double center_x =
         static_cast<double>(x) + (static_cast<double>(width) / 2.0);
     double center_y =
@@ -953,10 +1004,15 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     // point-scale values by 72.0 to convert to inches.
     double rect_w = (static_cast<double>(width) * scale_x);
     double rect_h = (static_cast<double>(height) * scale_y);
+    double node_fontsize = std::clamp(rect_h * kFontSizeToHeightRatio,
+                                      kMinFontSize, kMaxFontSize);
+    std::string label =
+        GetFittingLabel(raw_label, rect_w, rect_h, node_fontsize);
     rects.push_back(absl::StrFormat(
-        R"("%d" [tooltip="%s", pos="%.2f,%.2f!", width="%.2f", )"
-        R"(height="%.2f", fixedsize=true, color="%s"];)",
-        node_id++, description, pos_x, pos_y, rect_w, rect_h, color));
+        R"("%d" [tooltip="%s", pos="%.2f,%.2f!", width="%.4f", )"
+        R"(height="%.4f", fixedsize=true, color="%s", fontsize=%.1f, label="%s"];)",
+        node_id++, description, pos_x, pos_y, rect_w / kPointsPerInch,
+        rect_h / kPointsPerInch, color, node_fontsize, label));
   };
   int buffer_id = 0;
   for (const auto& buffer_allocation : buffer_allocations) {
@@ -965,7 +1021,7 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     size_t buffer_allocation_offset = buffer_allocation_offsets[buffer_id++];
     add_rect(0, buffer_allocation_offset, total_x_size,
              buffer_allocation->size(), buffer_allocation->description(),
-             "#ffffffff");
+             "#ffffffff", "");
 
     for (const auto& assigned : buffer_allocation->proto().assigned()) {
       const LogicalBufferStruct* logical_buffer =
@@ -983,7 +1039,8 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
         color = kBufferColors[it->second % num_lb_colors];
       }
       add_rect(logical_buffer->span->first, y, width, height,
-               logical_buffer->description(), color);
+               logical_buffer->description(), color,
+               logical_buffer->instruction_name());
     }
   }
   VLOG(1) << "rects:" << rects.size();
@@ -993,9 +1050,12 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
         R"("10000000" [tooltip="invisible_dummy_buffer_assignment", )"
         R"(pos="0,0!", width="0!", height="0!", color=black];)");
   }
-  result->set_allocation_timeline(absl::StrFormat(
-      "graph G {\n epsilon=0.5 \n node [shape=box,style=filled];\n "
-      " %s\n}",
+  result->set_allocation_timeline(absl::Substitute(
+      "graph G {\n epsilon=0.5 \n inputscale=$0 \n "
+      "node [shape=box,style=filled,fontname=\"Arial\","
+      "margin=\"$1,$1\"];\n "
+      " $2\n}",
+      kPointsPerInch, kGraphMarginInches,
       absl::StrJoin(rects, "\n")));
 }
 

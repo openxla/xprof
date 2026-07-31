@@ -2,9 +2,10 @@
 
 [**Join us**][form] for the upcoming XProf Summit 2026!
 
-- **Date:** August **20th** (1pm - 5pm) and **21st** (9am - 5pm), 2026<br/>
+- **Date:** August **21st** (9am - 5pm), 2026<br/>
 - **Location:** 1212 Bordeaux Drive, Sunnyvale, CA 94089<br/>
-- **Venue:** US-SVL-BORD1212 (Beauty and Simplicity)
+- **Venue:** US-SVL-BORD1212
+- **Tech Talk Room:** Beauty and Simplicity
 
 ## Event Description
 

@@ -948,6 +948,47 @@ TEST(MemoryViewerTest, ScopedVmemAllocation_HBMIgnoresScoped) {
   EXPECT_TRUE(result.max_scoped_vmem_instruction_name().empty());
 }
 
+TEST(MemoryViewerTest, TestConvertAllocationTimeline_BufferBlocks) {
+  // Allocate and then share, the memory usage is not doubled.
+  static constexpr char kHeapSimulatorTrace[] = R"pb(
+    events { kind: ALLOC buffer_id: 1 }
+    events { kind: FREE buffer_id: 1 }
+    events { kind: SHARE_WITH buffer_id: 2 share_with_canonical_id: 1 }
+    events { kind: FREE buffer_id: 2 }
+  )pb";
+  std::string hlo_string = absl::StrFormat(kHLOBase, kHeapSimulatorTrace);
+  xla::HloProto hlo_proto;
+  MemoryViewerOption option;
+  option.small_buffer_size = 0;
+  ASSERT_TRUE(ParseTextFormatFromString(hlo_string, &hlo_proto).ok());
+  TF_ASSERT_OK_AND_ASSIGN(PreprocessResult preprocess_result,
+                          ConvertHloProtoToPreprocessResult(hlo_proto, option));
+
+  // Verify that buffer_blocks is populated correctly.
+  // There is 1 container block (index 0) and 1 canonical logical buffer
+  // block (index 1).
+  ASSERT_EQ(preprocess_result.buffer_blocks_size(), 2);
+
+  // Verify container block
+  const auto& container = preprocess_result.buffer_blocks(0);
+  EXPECT_EQ(container.logical_buffer_id(), -1);
+  EXPECT_EQ(container.offset(), 0);
+  EXPECT_EQ(container.size(), 1048576);
+  EXPECT_EQ(container.start_step(), 0);
+  EXPECT_EQ(container.end_step(), 4);
+  EXPECT_EQ(container.color(), "#ffffff");
+
+  // Verify logical buffer block
+  const auto& block = preprocess_result.buffer_blocks(1);
+  EXPECT_EQ(block.logical_buffer_id(), 1);
+  EXPECT_EQ(block.name(), "fusion.1{0}");
+  EXPECT_EQ(block.offset(), 0);
+  EXPECT_EQ(block.size(), 524288);
+  EXPECT_EQ(block.start_step(), 0);
+  EXPECT_EQ(block.end_step(), 3);
+  EXPECT_EQ(block.category(), "Temporary");
+}
+
 TEST(MemoryViewerTest, TestAllocationTimelineLabels) {
   static constexpr char kHLOForLabels[] = R"pb(
     hlo_module {

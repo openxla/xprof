@@ -1019,6 +1019,17 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
     // Exclude BAs for "global variables". The timeline provides little value.
     if (buffer_allocation->IsIndefinite()) continue;
     size_t buffer_allocation_offset = buffer_allocation_offsets[buffer_id++];
+
+    BufferBlockProto* container_proto = result->add_buffer_blocks();
+    container_proto->set_logical_buffer_id(-1);
+    container_proto->set_name(std::string(buffer_allocation->category()));
+    container_proto->set_offset(static_cast<double>(buffer_allocation_offset));
+    container_proto->set_size(static_cast<double>(buffer_allocation->size()));
+    container_proto->set_start_step(0);
+    container_proto->set_end_step(total_x_size);
+    container_proto->set_category(std::string(buffer_allocation->category()));
+    container_proto->set_color("#ffffff");
+
     add_rect(0, buffer_allocation_offset, total_x_size,
              buffer_allocation->size(), buffer_allocation->description(),
              "#ffffffff", "");
@@ -1032,12 +1043,39 @@ void ConvertAllocationTimeline(const HloProtoBufferWrapper& wrapper,
       size_t width = logical_buffer->span->second - logical_buffer->span->first;
       size_t y = buffer_allocation_offset + logical_buffer->offset;
       size_t height = logical_buffer->size();
+
+      BufferBlockProto* block_proto = result->add_buffer_blocks();
+      block_proto->set_logical_buffer_id(logical_buffer->proto.id());
+      block_proto->set_name(logical_buffer->GetInstructionNameWithShapeIndex());
+      block_proto->set_offset(static_cast<double>(y));
+      block_proto->set_size(static_cast<double>(height));
+      block_proto->set_start_step(logical_buffer->span->first);
+      block_proto->set_end_step(logical_buffer->span->second);
+      block_proto->set_tf_op_name(
+          std::string(logical_buffer->hlo_instruction.metadata().op_name()));
+      block_proto->set_category(logical_buffer->buffer_allocation.category());
+      block_proto->set_shape_string(
+          std::string(ShapeUtil::HumanStringWithLayout(logical_buffer->shape)));
+      block_proto->set_unpadded_size(
+          static_cast<double>(logical_buffer->unpadded_size()));
+
+      tsl::profiler::OpSourceInfo source_info =
+          GetSourceInfo(logical_buffer->hlo_instruction,
+                        wrapper.GetHloProto().hlo_module().stack_frame_index());
+      if (!source_info.source_file.empty()) {
+        SourceInfo* source_info_proto = block_proto->mutable_source_info();
+        source_info_proto->set_file_name(source_info.source_file);
+        source_info_proto->set_line_number(source_info.source_line);
+        source_info_proto->set_stack_frame(source_info.stack_frame);
+      }
+
       std::string_view color = kBufferColors[node_id % num_lb_colors];
       auto it =
           peak_snapshot.buffer_id_to_color_.find(logical_buffer->proto.id());
       if (it != peak_snapshot.buffer_id_to_color_.end()) {
         color = kBufferColors[it->second % num_lb_colors];
       }
+      block_proto->set_color(std::string(color));
       add_rect(logical_buffer->span->first, y, width, height,
                logical_buffer->description(), color,
                logical_buffer->instruction_name());

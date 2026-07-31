@@ -14,8 +14,10 @@ limitations under the License.
 ==============================================================================*/
 
 #include "xprof/convert/op_stats_to_overview_page.h"
+#include <memory>
 
 #include "<gtest/gtest.h>"
+#include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
 
@@ -32,6 +34,42 @@ TEST(OpStatsToOverviewPageTest, TpuDutyCycle) {
   OverviewPage overview_page = ConvertOpStatsToOverviewPage(op_stats);
 
   EXPECT_DOUBLE_EQ(overview_page.analysis().device_duty_cycle_percent(), 70.0);
+}
+
+TEST(OpStatsToOverviewPageTest, GenerateInferenceLatencyDataTable_AverageBug) {
+  OverviewInferenceLatency result;
+  result.add_percentile_numbers(50.0);
+
+  // Average
+  auto* avg = result.add_latency_breakdowns();
+  avg->set_device_latency_us(2000);  // 2.0 ms
+  avg->set_host_latency_us(3000);
+  avg->set_communication_latency_us(1000);
+  avg->set_total_latency_us(6000);
+
+  // Median
+  auto* median = result.add_latency_breakdowns();
+  median->set_device_latency_us(1000);  // 1.0 ms
+  median->set_host_latency_us(2000);
+  median->set_communication_latency_us(500);
+  median->set_total_latency_us(3500);
+
+  std::unique_ptr<DataTable> data_table =
+      GenerateInferenceLatencyDataTable(result);
+  auto rows = data_table->GetRows();
+  ASSERT_EQ(rows.size(), 2);
+
+  // Row 0 is "Avg"
+  auto cells_avg = rows[0]->GetCells();
+  EXPECT_EQ(cells_avg[0]->GetCellValueStr(), "Avg");
+
+  // Device Time
+  ASSERT_EQ(cells_avg[2]->value->GetType(), kNumberTypeCode);
+  double device_time_ms =
+      static_cast<const NumberValue*>(cells_avg[2]->value.get())->GetValue();
+
+  // Expect Average (2.0 ms), not Median (1.0 ms)
+  EXPECT_DOUBLE_EQ(device_time_ms, 2.0);
 }
 TEST(OpStatsToOverviewPageTest, RooflineMetrics) {
   OpStats op_stats;

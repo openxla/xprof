@@ -255,8 +255,6 @@ export class TraceViewerContainer
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
-  /** Whether the fullscreen button should be shown. */
-  @Input() isFullscreenEnabled = false;
 
   /** Whether the component is currently in fullscreen mode. */
   isFullscreen = false;

@@ -96,9 +96,14 @@
         </div>
       </div>
     </div>
-    <div *ngIf="isFullscreenEnabled" class="fullscreen-container">
-      <button type="button" mat-icon-button (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
-        <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
+    <div class="fullscreen-container">
+      <button type="button" mat-icon-button (click)="toggleFullscreen()" [class.active]="isFullscreen" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (shows only the Trace Viewer)'" [attr.aria-label]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <svg *ngIf="!isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M7 14H5V19H10V17H7V14ZM5 10H7V7H10V5H5V10ZM17 17H14V19H19V14H17V17ZM14 5V7H17V10H19V5H14Z" fill="#444746"/>
+        </svg>
+        <svg *ngIf="isFullscreen" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5 16H8V19H10V14H5V16ZM8 8H5V10H10V5H8V8ZM14 19H16V16H19V14H14V19ZM16 8V5H14V10H19V8H16Z" fill="#444746"/>
+        </svg>
       </button>
     </div>
     <div class="spacer"></div>

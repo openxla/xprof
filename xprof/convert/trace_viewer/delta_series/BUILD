@@ -1,8 +1,6 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = ["//xprof:__subpackages__"])
-
 cc_library(
     name = "zstd_compression",
     srcs = ["zstd_compression.cc"],

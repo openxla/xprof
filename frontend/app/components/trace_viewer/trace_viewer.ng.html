@@ -94,15 +94,34 @@
 </trace-viewer-container>
 
 <ng-template #paletteDialog let-dialogRef="dialogRef">
-  <h2 mat-dialog-title style="margin: 16px 24px;">Select Color Palette</h2>
-  <mat-dialog-content style="padding: 0 24px;">
+  <h2 mat-dialog-title class="palette-dialog-title">Select Color Palette</h2>
+  <mat-dialog-content class="palette-dialog-content">
     <div class="radio-group">
-      <label *ngFor="let palette of COLOR_PALETTES" style="display:flex; align-items:center; padding: 8px 0; cursor:pointer;">
-        <input type="radio" name="palette" [value]="palette" (change)="onPaletteChange(palette)" [checked]="selectedPalette === palette" style="margin-right: 8px;"> {{palette}}
+      <label *ngFor="let palette of COLOR_PALETTES">
+        <input type="radio" name="palette" [value]="palette" (change)="onPaletteChange(palette)" [checked]="selectedPalette === palette"> {{palette}}
+      </label>
+      <label *ngIf="enableCustomization">
+        <input type="radio" name="palette" [value]="CUSTOM_PALETTE_NAME" (change)="onPaletteChange(CUSTOM_PALETTE_NAME)" [checked]="selectedPalette === CUSTOM_PALETTE_NAME"> {{CUSTOM_PALETTE_NAME}}
       </label>
     </div>
+
+    <div *ngIf="selectedPalette === CUSTOM_PALETTE_NAME && enableCustomization" class="custom-colors-container">
+      <div class="custom-colors-header">Trace Colors ({{customColors.length}} / 23)</div>
+      <div class="custom-colors-grid">
+        <div *ngFor="let color of customColors; let i = index; trackBy: trackByIndex" class="custom-color-item">
+          <input type="color" [value]="color" (input)="onCustomColorChange(i, $event)" (change)="onCustomColorChange(i, $event)" class="custom-color-input" [attr.aria-label]="'Custom color ' + (i + 1)">
+          <button *ngIf="customColors.length > 4" (click)="removeCustomColor(i); $event.stopPropagation();" class="custom-color-remove-button" aria-label="Remove color" title="Remove color">
+            <mat-icon class="custom-color-remove-icon">close</mat-icon>
+          </button>
+        </div>
+        <button *ngIf="customColors.length < 23" mat-icon-button (click)="addCustomColor()" class="custom-color-add-button" aria-label="Add color">
+          <mat-icon class="custom-color-add-icon">add</mat-icon>
+        </button>
+      </div>
+      <div class="custom-colors-hint">Minimum 4 colors, maximum 23 colors.</div>
+    </div>
   </mat-dialog-content>
-  <mat-dialog-actions align="end" style="padding: 16px 24px;">
+  <mat-dialog-actions align="end" class="palette-dialog-actions">
     <button mat-button color="primary" (click)="dialogRef.close(selectedPalette)">
       Save
     </button>

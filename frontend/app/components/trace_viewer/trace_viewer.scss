@@ -221,6 +221,100 @@ mat-divider {
   margin-right: 8px;
 }
 
+.palette-dialog-title {
+  margin: 16px 24px;
+}
+
+.palette-dialog-content {
+  padding: 0 24px;
+}
+
+.palette-dialog-actions {
+  padding: 16px 24px;
+}
+
+.custom-colors-container {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.custom-colors-header {
+  font-weight: 500;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #444;
+}
+
+.custom-colors-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.custom-color-item {
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+
+.custom-color-input {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+  box-sizing: border-box;
+}
+
+.custom-color-remove-button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  border-radius: 50%;
+  background-color: #5f6368;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.custom-color-remove-icon {
+  font-size: 12px;
+  width: 12px;
+  height: 12px;
+  line-height: 12px;
+}
+
+.custom-color-add-button {
+  width: 32px;
+  height: 32px;
+  border: 1px dashed #aaa;
+  border-radius: 4px;
+}
+
+.custom-color-add-icon {
+  font-size: 18px;
+}
+
+.custom-colors-hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: 6px;
+}
+
 .feature-flags-dialog-content {
   width: 400px;
 }

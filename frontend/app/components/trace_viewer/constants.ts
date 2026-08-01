@@ -200,3 +200,13 @@ export const COLOR_PALETTES = [
   'Solarized Light',
   'Catapult',
 ];
+
+/**
+ * Palette name for user-defined custom trace colors.
+ */
+export const CUSTOM_PALETTE_NAME = 'Custom';
+
+/**
+ * Local storage key for persisting custom trace colors as a JSON array of hex strings.
+ */
+export const CUSTOM_COLORS_STORAGE_KEY = 'trace_viewer_custom_colors';

@@ -62,6 +62,8 @@ import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
   COLOR_PALETTES,
+  CUSTOM_COLORS_STORAGE_KEY,
+  CUSTOM_PALETTE_NAME,
   FEATURE_FLAG_STORAGE_PREFIX,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
@@ -260,6 +262,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   fileUploaded = false;
   selectedPalette = 'Default';
   COLOR_PALETTES = COLOR_PALETTES;
+  readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
+  customColors: string[] = [];
   flowCategories: FlowCategory[] = [];
   allFlowCategories: FlowCategory[] = [];
   selectedFlowCategoryIds = new Set<number>();
@@ -497,6 +501,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.loadCustomColors();
     this.searchQuery
       .pipe(
         takeUntil(this.destroyed),
@@ -566,7 +571,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       try {
         savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
       } catch {}
-      if (savedPalette && this.traceViewerModule) {
+      if (savedPalette === CUSTOM_PALETTE_NAME && this.traceViewerModule) {
+        this.selectedPalette = CUSTOM_PALETTE_NAME;
+        this.loadCustomColors();
+        this.applyCustomColors();
+      } else if (savedPalette && this.traceViewerModule) {
         this.selectedPalette = savedPalette;
         this.traceViewerModule.SetPalette(savedPalette);
       }
@@ -1265,13 +1274,22 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   // START Support of color palettes selection
 
   openColorPaletteSettings() {
-    const config: MatDialogConfig = {maxWidth: 350};
+    this.loadCustomColors();
+    const config: MatDialogConfig = {
+      maxWidth: 450,
+      disableClose: true,
+    };
     const dialogRef = this.dialog.open(this.paletteDialog, config);
 
     dialogRef.afterClosed().subscribe((result: string | undefined) => {
       if (result && this.traceViewerModule) {
         this.selectedPalette = result;
-        this.traceViewerModule.SetPalette(result);
+        if (result === CUSTOM_PALETTE_NAME) {
+          this.saveCustomColors();
+          this.applyCustomColors();
+        } else {
+          this.traceViewerModule.SetPalette(result);
+        }
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
       }
     });
@@ -1279,6 +1297,68 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   onPaletteChange(palette: string) {
     this.selectedPalette = palette;
+  }
+
+  trackByIndex(index: number): number {
+    return index;
+  }
+
+  // Custom color palette methods
+
+  private loadCustomColors(): void {
+    try {
+      const stored = window.localStorage.getItem(CUSTOM_COLORS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as unknown;
+        if (
+          Array.isArray(parsed) &&
+          parsed.length >= 4 &&
+          parsed.every((c) => typeof c === 'string')
+        ) {
+          this.customColors = (parsed as string[]).slice(0, 23);
+          return;
+        }
+      }
+    } catch {
+      // Fall through to default initialization.
+    }
+    if (this.customColors.length < 4) {
+      this.customColors = ['#c597ff', '#80da88', '#a1c9ff', '#ffe07c'];
+    }
+  }
+
+  private saveCustomColors(): void {
+    try {
+      window.localStorage.setItem(
+        CUSTOM_COLORS_STORAGE_KEY,
+        JSON.stringify(this.customColors),
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private applyCustomColors(): void {
+    if (!this.traceViewerModule?.SetCustomTraceColors) return;
+    const imU32Colors = this.customColors.map((hex) => hexToImU32(hex));
+    this.traceViewerModule.SetCustomTraceColors(imU32Colors);
+  }
+
+  onCustomColorChange(index: number, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.customColors[index] = input.value;
+  }
+
+  addCustomColor(): void {
+    if (this.customColors.length < 23) {
+      this.customColors = [...this.customColors, '#808080'];
+    }
+  }
+
+  removeCustomColor(index: number): void {
+    if (this.customColors.length > 4) {
+      this.customColors = this.customColors.filter((_, i) => i !== index);
+    }
   }
 
   // END Support of color palettes selection
@@ -1342,4 +1422,24 @@ function getHloNameAndModule(properties: SelectedEventProperty[]): {
     }
   }
   return {name, module};
+}
+
+/**
+ * Converts a hex color string (#RRGGBB or RRGGBB) to ImGui's ImU32 format (0xAABBGGRR).
+ * Returns 0 for invalid inputs.
+ */
+export function hexToImU32(hex: string): number {
+  if (!hex) return 0;
+  const cleanHex = hex.startsWith('#') ? hex.slice(1) : hex;
+  if (cleanHex.length !== 6) {
+    return 0;
+  }
+  const r = Number('0x' + cleanHex.slice(0, 2));
+  const g = Number('0x' + cleanHex.slice(2, 4));
+  const b = Number('0x' + cleanHex.slice(4, 6));
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return 0;
+  }
+  // ImU32 layout: 0xAA_BB_GG_RR (alpha=0xFF for fully opaque)
+  return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
 }

@@ -661,8 +661,10 @@ void Timeline::Draw() {
   const ImVec2 tracks_start_screen_pos = ImGui::GetCursorScreenPos();
   tracks_start_screen_pos_ = tracks_start_screen_pos;
 
-  DrawVerticalGridLines(tick_info, current_timeline_width_,
-                        viewport->Pos.y + viewport->Size.y);
+  if (show_grid_) {
+    DrawVerticalGridLines(tick_info, current_timeline_width_,
+                          viewport->Pos.y + viewport->Size.y);
+  }
 
   const Pixel scroll_y = ImGui::GetScrollY();
   const Pixel window_height = ImGui::GetWindowHeight();
@@ -3063,17 +3065,22 @@ bool Timeline::HandleKeyboard() {
   const ImGuiIO& io = ImGui::GetIO();
   bool is_interacting = false;
 
-  // Pan left
-  if (ImGui::IsKeyDown(ImGuiKey_A)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_A, kShiftPanAccelerateFactor);
+  // Pan left ('a' or LeftArrow)
+  if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
+    ImGuiKey key =
+        ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
-  // Pan right
-  if (ImGui::IsKeyDown(ImGuiKey_D)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_D, kShiftPanAccelerateFactor);
+  // Pan right ('d', 'e', or RightArrow)
+  if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_E) ||
+      ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
+    ImGuiKey key =
+        ImGui::IsKeyDown(ImGuiKey_D)
+            ? ImGuiKey_D
+            : (ImGui::IsKeyDown(ImGuiKey_E) ? ImGuiKey_E : ImGuiKey_RightArrow);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -3090,19 +3097,58 @@ bool Timeline::HandleKeyboard() {
     Scroll(kScrollSpeed * io.DeltaTime);
   }
 
-  // Zoom in
-  if (ImGui::IsKeyDown(ImGuiKey_W)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_W, kShiftZoomAccelerateFactor);
+  // Zoom in ('w' or ',')
+  if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_Comma)) {
+    ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_W) ? ImGuiKey_W : ImGuiKey_Comma;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
     Zoom(1.0f - zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
-  // Zoom out
-  if (ImGui::IsKeyDown(ImGuiKey_S)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_S, kShiftZoomAccelerateFactor);
+  // Zoom out ('s' or 'o')
+  if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_O)) {
+    ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_S) ? ImGuiKey_S : ImGuiKey_O;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
     Zoom(1.0f + zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
+  }
+
+  // Zoom to selection ('f')
+  if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+    if (selected_event_index_ != -1) {
+      ZoomEvent(selected_event_index_);
+      is_interacting = true;
+    }
+  }
+
+  // Toggle grid lines ('g')
+  if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+    show_grid_ = !show_grid_;
+    is_interacting = true;
+  }
+
+  // Reset viewport zoom ('0')
+  if (ImGui::IsKeyPressed(ImGuiKey_0)) {
+    SetVisibleRange(data_time_range_, /*animate=*/true);
+    is_interacting = true;
+  }
+
+  // Mark interest range ('m')
+  if (ImGui::IsKeyPressed(ImGuiKey_M)) {
+    if (current_selected_time_range_.has_value()) {
+      selected_time_ranges_.push_back(*current_selected_time_range_);
+      is_interacting = true;
+    } else if (selected_event_index_ != -1 &&
+               selected_event_index_ <
+                   timeline_data_.entry_start_times.size() &&
+               selected_event_index_ <
+                   timeline_data_.entry_total_times.size()) {
+      const Microseconds start =
+          timeline_data_.entry_start_times[selected_event_index_];
+      const Microseconds duration =
+          timeline_data_.entry_total_times[selected_event_index_];
+      selected_time_ranges_.push_back({start, start + duration});
+      is_interacting = true;
+    }
   }
 
   // Cancel selection or resize

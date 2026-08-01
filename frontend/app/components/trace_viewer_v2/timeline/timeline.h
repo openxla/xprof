@@ -300,6 +300,12 @@ class Timeline {
   void RemoveBookmark(Microseconds time);
 
   const std::vector<Microseconds>& bookmarks() const { return bookmarks_; }
+
+  // Sets whether to show the grid.
+  void set_show_grid(bool show_grid) { show_grid_ = show_grid; }
+  // Returns whether to show the grid.
+  bool show_grid() const { return show_grid_; }
+
   void set_track_management_enabled(bool enabled) {
     track_management_enabled_ = enabled;
   }
@@ -723,6 +729,7 @@ class Timeline {
   int hovered_event_index_ = -1;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
+  bool show_grid_ = true;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;

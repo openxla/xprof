@@ -2718,7 +2718,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
             std::abs(ImGui::GetMousePos().x - time_range_x_end);
       }
       if (is_hovering_start || is_resizing_start) {
-        start_edge_color = kRedColor;
+        start_edge_color = kSelectedTimeRangeResizeColor;
       }
       draw_list->AddLine(ImVec2(time_range_x_start, rect_y_min),
                          ImVec2(time_range_x_start, rect_y_max),
@@ -2752,7 +2752,7 @@ void Timeline::DrawSelectedTimeRange(const TimeRange& range,
                           std::abs(ImGui::GetMousePos().x - time_range_x_start);
       }
       if (is_hovering_end || is_resizing_end) {
-        end_edge_color = kRedColor;
+        end_edge_color = kSelectedTimeRangeResizeColor;
       }
       draw_list->AddLine(ImVec2(time_range_x_end, rect_y_min),
                          ImVec2(time_range_x_end, rect_y_max), end_edge_color,

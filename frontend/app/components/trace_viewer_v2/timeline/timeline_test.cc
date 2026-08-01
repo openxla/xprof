@@ -6381,7 +6381,7 @@ TEST_F(TimelineDragSelectionTest, DraggingUpdatesCurrentSelectedTimeRange) {
                    (kSelectionStartOffset + 200.0f) / kPxPerUs);
 }
 
-TEST_F(TimelineDragSelectionTest, ActiveEdgeIsRedWhileDragging) {
+TEST_F(TimelineDragSelectionTest, ActiveEdgeIsHighlightedWhileDragging) {
   ImGuiIO& io = ImGui::GetIO();
 
   const float start_x = GetTimelineStartX() + 100.0f;
@@ -6417,19 +6417,20 @@ TEST_F(TimelineDragSelectionTest, ActiveEdgeIsRedWhileDragging) {
   // Expected end edge X (300px - 1px padding)
   const float expected_end_edge_x = end_x - 1.0f;
 
-  auto has_red_vtx_near_x = [&](float target_x) {
+  auto has_highlighted_vtx_near_x = [&](float target_x) {
     for (const auto& vtx : draw_list->VtxBuffer) {
-      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+      if (vtx.col == kSelectedTimeRangeResizeColor &&
+          std::abs(vtx.pos.x - target_x) <= 2.0f) {
         return true;
       }
     }
     return false;
   };
 
-  // End edge is active (closer to mouse), should be red
-  EXPECT_TRUE(has_red_vtx_near_x(expected_end_edge_x));
-  // Start edge is inactive, should NOT be red
-  EXPECT_FALSE(has_red_vtx_near_x(expected_start_edge_x));
+  // End edge is active (closer to mouse), should be highlighted
+  EXPECT_TRUE(has_highlighted_vtx_near_x(expected_end_edge_x));
+  // Start edge is inactive, should NOT be highlighted
+  EXPECT_FALSE(has_highlighted_vtx_near_x(expected_start_edge_x));
 
   ImGui::EndFrame();
 
@@ -6438,7 +6439,7 @@ TEST_F(TimelineDragSelectionTest, ActiveEdgeIsRedWhileDragging) {
   SimulateFrame();
 }
 
-TEST_F(TimelineDragSelectionTest, ResizingEdgeIsRedWhileDragging) {
+TEST_F(TimelineDragSelectionTest, ResizingEdgeIsHighlightedWhileDragging) {
   // Add an existing range
   timeline_.AddSelectedTimeRange({50.0, 100.0});
 
@@ -6471,23 +6472,24 @@ TEST_F(TimelineDragSelectionTest, ResizingEdgeIsRedWhileDragging) {
   ASSERT_NE(overlay_window, nullptr);
   ImDrawList* draw_list = overlay_window->DrawList;
 
-  auto has_red_vtx_near_x = [&](float target_x) {
+  auto has_highlighted_vtx_near_x = [&](float target_x) {
     for (const auto& vtx : draw_list->VtxBuffer) {
-      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+      if (vtx.col == kSelectedTimeRangeResizeColor &&
+          std::abs(vtx.pos.x - target_x) <= 2.0f) {
         return true;
       }
     }
     return false;
   };
 
-  // The start edge is being resized, so it should be red at its new position
-  // (400px)
-  EXPECT_TRUE(has_red_vtx_near_x(new_start_x));
+  // The start edge is being resized, so it should be highlighted at its new
+  // position (400px)
+  EXPECT_TRUE(has_highlighted_vtx_near_x(new_start_x));
 
   // The end edge is at 100.0us (1000px - 1px padding = 999px), it should NOT be
-  // red
+  // highlighted
   const float expected_end_edge_x = GetTimelineStartX() + 1000.0f - 1.0f;
-  EXPECT_FALSE(has_red_vtx_near_x(expected_end_edge_x));
+  EXPECT_FALSE(has_highlighted_vtx_near_x(expected_end_edge_x));
 
   ImGui::EndFrame();
 
@@ -6532,19 +6534,20 @@ TEST_F(TimelineDragSelectionTest, DragSelectionLeftwardsHighlightsStartEdge) {
   // Expected end edge X (300px - 1px padding)
   const float expected_end_edge_x = start_x - 1.0f;
 
-  auto has_red_vtx_near_x = [&](float target_x) {
+  auto has_highlighted_vtx_near_x = [&](float target_x) {
     for (const auto& vtx : draw_list->VtxBuffer) {
-      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+      if (vtx.col == kSelectedTimeRangeResizeColor &&
+          std::abs(vtx.pos.x - target_x) <= 2.0f) {
         return true;
       }
     }
     return false;
   };
 
-  // Start edge is active (closer to mouse), should be red
-  EXPECT_TRUE(has_red_vtx_near_x(expected_start_edge_x));
-  // End edge is inactive, should NOT be red
-  EXPECT_FALSE(has_red_vtx_near_x(expected_end_edge_x));
+  // Start edge is active (closer to mouse), should be highlighted
+  EXPECT_TRUE(has_highlighted_vtx_near_x(expected_start_edge_x));
+  // End edge is inactive, should NOT be highlighted
+  EXPECT_FALSE(has_highlighted_vtx_near_x(expected_end_edge_x));
 
   ImGui::EndFrame();
 
@@ -6587,9 +6590,10 @@ TEST_F(TimelineDragSelectionTest,
   ASSERT_NE(overlay_window, nullptr);
   ImDrawList* draw_list = overlay_window->DrawList;
 
-  auto has_red_vtx_near_x = [&](float target_x) {
+  auto has_highlighted_vtx_near_x = [&](float target_x) {
     for (const auto& vtx : draw_list->VtxBuffer) {
-      if (vtx.col == kRedColor && std::abs(vtx.pos.x - target_x) <= 2.0f) {
+      if (vtx.col == kSelectedTimeRangeResizeColor &&
+          std::abs(vtx.pos.x - target_x) <= 2.0f) {
         return true;
       }
     }
@@ -6598,14 +6602,14 @@ TEST_F(TimelineDragSelectionTest,
 
   // The start edge crossed over and is now the end edge (at 1200px - 1px
   // padding = 1199px). It is the active edge (following mouse), so it should be
-  // red.
+  // highlighted.
   const float expected_end_edge_x = new_end_x - 1.0f;
-  EXPECT_TRUE(has_red_vtx_near_x(expected_end_edge_x));
+  EXPECT_TRUE(has_highlighted_vtx_near_x(expected_end_edge_x));
 
   // The old end edge is now the start edge (at 1000px). It is inactive, so it
-  // should NOT be red.
+  // should NOT be highlighted.
   const float expected_start_edge_x = GetTimelineStartX() + 1000.0f;
-  EXPECT_FALSE(has_red_vtx_near_x(expected_start_edge_x));
+  EXPECT_FALSE(has_highlighted_vtx_near_x(expected_start_edge_x));
 
   ImGui::EndFrame();
 

@@ -6716,8 +6716,6 @@ TEST_F(TimelineDragSelectionTest, ShiftDragCreatesTimeSelection) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -6754,48 +6752,7 @@ TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 200.0);
 }
 
-TEST_F(TimelineDragSelectionTest, DoesNotSnapWhenDisabled) {
-  timeline_.set_snap_to_time_range_enabled(false);
-
-  FlameChartTimelineData data;
-  data.entry_levels = {0};
-  data.entry_total_times = {100.0};
-  data.entry_self_times = {100.0};
-  data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
-  data.entry_names = {"event1"};
-  data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
-  data.entry_args = {{}};
-  data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
-  timeline_.SetTimelineData(data);
-
-  SimulateFrame();
-
-  ImGuiIO& io = ImGui::GetIO();
-
-  // Start near 100.0 us
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, kEmptyAreaY);
-  io.AddMouseButtonEvent(0, true);
-  SimulateFrame();
-
-  // End near 200.0 us
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, kEmptyAreaY);
-  SimulateFrame();
-
-  io.AddMouseButtonEvent(0, false);
-  SimulateFrame();
-
-  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 99.0);
-  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 201.0);
-}
-
 TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0, 1};  // level 0 in group 1, level 1 in group 2
   data.entry_total_times = {10.0, 10.0};
@@ -6837,8 +6794,6 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0, 1};  // level 0 in group 1, level 1 in group 2
   data.entry_total_times = {10.0, 10.0};
@@ -6880,8 +6835,6 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   ImGuiIO& io = ImGui::GetIO();
 
   // Create first selection 50.0us to 100.0us (500px to 1000px)
@@ -6914,8 +6867,6 @@ TEST_F(TimelineDragSelectionTest, SnapsToOtherSelectedRange) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapsEndToOtherSelectedRange) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   ImGuiIO& io = ImGui::GetIO();
 
   // Create first selection 50.0us to 100.0us (500px to 1000px)
@@ -6952,7 +6903,6 @@ TEST_F(TimelineDragSelectionTest, SnapsDuringTimingMode) {
   ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
   SimulateFrame();
 
-  timeline_.set_snap_to_time_range_enabled(true);
   timeline_.set_mouse_mode(MouseMode::kTiming);
 
   ImGuiIO& io = ImGui::GetIO();
@@ -7025,8 +6975,6 @@ TEST_F(TimelineDragSelectionTest, TimingModeShowsMultipleSelections) {
 }
 
 TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7064,8 +7012,6 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0, 0};
   data.entry_total_times = {10.0, 10.0};
@@ -7107,8 +7053,6 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {10.0};
@@ -7157,8 +7101,6 @@ TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7199,8 +7141,6 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
 
 TEST_F(TimelineDragSelectionTest,
        SnapDoesNotIgnoreEventsForNonFlameGroupsEvenWhenCollapsed) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7243,8 +7183,6 @@ TEST_F(TimelineDragSelectionTest,
 
 TEST_F(TimelineDragSelectionTest,
        SnapIgnoresHasChildrenIfNestingLevelIsSameOrLower) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0, 1};
   data.entry_total_times = {100.0, 100.0};
@@ -7290,8 +7228,6 @@ TEST_F(TimelineDragSelectionTest,
 }
 
 TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7337,8 +7273,6 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7381,8 +7315,6 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7439,8 +7371,6 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -7499,8 +7429,6 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0, 1};
   data.entry_total_times = {100.0, 100.0};
@@ -7536,8 +7464,6 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
 }
 
 TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
-  timeline_.set_snap_to_time_range_enabled(true);
-
   FlameChartTimelineData data;
   data.entry_levels = {0};
   data.entry_total_times = {100.0};
@@ -9011,7 +8937,6 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSwapsStartAndEnd) {
 
 TEST_F(TimelineTimeRangeResizeTest, ResizeIgnoresGlobalRanges) {
   timeline_.set_mouse_mode(MouseMode::kTiming);
-  timeline_.set_snap_to_time_range_enabled(true);
 
   // Create a selected time range at 100.0
   AddSelectedTimeRange(100.0, 150.0);
@@ -9044,7 +8969,6 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
-  timeline_.set_snap_to_time_range_enabled(true);
 
   AddSelectedTimeRange(50.0, 80.0);
 
@@ -9072,7 +8996,6 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeDoesNotSnapWhenOutsideTrack) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
-  timeline_.set_snap_to_time_range_enabled(true);
 
   AddSelectedTimeRange(50.0, 80.0);
 
@@ -9098,7 +9021,6 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
-  timeline_.set_snap_to_time_range_enabled(true);
 
   AddSelectedTimeRange(50.0, 80.0);
 
@@ -9125,7 +9047,6 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
-  timeline_.set_snap_to_time_range_enabled(true);
 
   AddSelectedTimeRange(50.0, 80.0);
 

@@ -1476,10 +1476,6 @@ void Timeline::Zoom(float zoom_factor, Microseconds pivot) {
 }
 
 void Timeline::ApplySnapping(TimeRange& range) {
-  // Global flag to enable or disable the snapping feature.
-  if (!snap_to_time_range_enabled_) {
-    return;
-  }
   // Snapping only applies when in measuring mode (kTiming) or when Shift+Drag
   // is used to select a time range.
   if (mouse_mode_ != MouseMode::kTiming && !ImGui::GetIO().KeyShift &&

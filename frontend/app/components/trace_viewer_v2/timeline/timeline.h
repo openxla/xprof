@@ -289,12 +289,6 @@ class Timeline {
     return mpmd_pipeline_view_enabled_;
   }
 
-  void set_snap_to_time_range_enabled(bool enabled) {
-    snap_to_time_range_enabled_ = enabled;
-  }
-  bool snap_to_time_range_enabled() const {
-    return snap_to_time_range_enabled_;
-  }
 
   void set_bookmarks_enabled(bool enabled) { bookmarks_enabled_ = enabled; }
   bool bookmarks_enabled() const { return bookmarks_enabled_; }
@@ -727,7 +721,6 @@ class Timeline {
   MouseMode mouse_mode_ = MouseMode::kPan;
 
   int hovered_event_index_ = -1;
-  bool snap_to_time_range_enabled_ = false;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
 

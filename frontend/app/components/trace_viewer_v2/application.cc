@@ -197,8 +197,6 @@ void Application::Initialize() {
   platform_ = std::make_unique<WGPURenderPlatform>();
   platform_->Init(initial_canvas_state);
   timeline_ = std::make_unique<Timeline>(palette_);
-  timeline_->set_snap_to_time_range_enabled(
-      IsFeatureEnabled("snap_to_time_range"));
   timeline_->set_track_management_enabled(
       IsFeatureEnabled("enable_track_management"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));

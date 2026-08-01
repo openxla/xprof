@@ -22,11 +22,6 @@ const FEATURE_FLAGS = {
     description: 'Enable the new protobuf-based data pipeline in Trace Viewer.',
     default: false,
   },
-  'snap_to_time_range': {
-    name: 'Snap to Time Range',
-    description: 'Enable snapping to event boundaries and selected ranges.',
-    default: false,
-  },
   'bookmarks': {
     name: 'Enable Bookmarks',
     description: 'Enable adding bookmarks with Ctrl/Meta + Click.',

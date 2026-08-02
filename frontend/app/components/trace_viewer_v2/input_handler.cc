@@ -16,6 +16,7 @@ ImGuiKey TranslateKey(absl::string_view code) {
   if (code == "KeyD") return ImGuiKey_D;
   if (code == "KeyS") return ImGuiKey_S;
   if (code == "KeyW") return ImGuiKey_W;
+  if (code == "KeyG") return ImGuiKey_G;
   if (code == "ArrowDown") return ImGuiKey_DownArrow;
   if (code == "ArrowUp") return ImGuiKey_UpArrow;
   if (code == "Digit1") return ImGuiKey_1;

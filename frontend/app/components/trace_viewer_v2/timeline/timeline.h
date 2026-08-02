@@ -311,6 +311,9 @@ class Timeline {
   void set_zoom_speed(float speed) { zoom_speed_ = speed; }
   float zoom_speed() const { return zoom_speed_; }
 
+  bool show_grid() const { return show_grid_; }
+  void set_show_grid(bool show_grid) { show_grid_ = show_grid; }
+
   void set_mouse_wheel_zoom_speed(float speed) {
     mouse_wheel_zoom_speed_ = speed;
   }
@@ -772,6 +775,8 @@ class Timeline {
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;
+
+  bool show_grid_ = true;
 
  protected:
   absl::flat_hash_set<std::string> hidden_track_names_;

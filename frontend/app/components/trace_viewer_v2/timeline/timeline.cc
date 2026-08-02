@@ -661,8 +661,10 @@ void Timeline::Draw() {
   const ImVec2 tracks_start_screen_pos = ImGui::GetCursorScreenPos();
   tracks_start_screen_pos_ = tracks_start_screen_pos;
 
-  DrawVerticalGridLines(tick_info, current_timeline_width_,
-                        viewport->Pos.y + viewport->Size.y);
+  if (show_grid_) {
+    DrawVerticalGridLines(tick_info, current_timeline_width_,
+                          viewport->Pos.y + viewport->Size.y);
+  }
 
   const Pixel scroll_y = ImGui::GetScrollY();
   const Pixel window_height = ImGui::GetWindowHeight();
@@ -3119,6 +3121,12 @@ bool Timeline::HandleKeyboard() {
       is_dragging_ = false;
       current_selected_time_range_.reset();
     }
+  }
+
+  // Toggle grid lines ('g')
+  if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+    show_grid_ = !show_grid_;
+    is_interacting = true;
   }
 
   // Mouse Mode shortcuts

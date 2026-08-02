@@ -1561,6 +1561,21 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_EmptyCallback_DoesNotCrash) {
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyG_TogglesGrid) {
+  EXPECT_TRUE(timeline_.show_grid());
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_G, true);
+  SimulateFrame();
+  EXPECT_FALSE(timeline_.show_grid());
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_G, false);
+  SimulateFrame();
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_G, true);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.show_grid());
+}
+
 TEST(TimelineTest, NavigateSearchQueryResult) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

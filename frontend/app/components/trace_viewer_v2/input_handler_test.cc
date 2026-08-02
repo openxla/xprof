@@ -93,5 +93,41 @@ TEST_F(InputHandlerTest, HandleKeyDownUpdatesModifiers) {
   EXPECT_TRUE(io.KeySuper);
 }
 
+TEST_F(InputHandlerTest, HandleKeyDownTranslatesShortcutKeys) {
+  ImGuiIO& io = ImGui::GetIO();
+
+  struct TestCase {
+    const char* code;
+    ImGuiKey expected_key;
+  };
+
+  const TestCase test_cases[] = {
+      {"KeyA", ImGuiKey_A},          {"KeyD", ImGuiKey_D},
+      {"KeyS", ImGuiKey_S},          {"KeyW", ImGuiKey_W},
+      {"KeyG", ImGuiKey_G},          {"ArrowDown", ImGuiKey_DownArrow},
+      {"ArrowUp", ImGuiKey_UpArrow}, {"Digit1", ImGuiKey_1},
+      {"Digit2", ImGuiKey_2},        {"Digit3", ImGuiKey_3},
+      {"Digit4", ImGuiKey_4},        {"Escape", ImGuiKey_Escape},
+  };
+
+  for (const auto& tc : test_cases) {
+    EmscriptenKeyboardEvent event;
+    memset(&event, 0, sizeof(event));
+    strncpy(event.code, tc.code, sizeof(event.code) - 1);
+
+    HandleKeyDown(0, &event, nullptr);
+
+    io.DeltaTime = 1.0f / 60.0f;
+    ImGui::NewFrame();
+
+    EXPECT_TRUE(ImGui::IsKeyDown(tc.expected_key))
+        << "Failed for code: " << tc.code;
+
+    // Reset key state for next iteration
+    ImGui::GetIO().AddKeyEvent(tc.expected_key, false);
+    ImGui::EndFrame();
+  }
+}
+
 }  // namespace
 }  // namespace traceviewer

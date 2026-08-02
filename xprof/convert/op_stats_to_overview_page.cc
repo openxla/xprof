@@ -196,8 +196,16 @@ bool ComputeTpuAnalysisResult(const OpStats& op_stats,
           op_stats.device_op_metrics_db().busy_time_ps() +
               op_stats.device_op_metrics_db().idle_time_ps()) *
       100.0);
+  analysis->set_device_duty_cycle_high_confidence_percent(
+      tsl::profiler::SafeDivide(
+          op_stats.device_op_metrics_db().busy_time_high_confidence_ps(),
+          op_stats.device_op_metrics_db().busy_time_high_confidence_ps() +
+              op_stats.device_op_metrics_db().idle_time_high_confidence_ps()) *
+      100.0);
   analysis->set_device_idle_time_percent(
       IdleTimeRatio(op_stats.device_op_metrics_db()) * 100.0);
+  analysis->set_idle_time_high_confidence_ps(
+      op_stats.device_op_metrics_db().idle_time_high_confidence_ps());
 
   analysis->set_host_idle_time_percent(
       IdleTimeRatio(op_stats.host_op_metrics_db()) * 100.0);
@@ -527,10 +535,19 @@ void AddCommonStats(DataTable* data_table,
   data_table->AddCustomProperty(
       "hbm_utilization_percent",
       StrFormatToPercentage(analysis.hbm_utilization_percent()));
-  if (analysis.program_goodput_percent()) {
+  if (analysis.has_program_goodput()) {
     data_table->AddCustomProperty(
         "program_goodput_percent",
         StrFormatToPercentage(analysis.program_goodput_percent()));
+    data_table->AddCustomProperty(
+        "program_goodput_high_confidence_percent",
+        StrFormatToPercentage(
+            analysis.program_goodput_high_confidence_percent()));
+  }
+  if (analysis.idle_time_high_confidence_ps() > 0) {
+    data_table->AddCustomProperty(
+        "idle_time_high_confidence_ps",
+        absl::StrCat(analysis.idle_time_high_confidence_ps()));
   }
   if (analysis.sc_step_time_ms_average()) {
     data_table->AddCustomProperty(
@@ -770,6 +787,11 @@ std::unique_ptr<DataTable> GenerateTpuAnalysisResultToDataTable(
   analysis_table->AddCustomProperty(
       "device_duty_cycle_percent",
       StrFormatToPercentage(analysis.device_duty_cycle_percent()));
+
+  analysis_table->AddCustomProperty(
+      "device_duty_cycle_high_confidence_percent",
+      StrFormatToPercentage(
+          analysis.device_duty_cycle_high_confidence_percent()));
 
   analysis_table->AddCustomProperty(
       "host_idle_time_percent",

@@ -14,8 +14,13 @@ py_library(
 
 py_library(
     name = "profile_plugin",
-    srcs = ["profile_plugin.py"],
+    srcs = glob(
+        ["profile_plugin/**/*.py"],
+        exclude = ["profile_plugin/tests/**"],
+    ),
     deps = [
+        ":profile_io",
+        ":version",
         "@org_tensorflow_tensorboard//tensorboard/backend/event_processing:plugin_asset_util",
         "@org_tensorflow_tensorboard//tensorboard/plugins:base_plugin",
         "@org_xprof//plugin/xprof/convert:all_libs",
@@ -136,5 +141,33 @@ py_test(
         ":profile_data",
         "@pypi//absl-py",
         "@tsl//tsl/profiler/protobuf:xplane_proto_py",
+    ],
+)
+
+py_test(
+    name = "profile_plugin_package_test",
+    srcs = glob(["profile_plugin/tests/**/*.py"]),
+    imports = [".."],
+    main = "profile_plugin/tests/run_all_tests.py",
+    deps = [
+        ":profile_plugin",
+        ":profile_io",
+        "@org_xprof//plugin/xprof/standalone:tensorboard_shim",
+        "@pypi//absl-py",
+        "@pypi//etils",
+        "@pypi//werkzeug",
+    ],
+)
+
+py_test(
+    name = "tools_cache_test",
+    srcs = ["tools_cache_test.py"],
+    imports = [".."],
+    main = "tools_cache_test.py",
+    deps = [
+        ":profile_plugin",
+        ":profile_io",
+        "@pypi//absl-py",
+        "@pypi//etils",
     ],
 )

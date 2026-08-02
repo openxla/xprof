@@ -1,0 +1,13 @@
+{
+  "tool": "trace_viewer@",
+  "asset_basenames": ["host0.xplane.pb"],
+  "params_hosts": ["host0"],
+  "use_saved_result": false,
+  "trace_viewer_options": {
+    "resolution": "8000",
+    "full_dma": false,
+    "enable_legacy_dcn": false
+  },
+  "response_json": {"ok": true, "tool": "trace_viewer@"},
+  "content_type": "application/json"
+}

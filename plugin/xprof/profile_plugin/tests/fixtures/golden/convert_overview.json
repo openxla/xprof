@@ -1,0 +1,8 @@
+{
+  "tool": "overview_page",
+  "asset_basenames": ["host0.xplane.pb", "host1.xplane.pb"],
+  "params_hosts": ["host0", "host1"],
+  "use_saved_result": false,
+  "response_json": {"ok": true, "tool": "overview_page"},
+  "content_type": "application/json"
+}

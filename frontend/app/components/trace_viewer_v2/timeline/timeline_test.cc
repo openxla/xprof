@@ -1576,6 +1576,51 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyG_TogglesGrid) {
   EXPECT_TRUE(timeline_.show_grid());
 }
 
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyF_ZoomsToSelection) {
+  FlameChartTimelineData data = CreateTimelineData({{.name = "test_event",
+                                                     .start_time = 100.0,
+                                                     .total_time = 50.0,
+                                                     .level = 0}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({0.0, 1000.0}, /*animate=*/false);
+
+  timeline_.RevealEvent(0);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_F, true);
+  SimulateFrame();
+
+  EXPECT_LT(timeline_.visible_range_target().duration(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key0_ResetsViewport) {
+  timeline_.set_data_time_range({0.0, 1000.0});
+  timeline_.SetVisibleRange({200.0, 400.0}, /*animate=*/false);
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_0, true);
+  SimulateFrame();
+
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 1000.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyM_MarksInterestRange) {
+  FlameChartTimelineData data = CreateTimelineData({{.name = "test_event",
+                                                     .start_time = 100.0,
+                                                     .total_time = 50.0,
+                                                     .level = 0}});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.RevealEvent(0);
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
 TEST(TimelineTest, NavigateSearchQueryResult) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);

@@ -3129,6 +3129,37 @@ bool Timeline::HandleKeyboard() {
     is_interacting = true;
   }
 
+  // Zoom to selection ('f')
+  if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+    if (selected_event_index_ != -1) {
+      ZoomEvent(selected_event_index_);
+      is_interacting = true;
+    }
+  }
+
+  // Reset viewport zoom ('0')
+  if (ImGui::IsKeyPressed(ImGuiKey_0)) {
+    SetVisibleRange(data_time_range_, /*animate=*/true);
+    is_interacting = true;
+  }
+
+  // Mark interest range ('m')
+  if (ImGui::IsKeyPressed(ImGuiKey_M)) {
+    if (selected_event_index_ != -1 &&
+        selected_event_index_ < timeline_data_.entry_start_times.size() &&
+        selected_event_index_ < timeline_data_.entry_total_times.size()) {
+      const Microseconds start =
+          timeline_data_.entry_start_times[selected_event_index_];
+      Microseconds duration =
+          timeline_data_.entry_total_times[selected_event_index_];
+      if (std::isnan(duration) || duration <= 0) {
+        duration = kMinVisibleEventDuration;
+      }
+      selected_time_ranges_.push_back(TimeRange(start, start + duration));
+      is_interacting = true;
+    }
+  }
+
   // Mouse Mode shortcuts
   if (ImGui::IsKeyPressed(ImGuiKey_1)) {
     mouse_mode_ = MouseMode::kSelect;

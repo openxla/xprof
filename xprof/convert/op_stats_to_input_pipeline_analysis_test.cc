@@ -274,6 +274,48 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(per_step_data.sc_step_time_ms(), 1000);
 }
 
+TEST(TfOpStatsToInputPipelineAnalysisTest, UnrecognizedOpIsUnknown) {
+  OpMetricsDb host_tf_metrics_db;
+  auto* metrics = host_tf_metrics_db.add_metrics_db();
+  metrics->set_name("UnknownOp::UnknownCategory");
+  metrics->set_category("Dataset");
+  metrics->set_self_time_ps(1000000);  // 1 us
+
+  InputPipelineAnalysisResult result;
+  GenerateHostResult(host_tf_metrics_db, &result);
+
+  EXPECT_GT(result.input_time_breakdown().unclassified_non_enqueue_us(), 0);
+  EXPECT_EQ(result.input_op_details(0).category(), "Unknown");
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest, RecognizedOpIsCorrect) {
+  OpMetricsDb host_tf_metrics_db;
+  auto* metrics = host_tf_metrics_db.add_metrics_db();
+  metrics->set_name("Iterator::TFRecord");
+  metrics->set_category("Dataset");
+  metrics->set_self_time_ps(1000000);  // 1 us
+
+  InputPipelineAnalysisResult result;
+  GenerateHostResult(host_tf_metrics_db, &result);
+
+  EXPECT_GT(result.input_time_breakdown().demanded_file_read_us(), 0);
+  EXPECT_EQ(result.input_op_details(0).category(), "Demanded file read");
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest, ArrayRecordIsCorrect) {
+  OpMetricsDb host_tf_metrics_db;
+  auto* metrics = host_tf_metrics_db.add_metrics_db();
+  metrics->set_name("Iterator::ArrayRecord");
+  metrics->set_category("Dataset");
+  metrics->set_self_time_ps(1000000);  // 1 us
+
+  InputPipelineAnalysisResult result;
+  GenerateHostResult(host_tf_metrics_db, &result);
+
+  EXPECT_GT(result.input_time_breakdown().demanded_file_read_us(), 0);
+  EXPECT_EQ(result.input_op_details(0).category(), "Demanded file read");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

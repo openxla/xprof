@@ -1,12 +1,25 @@
-import {Component, inject, Injector, Input, OnChanges, OnDestroy, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  Injector,
+  Input,
+  OnChanges,
+  OnDestroy,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
-import {type MemoryViewerPreprocessResult} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {
+  type MemoryViewerPreprocessResult,
+} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {MemoryUsage} from 'org_xprof/frontend/app/components/memory_viewer/memory_usage/memory_usage';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setActiveHeapObjectAction} from 'org_xprof/frontend/app/store/actions';
 import {ReplaySubject} from 'rxjs';
@@ -19,15 +32,16 @@ interface BufferSpan {
 
 /** A memory viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'memory-viewer-main',
   templateUrl: './memory_viewer_main.ng.html',
-  styleUrls: ['./memory_viewer_main.scss']
+  styleUrls: ['./memory_viewer_main.scss'],
 })
 export class MemoryViewerMain implements OnDestroy, OnChanges {
   /** Preprocessed result for memory viewer */
   @Input()
-  memoryViewerPreprocessResult: MemoryViewerPreprocessResult|null = null;
+  memoryViewerPreprocessResult: MemoryViewerPreprocessResult | null = null;
 
   /** XLA memory space color */
   @Input() memorySpaceColor = '0';
@@ -38,8 +52,9 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   @Input() currentModule = '';
 
   private readonly store: Store<{}> = inject(Store);
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
   private readonly injector = inject(Injector);
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -79,13 +94,16 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
-    const sourceCodeService =
-        this.injector.get(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, null);
-    sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-        });
+    const sourceCodeService = this.injector.get(
+      SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+      null,
+    );
+    sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+      });
   }
 
   ngOnChanges() {
@@ -102,9 +120,10 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     this.showStackTrace = !this.showStackTrace;
   }
 
-  private dispatchActiveHeapObject(heapObject: HeapObject|null = null) {
+  private dispatchActiveHeapObject(heapObject: HeapObject | null = null) {
     this.store.dispatch(
-        setActiveHeapObjectAction({activeHeapObject: heapObject}));
+      setActiveHeapObjectAction({activeHeapObject: heapObject}),
+    );
     if (heapObject) {
       const span = this.getLogicalBufferSpan(heapObject.logicalBufferId);
       this.activeInfo = {
@@ -113,9 +132,9 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
         free: span.free,
         color: utils.getChartItemColorByIndex(heapObject.color || 0),
       };
-      this.sourceFileAndLineNumber =
-          `${heapObject.sourceInfo?.fileName || ''}:${
-              heapObject.sourceInfo?.lineNumber || -1}`;
+      this.sourceFileAndLineNumber = `${heapObject.sourceInfo?.fileName || ''}:${
+        heapObject.sourceInfo?.lineNumber || -1
+      }`;
       this.stackTrace = heapObject.sourceInfo?.stackFrame || '';
       this.selectedOpName = heapObject.instructionName || '';
       this.selectedOpCategory = heapObject.opcode || '';
@@ -133,8 +152,12 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
 
   private getLogicalBufferSpan(index?: number): BufferSpan {
     const bufferSpan: BufferSpan = {alloc: 0, free: 0};
-    if (index && this.usage && this.usage.logicalBufferSpans &&
-        this.heapSizes) {
+    if (
+      index &&
+      this.usage &&
+      this.usage.logicalBufferSpans &&
+      this.heapSizes
+    ) {
       const span = this.usage.logicalBufferSpans[index];
       if (span) {
         bufferSpan.alloc = span[0];
@@ -161,7 +184,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       this.dispatchActiveHeapObject(this.usage.maxHeap[selectedIndex]);
       this.selectedIndexBySize = this.usage.maxHeapToBySize[selectedIndex];
       this.selectedIndexByPaddingSize =
-          this.usage.maxHeapToByPaddingSize[selectedIndex];
+        this.usage.maxHeapToByPaddingSize[selectedIndex];
     }
   }
 
@@ -173,10 +196,11 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       this.dispatchActiveHeapObject();
     } else {
       this.dispatchActiveHeapObject(
-          this.usage.maxHeapBySize[selectedIndexBySize]);
+        this.usage.maxHeapBySize[selectedIndexBySize],
+      );
       this.selectedIndex = this.usage.bySizeToMaxHeap[selectedIndexBySize];
       this.selectedIndexByPaddingSize =
-          this.usage.maxHeapToByPaddingSize[this.selectedIndex];
+        this.usage.maxHeapToByPaddingSize[this.selectedIndex];
     }
   }
 
@@ -188,9 +212,10 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       this.dispatchActiveHeapObject();
     } else {
       this.dispatchActiveHeapObject(
-          this.maxHeapByPaddingSize[selectedIndexByPaddingSize]);
+        this.maxHeapByPaddingSize[selectedIndexByPaddingSize],
+      );
       this.selectedIndex =
-          this.usage.byPaddingSizeToMaxHeap[selectedIndexByPaddingSize];
+        this.usage.byPaddingSizeToMaxHeap[selectedIndexByPaddingSize];
       this.selectedIndexBySize = this.usage.maxHeapToBySize[this.selectedIndex];
     }
   }
@@ -200,9 +225,14 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     const sessionPath = searchParams.get('session_path') || undefined;
     const runPath = searchParams.get('run_path') || undefined;
     this.usage = new MemoryUsage(
-        this.memoryViewerPreprocessResult, Number(this.memorySpaceColor),
-        this.currentRun, this.currentHost, this.currentModule, sessionPath,
-        runPath);
+      this.memoryViewerPreprocessResult,
+      Number(this.memorySpaceColor),
+      this.currentRun,
+      this.currentHost,
+      this.currentModule,
+      sessionPath,
+      runPath,
+    );
     if (this.usage.diagnostics.errors.length > 0) {
       return;
     }
@@ -213,34 +243,46 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       // For VMEM: show HLO temp + scoped. We use hloTemp* (which subtracts
       // indefinite) rather than the raw proto values, because the raw proto
       // values include indefinite buffers that don't consume VMEM.
-      this.totalBufferAllocationMiB =
-          utils.bytesToMiB(this.usage.hloTempSizeWithFragmentationBytes +
-              this.usage.maxScopedVmemAllocationBytes).toFixed(2);
-      this.peakHeapSizeMiB =
-          utils.bytesToMiB(this.usage.hloTempSizeWithoutFragmentationBytes +
-              this.usage.maxScopedVmemAllocationBytes).toFixed(2);
+      this.totalBufferAllocationMiB = utils
+        .bytesToMiB(
+          this.usage.hloTempSizeWithFragmentationBytes +
+            this.usage.maxScopedVmemAllocationBytes,
+        )
+        .toFixed(2);
+      this.peakHeapSizeMiB = utils
+        .bytesToMiB(
+          this.usage.hloTempSizeWithoutFragmentationBytes +
+            this.usage.maxScopedVmemAllocationBytes,
+        )
+        .toFixed(2);
     } else {
-      this.totalBufferAllocationMiB =
-          utils.bytesToMiB(this.usage.totalBufferAllocationBytes).toFixed(2);
-      this.peakHeapSizeMiB =
-          utils.bytesToMiB(this.usage.peakHeapSizeBytes).toFixed(2);
+      this.totalBufferAllocationMiB = utils
+        .bytesToMiB(this.usage.totalBufferAllocationBytes)
+        .toFixed(2);
+      this.peakHeapSizeMiB = utils
+        .bytesToMiB(this.usage.peakHeapSizeBytes)
+        .toFixed(2);
     }
-    this.paddingOverhead =
-        utils.bytesToMiB(this.usage.paddingOverhead).toFixed(2);
-    this.totalArgumentSizeBytes =
-        utils.bytesToMiB(this.usage.totalArgumentSizeBytes).toFixed(2);
-    this.hloTempSizeWithoutFragmentationMiB =
-        utils.bytesToMiB(this.usage.hloTempSizeWithoutFragmentationBytes)
-            .toFixed(2);
-    this.hloTempSizeWithFragmentationMiB =
-        utils.bytesToMiB(this.usage.hloTempSizeWithFragmentationBytes)
-            .toFixed(2);
-    this.hloTempFragmentation =
-        (this.usage.hloTempFragmentation * 100.0).toFixed(2);
-    this.maxScopedVmemAllocationMiB =
-        utils.bytesToMiB(this.usage.maxScopedVmemAllocationBytes).toFixed(2);
+    this.paddingOverhead = utils
+      .bytesToMiB(this.usage.paddingOverhead)
+      .toFixed(2);
+    this.totalArgumentSizeBytes = utils
+      .bytesToMiB(this.usage.totalArgumentSizeBytes)
+      .toFixed(2);
+    this.hloTempSizeWithoutFragmentationMiB = utils
+      .bytesToMiB(this.usage.hloTempSizeWithoutFragmentationBytes)
+      .toFixed(2);
+    this.hloTempSizeWithFragmentationMiB = utils
+      .bytesToMiB(this.usage.hloTempSizeWithFragmentationBytes)
+      .toFixed(2);
+    this.hloTempFragmentation = (
+      this.usage.hloTempFragmentation * 100.0
+    ).toFixed(2);
+    this.maxScopedVmemAllocationMiB = utils
+      .bytesToMiB(this.usage.maxScopedVmemAllocationBytes)
+      .toFixed(2);
     this.maxScopedVmemInstructionName =
-        this.usage.maxScopedVmemInstructionName || '';
+      this.usage.maxScopedVmemInstructionName || '';
 
     this.heapSizes = this.usage.heapSizes || [];
     this.unpaddedHeapSizes = this.usage.unpaddedHeapSizes || [];
@@ -257,7 +299,9 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     this.maxHeapBySize = this.usage.maxHeapBySize || [];
     this.maxHeapByPaddingSize = this.usage.maxHeapByPaddingSize || [];
 
-    this.hasTrace = this.maxHeap.length > 0 || this.heapSizes.length > 0 ||
-        this.maxHeapBySize.length > 0;
+    this.hasTrace =
+      this.maxHeap.length > 0 ||
+      this.heapSizes.length > 0 ||
+      this.maxHeapBySize.length > 0;
   }
 }

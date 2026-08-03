@@ -4,6 +4,7 @@ import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofli
 import * as memoryProfileProto from 'org_xprof/frontend/app/common/interfaces/memory_profile.jsonpb_decls';
 import * as memoryViewerPreprocess from 'org_xprof/frontend/app/common/interfaces/memory_viewer_preprocess.jsonpb_decls';
 import * as opProfileProto from 'org_xprof/frontend/app/common/interfaces/op_profile.jsonpb_decls';
+import {SourceInfo} from './source_info.jsonpb_decls.d';
 
 /** Constant of empty data in SimpleDataTable typing */
 export const DEFAULT_SIMPLE_DATA_TABLE = {
@@ -235,12 +236,44 @@ export declare interface StepBreakdownDetailsCard {
   nodeId?: /* int32 */ number;
 }
 
+/**
+ * Represents a processed memory buffer block rendered on the visualizer canvas.
+ */
+export interface BufferBlock {
+  id: string;
+  tooltip: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  offset: number;
+  size: number;
+  color: string;
+  fontsize: number;
+  label: string;
+  isContainer: boolean;
+  logicalBufferId?: number;
+  bufferAllocationId?: number;
+  instructionName?: string;
+  shapeString?: string;
+  unpaddedSize?: number;
+  span?: [number, number];
+  tfOpName?: string;
+  category?: string;
+  sourceInfo?: SourceInfo;
+}
+
 /** The data table type for a HloProto */
 export type HloProto = hloProto.HloProto;
 
 /** The data table type for a preprocessed memory viewer */
 export type MemoryViewerPreprocessResult =
-  memoryViewerPreprocess.PreprocessResult;
+  memoryViewerPreprocess.PreprocessResult & {
+    parsedBufferBlocks?: BufferBlock[];
+  };
+
+/** Alias for raw BufferBlockProto from preprocessed JSON. */
+export type BufferBlockProto = memoryViewerPreprocess.BufferBlockProto;
 
 /** The interface for a HLO module. */
 export declare interface HloModule {

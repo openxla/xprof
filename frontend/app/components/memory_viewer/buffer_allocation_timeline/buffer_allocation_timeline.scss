@@ -1,0 +1,63 @@
+:host {
+  display: block;
+  width: 100%;
+  position: relative;
+}
+
+.timeline-component-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.timeline-chart-area {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.y-axis-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+  font-size: 11px;
+  color: #666;
+  font-weight: 500;
+  margin-right: 6px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.x-axis-label {
+  text-align: center;
+  font-size: 11px;
+  color: #666;
+  font-weight: 500;
+  margin-top: 6px;
+  user-select: none;
+}
+
+.canvas-container {
+  flex-grow: 1;
+  height: 400px;
+  position: relative;
+  border: 1px solid #e0e0e0;
+  box-sizing: border-box;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  background-color: #fafafa;
+}
+
+canvas:active {
+  cursor: grabbing;
+}

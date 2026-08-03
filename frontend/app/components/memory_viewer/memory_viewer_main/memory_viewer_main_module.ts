@@ -8,6 +8,7 @@ import {MatSlideToggleModule} from '@angular/material/slide-toggle';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {AngularSplitModule} from 'angular-split';
 import {DiagnosticsViewModule} from 'org_xprof/frontend/app/components/diagnostics_view/diagnostics_view_module';
+import {BufferAllocationTimelineModule} from 'org_xprof/frontend/app/components/memory_viewer/buffer_allocation_timeline/buffer_allocation_timeline_module';
 import {MaxHeapChartModule} from 'org_xprof/frontend/app/components/memory_viewer/max_heap_chart/max_heap_chart_module';
 import {ProgramOrderChartModule} from 'org_xprof/frontend/app/components/memory_viewer/program_order_chart/program_order_chart_module';
 import {SourceMapperModule} from 'org_xprof/frontend/app/components/source_mapper/source_mapper_module';
@@ -19,6 +20,7 @@ import {MemoryViewerMain} from './memory_viewer_main';
   declarations: [MemoryViewerMain],
   imports: [
     AngularSplitModule,
+    BufferAllocationTimelineModule,
     CommonModule,
     DiagnosticsViewModule,
     FormsModule,
@@ -31,7 +33,6 @@ import {MemoryViewerMain} from './memory_viewer_main';
     ProgramOrderChartModule,
     SourceMapperModule,
   ],
-  exports: [MemoryViewerMain]
+  exports: [MemoryViewerMain],
 })
-export class MemoryViewerMainModule {
-}
+export class MemoryViewerMainModule {}

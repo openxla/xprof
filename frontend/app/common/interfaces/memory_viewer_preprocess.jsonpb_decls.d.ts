@@ -66,4 +66,21 @@ export interface PreprocessResult {
   allocationTimeline?: string;
   maxScopedVmemAllocationMib?: /* double */ number;
   maxScopedVmemInstructionName?: string;
+  bufferBlocks?: BufferBlockProto[];
+}
+
+/** See corresponding proto */
+export interface BufferBlockProto {
+  logicalBufferId?: /* int32 */ number;
+  name?: string;
+  offset?: /* double */ number;
+  size?: /* double */ number;
+  startStep?: /* int32 */ number;
+  endStep?: /* int32 */ number;
+  tfOpName?: string;
+  category?: string;
+  sourceInfo?: SourceInfo;
+  shapeString?: string;
+  unpaddedSize?: /* double */ number;
+  color?: string;
 }

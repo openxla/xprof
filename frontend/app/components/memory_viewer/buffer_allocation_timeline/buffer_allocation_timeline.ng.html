@@ -1,0 +1,14 @@
+<div class="timeline-component-wrapper">
+  <div class="timeline-chart-area">
+    <div class="y-axis-label">Memory Offset</div>
+    <div class="canvas-container">
+      <canvas #timelineCanvas
+              (wheel)="onWheel($event)"
+              (mousedown)="onMouseDown($event)"
+              (mousemove)="onMouseMove($event)"
+              (mouseup)="onMouseUp($event)"
+              (mouseleave)="onMouseUp()"></canvas>
+    </div>
+  </div>
+  <div class="x-axis-label">Heap Simulation Time (Program Order)</div>
+</div>

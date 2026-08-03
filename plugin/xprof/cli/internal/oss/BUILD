@@ -52,3 +52,26 @@ pytype_library(
         ":xprof_client",
     ],
 )
+
+pytype_library(
+    name = "llo_parser",
+    srcs = ["llo_parser.py"],
+    # strict_deps = False,
+    deps = [
+        "@org_xprof//plugin/xprof:profile_data",
+    ],
+)
+
+pytype_library(
+    name = "llo_detectors",
+    srcs = ["llo_detectors.py"],
+)
+
+pytype_library(
+    name = "llo_report_generator",
+    srcs = ["llo_report_generator.py"],
+    # strict_deps = False,
+    deps = [
+        ":llo_detectors",
+    ],
+)

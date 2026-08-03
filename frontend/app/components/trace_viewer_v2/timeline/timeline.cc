@@ -3065,17 +3065,22 @@ bool Timeline::HandleKeyboard() {
   const ImGuiIO& io = ImGui::GetIO();
   bool is_interacting = false;
 
-  // Pan left
-  if (ImGui::IsKeyDown(ImGuiKey_A)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_A, kShiftPanAccelerateFactor);
+  // Pan left ('a' or LeftArrow)
+  if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
+    ImGuiKey key =
+        ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
-  // Pan right
-  if (ImGui::IsKeyDown(ImGuiKey_D)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_D, kShiftPanAccelerateFactor);
+  // Pan right ('d', 'e', or RightArrow)
+  if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_E) ||
+      ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
+    ImGuiKey key =
+        ImGui::IsKeyDown(ImGuiKey_D)
+            ? ImGuiKey_D
+            : (ImGui::IsKeyDown(ImGuiKey_E) ? ImGuiKey_E : ImGuiKey_RightArrow);
+    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
@@ -3092,17 +3097,17 @@ bool Timeline::HandleKeyboard() {
     Scroll(kScrollSpeed * io.DeltaTime);
   }
 
-  // Zoom in
-  if (ImGui::IsKeyDown(ImGuiKey_W)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_W, kShiftZoomAccelerateFactor);
+  // Zoom in ('w' or ',')
+  if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_Comma)) {
+    ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_W) ? ImGuiKey_W : ImGuiKey_Comma;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
     Zoom(1.0f - zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
-  // Zoom out
-  if (ImGui::IsKeyDown(ImGuiKey_S)) {
-    float multiplier =
-        GetSpeedMultiplier(io, ImGuiKey_S, kShiftZoomAccelerateFactor);
+  // Zoom out ('s' or 'o')
+  if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_O)) {
+    ImGuiKey key = ImGui::IsKeyDown(ImGuiKey_S) ? ImGuiKey_S : ImGuiKey_O;
+    float multiplier = GetSpeedMultiplier(io, key, kShiftZoomAccelerateFactor);
     Zoom(1.0f + zoom_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }

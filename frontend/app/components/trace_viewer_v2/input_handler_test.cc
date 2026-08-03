@@ -102,13 +102,25 @@ TEST_F(InputHandlerTest, HandleKeyDownTranslatesShortcutKeys) {
   };
 
   const TestCase test_cases[] = {
-      {"KeyA", ImGuiKey_A},          {"KeyD", ImGuiKey_D},
-      {"KeyS", ImGuiKey_S},          {"KeyW", ImGuiKey_W},
-      {"KeyG", ImGuiKey_G},          {"KeyF", ImGuiKey_F},
-      {"KeyM", ImGuiKey_M},          {"ArrowDown", ImGuiKey_DownArrow},
-      {"ArrowUp", ImGuiKey_UpArrow}, {"Digit0", ImGuiKey_0},
-      {"Digit1", ImGuiKey_1},        {"Digit2", ImGuiKey_2},
-      {"Digit3", ImGuiKey_3},        {"Digit4", ImGuiKey_4},
+      {"KeyA", ImGuiKey_A},
+      {"KeyD", ImGuiKey_D},
+      {"KeyE", ImGuiKey_E},
+      {"KeyS", ImGuiKey_S},
+      {"KeyW", ImGuiKey_W},
+      {"Comma", ImGuiKey_Comma},
+      {"KeyO", ImGuiKey_O},
+      {"KeyG", ImGuiKey_G},
+      {"KeyF", ImGuiKey_F},
+      {"KeyM", ImGuiKey_M},
+      {"ArrowDown", ImGuiKey_DownArrow},
+      {"ArrowLeft", ImGuiKey_LeftArrow},
+      {"ArrowRight", ImGuiKey_RightArrow},
+      {"ArrowUp", ImGuiKey_UpArrow},
+      {"Digit0", ImGuiKey_0},
+      {"Digit1", ImGuiKey_1},
+      {"Digit2", ImGuiKey_2},
+      {"Digit3", ImGuiKey_3},
+      {"Digit4", ImGuiKey_4},
       {"Escape", ImGuiKey_Escape},
   };
 

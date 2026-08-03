@@ -1561,6 +1561,43 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_EmptyCallback_DoesNotCrash) {
   SimulateFrame();
 }
 
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyE_PansRight) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_E, true);
+  EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
+                                     ImGui::GetIO().DeltaTime)));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_LeftArrow_PansLeft) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
+  EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
+                                     ImGui::GetIO().DeltaTime)));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_RightArrow_PansRight) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
+  EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
+                                     ImGui::GetIO().DeltaTime)));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Comma_ZoomsIn) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Comma, true);
+  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f - timeline_.zoom_speed() *
+                                                 ImGui::GetIO().DeltaTime),
+                              _));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyO_ZoomsOut) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_O, true);
+  EXPECT_CALL(timeline_, Zoom(FloatEq(1.0f + timeline_.zoom_speed() *
+                                                 ImGui::GetIO().DeltaTime),
+                              _));
+  SimulateFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyG_TogglesGrid) {
   EXPECT_TRUE(timeline_.show_grid());
 

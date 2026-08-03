@@ -230,6 +230,21 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_roofline_model_processor",
+    srcs = ["unified_roofline_model_processor.cc"],
+    hdrs = ["unified_roofline_model_processor.h"],
+    deps = [
+        ":base_op_stats_processor",
+        ":op_stats_to_roofline_model",
+        ":tool_options",
+        ":unified_session_snapshot",
+        "@com_google_absl//absl/status",
+        "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
+    ],
+)
+
+cc_library(
     name = "unified_op_profile_processor",
     srcs = ["unified_op_profile_processor.cc"],
     hdrs = ["unified_op_profile_processor.h"],
@@ -900,6 +915,24 @@ cc_test(
         ":file_utils",
         ":repository",
         ":tool_options",
+        ":unified_profile_processor_factory",
+        ":unified_tools_registration",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "unified_roofline_model_processor_test",
+    srcs = ["unified_roofline_model_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
         ":unified_profile_processor_factory",
         ":unified_tools_registration",
         "@com_google_absl//absl/status:status_matchers",
@@ -3106,6 +3139,7 @@ cc_library(
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
         ":unified_profile_processor_factory",
+        ":unified_roofline_model_processor",
         ":unified_utilization_viewer_processor",
     ],
     alwayslink = 1,

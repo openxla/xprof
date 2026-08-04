@@ -71,6 +71,7 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  USE_TRACE_VIEWER_V2_KEY,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -86,7 +87,9 @@ import {
 import {
   getProcessMappingsFromWasm,
   getProcessNamesFromWasm,
+  maybeResetMonthly,
   parseEventsSelectedData,
+  resolveTraceViewerV2,
 } from './utils';
 
 interface TraceData {
@@ -191,22 +194,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   pathPrefix = '';
   sourceCodeServiceIsAvailable = false;
   hostList: string[] = [];
-  useTraceViewerV2 = (() => {
-    try {
-      return (
-        new URLSearchParams(window.location.search).get(
-          'use_trace_viewer_v2',
-        ) === 'true' ||
-        window.localStorage.getItem('use_trace_viewer_v2') === 'true'
-      );
-    } catch {
-      return (
-        new URLSearchParams(window.location.search).get(
-          'use_trace_viewer_v2',
-        ) === 'true'
-      );
-    }
-  })();
+  useTraceViewerV2 = true;
   traceViewerModule: TraceViewerV2Module | null = null;
   selectedEvent: SelectedEvent | null = null;
   selectedEventProperties: SelectedEventProperty[] = [];
@@ -453,6 +441,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         API_PREFIX + PLUGIN_NAME,
       )[0];
     }
+    maybeResetMonthly(USE_TRACE_VIEWER_V2_KEY);
     combineLatest([
       this.route.params,
       this.route.queryParams,
@@ -465,13 +454,16 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
             (host: HostMetadata) => host.hostname,
           );
         }
+        let storedValue: string | null = null;
         try {
-          this.useTraceViewerV2 =
-            queryParams['use_trace_viewer_v2'] === 'true' ||
-            window.localStorage.getItem('use_trace_viewer_v2') === 'true';
+          storedValue = window.localStorage.getItem(USE_TRACE_VIEWER_V2_KEY);
         } catch {
-          this.useTraceViewerV2 = queryParams['use_trace_viewer_v2'] === 'true';
+          // Storage might be disabled/restricted.
         }
+        this.useTraceViewerV2 = resolveTraceViewerV2(
+          queryParams[USE_TRACE_VIEWER_V2_KEY],
+          storedValue,
+        );
         this.navigationEvent = {...params, ...queryParams};
         this.update(this.navigationEvent);
       });
@@ -1071,9 +1063,17 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         'tool_name': 'trace viewer',
       });
     const queryParams = this.dataService.getSearchParams();
-    queryParams.set('use_trace_viewer_v2', 'false');
+    queryParams.set(USE_TRACE_VIEWER_V2_KEY, 'false');
     // Store preference to stay on v1
-    window.localStorage.removeItem('use_trace_viewer_v2');
+    try {
+      window.localStorage.setItem(USE_TRACE_VIEWER_V2_KEY, 'false');
+      window.localStorage.setItem(
+        `${USE_TRACE_VIEWER_V2_KEY}_timestamp`,
+        String(Date.now()),
+      );
+    } catch {
+      // Ignored if storage is inaccessible
+    }
 
     // Add a flag to tell the Angular to show the HaTS survey.
     // Set to true when user switches from v2 to v1 by clicking the "Switch to
@@ -1106,8 +1106,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         'tool_name': 'trace viewer',
       });
     const queryParams = this.dataService.getSearchParams();
-    queryParams.set('use_trace_viewer_v2', 'true');
-    window.localStorage.setItem('use_trace_viewer_v2', 'true');
+    queryParams.set(USE_TRACE_VIEWER_V2_KEY, 'true');
+    try {
+      window.localStorage.removeItem(USE_TRACE_VIEWER_V2_KEY);
+      window.localStorage.removeItem(`${USE_TRACE_VIEWER_V2_KEY}_timestamp`);
+    } catch {
+      // Ignored if storage is inaccessible
+    }
 
     // Delete the survey flag in v2 to keep the url clean.
     queryParams.delete('show_hats_survey');

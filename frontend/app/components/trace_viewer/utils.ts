@@ -181,6 +181,72 @@ export function filterFieldKey(field: FilterField): string {
   return `${field.info.category}_${field.info.name}`;
 }
 
+const DEFAULT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Checks if the stored timestamp for the given key has exceeded the TTL (default 30 days).
+ * If expired (or unset), removes the key from localStorage, resets to default, and updates
+ * the timestamp to the current time.
+ *
+ * @param key The localStorage key to check and potentially reset.
+ * @param ttlMs The time-to-live duration in milliseconds (defaults to 30 days).
+ */
+export function maybeResetMonthly(
+  key: string,
+  ttlMs: number = DEFAULT_TTL_MS,
+): void {
+  try {
+    const timestampKey = `${key}_timestamp`;
+    const storedTimestamp = window.localStorage.getItem(timestampKey);
+    const now = Date.now();
+
+    if (!storedTimestamp) {
+      window.localStorage.removeItem(key);
+      window.localStorage.setItem(timestampKey, String(now));
+      return;
+    }
+
+    const elapsed = now - Number(storedTimestamp);
+    if (isNaN(elapsed) || elapsed > ttlMs) {
+      const hadLegacyOptOut = window.localStorage.getItem(key) === 'false';
+      window.localStorage.removeItem(key);
+      window.localStorage.setItem(timestampKey, String(now));
+      if (hadLegacyOptOut && window.gtag) {
+        window.gtag('event', 'monthly_v2_reset', {
+          'event_category': 'system_interaction',
+          'event_label': 'reset_to_v2',
+          'screen_name': 'trace viewer',
+          'tool_name': 'trace viewer',
+        });
+      }
+    }
+  } catch {
+    // LocalStorage might be disabled/restricted in certain environments.
+  }
+}
+
+/**
+ * Resolves whether Trace Viewer v2 should be enabled.
+ * Explicit URL parameter takes highest precedence.
+ * If URL parameter is absent or empty, falls back to stored preference.
+ * Defaults to true if neither is specified.
+ *
+ * @param urlParam The query parameter string or null/undefined.
+ * @param storedValue The localStorage value string or null/undefined.
+ */
+export function resolveTraceViewerV2(
+  urlParam?: string | null,
+  storedValue?: string | null,
+): boolean {
+  if (urlParam !== undefined && urlParam !== null && urlParam !== '') {
+    return urlParam !== 'false';
+  }
+  if (storedValue !== undefined && storedValue !== null && storedValue !== '') {
+    return storedValue !== 'false';
+  }
+  return true;
+}
+
 /**
  * Extracts and parses process names from the WASM module.
  */

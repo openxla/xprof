@@ -19,6 +19,10 @@ import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 const CONTAINER_COLOR = '#ffffff';
 const CONTAINER_BORDER_COLOR = '#d0d0d0';
 const LABEL_COLOR = '#000000';
+const HOVER_SHADOW_COLOR = 'rgba(0, 0, 0, 0.45)';
+const HOVER_SHADOW_BLUR = 10;
+const HOVER_SHADOW_OFFSET_Y = 3;
+const HOVER_OVERLAY_COLOR = 'rgba(255, 255, 255, 0.45)';
 
 /**
  * The timeline visualizer coordinates map to a virtual bounding square box
@@ -99,6 +103,11 @@ export class BufferAllocationTimeline
   offsetX = 0;
   offsetY = 0;
   fitScale = 1.0;
+
+  // Hover state for tooltip
+  hoveredBlock: BufferBlock | null = null;
+  tooltipLeft = 0;
+  tooltipTop = 0;
 
   // Interactivity state
   isPanning = false;
@@ -320,12 +329,33 @@ export class BufferAllocationTimeline
       }
     }
 
+    // Draw all non-hovered logical buffers first
     for (const block of this.layoutBlocks) {
       if (block.isContainer) {
         continue;
       }
+      const isHovered = this.hoveredBlock && this.hoveredBlock.id === block.id;
+      if (isHovered) {
+        continue;
+      }
+
       if (this.isBlockVisible(block, minRawX, maxRawX, minRawY, maxRawY)) {
         this.drawBlock(block);
+      }
+    }
+
+    // Draw hovered block on top of normal blocks
+    if (this.hoveredBlock && !this.hoveredBlock.isContainer) {
+      if (
+        this.isBlockVisible(
+          this.hoveredBlock,
+          minRawX,
+          maxRawX,
+          minRawY,
+          maxRawY,
+        )
+      ) {
+        this.drawBlock(this.hoveredBlock);
       }
     }
   }
@@ -358,11 +388,35 @@ export class BufferAllocationTimeline
     const drawW = this.toCanvasLength(block.width);
     const drawH = this.toCanvasLength(block.height);
 
+    const isHovered =
+      this.hoveredBlock &&
+      !block.isContainer &&
+      this.hoveredBlock.id === block.id;
+
     this.ctx.save();
 
     // Fill block background
     this.ctx.fillStyle = block.color;
-    this.ctx.fillRect(drawX, drawY, drawW, drawH);
+
+    if (isHovered) {
+      this.ctx.shadowColor = HOVER_SHADOW_COLOR;
+      this.ctx.shadowBlur = HOVER_SHADOW_BLUR;
+      this.ctx.shadowOffsetX = 0;
+      this.ctx.shadowOffsetY = HOVER_SHADOW_OFFSET_Y;
+
+      this.ctx.fillRect(drawX, drawY, drawW, drawH);
+
+      // Clear shadow for overlay and border strokes
+      this.ctx.shadowColor = 'transparent';
+      this.ctx.shadowBlur = 0;
+      this.ctx.shadowOffsetX = 0;
+      this.ctx.shadowOffsetY = 0;
+
+      this.ctx.fillStyle = HOVER_OVERLAY_COLOR;
+      this.ctx.fillRect(drawX, drawY, drawW, drawH);
+    } else {
+      this.ctx.fillRect(drawX, drawY, drawW, drawH);
+    }
 
     // Stroke border
     if (block.isContainer) {
@@ -417,6 +471,7 @@ export class BufferAllocationTimeline
     this.offsetY = mouseY - (CANVAS_SIZE - rawYBefore) * this.fitScale * this.scale;
 
     this.draw();
+    this.updateHoverState(mouseX, mouseY);
   }
 
   // Mouse pan/select
@@ -442,7 +497,73 @@ export class BufferAllocationTimeline
       this.offsetX = this.dragStartOffsetX + dx;
       this.offsetY = this.dragStartOffsetY + dy;
       this.draw();
+      this.hoveredBlock = null;
+      return;
     }
+
+    this.updateHoverState(event.offsetX, event.offsetY);
+  }
+
+  updateHoverState(mouseX: number, mouseY: number) {
+    const rawX = this.toRawX(mouseX);
+    const rawY = this.toRawY(mouseY);
+
+    let foundBlock: BufferBlock | null = null;
+    let minArea = Infinity;
+
+    for (const block of this.layoutBlocks) {
+      if (block.isContainer) {
+        continue;
+      }
+      if (this.isPointInBlock(rawX, rawY, block)) {
+        const area = block.width * block.height;
+        if (area < minArea) {
+          minArea = area;
+          foundBlock = block;
+        }
+      }
+    }
+
+    if (foundBlock !== this.hoveredBlock) {
+      this.hoveredBlock = foundBlock;
+      this.draw();
+    }
+
+    if (this.hoveredBlock) {
+      const viewW = this.canvas.width / (window.devicePixelRatio || 1);
+      const viewH = this.canvas.height / (window.devicePixelRatio || 1);
+      const tooltipW = 350;
+      const tooltipH = 150;
+
+      if (mouseX + 15 + tooltipW > viewW) {
+        this.tooltipLeft = mouseX - tooltipW - 15;
+      } else {
+        this.tooltipLeft = mouseX + 15;
+      }
+
+      if (mouseY + 15 + tooltipH > viewH) {
+        this.tooltipTop = mouseY - tooltipH - 15;
+      } else {
+        this.tooltipTop = mouseY + 15;
+      }
+    }
+  }
+
+  onMouseLeave() {
+    this.isPanning = false;
+    this.hoveredBlock = null;
+    this.draw();
+  }
+
+  isPointInBlock(rawX: number, rawY: number, block: BufferBlock): boolean {
+    const halfW = block.width / 2;
+    const halfH = block.height / 2;
+    return (
+      rawX >= block.x - halfW &&
+      rawX <= block.x + halfW &&
+      rawY >= block.y - halfH &&
+      rawY <= block.y + halfH
+    );
   }
 
   onMouseUp(event?: MouseEvent) {

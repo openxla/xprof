@@ -7,7 +7,33 @@
               (mousedown)="onMouseDown($event)"
               (mousemove)="onMouseMove($event)"
               (mouseup)="onMouseUp($event)"
-              (mouseleave)="onMouseUp()"></canvas>
+              (mouseleave)="onMouseLeave()"></canvas>
+
+      <div class="timeline-tooltip"
+           *ngIf="hoveredBlock"
+           [style.left.px]="tooltipLeft"
+           [style.top.px]="tooltipTop">
+        <div class="tooltip-row">
+          <span class="tooltip-title">{{hoveredBlock.instructionName || hoveredBlock.label}}</span>
+        </div>
+        <hr class="tooltip-divider">
+        <div class="tooltip-row" *ngIf="hoveredBlock.logicalBufferId !== undefined">
+          <span class="tooltip-label">Buffer ID:</span>
+          <span class="tooltip-value">{{hoveredBlock.logicalBufferId}}</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Size:</span>
+          <span class="tooltip-value">{{(hoveredBlock.size / (1024 * 1024)).toFixed(2)}} MiB</span>
+        </div>
+        <div class="tooltip-row">
+          <span class="tooltip-label">Unpadded:</span>
+          <span class="tooltip-value">{{hoveredBlock.unpaddedSize ? (hoveredBlock.unpaddedSize / (1024 * 1024)).toFixed(2) : '0.00'}} MiB</span>
+        </div>
+        <div class="tooltip-row" *ngIf="hoveredBlock.shapeString">
+          <span class="tooltip-label">Shape:</span>
+          <span class="tooltip-value shape-value">{{hoveredBlock.shapeString}}</span>
+        </div>
+      </div>
     </div>
   </div>
   <div class="x-axis-label">Heap Simulation Time (Program Order)</div>

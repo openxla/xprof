@@ -61,3 +61,49 @@ canvas {
 canvas:active {
   cursor: grabbing;
 }
+
+.timeline-tooltip {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  font-family: Roboto, sans-serif;
+  font-size: 11px;
+  color: #333;
+  max-width: 350px;
+  z-index: 100;
+  box-sizing: border-box;
+}
+
+.tooltip-row {
+  display: flex;
+  margin-bottom: 2px;
+  align-items: flex-start;
+}
+
+.tooltip-title {
+  font-weight: bold;
+  word-break: break-all;
+  color: #111;
+  font-size: 12px;
+}
+
+.tooltip-label {
+  font-weight: bold;
+  margin-right: 4px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.tooltip-value {
+  word-break: break-all;
+}
+
+.tooltip-divider {
+  border: 0;
+  border-top: 1px solid #e0e0e0;
+  margin: 4px 0;
+}

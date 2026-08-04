@@ -37,4 +37,58 @@
     </div>
   </div>
   <div class="x-axis-label">Heap Simulation Time (Program Order)</div>
+
+  <div class="selected-block-card" *ngIf="selectedBlock">
+    <div class="card-header">
+      <h3>Op Name: {{selectedBlock.instructionName || selectedBlock.label}}</h3>
+    </div>
+    <div class="card-content">
+      <div class="metadata-grid">
+        <div class="metadata-item" *ngIf="selectedBlock.logicalBufferId !== undefined">
+          <span class="metadata-label">Logical Buffer ID:</span>
+          <span class="metadata-value">{{selectedBlock.logicalBufferId}}</span>
+        </div>
+        <div class="metadata-item" *ngIf="selectedBlock.shapeString">
+          <span class="metadata-label">Shape:</span>
+          <span class="metadata-value">{{selectedBlock.shapeString}}</span>
+        </div>
+        <div class="metadata-item">
+          <span class="metadata-label">Offset:</span>
+          <span class="metadata-value">{{selectedBlock.offset}} bytes ({{getHexOffset(selectedBlock.offset)}})</span>
+        </div>
+        <div class="metadata-item">
+          <span class="metadata-label">Size:</span>
+          <span class="metadata-value">{{selectedBlockSizeMiB}} MiB ({{selectedBlock.size}} bytes)</span>
+        </div>
+        <div class="metadata-item">
+          <span class="metadata-label">Unpadded Size:</span>
+          <span class="metadata-value">{{selectedBlockUnpaddedSizeMiB}} MiB<span *ngIf="selectedBlock.unpaddedSize !== undefined"> ({{selectedBlock.unpaddedSize}} bytes)</span></span>
+        </div>
+        <div class="metadata-item">
+          <span class="metadata-label">Padding Overhead:</span>
+          <span class="metadata-value">{{selectedBlockPaddingOverheadMiB}} MiB</span>
+        </div>
+        <div class="metadata-item" *ngIf="selectedBlock.span">
+          <span class="metadata-label">Lifetime Span:</span>
+          <span class="metadata-value">Step {{selectedBlock.span[0]}} to Step {{selectedBlock.span[1]}}</span>
+        </div>
+        <div class="metadata-item" *ngIf="selectedBlock.category">
+          <span class="metadata-label">Category:</span>
+          <span class="metadata-value">{{selectedBlock.category}}</span>
+        </div>
+        <div class="metadata-item" *ngIf="selectedBlock.sourceInfo && selectedBlock.sourceInfo.fileName">
+          <span class="metadata-label">Source:</span>
+          <span class="metadata-value">
+            <a [href]="'http://google3/' + selectedBlock.sourceInfo.fileName + ';l=' + selectedBlock.sourceInfo.lineNumber" target="_blank">
+              {{selectedBlock.sourceInfo.fileName}}:{{selectedBlock.sourceInfo.lineNumber}}
+            </a>
+          </span>
+        </div>
+      </div>
+      <div class="full-width-metadata-item" *ngIf="selectedBlock.tfOpName">
+        <span class="metadata-label">Framework Op:</span>
+        <span class="metadata-value">{{selectedBlock.tfOpName}}</span>
+      </div>
+    </div>
+  </div>
 </div>

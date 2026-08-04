@@ -42,13 +42,14 @@
 </program-order-chart>
 
 <div *ngIf="memoryViewerPreprocessResult && memoryViewerPreprocessResult.bufferBlocks && memoryViewerPreprocessResult.bufferBlocks.length">
-  <div class="heap-chart-header"><h2>Buffer Allocation Timeline</h2></div>
+  <div class="heap-chart-header"><h2>Buffer Allocation Timeline (Canvas Zoom/Pan)</h2></div>
   <buffer-allocation-timeline
+      [selectedBlock]="selectedBlock"
+      (selected)="setSelectedBlock($event)"
       [bufferBlocks]="memoryViewerPreprocessResult.bufferBlocks"
       [totalSteps]="memoryViewerPreprocessResult.heapSizes?.length || 0"
       [totalBytes]="(memoryViewerPreprocessResult.peakHeapMib || 0) * 1024 * 1024">
   </buffer-allocation-timeline>
-  <mat-divider></mat-divider>
 </div>
 
 <div [hidden]="!heapSizes.length">

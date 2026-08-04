@@ -52,6 +52,7 @@ xprof_ng_module(
         "@npm//@angular/router",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:memory_viewer_preprocess_proto_defs",
         "@org_xprof//frontend/app/common/utils:testing",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",

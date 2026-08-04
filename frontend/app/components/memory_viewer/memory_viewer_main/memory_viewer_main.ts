@@ -11,6 +11,7 @@ import {Store} from '@ngrx/store';
 import {BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {
   type MemoryViewerPreprocessResult,
+  BufferBlock,
 } from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {Diagnostics} from 'org_xprof/frontend/app/common/interfaces/diagnostics';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
@@ -89,6 +90,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   selectedOpCategory = '';
   showStackTrace = false;
   sourceCodeServiceIsAvailable = false;
+  selectedBlock: BufferBlock | null = null;
 
   constructor() {
     // We don't need the source code service to be persistently available.
@@ -181,6 +183,7 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     if (selectedIndex === -1) {
       this.dispatchActiveHeapObject();
     } else {
+      this.selectedIndex = selectedIndex;
       this.dispatchActiveHeapObject(this.usage.maxHeap[selectedIndex]);
       this.selectedIndexBySize = this.usage.maxHeapToBySize[selectedIndex];
       this.selectedIndexByPaddingSize =
@@ -217,6 +220,37 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
       this.selectedIndex =
         this.usage.byPaddingSizeToMaxHeap[selectedIndexByPaddingSize];
       this.selectedIndexBySize = this.usage.maxHeapToBySize[this.selectedIndex];
+    }
+  }
+
+  setSelectedBlock(block: BufferBlock | null) {
+    if (!block || block.isContainer) {
+      this.selectedBlock = null;
+      this.dispatchActiveHeapObject();
+      return;
+    }
+    this.selectedBlock = block;
+    if (!this.usage) {
+      return;
+    }
+    const index = this.usage.maxHeap.findIndex(
+      (heapObj) => heapObj.logicalBufferId === block.logicalBufferId,
+    );
+    if (index !== -1) {
+      this.setSelectedHeapObject(index);
+    } else {
+      // Temporary HeapObject for the block if it's not at peak
+      const heapObject: HeapObject = {
+        logicalBufferId: block.logicalBufferId,
+        instructionName: block.instructionName || block.label,
+        shape: block.shapeString,
+        sizeMiB: block.size / (1024 * 1024),
+        unpaddedSizeMiB: block.unpaddedSize
+          ? block.unpaddedSize / (1024 * 1024)
+          : 0,
+        color: 0,
+      };
+      this.dispatchActiveHeapObject(heapObject);
     }
   }
 

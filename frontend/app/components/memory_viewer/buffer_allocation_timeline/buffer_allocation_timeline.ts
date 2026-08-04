@@ -3,10 +3,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  EventEmitter,
   HostListener,
   Input,
   OnChanges,
   OnDestroy,
+  Output,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
@@ -85,6 +87,7 @@ export class BufferAllocationTimeline
   @Input() bufferBlocks: BufferBlockProto[] = [];
   @Input() totalSteps = 0;
   @Input() totalBytes = 0;
+  @Output() readonly selected = new EventEmitter<BufferBlock | null>();
 
   /**
    * The list of buffer blocks positioned and scaled for rendering.
@@ -103,6 +106,9 @@ export class BufferAllocationTimeline
   offsetX = 0;
   offsetY = 0;
   fitScale = 1.0;
+
+  // Selection state
+  @Input() selectedBlock: BufferBlock | null = null;
 
   // Hover state for tooltip
   hoveredBlock: BufferBlock | null = null;
@@ -300,7 +306,9 @@ export class BufferAllocationTimeline
   }
 
   toRawY(canvasY: number): number {
-    return CANVAS_SIZE - (canvasY - this.offsetY) / (this.fitScale * this.scale);
+    return (
+      CANVAS_SIZE - (canvasY - this.offsetY) / (this.fitScale * this.scale)
+    );
   }
 
   // Draw loop
@@ -329,11 +337,17 @@ export class BufferAllocationTimeline
       }
     }
 
-    // Draw all non-hovered logical buffers first
+    // Draw all non-selected and non-hovered logical buffers first
     for (const block of this.layoutBlocks) {
       if (block.isContainer) {
         continue;
       }
+      const isSelected =
+        this.selectedBlock && this.selectedBlock.id === block.id;
+      if (isSelected) {
+        continue;
+      }
+
       const isHovered = this.hoveredBlock && this.hoveredBlock.id === block.id;
       if (isHovered) {
         continue;
@@ -341,6 +355,21 @@ export class BufferAllocationTimeline
 
       if (this.isBlockVisible(block, minRawX, maxRawX, minRawY, maxRawY)) {
         this.drawBlock(block);
+      }
+    }
+
+    // Draw selected block on top of everything
+    if (this.selectedBlock && !this.selectedBlock.isContainer) {
+      if (
+        this.isBlockVisible(
+          this.selectedBlock,
+          minRawX,
+          maxRawX,
+          minRawY,
+          maxRawY,
+        )
+      ) {
+        this.drawBlock(this.selectedBlock);
       }
     }
 
@@ -388,12 +417,22 @@ export class BufferAllocationTimeline
     const drawW = this.toCanvasLength(block.width);
     const drawH = this.toCanvasLength(block.height);
 
+    const isSelected = !!(
+      this.selectedBlock &&
+      !block.isContainer &&
+      this.selectedBlock.logicalBufferId === block.logicalBufferId
+    );
+
     const isHovered =
       this.hoveredBlock &&
       !block.isContainer &&
       this.hoveredBlock.id === block.id;
 
     this.ctx.save();
+
+    if (this.selectedBlock && !block.isContainer && !isSelected) {
+      this.ctx.globalAlpha = 0.3;
+    }
 
     // Fill block background
     this.ctx.fillStyle = block.color;
@@ -468,7 +507,8 @@ export class BufferAllocationTimeline
     this.scale = Math.max(1.0, Math.min(this.scale, 500.0));
 
     this.offsetX = mouseX - rawXBefore * this.fitScale * this.scale;
-    this.offsetY = mouseY - (CANVAS_SIZE - rawYBefore) * this.fitScale * this.scale;
+    this.offsetY =
+      mouseY - (CANVAS_SIZE - rawYBefore) * this.fitScale * this.scale;
 
     this.draw();
     this.updateHoverState(mouseX, mouseY);
@@ -569,6 +609,81 @@ export class BufferAllocationTimeline
   onMouseUp(event?: MouseEvent) {
     if (this.isPanning) {
       this.isPanning = false;
+      if (!this.hasDragged && event) {
+        this.checkSelection(event.offsetX, event.offsetY);
+      }
     }
+  }
+  checkSelection(mouseX: number, mouseY: number) {
+    const rawX = this.toRawX(mouseX);
+    const rawY = this.toRawY(mouseY);
+
+    let clickedBlock: BufferBlock | null = null;
+    let minArea = Infinity;
+
+    for (const block of this.layoutBlocks) {
+      if (block.isContainer) {
+        continue;
+      }
+      const left = block.x - block.width / 2;
+      const right = block.x + block.width / 2;
+      const bottom = block.y - block.height / 2;
+      const top = block.y + block.height / 2;
+
+      if (rawX >= left && rawX <= right && rawY >= bottom && rawY <= top) {
+        const area = block.width * block.height;
+        if (area < minArea) {
+          minArea = area;
+          clickedBlock = block;
+        }
+      }
+    }
+
+    if (
+      clickedBlock &&
+      this.selectedBlock &&
+      clickedBlock.logicalBufferId === this.selectedBlock.logicalBufferId
+    ) {
+      clickedBlock = null;
+    }
+
+    this.selectedBlock = clickedBlock;
+    this.selected.emit(clickedBlock);
+    this.draw();
+  }
+
+  getHexOffset(offset?: number): string {
+    if (offset === undefined || offset === null) {
+      return '';
+    }
+    return '0x' + offset.toString(16);
+  }
+
+  get selectedBlockSizeMiB(): string {
+    if (!this.selectedBlock || this.selectedBlock.size === undefined) {
+      return '';
+    }
+    return (this.selectedBlock.size / (1024 * 1024)).toFixed(2);
+  }
+
+  get selectedBlockUnpaddedSizeMiB(): string {
+    if (!this.selectedBlock || this.selectedBlock.unpaddedSize === undefined) {
+      return 'N/A';
+    }
+    return (this.selectedBlock.unpaddedSize / (1024 * 1024)).toFixed(2);
+  }
+
+  get selectedBlockPaddingOverheadMiB(): string {
+    if (
+      !this.selectedBlock ||
+      this.selectedBlock.size === undefined ||
+      this.selectedBlock.unpaddedSize === undefined
+    ) {
+      return 'N/A';
+    }
+    return (
+      (this.selectedBlock.size - this.selectedBlock.unpaddedSize) /
+      (1024 * 1024)
+    ).toFixed(2);
   }
 }

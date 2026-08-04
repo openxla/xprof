@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
@@ -62,6 +62,22 @@ EXPORT_C char* Trace(const char* service_addr, const char* logdir,
                      const char** option_keys, const char** option_string_vals,
                      const int* option_int_vals, const bool* option_bool_vals,
                      const int* option_types, int num_options) {
+  // service_addr is required non-empty; logdir and worker_list are optional.
+  // Python marshals None and "" as NULL, so validate here before forwarding
+  // downstream.
+  if (!service_addr || service_addr[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be a non-empty string"));
+  }
+  if (!logdir) {
+    return StatusToCError(
+        absl::InvalidArgumentError("logdir must be non-NULL"));
+  }
+  if (!worker_list) {
+    return StatusToCError(
+        absl::InvalidArgumentError("worker_list must be non-NULL"));
+  }
+
   auto tool_options_or =
       ToolOptionsFromCArrays(option_keys, option_string_vals, option_int_vals,
                              option_bool_vals, option_types, num_options);
@@ -79,6 +95,13 @@ EXPORT_C char* Monitor(const char* service_addr, int duration_ms,
                        int monitoring_level, bool display_timestamp,
                        char** result_content) {
   if (result_content) *result_content = nullptr;
+
+  // service_addr is a required host:port. Python marshals None and "" as NULL,
+  // so reject NULL/empty before forwarding downstream.
+  if (!service_addr || service_addr[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be a non-empty string"));
+  }
   std::string content;
   absl::Status status = xprof::pywrap::Monitor(
       service_addr, duration_ms, monitoring_level, display_timestamp, &content);
@@ -95,6 +118,13 @@ EXPORT_C char* StartContinuousProfiling(
     const char* service_addr, const char** option_keys,
     const char** option_string_vals, const int* option_int_vals,
     const bool* option_bool_vals, const int* option_types, int num_options) {
+  // service_addr is a required host:port. Python marshals None and "" as NULL,
+  // so reject NULL/empty before forwarding downstream.
+  if (!service_addr || service_addr[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be a non-empty string"));
+  }
+
   auto tool_options_or =
       ToolOptionsFromCArrays(option_keys, option_string_vals, option_int_vals,
                              option_bool_vals, option_types, num_options);
@@ -108,11 +138,27 @@ EXPORT_C char* StartContinuousProfiling(
 }
 
 EXPORT_C char* StopContinuousProfiling(const char* service_addr) {
+  // service_addr is a required host:port. Python marshals None and "" as NULL,
+  // so reject NULL/empty before forwarding downstream.
+  if (!service_addr || service_addr[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be a non-empty string"));
+  }
   absl::Status status = xprof::pywrap::StopContinuousProfiling(service_addr);
   return StatusToCError(status);
 }
 
 EXPORT_C char* GetSnapshot(const char* service_addr, const char* logdir) {
+  // service_addr is required non-empty; logdir is optional. Python marshals
+  // None and "" as NULL, so validate here before forwarding downstream.
+  if (!service_addr || service_addr[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("service_addr must be a non-empty string"));
+  }
+  if (!logdir) {
+    return StatusToCError(
+        absl::InvalidArgumentError("logdir must be non-NULL"));
+  }
   absl::Status status = xprof::pywrap::GetSnapshot(service_addr, logdir);
   return StatusToCError(status);
 }
@@ -126,6 +172,13 @@ EXPORT_C char* XSpaceToToolsData(
   if (result_data) *result_data = nullptr;
   if (result_data_size) *result_data_size = 0;
   if (success) *success = false;
+
+  // tool_name is required. Python marshals None and "" as NULL, so reject
+  // NULL/empty before forwarding to the impl.
+  if (!tool_name || tool_name[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("tool_name must be a non-empty string"));
+  }
 
   std::vector<std::string> paths;
   paths.reserve(num_xspace_paths);
@@ -184,6 +237,13 @@ EXPORT_C char* XSpaceToToolsDataFromByteString(
   if (result_data) *result_data = nullptr;
   if (result_data_size) *result_data_size = 0;
   if (success) *success = false;
+
+  // tool_name is required. Python marshals None and "" as NULL, so reject
+  // NULL/empty before forwarding to the impl.
+  if (!tool_name || tool_name[0] == '\0') {
+    return StatusToCError(
+        absl::InvalidArgumentError("tool_name must be a non-empty string"));
+  }
 
   std::vector<std::string> strings;
   std::vector<std::string> paths;
@@ -245,11 +305,26 @@ EXPORT_C void StartGrpcServer(int port, int max_concurrent_requests) {
 }
 
 EXPORT_C void InitializeStubs(const char* worker_service_addresses) {
+  // worker_service_addresses is required; this entry point returns void, so log
+  // and skip initialization on NULL. An empty string is a legitimate no-op, so
+  // it is not rejected.
+  if (!worker_service_addresses) {
+    LOG(ERROR) << "InitializeStubs: worker_service_addresses must be non-NULL; "
+                  "skipping stub initialization.";
+    return;
+  }
   xprof::profiler::InitializeStubs(worker_service_addresses);
 }
 // Provide a minimal PyInit for Python import resolution
 // This allows loaders to properly satisfy `DT_NEEDED` dependencies before we
 // use standard ctypes bindings later.
+//
+// This block is only required when this translation unit is loaded as a CPython
+// extension (the cc_binary .so / pytype_extension). It is compiled out for the
+// standalone cc_test (which defines XPROF_PYWRAP_DISABLE_PY_MODULE_INIT) so the
+// test does not need to link the CPython runtime. The shipped .so and
+// pytype_extension do not define this macro and are unaffected.
+#ifndef XPROF_PYWRAP_DISABLE_PY_MODULE_INIT
 #include <Python.h>
 
 static struct PyModuleDef profiler_plugin_c_api_module = {
@@ -266,11 +341,17 @@ PyMODINIT_FUNC PyInit_profiler_plugin_c_api(void) {
 #endif
   return m;
 }
+#endif  // XPROF_PYWRAP_DISABLE_PY_MODULE_INIT
 
 #ifdef EMBEDDED_FEATURES_ENABLED
 EXPORT_C bool BuiltWithEmbedded() { return true; }
 #include "xprof/embedded/llo_analysis/llo_analysis_c_api.h"
 EXPORT_C LloAnalysisHandle CreateLloAnalysis(const char* filename) {
+  // filename is required; return a null handle on NULL, which Python maps to
+  // {"success": False}.
+  if (!filename) {
+    return nullptr;
+  }
   return CreateLloAnalysisImpl(filename);
 }
 EXPORT_C int GetTotalInstructions(LloAnalysisHandle handle) {

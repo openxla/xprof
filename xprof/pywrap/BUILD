@@ -1,5 +1,6 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_binary.bzl", "cc_binary")
 # load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library")
 load("@rules_python//python:py_test.bzl", "py_test")
 load("@xla//xla/tsl:tsl.bzl", pytype_extension = "tsl_pybind_extension_opensource")
@@ -50,6 +51,7 @@ cc_binary(
     linkshared = True,
     deps = [
         ":profiler_plugin_impl",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
@@ -83,6 +85,32 @@ py_test(
         ":_pywrap_profiler_plugin",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+cc_test(
+    name = "profiler_plugin_c_api_test",
+    srcs = [
+        "profiler_plugin_c_api.cc",
+        "profiler_plugin_c_api.h",
+        "profiler_plugin_c_api_test.cc",
+    ],
+    copts = ["-DXPROF_PYWRAP_DISABLE_PY_MODULE_INIT"] + select({
+        "//:embedded_features_enabled": ["-DEMBEDDED_FEATURES_ENABLED"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":profiler_plugin_impl",
+        "//third_party/python_runtime:headers",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/worker:stub_factory",
+        "@org_xprof//xprof/convert:tool_options",
+        "@org_xprof//xprof/embedded/llo_analysis:llo_analysis_c_api",
+        "@xla//xla/tsl/profiler/rpc/client:capture_profile",
     ],
 )
 

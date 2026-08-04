@@ -60,6 +60,17 @@ The CLI exposes numerous tools for analysis. Most tools require at least a `--se
     *   `--session_id=<str>`
 *   **`detect_layout_mismatch_copies`**: Find copies caused by layout mismatches.
     *   `--session_id=<str>`
+*   **`get_kernel_stats`**: Fetch performance statistics and step times across workloads.
+    *   `--session_id=<str>`: The XProf session ID or local profile path.
+    *   `--include_summary=<bool>`: If true, computes ground-truth device compute duration via Disjoint Interval Union alongside per-kernel records.
+
+## Kernel Statistics & Disjoint Interval Union
+
+When evaluating kernel statistics with `include_summary=True`, `xprof_cli` calculates total device compute duration using **Disjoint Interval Union**.
+
+On modern accelerators, multiple execution planes (e.g., MXU compute kernels, DMA/ICI transfers) operate concurrently. Summing individual kernel durations double-counts overlapping execution, while taking the bounding box `max(t_end) - min(t_start)` includes inter-step idle gaps.
+
+Disjoint Interval Union uses a sweep-line algorithm to merge all active `[start, end]` intervals across hardware XPlanes into non-overlapping disjoint intervals, reporting the exact active hardware compute time without double-counting or idle gap padding.
 
 ## LLO (Low Level Operator) Analysis
 

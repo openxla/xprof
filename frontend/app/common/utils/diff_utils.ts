@@ -35,6 +35,7 @@ export function alignTables<T>(
   baseline: T[] | null | undefined,
   keySelector: (item: T) => string,
   deltaCalculator?: (active: T, baseline: T) => number,
+  baselineKeySelector?: (item: T) => string,
 ): Map<string, ComparisonRow<T>> {
   const result = new Map<string, ComparisonRow<T>>();
 
@@ -51,8 +52,9 @@ export function alignTables<T>(
   }
 
   if (baseline) {
+    const selector = baselineKeySelector || keySelector;
     for (const item of baseline) {
-      const key = keySelector(item);
+      const key = selector(item);
       const existing = result.get(key);
 
       if (existing) {

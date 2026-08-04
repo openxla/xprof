@@ -16,6 +16,7 @@ import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
 import {OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
 import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
@@ -32,6 +33,7 @@ import {
   DATA_SERVICE_INTERFACE_TOKEN,
   DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -67,10 +69,12 @@ export class HloStats extends Dashboard implements OnDestroy {
   tool = 'hlo_op_stats';
   sessionId = '';
   host = '';
+  private lastBaseSessionId = '';
   private readonly injector = inject(Injector);
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly diffService = inject(BaseDiffService);
   private readonly zone = inject(NgZone);
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -183,13 +187,16 @@ export class HloStats extends Dashboard implements OnDestroy {
 
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
+        const currentBaseSessionId = this.diffService.getBaseSessionId() || '';
         // Trigger update only if the parameters actually changed.
         const hasChanged =
           this.sessionId !== oldSessionId ||
           this.tool !== oldTool ||
           this.host !== oldHost ||
           this.hloOpNameSelected !== oldHloOpName ||
-          this.programIdSelected !== oldProgramId;
+          this.programIdSelected !== oldProgramId ||
+          currentBaseSessionId !== this.lastBaseSessionId;
+        this.lastBaseSessionId = currentBaseSessionId;
         if (hasChanged) {
           this.update();
         }
@@ -231,16 +238,298 @@ export class HloStats extends Dashboard implements OnDestroy {
     setLoadingState(true, this.store, 'Loading hlo data');
     this.throbber.start();
 
-    this.dataService
-      .getData(this.sessionId, this.tool, this.host)
+    this.diffService
+      .getDiffData<SimpleDataTable>(this.sessionId, this.tool, {
+        host: this.host,
+      })
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        this.throbber.stop();
-        setLoadingState(false, this.store);
-        this.data = data as SimpleDataTable | null;
-        this.process(this.data);
-        this.onCheckInputParams();
+      .subscribe(
+        ({
+          active,
+          baseline,
+        }: {
+          active: SimpleDataTable | null;
+          baseline: SimpleDataTable | null;
+        }) => {
+          this.throbber.stop();
+          setLoadingState(false, this.store);
+          this.data = this.mergeTables(active, baseline);
+          this.process(this.data);
+          this.onCheckInputParams();
+        },
+      );
+  }
+
+  private mergeTables(
+    active: SimpleDataTable | null,
+    baseline: SimpleDataTable | null,
+  ): SimpleDataTable | null {
+    if (
+      !active ||
+      !baseline ||
+      !active.cols ||
+      !active.rows ||
+      !baseline.cols ||
+      !baseline.rows
+    ) {
+      return active;
+    }
+
+    const activeCols = active.cols;
+    const baselineCols = baseline.cols;
+
+    const programIdCol = activeCols.findIndex((col) => col.id === PROGRAM_ID);
+    const categoryCol = activeCols.findIndex(
+      (col) => col.id === OP_CATEGORY_ID,
+    );
+    const nameCol = activeCols.findIndex((col) => col.id === OP_NAME_ID);
+    const exprCol = activeCols.findIndex((col) => col.id === OP_EXPRESSION_ID);
+    const coreTypeCol = activeCols.findIndex((col) => col.id === CORE_TYPE_ID);
+
+    const totalTimeCol = activeCols.findIndex(
+      (col) => col.id === TOTAL_TIME_ID,
+    );
+    const selfTimeCol = activeCols.findIndex((col) => col.id === SELF_TIME_ID);
+    const flopRateCol = activeCols.findIndex(
+      (col) => col.id === MEASURED_FLOP_RATE_ID,
+    );
+    const occurrencesCol = activeCols.findIndex(
+      (col) => col.id === OCCURRENCES_ID,
+    );
+    const avgTimeCol = activeCols.findIndex((col) => col.id === AVG_TIME_ID);
+
+    const baselineProgramIdCol = baselineCols.findIndex(
+      (col) => col.id === PROGRAM_ID,
+    );
+    const baselineCategoryCol = baselineCols.findIndex(
+      (col) => col.id === OP_CATEGORY_ID,
+    );
+    const baselineNameCol = baselineCols.findIndex(
+      (col) => col.id === OP_NAME_ID,
+    );
+    const baselineExprCol = baselineCols.findIndex(
+      (col) => col.id === OP_EXPRESSION_ID,
+    );
+    const baselineCoreTypeCol = baselineCols.findIndex(
+      (col) => col.id === CORE_TYPE_ID,
+    );
+
+    const baselineTotalTimeCol = baselineCols.findIndex(
+      (col) => col.id === TOTAL_TIME_ID,
+    );
+    const baselineSelfTimeCol = baselineCols.findIndex(
+      (col) => col.id === SELF_TIME_ID,
+    );
+    const baselineFlopRateCol = baselineCols.findIndex(
+      (col) => col.id === MEASURED_FLOP_RATE_ID,
+    );
+    const baselineOccurrencesCol = baselineCols.findIndex(
+      (col) => col.id === OCCURRENCES_ID,
+    );
+    const baselineAvgTimeCol = baselineCols.findIndex(
+      (col) => col.id === AVG_TIME_ID,
+    );
+
+    if (nameCol === -1 || baselineNameCol === -1) {
+      return active;
+    }
+
+    const getActiveRowKey = (row: google.visualization.DataObjectRow) => {
+      const programId =
+        programIdCol !== -1 ? (row.c?.[programIdCol]?.v ?? '') : '';
+      const category =
+        categoryCol !== -1 ? (row.c?.[categoryCol]?.v ?? '') : '';
+      const name = row.c?.[nameCol]?.v ?? '';
+      const expr = exprCol !== -1 ? (row.c?.[exprCol]?.v ?? '') : '';
+      const coreType =
+        coreTypeCol !== -1 ? (row.c?.[coreTypeCol]?.v ?? '') : '';
+      return `${programId}_${category}_${name}_${expr}_${coreType}`;
+    };
+
+    const getBaselineRowKey = (row: google.visualization.DataObjectRow) => {
+      const programId =
+        baselineProgramIdCol !== -1
+          ? (row.c?.[baselineProgramIdCol]?.v ?? '')
+          : '';
+      const category =
+        baselineCategoryCol !== -1
+          ? (row.c?.[baselineCategoryCol]?.v ?? '')
+          : '';
+      const name = row.c?.[baselineNameCol]?.v ?? '';
+      const expr =
+        baselineExprCol !== -1 ? (row.c?.[baselineExprCol]?.v ?? '') : '';
+      const coreType =
+        baselineCoreTypeCol !== -1
+          ? (row.c?.[baselineCoreTypeCol]?.v ?? '')
+          : '';
+      return `${programId}_${category}_${name}_${expr}_${coreType}`;
+    };
+
+    const aligned = alignTables(
+      active.rows,
+      baseline.rows,
+      getActiveRowKey,
+      undefined,
+      getBaselineRowKey,
+    );
+
+    const activeToBaselineColMap = activeCols.map((col) =>
+      baselineCols.findIndex((bCol) => bCol.id === col.id),
+    );
+
+    const newCols = [...activeCols];
+    const baselineTotalTimeColIndex = totalTimeCol !== -1 ? newCols.length : -1;
+    if (totalTimeCol !== -1) {
+      newCols.push({
+        id: `${TOTAL_TIME_ID}_baseline`,
+        label: 'Baseline Total Time (ms)',
+        type: 'number',
       });
+    }
+    const baselineSelfTimeColIndex = selfTimeCol !== -1 ? newCols.length : -1;
+    if (selfTimeCol !== -1) {
+      newCols.push({
+        id: `${SELF_TIME_ID}_baseline`,
+        label: 'Baseline Duration (ms)',
+        type: 'number',
+      });
+    }
+    const baselineFlopRateColIndex = flopRateCol !== -1 ? newCols.length : -1;
+    if (flopRateCol !== -1) {
+      newCols.push({
+        id: `${MEASURED_FLOP_RATE_ID}_baseline`,
+        label: 'Baseline Measured GFLOP/s',
+        type: 'number',
+      });
+    }
+    const baselineOccurrencesColIndex =
+      occurrencesCol !== -1 ? newCols.length : -1;
+    if (occurrencesCol !== -1) {
+      newCols.push({
+        id: `${OCCURRENCES_ID}_baseline`,
+        label: 'Baseline Occurrences',
+        type: 'number',
+      });
+    }
+    const baselineAvgTimeColIndex = avgTimeCol !== -1 ? newCols.length : -1;
+    if (avgTimeCol !== -1) {
+      newCols.push({
+        id: `${AVG_TIME_ID}_baseline`,
+        label: 'Baseline Average Time (ms)',
+        type: 'number',
+      });
+    }
+
+    const getBaselineCellValue = (
+      row: google.visualization.DataObjectRow | null | undefined,
+      colIdx: number,
+    ) => {
+      if (!row || colIdx === -1) return 0;
+      return row.c?.[colIdx]?.v ?? 0;
+    };
+
+    const getBaselineCellFormat = (
+      row: google.visualization.DataObjectRow | null | undefined,
+      colIdx: number,
+    ) => {
+      if (!row || colIdx === -1) return undefined;
+      return row.c?.[colIdx]?.f;
+    };
+
+    const newRows: google.visualization.DataObjectRow[] = [];
+
+    for (const compRow of aligned.values()) {
+      const activeRow = compRow.active;
+      const baselineRow = compRow.baseline;
+
+      if (activeRow) {
+        const newCells = activeRow.c ? [...activeRow.c] : [];
+        if (baselineTotalTimeColIndex !== -1) {
+          newCells[baselineTotalTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineTotalTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineTotalTimeCol),
+          };
+        }
+        if (baselineSelfTimeColIndex !== -1) {
+          newCells[baselineSelfTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineSelfTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineSelfTimeCol),
+          };
+        }
+        if (baselineFlopRateColIndex !== -1) {
+          newCells[baselineFlopRateColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineFlopRateCol),
+            f: getBaselineCellFormat(baselineRow, baselineFlopRateCol),
+          };
+        }
+        if (baselineOccurrencesColIndex !== -1) {
+          newCells[baselineOccurrencesColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineOccurrencesCol),
+            f: getBaselineCellFormat(baselineRow, baselineOccurrencesCol),
+          };
+        }
+        if (baselineAvgTimeColIndex !== -1) {
+          newCells[baselineAvgTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineAvgTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineAvgTimeCol),
+          };
+        }
+        newRows.push({c: newCells});
+      } else if (baselineRow) {
+        const newCells: google.visualization.DataObjectCell[] = [];
+        for (let i = 0; i < activeCols.length; i++) {
+          const bColIdx = activeToBaselineColMap[i];
+          newCells[i] =
+            bColIdx !== -1 && baselineRow.c?.[bColIdx]
+              ? {...baselineRow.c[bColIdx]}
+              : {v: ''};
+        }
+
+        if (totalTimeCol !== -1) newCells[totalTimeCol] = {v: 0};
+        if (selfTimeCol !== -1) newCells[selfTimeCol] = {v: 0};
+        if (flopRateCol !== -1) newCells[flopRateCol] = {v: 0};
+        if (occurrencesCol !== -1) newCells[occurrencesCol] = {v: 0};
+        if (avgTimeCol !== -1) newCells[avgTimeCol] = {v: 0};
+
+        if (baselineTotalTimeColIndex !== -1) {
+          newCells[baselineTotalTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineTotalTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineTotalTimeCol),
+          };
+        }
+        if (baselineSelfTimeColIndex !== -1) {
+          newCells[baselineSelfTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineSelfTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineSelfTimeCol),
+          };
+        }
+        if (baselineFlopRateColIndex !== -1) {
+          newCells[baselineFlopRateColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineFlopRateCol),
+            f: getBaselineCellFormat(baselineRow, baselineFlopRateCol),
+          };
+        }
+        if (baselineOccurrencesColIndex !== -1) {
+          newCells[baselineOccurrencesColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineOccurrencesCol),
+            f: getBaselineCellFormat(baselineRow, baselineOccurrencesCol),
+          };
+        }
+        if (baselineAvgTimeColIndex !== -1) {
+          newCells[baselineAvgTimeColIndex] = {
+            v: getBaselineCellValue(baselineRow, baselineAvgTimeCol),
+            f: getBaselineCellFormat(baselineRow, baselineAvgTimeCol),
+          };
+        }
+        newRows.push({c: newCells});
+      }
+    }
+
+    return {
+      cols: newCols,
+      rows: newRows,
+      p: active.p,
+    };
   }
 
   onCheckInputParams() {
@@ -454,6 +743,11 @@ export class HloStats extends Dashboard implements OnDestroy {
       TF_OP_NAME_ID,
       TOTAL_TIME_ID,
       VDD_ENERGY_ID,
+      `${TOTAL_TIME_ID}_baseline`,
+      `${SELF_TIME_ID}_baseline`,
+      `${MEASURED_FLOP_RATE_ID}_baseline`,
+      `${OCCURRENCES_ID}_baseline`,
+      `${AVG_TIME_ID}_baseline`,
     ]);
     for (let i = 0; i < numColumns; i++) {
       const colId = dataTable.getColumnId(i);

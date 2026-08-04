@@ -974,7 +974,7 @@ def detect_layout_mismatch_copies(
     get_top_hlo_ops_fn: Callable[
         ..., str
     ] = get_top_hlo_ops_tool.get_top_hlo_ops,
-    limit: int = 100,
+    limit: int = 50,
 ) -> str:
   """Detects layout mismatch copy ops sandwiched between compute stages.
 

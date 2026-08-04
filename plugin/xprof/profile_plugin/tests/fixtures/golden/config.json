@@ -1,0 +1,7 @@
+{
+  "required_keys": [
+    "hideCaptureProfileButton",
+    "srcPathPrefix",
+    "enableTabNameLabel"
+  ]
+}

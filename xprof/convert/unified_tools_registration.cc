@@ -24,6 +24,7 @@ limitations under the License.
 #include "xprof/convert/unified_profile_processor_factory.h"
 #include "xprof/convert/unified_roofline_model_processor.h"
 #include "xprof/convert/unified_utilization_viewer_processor.h"
+#include "xprof/convert/unified_perf_counters_processor.h"
 
 namespace xprof {
 
@@ -42,6 +43,8 @@ void RegisterUnifiedToolRegistrations() {
                                      UnifiedRooflineModelProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("utilization_viewer",
                                      UnifiedUtilizationViewerProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("perf_counters",
+                                     UnifiedPerfCountersProcessor);
 }
 
 }  // namespace xprof

@@ -18,6 +18,10 @@ class PerfCountersTest(absltest.TestCase):
     k1 = jax.random.PRNGKey(0)
     k2 = jax.random.PRNGKey(1)
     logdir = FLAGS.test_tmpdir
+    try:
+      FLAGS.enable_unified_xprof = True
+    except flags.UnrecognizedFlagError:
+      pass
 
     with jax.profiler.trace(logdir):
       # Generate random matrices

@@ -107,6 +107,15 @@ export class BufferAllocationTimeline
 
   private resizeObserver?: ResizeObserver;
 
+  searchQuery = '';
+  showSearchInput = false;
+  private activeSearchRegex: RegExp | null = null;
+  private matchedSearchBlocks: BufferBlock[] = [];
+  private currentSearchMatchIndex = -1;
+
+  @ViewChild('searchInput', {static: false})
+  searchInputEl?: ElementRef<HTMLInputElement>;
+
   // Zoom/pan state
   scale = 1.0;
   offsetX = 0;
@@ -246,6 +255,7 @@ export class BufferAllocationTimeline
       changes['totalBytes']
     ) {
       this.computeLayout();
+      this.updateSearchMatches();
       if (this.ctx) {
         this.resetZoom();
         this.draw();
@@ -320,6 +330,15 @@ export class BufferAllocationTimeline
   // Draw loop
   draw() {
     if (!this.canvas || !this.ctx) return;
+
+    this.activeSearchRegex = null;
+    if (this.searchQuery) {
+      try {
+        this.activeSearchRegex = new RegExp(this.searchQuery, 'i');
+      } catch (e) {
+        // Ignore invalid regex
+      }
+    }
 
     const viewW = this.canvas.width / (window.devicePixelRatio || 1);
     const viewH = this.canvas.height / (window.devicePixelRatio || 1);
@@ -436,9 +455,36 @@ export class BufferAllocationTimeline
 
     this.ctx.save();
 
-    if (this.selectedBlock && !block.isContainer && !isSelected) {
-      this.ctx.globalAlpha = 0.3;
+    // Determine opacity: dim if selection or search is active, but block doesn't match either
+    let opacity = 1.0;
+    const hasSelection = !!this.selectedBlock;
+    const hasSearch = !!this.searchQuery;
+
+    if (hasSelection || hasSearch) {
+      const matchesSelection = isSelected;
+
+      let matchesSearch = false;
+      if (hasSearch && !block.isContainer) {
+        const text = block.instructionName || block.label || '';
+        if (this.activeSearchRegex) {
+          matchesSearch = this.activeSearchRegex.test(text);
+        } else {
+          matchesSearch = text
+            .toLowerCase()
+            .includes(this.searchQuery.toLowerCase());
+        }
+      }
+
+      if (!block.isContainer) {
+        const isBright =
+          (hasSelection && matchesSelection) || (hasSearch && matchesSearch);
+        if (!isBright) {
+          opacity = 0.3;
+        }
+      }
     }
+
+    this.ctx.globalAlpha = opacity;
 
     // Fill block background
     this.ctx.fillStyle = block.color;
@@ -723,5 +769,90 @@ export class BufferAllocationTimeline
           );
         });
     }
+  }
+
+  onSearchInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    this.searchQuery = target.value;
+    this.updateSearchMatches();
+    this.draw();
+  }
+
+  updateSearchMatches() {
+    this.matchedSearchBlocks = [];
+    this.currentSearchMatchIndex = -1;
+
+    if (!this.searchQuery) return;
+
+    let regex: RegExp | null = null;
+    try {
+      regex = new RegExp(this.searchQuery, 'i');
+    } catch (e) {
+      // Ignore invalid regex
+    }
+
+    for (const block of this.layoutBlocks) {
+      if (block.isContainer) continue;
+      const text = (block.instructionName || block.label).toLowerCase();
+      let isMatch = false;
+      if (regex) {
+        isMatch = regex.test(text);
+      } else {
+        isMatch = text.includes(this.searchQuery.toLowerCase());
+      }
+      if (isMatch) {
+        this.matchedSearchBlocks.push(block);
+      }
+    }
+  }
+
+  onSearchEnter() {
+    if (this.matchedSearchBlocks.length === 0) return;
+
+    this.currentSearchMatchIndex =
+      (this.currentSearchMatchIndex + 1) % this.matchedSearchBlocks.length;
+    const match = this.matchedSearchBlocks[this.currentSearchMatchIndex];
+
+    // Select the matched block
+    this.selectedBlock = match;
+    this.selected.emit(match);
+
+    // Zoom and center on the matched block
+    this.scale = Math.max(this.scale, 5.0);
+    this.centerOnSelectedBlock();
+  }
+
+  centerOnSelectedBlock() {
+    if (!this.canvas || !this.selectedBlock) return;
+    const viewW = this.canvas.width / (window.devicePixelRatio || 1);
+    const viewH = this.canvas.height / (window.devicePixelRatio || 1);
+    this.offsetX =
+      viewW / 2 - this.selectedBlock.x * this.fitScale * this.scale;
+    this.offsetY =
+      viewH / 2 -
+      (CANVAS_SIZE - this.selectedBlock.y) * this.fitScale * this.scale;
+    this.draw();
+  }
+
+  toggleSearch() {
+    this.showSearchInput = !this.showSearchInput;
+    if (!this.showSearchInput) {
+      this.searchQuery = '';
+      this.matchedSearchBlocks = [];
+      this.currentSearchMatchIndex = -1;
+      this.draw();
+    } else {
+      setTimeout(() => {
+        this.searchInputEl?.nativeElement.focus();
+      }, 50);
+    }
+  }
+
+  closeSearch() {
+    this.showSearchInput = false;
+    this.searchQuery = '';
+    this.matchedSearchBlocks = [];
+    this.currentSearchMatchIndex = -1;
+    this.draw();
   }
 }

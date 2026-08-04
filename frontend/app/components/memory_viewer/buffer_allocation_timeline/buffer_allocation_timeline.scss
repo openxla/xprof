@@ -36,7 +36,8 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition:
     background-color 0.2s,
-    color 0.2s;
+    color 0.2s,
+    box-shadow 0.2s;
   &:hover {
     background-color: #fff;
     color: #111;
@@ -47,6 +48,48 @@
     width: 20px;
     height: 20px;
   }
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  background-color: rgba(255, 255, 255, 0.85);
+  border: 1px solid #ccc;
+  border-radius: 18px;
+  height: 36px;
+  box-sizing: border-box;
+  transition:
+    background-color 0.2s,
+    box-shadow 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+  &.expanded {
+    background-color: #fff;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  .control-btn {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    &:hover {
+      background: transparent;
+      box-shadow: none;
+      color: #111;
+    }
+  }
+}
+
+.search-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0 0 0 12px;
+  font-size: 13px;
+  width: 150px;
+  color: #333;
+  font-family: Roboto, sans-serif;
+  box-sizing: border-box;
 }
 
 .timeline-chart-area {

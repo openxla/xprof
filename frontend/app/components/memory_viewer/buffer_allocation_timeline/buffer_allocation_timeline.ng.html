@@ -10,6 +10,21 @@
               (mouseleave)="onMouseLeave()"></canvas>
 
       <div class="timeline-controls">
+        <div class="search-container" [class.expanded]="showSearchInput">
+          <input type="text"
+                 #searchInput
+                 *ngIf="showSearchInput"
+                 class="search-input"
+                 [value]="searchQuery"
+                 (input)="onSearchInput($event)"
+                 (keydown.enter)="onSearchEnter()"
+                 placeholder="Search Op Name..."
+                 (keydown.escape)="closeSearch()">
+          <button class="control-btn" (click)="toggleSearch()" [title]="showSearchInput ? 'Close Search' : 'Search'">
+            <mat-icon>{{showSearchInput ? 'close' : 'search'}}</mat-icon>
+          </button>
+        </div>
+
         <button class="control-btn" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
           <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
         </button>

@@ -381,6 +381,12 @@ class Timeline {
   // Navigates to and selects the event with the given index, zooming to it.
   void ZoomEvent(int event_index);
 
+  // Navigates selection to the previous event on the current level/track.
+  void SelectPreviousEvent();
+
+  // Navigates selection to the next event on the current level/track.
+  void SelectNextEvent();
+
   void NavigateToNextSearchResult();
   void NavigateToPrevSearchResult();
 

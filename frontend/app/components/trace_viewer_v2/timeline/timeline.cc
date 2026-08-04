@@ -1335,6 +1335,48 @@ void Timeline::ZoomEvent(int event_index) {
   EmitEventSelected(event_index);
 }
 
+void Timeline::SelectPreviousEvent() {
+  if (timeline_data_.entry_levels.empty() ||
+      timeline_data_.events_by_level.empty() ||
+      selected_event_index_ < 0 ||
+      selected_event_index_ >= timeline_data_.entry_levels.size()) {
+    return;
+  }
+
+  int level = timeline_data_.entry_levels[selected_event_index_];
+  if (level < 0 || level >= timeline_data_.events_by_level.size()) {
+    return;
+  }
+
+  const auto& events_on_level = timeline_data_.events_by_level[level];
+  auto it = std::find(events_on_level.begin(), events_on_level.end(),
+                      selected_event_index_);
+  if (it != events_on_level.end() && it != events_on_level.begin()) {
+    RevealEvent(*(it - 1));
+  }
+}
+
+void Timeline::SelectNextEvent() {
+  if (timeline_data_.entry_levels.empty() ||
+      timeline_data_.events_by_level.empty() ||
+      selected_event_index_ < 0 ||
+      selected_event_index_ >= timeline_data_.entry_levels.size()) {
+    return;
+  }
+
+  int level = timeline_data_.entry_levels[selected_event_index_];
+  if (level < 0 || level >= timeline_data_.events_by_level.size()) {
+    return;
+  }
+
+  const auto& events_on_level = timeline_data_.events_by_level[level];
+  auto it = std::find(events_on_level.begin(), events_on_level.end(),
+                      selected_event_index_);
+  if (it != events_on_level.end() && (it + 1) != events_on_level.end()) {
+    RevealEvent(*(it + 1));
+  }
+}
+
 void Timeline::ExpandRelatedTracks(int event_index) {
   int level = timeline_data_.entry_levels[event_index];
   int group_index = -1;
@@ -3065,17 +3107,19 @@ bool Timeline::HandleKeyboard() {
   const ImGuiIO& io = ImGui::GetIO();
   bool is_interacting = false;
 
-  // Pan left ('a' or LeftArrow)
-  if (ImGui::IsKeyDown(ImGuiKey_A) || ImGui::IsKeyDown(ImGuiKey_LeftArrow)) {
+  // Pan left ('a', or LeftArrow when no event is selected)
+  if (ImGui::IsKeyDown(ImGuiKey_A) ||
+      (selected_event_index_ == -1 && ImGui::IsKeyDown(ImGuiKey_LeftArrow))) {
     ImGuiKey key =
         ImGui::IsKeyDown(ImGuiKey_A) ? ImGuiKey_A : ImGuiKey_LeftArrow;
-    float multiplier = GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
+    float multiplier =
+        GetSpeedMultiplier(io, key, kShiftPanAccelerateFactor);
     Pan(-panning_speed_ * io.DeltaTime * multiplier);
     is_interacting = true;
   }
-  // Pan right ('d', 'e', or RightArrow)
+  // Pan right ('d', 'e', or RightArrow when no event is selected)
   if (ImGui::IsKeyDown(ImGuiKey_D) || ImGui::IsKeyDown(ImGuiKey_E) ||
-      ImGui::IsKeyDown(ImGuiKey_RightArrow)) {
+      (selected_event_index_ == -1 && ImGui::IsKeyDown(ImGuiKey_RightArrow))) {
     ImGuiKey key =
         ImGui::IsKeyDown(ImGuiKey_D)
             ? ImGuiKey_D
@@ -3163,6 +3207,22 @@ bool Timeline::HandleKeyboard() {
       selected_time_ranges_.push_back(TimeRange(start, start + duration));
       is_interacting = true;
     }
+  }
+
+  // Select previous event ('<-' when event selected, or 'Shift+Tab')
+  if ((selected_event_index_ != -1 &&
+       ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) ||
+      (ImGui::IsKeyPressed(ImGuiKey_Tab) && io.KeyShift)) {
+    SelectPreviousEvent();
+    is_interacting = true;
+  }
+
+  // Select next event ('->' when event selected, or 'Tab')
+  if ((selected_event_index_ != -1 &&
+       ImGui::IsKeyPressed(ImGuiKey_RightArrow)) ||
+      (ImGui::IsKeyPressed(ImGuiKey_Tab) && !io.KeyShift)) {
+    SelectNextEvent();
+    is_interacting = true;
   }
 
   // Mouse Mode shortcuts

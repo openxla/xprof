@@ -122,6 +122,7 @@ TEST_F(InputHandlerTest, HandleKeyDownTranslatesShortcutKeys) {
       {"Digit3", ImGuiKey_3},
       {"Digit4", ImGuiKey_4},
       {"Escape", ImGuiKey_Escape},
+      {"Tab", ImGuiKey_Tab},
   };
 
   for (const auto& tc : test_cases) {

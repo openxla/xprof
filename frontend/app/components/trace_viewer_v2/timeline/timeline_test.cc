@@ -1568,14 +1568,32 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyE_PansRight) {
   SimulateFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture, HandleKeyboard_LeftArrow_PansLeft) {
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyA_PansLeft) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_A, true);
+  EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
+                                     ImGui::GetIO().DeltaTime)));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyD_PansRight) {
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_D, true);
+  EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
+                                     ImGui::GetIO().DeltaTime)));
+  SimulateFrame();
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleKeyboard_LeftArrow_PansWhenNoSelection) {
+  timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
                                      ImGui::GetIO().DeltaTime)));
   SimulateFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture, HandleKeyboard_RightArrow_PansRight) {
+TEST_F(MockTimelineImGuiFixture,
+       HandleKeyboard_RightArrow_PansWhenNoSelection) {
+  timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(timeline_.panning_speed() *
                                      ImGui::GetIO().DeltaTime)));
@@ -1656,6 +1674,83 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyM_MarksInterestRange) {
   EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+}
+
+TEST_F(MockTimelineImGuiFixture, SelectPreviousAndNextEvent) {
+  FlameChartTimelineData data = CreateTimelineData({
+      {.name = "event_0", .start_time = 100.0, .total_time = 50.0, .level = 0},
+      {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
+      {.name = "event_2", .start_time = 300.0, .total_time = 50.0, .level = 0},
+  });
+  data.events_by_level.push_back({0, 1, 2});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.RevealEvent(0);
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  timeline_.SelectNextEvent();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  timeline_.SelectNextEvent();
+  EXPECT_EQ(timeline_.selected_event_index(), 2);
+
+  timeline_.SelectPreviousEvent();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  timeline_.SelectPreviousEvent();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_SelectNextAndPrevShortcuts) {
+  FlameChartTimelineData data = CreateTimelineData({
+      {.name = "event_0", .start_time = 100.0, .total_time = 50.0, .level = 0},
+      {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
+  });
+  data.events_by_level.push_back({0, 1});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.RevealEvent(0);
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  // Press RightArrow to select next event
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, false);
+  SimulateFrame();
+
+  // Press LeftArrow to select previous event
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+}
+
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_TabAndShiftTabSelectEvents) {
+  FlameChartTimelineData data = CreateTimelineData({
+      {.name = "event_0", .start_time = 100.0, .total_time = 50.0, .level = 0},
+      {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
+  });
+  data.events_by_level.push_back({0, 1});
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.RevealEvent(0);
+
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
+
+  // Press Tab to select next event
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, false);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Tab, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_event_index(), 1);
+
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Tab, false);
+  SimulateFrame();
+
+  // Press Shift+Tab to select previous event
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Shift, true);
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Tab, true);
+  SimulateFrame();
+  EXPECT_EQ(timeline_.selected_event_index(), 0);
 }
 
 TEST(TimelineTest, NavigateSearchQueryResult) {

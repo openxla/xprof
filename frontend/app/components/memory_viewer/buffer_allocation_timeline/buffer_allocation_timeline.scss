@@ -12,6 +12,43 @@
   box-sizing: border-box;
 }
 
+.timeline-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+}
+
+.control-btn {
+  background-color: rgba(255, 255, 255, 0.85);
+  border: 1px solid #ccc;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  outline: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+  &:hover {
+    background-color: #fff;
+    color: #111;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+  }
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
 .timeline-chart-area {
   display: flex;
   flex-direction: row;
@@ -60,6 +97,35 @@ canvas {
 
 canvas:active {
   cursor: grabbing;
+}
+
+// Fullscreen Styles
+:host {
+  .timeline-component-wrapper:fullscreen,
+  .timeline-component-wrapper.fullscreen {
+    background-color: #fff;
+    padding: 24px;
+    height: 100vh;
+    width: 100vw;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+
+    .timeline-chart-area {
+      flex-grow: 1;
+      min-height: 60vh;
+    }
+
+    .canvas-container {
+      height: 100%;
+    }
+
+    .selected-block-card {
+      margin: 20px 0 0 0;
+      flex-shrink: 0;
+    }
+  }
 }
 
 .timeline-tooltip {

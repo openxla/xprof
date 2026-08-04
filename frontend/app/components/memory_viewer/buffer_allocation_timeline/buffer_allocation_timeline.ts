@@ -99,6 +99,12 @@ export class BufferAllocationTimeline
   @ViewChild('timelineCanvas', {static: true})
   canvasRef!: ElementRef<HTMLCanvasElement>;
 
+  @ViewChild('fullscreenContainer', {static: true})
+  fullscreenContainer!: ElementRef<HTMLDivElement>;
+
+  @Input() isFullscreen = false;
+  @Output() readonly isFullscreenChange = new EventEmitter<boolean>();
+
   private resizeObserver?: ResizeObserver;
 
   // Zoom/pan state
@@ -255,12 +261,12 @@ export class BufferAllocationTimeline
   }
 
   resizeCanvas() {
-    const rect = this.canvas.getBoundingClientRect();
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
-    this.canvas.style.width = `${rect.width}px`;
-    this.canvas.style.height = `${rect.height}px`;
 
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.scale(dpr, dpr);
@@ -685,5 +691,37 @@ export class BufferAllocationTimeline
       (this.selectedBlock.size - this.selectedBlock.unpaddedSize) /
       (1024 * 1024)
     ).toFixed(2);
+  }
+
+  @HostListener('document:fullscreenchange')
+  onFullscreenChange() {
+    this.isFullscreen =
+      document.fullscreenElement === this.fullscreenContainer.nativeElement;
+    this.isFullscreenChange.emit(this.isFullscreen);
+    if (this.canvas) {
+      setTimeout(() => {
+        this.resizeCanvas();
+      }, 100);
+    }
+  }
+
+  toggleFullscreen() {
+    const element = this.fullscreenContainer.nativeElement;
+    if (!document.fullscreenElement) {
+      element
+        .requestFullscreen()
+        .catch((err) => {
+          console.error(
+            `Error attempting to enable fullscreen mode: ${err.message}`,
+          );
+        });
+    } else {
+      document.exitFullscreen()
+        .catch((err) => {
+          console.error(
+            `Error attempting to exit fullscreen mode: ${err.message}`,
+          );
+        });
+    }
   }
 }

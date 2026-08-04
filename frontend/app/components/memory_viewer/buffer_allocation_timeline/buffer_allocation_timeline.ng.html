@@ -1,4 +1,4 @@
-<div class="timeline-component-wrapper">
+<div class="timeline-component-wrapper" #fullscreenContainer [class.fullscreen]="isFullscreen">
   <div class="timeline-chart-area">
     <div class="y-axis-label">Memory Offset</div>
     <div class="canvas-container">
@@ -8,6 +8,12 @@
               (mousemove)="onMouseMove($event)"
               (mouseup)="onMouseUp($event)"
               (mouseleave)="onMouseLeave()"></canvas>
+
+      <div class="timeline-controls">
+        <button class="control-btn" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+          <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
+        </button>
+      </div>
 
       <div class="timeline-tooltip"
            *ngIf="hoveredBlock"

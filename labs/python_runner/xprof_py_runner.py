@@ -1,9 +1,9 @@
 """Hermetic Python execution runner for isolated sandbox execution pool.
 
 Enforces virtual memory quotas (`4GB`), configures headless matplotlib (`Agg`),
-traps stdout cleanly for single-line GKE compatibility (go/gke-friendly-logs),
-captures generated plots into single-line Base64 SVG payloads, and processes
-analytical scripts securely.
+traps stdout cleanly for single-line structured container logging, captures
+generated plots into single-line Base64 SVG payloads, and processes analytical
+scripts securely.
 """
 
 import base64
@@ -86,13 +86,13 @@ def enforce_memory_limits(limit_bytes: int = MEMORY_LIMIT_BYTES) -> None:
 
 
 def _sanitize_single_line_log(content: str) -> str:
-  """Cleans string outputs to eliminate embedded newlines for GKE compatibility.
+  """Cleans string outputs to eliminate embedded newlines for structured logs.
 
   Args:
     content: Raw string potentially containing multiple lines.
 
   Returns:
-    Single-line escaped output matching go/gke-friendly-logs.
+    Single-line escaped output suitable for structured container logs.
   """
   return content.rstrip('\r\n').replace('\r\n', '\\n').replace('\n', '\\n')
 

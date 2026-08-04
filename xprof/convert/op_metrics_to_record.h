@@ -51,8 +51,8 @@ inline double GigaFlopsPerSecondPerCoreNormalizedOnDvfs(
     return GigaFlopsPerSecondPerCore(metrics);
   }
   return GigaFlopsPerSecondPerCore(metrics) *
-         (tsl::profiler::SafeDivide(metrics.normalized_time_ps(),
-                                    metrics.time_ps()));
+         (tsl::profiler::SafeDivide(metrics.time_ps(),
+                                    metrics.normalized_time_ps()));
 }
 
 inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {

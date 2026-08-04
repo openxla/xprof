@@ -38,8 +38,8 @@ inline absl::string_view ResourceName(const Trace& trace, uint32_t device_id,
 }
 
 // Returns true if the stat name indicates it is a utilization-based metric.
-inline bool IsUtilizationBasedStats(absl::string_view name) {
-  return absl::EndsWith(name, "(util %)");
+inline bool IsPerfCounterBasedStats(absl::string_view name) {
+  return absl::EndsWith(name, "(util %)") || absl::EndsWith(name, " (MB/sec)");
 }
 
 // Returns the resource name for the given event in trace.

@@ -43,8 +43,8 @@ namespace {
 
 struct GroupKey {
   int nesting_level;
-  absl::string_view name;
-  absl::string_view parent_name;
+  std::string name;
+  std::string parent_name;
 
   bool operator<(const GroupKey& other) const {
     return std::tie(nesting_level, name, parent_name) <
@@ -55,7 +55,8 @@ struct GroupKey {
 bool GetExpandedState(int nesting_level, absl::string_view name,
                       absl::string_view parent_name, bool default_expanded,
                       const absl::btree_map<GroupKey, bool>& expanded_states) {
-  if (auto it_state = expanded_states.find({nesting_level, name, parent_name});
+  if (auto it_state = expanded_states.find(
+          {nesting_level, std::string(name), std::string(parent_name)});
       it_state != expanded_states.end()) {
     return it_state->second;
   }
@@ -65,7 +66,7 @@ bool GetExpandedState(int nesting_level, absl::string_view name,
 absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
     const std::vector<Group>& groups) {
   absl::btree_map<GroupKey, bool> expanded_states;
-  absl::string_view current_process_name;
+  std::string current_process_name;
   for (const auto& group : groups) {
     if (group.nesting_level == kProcessNestingLevel) {
       current_process_name = group.name;

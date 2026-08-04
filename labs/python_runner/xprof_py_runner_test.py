@@ -13,7 +13,7 @@ from absl.testing import absltest
 from absl.testing import flagsaver
 import matplotlib.pyplot as plt
 
-from google3.third_party.xprof.labs.jetski import xprof_py_runner
+from google3.third_party.xprof.labs.python_runner import xprof_py_runner
 
 
 class XprofPyRunnerTest(absltest.TestCase):

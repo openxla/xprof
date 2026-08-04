@@ -15,13 +15,16 @@ import os
 import resource
 import sys
 import traceback
-from typing import Any
+from typing import Any, TypedDict
 
 from absl import app
 from absl import flags
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+matplotlib.use('Agg')
 
 _SESSION_ID = flags.DEFINE_string(
     'session_id', '', 'XProf profile session identifier.'
@@ -43,6 +46,22 @@ _SCRIPT_PATH = flags.DEFINE_string(
 
 # Mandatory virtual memory quota limit (4GB).
 MEMORY_LIMIT_BYTES = 4 * 1024 * 1024 * 1024
+
+
+class ExecutionSuccess(TypedDict):
+  status: str
+  stdout_line: str
+  stderr_line: str
+  charts_svg_base64: list[str]
+
+
+class ExecutionError(TypedDict):
+  status: str
+  error_trace_line: str
+  stderr_line: str
+
+
+ExecutionResult = ExecutionSuccess | ExecutionError
 
 
 def enforce_memory_limits(limit_bytes: int = MEMORY_LIMIT_BYTES) -> None:
@@ -75,7 +94,7 @@ def _sanitize_single_line_log(content: str) -> str:
   Returns:
     Single-line escaped output matching go/gke-friendly-logs.
   """
-  return content.strip().replace('\r\n', '\\n').replace('\n', '\\n')
+  return content.rstrip('\r\n').replace('\r\n', '\\n').replace('\n', '\\n')
 
 
 def capture_plots_base64_svg() -> list[str]:
@@ -88,20 +107,23 @@ def capture_plots_base64_svg() -> list[str]:
   figure_numbers: list[int] = plt.get_fignums()
   for fig_num in figure_numbers:
     fig = plt.figure(fig_num)
-    buf = io.BytesIO()
-    fig.savefig(buf, format='svg', bbox_inches='tight')
-    plt.close(fig)
-    encoded = base64.b64encode(buf.getvalue()).decode('ascii').replace('\n', '')
+    with io.BytesIO() as buf:
+      fig.savefig(buf, format='svg', bbox_inches='tight')
+      plt.close(fig)
+      encoded = (
+          base64.b64encode(buf.getvalue()).decode('ascii').replace('\n', '')
+      )
     svg_charts.append(encoded)
   return svg_charts
 
 
 def execute_analytical_script(
     code_text: str,
+    *,
     session_id: str,
     use_spanner: bool,
     read_only_mode: bool,
-) -> dict[str, Any]:
+) -> ExecutionResult:
   """Executes Python analytical code under hermetic trapping conditions.
 
   Args:
@@ -132,7 +154,6 @@ def execute_analytical_script(
       contextlib.redirect_stderr(stderr_buf),
   ):
     try:
-      plt.switch_backend('Agg')
       exec(code_text, execution_context)  # pylint: disable=exec-used
       charts_svg_base64 = capture_plots_base64_svg()
       stdout_line = _sanitize_single_line_log(stdout_buf.getvalue())
@@ -155,47 +176,45 @@ def execute_analytical_script(
       plt.close('all')
 
 
-def main(argv: Sequence[str]) -> None:
-  enforce_memory_limits(MEMORY_LIMIT_BYTES)
-
-  script_source: str = ''
+def _read_script_source(argv: Sequence[str]) -> str:
+  """Resolves the script source text from flags, positional args, or stdin."""
   if _CODE.value:
-    script_source = _CODE.value
-  elif _SCRIPT_PATH.value:
+    return _CODE.value
+  if _SCRIPT_PATH.value:
     try:
       with open(_SCRIPT_PATH.value, 'r', encoding='utf-8') as handle:
-        script_source = handle.read()
+        return handle.read()
     except OSError as err:
-      error_result: dict[str, Any] = {
-          'status': 'ERROR',
-          'error_trace_line': _sanitize_single_line_log(
-              f'Failed to open script_path {_SCRIPT_PATH.value}: {err}'
-          ),
-          'stderr_line': '',
-      }
-      sys.stdout.write(json.dumps(error_result) + '\n')
-      sys.stdout.flush()
-      return
-  elif len(argv) > 1 and argv[1]:
+      raise OSError(
+          f'Failed to open script_path {_SCRIPT_PATH.value}: {err}'
+      ) from err
+  if len(argv) > 1 and argv[1]:
     if os.path.isfile(argv[1]):
       try:
         with open(argv[1], 'r', encoding='utf-8') as handle:
-          script_source = handle.read()
+          return handle.read()
       except OSError as err:
-        error_result: dict[str, Any] = {
-            'status': 'ERROR',
-            'error_trace_line': _sanitize_single_line_log(
-                f'Failed to open positional script file {argv[1]}: {err}'
-            ),
-            'stderr_line': '',
-        }
-        sys.stdout.write(json.dumps(error_result) + '\n')
-        sys.stdout.flush()
-        return
-    else:
-      script_source = argv[1]
-  else:
-    script_source = sys.stdin.read()
+        raise OSError(
+            f'Failed to open positional script file {argv[1]}: {err}'
+        ) from err
+    return argv[1]
+  return sys.stdin.read()
+
+
+def main(argv: Sequence[str]) -> None:
+  enforce_memory_limits(MEMORY_LIMIT_BYTES)
+
+  try:
+    script_source = _read_script_source(argv)
+  except OSError as err:
+    error_result: ExecutionError = {
+        'status': 'ERROR',
+        'error_trace_line': _sanitize_single_line_log(str(err)),
+        'stderr_line': '',
+    }
+    sys.stdout.write(json.dumps(error_result) + '\n')
+    sys.stdout.flush()
+    return
 
   result = execute_analytical_script(
       code_text=script_source,

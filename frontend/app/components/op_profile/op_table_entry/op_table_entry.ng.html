@@ -1,6 +1,7 @@
 <div [hidden]="!level">
   <div
     class="row"
+    [class.removed-text]="asDiffNode(node)?.baselineOnly"
     (click)="toggleExpanded()"
     (mouseenter)="hover.emit(node)"
     (mouseleave)="hover.emit(null)"
@@ -19,6 +20,8 @@
         </span>
       </span>
       {{name}}
+      <span *ngIf="asDiffNode(node)?.activeOnly" class="diff-badge badge-added">Added</span>
+      <span *ngIf="asDiffNode(node)?.baselineOnly" class="diff-badge badge-removed">Removed</span>
     </span>
     <span aria-label="Framework Op type:"></span><span class="provenance">{{provenance}}&nbsp;</span>
     <span aria-label="FLOPS:"></span><span

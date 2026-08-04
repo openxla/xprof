@@ -1,5 +1,15 @@
-import {Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnInit,
+  Output,
+  SimpleChanges,
+} from '@angular/core';
 import {Store} from '@ngrx/store';
+import {type DiffNode} from 'org_xprof/frontend/app/common/interfaces/op_profile_diff';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {updateSelectedOpNodeChainAction} from 'org_xprof/frontend/app/store/actions';
 import {getOpAnalysisState} from 'org_xprof/frontend/app/store/selectors';
@@ -10,12 +20,13 @@ import {takeUntil} from 'rxjs/operators';
 
 /** An op table entry view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'op-table-entry',
   templateUrl: './op_table_entry.ng.html',
-  styleUrls: ['./op_table_entry.scss']
+  styleUrls: ['./op_table_entry.scss'],
 })
-export class OpTableEntry implements OnChanges {
+export class OpTableEntry implements OnChanges, OnInit {
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
 
@@ -47,7 +58,7 @@ export class OpTableEntry implements OnChanges {
   @Input() applyScalingFactorInternal = false;
 
   /** The event when the mouse enter or leave. */
-  @Output() readonly hover = new EventEmitter<Node|null>();
+  @Output() readonly hover = new EventEmitter<Node | null>();
 
   /** The event when the selection is changed. */
   @Output() readonly selected = new EventEmitter<Node>();
@@ -71,14 +82,28 @@ export class OpTableEntry implements OnChanges {
   applyScalingFactor = false;
 
   constructor(private readonly store: Store<{}>) {
-    this.store.select(getOpAnalysisState)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((opAnalysisState: OpAnalysisState) => {
-          this.applyScalingFactor = opAnalysisState.applyScalingFactor;
-        });
+    this.store
+      .select(getOpAnalysisState)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((opAnalysisState: OpAnalysisState) => {
+        this.applyScalingFactor = opAnalysisState.applyScalingFactor;
+      });
+  }
+
+  asDiffNode(node?: Node): DiffNode | undefined {
+    if (!node) return undefined;
+    return node as DiffNode;
+  }
+
+  ngOnInit() {
+    this.updateProperties();
   }
 
   ngOnChanges(changes: SimpleChanges) {
+    this.updateProperties();
+  }
+
+  private updateProperties() {
     if (!this.node || !this.rootNode) {
       this.children = [];
       return;
@@ -89,44 +114,185 @@ export class OpTableEntry implements OnChanges {
     }
     this.children = this.getChildren();
     this.numLeftOut = this.getLeftOut();
-    if (!!this.node && !!this.rootNode && !!this.node.metrics) {
-      this.percent =
-          utils.percent(utils.timeFraction(this.node, this.rootNode));
-      this.barWidth = this.percent;
+
+    const diffNode = this.node as DiffNode | undefined;
+    const diffRoot = this.rootNode as DiffNode | undefined;
+    const hasBaseline =
+      !!diffNode?.baseline ||
+      diffNode?.activeOnly ||
+      diffNode?.baselineOnly ||
+      !!diffRoot?.baseline;
+
+    const activeFraction =
+      this.node && this.rootNode && this.node.metrics
+        ? utils.timeFraction(this.node, this.rootNode)
+        : 0;
+    const baseFraction =
+      hasBaseline && diffNode?.baseline && diffRoot?.baseline
+        ? utils.timeFraction(diffNode.baseline, diffRoot.baseline)
+        : 0;
+
+    if (
+      this.node &&
+      this.rootNode &&
+      (this.node.metrics || diffNode?.baselineOnly)
+    ) {
+      this.percent = this.formatMetricDiff(
+        activeFraction,
+        baseFraction,
+        hasBaseline,
+        diffNode,
+      );
+      this.barWidth = diffNode?.baselineOnly
+        ? '0'
+        : utils.percent(activeFraction);
     } else {
       this.barWidth = '0';
       this.percent = '';
     }
 
     const utilization = utils.flopsUtilization(
-        this.node, this.rootNode, this.applyScalingFactor);
+      this.node,
+      this.rootNode,
+      this.applyScalingFactor,
+    );
+    let baseUtilization = NaN;
+    if (hasBaseline && diffNode?.baseline) {
+      baseUtilization = utils.flopsUtilization(
+        diffNode.baseline,
+        diffRoot?.baseline || this.rootNode,
+        this.applyScalingFactor,
+      );
+    }
+    this.flopsUtilization = this.formatMetricDiff(
+      utilization,
+      baseUtilization,
+      hasBaseline,
+      diffNode,
+    );
+    const colorUtilization = diffNode?.baselineOnly
+      ? baseUtilization
+      : utilization;
+    this.flameColor = utils.flameColor(colorUtilization, 0.7, 1, Math.sqrt);
 
-    this.flopsUtilization = utils.percent(utilization);
-    this.flameColor = utils.flameColor(utilization, 0.7, 1, Math.sqrt);
-
-    this.name = (this.node && this.node.name) ? this.node.name : '';
+    this.name = this.node && this.node.name ? this.node.name : '';
     this.offset = this.level.toString() + 'em';
     this.provenance = utils.parseFrameworkOpType(this.node?.xla?.provenance);
-    this.timeWasted = utils.percent(utils.timeWasted(this.node, this.rootNode));
 
-    if (this.node?.metrics?.rawBytesAccessedArray &&
-        this.rootNode?.metrics?.rawBytesAccessedArray) {
-      const hbmType = utils.MemBwType.MEM_BW_TYPE_HBM_RW;
-      const hbmFraction = this.node.metrics.rawBytesAccessedArray[hbmType] /
-          this.rootNode.metrics.rawBytesAccessedArray[hbmType];
-      this.hbmFraction = utils.percent(hbmFraction);
+    const activeWasted = utils.timeWasted(this.node, this.rootNode);
+    let baseWasted = NaN;
+    if (hasBaseline && diffNode?.baseline) {
+      baseWasted = utils.timeWasted(
+        diffNode.baseline,
+        diffRoot?.baseline || this.rootNode,
+      );
+    }
+    this.timeWasted = this.formatMetricDiff(
+      activeWasted,
+      baseWasted,
+      hasBaseline,
+      diffNode,
+    );
+
+    const hbmType = utils.MemBwType.MEM_BW_TYPE_HBM_RW;
+    let activeHbmFrac = NaN;
+    if (
+      this.node?.metrics?.rawBytesAccessedArray &&
+      this.rootNode?.metrics?.rawBytesAccessedArray &&
+      this.node.metrics.rawBytesAccessedArray.length > hbmType &&
+      this.rootNode.metrics.rawBytesAccessedArray.length > hbmType &&
+      this.rootNode.metrics.rawBytesAccessedArray[hbmType] !== 0
+    ) {
+      activeHbmFrac =
+        this.node.metrics.rawBytesAccessedArray[hbmType] /
+        this.rootNode.metrics.rawBytesAccessedArray[hbmType];
     }
 
+    let baseHbmFrac = NaN;
+    if (hasBaseline && diffNode?.baseline) {
+      const baseRoot = diffRoot?.baseline || this.rootNode;
+      if (
+        diffNode.baseline.metrics?.rawBytesAccessedArray &&
+        baseRoot?.metrics?.rawBytesAccessedArray &&
+        diffNode.baseline.metrics.rawBytesAccessedArray.length > hbmType &&
+        baseRoot.metrics.rawBytesAccessedArray.length > hbmType &&
+        baseRoot.metrics.rawBytesAccessedArray[hbmType] !== 0
+      ) {
+        baseHbmFrac =
+          diffNode.baseline.metrics.rawBytesAccessedArray[hbmType] /
+          baseRoot.metrics.rawBytesAccessedArray[hbmType];
+      }
+    }
+    this.hbmFraction = this.formatMetricDiff(
+      activeHbmFrac,
+      baseHbmFrac,
+      hasBaseline,
+      diffNode,
+      /* defaultValueIfNull= */ '',
+    );
+
     const hbmUtilization = utils.memoryBandwidthUtilization(
-        this.node, utils.MemBwType.MEM_BW_TYPE_HBM_RW);
-    this.hbmUtilization = utils.percent(hbmUtilization);
-    this.hbmFlameColor = utils.bwColor(hbmUtilization);
+      this.node,
+      utils.MemBwType.MEM_BW_TYPE_HBM_RW,
+    );
+    let baseHbmUtil = NaN;
+    if (hasBaseline && diffNode?.baseline) {
+      baseHbmUtil = utils.memoryBandwidthUtilization(
+        diffNode.baseline,
+        utils.MemBwType.MEM_BW_TYPE_HBM_RW,
+      );
+    }
+    this.hbmUtilization = this.formatMetricDiff(
+      hbmUtilization,
+      baseHbmUtil,
+      hasBaseline,
+      diffNode,
+    );
+    const colorHbmUtil = diffNode?.baselineOnly ? baseHbmUtil : hbmUtilization;
+    this.hbmFlameColor = utils.bwColor(colorHbmUtil);
+  }
+
+  /**
+   * Formats a percentage diff string for active, baseline, added, or removed ops.
+   */
+  private formatMetricDiff(
+    activeVal: number,
+    baseVal: number,
+    hasBaseline: boolean,
+    diffNode?: DiffNode,
+    defaultValueIfNull = '-',
+  ): string {
+    if (hasBaseline) {
+      if (diffNode?.activeOnly) {
+        return !isNaN(activeVal)
+          ? `${(activeVal * 100).toFixed(2)}% (Added)`
+          : '-';
+      } else if (diffNode?.baselineOnly) {
+        return !isNaN(baseVal)
+          ? `0.00% (base: ${(baseVal * 100).toFixed(2)}%)`
+          : '-';
+      } else if (!isNaN(activeVal) && !isNaN(baseVal)) {
+        const activePct = activeVal * 100;
+        const basePct = baseVal * 100;
+        const diffPct = activePct - basePct;
+        const deltaStr =
+          diffPct >= 0 ? `+${diffPct.toFixed(2)}%` : `${diffPct.toFixed(2)}%`;
+        return `${activePct.toFixed(2)}% (${deltaStr})`;
+      }
+    }
+    return utils.percent(activeVal, defaultValueIfNull);
   }
 
   private get90ChildrenIndex() {
-    if (!this.showP90 || !this.node || !this.rootNode || !this.node.children ||
-        this.node.children.length === 0 || !this.node.metrics ||
-        !this.node.metrics.rawTime) {
+    if (
+      !this.showP90 ||
+      !this.node ||
+      !this.rootNode ||
+      !this.node.children ||
+      this.node.children.length === 0 ||
+      !this.node.metrics ||
+      !this.node.metrics.rawTime
+    ) {
       return this.childrenCount;
     }
 
@@ -149,20 +315,21 @@ export class OpTableEntry implements OnChanges {
     if (!this.node || !this.node.children || !this.rootNode) {
       return [];
     }
-    let children: Node[]  = this.node.children.slice();
+    let children: Node[] = this.node.children.slice();
     if (this.byWasted && this.rootNode) {
-      children.sort(
-          (a, b) => {
-            const timeWastedA = utils.timeWasted(a, this.rootNode!);
-            const timeWastedB = utils.timeWasted(b, this.rootNode!);
-            if (isNaN(timeWastedA)) {
-              return 1;
-            } else if (isNaN(timeWastedB)) {
-              return -1;
-            }
-            return utils.timeWasted(b, this.rootNode!) -
-              utils.timeWasted(a, this.rootNode!);
-          });
+      children.sort((a, b) => {
+        const timeWastedA = utils.timeWasted(a, this.rootNode!);
+        const timeWastedB = utils.timeWasted(b, this.rootNode!);
+        if (isNaN(timeWastedA)) {
+          return 1;
+        } else if (isNaN(timeWastedB)) {
+          return -1;
+        }
+        return (
+          utils.timeWasted(b, this.rootNode!) -
+          utils.timeWasted(a, this.rootNode!)
+        );
+      });
     }
     const k = this.get90ChildrenIndex();
 
@@ -173,15 +340,18 @@ export class OpTableEntry implements OnChanges {
 
   private getLeftOut(): number {
     if (!this.level || !this.node || !this.node.numChildren) return 0;
-    return this.node.numChildren -
-        Math.min(this.childrenCount, this.children.length);
+    return (
+      this.node.numChildren - Math.min(this.childrenCount, this.children.length)
+    );
   }
 
   onSelect($event: Node) {
     this.selected.emit($event);
-    this.store.dispatch(updateSelectedOpNodeChainAction({
-      selectedOpNodeName: this.node?.name,
-    }));
+    this.store.dispatch(
+      updateSelectedOpNodeChainAction({
+        selectedOpNodeName: this.node?.name,
+      }),
+    );
   }
 
   toggleExpanded() {

@@ -124,17 +124,18 @@ export class OpProfile implements OnDestroy {
         map(({active, baseline}) => {
           this.throbber.stop();
           setLoadingState(false, this.store);
-          if (!baseline) {
-            const opProfileData = active as OpProfileProto;
-            this.opProfileDataCache.set(cacheKey, opProfileData);
-            return opProfileData;
-          } else if (!!active && !!baseline) {
+          if (active && baseline) {
             const opProfileDiff = this.mergeProfile(
               active as OpProfileProto,
               baseline as OpProfileProto,
             );
             this.opProfileDataCache.set(cacheKey, opProfileDiff);
             return opProfileDiff;
+          }
+          if (active) {
+            const opProfileData = active as OpProfileProto;
+            this.opProfileDataCache.set(cacheKey, opProfileData);
+            return opProfileData;
           }
           return null;
         }),

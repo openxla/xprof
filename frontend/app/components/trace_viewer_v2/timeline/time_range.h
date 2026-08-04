@@ -9,6 +9,13 @@
 namespace traceviewer {
 
 // Represents a time interval [start, end].
+class TimeRange;
+
+// Returns true if the two TimeRanges are almost equal within the given
+// tolerances.
+inline bool AlmostEquals(const TimeRange& a, const TimeRange& b,
+                         double rel_tol = 0.0, double abs_tol = 1e-4);
+
 class TimeRange {
  public:
   TimeRange() = default;
@@ -105,7 +112,7 @@ class TimeRange {
   }
 
   bool operator==(const TimeRange& other) const {
-    return start_ == other.start_ && end_ == other.end_;
+    return AlmostEquals(*this, other);
   }
 
   bool operator!=(const TimeRange& other) const { return !(*this == other); }
@@ -115,6 +122,17 @@ class TimeRange {
 
   static constexpr Microseconds kAbsoluteTolerance = 1e-4;
 };
+
+// Returns true if the two TimeRanges are almost equal within the given
+// tolerances. We use the duration of the range for relative tolerance
+// calculations, as it represents the scale of the visible window. This avoids
+// the precision issues that occur with large absolute timestamps (e.g., 10^12).
+inline bool AlmostEquals(const TimeRange& a, const TimeRange& b,
+                         double rel_tol, double abs_tol) {
+  double tol = std::max(a.duration() * rel_tol, abs_tol);
+  return std::fabs(a.start() - b.start()) <= tol &&
+         std::fabs(a.end() - b.end()) <= tol;
+}
 
 // Defines an abs() operation for TimeRange. This is used by
 // `Animated<TimeRange>::Update()` to check for convergence. The input `range`
@@ -126,7 +144,7 @@ class TimeRange {
 // Defined as inline in the header to allow template instantiation
 // (e.g. Animated<TimeRange>) and prevent multiple definition errors.
 inline Microseconds abs(const TimeRange& range) {
-  return std::fabs(range.start()) + std::fabs(range.end());
+  return std::max(std::fabs(range.start()), std::fabs(range.end()));
 }
 
 }  // namespace traceviewer

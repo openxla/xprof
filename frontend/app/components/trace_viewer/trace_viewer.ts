@@ -1314,13 +1314,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     try {
       const stored = window.localStorage.getItem(CUSTOM_COLORS_STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored) as unknown;
+        const parsed = JSON.parse(stored) as string[];
         if (
           Array.isArray(parsed) &&
           parsed.length >= 4 &&
           parsed.every((c) => typeof c === 'string')
         ) {
-          this.customColors = (parsed as string[]).slice(0, 23);
+          this.customColors = parsed.slice(0, 23);
           return;
         }
       }

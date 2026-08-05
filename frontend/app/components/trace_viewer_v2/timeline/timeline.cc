@@ -2215,10 +2215,10 @@ void Timeline::DrawCounterTrack(int group_index, const CounterData& data,
 
   const Pixel y_base = pos.y + height;
 
-  // If all counter values are the same, draw a filled rectangle filling
-  // the bottom half of the track to avoid division by zero.
+  // If all counter values are the same, draw a 1px thin rectangle
+  // at the base to avoid division by zero.
   if (value_range == 0) {
-    const Pixel y = pos.y + height / 2.0f;
+    const Pixel y = y_base - 1.0f;
     const Pixel x_start =
         TimeToScreenX(data.timestamps.front(), pos.x, px_per_time_unit_val);
     const Pixel x_end =

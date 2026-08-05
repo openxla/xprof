@@ -49,14 +49,14 @@ message TraceEventSeries {
 message Thread {
   string name = 1;
   uint32 id = 2;
-  uint32 sort_index = 3;
+  optional uint32 sort_index = 3;
 }
 
 // Describes a process that appears in the trace.
 message Process {
   string name = 1;
   uint32 id = 2;
-  uint32 sort_index = 3;
+  optional uint32 sort_index = 3;
   repeated Thread threads = 4;
 }
 

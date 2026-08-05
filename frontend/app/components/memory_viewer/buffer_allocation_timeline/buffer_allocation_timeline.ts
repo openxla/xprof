@@ -88,6 +88,7 @@ export class BufferAllocationTimeline
   @Input() totalSteps = 0;
   @Input() totalBytes = 0;
   @Output() readonly selected = new EventEmitter<BufferBlock | null>();
+  @Output() readonly hovered = new EventEmitter<BufferBlock | null>();
 
   /**
    * The list of buffer blocks positioned and scaled for rendering.
@@ -618,6 +619,7 @@ export class BufferAllocationTimeline
 
     if (foundBlock !== this.hoveredBlock) {
       this.hoveredBlock = foundBlock;
+      this.hovered.emit(this.hoveredBlock);
       this.draw();
     }
 
@@ -644,6 +646,7 @@ export class BufferAllocationTimeline
   onMouseLeave() {
     this.isPanning = false;
     this.hoveredBlock = null;
+    this.hovered.emit(null);
     this.draw();
   }
 

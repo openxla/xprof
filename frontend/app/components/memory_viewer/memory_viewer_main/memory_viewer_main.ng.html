@@ -46,6 +46,7 @@
   <buffer-allocation-timeline
       [selectedBlock]="selectedBlock"
       (selected)="setSelectedBlock($event)"
+      (hovered)="setHoveredBlock($event)"
       [bufferBlocks]="memoryViewerPreprocessResult.bufferBlocks"
       [totalSteps]="memoryViewerPreprocessResult.heapSizes?.length || 0"
       [totalBytes]="(memoryViewerPreprocessResult.peakHeapMib || 0) * 1024 * 1024">

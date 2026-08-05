@@ -226,10 +226,22 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
   setSelectedBlock(block: BufferBlock | null) {
     if (!block || block.isContainer) {
       this.selectedBlock = null;
+    } else {
+      this.selectedBlock = block;
+    }
+    this.syncSelection(this.selectedBlock);
+  }
+
+  setHoveredBlock(block: BufferBlock | null) {
+    const targetBlock = block || this.selectedBlock;
+    this.syncSelection(targetBlock);
+  }
+
+  private syncSelection(block: BufferBlock | null) {
+    if (!block || block.isContainer) {
       this.dispatchActiveHeapObject();
       return;
     }
-    this.selectedBlock = block;
     if (!this.usage) {
       return;
     }

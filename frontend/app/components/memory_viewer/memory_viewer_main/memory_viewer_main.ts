@@ -266,6 +266,12 @@ export class MemoryViewerMain implements OnDestroy, OnChanges {
     }
   }
 
+  selectedProgramOrderStep: number | null = null;
+
+  setSelectedProgramOrderStep(step: number | null) {
+    this.selectedProgramOrderStep = step;
+  }
+
   update() {
     const searchParams = this.dataService.getSearchParams();
     const sessionPath = searchParams.get('session_path') || undefined;

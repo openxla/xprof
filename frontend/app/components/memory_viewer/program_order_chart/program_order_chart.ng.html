@@ -6,6 +6,6 @@
   <div class="chart-container">
     <chart class="chart" #peakChart [chartType]="AREA_CHART" [dataInfo]="peakChartDataInfo"></chart>
     <chart class="chart" #activeChart [chartType]="AREA_CHART" [dataInfo]="activeChartDataInfo"></chart>
-    <chart class="chart" #heapChart [chartType]="LINE_CHART" [dataInfo]="heapChartDataInfo"></chart>
+    <chart class="chart" #heapChart [chartType]="LINE_CHART" [dataInfo]="heapChartDataInfo" (selected)="onHeapChartSelected($event)"></chart>
   </div>
 </div>

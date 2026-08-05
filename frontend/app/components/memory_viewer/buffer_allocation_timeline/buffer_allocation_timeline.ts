@@ -87,6 +87,8 @@ export class BufferAllocationTimeline
   @Input() bufferBlocks: BufferBlockProto[] = [];
   @Input() totalSteps = 0;
   @Input() totalBytes = 0;
+  @Input() highlightedStep = -1;
+  @Input() highlightedBlocks: BufferBlock[] = [];
   @Output() readonly selected = new EventEmitter<BufferBlock | null>();
   @Output() readonly hovered = new EventEmitter<BufferBlock | null>();
 
@@ -261,6 +263,13 @@ export class BufferAllocationTimeline
         this.resetZoom();
         this.draw();
       }
+    } else if (
+      changes['selectedBlock'] ||
+      changes['isFullscreen'] ||
+      changes['highlightedStep'] ||
+      changes['highlightedBlocks']
+    ) {
+      this.draw();
     }
   }
 
@@ -460,8 +469,12 @@ export class BufferAllocationTimeline
     let opacity = 1.0;
     const hasSelection = !!this.selectedBlock;
     const hasSearch = !!this.searchQuery;
+    const hasStepHighlight = this.highlightedStep >= 0;
+    const hasBlocksHighlight =
+      !!this.highlightedBlocks && this.highlightedBlocks.length > 0;
+    const hasHighlight = hasStepHighlight || hasBlocksHighlight;
 
-    if (hasSelection || hasSearch) {
+    if (hasSelection || hasSearch || hasHighlight) {
       const matchesSelection = isSelected;
 
       let matchesSearch = false;
@@ -476,9 +489,24 @@ export class BufferAllocationTimeline
         }
       }
 
+      const matchesStep =
+        hasStepHighlight &&
+        !!block.span &&
+        this.highlightedStep >= block.span[0] &&
+        this.highlightedStep <= block.span[1];
+
+      const matchesBlocks =
+        hasBlocksHighlight &&
+        this.highlightedBlocks.some(
+          (b) =>
+            b.logicalBufferId === block.logicalBufferId || b.id === block.id,
+        );
+
       if (!block.isContainer) {
         const isBright =
-          (hasSelection && matchesSelection) || (hasSearch && matchesSearch);
+          (hasSelection && matchesSelection) ||
+          (hasSearch && matchesSearch) ||
+          (hasHighlight && (matchesStep || matchesBlocks));
         if (!isBright) {
           opacity = 0.3;
         }

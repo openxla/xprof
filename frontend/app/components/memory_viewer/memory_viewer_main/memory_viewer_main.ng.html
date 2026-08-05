@@ -38,7 +38,8 @@
   [hloInstructionNames]="hloInstructionNames"
   [peakInfo]="peakInfo"
   [activeInfo]="activeInfo"
-  [timelineUrl]="timelineUrl">
+  [timelineUrl]="timelineUrl"
+  (selectedStep)="setSelectedProgramOrderStep($event)">
 </program-order-chart>
 
 <div *ngIf="memoryViewerPreprocessResult && memoryViewerPreprocessResult.bufferBlocks && memoryViewerPreprocessResult.bufferBlocks.length">
@@ -47,6 +48,7 @@
       [selectedBlock]="selectedBlock"
       (selected)="setSelectedBlock($event)"
       (hovered)="setHoveredBlock($event)"
+      [highlightedStep]="selectedProgramOrderStep !== null ? selectedProgramOrderStep : -1"
       [bufferBlocks]="memoryViewerPreprocessResult.bufferBlocks"
       [totalSteps]="memoryViewerPreprocessResult.heapSizes?.length || 0"
       [totalBytes]="(memoryViewerPreprocessResult.peakHeapMib || 0) * 1024 * 1024">

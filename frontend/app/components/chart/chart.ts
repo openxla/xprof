@@ -18,6 +18,11 @@ export class Chart implements OnChanges, OnInit {
   /** The event for the number of rows of processed data. */
   @Output() processedNumberOfRows = new EventEmitter<number>();
 
+  /** The event when the selection of the chart is changed. */
+  @Output() readonly selected = new EventEmitter<
+    google.visualization.ChartSelection[]
+  >();
+
   chart?: ChartClass;
 
   constructor(private readonly elementRef: ElementRef) {}
@@ -85,6 +90,11 @@ export class Chart implements OnChanges, OnInit {
       this.initChart();
       this.initDataProvider();
       this.draw();
+      if (this.chart) {
+        google.visualization.events.addListener(this.chart, 'select', () => {
+          this.selected.emit(this.chart?.getSelection() || []);
+        });
+      }
     });
   }
 

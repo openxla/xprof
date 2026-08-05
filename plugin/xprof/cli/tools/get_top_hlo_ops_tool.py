@@ -8,7 +8,7 @@ import heapq
 import json
 import logging
 import traceback
-from typing import Any, Dict, Generator
+from typing import Any, Dict, List
 
 from google.protobuf import json_format
 from google.protobuf import message
@@ -92,56 +92,60 @@ def get_top_hlo_ops(
           dict(error=f"Failed to parse binary proto: {e}"), indent=2
       )
 
-  def traverse(
-      node: op_profile_pb2.Node, current_name_prefix: str = ""
-  ) -> Generator[Dict[str, Any], None, None]:
-    name = node.name
-    full_name = f"{current_name_prefix}/{name}" if current_name_prefix else name
-    metrics = node.metrics
+  target_cat = category_filter.strip().lower() if category_filter else None
 
-    # Only add leaf nodes (instructions) that have XLA info
-    if node.HasField("xla") and metrics.raw_time > 0:
-      total_bytes = (
-          sum(metrics.raw_bytes_accessed_array)
-          if metrics.raw_bytes_accessed_array
-          else 0
+  def traverse(root_node: op_profile_pb2.Node) -> List[Dict[str, Any]]:
+    results = []
+    stack = [(root_node, "")]
+    while stack:
+      node, current_name_prefix = stack.pop()
+      name = node.name
+      full_name = (
+          f"{current_name_prefix}/{name}" if current_name_prefix else name
       )
-      item = {
-          "name": full_name,
-          "category": node.xla.category,
-          "total_self_time_ms": metrics.raw_time / 1e9,
-          "occurrences": metrics.occurrences,
-          "flops": metrics.raw_flops,
-          "bytes_accessed": total_bytes,
-      }
-      if node.xla.HasField("source_info"):
-        item["source_file"] = node.xla.source_info.file_name
-        item["source_line"] = node.xla.source_info.line_number
-        if node.xla.source_info.stack_frame:
-          item["stack_frame"] = node.xla.source_info.stack_frame
-      yield item
 
-    for child in node.children:
-      yield from traverse(child, full_name)
+      # Only add leaf nodes (instructions) that have XLA info
+      if node.HasField("xla") and node.HasField("metrics"):
+        metrics = node.metrics
+        if metrics.raw_time > 0:
+          xla = node.xla
+          category = xla.category
+          if target_cat is None or category.strip().lower() == target_cat:
+            bytes_array = metrics.raw_bytes_accessed_array
+            total_bytes = sum(bytes_array) if bytes_array else 0
+            item = {
+                "name": full_name,
+                "category": category,
+                "total_self_time_ms": metrics.raw_time / 1e9,
+                "occurrences": metrics.occurrences,
+                "flops": metrics.raw_flops,
+                "bytes_accessed": total_bytes,
+            }
+            if xla.HasField("source_info"):
+              source_info = xla.source_info
+              item["source_file"] = source_info.file_name
+              item["source_line"] = source_info.line_number
+              stack_frame = source_info.stack_frame
+              if stack_frame:
+                item["stack_frame"] = stack_frame
+            results.append(item)
+
+      children = node.children
+      if children:
+        for child in reversed(children):
+          stack.append((child, full_name))
+
+    return results
 
   if (
       op_profile.HasField("by_category")
       and op_profile.by_category.metrics.raw_time > 0
   ):
-    ops_iterable = traverse(op_profile.by_category)
+    flat_ops = traverse(op_profile.by_category)
   elif op_profile.HasField("by_program"):
-    ops_iterable = traverse(op_profile.by_program)
+    flat_ops = traverse(op_profile.by_program)
   else:
-    ops_iterable = []
-
-  flat_ops = list(ops_iterable)
-  if category_filter:
-    target_cat = category_filter.strip().lower()
-    flat_ops = [
-        op
-        for op in flat_ops
-        if op.get("category", "").strip().lower() == target_cat
-    ]
+    flat_ops = []
 
   if not flat_ops:
     return json.dumps(

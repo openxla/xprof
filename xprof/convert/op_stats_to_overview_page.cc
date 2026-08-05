@@ -650,10 +650,18 @@ std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
                   *result.latency_breakdowns().begin());
   }
   for (int i = 0; i < result.percentile_numbers_size(); i++) {
-    AddLatencyRow(
-        data_table.get(),
-        absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
-        result.latency_breakdowns().Get(i));
+    // If Average is prepended (size > percentile count), percentiles start at
+    // index 1.
+    int breakdown_index = (result.latency_breakdowns_size() >
+                           result.percentile_numbers_size())
+                              ? i + 1
+                              : i;
+    if (breakdown_index < result.latency_breakdowns_size()) {
+      AddLatencyRow(
+          data_table.get(),
+          absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
+          result.latency_breakdowns().Get(breakdown_index));
+    }
   }
   return data_table;
 }

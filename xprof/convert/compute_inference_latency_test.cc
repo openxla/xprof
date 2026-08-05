@@ -42,29 +42,29 @@ TEST(ComputeInferenceLatencyResult, InferenceLatencyTest) {
   // 5 percentiles and 1 average, so 6 results in total.
   ASSERT_EQ(result.latency_breakdowns_size(), 6);
 
-  // Verify 50 percentile result.
-  EXPECT_NEAR(result.latency_breakdowns(0).total_latency_us(), 0.5, kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(0).host_latency_us(), 0.4, kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(0).device_latency_us(), 0.05,
+  // Verify average result.
+  EXPECT_NEAR(result.latency_breakdowns(0).total_latency_us(), 0.495,
               kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(0).communication_latency_us(), 0.05,
+  EXPECT_NEAR(result.latency_breakdowns(0).host_latency_us(), 0.396, kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(0).device_latency_us(), 0.0495,
+              kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(0).communication_latency_us(), 0.0495,
+              kMaxError);
+
+  // Verify 50 percentile result.
+  EXPECT_NEAR(result.latency_breakdowns(1).total_latency_us(), 0.5, kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(1).host_latency_us(), 0.4, kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(1).device_latency_us(), 0.05,
+              kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(1).communication_latency_us(), 0.05,
               kMaxError);
 
   // Verify 99.9 percentile result.
-  EXPECT_NEAR(result.latency_breakdowns(4).total_latency_us(), 0.99, kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(4).host_latency_us(), 0.792, kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(4).device_latency_us(), 0.099,
+  EXPECT_NEAR(result.latency_breakdowns(5).total_latency_us(), 0.99, kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(5).host_latency_us(), 0.792, kMaxError);
+  EXPECT_NEAR(result.latency_breakdowns(5).device_latency_us(), 0.099,
               kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(4).communication_latency_us(), 0.099,
-              kMaxError);
-
-  // Verify average result.
-  EXPECT_NEAR(result.latency_breakdowns(5).total_latency_us(), 0.495,
-              kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(5).host_latency_us(), 0.396, kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(5).device_latency_us(), 0.0495,
-              kMaxError);
-  EXPECT_NEAR(result.latency_breakdowns(5).communication_latency_us(), 0.0495,
+  EXPECT_NEAR(result.latency_breakdowns(5).communication_latency_us(), 0.099,
               kMaxError);
 }
 

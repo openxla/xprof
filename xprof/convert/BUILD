@@ -1208,6 +1208,7 @@ cc_test(
     name = "op_stats_to_overview_page_test",
     srcs = ["op_stats_to_overview_page_test.cc"],
     deps = [
+        ":data_table_utils",
         ":op_stats_to_overview_page",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//plugin/xprof/protobuf:op_stats_proto_cc",

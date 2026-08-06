@@ -265,6 +265,13 @@ export class PerformanceSummary implements OnChanges, OnInit {
     return this.inputPipelineProps['hardware_type'] === 'TPU';
   }
 
+  get hasBaseline(): boolean {
+    return !!this.baselineGeneralAnalysis ||
+        !!this.baselineInputPipelineAnalysis ||
+        !!this.baselineInferenceLatencyData ||
+        !!this.baselineDisaggregatedServingLatencyData;
+  }
+
   get generalProps() {
     return ((this.generalAnalysis || {}).p as GeneralProps) || {};
   }
@@ -461,21 +468,21 @@ export class PerformanceSummary implements OnChanges, OnInit {
         const sign = pctDiff > 0 ? '+' : '';
         diffValueStr = `${sign}${pctDiff.toFixed(1)}%`;
 
-        const effectiveGoodMetric =
-          config.goodMetric !== undefined
-            ? config.goodMetric
-            : parentGoodMetric;
-        if (effectiveGoodMetric !== undefined) {
-          const isBetter = effectiveGoodMetric ? pctDiff > 0 : pctDiff < 0;
-          const isWorse = effectiveGoodMetric ? pctDiff < 0 : pctDiff > 0;
-          if (isBetter) {
-            diffColor = 'green';
-          } else if (isWorse) {
-            diffColor = 'red';
+          const effectiveGoodMetric =
+            config.goodMetric !== undefined
+              ? config.goodMetric
+              : parentGoodMetric;
+          if (effectiveGoodMetric !== undefined) {
+            const isBetter = effectiveGoodMetric ? pctDiff > 0 : pctDiff < 0;
+            const isWorse = effectiveGoodMetric ? pctDiff < 0 : pctDiff > 0;
+            if (isBetter) {
+              diffColor = 'green';
+            } else if (isWorse) {
+              diffColor = 'red';
+            }
           }
         }
       }
-    }
 
     const propertyValues = config.getChildValues
       ? config.getChildValues(customInput || props)

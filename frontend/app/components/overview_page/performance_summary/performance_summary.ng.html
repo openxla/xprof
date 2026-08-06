@@ -1,6 +1,9 @@
  <mat-card>
   <mat-card-title>{{title}}</mat-card-title>
   <mat-card-content>
+    <div *ngIf="hasBaseline" class="legend-container">
+      <span class="legend-text">Legend: (vs <span class="baseline-data">baseline</span>, <span>change %</span>)</span>
+    </div>
     <ng-template *ngTemplateOutlet="summaryInfo; context: {$implicit: summaryInfoCombined}">
     </ng-template>
 
@@ -24,7 +27,7 @@
             <div [style.color]="info.valueColor">
               {{info.value}}
               <span *ngIf="info.baselineValue" class="baseline-value">
-                (vs {{info.baselineValue}}
+                (vs <span class="baseline-data">{{info.baselineValue}}</span>
                 <span *ngIf="info.diffValue" [style.color]="info.diffColor">
                   , {{info.diffValue}}
                 </span>)
@@ -39,7 +42,7 @@
             <div [style.color]="cInfo.valueColor">
               {{cInfo.value}}
               <span *ngIf="cInfo.baselineValue" class="baseline-value">
-                (vs {{cInfo.baselineValue}}
+                (vs <span class="baseline-data">{{cInfo.baselineValue}}</span>
                 <span *ngIf="cInfo.diffValue" [style.color]="cInfo.diffColor">
                   , {{cInfo.diffValue}}
                 </span>)

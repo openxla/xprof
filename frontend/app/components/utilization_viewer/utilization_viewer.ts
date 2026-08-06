@@ -36,6 +36,7 @@ const UNIT_CHART_OPTIONS: google.visualization.BarChartOptions = {
   height: 700,
   chartArea: {left: '25%', width: '65%', height: 650},
   hAxis: {format: 'percent', minValue: 0.0, maxValue: 1.0},
+  tooltip: {isHtml: true},
 };
 
 const UNIT_CHART_OPTIONS_BASELINE: google.visualization.BarChartOptions = {
@@ -52,6 +53,7 @@ const BANDWIDTH_CHART_OPTIONS: google.visualization.BarChartOptions = {
   height: 700,
   chartArea: {left: '25%', width: '65%', height: 600},
   hAxis: {format: 'percent', minValue: 0.0, maxValue: 1.0},
+  tooltip: {isHtml: true},
 };
 
 const BANDWIDTH_CHART_OPTIONS_BASELINE: google.visualization.BarChartOptions = {
@@ -111,6 +113,20 @@ export function getDeltaInfo(activePct: number, basePct: number): DeltaInfo {
       color: '#c5221f',
     };
   }
+}
+
+/** Generates the HTML tooltip content. */
+export function getTooltipContent(
+    achieved: number, peak: number, unit: string, activePct: number,
+    hasBaseline: boolean, baseAchieved: number | null, basePeak: number | null): string {
+  let tooltip = `<div>Active Achieved: <b>${achieved.toLocaleString()}</b> ${unit} (Peak: ${peak.toLocaleString()} ${unit})</div>`;
+  if (hasBaseline && baseAchieved !== null && basePeak !== null) {
+    const basePct = basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
+    const deltaInfo = getDeltaInfo(activePct, basePct);
+    tooltip += `<div>Baseline Achieved: <b>${baseAchieved.toLocaleString()}</b> ${unit} (Peak: ${basePeak.toLocaleString()} ${unit})</div>`;
+    tooltip += `<div>Delta: <span style="color: ${deltaInfo.color}"><b>${deltaInfo.formattedDelta}</b></span></div>`;
+  }
+  return tooltip;
 }
 
 declare interface NodeFilterDataProcessorMap {
@@ -420,43 +436,31 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
           label: hasBaseline ? 'Active % Active' : '% Active',
           id: 'active',
         },
-        {
-          calc: (data: google.visualization.DataTable, row: number) => {
-            const achieved = data.getValue(row, achievedCol);
-            const peak = data.getValue(row, peakCol);
-            const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
-            if (hasBaseline) {
-              const baseAchieved = data.getValue(row, baselineAchievedCol);
-              const basePeak = data.getValue(row, baselinePeakCol);
-              const basePct =
-                basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
-              const deltaInfo = getDeltaInfo(activePct, basePct);
-              return `${activePct.toFixed(2)}% (${deltaInfo.formattedDelta})`;
-            }
-            if (achieved === 0) return undefined;
-            return activePct.toFixed(2) + '%';
-          },
-          type: 'string',
-          role: 'annotation',
-        },
       ];
 
-      if (hasBaseline) {
-        visibleColumns.push({
-          calc: (data: google.visualization.DataTable, row: number) => {
-            const achieved = data.getValue(row, achievedCol);
-            const peak = data.getValue(row, peakCol);
-            const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
+      // Annotation for Active
+      visibleColumns.push({
+        calc: (data: google.visualization.DataTable, row: number) => {
+          const achieved = data.getValue(row, achievedCol);
+          const peak = data.getValue(row, peakCol);
+          const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
+          if (hasBaseline) {
             const baseAchieved = data.getValue(row, baselineAchievedCol);
             const basePeak = data.getValue(row, baselinePeakCol);
             const basePct =
               basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
             const deltaInfo = getDeltaInfo(activePct, basePct);
-            return deltaInfo.color;
-          },
-          type: 'string',
-          role: 'style',
-        });
+            return `${activePct.toFixed(2)}% (${deltaInfo.formattedDelta})`;
+          }
+          if (achieved === 0) return undefined;
+          return activePct.toFixed(2) + '%';
+        },
+        type: 'string',
+        role: 'annotation',
+      });
+
+      if (hasBaseline) {
+        // Baseline Data
         visibleColumns.push({
           calc: (data: google.visualization.DataTable, row: number) => {
             const achieved = data.getValue(row, baselineAchievedCol);
@@ -467,6 +471,25 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
           label: 'Baseline % Active',
           id: 'baseline',
         });
+
+        // Tooltip for Baseline
+        visibleColumns.push({
+          calc: (data: google.visualization.DataTable, row: number) => {
+            const achieved = data.getValue(row, achievedCol);
+            const peak = data.getValue(row, peakCol);
+            const unit = data.getValue(row, unitCol);
+            const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
+            const baseAchieved = data.getValue(row, baselineAchievedCol);
+            const basePeak = data.getValue(row, baselinePeakCol);
+            return getTooltipContent(
+                achieved, peak, unit, activePct, hasBaseline, baseAchieved, basePeak);
+          },
+          type: 'string',
+          role: 'tooltip',
+          'properties': {'html': true},
+        });
+
+        // Annotation for Baseline
         visibleColumns.push({
           calc: (data: google.visualization.DataTable, row: number) => {
             const achieved = data.getValue(row, baselineAchievedCol);
@@ -478,28 +501,6 @@ export class UtilizationViewer extends Dashboard implements OnDestroy {
           role: 'annotation',
         });
       }
-
-      visibleColumns.push({
-        calc: (data: google.visualization.DataTable, row: number) => {
-          const achieved = data.getValue(row, achievedCol);
-          const peak = data.getValue(row, peakCol);
-          const unit = data.getValue(row, unitCol);
-          const activePct = peak !== 0 ? (100 * achieved) / peak : 0;
-          let tooltip = `Active Achieved: ${achieved.toLocaleString()} ${unit} (Peak: ${peak.toLocaleString()} ${unit})`;
-          if (hasBaseline) {
-            const baseAchieved = data.getValue(row, baselineAchievedCol);
-            const basePeak = data.getValue(row, baselinePeakCol);
-            const basePct =
-              basePeak !== 0 ? (100 * baseAchieved) / basePeak : 0;
-            const deltaInfo = getDeltaInfo(activePct, basePct);
-            tooltip += `\nBaseline Achieved: ${baseAchieved.toLocaleString()} ${unit} (Peak: ${basePeak.toLocaleString()} ${unit})`;
-            tooltip += `\nDelta: ${deltaInfo.formattedDelta}`;
-          }
-          return tooltip;
-        },
-        type: 'string',
-        role: 'tooltip',
-      });
 
       this.initDataProcessors(hasBaseline);
       this.updateDataProcessors(visibleColumns, coreCol, unitCol);

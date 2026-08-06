@@ -7,6 +7,7 @@ sorted by Self Time, FLOPs, and Bytes Accessed.
 import heapq
 import json
 import logging
+import time
 import traceback
 from typing import Any, Dict, Generator
 
@@ -37,12 +38,14 @@ def get_top_hlo_ops(
       mandatory source provenance metadata whenever available.
   """
   client = xprof_client.get_client()
+  start_time = time.time()
   try:
     op_profile_result = client.fetch(
         tool_name="hlo_op_profile.json",
         session_id=session_id,
         format="pb",
     )
+    fetch_time = time.time() - start_time
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching top HLO ops for session %s", session_id)
     return json.dumps(
@@ -91,6 +94,7 @@ def get_top_hlo_ops(
       return json.dumps(
           dict(error=f"Failed to parse binary proto: {e}"), indent=2
       )
+  parse_time = time.time() - start_time - fetch_time
 
   def traverse(
       node: op_profile_pb2.Node, current_name_prefix: str = ""
@@ -133,7 +137,7 @@ def get_top_hlo_ops(
     ops_iterable = traverse(op_profile.by_program)
   else:
     ops_iterable = []
-
+  traverse_time = time.time() - start_time - fetch_time - parse_time
   flat_ops = list(ops_iterable)
   if category_filter:
     target_cat = category_filter.strip().lower()
@@ -159,7 +163,15 @@ def get_top_hlo_ops(
   top_by_bytes = heapq.nlargest(
       limit, flat_ops, key=lambda x: x["bytes_accessed"]
   )
-
+  logging.info(
+      "Get top HLO ops metrics - Session ID: %s, Total wall clock time: %.3fs,"
+      " Fetch time: %.3fs, Parse time: %.3fs, Traverse time: %.3fs",
+      session_id,
+      time.time() - start_time,
+      fetch_time,
+      parse_time,
+      traverse_time,
+  )
   return json.dumps(
       {
           "top_by_time": top_by_time,

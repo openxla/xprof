@@ -33,6 +33,7 @@ import {
   DATA_SERVICE_INTERFACE_TOKEN,
   type DataServiceV2Interface,
 } from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {BaseDiffService} from 'org_xprof/frontend/app/services/data_service_v2/diff_service';
 import {BehaviorSubject, combineLatest, ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
@@ -64,10 +65,17 @@ export class OverviewPage implements OnDestroy {
   inferenceLatencyData: SimpleDataTable | null = null;
   disaggregatedServingLatencyData: SimpleDataTable | null = null;
 
+  baselineGeneralAnalysis: GeneralAnalysis | null = null;
+  baselineInputPipelineAnalysis: InputPipelineAnalysis | null = null;
+  baselineInferenceLatencyData: SimpleDataTable | null = null;
+  baselineDisaggregatedServingLatencyData: SimpleDataTable | null = null;
+
   private readonly dataService: DataServiceV2Interface = inject(
     DATA_SERVICE_INTERFACE_TOKEN,
   );
+  private readonly diffService = inject(BaseDiffService);
   sessionId = '';
+  baseSessionId = '';
   tool = 'overview_page';
   host = '';
   isLoaded = false;
@@ -90,16 +98,18 @@ export class OverviewPage implements OnDestroy {
         const oldSessionId = this.sessionId;
         const oldTool = this.tool;
         const oldHost = this.host;
+        const oldBaseSessionId = this.baseSessionId;
 
         this.sessionId = params['sessionId'] || this.sessionId;
         this.processQueryParams(queryParams);
 
         // Trigger update only if the parameters actually changed.
-        if (
+        const hasChanged =
           this.sessionId !== oldSessionId ||
           this.tool !== oldTool ||
-          this.host !== oldHost
-        ) {
+          this.host !== oldHost ||
+          this.baseSessionId !== oldBaseSessionId;
+        if (hasChanged) {
           this.update();
         }
       });
@@ -125,6 +135,19 @@ export class OverviewPage implements OnDestroy {
     this.host = params['host'] || this.host || '';
     this.sessionId = params['run'] || params['sessionId'] || this.sessionId;
     this.tool = params['tag'] || 'overview_page';
+    if (
+      params['base_session_id'] !== undefined ||
+      params['baseSessionID'] !== undefined
+    ) {
+      const paramBaseId =
+        params['base_session_id'] || params['baseSessionID'] || '';
+      if (paramBaseId !== this.diffService.getBaseSessionId()) {
+        this.diffService.setBaseSessionId(paramBaseId);
+      }
+      this.baseSessionId = paramBaseId;
+    } else {
+      this.baseSessionId = this.diffService.getBaseSessionId() || '';
+    }
     this.enableSmartSuggestion = this.dataService.isSmartSuggestionEnabled();
   }
 
@@ -132,16 +155,33 @@ export class OverviewPage implements OnDestroy {
     setLoadingState(true, this.store, 'Loading overview data');
     this.isLoaded = false;
 
-    this.dataService
-      .getData(this.sessionId, this.tool, this.host)
+    this.diffService
+      .getDiffData<OverviewPageDataTuple>(this.sessionId, this.tool, {
+        baselineSessionId:
+          this.baseSessionId || this.diffService.getBaseSessionId() || '',
+        host: this.host,
+      })
       .pipe(takeUntil(this.destroyed))
-      .subscribe((data) => {
-        setLoadingState(false, this.store);
-        this.onDataLoaded.emit(data as OverviewPageDataTuple);
-        data = (data || []) as OverviewPageDataTuple;
-        /** Transfer data to Overview Page DataTable type */
-        this.parseOverviewPageData(data as OverviewPageDataTuple);
-        this.isLoaded = true;
+      .subscribe({
+        next: ({active, baseline}) => {
+          setLoadingState(false, this.store);
+          this.onDataLoaded.emit(active as OverviewPageDataTuple);
+          if (active) {
+            this.parseOverviewPageData(active as OverviewPageDataTuple);
+          }
+          if (baseline) {
+            this.parseBaselineOverviewPageData(
+              baseline as OverviewPageDataTuple,
+            );
+          } else {
+            this.clearBaselineData();
+          }
+          this.isLoaded = true;
+        },
+        error: () => {
+          setLoadingState(false, this.store);
+          this.isLoaded = true;
+        },
       });
   }
 
@@ -178,6 +218,25 @@ export class OverviewPage implements OnDestroy {
         data[DISAGGREGATED_SERVING_LATENCY_INDEX];
     }
     this.diagnostics = parseDiagnosticsDataTable(data[DIAGNOSTICS_INDEX]);
+  }
+
+  parseBaselineOverviewPageData(data: OverviewPageDataTuple) {
+    this.baselineGeneralAnalysis = data[GENERAL_ANALYSIS_INDEX];
+    this.baselineInputPipelineAnalysis = data[INPUT_PIPELINE_ANALYSIS_INDEX];
+    if (data.length > INFERENCE_LATENCY_CHART_INDEX + 1) {
+      this.baselineInferenceLatencyData = data[INFERENCE_LATENCY_CHART_INDEX];
+    }
+    if (data.length > DISAGGREGATED_SERVING_LATENCY_INDEX) {
+      this.baselineDisaggregatedServingLatencyData =
+        data[DISAGGREGATED_SERVING_LATENCY_INDEX];
+    }
+  }
+
+  clearBaselineData() {
+    this.baselineGeneralAnalysis = null;
+    this.baselineInputPipelineAnalysis = null;
+    this.baselineInferenceLatencyData = null;
+    this.baselineDisaggregatedServingLatencyData = null;
   }
 
   ngOnDestroy() {

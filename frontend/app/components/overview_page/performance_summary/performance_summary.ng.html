@@ -21,14 +21,30 @@
             <ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: info}"></ng-template>
           </td>
           <td *ngIf="info.value" class="item-value">
-            <div [style.color]="info.valueColor">{{info.value}}</div>
+            <div [style.color]="info.valueColor">
+              {{info.value}}
+              <span *ngIf="info.baselineValue" class="baseline-value">
+                (vs {{info.baselineValue}}
+                <span *ngIf="info.diffValue" [style.color]="info.diffColor">
+                  , {{info.diffValue}}
+                </span>)
+              </span>
+            </div>
           </td>
         </tr>
         <!-- Nested child metrics rows -->
         <tr *ngFor="let cInfo of info.childrenInfo">
           <td><ng-template *ngTemplateOutlet="titleTooltipDescription; context: {$implicit: cInfo}"></ng-template></td>
           <td *ngIf="cInfo.value" class="child-item-value primary-content">
-            <div [style.color]="cInfo.valueColor">{{cInfo.value}}</div>
+            <div [style.color]="cInfo.valueColor">
+              {{cInfo.value}}
+              <span *ngIf="cInfo.baselineValue" class="baseline-value">
+                (vs {{cInfo.baselineValue}}
+                <span *ngIf="cInfo.diffValue" [style.color]="cInfo.diffColor">
+                  , {{cInfo.diffValue}}
+                </span>)
+              </span>
+            </div>
           </td>
         </tr>
         <tr *ngFor="let value of info.propertyValues">

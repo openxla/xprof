@@ -9,6 +9,9 @@ export interface SummaryInfo {
   propertyValues?: string[];
   // Nested child metrics info
   childrenInfo?: SummaryInfo[];
+  baselineValue?: string;
+  diffValue?: string;
+  diffColor?: string;
 }
 
 /** freeform k-v pair property interface */

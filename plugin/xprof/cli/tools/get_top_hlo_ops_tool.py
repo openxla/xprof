@@ -41,7 +41,7 @@ def get_top_hlo_ops(
     op_profile_result = client.fetch(
         tool_name="hlo_op_profile.json",
         session_id=session_id,
-        format="json",
+        format="pb",
     )
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching top HLO ops for session %s", session_id)
@@ -79,14 +79,14 @@ def get_top_hlo_ops(
         )
     else:
       try:
-        op_profile = op_profile_pb2.Profile.FromString(data)
+        op_profile.ParseFromString(data)
       except DecodeError as e:
         return json.dumps(
             dict(error=f"Failed to parse binary proto: {e}"), indent=2
         )
   else:  # bytes
     try:
-      op_profile = op_profile_pb2.Profile.FromString(op_profile_result)
+      op_profile.ParseFromString(op_profile_result)
     except DecodeError as e:
       return json.dumps(
           dict(error=f"Failed to parse binary proto: {e}"), indent=2

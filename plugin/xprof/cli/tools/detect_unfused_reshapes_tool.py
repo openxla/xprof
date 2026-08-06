@@ -4,6 +4,7 @@ from collections.abc import Callable
 import json
 import logging
 import re
+import time
 
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.tools import get_top_hlo_ops_tool
@@ -31,10 +32,23 @@ def detect_unfused_reshapes(
       A JSON string summarizing the findings.
   """
   try:
+    start_time = time.time()
     # 1. Get candidate operations based on bytes_accessed
     # get_top_hlo_ops returns a JSON-formatted string.
     top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
+    fetch_top_ops_time = time.time() - start_time
     if not top_ops_json:
+      logging.info(
+          "Unfused reshapes detection metrics - "
+          "Session ID: %s, "
+          "Total wall clock time: %.3fs, "
+          "Fetch top ops time: %.3fs, "
+          "Core logic processing time: N/A",
+          session_id,
+          time.time() - start_time,
+          fetch_top_ops_time,
+      )
+
       return json.dumps({"error": "Could not fetch top HLO ops."})
 
     ops_data = json.loads(top_ops_json)
@@ -173,6 +187,19 @@ def detect_unfused_reshapes(
     )
     safe_msg = "No unfused reshape bottlenecks detected."
     message = bottleneck_msg if inefficient_ops else safe_msg
+    total_time = time.time() - start_time
+    core_logic_time = max(0.0, total_time - fetch_top_ops_time)
+    logging.info(
+        "Unfused reshapes detection metrics - "
+        "Session ID: %s, "
+        "Total wall clock time: %.3fs, "
+        "Fetch top ops time: %.3fs, "
+        "Core logic processing time: %.3fs",
+        session_id,
+        total_time,
+        fetch_top_ops_time,
+        core_logic_time,
+    )
 
     return json.dumps(
         {

@@ -184,21 +184,20 @@ export class BufferAllocationTimeline
     let colorIdx = 0;
 
     for (const proto of this.bufferBlocks) {
-      if (
-        proto.startStep === undefined ||
-        proto.endStep === undefined ||
-        proto.offset === undefined ||
-        proto.size === undefined
-      ) {
+      const startStep = proto.startStep ?? 0;
+      const endStep = proto.endStep ?? 0;
+      const offset = proto.offset ?? 0;
+      const size = proto.size ?? 0;
+
+      if (size <= 0) {
         continue;
       }
 
-      const width = (proto.endStep - proto.startStep) * scaleX;
-      const height = proto.size * scaleY;
+      const width = (endStep - startStep) * scaleX;
+      const height = size * scaleY;
 
-      const centerX =
-        (proto.startStep + (proto.endStep - proto.startStep) / 2.0) * scaleX;
-      const centerY = (proto.offset + proto.size / 2.0) * scaleY;
+      const centerX = (startStep + (endStep - startStep) / 2.0) * scaleX;
+      const centerY = (offset + size / 2.0) * scaleY;
 
       const category = proto.category || 'default';
       let color = proto.color;
@@ -220,13 +219,13 @@ export class BufferAllocationTimeline
         id: String(
           proto.logicalBufferId !== undefined && proto.logicalBufferId !== -1
             ? proto.logicalBufferId
-            : `${category}_${proto.offset}`,
+            : `${category}_${offset}`,
         ),
         x: centerX,
         y: centerY,
         width,
         height,
-        offset: proto.offset || 0,
+        offset,
         tooltip: '',
         color,
         label: proto.name || '',
@@ -240,10 +239,10 @@ export class BufferAllocationTimeline
             ? proto.logicalBufferId
             : undefined,
         instructionName: proto.name,
-        size: proto.size,
+        size,
         unpaddedSize: proto.unpaddedSize,
         shapeString: proto.shapeString,
-        span: [proto.startStep, proto.endStep],
+        span: [startStep, endStep],
         tfOpName: proto.tfOpName,
         category: proto.category,
         sourceInfo: proto.sourceInfo,
@@ -785,20 +784,17 @@ export class BufferAllocationTimeline
   toggleFullscreen() {
     const element = this.fullscreenContainer.nativeElement;
     if (!document.fullscreenElement) {
-      element
-        .requestFullscreen()
-        .catch((err) => {
-          console.error(
-            `Error attempting to enable fullscreen mode: ${err.message}`,
-          );
-        });
+      element.requestFullscreen().catch((err) => {
+        console.error(
+          `Error attempting to enable fullscreen mode: ${err.message}`,
+        );
+      });
     } else {
-      document.exitFullscreen()
-        .catch((err) => {
-          console.error(
-            `Error attempting to exit fullscreen mode: ${err.message}`,
-          );
-        });
+      document.exitFullscreen().catch((err) => {
+        console.error(
+          `Error attempting to exit fullscreen mode: ${err.message}`,
+        );
+      });
     }
   }
 

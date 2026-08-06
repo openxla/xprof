@@ -65,6 +65,7 @@ xprof_ng_module(
         "//third_party/javascript/typings/jasmine",
         "@npm//@angular/common",
         "@npm//@angular/router",
+        "@npm//@ngrx/store",
         "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/services/data_service_v2",

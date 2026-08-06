@@ -51,25 +51,4 @@ export class DiagnosticsView {
   dismissInfo(index: number): void {
     this.dismissMessage('info', index);
   }
-
-  /** Accumulates messages from another Diagnostics object into the current view. */
-  addDiagnostics(newDiagnostics?: Partial<Diagnostics>): void {
-    if (!newDiagnostics || !this.diagnostics) return;
-    if (!this.diagnostics.errors) this.diagnostics.errors = [];
-    if (!this.diagnostics.warnings) this.diagnostics.warnings = [];
-    if (!this.diagnostics.info) this.diagnostics.info = [];
-    if (newDiagnostics.errors) {
-      this.diagnostics.errors.push(...newDiagnostics.errors);
-    }
-    if (newDiagnostics.warnings) {
-      this.diagnostics.warnings.push(...newDiagnostics.warnings);
-    }
-    if (newDiagnostics.info) {
-      this.diagnostics.info.push(...newDiagnostics.info);
-    }
-    this.showErrors = true;
-    this.showWarnings = true;
-    this.showInfo = true;
-  }
 }
-

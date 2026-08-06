@@ -26,7 +26,7 @@ export class MainPage implements OnDestroy {
   loadingMessage = '';
   isSideNavOpen = true;
   navigationReady = false;
-  errorMessage = '';
+  errorMessages: string[] = [];
   /** The version string of the XProf plugin. */
   pluginVersion = '';
 
@@ -47,7 +47,10 @@ export class MainPage implements OnDestroy {
     store.select(getErrorMessage)
         .pipe(takeUntil(this.destroyed))
         .subscribe((errorMessage: string) => {
-          this.errorMessage = errorMessage;
+          if (!errorMessage || this.errorMessages.includes(errorMessage)) {
+            return;
+          }
+          this.errorMessages.push(errorMessage);
         });
     this.communicationService.navigationReady.subscribe(
         (navigationEvent: NavigationEvent) => {
@@ -72,7 +75,7 @@ export class MainPage implements OnDestroy {
 
   get diagnostics(): Diagnostics {
     return {
-      errors: this.errorMessage ? [this.errorMessage] : [],
+      errors: this.errorMessages,
       info: [],
       warnings: [],
     };

@@ -327,10 +327,12 @@ export class TraceViewerContainer
   leftSideProperties: SelectedEventProperty[] = [];
   rightSideProperties: SelectedEventProperty[] = [];
 
-  selectedEventPropertiesDataSource =
-    new MatTableDataSource<SelectedEventProperty>();
-  metricsDataSource = new MatTableDataSource<SelectedEventProperty>();
-  countersDataSource = new MatTableDataSource<SelectedEventProperty>();
+  selectedEventPropertiesDataSource: MatTableDataSource<SelectedEventProperty> =
+    new MatTableDataSource();
+  metricsDataSource: MatTableDataSource<SelectedEventProperty> =
+    new MatTableDataSource();
+  countersDataSource: MatTableDataSource<SelectedEventProperty> =
+    new MatTableDataSource();
 
   metricsColumns = [
     'name',

@@ -611,7 +611,7 @@ function processJsonTrace(
   try {
     const decoder = new TextDecoder('utf-8');
     const fileContent = decoder.decode(data);
-    const jsonData = JSON.parse(fileContent) as unknown;
+    const jsonData = JSON.parse(fileContent) as Record<string, unknown>;
 
     if (!isTraceData(jsonData)) {
       throw new Error('File does not contain valid trace events.');

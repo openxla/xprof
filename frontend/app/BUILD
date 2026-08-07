@@ -48,6 +48,7 @@ xprof_ng_module(
         "@npm//@angular/common",
         "@npm//@ngrx/store",
         "@npm//rxjs",
+        "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_common_http_testing",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/services/data_service_v2",

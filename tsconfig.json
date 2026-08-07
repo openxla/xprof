@@ -1,10 +1,21 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "es2018"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "lib": ["dom", "es2022"],
     "moduleResolution": "node",
+    "skipLibCheck": true,
     "strict": false,
     "inlineSourceMap": true,
     "experimentalDecorators": true,
-    "baseUrl": "./"
+    "baseUrl": "./",
+    "paths": {
+      "org_xprof/*": ["*"],
+      "@angular/*": ["node_modules/@angular/*"],
+      "@ngrx/*": ["node_modules/@ngrx/*"],
+      "rxjs": ["node_modules/rxjs"]
+    },
+    "types": []
   }
 }
+

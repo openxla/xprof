@@ -22,6 +22,14 @@ message SourceStats {
     // The average FLOPS utilization for all HLO operations generated from the
     // associated source line, including the FLOPS of any descendant operations.
     double flops_utilization = 5;
+
+    // The column number of the operation in the file for which the metric is
+    // calculated in the specific line.
+    int32 column_number = 7;
+
+    // The end column number of the operation in the file for which the metric
+    // is calculated in the specific line.
+    int32 end_column_number = 8;
   }
 
   message FileMetrics {

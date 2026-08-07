@@ -204,3 +204,14 @@ pytype_strict_contrib_test(
         "@org_xprof//plugin/xprof/cli/tools:detect_unfused_updates_tool",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "detect_unfused_reshapes_tool_test",
+    srcs = ["detect_unfused_reshapes_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@org_xprof//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
+    ],
+)

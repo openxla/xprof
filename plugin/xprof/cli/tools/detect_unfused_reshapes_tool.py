@@ -9,16 +9,19 @@ import time
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.tools import get_top_hlo_ops_tool
 
+MIN_BYTES_ACCESSED: int = 10 * 1024 * 1024  # 10 Megabytes
+
 
 def detect_unfused_reshapes(
     session_id: str,
-    get_top_hlo_ops_fn: Callable[
-        ..., str
-    ] = get_top_hlo_ops_tool.get_top_hlo_ops,
-    get_hlo_neighborhood_fn: Callable[
-        ..., str
-    ] = hlo_tools.get_hlo_neighborhood,
-    limit: int = 50,
+    get_top_hlo_ops_fn: Callable[..., str] = (
+        get_top_hlo_ops_tool.get_top_hlo_ops
+    ),
+    get_hlo_neighborhood_fn: Callable[..., str] = (
+        hlo_tools.get_hlo_neighborhood
+    ),
+    limit: int = 75,
+    min_bytes_accessed: int = MIN_BYTES_ACCESSED,
 ) -> str:
   """Detects unfused reshape/transpose/copy HLO ops causing an HBM materialization overhead.
 
@@ -27,16 +30,18 @@ def detect_unfused_reshapes(
       get_top_hlo_ops_fn: Function to retrieve top HLO operations.
       get_hlo_neighborhood_fn: Function to retrieve HLO neighborhood.
       limit: How many top operations to analyze.
+      min_bytes_accessed: Minimum bytes accessed to consider an operation.
 
   Returns:
       A JSON string summarizing the findings.
   """
   try:
-    start_time = time.time()
+    total_start_time = time.perf_counter()
     # 1. Get candidate operations based on bytes_accessed
     # get_top_hlo_ops returns a JSON-formatted string.
+    fetch_time_start = time.perf_counter()
     top_ops_json = get_top_hlo_ops_fn(session_id, limit=limit)
-    fetch_top_ops_time = time.time() - start_time
+    fetch_time_end = time.perf_counter()
     if not top_ops_json:
       logging.info(
           "Unfused reshapes detection metrics - "
@@ -45,29 +50,46 @@ def detect_unfused_reshapes(
           "Fetch top ops time: %.3fs, "
           "Core logic processing time: N/A",
           session_id,
-          time.time() - start_time,
-          fetch_top_ops_time,
+          time.perf_counter() - total_start_time,
+          fetch_time_end - fetch_time_start,
       )
 
       return json.dumps({"error": "Could not fetch top HLO ops."})
 
+    load_start = time.perf_counter()
     ops_data = json.loads(top_ops_json)
     top_by_bytes = ops_data.get("top_by_bytes_accessed", [])
+    load_time_s = time.perf_counter() - load_start
 
-    # 2. Filter candidates
+    dict_build_start = time.perf_counter()
     formatting_categories = {"data formatting", "copy", "reshape", "transpose"}
     candidates = []
 
     for op in top_by_bytes:
-      category = op.get("category", "").lower()
-      name = op.get("name", "").lower()
+      category = (op.get("category") or "").lower()
+      name = (op.get("name") or "").lower()
       # Determine if it qualifies as a formatting candidate
       is_formatting_op = any(
           cat in category for cat in formatting_categories
-      ) or any(k in name for k in ["reshape", "transpose", "copy"])
+      ) or any(
+          k in name
+          for k in [
+              "reshape",
+              "transpose",
+              "copy",
+              "broadcast",
+              "slice",
+              "pad",
+              "convert",
+          ]
+      )
 
-      if is_formatting_op:
+      bytes_accessed = op.get("bytes_accessed") or 0
+      if is_formatting_op and bytes_accessed >= min_bytes_accessed:
         candidates.append(op)
+
+    dict_build_time_total = time.perf_counter() - dict_build_start
+    copy_count = len(candidates)
 
     if not candidates:
       return json.dumps(
@@ -80,6 +102,8 @@ def detect_unfused_reshapes(
       )
 
     # 3. Analyze Graph Context
+    core_logic_start_time = time.perf_counter()
+    bfs_time_total = 0.0
     inefficient_ops = []
 
     # Cache modules list to avoid redundant RPC calls
@@ -104,12 +128,14 @@ def detect_unfused_reshapes(
       neighborhood_str = ""
       found_neighborhood = False
       if mod_name_str:
+        bfs_start = time.perf_counter()
         neighborhood_str = get_hlo_neighborhood_fn(
             session_id,
             instruction_name=instr_name,
             radius=2,
             module_name=mod_name_str,
         )
+        bfs_time_total += time.perf_counter() - bfs_start
         if "not found" not in neighborhood_str.lower():
           found_neighborhood = True
 
@@ -122,12 +148,14 @@ def detect_unfused_reshapes(
           )
 
         for mod_name in module_names_cache:
+          bfs_start = time.perf_counter()
           candidate_neighborhood = get_hlo_neighborhood_fn(
               session_id,
               instruction_name=instr_name,
               radius=2,
               module_name=mod_name,
           )
+          bfs_time_total += time.perf_counter() - bfs_start
           if "not found" not in candidate_neighborhood.lower():
             neighborhood_str = candidate_neighborhood
             found_neighborhood = True
@@ -148,6 +176,23 @@ def detect_unfused_reshapes(
       for line in neighborhood_str.splitlines():
         line_lower = line.lower()
         if f"%{instr_name} = " in line_lower:
+          # Verify that the actual opcode is a formatting operation
+          try:
+            rhs = line_lower.split(f"%{instr_name} = ")[1]
+            opcode = rhs.split("(")[0].split()[-1]
+            if opcode not in [
+                "reshape",
+                "transpose",
+                "copy",
+                "broadcast",
+                "slice",
+                "pad",
+                "convert",
+            ]:
+              break  # Not a formatting op; ignore this candidate
+          except IndexError:
+            pass
+
           # E.g., [dist=0] [main.16] %reshape.5 = ...
           # Extract the parent computation name from the bracketed context
           comp_context = line_lower.split(f"%{instr_name} = ")[0]
@@ -162,8 +207,31 @@ def detect_unfused_reshapes(
               is_standalone = True
         elif "[dist=1]" in line_lower and f"%{instr_name}" in line_lower:
           # Check downstream consumer
-          compute_ops = ["dot", "einsum", "custom-call", "fusion"]
-          found_op = next((op for op in compute_ops if op in line_lower), None)
+          compute_ops = [
+              "dot",
+              "einsum",
+              "custom-call",
+              "fusion",
+              "convolution",
+              "reduce",
+              "reduce-window",
+              "fft",
+              "cholesky",
+              "triangular-solve",
+              "sort",
+              "topk",
+              "batch-norm-training",
+              "batch-norm-inference",
+              "batch-norm-grad",
+          ]
+          found_op = next(
+              (
+                  op
+                  for op in compute_ops
+                  if re.search(rf"\b{re.escape(op)}\(", line_lower)
+              ),
+              None,
+          )
           if found_op:
             feeds_compute = True
             compute_target = found_op
@@ -187,18 +255,28 @@ def detect_unfused_reshapes(
     )
     safe_msg = "No unfused reshape bottlenecks detected."
     message = bottleneck_msg if inefficient_ops else safe_msg
-    total_time = time.time() - start_time
-    core_logic_time = max(0.0, total_time - fetch_top_ops_time)
+
+    core_logic_end_time = time.perf_counter()
+    core_logic_time_s = core_logic_end_time - core_logic_start_time
+    total_end_time = time.perf_counter()
+    total_time_s = total_end_time - total_start_time
+
     logging.info(
-        "Unfused reshapes detection metrics - "
-        "Session ID: %s, "
-        "Total wall clock time: %.3fs, "
-        "Fetch top ops time: %.3fs, "
-        "Core logic processing time: %.3fs",
+        "Unfused reshapes detection metrics - Session ID: %s, "
+        "Fetch time: %.2fs, "
+        "Load time: %.2fs, "
+        "Total wall clock time: %.2fs, "
+        "Core logic processing time: %.2fs, "
+        "Dict build time: %.2fs, "
+        "BFS time for %d copies: %.2fs",
         session_id,
-        total_time,
-        fetch_top_ops_time,
-        core_logic_time,
+        fetch_time_end - fetch_time_start,
+        load_time_s,
+        total_time_s,
+        core_logic_time_s,
+        dict_build_time_total,
+        copy_count,
+        bfs_time_total,
     )
 
     return json.dumps(

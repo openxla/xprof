@@ -439,6 +439,72 @@ TEST(DeltaSeriesProtoConverterTest, PopulatesFullTimespan) {
   EXPECT_THAT(response.full_timespan_end_ps(), Eq(67890000));
 }
 
+TEST(DeltaSeriesProtoConverterTest, SuppressesSortIndexForCustomSortResources) {
+  Trace trace;
+  Device device1;
+  device1.set_name("MPMD Custom Device");
+
+  Resource resource1;
+  resource1.set_name("B_Program");
+  (*device1.mutable_resources())[20] = resource1;
+
+  Resource resource2;
+  resource2.set_name("A_Program");
+  (*device1.mutable_resources())[10] = resource2;
+
+  (*trace.mutable_devices())[5] = device1;
+
+  Device device2;
+  device2.set_name("Standard Device");
+
+  Resource resource3;
+  resource3.set_name("Standard Resource");
+  (*device2.mutable_resources())[30] = resource3;
+
+  (*trace.mutable_devices())[6] = device2;
+
+  TestTraceEventsContainer container(trace);
+
+  DeltaSeriesProtoConversionOptions options;
+  options.sort_resources_by_name.insert(5);  // Device ID 5 only
+
+  ASSERT_OK_AND_ASSIGN(
+      std::string compressed_result,
+      ConvertTraceDataToCompressedDeltaSeriesProto(options, container));
+
+  ASSERT_OK_AND_ASSIGN(std::string decompressed,
+                       ZstdCompression::Decompress(compressed_result));
+
+  xprof::TraceDataResponse response;
+  ASSERT_TRUE(response.ParseFromString(decompressed));
+
+  ASSERT_EQ(response.metadata().processes_size(), 2);
+
+  // Search processes by id() to avoid depending on map iteration order.
+  bool found_device5 = false;
+  bool found_device6 = false;
+  for (const xprof::Process& process : response.metadata().processes()) {
+    if (process.id() == 5) {
+      found_device5 = true;
+      EXPECT_EQ(process.name(), "MPMD Custom Device");
+      ASSERT_EQ(process.threads_size(), 2);
+      for (const xprof::Thread& thread : process.threads()) {
+        EXPECT_FALSE(thread.has_sort_index());
+      }
+    } else if (process.id() == 6) {
+      found_device6 = true;
+      EXPECT_EQ(process.name(), "Standard Device");
+      ASSERT_EQ(process.threads_size(), 1);
+      EXPECT_EQ(process.threads(0).id(), 30);
+      EXPECT_TRUE(process.threads(0).has_sort_index());
+      EXPECT_EQ(process.threads(0).sort_index(), 30);
+    }
+  }
+
+  EXPECT_TRUE(found_device5);
+  EXPECT_TRUE(found_device6);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

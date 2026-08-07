@@ -124,15 +124,13 @@ void ProcessMetadataEvents(const xprof::TraceDataResponse& response,
     process_ev.args[std::string(kName)] = process.name();
     result.flame_events.push_back(std::move(process_ev));
 
-    if (process.sort_index() != 0) {
-      TraceEvent process_sort_ev;
-      process_sort_ev.ph = Phase::kMetadata;
-      process_sort_ev.pid = process.id();
-      process_sort_ev.name = kProcessSortIndex;
-      process_sort_ev.args[std::string(kSortIndex)] =
-          std::to_string(process.sort_index());
-      result.flame_events.push_back(std::move(process_sort_ev));
-    }
+    TraceEvent process_sort_ev;
+    process_sort_ev.ph = Phase::kMetadata;
+    process_sort_ev.pid = process.id();
+    process_sort_ev.name = kProcessSortIndex;
+    process_sort_ev.args[std::string(kSortIndex)] =
+        std::to_string(process.sort_index());
+    result.flame_events.push_back(std::move(process_sort_ev));
 
     for (const auto& thread : process.threads()) {
       TraceEvent thread_ev;
@@ -142,6 +140,15 @@ void ProcessMetadataEvents(const xprof::TraceDataResponse& response,
       thread_ev.name = kThreadName;
       thread_ev.args[std::string(kName)] = thread.name();
       result.flame_events.push_back(std::move(thread_ev));
+
+      TraceEvent thread_sort_ev;
+      thread_sort_ev.ph = Phase::kMetadata;
+      thread_sort_ev.pid = process.id();
+      thread_sort_ev.tid = thread.id();
+      thread_sort_ev.name = kThreadSortIndex;
+      thread_sort_ev.args[std::string(kSortIndex)] =
+          std::to_string(thread.sort_index());
+      result.flame_events.push_back(std::move(thread_sort_ev));
     }
   }
 }

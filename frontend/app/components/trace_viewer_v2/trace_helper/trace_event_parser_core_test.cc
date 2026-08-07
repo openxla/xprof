@@ -22,11 +22,12 @@ TEST(TraceEventParserCoreTest, ProcessMetadata) {
   auto* thread = process->add_threads();
   thread->set_id(10);
   thread->set_name("Worker Thread");
+  thread->set_sort_index(3);
 
   ParsedTraceEvents result;
   ProcessMetadataEvents(response, result);
 
-  ASSERT_EQ(result.flame_events.size(), 3);
+  ASSERT_EQ(result.flame_events.size(), 4);
 
   EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
   EXPECT_EQ(result.flame_events[0].pid, 1);
@@ -44,6 +45,12 @@ TEST(TraceEventParserCoreTest, ProcessMetadata) {
   EXPECT_EQ(result.flame_events[2].name, kThreadName);
   EXPECT_EQ(result.flame_events[2].args.at(std::string(kName)),
             "Worker Thread");
+
+  EXPECT_EQ(result.flame_events[3].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[3].pid, 1);
+  EXPECT_EQ(result.flame_events[3].tid, 10);
+  EXPECT_EQ(result.flame_events[3].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[3].args.at(std::string(kSortIndex)), "3");
 }
 
 TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {

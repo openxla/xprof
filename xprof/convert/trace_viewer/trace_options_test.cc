@@ -60,16 +60,19 @@ TEST(TraceOptionsTest, TraceOptionsToDetailsTest) {
   options.full_dma = true;
 
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kUnknownDevice, options),
-              IsEmpty());
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", false)));
 
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kTpu, options),
-              UnorderedElementsAre(Pair("full_dma", true)));
+              UnorderedElementsAre(Pair("full_dma", true),
+                                   Pair("mpmd_pipeline_view", false)));
 
-  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kGpu, options), IsEmpty());
+  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kGpu, options),
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", false)));
 
   options.full_dma = false;
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kTpu, options),
-              UnorderedElementsAre(Pair("full_dma", false)));
+              UnorderedElementsAre(Pair("full_dma", false),
+                                   Pair("mpmd_pipeline_view", false)));
 }
 
 TEST(TraceOptionsTest, IsTpuTraceTest) {

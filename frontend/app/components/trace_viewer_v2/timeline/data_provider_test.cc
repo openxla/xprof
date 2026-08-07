@@ -99,14 +99,200 @@ TEST(DataProviderNoFixtureTest, SyncProcessWithNamedThreadsWithoutEvents) {
 
   EXPECT_EQ(data.groups[0].name, "Process_10");
   EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread with events");
+  EXPECT_EQ(data.groups[1].name, "Thread_3");
   EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].name, "Thread without events");
+  EXPECT_EQ(data.groups[2].name, "Thread with events");
   EXPECT_EQ(data.groups[2].nesting_level, 2);
-  EXPECT_EQ(data.groups[3].name, "Thread_3");
+  EXPECT_EQ(data.groups[3].name, "Thread without events");
   EXPECT_EQ(data.groups[3].nesting_level, 2);
 
-  EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 3"));
+  EXPECT_THAT(data.entry_names, ElementsAre("Event 3", "Event 1"));
+}
+
+TEST_F(DataProviderTest, ThreadSorting) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      // Thread 1: ID 200, Name "C", Sort Index 10
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "C"),
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 200,
+       .name = std::string(kThreadSortIndex),
+       .args = {{std::string(kSortIndex), "10"}}},
+      // Thread 2: ID 100, Name "B", Sort Index 5
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "B"),
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 100,
+       .name = std::string(kThreadSortIndex),
+       .args = {{std::string(kSortIndex), "5"}}},
+      // Thread 3: ID 300, Name "A", Sort Index 5
+      CreateMetadataEvent(std::string(kThreadName), 1, 300, "A"),
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 300,
+       .name = std::string(kThreadSortIndex),
+       .args = {{std::string(kSortIndex), "5"}}},
+      // Complete events to ensure tracks are generated
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E2", .ts = 2.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 300, .name = "E3", .ts = 3.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  // Index 5 comes before 10. For Index 5, "A" comes before "B".
+  // Expected: A, B, C
+  EXPECT_EQ(data.groups[1].name, "A");
+  EXPECT_EQ(data.groups[2].name, "B");
+  EXPECT_EQ(data.groups[3].name, "C");
+}
+
+TEST_F(DataProviderTest, ProcessSorting) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(
+          std::string(kProcessName), 2003, 0,
+          "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:0"),
+      CreateMetadataEvent(std::string(kThreadName), 2003, 1, "Thread_TPU0"),
+      CreateMetadataEvent(
+          std::string(kProcessName), 2001, 0,
+          "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:2"),
+      CreateMetadataEvent(std::string(kThreadName), 2001, 1, "Thread_TPU2"),
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  // TPU:0 (pid 2003) should sort before TPU:2 (pid 2001) alphabetically when
+  // sort indices are equal.
+  EXPECT_EQ(data.groups[0].name,
+            "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:0");
+  EXPECT_EQ(data.groups[2].name,
+            "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:2");
+}
+
+TEST_F(DataProviderTest, MpmdSuppressEmptyTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 10, 0, "MPMD_Process"),
+      // Thread 1: has name and an event
+      CreateMetadataEvent(std::string(kThreadName), 10, 1, "Active_Thread"),
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 1,
+       .name = "_layer_0.Event 1",
+       .ts = 1000.0,
+       .dur = 100.0},
+      // Thread 2: has name, but 0 events (all filtered out)
+      CreateMetadataEvent(std::string(kThreadName), 10, 2, "Empty_Thread"),
+  };
+
+  // Case 1: mpmd_pipeline_view = true -> Empty_Thread should be suppressed
+  timeline_.set_mpmd_pipeline_view_enabled(true);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, true}, timeline_);
+  const FlameChartTimelineData& mpmd_data = timeline_.timeline_data();
+
+  ASSERT_THAT(mpmd_data.groups, SizeIs(2));
+  EXPECT_EQ(mpmd_data.groups[0].name, "MPMD_Process");
+  EXPECT_EQ(mpmd_data.groups[1].name, "Active_Thread");
+
+  // Case 2: mpmd_pipeline_view = false -> Empty_Thread should be preserved
+  timeline_.set_mpmd_pipeline_view_enabled(false);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, false}, timeline_);
+  const FlameChartTimelineData& std_data = timeline_.timeline_data();
+
+  ASSERT_THAT(std_data.groups, SizeIs(3));
+  EXPECT_EQ(std_data.groups[0].name, "MPMD_Process");
+  EXPECT_EQ(std_data.groups[1].name, "Active_Thread");
+  EXPECT_EQ(std_data.groups[2].name, "Empty_Thread");
+}
+
+TEST_F(DataProviderTest, MpmdSuppressEmptyProcessTracks) {
+  const std::vector<TraceEvent> events = {
+      // Process 1: has active thread -> Process and thread should be kept.
+      CreateMetadataEvent(std::string(kProcessName), 10, 0, "Active_Process"),
+      CreateMetadataEvent(std::string(kThreadName), 10, 1, "Active_Thread"),
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 1,
+       .name = "_layer_0.Event 1",
+       .ts = 1000.0,
+       .dur = 100.0},
+      // Process 2: has only an empty thread -> Process and thread should be
+      // suppressed.
+      CreateMetadataEvent(std::string(kProcessName), 20, 0, "Empty_Process"),
+      CreateMetadataEvent(std::string(kThreadName), 20, 2, "Empty_Thread"),
+  };
+
+  // Case 1: mpmd_pipeline_view = true -> Empty_Process should be completely
+  // suppressed.
+  timeline_.set_mpmd_pipeline_view_enabled(true);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, true}, timeline_);
+  const FlameChartTimelineData& mpmd_data = timeline_.timeline_data();
+
+  ASSERT_THAT(mpmd_data.groups, SizeIs(2));
+  EXPECT_EQ(mpmd_data.groups[0].name, "Active_Process");
+  EXPECT_EQ(mpmd_data.groups[1].name, "Active_Thread");
+
+  // Case 2: mpmd_pipeline_view = false -> Both processes and all threads should
+  // be preserved.
+  timeline_.set_mpmd_pipeline_view_enabled(false);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, false}, timeline_);
+  const FlameChartTimelineData& std_data = timeline_.timeline_data();
+
+  ASSERT_THAT(std_data.groups, SizeIs(4));
+  EXPECT_EQ(std_data.groups[0].name, "Active_Process");
+  EXPECT_EQ(std_data.groups[1].name, "Active_Thread");
+  EXPECT_EQ(std_data.groups[2].name, "Empty_Process");
+  EXPECT_EQ(std_data.groups[3].name, "Empty_Thread");
+}
+
+TEST_F(DataProviderTest, MpmdSuppressEmptyThreadAndCollectiveTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 10, 0, "TPU_Process"),
+      CreateMetadataEvent(std::string(kThreadName), 10, 1, "Active_Thread"),
+      CreateMetadataEvent(std::string(kThreadName), 10, 2, "AllReduce"),
+      CreateMetadataEvent(std::string(kThreadName), 10, 3, "AllGather"),
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 1,
+       .name = "_layer_0.inc_prefill_step_2k",
+       .ts = 1000.0,
+       .dur = 100.0},
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 2,
+       .name = "AllReduce.Sync",
+       .ts = 1000.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 10,
+       .tid = 3,
+       .name = "AllGather.Sync",
+       .ts = 1000.0,
+       .dur = 50.0},
+  };
+
+  timeline_.set_mpmd_pipeline_view_enabled(true);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, true}, timeline_);
+  const FlameChartTimelineData& mpmd_data = timeline_.timeline_data();
+
+  ASSERT_THAT(mpmd_data.groups, SizeIs(2));
+  EXPECT_EQ(mpmd_data.groups[0].name, "TPU_Process");
+  EXPECT_EQ(mpmd_data.groups[1].name, "Active_Thread");
+
+  timeline_.set_mpmd_pipeline_view_enabled(false);
+  data_provider_.ProcessTraceEvents({events, {}, {}, {}, {}, false}, timeline_);
+  const FlameChartTimelineData& std_data = timeline_.timeline_data();
+
+  ASSERT_THAT(std_data.groups, SizeIs(4));
+  EXPECT_EQ(std_data.groups[0].name, "TPU_Process");
+  EXPECT_EQ(std_data.groups[1].name, "Active_Thread");
+  EXPECT_EQ(std_data.groups[2].name, "AllGather");
+  EXPECT_EQ(std_data.groups[3].name, "AllReduce");
 }
 
 TEST_F(DataProviderTest, ProcessEmptyTraceData) {
@@ -450,19 +636,19 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
 
   EXPECT_EQ(data.groups[0].name, "Main_Process");
   EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Worker Thread");
+  EXPECT_EQ(data.groups[1].name, "Thread_102");
   EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].name, "Thread_102");
+  EXPECT_EQ(data.groups[2].name, "Worker Thread");
   EXPECT_EQ(data.groups[2].nesting_level, 2);
   EXPECT_EQ(data.groups[3].name, "Process_2");
   EXPECT_EQ(data.groups[3].nesting_level, 1);
   EXPECT_EQ(data.groups[4].name, "Thread_201");
   EXPECT_EQ(data.groups[4].nesting_level, 2);
 
-  EXPECT_THAT(data.entry_start_times, ElementsAre(5000.0, 5500.0, 6000.0));
-  EXPECT_THAT(data.entry_total_times, ElementsAre(1000.0, 1500.0, 500.0));
+  EXPECT_THAT(data.entry_start_times, ElementsAre(5500.0, 5000.0, 6000.0));
+  EXPECT_THAT(data.entry_total_times, ElementsAre(1500.0, 1000.0, 500.0));
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
-  EXPECT_THAT(data.entry_names, ElementsAre("Task A", "Task B", "Task C"));
+  EXPECT_THAT(data.entry_names, ElementsAre("Task B", "Task A", "Task C"));
 
   EXPECT_DOUBLE_EQ(timeline_.visible_range().start(), 5000.0);
   EXPECT_DOUBLE_EQ(timeline_.visible_range().end(), 7000.0);

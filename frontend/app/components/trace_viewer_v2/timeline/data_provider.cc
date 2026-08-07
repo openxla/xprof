@@ -89,12 +89,15 @@ struct TraceInformation {
       ProcessId, absl::btree_map<std::string, std::vector<const CounterEvent*>>>
       counters_by_pid_name;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names;
+  absl::flat_hash_map<std::pair<ProcessId, ThreadId>, uint32_t>
+      thread_sort_indices;
   absl::flat_hash_map<ProcessId, std::string> process_names;
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
   absl::btree_map<std::string, std::vector<const TraceEvent*>>
       flow_events_by_id;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids;
   absl::flat_hash_set<ProcessId> async_processes_by_events;
+  bool is_mpmd = false;
 };
 
 int GetAsyncProcessPriority(ProcessId pid, const TraceInformation& trace_info) {
@@ -187,6 +190,15 @@ void HandleMetadataEvent(const TraceEvent& event,
       double sort_index_double;
       if (absl::SimpleAtod(it->second, &sort_index_double)) {
         trace_info.process_sort_indices[event.pid] =
+            static_cast<uint32_t>(sort_index_double);
+      }
+    }
+  } else if (event.name == kThreadSortIndex) {
+    if (auto it = event.args.find(std::string(kSortIndex));
+        it != event.args.end()) {
+      double sort_index_double;
+      if (absl::SimpleAtod(it->second, &sort_index_double)) {
+        trace_info.thread_sort_indices[{event.pid, event.tid}] =
             static_cast<uint32_t>(sort_index_double);
       }
     }
@@ -543,8 +555,33 @@ void PopulateThreadTrack(
   int start_level = current_level;
   int max_level = start_level;
 
+  size_t initial_entry_count = data.entry_start_times.size();
+
   PopulateThreadTrackEvents(events, start_level, max_level, data, bounds,
                             trace_info, thread_group_name);
+
+  if (trace_info.is_mpmd) {
+    bool has_mpmd_event = false;
+    for (size_t i = initial_entry_count; i < data.entry_names.size(); ++i) {
+      if (absl::StrContains(data.entry_names[i], "_layer_")) {
+        has_mpmd_event = true;
+        break;
+      }
+    }
+    if (!has_mpmd_event) {
+      data.entry_start_times.resize(initial_entry_count);
+      data.entry_total_times.resize(initial_entry_count);
+      data.entry_self_times.resize(initial_entry_count);
+      data.entry_levels.resize(initial_entry_count);
+      data.entry_names.resize(initial_entry_count);
+      data.entry_event_ids.resize(initial_entry_count);
+      data.entry_pids.resize(initial_entry_count);
+      data.entry_tids.resize(initial_entry_count);
+
+      data.groups.pop_back();
+      return;
+    }
+  }
 
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
@@ -655,7 +692,44 @@ void PopulateAsyncProcessTrack(
   }
 
   // Populate standard thread tracks.
+  std::vector<ThreadId> sorted_tids;
+  sorted_tids.reserve(sync_groups.size());
   for (const auto& [tid, events] : sync_groups) {
+    sorted_tids.push_back(tid);
+  }
+
+  absl::c_stable_sort(sorted_tids, [&](ThreadId a, ThreadId b) {
+    const auto it_a = trace_info.thread_sort_indices.find({pid, a});
+    const auto it_b = trace_info.thread_sort_indices.find({pid, b});
+    const bool has_index_a = (it_a != trace_info.thread_sort_indices.end());
+    const bool has_index_b = (it_b != trace_info.thread_sort_indices.end());
+
+    if (has_index_a && has_index_b) {
+      if (it_a->second != it_b->second) return it_a->second < it_b->second;
+    } else if (has_index_a != has_index_b) {
+      return has_index_a;
+    }
+
+    std::string name_a;
+    if (const auto it = trace_info.thread_names.find({pid, a});
+        it != trace_info.thread_names.end()) {
+      name_a = it->second;
+    }
+    std::string name_b;
+    if (const auto it = trace_info.thread_names.find({pid, b});
+        it != trace_info.thread_names.end()) {
+      name_b = it->second;
+    }
+    if (name_a != name_b) return name_a < name_b;
+
+    return a < b;
+  });
+
+  for (const ThreadId tid : sorted_tids) {
+    absl::Span<const TraceEvent* const> events = sync_groups.at(tid);
+    if (trace_info.is_mpmd && events.empty()) {
+      continue;
+    }
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
                         default_expanded, expanded_states);
@@ -684,13 +758,44 @@ void PopulateSyncProcessTrack(
     tids.insert(it->first.second);
   }
 
-  for (const ThreadId tid : tids) {
+  std::vector<ThreadId> sorted_tids(tids.begin(), tids.end());
+  absl::c_stable_sort(sorted_tids, [&](ThreadId a, ThreadId b) {
+    const auto it_a = trace_info.thread_sort_indices.find({pid, a});
+    const auto it_b = trace_info.thread_sort_indices.find({pid, b});
+    const bool has_index_a = (it_a != trace_info.thread_sort_indices.end());
+    const bool has_index_b = (it_b != trace_info.thread_sort_indices.end());
+
+    if (has_index_a && has_index_b) {
+      if (it_a->second != it_b->second) return it_a->second < it_b->second;
+    } else if (has_index_a != has_index_b) {
+      return has_index_a;
+    }
+
+    std::string name_a;
+    if (const auto it = trace_info.thread_names.find({pid, a});
+        it != trace_info.thread_names.end()) {
+      name_a = it->second;
+    }
+    std::string name_b;
+    if (const auto it = trace_info.thread_names.find({pid, b});
+        it != trace_info.thread_names.end()) {
+      name_b = it->second;
+    }
+    if (name_a != name_b) return name_a < name_b;
+
+    return a < b;
+  });
+
+  for (const ThreadId tid : sorted_tids) {
     absl::Span<const TraceEvent* const> events;
     if (it_events != trace_info.events_by_pid_tid.end()) {
       const auto it = it_events->second.find(tid);
       if (it != it_events->second.end()) {
         events = it->second;
       }
+    }
+    if (trace_info.is_mpmd && events.empty()) {
+      continue;
     }
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
@@ -729,36 +834,38 @@ void PopulateProcessTrack(
     return;
   }
 
-  const std::string process_group_name = trace_info.process_names.at(pid);
-
-  bool expanded = GetExpandedState(kProcessNestingLevel, process_group_name, "",
-                                   default_expanded, expanded_states);
+  std::string process_group_name;
+  if (auto it = trace_info.process_names.find(pid);
+      it != trace_info.process_names.end()) {
+    process_group_name = it->second;
+  } else {
+    process_group_name = GetDefaultProcessName(pid);
+  }
 
   std::string track_subtitle;
-
   const size_t separator_pos = process_group_name.find(' ');
   if (separator_pos != std::string::npos) {
     track_subtitle = process_group_name.substr(0, separator_pos);
   }
 
-  data.groups.push_back({.name = process_group_name,
-                         .subtitle = std::move(track_subtitle),
-                         .start_level = current_level,
-                         .nesting_level = kProcessNestingLevel,
-                         .expanded = expanded});
+  size_t initial_group_count = data.groups.size();
 
-  if (has_events || has_named_threads) {
-    bool is_async_process = IsAsyncProcess(pid, trace_info);
+  data.groups.push_back(
+      {.name = process_group_name,
+       .subtitle = std::move(track_subtitle),
+       .start_level = current_level,
+       .nesting_level = kProcessNestingLevel,
+       .expanded = GetExpandedState(kProcessNestingLevel, process_group_name,
+                                    "", default_expanded, expanded_states)});
 
-    if (is_async_process) {
-      PopulateAsyncProcessTrack(pid, process_group_name, trace_info,
-                                current_level, data, bounds, thread_levels,
-                                default_expanded, expanded_states);
-    } else {
-      PopulateSyncProcessTrack(pid, process_group_name, trace_info,
-                               current_level, data, bounds, thread_levels,
-                               default_expanded, expanded_states);
-    }
+  if (IsAsyncProcess(pid, trace_info)) {
+    PopulateAsyncProcessTrack(pid, process_group_name, trace_info,
+                              current_level, data, bounds, thread_levels,
+                              default_expanded, expanded_states);
+  } else {
+    PopulateSyncProcessTrack(pid, process_group_name, trace_info, current_level,
+                             data, bounds, thread_levels, default_expanded,
+                             expanded_states);
   }
 
   if (has_counters) {
@@ -767,6 +874,10 @@ void PopulateProcessTrack(
                            bounds, process_group_name, default_expanded,
                            expanded_states);
     }
+  }
+
+  if (trace_info.is_mpmd && data.groups.size() == initial_group_count + 1) {
+    data.groups.pop_back();
   }
 }
 
@@ -787,17 +898,29 @@ std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
     int priority_b = async_process_priorities[b];
     if (priority_a != priority_b) return priority_a > priority_b;
 
-    uint32_t index_a = a;
-    if (auto it = trace_info.process_sort_indices.find(a);
-        it != trace_info.process_sort_indices.end()) {
-      index_a = it->second;
+    const auto it_a = trace_info.process_sort_indices.find(a);
+    const auto it_b = trace_info.process_sort_indices.find(b);
+    const bool has_index_a = (it_a != trace_info.process_sort_indices.end());
+    const bool has_index_b = (it_b != trace_info.process_sort_indices.end());
+
+    if (has_index_a && has_index_b) {
+      if (it_a->second != it_b->second) return it_a->second < it_b->second;
+    } else if (has_index_a != has_index_b) {
+      return has_index_a;
     }
-    uint32_t index_b = b;
-    if (auto it = trace_info.process_sort_indices.find(b);
-        it != trace_info.process_sort_indices.end()) {
-      index_b = it->second;
+
+    std::string name_a;
+    if (const auto it = trace_info.process_names.find(a);
+        it != trace_info.process_names.end()) {
+      name_a = it->second;
     }
-    if (index_a != index_b) return index_a < index_b;
+    std::string name_b;
+    if (const auto it = trace_info.process_names.find(b);
+        it != trace_info.process_names.end()) {
+      name_b = it->second;
+    }
+    if (name_a != name_b) return name_a < name_b;
+
     return a < b;
   });
   return pids;
@@ -859,6 +982,7 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
 
   TraceInformation trace_info;
+  trace_info.is_mpmd = parsed_events.mpmd_pipeline_view;
   for (const auto& event : parsed_events.flame_events) {
     switch (event.ph) {
       case Phase::kMetadata:

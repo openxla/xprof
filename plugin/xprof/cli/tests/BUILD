@@ -215,3 +215,16 @@ pytype_strict_contrib_test(
         "@org_xprof//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "detect_unnecessary_convert_dynamic_scale_tool_test",
+    srcs = ["detect_unnecessary_convert_dynamic_scale_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "@org_xprof//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
+        "@xla//xla/python:xla_client",
+        "@xla//xla/service:hlo_proto_py",
+    ],
+)

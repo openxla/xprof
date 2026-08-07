@@ -380,6 +380,7 @@ export class TraceViewerContainer
 
   @ViewChild('tvIframe') tvIframe?: ElementRef<HTMLIFrameElement>;
   @ViewChild('searchContainer') searchContainer?: ElementRef<HTMLElement>;
+  @ViewChild('searchBox') searchBox?: ElementRef<HTMLInputElement>;
   @ViewChild('selectBtn') selectBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('panBtn') panBtn?: ElementRef<HTMLButtonElement>;
   @ViewChild('zoomBtn') zoomBtn?: ElementRef<HTMLButtonElement>;
@@ -462,11 +463,11 @@ export class TraceViewerContainer
   }
 
   ngAfterViewInit() {
+    window.addEventListener('keydown', this.keyDownEventListener);
     if (this.useTraceViewerV2) {
       this.initializeWasm.emit();
     } else {
       window.addEventListener('mouseup', this.mouseUpEventListener);
-      window.addEventListener('keydown', this.keyDownEventListener);
     }
   }
 
@@ -495,9 +496,9 @@ export class TraceViewerContainer
       'fullscreenchange',
       this.fullscreenChangeEventListener,
     );
+    window.removeEventListener('keydown', this.keyDownEventListener);
     if (!this.useTraceViewerV2) {
       window.removeEventListener('mouseup', this.mouseUpEventListener);
-      window.removeEventListener('keydown', this.keyDownEventListener);
     }
     // Unsubscribes all pending subscriptions.
     this.destroyed.next();
@@ -512,6 +513,25 @@ export class TraceViewerContainer
   }
 
   private readonly keyDownEventListener = (event: KeyboardEvent) => {
+    if (this.useTraceViewerV2) {
+      this.handleV2KeyDown(event);
+    } else {
+      this.handleV1KeyDown(event);
+    }
+  };
+
+  private handleV2KeyDown(event: KeyboardEvent): void {
+    const el = event.target as HTMLElement;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
+
+    if (event.key === '/') {
+      this.searchBox?.nativeElement?.focus();
+      this.searchBox?.nativeElement?.select();
+      event.preventDefault();
+    }
+  }
+
+  private handleV1KeyDown(event: KeyboardEvent): void {
     // Disable hotkey listening when typing in the input box
     const el = event.target as HTMLInputElement;
     if (el.type === 'text') return;
@@ -537,7 +557,7 @@ export class TraceViewerContainer
       default:
         break;
     }
-  };
+  }
 
   private readonly mouseUpEventListener = (event: Event) => {
     const tfViewer =

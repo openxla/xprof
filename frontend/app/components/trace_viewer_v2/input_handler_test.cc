@@ -144,5 +144,13 @@ TEST_F(InputHandlerTest, HandleKeyDownTranslatesShortcutKeys) {
   }
 }
 
+TEST_F(InputHandlerTest, HandleKeyDownSlashReturnsFalse) {
+  EmscriptenKeyboardEvent event;
+  memset(&event, 0, sizeof(event));
+  strncpy(event.code, "Slash", sizeof(event.code) - 1);
+
+  EXPECT_FALSE(HandleKeyDown(0, &event, nullptr));
+}
+
 }  // namespace
 }  // namespace traceviewer

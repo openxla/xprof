@@ -68,6 +68,7 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils:testing",
         "@org_xprof//frontend/app/components/chart:chart_options",
+        "@org_xprof//frontend/app/components/chart:data_processor",
         "@org_xprof//frontend/app/components/chart:default_data_provider",
         "@org_xprof//frontend/app/components/controls/export_as_csv",
         "@org_xprof//frontend/app/services/data_service_v2",

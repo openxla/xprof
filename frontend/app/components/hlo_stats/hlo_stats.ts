@@ -18,6 +18,7 @@ import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
 import {alignTables} from 'org_xprof/frontend/app/common/utils/diff_utils';
 import {setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
+import {CategoryDiffTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_diff_table_data_processor';
 import {CategoryTableDataProcessor} from 'org_xprof/frontend/app/components/chart/category_table_data_processor';
 import {Chart} from 'org_xprof/frontend/app/components/chart/chart';
 import {
@@ -80,6 +81,8 @@ export class HloStats extends Dashboard implements OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);
   private readonly throbber = new Throbber(this.tool);
   data: SimpleDataTable | null = null;
+  baselineData: SimpleDataTable | null = null;
+  tensorCoreBaselineData: SimpleDataTable | null = null;
   hloOpNameSelected = '';
   programIdSelected = '';
   // Flop rate chart properties.
@@ -253,6 +256,7 @@ export class HloStats extends Dashboard implements OnDestroy {
         }) => {
           this.throbber.stop();
           setLoadingState(false, this.store);
+          this.baselineData = baseline;
           this.data = this.mergeTables(active, baseline);
           this.process(this.data);
           this.onCheckInputParams();
@@ -667,6 +671,27 @@ export class HloStats extends Dashboard implements OnDestroy {
     const tensorCoreData = {...data, rows: tensorCoreDataRows};
     const sparseCoreData = {...data, rows: sparseCoreRows};
 
+    let tensorCoreBaselineData: SimpleDataTable | null = null;
+    if (this.baselineData && this.baselineData.cols && this.baselineData.rows) {
+      const baselineCoreTypeIdx =
+        this.baselineData.cols.findIndex((col) => col.id === CORE_TYPE_ID);
+      let tensorCoreBaselineRows = this.baselineData.rows;
+      if (baselineCoreTypeIdx !== -1) {
+        tensorCoreBaselineRows =
+          this.baselineData.rows.filter(
+            (row) =>
+              row.c &&
+              row.c[baselineCoreTypeIdx] &&
+              row.c[baselineCoreTypeIdx]!.v !== SPARSE_CORE_VALUE,
+          );
+      }
+      tensorCoreBaselineData = {
+        ...this.baselineData,
+        rows: tensorCoreBaselineRows,
+      };
+    }
+    this.tensorCoreBaselineData = tensorCoreBaselineData;
+
     this.parseData(tensorCoreData);
     this.drawFlopRateChart();
     this.updateOpReplicaGroupChart();
@@ -808,9 +833,23 @@ export class HloStats extends Dashboard implements OnDestroy {
     const filtersForRemat = [{column: hloRematIndex, value: 'Yes'}];
 
     this.dataInfoCategoryChart.customChartDataProcessor =
-      new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
+      this.tensorCoreBaselineData
+        ? new CategoryDiffTableDataProcessor(
+            this.tensorCoreBaselineData,
+            [],
+            opCategoryIndex,
+            selfTimeIndex,
+          )
+        : new CategoryTableDataProcessor([], opCategoryIndex, selfTimeIndex);
     this.dataInfoOpChart.customChartDataProcessor =
-      new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
+      this.tensorCoreBaselineData
+        ? new CategoryDiffTableDataProcessor(
+            this.tensorCoreBaselineData,
+            [],
+            hloOpNameIndex,
+            selfTimeIndex,
+          )
+        : new CategoryTableDataProcessor([], hloOpNameIndex, selfTimeIndex);
     this.dataInfoRematerializationChart.customChartDataProcessor =
       new CategoryTableDataProcessor([], hloRematIndex, selfTimeIndex, false);
     this.dataInfoRematerializationCategoryChart.customChartDataProcessor =

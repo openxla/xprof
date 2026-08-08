@@ -1310,6 +1310,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
         options['search_metadata'] = _get_bool_arg(
             request.args, 'search_metadata', False
         )
+      if request.args.get('trace_filter_config') is not None:
+        options['trace_filter_config'] = request.args.get('trace_filter_config')
       params['trace_viewer_options'] = options
 
     _, content_encoding = None, None

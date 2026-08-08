@@ -19,6 +19,16 @@ class DataProvider {
   // Returns process mappings (pid -> hostname).
   absl::flat_hash_map<ProcessId, std::string> GetProcessMappings() const;
 
+  // Returns process names map (pid -> process_name).
+  // Note: We retrieve process names directly from metadata events parsed from
+  // the trace payload rather than querying a separate backend endpoint. This
+  // keeps the trace viewer self-contained, eliminates extra network round-trip
+  // latency, and allows the viewer to work in offline or local contexts where a
+  // backend service might not be active or reachable.
+  const absl::flat_hash_map<ProcessId, std::string>& GetProcessNames() const {
+    return process_names_;
+  }
+
   // Processes vectors of TraceEvent structs.
   void ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                           Timeline& timeline);

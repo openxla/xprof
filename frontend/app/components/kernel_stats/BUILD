@@ -11,6 +11,7 @@ xprof_ng_module(
     deps = [
         ":kernel_stats",
         "@npm//@angular/core",
+        "@npm//@angular/core_rxjs_interop",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//rxjs",
@@ -32,6 +33,7 @@ xprof_ng_module(
     ],
     deps = [
         "@npm//@angular/core",
+        "@npm//@angular/core_rxjs_interop",
         "@npm//@ngrx/store",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/interfaces",

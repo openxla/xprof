@@ -1,4 +1,5 @@
 import {Component, Input, ChangeDetectionStrategy} from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {Store} from '@ngrx/store';
 import {IdleOption, OpExecutor, OpKind, OpType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ChartDataInfo} from 'org_xprof/frontend/app/common/interfaces/chart';
@@ -72,30 +73,35 @@ export class FrameworkOpStats {
   };
 
   constructor(private readonly store: Store<{}>) {
-    this.store.select(selectors.getTitleState).subscribe((title: string) => {
+    this.store.select(selectors.getTitleState).pipe(takeUntilDestroyed()).subscribe((title: string) => {
       this.title = title || '';
     });
-    this.store.select(selectors.getHasDiffState).subscribe(hasDiff => {
+    this.store.select(selectors.getHasDiffState).pipe(takeUntilDestroyed()).subscribe(hasDiff => {
       this.hasDiff = Boolean(hasDiff);
     });
     this.store.select(selectors.getShowFlopRateChartState)
+        .pipe(takeUntilDestroyed())
         .subscribe(showFlopRateChart => {
           this.showFlopRateChart = Boolean(showFlopRateChart);
         });
     this.store.select(selectors.getShowModelPropertiesState)
+        .pipe(takeUntilDestroyed())
         .subscribe(showModelProperties => {
           this.showModelProperties = Boolean(showModelProperties);
         });
     this.store.select(selectors.getShowPprofLinkState)
+        .pipe(takeUntilDestroyed())
         .subscribe(showPprofLink => {
           this.showPprofLink = Boolean(showPprofLink);
         });
     this.store.select(selectors.getDiffDataState)
+        .pipe(takeUntilDestroyed())
         .subscribe((diffData: FrameworkOpStatsData[]) => {
           this.diffData = (diffData || []);
           this.setIdleOption();
         });
     this.store.select(selectors.getDataState)
+        .pipe(takeUntilDestroyed())
         .subscribe((data: FrameworkOpStatsData[]) => {
           this.data = (data || []);
           this.setIdleOption();

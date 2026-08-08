@@ -11,6 +11,7 @@ xprof_ng_module(
     deps = [
         ":framework_op_stats",
         "@npm//@angular/core",
+        "@npm//@angular/core_rxjs_interop",
         "@npm//@angular/router",
         "@npm//@ngrx/store",
         "@npm//rxjs",
@@ -34,6 +35,7 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         "@npm//@angular/core",
+        "@npm//@angular/core_rxjs_interop",
         "@npm//@ngrx/store",
         "@npm//@types/google.visualization",
         "@org_xprof//frontend/app/common/angular:angular_material_button",

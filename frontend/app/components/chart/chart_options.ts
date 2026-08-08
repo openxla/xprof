@@ -1,3 +1,5 @@
+/// <reference types="google.visualization" />
+
 /** The basic options of Google Charts table. */
 export const TABLE_OPTIONS: google.visualization.TableOptions = {
   allowHtml: true,

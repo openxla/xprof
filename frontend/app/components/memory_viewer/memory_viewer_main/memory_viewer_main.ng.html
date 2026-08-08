@@ -33,6 +33,7 @@
 </div>
 
 <program-order-chart
+  *ngIf="heapSizes.length"
   [heapSizes]="heapSizes"
   [unpaddedHeapSizes]="unpaddedHeapSizes"
   [hloInstructionNames]="hloInstructionNames"

@@ -1,4 +1,4 @@
-import {ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
+import {ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild} from '@angular/core';
 import {type BufferAllocationInfo} from 'org_xprof/frontend/app/common/interfaces/buffer_allocation_info';
 import {ChartDataInfo, ChartType} from 'org_xprof/frontend/app/common/interfaces/chart';
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
@@ -67,6 +67,11 @@ export class ProgramOrderChart implements OnChanges, OnInit {
   readonly LINE_CHART = ChartType.LINE_CHART;
 
   ngOnInit() {
+    this.updateCharts();
+  }
+
+  @HostListener('window:resize')
+  onResize() {
     this.updateCharts();
   }
 

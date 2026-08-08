@@ -20,96 +20,75 @@
                  (keydown.enter)="onSearchEnter()"
                  placeholder="Search Op Name..."
                  (keydown.escape)="closeSearch()">
-          <button class="control-btn" (click)="toggleSearch()" [title]="showSearchInput ? 'Close Search' : 'Search'">
+          <button class="control-btn" (click)="toggleSearch()" [matTooltip]="showSearchInput ? 'Close Search' : 'Search'" matTooltipPosition="above">
             <mat-icon>{{showSearchInput ? 'close' : 'search'}}</mat-icon>
           </button>
         </div>
 
-        <button class="control-btn" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <button class="control-btn" (click)="onResetZoomClick()" matTooltip="Reset Zoom" matTooltipPosition="above">
+          <mat-icon>zoom_out_map</mat-icon>
+        </button>
+
+        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
           <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
         </button>
       </div>
 
       <div class="timeline-tooltip"
-           *ngIf="hoveredBlock"
+           *ngIf="activeBlock"
+           [class.sticky]="!!selectedBlock"
            [style.left.px]="tooltipLeft"
            [style.top.px]="tooltipTop">
         <div class="tooltip-row">
-          <span class="tooltip-title">{{hoveredBlock.instructionName || hoveredBlock.label}}</span>
+          <span class="tooltip-title">{{activeBlock.instructionName || activeBlock.label}}</span>
         </div>
         <hr class="tooltip-divider">
-        <div class="tooltip-row" *ngIf="hoveredBlock.logicalBufferId !== undefined">
+        <div class="tooltip-row" *ngIf="activeBlock.logicalBufferId !== undefined">
           <span class="tooltip-label">Buffer ID:</span>
-          <span class="tooltip-value">{{hoveredBlock.logicalBufferId}}</span>
+          <span class="tooltip-value">{{activeBlock.logicalBufferId}}</span>
         </div>
         <div class="tooltip-row">
           <span class="tooltip-label">Size:</span>
-          <span class="tooltip-value">{{(hoveredBlock.size / (1024 * 1024)).toFixed(2)}} MiB</span>
+          <span class="tooltip-value">{{getBlockSizeMiB(activeBlock)}} MiB ({{activeBlock.size}} bytes)</span>
         </div>
         <div class="tooltip-row">
           <span class="tooltip-label">Unpadded:</span>
-          <span class="tooltip-value">{{hoveredBlock.unpaddedSize ? (hoveredBlock.unpaddedSize / (1024 * 1024)).toFixed(2) : '0.00'}} MiB</span>
+          <span class="tooltip-value">{{getBlockUnpaddedSizeMiB(activeBlock)}} MiB<span *ngIf="activeBlock.unpaddedSize !== undefined"> ({{activeBlock.unpaddedSize}} bytes)</span></span>
         </div>
-        <div class="tooltip-row" *ngIf="hoveredBlock.shapeString">
+        <div class="tooltip-row" *ngIf="getBlockPaddingOverheadMiB(activeBlock) !== 'N/A'">
+          <span class="tooltip-label">Padding Overhead:</span>
+          <span class="tooltip-value">{{getBlockPaddingOverheadMiB(activeBlock)}} MiB</span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.offset !== undefined">
+          <span class="tooltip-label">Offset:</span>
+          <span class="tooltip-value">{{activeBlock.offset}} bytes ({{getHexOffset(activeBlock.offset)}})</span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.span">
+          <span class="tooltip-label">Lifetime Span:</span>
+          <span class="tooltip-value">Step {{activeBlock.span[0]}} to Step {{activeBlock.span[1]}}</span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.category">
+          <span class="tooltip-label">Category:</span>
+          <span class="tooltip-value">{{activeBlock.category}}</span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.shapeString">
           <span class="tooltip-label">Shape:</span>
-          <span class="tooltip-value shape-value">{{hoveredBlock.shapeString}}</span>
+          <span class="tooltip-value shape-value">{{activeBlock.shapeString}}</span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.sourceInfo && activeBlock.sourceInfo.fileName">
+          <span class="tooltip-label">Source:</span>
+          <span class="tooltip-value">
+            <a [href]="'http://google3/' + activeBlock.sourceInfo.fileName + ';l=' + activeBlock.sourceInfo.lineNumber" target="_blank">
+              {{activeBlock.sourceInfo.fileName}}:{{activeBlock.sourceInfo.lineNumber}}
+            </a>
+          </span>
+        </div>
+        <div class="tooltip-row" *ngIf="activeBlock.tfOpName">
+          <span class="tooltip-label">Framework Op:</span>
+          <span class="tooltip-value">{{activeBlock.tfOpName}}</span>
         </div>
       </div>
     </div>
   </div>
   <div class="x-axis-label">Heap Simulation Time (Program Order)</div>
-
-  <div class="selected-block-card" *ngIf="selectedBlock">
-    <div class="card-header">
-      <h3>Op Name: {{selectedBlock.instructionName || selectedBlock.label}}</h3>
-    </div>
-    <div class="card-content">
-      <div class="metadata-grid">
-        <div class="metadata-item" *ngIf="selectedBlock.logicalBufferId !== undefined">
-          <span class="metadata-label">Logical Buffer ID:</span>
-          <span class="metadata-value">{{selectedBlock.logicalBufferId}}</span>
-        </div>
-        <div class="metadata-item" *ngIf="selectedBlock.shapeString">
-          <span class="metadata-label">Shape:</span>
-          <span class="metadata-value">{{selectedBlock.shapeString}}</span>
-        </div>
-        <div class="metadata-item">
-          <span class="metadata-label">Offset:</span>
-          <span class="metadata-value">{{selectedBlock.offset}} bytes ({{getHexOffset(selectedBlock.offset)}})</span>
-        </div>
-        <div class="metadata-item">
-          <span class="metadata-label">Size:</span>
-          <span class="metadata-value">{{selectedBlockSizeMiB}} MiB ({{selectedBlock.size}} bytes)</span>
-        </div>
-        <div class="metadata-item">
-          <span class="metadata-label">Unpadded Size:</span>
-          <span class="metadata-value">{{selectedBlockUnpaddedSizeMiB}} MiB<span *ngIf="selectedBlock.unpaddedSize !== undefined"> ({{selectedBlock.unpaddedSize}} bytes)</span></span>
-        </div>
-        <div class="metadata-item">
-          <span class="metadata-label">Padding Overhead:</span>
-          <span class="metadata-value">{{selectedBlockPaddingOverheadMiB}} MiB</span>
-        </div>
-        <div class="metadata-item" *ngIf="selectedBlock.span">
-          <span class="metadata-label">Lifetime Span:</span>
-          <span class="metadata-value">Step {{selectedBlock.span[0]}} to Step {{selectedBlock.span[1]}}</span>
-        </div>
-        <div class="metadata-item" *ngIf="selectedBlock.category">
-          <span class="metadata-label">Category:</span>
-          <span class="metadata-value">{{selectedBlock.category}}</span>
-        </div>
-        <div class="metadata-item" *ngIf="selectedBlock.sourceInfo && selectedBlock.sourceInfo.fileName">
-          <span class="metadata-label">Source:</span>
-          <span class="metadata-value">
-            <a [href]="'http://google3/' + selectedBlock.sourceInfo.fileName + ';l=' + selectedBlock.sourceInfo.lineNumber" target="_blank">
-              {{selectedBlock.sourceInfo.fileName}}:{{selectedBlock.sourceInfo.lineNumber}}
-            </a>
-          </span>
-        </div>
-      </div>
-      <div class="full-width-metadata-item" *ngIf="selectedBlock.tfOpName">
-        <span class="metadata-label">Framework Op:</span>
-        <span class="metadata-value">{{selectedBlock.tfOpName}}</span>
-      </div>
-    </div>
-  </div>
 </div>

@@ -28,7 +28,6 @@ limitations under the License.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
@@ -41,6 +40,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "xprof/utils/event_span.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
 namespace tensorflow {
@@ -155,6 +155,55 @@ EventType ClassifyCpuEvent(absl::string_view event_name, bool has_device,
     return HOST_WAIT_INPUT;
   } else {
     return HOST_COMPUTE;
+  }
+}
+
+std::optional<tsl::profiler::Timespan> FindDeviceTraceSpan(
+    const XPlaneVisitor& plane) {
+  uint64_t min_ts = std::numeric_limits<uint64_t>::max();
+  uint64_t max_ts = 0;
+  bool has_events = false;
+  plane.ForEachLine([&](const XLineVisitor& line) {
+    if (tsl::profiler::IsDerivedThreadId(line.Id())) return;
+    if (line.Id() == tsl::profiler::kThreadIdStepInfo) return;
+    line.ForEachEvent([&](const XEventVisitor& event) {
+      tsl::profiler::Timespan ts = tsl::profiler::GetDeviceEventTimespan(event);
+      min_ts = std::min(min_ts, ts.begin_ps());
+      max_ts = std::max(max_ts, ts.end_ps());
+      has_events = true;
+    });
+  });
+  if (has_events && min_ts < max_ts) {
+    return tsl::profiler::Timespan::FromEndPoints(min_ts, max_ts);
+  }
+  return std::nullopt;
+}
+
+void ProcessIncompleteStepInfo(const XPlaneVisitor& plane,
+                               std::optional<int64_t> sc_core_id,
+                               StepEvents* step_markers,
+                               StepEvents* step_events) {
+  if (!step_markers->empty()) return;
+  std::optional<tsl::profiler::Timespan> timespan = FindDeviceTraceSpan(plane);
+  if (!timespan.has_value()) return;
+
+  uint32_t id = plane.Id();
+  if (sc_core_id.has_value()) {
+    id = kSparseCoreIndexStart + id;
+  }
+  // Group ID kIncompleteStepGroupId (0xFFFFFFFE / 4294967294) aggregates trace
+  // events for incomplete steps.
+  (*step_markers)[kIncompleteStepGroupId].AddMarker(StepMarker(
+      StepMarkerType::kDeviceStepMarker, id, "Incomplete Step", *timespan));
+  (*step_markers)[kIncompleteStepGroupId].SetStepName("Incomplete Step");
+  if (!step_events->empty()) {
+    StepEvents new_step_events;
+    StepDetails& incomplete_step_details =
+        new_step_events[kIncompleteStepGroupId];
+    for (auto& [group_id, step_details] : *step_events) {
+      incomplete_step_details.Combine(step_details);
+    }
+    *step_events = std::move(new_step_events);
   }
 }
 
@@ -452,6 +501,7 @@ StepEvents ConvertDeviceTraceXPlaneToStepEvents(const XPlane& device_trace) {
       }
     }
   });
+  ProcessIncompleteStepInfo(plane, sc_core_id, &step_markers, &step_events);
   if (!step_events.empty()) {
     IntersectCombineStepEvents(step_markers, &step_events);
   }

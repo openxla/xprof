@@ -274,6 +274,18 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(per_step_data.sc_step_time_ms(), 1000);
 }
 
+TEST(HasTpuInfeedOpTest, FlatOpMetricsDb) {
+  FlatOpMetricsDb db_with_infeed;
+  FlatOpMetrics* op1 = db_with_infeed.add_op_instances();
+  op1->set_category("infeed");
+  EXPECT_TRUE(HasTpuInfeedOp(db_with_infeed));
+
+  FlatOpMetricsDb db_no_infeed;
+  FlatOpMetrics* op2 = db_no_infeed.add_op_instances();
+  op2->set_category("convolution");
+  EXPECT_FALSE(HasTpuInfeedOp(db_no_infeed));
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

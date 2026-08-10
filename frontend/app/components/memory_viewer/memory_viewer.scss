@@ -2,8 +2,14 @@
 
 @use 'frontend/app/styles/common';
 
+:host {
+  display: block;
+  height: 100%;
+}
+
 mat-sidenav-container {
   background-color: #fff;
+  height: 100%;
 }
 
 mat-sidenav {

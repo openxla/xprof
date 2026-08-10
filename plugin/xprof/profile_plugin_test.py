@@ -289,17 +289,17 @@ class ProfilePluginTest(absltest.TestCase):
 
   def testParseFilename_Riegeli(self):
     # Test standard .pb file
-    host, tool = profile_plugin._parse_filename('host0.xplane.pb')
+    host, tool = profile_plugin.parse_filename('host0.xplane.pb')
     self.assertEqual(host, 'host0')
     self.assertEqual(tool, 'xplane')
 
     # Test new .riegeli file
-    host, tool = profile_plugin._parse_filename('host1.xplane.riegeli')
+    host, tool = profile_plugin.parse_filename('host1.xplane.riegeli')
     self.assertEqual(host, 'host1')
     self.assertEqual(tool, 'xplane')
 
     # Test file without host
-    host, tool = profile_plugin._parse_filename('xplane.pb')
+    host, tool = profile_plugin.parse_filename('xplane.pb')
     self.assertIsNone(host)
     self.assertEqual(tool, 'xplane')
 
@@ -818,7 +818,7 @@ class ProfilePluginTest(absltest.TestCase):
         hosts,
     )
 
-  @mock.patch.object(profile_plugin, 'ToolsCache', autospec=True)
+  @mock.patch('xprof.profile_plugin.plugin.ToolsCache', autospec=True)
   @mock.patch.object(profile_io, 'storage', autospec=True)
   def test_run_tools_imp_gcs(self, mock_storage, mock_tools_cache):
     mock_tools_cache.return_value.load.return_value = None

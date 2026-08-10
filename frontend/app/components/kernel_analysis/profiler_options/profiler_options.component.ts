@@ -3,10 +3,12 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  DestroyRef,
   Input,
   OnInit,
   inject,
 } from '@angular/core';
+import {takeUntilDestroyed} from '@angular/core/rxjs-interop';
 import {FormGroup, ReactiveFormsModule} from '@angular/forms';
 import {MatButtonModule} from '@angular/material/button';
 import {MatButtonToggleModule} from '@angular/material/button-toggle';
@@ -70,13 +72,15 @@ export class ProfilerOptionsComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   allCounters: Counter[] = [];
 
+  private readonly destroyRef = inject(DestroyRef);
+
   ngOnInit() {
     if (!this.formGroup) {
       throw new Error('formGroup is required');
     }
     this.formGroup
       .get('device_name')
-      ?.valueChanges.subscribe((gen: unknown) => {
+      ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((gen: unknown) => {
         const tpuGen = gen as {id: string; name: string} | null;
         if (tpuGen) {
           this.fetchCounters(tpuGen.id);
@@ -100,6 +104,7 @@ export class ProfilerOptionsComponent implements OnInit {
           ['device_type', deviceType],
         ]),
       )
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((data: unknown) => {
         if (Array.isArray(data)) {
           this.allCounters = data as Counter[];
@@ -197,7 +202,7 @@ export class ProfilerOptionsComponent implements OnInit {
       },
     });
 
-    dialogRef.afterClosed().subscribe((result: string[]) => {
+    dialogRef.afterClosed().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((result: string[]) => {
       if (result) {
         const numericIndices = result
           .map((id) => Number(id))

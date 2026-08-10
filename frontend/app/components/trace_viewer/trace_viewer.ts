@@ -1281,7 +1281,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     };
     const dialogRef = this.dialog.open(this.paletteDialog, config);
 
-    dialogRef.afterClosed().subscribe((result: string | undefined) => {
+    dialogRef.afterClosed().pipe(takeUntil(this.destroyed)).subscribe((result: string | undefined) => {
       if (result && this.traceViewerModule) {
         this.selectedPalette = result;
         if (result === CUSTOM_PALETTE_NAME) {

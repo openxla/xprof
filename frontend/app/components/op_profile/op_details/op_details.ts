@@ -104,7 +104,7 @@ export class OpDetails {
               'TPU';
         });
 
-    this.currentRun$.subscribe(run => {
+    this.currentRun$.pipe(takeUntil(this.destroyed)).subscribe(run => {
       if (run) {
         this.currentRun = run;
       }

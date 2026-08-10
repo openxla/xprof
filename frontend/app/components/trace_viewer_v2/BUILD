@@ -196,6 +196,7 @@ ts_library(
     srcs = [
         "customization_panel.ts",
         "feature_flags.ts",
+        "help_dialog.ts",
         "main.ts",
     ],
     visibility = ["//frontend:__subpackages__"],
@@ -213,6 +214,7 @@ ts_library(
     srcs = [
         "customization_panel_test.ts",
         "feature_flags_test.ts",
+        "help_dialog_test.ts",
         "main_test.ts",
     ],
     deps = [

@@ -1,5 +1,6 @@
 import 'org_xprof/frontend/app/common/interfaces/window';
 import 'org_xprof/frontend/app/components/trace_viewer_v2/customization_panel';
+import 'org_xprof/frontend/app/components/trace_viewer_v2/help_dialog';
 
 import {CommonModule} from '@angular/common';
 import {
@@ -249,6 +250,7 @@ export class TraceViewerContainer
   @Input() traceViewerModule: TraceViewerV2Module | null = null;
   @Input() url = '';
   @Input() useTraceViewerV2 = true;
+  @Input() showHelpButton = false;
   @Input() selectedEvent?: SelectedEvent | null;
   @Input() searching = false;
   isInitialLoading = true;
@@ -527,6 +529,9 @@ export class TraceViewerContainer
     if (event.key === '/') {
       this.searchBox?.nativeElement?.focus();
       this.searchBox?.nativeElement?.select();
+      event.preventDefault();
+    } else if (event.key === '?') {
+      this.openHelpDialog();
       event.preventDefault();
     }
   }
@@ -833,5 +838,19 @@ export class TraceViewerContainer
       'trace-viewer-customization-panel',
     ) as {openDialog?: () => void} | null;
     panel?.openDialog?.();
+  }
+
+  openHelpDialog(): void {
+    const dialog = this.el.nativeElement.querySelector(
+      'trace-viewer-help-dialog',
+    ) as (HTMLElement & {openDialog?: () => void; open?: boolean}) | null;
+    // Call openDialog() on the upgraded Lit web component instance if available;
+    // fallback to setting the `open` property directly if custom element definition
+    // upgrade is still pending.
+    if (dialog?.openDialog) {
+      dialog.openDialog();
+    } else if (dialog) {
+      dialog.open = true;
+    }
   }
 }

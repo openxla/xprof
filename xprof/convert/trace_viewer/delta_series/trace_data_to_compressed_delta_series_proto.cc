@@ -56,7 +56,9 @@ xprof::TraceMetadata DeltaSeriesProtoConverter::GetTraceMetadata() const {
       if (resource.has_name()) {
         thread->set_name(resource.name());
       }
-      thread->set_sort_index(resource_id);
+      if (!options_.sort_resources_by_name.contains(device_id)) {
+        thread->set_sort_index(resource_id);
+      }
     }
   }
   return metadata;

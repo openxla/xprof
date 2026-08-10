@@ -552,7 +552,11 @@ def detect_unnecessary_convert_reduce(
           "top_by_bytes_accessed", []
       )
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception("Failed to fetch top ops for candidate lookup")
+      logging.error(
+          "Failed to fetch top ops for candidate lookup for Session ID: %s. %s",
+          session_id,
+          e,
+      )
       return json.dumps({
           "bottlenecks_found": False,
           "inefficient_ops": [],
@@ -567,7 +571,9 @@ def detect_unnecessary_convert_reduce(
       debug_info = hlo_tools._fetch_debug_info(session_id)
       # pylint: enable=protected-access
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception("Failed to fetch debug info for session %s", session_id)
+      logging.error(
+          "Failed to fetch debug info for Session ID: %s. %s", session_id, e
+      )
       return json.dumps({
           "bottlenecks_found": False,
           "inefficient_ops": [],
@@ -771,5 +777,9 @@ def detect_unnecessary_convert_reduce(
     )
 
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error detecting reduce convert overhead")
+    logging.error(
+        "Error detecting reduce convert overhead for Session ID: %s. %s",
+        session_id,
+        e,
+    )
     return json.dumps({"error": f"Internal error during detection: {e}"})

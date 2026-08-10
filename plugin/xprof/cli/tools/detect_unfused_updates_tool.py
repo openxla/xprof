@@ -751,8 +751,12 @@ def detect_unfused_updates(
       })
 
   except json.JSONDecodeError as e:
-    logging.exception("Malformed JSON from top HLO ops")
+    logging.error(
+        "Malformed JSON from top HLO ops for Session ID: %s: %s", session_id, e
+    )
     return json.dumps({"error": f"Malformed JSON data from backend: {e}"})
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error detecting unfused updates")
+    logging.error(
+        "Error detecting unfused updates for Session ID: %s: %s", session_id, e
+    )
     return json.dumps({"error": f"Internal error during detection: {e}"})

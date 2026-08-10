@@ -1019,7 +1019,9 @@ def detect_layout_mismatch_copies(
         parse_top_ops_time_s = time.time() - parse_top_ops_start_time
     except (json.JSONDecodeError, TypeError) as e:
       logging.warning(
-          "Failed to fetch or parse top HLO ops: %r", e, exc_info=True
+          "Failed to fetch or parse top HLO ops for Session ID: %s, %r",
+          session_id,
+          e,
       )
 
     has_copy_in_metrics = any(
@@ -1339,5 +1341,10 @@ def detect_layout_mismatch_copies(
     return result_json
 
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error detecting layout mismatch copy operations")
+    logging.error(
+        "Error detecting layout mismatch copy operations for Session ID:"
+        " %s. %s",
+        session_id,
+        e,
+    )
     return json.dumps({"error": f"Internal error during detection: {repr(e)}"})

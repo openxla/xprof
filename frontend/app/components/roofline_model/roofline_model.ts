@@ -38,7 +38,7 @@ interface TooltipRow {
   operation?: (val: string | number) => string;
 }
 
-const NVIDIA_GPU_TYPE_PREFIX = 'Nvidia GPU';
+const GPU_TYPE_SUBSTRING = 'GPU';
 
 /** A roofline model component. */
 @Component({
@@ -259,7 +259,7 @@ export class RooflineModel implements OnDestroy {
       hasCmem: !!Number(dataTableRaw.getTableProperty('has_cmem')),
       hasMegacore: !!Number(dataTableRaw.getTableProperty('megacore')),
       isGpu: dataTableRaw.getTableProperty('device_type')
-                 .startsWith(NVIDIA_GPU_TYPE_PREFIX),
+                 .includes(GPU_TYPE_SUBSTRING),
       timeScaleMultiplier:
           Number(dataTableRaw.getTableProperty('time_scale_multiplier')) || 1,
     };

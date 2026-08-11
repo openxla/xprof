@@ -72,6 +72,16 @@ TEST(KernelStatsUtilsTest, TestGroupKernelReportsByOpName) {
   EXPECT_EQ(op2_stats.tensor_core_duration_ns, 0);
 }
 
+TEST(KernelStatsUtilsTest, IsOpTensorCoreEligibleRecognisesXlaOps) {
+  EXPECT_TRUE(IsOpTensorCoreEligible(
+      "jit(train_step)/jit(main)/dot_general[dimension_numbers=(((1,), (0,)), "
+      "((), ()))]"));
+  EXPECT_TRUE(
+      IsOpTensorCoreEligible("jit(train_step)/jit(main)/conv_general_dilated"));
+  EXPECT_TRUE(IsOpTensorCoreEligible("model/layer/MatMul"));
+  EXPECT_FALSE(IsOpTensorCoreEligible("jit(train_step)/jit(main)/add"));
+}
+
 TEST(KernelStatsUtilsTest, GroupKernelReportsByOpNameMixedEligibility) {
   KernelStatsDb kernel_stats_db;
   KernelReport* kernel_report_1 = kernel_stats_db.add_reports();

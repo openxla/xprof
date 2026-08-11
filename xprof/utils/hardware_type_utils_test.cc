@@ -101,6 +101,74 @@ TEST(HardwareTypeUtilsTest, A100PeakComputTFlops) {
   EXPECT_NEAR(peak_tflops, 312, /*abs_error=*/1.0);
 }
 
+TEST(HardwareTypeUtilsTest, Mi300XPeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI300X: 304 CU at 2.1 GHz, published dense FP16/BF16 matrix 1307.4 TFLOPS.
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+  // Guards the bf16 trap: if the matrix rate were stored only in bf16_tflops,
+  // the max would skip it and report the vector fp32 peak of 163.4 instead.
+  EXPECT_NEAR(peak_tflops, 1307.4, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi100PeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI100: 120 CU at 1.502 GHz, published FP16 matrix 184.6 TFLOPS. CDNA 1 is
+  // the one architecture where bf16 MFMA is half rate, so fp16 is the headline.
+  device_cap.set_clock_rate_in_ghz(1.502);
+  device_cap.set_num_cores(120);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx908");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 184.6, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi250XPeakComputeTFlopsPerGcd) {
+  DeviceCapabilities device_cap;
+  // MI250X: 104 CU per GCD at 1.7 GHz, published FP16/BF16 362.1 TFLOPS per GCD.
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx90a");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 362.1, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi355XPeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI355X: 256 CU at 2.4 GHz, published dense FP16/BF16 matrix 2.5 PFLOPS.
+  device_cap.set_clock_rate_in_ghz(2.4);
+  device_cap.set_num_cores(256);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx950");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 2516.6, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, AmbiguousAmdComputeCapabilityReportsNoPeak) {
+  // (9, 0) is gfx908 or gfx90a, whose rates differ by 2x. Without a device name
+  // to disambiguate, report nothing rather than pick one.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(0);
+
+  EXPECT_EQ(GetFlopMaxThroughputPerSM(device_cap), 0.0);
+}
+
 TEST(HardwareTypeUtilsTest, Mi300XSharedMemoryBandwidth) {
   DeviceCapabilities device_cap;
   // MI300X: 304 CU at 2.1 GHz, CDNA 3 (32 LDS banks x 4 B = 128 B/clock/CU).

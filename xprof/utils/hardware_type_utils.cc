@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <iterator>
+#include <optional>
 #include <string>
 
 #include "absl/container/btree_map.h"
@@ -330,6 +331,49 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
   return GpuFlopCapabilities(*(it->second));
 }
 
+// Peak FLOPs per CU per cycle. FMA considered as 2 FLOPs. Matrix rates are dense
+// MFMA and vector rates are VALU. CDNA 3 and 4 are stated directly by the CDNA 4
+// whitepaper (Table 1, in these units); CDNA 1 and 2 are derived from the
+// published peak as: peak_flops / (cu_count * clock). Pinned by tests either way.
+//
+// fp16 is set alongside bf16 as GetFlopMaxThroughputPerSM considers only fp32
+// and fp16. A matrix rate left solely in bf16_tflops is skipped and the peak
+// falls back to vector fp32.
+std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
+    absl::string_view gfx_version) {
+  static const auto& kTable =
+      *new absl::btree_map<absl::string_view, GpuFlopCapabilities>{
+          // MI100 (CDNA 1), 120 CU at 1.502 GHz: FP64 11.5, FP32 23.1,
+          // BF16 92.3, FP16 184.6 TFLOPS. bf16 MFMA is half rate on CDNA 1.
+          // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi100.html
+          {"gfx908",
+           {.vector_unit = {.fp64_tflops = 64, .fp32_tflops = 128},
+            .matrix_unit = {.bf16_tflops = 512, .fp16_tflops = 1024}}},
+          // MI250X (CDNA 2), 104 CU per GCD at 1.7 GHz: FP64 45.3, FP32 45.3,
+          // FP16 = BF16 362.1 TFLOPS per GCD. Full-rate FP64.
+          // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi250.html
+          {"gfx90a",
+           {.vector_unit = {.fp64_tflops = 256, .fp32_tflops = 256},
+            .matrix_unit = {.bf16_tflops = 2048, .fp16_tflops = 2048}}},
+          // MI300X (CDNA 3). CDNA 4 whitepaper Table 1, MI300X column.
+          // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
+          {"gfx942",
+           {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 256},
+            .matrix_unit = {.bf16_tflops = 2048,
+                            .fp16_tflops = 2048,
+                            .fp8_tflops = 4096}}},
+          // MI355X (CDNA 4). CDNA 4 whitepaper Table 1, MI355X column.
+          {"gfx950",
+           {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 256},
+            .matrix_unit = {.bf16_tflops = 4096,
+                            .fp16_tflops = 4096,
+                            .fp8_tflops = 8192}}},
+      };
+  auto it = kTable.find(gfx_version);
+  if (it == kTable.end()) return std::nullopt;
+  return it->second;
+}
+
 GpuFlopCapabilities GetGpuFlopCapabilitiesPerSM(
     const DeviceCapabilities& device_cap) {
   GpuFlopCapabilities flops_cap{};
@@ -337,6 +381,15 @@ GpuFlopCapabilities GetGpuFlopCapabilitiesPerSM(
     flops_cap =
         GetNvidiaFlopCapsPerSMPerCycle(device_cap.compute_capability().major(),
                                        device_cap.compute_capability().minor());
+  } else if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorAMD) {
+    absl::string_view gfx_version = ResolveAmdGfxVersion(device_cap);
+    if (std::optional<GpuFlopCapabilities> amd_flops =
+            GetAmdFlopCapsPerCuPerCycle(gfx_version)) {
+      flops_cap = *amd_flops;
+    } else {
+      LOG(WARNING) << "No FLOP rates known for AMD architecture '" << gfx_version
+                   << "'; peak compute will be reported as zero.";
+    }
   } else {
     LOG(WARNING) << "Unsupported device vendor " << device_cap.device_vendor();
   }

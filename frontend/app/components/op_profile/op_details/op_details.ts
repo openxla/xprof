@@ -70,10 +70,9 @@ export class OpDetails {
   showUtilizationWarning = false;
   deviceType = 'TPU';
   applyScalingFactor = false;
+  private readonly store = inject(Store);
 
-  constructor(
-      private readonly store: Store<{}>,
-  ) {
+  constructor() {
     this.currentRun$ =
         this.store.select(getCurrentRun).pipe(takeUntil(this.destroyed));
     this.store.select(getActiveOpProfileNodeState)
@@ -277,7 +276,7 @@ export class OpDetails {
       try {
         // Allow unknown structure to the JSON here (we do not care).
         this.xprofKernelMetadata =
-            JSON.parse(this.node.xla?.xprofKernelMetadata || '') as unknown;
+            JSON.parse(this.node.xla?.xprofKernelMetadata || '') as Record<string, unknown>;
       } catch (e) {
         console.error('Failed to parse xprof kernel metadata: ', e);
         this.xprofKernelMetadata = this.node.xla?.xprofKernelMetadata;

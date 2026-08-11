@@ -22,7 +22,6 @@ limitations under the License.
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
@@ -336,10 +335,9 @@ KernelStatsByOpName GroupKernelReportsByOpName(
     } else {
       // Not inserted. Aggregate kernel stats to op level.
       OpLevelKernelStats& stats = ret.first->second;
-      // Verifies operations with the same name have the same TensorCore
-      // eligibility.
-      DCHECK_EQ(stats.is_op_tensor_core_eligible,
-                kernel_report.is_op_tensor_core_eligible());
+      stats.is_op_tensor_core_eligible =
+          stats.is_op_tensor_core_eligible ||
+          kernel_report.is_op_tensor_core_eligible();
       stats.total_duration_ns += kernel_report.total_duration_ns();
       if (kernel_report.is_kernel_using_tensor_core()) {
         stats.tensor_core_duration_ns += kernel_report.total_duration_ns();

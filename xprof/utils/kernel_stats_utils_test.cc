@@ -72,6 +72,35 @@ TEST(KernelStatsUtilsTest, TestGroupKernelReportsByOpName) {
   EXPECT_EQ(op2_stats.tensor_core_duration_ns, 0);
 }
 
+TEST(KernelStatsUtilsTest, GroupKernelReportsByOpNameMixedEligibility) {
+  KernelStatsDb kernel_stats_db;
+  KernelReport* kernel_report_1 = kernel_stats_db.add_reports();
+  kernel_report_1->set_name("op1_kernel1");
+  kernel_report_1->set_op_name("op1");
+  kernel_report_1->set_total_duration_ns(1000);
+  kernel_report_1->set_is_kernel_using_tensor_core(false);
+  kernel_report_1->set_is_op_tensor_core_eligible(false);
+
+  KernelReport* kernel_report_2 = kernel_stats_db.add_reports();
+  kernel_report_2->set_name("op1_kernel2");
+  kernel_report_2->set_op_name("op1");
+  kernel_report_2->set_total_duration_ns(500);
+  kernel_report_2->set_is_kernel_using_tensor_core(true);
+  kernel_report_2->set_is_op_tensor_core_eligible(true);
+
+  KernelStatsByOpName kernel_stats_by_op_name =
+      GroupKernelReportsByOpName(kernel_stats_db);
+
+  ASSERT_EQ(kernel_stats_by_op_name.size(), 1);
+  auto iter = kernel_stats_by_op_name.find("op1");
+  ASSERT_NE(iter, kernel_stats_by_op_name.end());
+  const OpLevelKernelStats& op1_stats = iter->second;
+
+  EXPECT_TRUE(op1_stats.is_op_tensor_core_eligible);
+  EXPECT_EQ(op1_stats.total_duration_ns, 1500);
+  EXPECT_EQ(op1_stats.tensor_core_duration_ns, 500);
+}
+
 TEST(KernelStatsUtilsTest, KernelDetailsXStatParser) {
   xla::profiler::KernelDetails kernel_info;
   kernel_info.registers_per_thread = 10;

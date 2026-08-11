@@ -123,7 +123,8 @@ export class BufferAllocationTimeline
   scale = 1.0;
   offsetX = 0;
   offsetY = 0;
-  fitScale = 1.0;
+  // Scale ratio of virtual canvas size to actual canvas size.
+  fitScale = 0;
 
   // Selection state
   @Input() selectedBlock: BufferBlock | null = null;
@@ -284,14 +285,40 @@ export class BufferAllocationTimeline
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+
+    const oldViewW = this.canvas.width / dpr;
+    const oldViewH = this.canvas.height / dpr;
+
     this.canvas.width = rect.width * dpr;
     this.canvas.height = rect.height * dpr;
+
+    const newViewW = rect.width;
+    const newViewH = rect.height;
 
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.scale(dpr, dpr);
 
+    const oldEffScale = this.fitScale * this.scale;
+    const oldFitScale = this.fitScale;
+
     this.updateFitScale(rect.width, rect.height);
-    this.resetZoom();
+
+    // Only preserve zoom/pan state if we have a valid previous layout scale (oldFitScale > 0),
+    // a valid new layout scale (fitScale > 0), and the new computed scale is >= 1.0.
+    // If the computed scale drops below 1.0 (e.g. entering fullscreen, expanding the viewport
+    // significantly), it means the graph can be fully fit in the new container without zooming.
+    // In that case, we fallback to resetZoom() to center and fit the entire graph cleanly.
+    if (
+      oldFitScale > 0 &&
+      this.fitScale > 0 &&
+      oldEffScale / this.fitScale >= 1.0
+    ) {
+      this.scale = Math.min(oldEffScale / this.fitScale, 500.0);
+      this.offsetX = this.offsetX + (newViewW - oldViewW) / 2;
+      this.offsetY = this.offsetY + (newViewH - oldViewH) / 2;
+    } else {
+      this.resetZoom();
+    }
     this.draw();
   }
 

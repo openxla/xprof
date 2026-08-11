@@ -586,6 +586,11 @@ export class BufferAllocationTimeline
     this.ctx.restore();
   }
 
+  onResetZoomClick() {
+    this.resetZoom();
+    this.draw();
+  }
+
   // Wheel zoom
   onWheel(event: WheelEvent) {
     event.preventDefault();

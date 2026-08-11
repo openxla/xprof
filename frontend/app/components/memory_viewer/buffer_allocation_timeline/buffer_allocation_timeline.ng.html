@@ -20,12 +20,16 @@
                  (keydown.enter)="onSearchEnter()"
                  placeholder="Search Op Name..."
                  (keydown.escape)="closeSearch()">
-          <button class="control-btn" (click)="toggleSearch()" [title]="showSearchInput ? 'Close Search' : 'Search'">
+          <button class="control-btn" (click)="toggleSearch()" [matTooltip]="showSearchInput ? 'Close Search' : 'Search'" matTooltipPosition="above">
             <mat-icon>{{showSearchInput ? 'close' : 'search'}}</mat-icon>
           </button>
         </div>
 
-        <button class="control-btn" (click)="toggleFullscreen()" [title]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'">
+        <button class="control-btn" (click)="onResetZoomClick()" matTooltip="Reset Zoom" matTooltipPosition="above">
+          <mat-icon>zoom_out_map</mat-icon>
+        </button>
+
+        <button class="control-btn" (click)="toggleFullscreen()" [matTooltip]="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'" matTooltipPosition="above">
           <mat-icon>{{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}}</mat-icon>
         </button>
       </div>

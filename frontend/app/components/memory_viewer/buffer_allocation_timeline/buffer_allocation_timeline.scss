@@ -42,11 +42,13 @@
     background-color: #fff;
     color: #111;
     box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
   }
   mat-icon {
     font-size: 20px;
     width: 20px;
     height: 20px;
+    pointer-events: none;
   }
 }
 

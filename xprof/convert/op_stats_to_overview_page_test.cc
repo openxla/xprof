@@ -15,13 +15,17 @@ limitations under the License.
 
 #include "xprof/convert/op_stats_to_overview_page.h"
 
+#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "<gtest/gtest.h>"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/overview_page.pb.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
+
+using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
 
 TEST(OpStatsToOverviewPageTest, TpuDutyCycle) {
   OpStats op_stats;
@@ -144,6 +148,104 @@ TEST(OpStatsToOverviewPageTest, RooflineMetrics_MemoryBound) {
   OverviewPageAnalysis analysis;
   ComputeTpuAnalysisResult(op_stats, &analysis, TpuPerformanceLimits{2.0, 4.0});
 
+  EXPECT_DOUBLE_EQ(
+      analysis.flop_rate_utilization_relative_to_roofline_percent(), 50.0);
+  EXPECT_DOUBLE_EQ(
+      analysis.memory_bw_utilization_relative_to_hw_limit_percent(), 50.0);
+}
+
+TEST(OpStatsToOverviewPageTest, ComputeAnalysisResult_FlatDeviceOpMetricsDb) {
+  OpStats op_stats = ParseTextProtoOrDie(R"pb(
+    flat_device_op_metrics_db {
+      total_time_ps: 1000000
+      total_op_time_ps: 800000
+      precision_stats {
+        compute_16bit_ps: 600000
+        compute_32bit_ps: 200000
+      }
+      op_instances {
+        hlo_name: "op1"
+        category: "convolution"
+        occurrences: 1
+        self_time_ps: 500000
+        time_ps: 500000
+        flops_v2: 1000
+        is_eager: true
+      }
+      op_instances {
+        hlo_name: "op2"
+        category: "outside_compilation"
+        provenance: "outside_compilation_tag:XlaSendToHost"
+        occurrences: 1
+        self_time_ps: 300000
+        time_ps: 300000
+        flops_v2: 500
+        is_eager: false
+      }
+    }
+    host_op_metrics_db {
+      total_time_ps: 1000000
+      total_op_time_ps: 200000
+      metrics_db {
+        name: "host_op"
+        occurrences: 2
+        self_time_ps: 200000
+        is_eager: true
+      }
+    }
+  )pb");
+
+  OverviewPageAnalysis analysis =
+      ComputeAnalysisResult(op_stats, /*use_flat_op_metrics_db=*/true);
+
+  EXPECT_EQ(analysis.top_device_ops_size(), 2);
+  EXPECT_EQ(analysis.top_device_ops(0).name(), "op1");
+  EXPECT_DOUBLE_EQ(analysis.device_compute_16bit_percent(), 75.0);
+  EXPECT_DOUBLE_EQ(analysis.device_compute_32bit_percent(), 25.0);
+  // Total device ops = 2, total host ops = 2, total = 4
+  EXPECT_DOUBLE_EQ(analysis.device_tf_op_percent(), 50.0);
+  EXPECT_DOUBLE_EQ(analysis.host_tf_op_percent(), 50.0);
+  // Device op time eager: 500000 / 800000 = 62.5%
+  EXPECT_DOUBLE_EQ(analysis.device_op_time_eager_percent(), 62.5);
+  // Device outside compilation: 300000 / 800000 = 37.5%
+  EXPECT_DOUBLE_EQ(analysis.device_op_time_outside_compilation_percent(), 37.5);
+}
+
+TEST(OpStatsToOverviewPageTest, ComputeTpuAnalysisResult_FlatMetrics) {
+  OpStats op_stats = ParseTextProtoOrDie(R"pb(
+    flat_device_op_metrics_db {
+      busy_time_ps: 800000
+      idle_time_ps: 200000
+      total_time_ps: 1000000
+      total_op_time_ps: 800000
+    }
+    flat_hlo_metrics_db_complete_steps_only {
+      total_time_ps: 1000000
+      op_instances {
+        occurrences: 1
+        category: "convolution"
+        flops_v2: 1000
+        time_ps: 1000000
+        memory_accessed_breakdown {
+          memory_space: 1
+          operation_type: READ
+          bytes_accessed: 500
+        }
+        memory_accessed_breakdown {
+          memory_space: 1
+          operation_type: WRITE
+          bytes_accessed: 500
+        }
+      }
+    }
+  )pb");
+
+  OverviewPageAnalysis analysis;
+  ComputeTpuAnalysisResult(op_stats, &analysis, TpuPerformanceLimits{2.0, 2.0},
+                           /*use_flat_op_metrics_db=*/true);
+
+  EXPECT_DOUBLE_EQ(analysis.device_duty_cycle_percent(), 80.0);
+  EXPECT_DOUBLE_EQ(analysis.device_idle_time_percent(), 20.0);
   EXPECT_DOUBLE_EQ(
       analysis.flop_rate_utilization_relative_to_roofline_percent(), 50.0);
   EXPECT_DOUBLE_EQ(

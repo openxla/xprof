@@ -42,7 +42,7 @@ namespace {
 
 const char* const kWindowTarget = EMSCRIPTEN_EVENT_TARGET_WINDOW;
 const char* const kCanvasTarget = "#canvas";
-constexpr float kScrollbarSize = 10.0f;
+constexpr float kScrollbarSize = 7.0f;
 
 EM_JS(bool, GetFeatureFlagFromJS, (const char* name), {
   if (window.getFeatureFlag) {

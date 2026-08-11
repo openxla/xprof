@@ -31,6 +31,27 @@
   --md-sys-color-surface-container-low: var(--mat-sys-surface-container-low);
   --md-sys-color-surface-container: var(--mat-sys-surface-container);
   --md-sys-color-surface: var(--mat-sys-surface);
+
+  // Google Material 3 (GM3) Shapes.
+  --md-sys-shape-corner-xs: 4px;
+  --md-sys-shape-corner-sm: 8px;
+  --md-sys-shape-corner-md: 12px;
+  --md-sys-shape-corner-lg: 16px;
+
+  // Google Material 3 (GM3) Spacing.
+  --md-sys-spacing-4: 4px;
+  --md-sys-spacing-8: 8px;
+  --md-sys-spacing-12: 12px;
+  --md-sys-spacing-16: 16px;
+  --md-sys-spacing-20: 20px;
+  --md-sys-spacing-24: 24px;
+  --md-sys-spacing-32: 32px;
+  --md-sys-spacing-40: 40px;
+  --md-sys-spacing-48: 48px;
+
+  // Google Material 3 (GM3) Typography Sizes.
+  --md-sys-typescale-body-small-size: 12px;
+  --md-sys-typescale-body-medium-size: 14px;
 }
 
 $typography-config: mat.m2-define-typography-config();

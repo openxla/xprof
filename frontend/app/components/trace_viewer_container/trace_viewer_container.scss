@@ -93,7 +93,6 @@ canvas.emscripten {
   // border: 1px solid var(--mat-sys-outline, #ccc);
   border-radius: 4px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  // padding: 8px;
   max-width: 90%;
   max-height: 300px;
   overflow: hidden;
@@ -192,7 +191,7 @@ canvas.emscripten {
 
 .search-result-count {
   display: inline-block;
-  color: rgba(0, 0, 0, 0.54);
+  color: var(--md-sys-color-on-surface-variant);
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
@@ -221,7 +220,7 @@ canvas.emscripten {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(0, 0, 0, 0.54);
+  color: var(--md-sys-color-on-surface-variant);
 
   mat-icon {
     font-size: 16px;
@@ -379,6 +378,7 @@ canvas.emscripten {
 
       .split-area-inner {
         background-color: var(--mat-sys-surface-container);
+        padding: 8px;
       }
     }
 
@@ -409,19 +409,30 @@ canvas.emscripten {
     }
 
     .cross-tool-links {
-      margin-top: 16px;
+      margin-top: var(--md-sys-spacing-16);
       display: flex;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: var(--md-sys-spacing-8);
+      align-items: baseline;
+      font-size: var(--md-sys-typescale-body-small-size);
+
+      ::ng-deep div {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--md-sys-spacing-4);
+        white-space: nowrap;
+        font-size: var(--md-sys-typescale-body-small-size);
+        color: var(--md-sys-color-on-surface-variant);
+      }
 
       ::ng-deep a {
         display: inline-block;
-        padding: 6px 12px;
-        border-radius: 4px;
+        padding: var(--md-sys-spacing-4) var(--md-sys-spacing-8);
+        border-radius: var(--md-sys-shape-corner-xs);
         background-color: var(--mat-sys-primary-container);
         color: var(--mat-sys-on-primary-container);
         text-decoration: none;
-        font-size: 12px;
+        font-size: var(--md-sys-typescale-body-small-size);
         font-weight: 500;
         white-space: nowrap;
 
@@ -433,10 +444,10 @@ canvas.emscripten {
   }
 
   .selection-info {
-    font-size: 12px;
+    font-size: var(--md-sys-typescale-body-small-size);
     font-weight: bold;
-    padding-left: 16px;
-    margin-top: 8px;
+    padding-left: var(--md-sys-spacing-16);
+    margin-top: var(--md-sys-spacing-8);
   }
 }
 
@@ -464,7 +475,7 @@ canvas.emscripten {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.5);
+  background-color: color-mix(in srgb, var(--md-sys-color-surface) 50%, transparent);
   z-index: 1000;
 
   .loading-status,
@@ -484,14 +495,14 @@ canvas.emscripten {
 .incremental-loading {
   display: flex;
   align-items: center;
-  margin-right: 16px;
+  margin-right: var(--md-sys-spacing-16);
 
   .loading-status {
-    margin-right: 8px;
+    margin-right: var(--md-sys-spacing-8);
   }
 
   mat-progress-spinner {
-    margin: 0 8px;
+    margin: 0 var(--md-sys-spacing-8);
   }
 }
 
@@ -502,14 +513,14 @@ canvas.emscripten {
 
 .coach-mark-bubble {
   position: absolute;
-  top: 40px;
+  top: var(--md-sys-spacing-40);
   right: 0;
   width: 250px;
   background: var(--mat-sys-surface);
   border: 1px solid var(--mat-sys-outline-variant);
-  border-radius: 8px;
+  border-radius: var(--md-sys-shape-corner-sm);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  padding: 12px;
+  padding: var(--md-sys-spacing-12);
   z-index: 1000;
   font-family: Roboto, sans-serif;
 }
@@ -522,7 +533,7 @@ canvas.emscripten {
 }
 
 .coach-mark-content {
-  font-size: 12px;
+  font-size: var(--md-sys-typescale-body-small-size);
   color: var(--mat-sys-on-surface-variant);
   line-height: 1.4;
   margin-bottom: 10px;
@@ -534,13 +545,13 @@ canvas.emscripten {
 }
 
 .coach-mark-button {
-  font-size: 12px;
+  font-size: var(--md-sys-typescale-body-small-size);
 }
 
 .coach-mark-arrow {
   position: absolute;
   top: -6px;
-  right: 12px;
+  right: var(--md-sys-spacing-12);
   width: 10px;
   height: 10px;
   background: var(--mat-sys-surface);

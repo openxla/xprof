@@ -1151,20 +1151,7 @@ class TraceEventsContainerBase {
     return events_by_level;
   }
 
-  // Returns all events sorted using TraceEventsComparator.
-  // Helper for EventsByLevel().
-  // REQUIRED: All events have been added and SortTracks() has been called.
-  std::vector<TraceEvent*> SortedEvents() const {
-    std::vector<const TraceEventTrack*> event_tracks;
-    event_tracks.reserve(NumTracks());
-    ForAllMutableTracks([&event_tracks](uint32_t device_id,
-                                        ResourceValue resource_id,
-                                        TraceEventTrack* events) {
-      event_tracks.push_back(events);
-    });
-    return MergeEventTracks(event_tracks);
-  }
-
+ protected:
   void MaybeInternEventName(TraceEvent* event, absl::string_view name) {
     static constexpr size_t kNameInternThreshold = 32;
     if (name.size() > kNameInternThreshold) {

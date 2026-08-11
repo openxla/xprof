@@ -13,16 +13,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "xprof/convert/flat_op_stats_to_op_profile.h"
+
 #include <cstdint>
 #include <string>
 
 #include "<gtest/gtest.h>"
-#include "xprof/convert/flat_op_stats_to_op_profile.h"
 #include "xprof/convert/op_profile_builder.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/op_profile.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -228,6 +230,42 @@ TEST(FlatOpStatsToOpProfileTest, HighlyNestedProvenance) {
   // layer1 should have "block1"
   ASSERT_EQ(layer1_node->children_size(), 1);
   EXPECT_EQ(layer1_node->children(0).name(), "block1");
+}
+
+TEST(FlatOpStatsToOpProfileTest, ArenaAllocatedNodeWithSourceInfoPruning) {
+  tsl::protobuf::Arena arena;
+  op_profile::Profile* profile =
+      tsl::protobuf::Arena::Create<op_profile::Profile>(&arena);
+
+  OpStats op_stats;
+  FlatOpMetricsDb& db = *op_stats.mutable_flat_device_op_metrics_db();
+  db.set_total_time_ps(2000);
+  db.set_total_op_time_ps(1500);
+
+  auto* perf_env = op_stats.mutable_perf_env();
+  perf_env->set_peak_tera_flops_per_second(10.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+
+  for (int i = 0; i < 10; ++i) {
+    auto op =
+        CreateOpMetrics(absl::StrCat("op", i), i + 1, (10 - i) * 100, "conv");
+    op.mutable_source_info()->set_file_name(absl::StrCat("file_", i, ".py"));
+    op.mutable_source_info()->set_line_number(i * 10);
+    op.mutable_source_info()->set_stack_frame(
+        absl::StrCat("frame_", i, "_line1\nframe_", i, "_line2"));
+    *db.add_op_instances() = op;
+  }
+
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, *profile, 3,
+                                OpProfileGrouping::kByCategory);
+
+  ASSERT_TRUE(profile->has_by_category());
+  const auto& by_cat = profile->by_category();
+  ASSERT_GE(by_cat.children_size(), 1);
+  const auto& conv_cat = by_cat.children(0);
+  EXPECT_LE(conv_cat.children_size(), 3);
 }
 
 }  // namespace

@@ -69,6 +69,12 @@ cd "$dest"
 # Copy root README for pip package
 cp "$ROOT_RUNFILE_DIR/README.md" README.md
 
+# Copy requirements.in and MANIFEST.in for pip package
+cp "$ROOT_RUNFILE_DIR/requirements.in" "$dest/requirements.in"
+if [ -f "$PLUGIN_RUNFILE_DIR/MANIFEST.in" ]; then
+  cp "$PLUGIN_RUNFILE_DIR/MANIFEST.in" "$dest/MANIFEST.in"
+fi
+
 # Copy plugin python files.
 cd ${PLUGIN_RUNFILE_DIR}
 find . -name '*.py' -exec ${copy} --parents -Lrpv {} $dest \;

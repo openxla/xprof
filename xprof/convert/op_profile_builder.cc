@@ -69,7 +69,9 @@ void PopulateSymbolNode(const OpMetrics& op_metrics, Node* node) {
     }
   }
   xla.set_computation_primitive_size(op_metrics.computation_primitive_size());
-  *xla.mutable_source_info() = op_metrics.source_info();
+  if (op_metrics.has_source_info()) {
+    *xla.mutable_source_info() = op_metrics.source_info();
+  }
 }
 
 // Fill symbol details into a node for FlatOpMetrics.
@@ -82,31 +84,30 @@ void PopulateSymbolNode(const FlatOpMetrics& op_metrics, Node* node) {
       tensorflow::profiler::ExtractXprofKernelMetadata(op_metrics.long_name()));
   xla.set_category(op_metrics.category());
   xla.set_provenance(op_metrics.provenance());
-  *xla.mutable_source_info() = op_metrics.source_info();
+  if (op_metrics.has_source_info()) {
+    *xla.mutable_source_info() = op_metrics.source_info();
+  }
 }
 
-// Sort the children and only keep the top K children.
+// Sort the children and only keep the top K children in-place.
 template <typename Cmp>
-Node TopKChildren(const Node* root, int k, Cmp cmp) {
-  std::vector<const Node*> children_ptrs;
-  children_ptrs.reserve(root->children_size());
-  for (const Node& node : root->children()) {
-    children_ptrs.push_back(&node);
+void TopKChildren(Node* root, int k, Cmp cmp) {
+  if (root == nullptr || root->children_size() <= 1) return;
+
+  auto* children = root->mutable_children();
+  const int actual_k = std::min(k, root->children_size());
+  if (actual_k <= 0) {
+    children->Clear();
+    return;
   }
 
-  // Ensure k is not larger than the number of children
-  const int actual_k = std::min(k, static_cast<int>(children_ptrs.size()));
+  std::partial_sort(children->pointer_begin(),
+                    children->pointer_begin() + actual_k,
+                    children->pointer_end(), cmp);
 
-  if (actual_k > 0) {
-    std::partial_sort(children_ptrs.begin(), children_ptrs.begin() + actual_k,
-                      children_ptrs.end(), cmp);
+  if (children->size() > actual_k) {
+    children->DeleteSubrange(actual_k, children->size() - actual_k);
   }
-
-  Node output;
-  for (int i = 0; i < actual_k; ++i) {
-    *output.add_children() = *children_ptrs[i];
-  }
-  return output;
 }
 
 // Copy symbol details into a deduplicated node from the top child node.
@@ -147,15 +148,13 @@ void SortAndPruneChildren(int k, int level, Node* root) {
   if (root->children_size() > 1) {
     if (root->has_xla() && IsFusion(root->xla().category())) {
       // Sort the children under fusion node by raw flops.
-      *root->mutable_children() =
-          TopKChildren(root, k, [](const Node* a, const Node* b) {
-            return a->metrics().raw_flops() > b->metrics().raw_flops();
-          }).children();
+      TopKChildren(root, k, [](const Node* a, const Node* b) {
+        return a->metrics().raw_flops() > b->metrics().raw_flops();
+      });
     } else {
-      *root->mutable_children() =
-          TopKChildren(root, k, [](const Node* a, const Node* b) {
-            return a->metrics().raw_time() > b->metrics().raw_time();
-          }).children();
+      TopKChildren(root, k, [](const Node* a, const Node* b) {
+        return a->metrics().raw_time() > b->metrics().raw_time();
+      });
     }
   }
 }
@@ -793,7 +792,6 @@ void OpProfileBuilder::Finalize(
       level = 100;
       break;
   }
-  SortAndPruneChildren(options_.children_per_node, level, root_);
   SortAndPruneChildren(options_.children_per_node, level, root_);
   if (options_.group_by_deduplicated_name) {
     FinalizeDeduplicatedNodes(root_);

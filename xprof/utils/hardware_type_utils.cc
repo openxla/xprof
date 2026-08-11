@@ -39,7 +39,7 @@ namespace {
 // https://resources.nvidia.com/en-us-blackwell-architecture?ncid=pa-srch-goog-585983-Intel-Brand-Broad
 // Dense Compute as default.
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 148,
             .fp32_tflops = 296,
@@ -47,7 +47,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
             .fp16_tflops = 592,
             .int8_tops = 1184,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp64_tflops = 148,
             .fp32_tflops = 4096,
@@ -56,12 +56,12 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_10_0 = {
             .fp8_tflops = 16384,
             .int8_tops = 16384,
         },
-    .has_tensor_core_sparsity_support = true,
+    .has_matrix_unit_sparsity_support = true,
 };
 
 // https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_9_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 128,
             .fp32_tflops = 256,
@@ -69,7 +69,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_9_0 = {
             .fp16_tflops = 512,
             .int8_tops = 1024,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp64_tflops = 256,
             .fp32_tflops = 2048,
@@ -78,12 +78,12 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_9_0 = {
             .fp8_tflops = 8192,
             .int8_tops = 8192,
         },
-    .has_tensor_core_sparsity_support = true,
+    .has_matrix_unit_sparsity_support = true,
 };
 
 // https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_9 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 128,
             .fp32_tflops = 256,
@@ -91,7 +91,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_9 = {
             .fp16_tflops = 256,
             .int8_tops = 512,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp32_tflops = 512,
             .bf16_tflops = 1024,
@@ -100,12 +100,12 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_9 = {
             .int8_tops = 2048,
             .int4_tops = 4096,
         },
-    .has_tensor_core_sparsity_support = true,
+    .has_matrix_unit_sparsity_support = true,
 };
 
 // https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.1.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_6 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 128,
             .fp32_tflops = 256,
@@ -113,7 +113,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_6 = {
             .fp16_tflops = 256,
             .int8_tops = 512,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp32_tflops = 256,
             .bf16_tflops = 512,
@@ -121,12 +121,12 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_6 = {
             .int8_tops = 2048,
             .int4_tops = 4096,
         },
-    .has_tensor_core_sparsity_support = true,
+    .has_matrix_unit_sparsity_support = true,
 };
 
 // https://www.nvidia.com/content/PDF/nvidia-ampere-ga-102-gpu-architecture-whitepaper-v2.1.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 64,
             .fp32_tflops = 128,
@@ -134,7 +134,7 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_0 = {
             .fp16_tflops = 512,
             .int8_tops = 512,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp64_tflops = 128,
             .fp32_tflops = 1024,
@@ -142,30 +142,30 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_8_0 = {
             .fp16_tflops = 2048,
             .int8_tops = 4096,
         },
-    .has_tensor_core_sparsity_support = true,
+    .has_matrix_unit_sparsity_support = true,
 };
 
 // https://images.nvidia.com/aem-dam/en-zz/Solutions/design-visualization/technologies/turing-architecture/NVIDIA-Turing-Architecture-Whitepaper.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_7_5 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 64,
             .fp32_tflops = 128,
             .fp16_tflops = 256,
             .int8_tops = 512,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp16_tflops = 1024,
             .int8_tops = 2048,
             .int4_tops = 4096,
         },
-    .has_tensor_core_sparsity_support = false,
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_7_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 64,
             .fp32_tflops = 128,
@@ -173,69 +173,69 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_7_0 = {
             .fp16_tflops = 256,
             .int8_tops = 512,
         },
-    .tensor_core =
+    .matrix_unit =
         {
             .fp16_tflops = 1024,
         },
-    .has_tensor_core_sparsity_support = false,
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // https://images.nvidia.com/content/pdf/tesla/whitepaper/pascal-architecture-whitepaper.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_6_1 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 8,
             .fp32_tflops = 256,
             .fp16_tflops = 4,
             .int8_tops = 1024,
         },
-    .tensor_core = {},
-    .has_tensor_core_sparsity_support = false,
+    .matrix_unit = {},
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // https://images.nvidia.com/content/pdf/tesla/whitepaper/pascal-architecture-whitepaper.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_6_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 64,
             .fp32_tflops = 128,
             .fp16_tflops = 256,
             .int8_tops = 512,
         },
-    .tensor_core = {},
-    .has_tensor_core_sparsity_support = false,
+    .matrix_unit = {},
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/NVIDIA-Kepler-GK110-GK210-Architecture-Whitepaper.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_5_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 4,
             .fp32_tflops = 256,
         },
-    .tensor_core = {},
-    .has_tensor_core_sparsity_support = false,
+    .matrix_unit = {},
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // https://www.nvidia.com/content/PDF/product-specifications/GeForce_GTX_680_Whitepaper_FINAL.pdf
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_3_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 128,
             .fp32_tflops = 384,
         },
-    .tensor_core = {},
-    .has_tensor_core_sparsity_support = false,
+    .matrix_unit = {},
+    .has_matrix_unit_sparsity_support = false,
 };
 
 const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_2_0 = {
-    .cuda_core =
+    .vector_unit =
         {
             .fp64_tflops = 8,
             .fp32_tflops = 64,
         },
-    .tensor_core = {},
-    .has_tensor_core_sparsity_support = false,
+    .matrix_unit = {},
+    .has_matrix_unit_sparsity_support = false,
 };
 
 // Extracts the AMD architecture from a reported device name.
@@ -350,8 +350,8 @@ GpuFlopCapabilities GetGpuFlopCapabilitiesPerSM(
 double GetFlopMaxThroughputPerSM(const DeviceCapabilities& device_cap) {
   GpuFlopCapabilities sm_flops = GetGpuFlopCapabilitiesPerSM(device_cap);
   double result = std::max(
-      {sm_flops.cuda_core.fp32_tflops, sm_flops.cuda_core.fp16_tflops,
-       sm_flops.tensor_core.fp32_tflops, sm_flops.tensor_core.fp16_tflops});
+      {sm_flops.vector_unit.fp32_tflops, sm_flops.vector_unit.fp16_tflops,
+       sm_flops.matrix_unit.fp32_tflops, sm_flops.matrix_unit.fp16_tflops});
   VLOG(3) << "GetFlopMaxThroughputPerSM get result: " << result << " GFLOPs";
   return result;
 }

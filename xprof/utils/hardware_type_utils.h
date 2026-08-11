@@ -47,13 +47,15 @@ struct GpuFlopCapabilities {
     }
   };
 
-  FlopCapabilityOnPrecisions cuda_core;
-  FlopCapabilityOnPrecisions tensor_core;
-  bool has_tensor_core_sparsity_support = false;
+  // Vector unit: NVIDIA = Cuda Cores, AMD = vector ALUs
+  FlopCapabilityOnPrecisions vector_unit;
+  // Matrix unit: NVIDIA = Tensor Cores, AMD = Matrix Cores (MFMA)
+  FlopCapabilityOnPrecisions matrix_unit;
+  bool has_matrix_unit_sparsity_support = false;
 
   void ScaleWith(double scale) {
-    cuda_core.ScaleWith(scale);
-    tensor_core.ScaleWith(scale);
+    vector_unit.ScaleWith(scale);
+    matrix_unit.ScaleWith(scale);
   }
 };
 

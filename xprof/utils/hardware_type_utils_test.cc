@@ -101,6 +101,48 @@ TEST(HardwareTypeUtilsTest, A100PeakComputTFlops) {
   EXPECT_NEAR(peak_tflops, 312, /*abs_error=*/1.0);
 }
 
+TEST(HardwareTypeUtilsTest, GpuModelNameIgnoresNvidiaProductName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(9);
+  // CUPTI reports a product name, which contains no "GPU" substring. Returning
+  // it would make ParseHardwareType, the GPU roofline table selection and the
+  // frontend all stop recognising the device.
+  device_cap.set_device_name("NVIDIA H100 80GB HBM3");
+
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
+  EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToFamilyWithoutName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(9);
+
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchAndStripsFeatures) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(4);
+  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+
+  // Must remain more specific than the family fallback, and must still contain
+  // "GPU" because ParseHardwareType and the frontend both key on that.
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx942");
+  EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToAmdFamilyWithoutName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx-9XX series");
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

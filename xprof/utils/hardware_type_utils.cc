@@ -17,10 +17,12 @@ limitations under the License.
 
 #include <algorithm>
 #include <iterator>
+#include <string>
 
 #include "absl/container/btree_map.h"
 #include "absl/log/log.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
@@ -236,6 +238,19 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_2_0 = {
     .has_tensor_core_sparsity_support = false,
 };
 
+// Extracts the AMD architecture from a reported device name.
+//
+// ROCm collector emits rocprofiler-sdk's agent name, composed via
+// fmt::format("gfx{}{}{:x}", major, minor, step), so it is a bare processor name
+// such as "gfx942". See rocprofiler-sdk source/lib/rocprofiler-sdk/agent.cpp:
+// https://github.com/ROCm/rocprofiler-sdk/blob/amd-staging/source/lib/rocprofiler-sdk/agent.cpp#L769-L775
+//
+// HIP's hipDeviceProp_t::gcnArchName instead carries the target-ID form,
+// "gfx942:sramecc+:xnack-", so keep only the processor.
+absl::string_view GfxVersionFromDeviceName(absl::string_view device_name) {
+  return device_name.substr(0, device_name.find(':'));
+}
+
 GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
                                                    int minor_comp_cap) {
   static const auto& kPerSMFlopCapsTable =
@@ -312,7 +327,7 @@ double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap) {
   return tsl::profiler::GigaToUni(GiBPS);
 }
 
-absl::string_view GpuModelName(const DeviceCapabilities& device_cap) {
+std::string GpuModelName(const DeviceCapabilities& device_cap) {
   if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorNvidia) {
     switch (device_cap.compute_capability().major()) {
       case 2:
@@ -343,6 +358,10 @@ absl::string_view GpuModelName(const DeviceCapabilities& device_cap) {
         return "Nvidia GPU";
     }
   } else if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorAMD) {
+    // Prefer ROCm provided GCN architecture name if provided.
+    // Otherwise, fallback to existing name derivation via major/minor.
+    absl::string_view gfx = GfxVersionFromDeviceName(device_cap.device_name());
+    if (!gfx.empty()) return absl::StrCat("AMD GPU - ", gfx);
     switch (device_cap.compute_capability().major()) {
       case 9:
         return "AMD GPU - gfx-9XX series";

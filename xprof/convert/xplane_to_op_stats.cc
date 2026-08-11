@@ -222,10 +222,9 @@ void SetRunEnvironment(const XSpace& space, RunEnvironment* env) {
   std::vector<const XPlane*> gpu_planes =
       FindPlanesWithPrefix(space, kGpuPlanePrefix);
   if (!gpu_planes.empty()) {
-    absl::string_view gpu_model =
-        GpuModelName(GetDeviceCaps(*gpu_planes.front()));
+    std::string gpu_model = GpuModelName(GetDeviceCaps(*gpu_planes.front()));
     if (!gpu_model.empty()) {
-      env->set_device_type(std::string(gpu_model));
+      env->set_device_type(std::move(gpu_model));
     } else {
       env->set_device_type("GPU");
     }

@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef XPROF_UTILS_HARDWARE_TYPE_UTILS_H_
 #define XPROF_UTILS_HARDWARE_TYPE_UTILS_H_
 
+#include <string>
+
 #include "absl/strings/string_view.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 
@@ -66,10 +68,11 @@ double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap);
 
 // Returns the GPU model name from the given DeviceCapabilities.
 // For nvidia GPUs, the name is like "Nvidia GPU (Kepler)" or "Nvidia GPU
-// (Turing)". For AMD GPUs, the name is like "AMD GPU - gfx-10XX series".
+// (Turing)". For AMD GPUs, the name is like "AMD GPU - gfx942", falling back to
+// "AMD GPU - gfx-10XX series" when the architecture was not reported.
 // The model name here for Nvidia GPU in fact refers to its microarchitecture
 // name.
-absl::string_view GpuModelName(const DeviceCapabilities& device_cap);
+std::string GpuModelName(const DeviceCapabilities& device_cap);
 
 HardwareType ParseHardwareType(absl::string_view device_type);
 

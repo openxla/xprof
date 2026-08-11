@@ -25,7 +25,7 @@ import setuptools
 from xprof import version
 
 try:
-  from wheel.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+  from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel  # pylint: disable=g-import-not-at-top
 
   class CustomBdistWheel(_bdist_wheel):
 
@@ -169,7 +169,6 @@ if __name__ == '__main__':
               'xprof = xprof.cli.xprof_cli:main',
           ],
       },
-      has_ext_modules=lambda: True,
       cmdclass=cmdclass,
       python_requires='>= 3.10',
       install_requires=REQUIRED_PACKAGES,

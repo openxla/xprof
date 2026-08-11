@@ -33,7 +33,7 @@ class SetupTest(absltest.TestCase):
     expected_deps = [
         'absl-py >= 2.1.0',
         'gviz_api >= 1.10.0',
-        'setuptools < 70.0.0',
+        'setuptools >= 70.1.1',
         'fsspec[gcs] >= 2024.10.0',
         'cheroot >= 10.0.1',
         'etils[epath] >= 1.0.0',
@@ -61,7 +61,7 @@ class SetupTest(absltest.TestCase):
         '# Another comment\n'
         '--extra-index-url https://example.com/pypi\n'
         '-f ./wheels\n'
-        'setuptools < 70.0.0\n'
+        'setuptools >= 70.1.1\n'
         '\n'
         'etils[epath] >= 1.0.0\n'
     )
@@ -76,7 +76,7 @@ class SetupTest(absltest.TestCase):
       expected = [
           'absl-py >= 2.1.0',
           'fsspec[gcs] >= 2024.10.0',
-          'setuptools < 70.0.0',
+          'setuptools >= 70.1.1',
           'etils[epath] >= 1.0.0',
       ]
       self.assertEqual(parsed, expected)

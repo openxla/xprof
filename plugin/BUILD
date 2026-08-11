@@ -17,8 +17,10 @@ sh_binary(
     name = "build_pip_package",
     srcs = ["build_pip_package.sh"],
     data = [
+        "MANIFEST.in",
         "setup.py",
         "//:README.md",
+        "//:requirements.in",
         "@org_xprof//frontend:bundle.js",
         "@org_xprof//frontend:css",
         "@org_xprof//frontend:zone.js",

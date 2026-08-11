@@ -447,6 +447,9 @@ export class BufferAllocationTimeline
         this.drawBlock(this.hoveredBlock);
       }
     }
+    if (this.selectedBlock) {
+      this.updateTooltipPosition();
+    }
   }
 
   isBlockVisible(
@@ -651,6 +654,11 @@ export class BufferAllocationTimeline
   }
 
   updateHoverState(mouseX: number, mouseY: number) {
+    if (this.selectedBlock) {
+      this.hoveredBlock = null;
+      return;
+    }
+
     const rawX = this.toRawX(mouseX);
     const rawY = this.toRawY(mouseY);
 
@@ -677,22 +685,42 @@ export class BufferAllocationTimeline
     }
 
     if (this.hoveredBlock) {
-      const viewW = this.canvas.width / (window.devicePixelRatio || 1);
-      const viewH = this.canvas.height / (window.devicePixelRatio || 1);
-      const tooltipW = 350;
-      const tooltipH = 150;
+      this.updateTooltipPosition(mouseX, mouseY);
+    }
+  }
 
-      if (mouseX + 15 + tooltipW > viewW) {
-        this.tooltipLeft = mouseX - tooltipW - 15;
-      } else {
-        this.tooltipLeft = mouseX + 15;
-      }
+  updateTooltipPosition(clientX?: number, clientY?: number) {
+    const block = this.activeBlock;
+    if (!block || !this.canvas) return;
 
-      if (mouseY + 15 + tooltipH > viewH) {
-        this.tooltipTop = mouseY - tooltipH - 15;
-      } else {
-        this.tooltipTop = mouseY + 15;
-      }
+    const viewW = this.canvas.width / (window.devicePixelRatio || 1);
+    const viewH = this.canvas.height / (window.devicePixelRatio || 1);
+    const tooltipW = 360;
+    const tooltipH = 320;
+
+    let refX = 0;
+    let refY = 0;
+
+    if (this.selectedBlock) {
+      refX = this.toCanvasX(block.x);
+      refY = this.toCanvasY(block.y);
+    } else if (clientX !== undefined && clientY !== undefined) {
+      refX = clientX;
+      refY = clientY;
+    } else {
+      return;
+    }
+
+    if (refX + 15 + tooltipW > viewW) {
+      this.tooltipLeft = refX - tooltipW - 15;
+    } else {
+      this.tooltipLeft = refX + 15;
+    }
+
+    if (refY + 15 + tooltipH > viewH) {
+      this.tooltipTop = refY - tooltipH - 15;
+    } else {
+      this.tooltipTop = refY + 15;
     }
   }
 
@@ -767,30 +795,34 @@ export class BufferAllocationTimeline
     return '0x' + offset.toString(16);
   }
 
-  get selectedBlockSizeMiB(): string {
-    if (!this.selectedBlock || this.selectedBlock.size === undefined) {
+  get activeBlock(): BufferBlock | null {
+    return this.selectedBlock || this.hoveredBlock;
+  }
+
+  getBlockSizeMiB(block: BufferBlock): string {
+    if (!block || block.size === undefined) {
       return '';
     }
-    return (this.selectedBlock.size / (1024 * 1024)).toFixed(2);
+    return (block.size / (1024 * 1024)).toFixed(2);
   }
 
-  get selectedBlockUnpaddedSizeMiB(): string {
-    if (!this.selectedBlock || this.selectedBlock.unpaddedSize === undefined) {
+  getBlockUnpaddedSizeMiB(block: BufferBlock): string {
+    if (!block || block.unpaddedSize === undefined) {
       return 'N/A';
     }
-    return (this.selectedBlock.unpaddedSize / (1024 * 1024)).toFixed(2);
+    return (block.unpaddedSize / (1024 * 1024)).toFixed(2);
   }
 
-  get selectedBlockPaddingOverheadMiB(): string {
+  getBlockPaddingOverheadMiB(block: BufferBlock): string {
     if (
-      !this.selectedBlock ||
-      this.selectedBlock.size === undefined ||
-      this.selectedBlock.unpaddedSize === undefined
+      !block ||
+      block.size === undefined ||
+      block.unpaddedSize === undefined
     ) {
       return 'N/A';
     }
     return (
-      (this.selectedBlock.size - this.selectedBlock.unpaddedSize) /
+      (block.size - block.unpaddedSize) /
       (1024 * 1024)
     ).toFixed(2);
   }

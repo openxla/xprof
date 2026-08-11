@@ -184,9 +184,22 @@ canvas:active {
   font-family: Roboto, sans-serif;
   font-size: 11px;
   color: #333;
-  max-width: 350px;
+  width: 360px;
+  max-width: 360px;
   z-index: 100;
   box-sizing: border-box;
+
+  a {
+    color: #1a73e8;
+    text-decoration: none;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.timeline-tooltip.sticky {
+  pointer-events: auto;
 }
 
 .tooltip-row {
@@ -217,65 +230,4 @@ canvas:active {
   border: 0;
   border-top: 1px solid #e0e0e0;
   margin: 4px 0;
-}
-
-.selected-block-card {
-  position: sticky;
-  bottom: 0;
-  background-color: var(--mat-card-background-color, #fff);
-  border: 1px solid #ccc;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  margin: 20px;
-  padding: 16px;
-  z-index: 10;
-
-  .card-header {
-    border-bottom: 1px solid #eee;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    h3 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 500;
-      word-break: break-all;
-    }
-  }
-
-  .metadata-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 12px;
-  }
-
-  .metadata-item {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .metadata-label {
-    font-size: 12px;
-    color: #666;
-    font-weight: 500;
-    margin-bottom: 2px;
-  }
-
-  .metadata-value {
-    font-size: 14px;
-    color: #333;
-    word-break: break-all;
-    a {
-      color: #1a73e8;
-      text-decoration: none;
-      &:hover {
-        text-decoration: underline;
-      }
-    }
-  }
-
-  .full-width-metadata-item {
-    display: flex;
-    flex-direction: column;
-    margin-top: 12px;
-  }
 }

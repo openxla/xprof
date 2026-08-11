@@ -24,6 +24,7 @@ xprof_ng_module(
     deps = [
         "@npm//@angular/core",
         "@npm//@angular/localize",
+        "@npm//@angular/platform-browser",
         "@npm//@angular/platform-browser-dynamic",
         "@org_xprof//frontend/app",
     ],
@@ -31,9 +32,9 @@ xprof_ng_module(
 
 rollup_bundle(
     name = "zone",
-    srcs = ["@npm//:node_modules/zone.js/dist/zone.js"],
+    srcs = ["@npm//:node_modules/zone.js/bundles/zone.umd.js"],
     config_file = "//:rollup.config.js",
-    entry_point = "@npm//:node_modules/zone.js/dist/zone.js",
+    entry_point = "@npm//:node_modules/zone.js/bundles/zone.umd.js",
     format = "iife",
     link_workspace_root = True,
     deps = [

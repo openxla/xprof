@@ -161,6 +161,10 @@ pip_parse(
             "gcsfs",
         ],
     },
+    extra_pip_args = [
+        "--index-url",
+        "https://pypi.org/simple/",
+    ],
     requirements_lock = REQUIREMENTS_WITH_LOCAL_WHEELS,
 )
 

@@ -251,6 +251,46 @@ absl::string_view GfxVersionFromDeviceName(absl::string_view device_name) {
   return device_name.substr(0, device_name.find(':'));
 }
 
+// Fallback for traces captured before the collector reported a device name.
+// Only pairs identifying exactly one architecture are listed: ROCm derives the
+// capability from gfx_target_version and drops the step digit, so (9, 0) covers
+// both gfx908 (MI100) and gfx90a (MI200/250), whose rates differ.
+absl::string_view GfxVersionFromComputeCapability(int major, int minor) {
+  if (major == 9 && minor == 4) return "gfx942";  // CDNA 3, MI300 series
+  if (major == 9 && minor == 5) return "gfx950";  // CDNA 4, MI350 series
+  return "";
+}
+
+// Resolves the architecture used to key the AMD tables below: the reported
+// device name if there is one, else the compute capability.
+absl::string_view ResolveAmdGfxVersion(const DeviceCapabilities& device_cap) {
+  absl::string_view gfx = GfxVersionFromDeviceName(device_cap.device_name());
+  if (!gfx.empty()) return gfx;
+  return GfxVersionFromComputeCapability(
+      device_cap.compute_capability().major(),
+      device_cap.compute_capability().minor());
+}
+
+// LDS bytes per CU per clock. Each bank serves one read, write or atomic per
+// cycle, so the figure is the same in both directions.
+//
+// AMD CDNA 4 architecture whitepaper, which additionally covers LDS spec for
+// earlier generations (CDNA 3 and prior):
+// https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
+//
+// Note RDNA series is absent as its LDS belongs to a workgroup processor rather
+// than a CU. The published per-cycle figure cannot clearly be attributed per CU.
+double GetAmdLdsBytesPerCuPerCycle(absl::string_view gfx_version) {
+  static const auto& kTable = *new absl::btree_map<absl::string_view, double>{
+      {"gfx908", 128.0},  // CDNA 1, 32 banks x 4 B
+      {"gfx90a", 128.0},  // CDNA 2, 32 banks x 4 B
+      {"gfx942", 128.0},  // CDNA 3, 32 banks x 4 B
+      {"gfx950", 256.0},  // CDNA 4, 64 banks x 4 B
+  };
+  auto it = kTable.find(gfx_version);
+  return it == kTable.end() ? 0.0 : it->second;
+}
+
 GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
                                                    int minor_comp_cap) {
   static const auto& kPerSMFlopCapsTable =
@@ -317,20 +357,21 @@ double GetFlopMaxThroughputPerSM(const DeviceCapabilities& device_cap) {
 }
 
 double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap) {
-  if (device_cap.device_vendor() != tsl::profiler::kDeviceVendorNvidia) {
-    // The bank geometry below is Nvidia's, and it is keyed on a compute
-    // capability that other vendors do not use the same way. Applying it
-    // regardless produces a plausible but wrong number, which is worse than
-    // reporting none: a missing roofline band reads as unknown, while a wrong
-    // one reads as authoritative.
-    return 0.0;
+  double transaction_byts_per_cycle = 0.0;
+  if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorNvidia) {
+    // https://docs.nvidia.com/gameworks/content/developertools/desktop/analysis/report/cudaexperiments/kernellevel/memorystatisticsshared.htm
+    // Compute capability 2.0, each bank has bandwidth of 4 bytes per 2 cycles.
+    // For compute capability 3.0 and above, each bank has bandwidth 8 bytes per
+    // cycle. Each SM has 32 banks.
+    transaction_byts_per_cycle =
+        device_cap.compute_capability().major() <= 2 ? (32 * 4 / 2) : (32 * 8);
+  } else if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorAMD) {
+    transaction_byts_per_cycle =
+        GetAmdLdsBytesPerCuPerCycle(ResolveAmdGfxVersion(device_cap));
   }
-  // https://docs.nvidia.com/gameworks/content/developertools/desktop/analysis/report/cudaexperiments/kernellevel/memorystatisticsshared.htm
-  // Compute capability 2.0, each bank has bandwidth of 4 bytes per 2 cycles.
-  // For compute capability 3.0 and above, each bank has bandwidth 8 bytes per
-  // cycle. Each SM has 32 banks.
-  double transaction_byts_per_cycle =
-      device_cap.compute_capability().major() <= 2 ? (32 * 4 / 2) : (32 * 8);
+  // An unknown vendor or architecture reports nothing rather than a value
+  // borrowed from hardware it does not describe.
+  if (transaction_byts_per_cycle <= 0.0) return 0.0;
   double GiBPS = transaction_byts_per_cycle * device_cap.clock_rate_in_ghz();
   return tsl::profiler::GigaToUni(GiBPS);
 }

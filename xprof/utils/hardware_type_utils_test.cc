@@ -101,6 +101,65 @@ TEST(HardwareTypeUtilsTest, A100PeakComputTFlops) {
   EXPECT_NEAR(peak_tflops, 312, /*abs_error=*/1.0);
 }
 
+TEST(HardwareTypeUtilsTest, Mi300XSharedMemoryBandwidth) {
+  DeviceCapabilities device_cap;
+  // MI300X: 304 CU at 2.1 GHz, CDNA 3 (32 LDS banks x 4 B = 128 B/clock/CU).
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx942");
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+  // 304 * 128 B * 2.1e9 = 81,715.2 GB/s. Notably half of what the Nvidia bank
+  // model would report, since CDNA has the same 32 banks at half the width.
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi355XSharedMemoryBandwidthDoubles) {
+  DeviceCapabilities device_cap;
+  // MI355X: 256 CU at 2.4 GHz, CDNA 4 (64 LDS banks x 4 B = 256 B/clock/CU).
+  device_cap.set_clock_rate_in_ghz(2.4);
+  device_cap.set_num_cores(256);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx950");
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 157286.4, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthFromComputeCapability) {
+  // Traces captured before the collector emitted a device name still resolve,
+  // because (9, 4) identifies CDNA 3 unambiguously.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(4);
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthUnknownAmdArchReportsNothing) {
+  // (9, 0) is gfx908 or gfx90a, whose rates differ. Report nothing rather than
+  // pick one.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(0);
+
+  EXPECT_EQ(GetSharedMemoryBandwidthPerSM(device_cap), 0.0);
+}
+
 TEST(HardwareTypeUtilsTest, GpuModelNameIgnoresNvidiaProductName) {
   DeviceCapabilities device_cap;
   device_cap.set_device_vendor("Nvidia");

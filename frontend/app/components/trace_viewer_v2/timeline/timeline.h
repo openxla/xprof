@@ -133,6 +133,13 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  enum class LastTrackAction {
+    kNone,
+    kHide,
+    kUnhide,
+    kPin,
+    kUnpin
+  };
   struct SearchResult {
     EventId event_id;
     int level;
@@ -516,7 +523,8 @@ class Timeline {
                      Pixel group_bottom);
 
   // Draws the label for a track row.
-  void DrawTrackLabel(const Group& group, Pixel centereable_height);
+  void DrawTrackLabel(const Group& group, Pixel centereable_height,
+                      Pixel available_width);
 
   // Draws a standard track row in the timeline.
   // Returns true if layout update is needed.
@@ -785,6 +793,9 @@ class Timeline {
   float copy_notification_timer_ = 0.0f;
   // The name of the track that was recently copied to the clipboard.
   std::string copied_track_name_ = "";
+  // Details for undoing the last track action (pin, unpin, hide, unhide).
+  LastTrackAction last_track_action_ = LastTrackAction::kNone;
+  std::string last_action_track_name_ = "";
   RedrawCallback redraw_callback_;
   // Current color palette.
   ColorPalette& palette_;

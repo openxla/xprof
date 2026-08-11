@@ -909,7 +909,8 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   return needs_layout_update;
 }
 
-void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height) {
+void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height,
+                              Pixel available_width) {
   ImGui::PushFont(traceviewer::fonts::label_large);
   const Pixel text_height_large = ImGui::GetTextLineHeight();
   ImGui::PopFont();
@@ -940,8 +941,11 @@ void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height) {
   }
 
   ImGui::PushFont(traceviewer::fonts::label_large);
-  ImGui::TextUnformatted(display_name.data(),
-                         display_name.data() + display_name.size());
+  std::string final_display_name =
+      GetTextForDisplay(display_name, available_width);
+  const bool is_truncated = (final_display_name != display_name);
+  ImGui::TextUnformatted(final_display_name.data(),
+                         final_display_name.data() + final_display_name.size());
   ImGui::PopFont();
 
   if (has_subtitle) {
@@ -958,6 +962,9 @@ void Timeline::DrawTrackLabel(const Group& group, Pixel centereable_height) {
 
   if (ImGui::IsItemHovered()) {
     ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    if (is_truncated) {
+      ImGui::SetTooltip("%s", group.name.c_str());
+    }
     if (ImGui::IsMouseClicked(0)) {
       ImGui::SetClipboardText(group.name.c_str());
       traceviewer::CopyToClipboard(group.name);
@@ -1082,7 +1089,14 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
-  DrawTrackLabel(group, centereable_height);
+  Pixel available_width = tracks_start_pos.x + label_width_ -
+                          kSplitterOffset - ImGui::GetCursorPosX();
+  if (group.nesting_level == kProcessNestingLevel) {
+    const Pixel arrow_size = ImGui::GetFontSize() * kIconSizeScale;
+    available_width -= (arrow_size * 2.0f + kButtonGap * 2.0f);
+  }
+
+  DrawTrackLabel(group, centereable_height, available_width);
 
   ImGui::Unindent(indent_amount);
   ImGui::SetCursorPosY(label_start_y);
@@ -1450,6 +1464,8 @@ void Timeline::ExpandRelatedTracks(int event_index) {
 
 void Timeline::HideTrack(absl::string_view name) {
   hidden_track_names_.insert(std::string(name));
+  last_track_action_ = LastTrackAction::kHide;
+  last_action_track_name_ = std::string(name);
   UpdateLevelPositions(timeline_data_);
   if (redraw_callback_) redraw_callback_();
 }
@@ -3029,10 +3045,14 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
     auto it = hidden_track_names_.find(group.name);
     if (it != hidden_track_names_.end()) {
       hidden_track_names_.erase(it);
+      last_track_action_ = LastTrackAction::kUnhide;
+      last_action_track_name_ = group.name;
       toggled = true;
     } else {
       if (all_processes_count_ > 1) {
         hidden_track_names_.insert(group.name);
+        last_track_action_ = LastTrackAction::kHide;
+        last_action_track_name_ = group.name;
         toggled = true;
       } else {
         ShowNavigationWarningNotification(kCannotHideLastProcessNotification);
@@ -3083,8 +3103,12 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
                              ImGuiButtonFlags_PressedOnClick)) {
     if (is_pinned) {
       pinned_track_names_.erase(group.name);
+      last_track_action_ = LastTrackAction::kUnpin;
+      last_action_track_name_ = group.name;
     } else {
       pinned_track_names_.insert(group.name);
+      last_track_action_ = LastTrackAction::kPin;
+      last_action_track_name_ = group.name;
     }
     toggled = true;
   }
@@ -3571,8 +3595,30 @@ void Timeline::DrawToast(absl::string_view message, float& timer,
   const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
   ImDrawList* draw_list = ImGui::GetForegroundDrawList();
 
+  bool is_undoable_notification = false;
+  if (!last_action_track_name_.empty()) {
+    if (last_track_action_ == LastTrackAction::kHide &&
+        absl::StartsWith(message, kHiddenProcessNotificationPrefix)) {
+      is_undoable_notification = true;
+    } else if (last_track_action_ == LastTrackAction::kUnhide &&
+               absl::StartsWith(message, kUnhiddenProcessNotificationPrefix)) {
+      is_undoable_notification = true;
+    } else if (last_track_action_ == LastTrackAction::kPin &&
+               absl::StartsWith(message, kPinnedProcessNotificationPrefix)) {
+      is_undoable_notification = true;
+    } else if (last_track_action_ == LastTrackAction::kUnpin &&
+               absl::StartsWith(message, kUnpinnedProcessNotificationPrefix)) {
+      is_undoable_notification = true;
+    }
+  }
+
+  std::string display_message(message);
+  if (is_undoable_notification) {
+    absl::StrAppend(&display_message, "  Undo");
+  }
+
   const ImVec2 text_size =
-      ImGui::CalcTextSize(message.data(), message.data() + message.size());
+      ImGui::CalcTextSize(display_message.c_str());
   const ImVec2 padding(16.0f, 8.0f);
   const ImVec2 toast_size(text_size.x + padding.x * 2.0f,
                           text_size.y + padding.y * 2.0f);
@@ -3591,9 +3637,67 @@ void Timeline::DrawToast(absl::string_view message, float& timer,
   draw_list->AddRectFilled(
       toast_pos, ImVec2(toast_pos.x + toast_size.x, toast_pos.y + toast_size.y),
       bg_color, kToastCornerRounding);
-  draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
-                     text_color, message.data(),
-                     message.data() + message.size());
+
+  if (is_undoable_notification) {
+    std::string main_text = absl::StrCat(message, "  ");
+    const ImVec2 main_size = ImGui::CalcTextSize(main_text.c_str());
+    draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+                       text_color, main_text.c_str());
+
+    const ImVec2 undo_pos(toast_pos.x + padding.x + main_size.x,
+                          toast_pos.y + padding.y);
+    const ImVec2 undo_size = ImGui::CalcTextSize("Undo");
+
+    const ImVec2 mouse_pos = ImGui::GetIO().MousePos;
+    const bool is_hovered = (mouse_pos.x >= undo_pos.x &&
+                             mouse_pos.x <= undo_pos.x + undo_size.x &&
+                             mouse_pos.y >= undo_pos.y &&
+                             mouse_pos.y <= undo_pos.y + undo_size.y);
+
+    ImU32 undo_color = IM_COL32(66, 133, 244, (int)(255.0f * alpha));
+    if (is_hovered) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      undo_color = IM_COL32(128, 178, 255, (int)(255.0f * alpha));
+      if (ImGui::IsMouseClicked(0)) {
+        if (last_track_action_ == LastTrackAction::kHide) {
+          auto it = hidden_track_names_.find(last_action_track_name_);
+          if (it != hidden_track_names_.end()) {
+            hidden_track_names_.erase(it);
+          }
+          last_track_action_ = LastTrackAction::kUnhide;
+          ShowNavigationWarningNotification(absl::StrCat(
+              kUnhiddenProcessNotificationPrefix, last_action_track_name_));
+        } else if (last_track_action_ == LastTrackAction::kUnhide) {
+          hidden_track_names_.insert(last_action_track_name_);
+          last_track_action_ = LastTrackAction::kHide;
+          ShowNavigationWarningNotification(absl::StrCat(
+              kHiddenProcessNotificationPrefix, last_action_track_name_));
+        } else if (last_track_action_ == LastTrackAction::kPin) {
+          pinned_track_names_.erase(last_action_track_name_);
+          last_track_action_ = LastTrackAction::kUnpin;
+          ShowNavigationWarningNotification(absl::StrCat(
+              kUnpinnedProcessNotificationPrefix, last_action_track_name_));
+        } else if (last_track_action_ == LastTrackAction::kUnpin) {
+          pinned_track_names_.insert(last_action_track_name_);
+          last_track_action_ = LastTrackAction::kPin;
+          ShowNavigationWarningNotification(absl::StrCat(
+              kPinnedProcessNotificationPrefix, last_action_track_name_));
+        }
+        UpdateLevelPositions(timeline_data_);
+        if (redraw_callback_) redraw_callback_();
+      }
+    }
+
+    draw_list->AddText(undo_pos, undo_color, "Undo");
+    draw_list->AddLine(ImVec2(undo_pos.x, undo_pos.y + undo_size.y),
+                       ImVec2(undo_pos.x + undo_size.x,
+                              undo_pos.y + undo_size.y),
+                       undo_color);
+  } else {
+    draw_list->AddText(ImVec2(toast_pos.x + padding.x, toast_pos.y + padding.y),
+                       text_color, message.data(),
+                       message.data() + message.size());
+  }
 }
 
 void Timeline::HandleMouseRelease() {

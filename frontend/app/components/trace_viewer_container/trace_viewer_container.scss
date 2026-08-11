@@ -333,8 +333,6 @@ canvas {
       color: var(--md-sys-color-on-surface);
     }
 
-
-
     .split-area-left {
       box-sizing: border-box;
       padding: 4px;
@@ -352,6 +350,7 @@ canvas {
 
       .split-area-inner {
         background-color: var(--md-sys-color-surface-container);
+        padding: 8px;
       }
     }
 
@@ -385,16 +384,25 @@ canvas {
       margin-top: 16px;
       display: flex;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 8px;
+      align-items: baseline;
+      font-size: 13px;
+
+      ::ng-deep div {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
 
       ::ng-deep a {
         display: inline-block;
-        padding: 6px 12px;
+        padding: 4px 8px;
         border-radius: 4px;
         background-color: var(--md-sys-color-primary-container);
         color: var(--md-sys-color-on-primary-container);
         text-decoration: none;
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 500;
         white-space: nowrap;
 
@@ -416,9 +424,7 @@ canvas {
 .error-overlay {
   position: absolute;
   width: 100%;
-  height: calc(
-    100% - $search-bar-height
-  );
+  height: calc(100% - $search-bar-height);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -434,9 +440,7 @@ canvas {
 .loading-overlay {
   position: absolute;
   width: 100%;
-  height: calc(
-    100% - $search-bar-height
-  );
+  height: calc(100% - $search-bar-height);
   display: flex;
   flex-direction: column;
   justify-content: center;

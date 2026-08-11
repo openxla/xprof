@@ -317,6 +317,14 @@ double GetFlopMaxThroughputPerSM(const DeviceCapabilities& device_cap) {
 }
 
 double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap) {
+  if (device_cap.device_vendor() != tsl::profiler::kDeviceVendorNvidia) {
+    // The bank geometry below is Nvidia's, and it is keyed on a compute
+    // capability that other vendors do not use the same way. Applying it
+    // regardless produces a plausible but wrong number, which is worse than
+    // reporting none: a missing roofline band reads as unknown, while a wrong
+    // one reads as authoritative.
+    return 0.0;
+  }
   // https://docs.nvidia.com/gameworks/content/developertools/desktop/analysis/report/cudaexperiments/kernellevel/memorystatisticsshared.htm
   // Compute capability 2.0, each bank has bandwidth of 4 bytes per 2 cycles.
   // For compute capability 3.0 and above, each bank has bandwidth 8 bytes per

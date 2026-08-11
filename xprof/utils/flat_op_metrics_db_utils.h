@@ -154,6 +154,10 @@ void AddIdleOp(FlatOpMetricsDb& db);
 // Returns the idle time in picoseconds.
 uint64_t IdleTimePs(const FlatOpMetricsDb& db);
 
+// Returns the fraction of the total time (i.e., relative to total_time_ps, not
+// total_op_time_ps) during which no op was executing, in [0.0, 1.0].
+double IdleTimeRatio(const FlatOpMetricsDb& db);
+
 // Populates a FlatOpMetrics record representing idle time, i.e., the amount of
 // time spent without any op execution.
 void SetIdleOp(uint64_t idle_time_ps, FlatOpMetrics& idle_op);

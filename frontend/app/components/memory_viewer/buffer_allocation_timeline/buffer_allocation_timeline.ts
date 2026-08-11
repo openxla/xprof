@@ -19,7 +19,6 @@ import {
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
 const CONTAINER_COLOR = '#ffffff';
-const CONTAINER_BORDER_COLOR = '#d0d0d0';
 const LABEL_COLOR = '#000000';
 const HOVER_SHADOW_COLOR = 'rgba(0, 0, 0, 0.45)';
 const HOVER_SHADOW_BLUR = 10;
@@ -564,12 +563,7 @@ export class BufferAllocationTimeline
       this.ctx.fillRect(drawX, drawY, drawW, drawH);
     }
 
-    // Stroke border
-    if (block.isContainer) {
-      this.ctx.strokeStyle = CONTAINER_BORDER_COLOR;
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeRect(drawX, drawY, drawW, drawH);
-    }
+    // No container border is drawn to maintain a clean layout
 
     // Render labels dynamically
     if (!block.isContainer && drawH > 4) {

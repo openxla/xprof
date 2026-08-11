@@ -18,6 +18,10 @@ mat-sidenav {
   @include common.border-right-gray;
 }
 
+mat-sidenav-content {
+  padding-right: 20px;
+}
+
 mat-progress-bar {
   width: 200px;
   margin: 0 auto;

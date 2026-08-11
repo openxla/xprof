@@ -1,4 +1,4 @@
-import {Component, ElementRef, EventEmitter, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {Component, ElementRef, EventEmitter, HostListener, Input, OnChanges, OnInit, Output, SimpleChanges, ViewChild, ChangeDetectionStrategy} from '@angular/core';
 import {HeapObject} from 'org_xprof/frontend/app/common/interfaces/heap_object';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 
@@ -25,6 +25,11 @@ export class MaxHeapChart implements OnChanges, OnInit {
   @ViewChild('chart', {static: false}) chartRef!: ElementRef;
 
   chart: google.visualization.ColumnChart|null = null;
+
+  @HostListener('window:resize')
+  onResize() {
+    this.drawChart();
+  }
 
   ngOnInit() {
     this.loadGoogleChart();

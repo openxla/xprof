@@ -2470,6 +2470,7 @@ cc_library(
     srcs = ["xplane_to_trace_container.cc"],
     hdrs = ["xplane_to_trace_container.h"],
     deps = [
+        ":xprof_thread_pool_executor",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",

@@ -31,7 +31,7 @@ export class TraceViewerCustomizationPanel extends LitElement {
       font-size: 14px;
       margin-bottom: 6px;
       display: block;
-      color: var(--md-sys-color--on-surface, #1f1f1f);
+      color: var(--md-sys-color-on-surface, #1f1f1f);
     }
     md-slider {
       width: 100%;
@@ -44,10 +44,10 @@ export class TraceViewerCustomizationPanel extends LitElement {
     .section-title {
       font-size: 16px;
       font-weight: 600;
-      color: var(--md-sys-color--primary, #0b57d0);
+      color: var(--md-sys-color-primary, #0b57d0);
       margin-bottom: 16px;
       padding-bottom: 4px;
-      border-bottom: 1px solid var(--md-sys-color--outline-variant, #cacaca);
+      border-bottom: 1px solid var(--md-sys-color-outline-variant, #cacaca);
     }
     .actions {
       display: flex;

@@ -239,31 +239,21 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_2_0 = {
     .has_matrix_unit_sparsity_support = false,
 };
 
-// Extracts the AMD architecture from a reported device name.
-//
-// ROCm collector emits rocprofiler-sdk's agent name, composed via
-// fmt::format("gfx{}{}{:x}", major, minor, step), so it is a bare processor name
-// such as "gfx942". See rocprofiler-sdk source/lib/rocprofiler-sdk/agent.cpp:
-// https://github.com/ROCm/rocprofiler-sdk/blob/amd-staging/source/lib/rocprofiler-sdk/agent.cpp#L769-L775
-//
-// HIP's hipDeviceProp_t::gcnArchName instead carries the target-ID form,
-// "gfx942:sramecc+:xnack-", so keep only the processor.
+// ROCm XLA collector emits rocprofiler-sdk's agent name, composed via
+// fmt::format("gfx{}{}{:x}", major, minor, step), e.g. "gfx942".
+// See rocprofiler-sdk source/lib/rocprofiler-sdk/agent.cpp.
 absl::string_view GfxVersionFromDeviceName(absl::string_view device_name) {
   return device_name.substr(0, device_name.find(':'));
 }
 
 // Fallback for traces captured before the collector reported a device name.
-// Only pairs identifying exactly one architecture are listed: ROCm derives the
-// capability from gfx_target_version and drops the step digit, so (9, 0) covers
-// both gfx908 (MI100) and gfx90a (MI200/250), whose rates differ.
+// Resolves only when the major, minor pair can identify a unique architecture.
 absl::string_view GfxVersionFromComputeCapability(int major, int minor) {
   if (major == 9 && minor == 4) return "gfx942";  // CDNA 3, MI300 series
   if (major == 9 && minor == 5) return "gfx950";  // CDNA 4, MI350 series
   return "";
 }
 
-// Resolves the architecture used to key the AMD tables below: the reported
-// device name if there is one, else the compute capability.
 absl::string_view ResolveAmdGfxVersion(const DeviceCapabilities& device_cap) {
   absl::string_view gfx = GfxVersionFromDeviceName(device_cap.device_name());
   if (!gfx.empty()) return gfx;
@@ -272,15 +262,15 @@ absl::string_view ResolveAmdGfxVersion(const DeviceCapabilities& device_cap) {
       device_cap.compute_capability().minor());
 }
 
-// LDS bytes per CU per clock. Each bank serves one read, write or atomic per
-// cycle, so the figure is the same in both directions.
+// LDS bytes per CU per clock.
+// Each bank serves one read, write or atomic per cycle.
 //
-// AMD CDNA 4 architecture whitepaper, which additionally covers LDS spec for
-// earlier generations (CDNA 3 and prior):
+// AMD CDNA 4 architecture whitepaper, which additionally covers the LDS spec 
+// for earlier generations (CDNA 3 and prior):
 // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
 //
-// Note RDNA series is absent as its LDS belongs to a workgroup processor rather
-// than a CU. The published per-cycle figure cannot clearly be attributed per CU.
+// RDNA series is absent as its LDS belongs to a workgroup processor rather than
+// a CU. The published per-cycle figure cannot clearly be attributed per CU.
 double GetAmdLdsBytesPerCuPerCycle(absl::string_view gfx_version) {
   static const auto& kTable = *new absl::btree_map<absl::string_view, double>{
       {"gfx908", 128.0},  // CDNA 1, 32 banks x 4 B
@@ -331,14 +321,8 @@ GpuFlopCapabilities GetNvidiaFlopCapsPerSMPerCycle(int major_comp_cap,
   return GpuFlopCapabilities(*(it->second));
 }
 
-// Peak FLOPs per CU per cycle. FMA considered as 2 FLOPs. Matrix rates are dense
-// MFMA and vector rates are VALU. CDNA 3 and 4 are stated directly by the CDNA 4
-// whitepaper (Table 1, in these units); CDNA 1 and 2 are derived from the
-// published peak as: peak_flops / (cu_count * clock). Pinned by tests either way.
-//
-// fp16 is set alongside bf16 as GetFlopMaxThroughputPerSM considers only fp32
-// and fp16. A matrix rate left solely in bf16_tflops is skipped and the peak
-// falls back to vector fp32.
+// FMA considered as 2 FLOPs.
+// Matrix rates are dense MFMA, vector rates are VALU.
 std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
     absl::string_view gfx_version) {
   static const auto& kTable =
@@ -422,8 +406,7 @@ double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap) {
     transaction_byts_per_cycle =
         GetAmdLdsBytesPerCuPerCycle(ResolveAmdGfxVersion(device_cap));
   }
-  // An unknown vendor or architecture reports nothing rather than a value
-  // borrowed from hardware it does not describe.
+  // Report zero for an unknown vendor or architecture.
   if (transaction_byts_per_cycle <= 0.0) return 0.0;
   double GiBPS = transaction_byts_per_cycle * device_cap.clock_rate_in_ghz();
   return tsl::profiler::GigaToUni(GiBPS);
@@ -460,9 +443,8 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
         return "Nvidia GPU";
     }
   } else if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorAMD) {
-    // Resolved as the roofline tables do, so the reported architecture and the
-    // rates keyed on it never disagree. Falls back to the family below when
-    // neither the device name nor the compute capability identifies one.
+    // Attempt to resolve exact gfx architecture. If no resolution
+    // is reached, fall back to displaying the family (major) name.
     absl::string_view gfx = ResolveAmdGfxVersion(device_cap);
     if (!gfx.empty()) return absl::StrCat("AMD GPU - ", gfx);
     switch (device_cap.compute_capability().major()) {

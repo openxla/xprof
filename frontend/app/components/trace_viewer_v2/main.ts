@@ -42,6 +42,7 @@ export const MIN_EVENT_WIDTH = 2;
  */
 export const TRACE_OPTIONS = {
   SELECTED_GROUP_IDS: 'selected_group_ids',
+  MPMD_PIPELINE_VIEW_PARAM: 'mpmd_pipeline_view',
 } as const;
 
 /**
@@ -743,6 +744,16 @@ function expandUrlTimeRange(urlObj: URL, timeRange: [number, number]): void {
   urlObj.searchParams.set(TRACE_VIEW_OPTION.END_TIME_MS, String(expandedEnd));
 }
 
+function propagateBrowserTraceOptions(urlObj: URL): void {
+  const browserUrl = new URL(window.location.href);
+  if (
+    browserUrl.searchParams.get(TRACE_OPTIONS.MPMD_PIPELINE_VIEW_PARAM) ===
+    'true'
+  ) {
+    urlObj.searchParams.set(TRACE_OPTIONS.MPMD_PIPELINE_VIEW_PARAM, 'true');
+  }
+}
+
 // Fetches JSON data from the given URL. The `response.json()` method returns
 // `any`, so this function returns `unknown`. Validation of the data structure
 // (e.g., using `isTraceData`) is expected to be done by the caller.
@@ -970,6 +981,7 @@ async function handleFetchDataEvent(
 
   const urlObj = new URL(initialDataUrl, window.location.href);
   urlObj.searchParams.delete('use_saved_result');
+  propagateBrowserTraceOptions(urlObj);
 
   urlObj.searchParams.set(
     TRACE_VIEW_OPTION.START_TIME_MS,
@@ -1098,6 +1110,7 @@ export async function traceViewerV2Main(
         let urlObj: URL;
         try {
           urlObj = new URL(url, window.location.href);
+          propagateBrowserTraceOptions(urlObj);
         } catch (e) {
           console.error('Invalid URL:', url, e);
           const errorMessage = (e as Error).message;
@@ -1140,6 +1153,7 @@ export async function traceViewerV2Main(
       let urlObj: URL;
       try {
         urlObj = new URL(url, window.location.href);
+        propagateBrowserTraceOptions(urlObj);
       } catch (e) {
         console.error('Invalid URL for search results:', url, e);
         return;

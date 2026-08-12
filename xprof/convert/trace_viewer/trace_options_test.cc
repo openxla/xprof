@@ -32,7 +32,6 @@ class TraceEventsFilter : public TraceEventsFilterInterface {
 
 namespace {
 
-using ::testing::IsEmpty;
 using ::testing::Pair;
 using ::testing::UnorderedElementsAre;
 
@@ -41,18 +40,23 @@ TEST(TraceOptionsTest, TraceOptionsFromToolOptionsTest) {
   TraceOptions options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
   EXPECT_FALSE(options.enable_legacy_dcn);
+  EXPECT_FALSE(options.mpmd_pipeline_view);
 
   tool_options["full_dma"] = true;
   tool_options["enable_legacy_dcn"] = true;
+  tool_options[std::string(kMpmdPipelineView)] = true;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_TRUE(options.full_dma);
   EXPECT_TRUE(options.enable_legacy_dcn);
+  EXPECT_TRUE(options.mpmd_pipeline_view);
 
   tool_options["full_dma"] = false;
   tool_options["enable_legacy_dcn"] = false;
+  tool_options[std::string(kMpmdPipelineView)] = false;
   options = TraceOptionsFromToolOptions(tool_options);
   EXPECT_FALSE(options.full_dma);
   EXPECT_FALSE(options.enable_legacy_dcn);
+  EXPECT_FALSE(options.mpmd_pipeline_view);
 }
 
 TEST(TraceOptionsTest, TraceOptionsToDetailsTest) {
@@ -60,16 +64,24 @@ TEST(TraceOptionsTest, TraceOptionsToDetailsTest) {
   options.full_dma = true;
 
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kUnknownDevice, options),
-              IsEmpty());
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", false)));
 
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kTpu, options),
-              UnorderedElementsAre(Pair("full_dma", true)));
+              UnorderedElementsAre(Pair("full_dma", true),
+                                   Pair("mpmd_pipeline_view", false)));
 
-  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kGpu, options), IsEmpty());
+  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kGpu, options),
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", false)));
 
   options.full_dma = false;
+  options.mpmd_pipeline_view = true;
+  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kUnknownDevice, options),
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", true)));
   EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kTpu, options),
-              UnorderedElementsAre(Pair("full_dma", false)));
+              UnorderedElementsAre(Pair("full_dma", false),
+                                   Pair("mpmd_pipeline_view", true)));
+  EXPECT_THAT(TraceOptionsToDetails(TraceDeviceType::kGpu, options),
+              UnorderedElementsAre(Pair("mpmd_pipeline_view", true)));
 }
 
 TEST(TraceOptionsTest, IsTpuTraceTest) {

@@ -1,6 +1,7 @@
 """Tests for the detect_unfused_updates_tool HLO parser suggestions."""
 
 import json
+import time
 import types
 from unittest import mock
 
@@ -725,6 +726,47 @@ class DetectUnfusedUpdatesToolTest(absltest.TestCase):
     )
     self.assertEqual(res3, {})
 
+  def test_analyze_hlo_module_proto_preserves_profile_priority(self):
+    p1 = _make_instr(1, "p1", "parameter")
+    add1 = _make_instr(2, "add1", "add", operands=[1])
+    mul1 = _make_instr(3, "mul1", "multiply", operands=[2])
+    main_comp = types.SimpleNamespace(
+        id=10, name="main", instructions=[p1, add1, mul1]
+    )
+    module_proto = types.SimpleNamespace(
+        name="jit_func", computations=[main_comp]
+    )
+
+    # Test order 1: Fallback entry placed BEFORE exact/clean entries
+    profile_map_order1 = {
+        ("", "add1"): {"total_self_time_ms": 0.1},
+        ("jit_func(123)", "add1"): {"total_self_time_ms": 10.0},
+        ("", "mul1"): {"total_self_time_ms": 0.2},
+        ("jit_func", "mul1"): {"total_self_time_ms": 20.0},
+    }
+    bottlenecks1, _ = detect_unfused_updates_tool.analyze_hlo_module_proto(
+        module_proto, "jit_func(123)", profile_map_order1
+    )
+    self.assertLen(bottlenecks1, 2)
+    b_map1 = {b["instruction"]: b["total_self_time_ms"] for b in bottlenecks1}
+    self.assertEqual(b_map1["add1"], 10.0)
+    self.assertEqual(b_map1["mul1"], 20.0)
+
+    # Test order 2: Fallback entry placed AFTER exact/clean entries
+    profile_map_order2 = {
+        ("jit_func(123)", "add1"): {"total_self_time_ms": 10.0},
+        ("", "add1"): {"total_self_time_ms": 0.1},
+        ("jit_func", "mul1"): {"total_self_time_ms": 20.0},
+        ("", "mul1"): {"total_self_time_ms": 0.2},
+    }
+    bottlenecks2, _ = detect_unfused_updates_tool.analyze_hlo_module_proto(
+        module_proto, "jit_func(123)", profile_map_order2
+    )
+    self.assertLen(bottlenecks2, 2)
+    b_map2 = {b["instruction"]: b["total_self_time_ms"] for b in bottlenecks2}
+    self.assertEqual(b_map2["add1"], 10.0)
+    self.assertEqual(b_map2["mul1"], 20.0)
+
   def test_profile_filtering_excludes_cold_and_unprofiled_ops(self):
     p1 = _make_instr(1, "p1", "parameter")
     add1 = _make_instr(2, "add1", "add", operands=[1])
@@ -882,6 +924,56 @@ class DetectUnfusedUpdatesToolTest(absltest.TestCase):
     self.assertEqual(
         detect_unfused_updates_tool.format_shape_proto(shape), "s32[]"
     )
+
+  def test_large_proto_performance(self):
+    modules = []
+    for mod_idx in range(20):
+      instructions = [
+          _make_instr(
+              mod_idx * 1000 + i,
+              f"instr_{mod_idx}_{i}",
+              "add" if i % 2 == 0 else "multiply",
+              operands=[mod_idx * 1000 + i - 1] if i > 0 else [],
+          )
+          for i in range(1000)
+      ]
+      comp = types.SimpleNamespace(
+          id=mod_idx, name="main", instructions=instructions
+      )
+      mod = types.SimpleNamespace(name=f"module_{mod_idx}", computations=[comp])
+      modules.append(types.SimpleNamespace(hlo_module=mod))
+
+    debug_info = types.SimpleNamespace(
+        hlo_proto=modules, program_id=[None] * 20
+    )
+
+    mock_top_ops = {
+        "top_by_time": [
+            {
+                "name": "by_program/module_0/instr_0_10",
+                "category": "elementwise",
+                "total_self_time_ms": 1.0,
+                "occurrences": 10,
+            },
+            {
+                "name": "by_program/module_0/instr_0_11",
+                "category": "elementwise",
+                "total_self_time_ms": 1.5,
+                "occurrences": 10,
+            },
+        ],
+    }
+
+    start = time.time()
+    result_str = detect_unfused_updates_tool.detect_unfused_updates(
+        session_id="perf_test",
+        get_top_hlo_ops_fn=lambda s, limit=50: json.dumps(mock_top_ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    elapsed = time.time() - start
+    result = json.loads(result_str)
+    self.assertLess(elapsed, 2.0)
+    self.assertTrue(result["bottlenecks_found"])
 
 
 if __name__ == "__main__":

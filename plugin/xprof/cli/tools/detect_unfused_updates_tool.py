@@ -64,8 +64,17 @@ _SHAPE_INDEX_OPS = {
 
 SMALL_OPCODES = _ELEMENTWISE_UNARY | _ELEMENTWISE_BINARY | _SHAPE_INDEX_OPS
 
+_EXCLUDED_OPCODES = frozenset({
+    "tuple",
+    "get-tuple-element",
+    "bitcast",
+    "constant",
+    "parameter",
+})
+
 ZERO_COST_TIME_THRESHOLD_MS = 0.001
 
+_MAX_CONSUMER_HOPS = 1000
 
 _PRIMITIVE_TYPE_NAMES = {
     1: "pred",
@@ -283,12 +292,21 @@ def _get_profile_info(
     if no match is found.
   """
   res = profile_map.get((mod_name, instr_name))
-  if res:
+  if res is not None:
     return res
   mod_name_clean = mod_name.split("(")[0] if mod_name else ""
+  if mod_name_clean:
+    res = profile_map.get((mod_name_clean, instr_name))
+    if res is not None:
+      return res
+  res = profile_map.get(("", instr_name))
+  if res is not None:
+    return res
   for (m_name, i_name), info in profile_map.items():
     if i_name == instr_name and (
-        m_name in mod_name or mod_name_clean in m_name or not m_name
+        m_name in mod_name
+        or (mod_name_clean and mod_name_clean in m_name)
+        or not m_name
     ):
       return info
   return {}
@@ -311,28 +329,46 @@ def analyze_hlo_module_proto(
       contains metadata for ops that didn't form a chain but are still isolated
       small ops.
   """
+  if not profile_map or not hasattr(module_proto, "computations"):
+    return [], {}
+
+  mod_name_clean = full_mod_name.split("(")[0] if full_mod_name else ""
+  module_profile_map: dict[str, Any] = {}
+  entry_priorities: dict[str, int] = {}
+  for (m_name, i_name), info in profile_map.items():
+    if m_name == full_mod_name:
+      priority = 4
+    elif mod_name_clean and m_name == mod_name_clean:
+      priority = 3
+    elif not m_name:
+      priority = 2
+    elif (m_name and m_name in full_mod_name) or (
+        mod_name_clean and mod_name_clean in m_name
+    ):
+      priority = 1
+    else:
+      continue
+
+    if priority > entry_priorities.get(i_name, 0):
+      entry_priorities[i_name] = priority
+      module_profile_map[i_name] = info
+
+  # If no profiling entry matches this module, skip indexing completely.
+  if not module_profile_map:
+    return [], {}
+
   indexer = _HloModuleIndexer(module_proto)
   candidate_instr_ids = set()
   op_metadata = {}
 
   # 1. Collect all unfused candidate instructions matching SMALL_OPCODES
   for instr_id, instr in indexer.instructions.items():
-    opcode = instr.opcode.lower()
-    if opcode not in SMALL_OPCODES:
-      continue
-    # Exclude metadata aliases and zero-cost ops
-    if opcode in {
-        "tuple",
-        "get-tuple-element",
-        "bitcast",
-        "constant",
-        "parameter",
-    }:
+    prof_info = module_profile_map.get(instr.name)
+    if not prof_info:
       continue
 
-    # Filter out cold ops that have no profile data
-    prof_info = _get_profile_info(profile_map, full_mod_name, instr.name)
-    if not prof_info:
+    opcode = instr.opcode.lower()
+    if opcode not in SMALL_OPCODES or opcode in _EXCLUDED_OPCODES:
       continue
 
     # Skip instructions inside fusion computations
@@ -370,18 +406,11 @@ def analyze_hlo_module_proto(
 
   # 2. Build directed dataflow edges directly from proto operand_ids
   directed_edges = set()
-  zero_cost_ops = {
-      "tuple",
-      "get-tuple-element",
-      "bitcast",
-      "constant",
-      "parameter",
-  }
 
   for instr_id in candidate_instr_ids:
     queue = collections.deque(indexer.get_consumer_instructions(instr_id))
     visited = set()
-    while queue:
+    while queue and len(visited) < _MAX_CONSUMER_HOPS:
       consumer = queue.popleft()
       if consumer.id in visited:
         continue
@@ -389,7 +418,7 @@ def analyze_hlo_module_proto(
 
       if consumer.id in candidate_instr_ids:
         directed_edges.add((instr_id, consumer.id))
-      elif consumer.opcode.lower() in zero_cost_ops:
+      elif consumer.opcode.lower() in _EXCLUDED_OPCODES:
         queue.extend(indexer.get_consumer_instructions(consumer.id))
 
   # 3. Extract topological chains and DAG clusters
@@ -421,6 +450,7 @@ def analyze_hlo_module_proto(
           " combining JAX operations) to allow XLA to fuse them into a single"
           " loop."
       )
+      extra_field = {"unfused_chain": chain_str}
     else:
       cluster_str = "{" + ", ".join(member_names) + "}"
       rec = (
@@ -431,10 +461,13 @@ def analyze_hlo_module_proto(
           " HBM. Consider merging them within a single JAX function to allow"
           " XLA to fuse them."
       )
+      extra_field = {"unfused_cluster": cluster_str}
 
     for nid in nodes:
       instr_name = op_metadata[nid]["name"]
-      prof_info = _get_profile_info(profile_map, full_mod_name, instr_name)
+      prof_info = module_profile_map.get(instr_name) or _get_profile_info(
+          profile_map, full_mod_name, instr_name
+      )
       bottleneck = {
           "name": f"by_program/{full_mod_name}/{instr_name}",
           "instruction": instr_name,
@@ -445,11 +478,8 @@ def analyze_hlo_module_proto(
           "member_shapes": member_shapes,
           "recommendation": rec,
           "total_self_time_ms": prof_info.get("total_self_time_ms", 0.0),
+          **extra_field,
       }
-      if sg_type == "topological_chain":
-        bottleneck["unfused_chain"] = chain_str  # pyrefly: ignore[unbound-name]
-      else:
-        bottleneck["unfused_cluster"] = cluster_str  # pyrefly: ignore[unbound-name]
       bottlenecks.append(bottleneck)
 
   # 4. Collect unflagged candidates for Type 2 cross-module heuristic
@@ -475,15 +505,34 @@ def find_parallel_eager_groups(
   already_flagged = set()
   candidate_nodes = list(unflagged_candidates.keys())
 
+  # Precompute node data to avoid O(N^2 * M) repetitive lookups and splits
+  node_data = {}
+  for c_node in candidate_nodes:
+    name, mod = c_node
+    info = unflagged_candidates[c_node]
+    prof_info = _get_profile_info(profile_map, mod, name)
+    occ = prof_info.get("occurrences", 0)
+    base = name.split(".")[0].rstrip("0123456789")
+    node_data[c_node] = {
+        "name": name,
+        "mod": mod,
+        "shape": info["shape"],
+        "comp_id": info["comp_id"],
+        "occ": occ,
+        "base": base,
+        "prof_info": prof_info,
+    }
+
   for i, c_node_a in enumerate(candidate_nodes):
     if c_node_a in already_flagged:
       continue
 
-    name_a, mod_a = c_node_a
-    info_a = unflagged_candidates[c_node_a]
-    shape_a = info_a["shape"]
-    comp_a = info_a["comp_id"]
-    occ_a = _get_profile_info(profile_map, mod_a, name_a).get("occurrences", 0)
+    data_a = node_data[c_node_a]
+    mod_a = data_a["mod"]
+    shape_a = data_a["shape"]
+    comp_a = data_a["comp_id"]
+    occ_a = data_a["occ"]
+    base_a = data_a["base"]
 
     related_nodes = [c_node_a]
 
@@ -491,13 +540,12 @@ def find_parallel_eager_groups(
       if i == j:
         continue
 
-      name_b, mod_b = c_node_b
-      info_b = unflagged_candidates[c_node_b]
-      shape_b = info_b["shape"]
-      comp_b = info_b["comp_id"]
-      occ_b = _get_profile_info(profile_map, mod_b, name_b).get(
-          "occurrences", 0
-      )
+      data_b = node_data[c_node_b]
+      mod_b = data_b["mod"]
+      shape_b = data_b["shape"]
+      comp_b = data_b["comp_id"]
+      occ_b = data_b["occ"]
+      base_b = data_b["base"]
 
       is_same_module = mod_a == mod_b
 
@@ -508,8 +556,6 @@ def find_parallel_eager_groups(
       is_same_comp = is_same_module and comp_a == comp_b and comp_a is not None
       is_same_shape = shape_a == shape_b and shape_a is not None
 
-      base_a = name_a.split(".")[0].rstrip("0123456789")
-      base_b = name_b.split(".")[0].rstrip("0123456789")
       is_same_base = base_a == base_b and len(base_a) > 1
 
       is_structural_match = is_same_shape or is_same_base
@@ -537,7 +583,7 @@ def find_parallel_eager_groups(
 
       for node in related_nodes:
         instr_name, mod_name = node
-        prof_info = _get_profile_info(profile_map, mod_name, instr_name)
+        prof_info = node_data[node]["prof_info"]
 
         op_info = {
             "name": f"by_program/{mod_name}/{instr_name}",

@@ -31,15 +31,42 @@
   </mat-expansion-panel-header>
 
   <div>
-    <source-code-editor
-      *ngIf="frame"
-      [frame]="frame"
-      [firstLineNumber]="(sourceCodeSnippetAddress?.firstLine ?? 1)"
-      [targetLineNumber]="sourceCodeSnippetAddress?.lineNumber"
-      [targetStartColumn]="$any(sourceCodeSnippetAddress)?.startColumn"
-      [targetEndColumn]="$any(sourceCodeSnippetAddress)?.endColumn"
-      [fileName]="sourceCodeSnippetAddress?.fileName">
-    </source-code-editor>
+    <ng-container *ngIf="frame">
+      <table>
+        <thead>
+          <tr>
+            <th><pre class="line-number"></pre></th>
+            <th><pre class="line-content"></pre></th>
+            <th [matTooltip]="'The total execution time for all HLO operations generated from this line, including the time spent in any descendant operations.'"><pre class="metric-header">Time</pre></th>
+            <th [matTooltip]="'The average FLOPS utilization for all HLO operations generated from this line, including the FLOPS of any descendant operations.'"><pre class="metric-header">FLOPS %</pre></th>
+          </tr>
+        </thead>
+        <tbody>
+          <ng-container *ngIf="frame.lines && frame.lines.length > 0; else noLines">
+            <tr
+              *ngFor="let line of frame.lines; let lineIndex = index; trackBy: trackByIndex"
+              [class.line-selected]="sourceCodeSnippetAddress.firstLine + lineIndex === sourceCodeSnippetAddress.lineNumber">
+              <td><pre class="line-number"><code>{{ sourceCodeSnippetAddress.firstLine + lineIndex }}</code></pre></td>
+              <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
+              <ng-container *ngIf="lineMetric(sourceCodeSnippetAddress.firstLine + lineIndex) as metric; else noMetricData">
+                <td><pre class="metric-value">{{metric.timePs ? formatDurationPs(metric.timePs) : ''}}</pre></td>
+                <td><pre class="metric-value">{{metric.flopsUtilization ? percent(metric.flopsUtilization) : ''}}</pre></td>
+              </ng-container>
+              <ng-template #noMetricData>
+                <td><pre class="metric-value">&nbsp;</pre></td>
+                <td><pre class="metric-value">&nbsp;</pre></td>
+              </ng-template>
+            </tr>
+          </ng-container>
+
+          <ng-template #noLines>
+            <tr>
+              <td colspan="2">There are no lines to display.</td>
+            </tr>
+          </ng-template>
+        </tbody>
+      </table>
+    </ng-container>
 
     <message
       *ngIf="!frame && failure"

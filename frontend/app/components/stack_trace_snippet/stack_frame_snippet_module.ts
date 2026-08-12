@@ -7,7 +7,6 @@ import {MatTooltipModule} from '@angular/material/tooltip';
 
 import {Message} from './message';
 import {StackFrameSnippet} from './stack_frame_snippet';
-import {SourceCodeEditorModule} from 'org_xprof/frontend/app/components/source_code_editor/source_code_editor_module';
 
 /** A module to show code snippets for a stack frame. */
 @NgModule({
@@ -20,7 +19,6 @@ import {SourceCodeEditorModule} from 'org_xprof/frontend/app/components/source_c
     MatTooltipModule,
     MatProgressBarModule,
     Message,
-    SourceCodeEditorModule,
   ],
 })
 export class StackFrameSnippetModule {

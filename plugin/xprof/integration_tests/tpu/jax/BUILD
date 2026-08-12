@@ -3,6 +3,7 @@ load("@org_xprof//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
 profiler_test(
     name = "perf_counters_test",
     srcs = ["perf_counters_test.py"],
+    args = ["--enable_unified_xprof=true"],
     main = "perf_counters_test.py",
     platforms = [
         "v2",

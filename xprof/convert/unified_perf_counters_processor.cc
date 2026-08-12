@@ -1,0 +1,54 @@
+/* Copyright 2026 The OpenXLA Authors. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+#include "xprof/convert/unified_perf_counters_processor.h"
+
+#include <string>
+
+#include "absl/status/status.h"
+#include "google/protobuf/arena.h"
+#include "xla/tsl/platform/statusor.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
+#include "xprof/convert/xplane_to_perf_counters.h"
+
+namespace xprof {
+
+absl::Status UnifiedPerfCountersProcessor::ProcessSession(
+    const XprofSessionSnapshot& session_snapshot,
+    const tensorflow::profiler::ToolOptions& /*options*/) {
+  // TODO(b/537521030): Support multiple hosts properly if needed,
+  // or unify the data aggregation logic between 1P and 3P here.
+  // For now, process the first host's XSpace to establish the structure.
+  if (session_snapshot.XSpaceSize() == 0) {
+    return absl::NotFoundError("No XSpace found in the session.");
+  }
+
+  google::protobuf::Arena arena;
+  TF_ASSIGN_OR_RETURN(tensorflow::profiler::XSpace* xspace,
+                      session_snapshot.GetXSpace(0, &arena));
+
+  tensorflow::profiler::DataTable data_table;
+  std::string hostname = session_snapshot.GetHostname(0);
+  tensorflow::profiler::ConvertXSpaceToPerfCounters(xspace, hostname,
+                                                    &data_table);
+
+  SetOutput(data_table.ToJson(), "application/json");
+  return absl::OkStatus();
+}
+
+}  // namespace xprof

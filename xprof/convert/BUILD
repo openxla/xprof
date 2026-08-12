@@ -319,6 +319,52 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "unified_perf_counters_processor",
+    srcs = ["unified_perf_counters_processor.cc"],
+    hdrs = ["unified_perf_counters_processor.h"],
+    deps = [
+        ":data_table_utils",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_perf_counters",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+    alwayslink = 1,
+)
+
+cc_test(
+    name = "unified_perf_counters_processor_test",
+    srcs = ["unified_perf_counters_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_perf_counters_processor",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        ":unified_tools_registration",
+        "//file/base",
+        "//file/base:path",
+        "//third_party/jsoncpp:json_compat",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@jsoncpp_git//:jsoncpp",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
 cc_test(
     name = "unified_utilization_viewer_processor_test",
     srcs = ["unified_utilization_viewer_processor_test.cc"],
@@ -3183,6 +3229,7 @@ cc_library(
         ":unified_memory_viewer_processor",
         ":unified_op_profile_processor",
         ":unified_overview_page_processor",
+        ":unified_perf_counters_processor",
         ":unified_profile_processor_factory",
         ":unified_roofline_model_processor",
         ":unified_utilization_viewer_processor",

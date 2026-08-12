@@ -1,0 +1,192 @@
+/* stylelint-disable declaration-no-important -- Required to override Angular Material styles for Monaco overlay */
+/* stylelint-disable selector-class-pattern -- Required to override Angular Material styles for Monaco overlay */
+@use 'frontend/app/styles/common';
+
+.editor-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.floating-theme-selector {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 100;
+}
+
+.tiny-theme-dropdown {
+  width: 130px;
+  background-color: var(--mat-select-panel-bg, #fff);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+
+  // Scale down the material form field to make it unobtrusive
+  ::ng-deep .mat-form-field-wrapper,
+  ::ng-deep .mat-mdc-form-field-subscript-wrapper {
+    margin: 0;
+    padding: 0;
+    display: none;
+  }
+
+  ::ng-deep .mat-form-field-infix,
+  ::ng-deep .mat-mdc-form-field-infix {
+    border-top: 0;
+    padding: 6px 0;
+    min-height: 24px;
+  }
+
+  ::ng-deep .mat-select-value {
+    font-size: 11px;
+    color: var(--mat-select-text-color, #333);
+  }
+}
+
+// Address transparency issues rendering over or inside the Monaco canvas
+::ng-deep .theme-select-panel {
+  background-color: var(--mat-select-panel-bg, #fff) !important;
+  color: var(--mat-select-text-color, #333) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3) !important;
+}
+
+::ng-deep .theme-select-panel .mat-mdc-option,
+::ng-deep .theme-select-panel .mat-option {
+  background-color: inherit;
+  color: inherit;
+}
+
+::ng-deep .theme-select-panel .mat-mdc-option:hover,
+::ng-deep .theme-select-panel .mat-option:hover,
+::ng-deep .theme-select-panel .mat-mdc-option.mdc-list-item--selected,
+::ng-deep .theme-select-panel .mat-option.mat-selected {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+:host-context(body.dark-mode),
+:host-context(.dark-theme) {
+  ::ng-deep .theme-select-panel, .tiny-theme-dropdown {
+    background-color: #2d2d2d !important;
+    color: #e0e0e0 !important;
+  }
+  ::ng-deep .theme-select-panel .mat-mdc-option,
+  ::ng-deep .theme-select-panel .mat-option {
+    color: #e0e0e0 !important;
+  }
+  ::ng-deep .tiny-theme-dropdown .mat-select-value {
+    color: #e0e0e0 !important;
+  }
+  ::ng-deep .theme-select-panel .mat-mdc-option:hover,
+  ::ng-deep .theme-select-panel .mat-option:hover,
+  ::ng-deep .theme-select-panel .mat-mdc-option.mdc-list-item--selected,
+  ::ng-deep .theme-select-panel .mat-option.mat-selected {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+  }
+}
+
+.monaco-editor-container {
+  width: 100%;
+  min-height: 80px;
+  margin: 0;
+  padding: 0;
+}
+
+.no-lines-message {
+  padding: 10px;
+  color: #636d83;
+  font-family: common.$code-font-family;
+}
+
+:host ::ng-deep .line-selected {
+  background-color: #fff6e6 !important;
+  border: 1px solid #f29900 !important;
+  border-radius: 4px;
+}
+
+:host ::ng-deep .line-selected-gutter {
+  border-left: 3px solid #f29900;
+}
+
+:host ::ng-deep .vs-dark .line-selected,
+:host ::ng-deep .hc-black .line-selected,
+:host ::ng-deep .monaco-editor.vs-dark .line-selected,
+:host ::ng-deep .monaco-editor.hc-black .line-selected {
+  background-color: rgba(242, 153, 0, 0.2) !important;
+  border: 1px solid #fa0 !important;
+}
+
+:host ::ng-deep .vs-dark .line-selected-gutter,
+:host ::ng-deep .hc-black .line-selected-gutter,
+:host ::ng-deep .monaco-editor.vs-dark .line-selected-gutter,
+:host ::ng-deep .monaco-editor.hc-black .line-selected-gutter {
+  border-left: 3px solid #f29900 !important;
+}
+
+:host ::ng-deep .line-metric-widget {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+  font-family: common.$code-font-family;
+  font-size: 12px;
+  user-select: text;
+  cursor: text;
+}
+
+:host ::ng-deep .metric-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: #f1f3f4;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: text;
+  cursor: text;
+}
+
+:host ::ng-deep .metric-badge.time-badge {
+  background-color: #e8f0fe;
+  color: #1967d2;
+  border-color: #d2e3fc;
+}
+
+:host ::ng-deep .metric-badge.flops-badge {
+  background-color: #e6f4ea;
+  color: #137333;
+  border-color: #ceead6;
+}
+
+:host ::ng-deep .vs-dark .metric-badge,
+:host ::ng-deep .hc-black .metric-badge,
+:host ::ng-deep .monaco-editor.vs-dark .metric-badge,
+:host ::ng-deep .monaco-editor.hc-black .metric-badge {
+  background-color: #292a2d;
+  color: #e8eaed;
+  border-color: #5f6368;
+}
+
+:host ::ng-deep .vs-dark .metric-badge.time-badge,
+:host ::ng-deep .hc-black .metric-badge.time-badge,
+:host ::ng-deep .monaco-editor.vs-dark .metric-badge.time-badge,
+:host ::ng-deep .monaco-editor.hc-black .metric-badge.time-badge {
+  background-color: rgba(138, 180, 248, 0.16);
+  color: #8ab4f8;
+  border-color: rgba(138, 180, 248, 0.4);
+}
+
+:host ::ng-deep .vs-dark .metric-badge.flops-badge,
+:host ::ng-deep .hc-black .metric-badge.flops-badge,
+:host ::ng-deep .monaco-editor.vs-dark .metric-badge.flops-badge,
+:host ::ng-deep .monaco-editor.hc-black .metric-badge.flops-badge {
+  background-color: rgba(129, 201, 149, 0.16);
+  color: #81c995;
+  border-color: rgba(129, 201, 149, 0.4);
+}
+
+.loading-spinner-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  width: 100%;
+}

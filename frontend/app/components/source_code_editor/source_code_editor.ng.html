@@ -1,0 +1,28 @@
+<div *ngIf="isLoading; else checkContent" class="loading-spinner-container">
+  <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
+</div>
+
+<ng-template #checkContent>
+  <div class="editor-wrapper" *ngIf="frame && frame?.lines?.length; else noLines">
+    <div class="floating-theme-selector">
+      <mat-form-field appearance="outline" class="tiny-theme-dropdown">
+        <mat-select [value]="currentTheme" (selectionChange)="onThemeSelection($event.value)" panelClass="theme-select-panel">
+          <mat-option value="vs">Light (Default)</mat-option>
+          <mat-option value="vs-dark">Dark</mat-option>
+          <mat-option value="hc-black">High Contrast Dark</mat-option>
+          <mat-option value="hc-light">High Contrast Light</mat-option>
+          <mat-option value="solarized-light">Solarized Light</mat-option>
+          <mat-option value="monokai">Monokai</mat-option>
+        </mat-select>
+      </mat-form-field>
+    </div>
+    <div
+      #editorContainer
+      class="monaco-editor-container">
+    </div>
+  </div>
+</ng-template>
+
+<ng-template #noLines>
+  <div class="no-lines-message">Can't display source code.</div>
+</ng-template>

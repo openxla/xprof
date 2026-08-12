@@ -107,7 +107,7 @@ TEST(HardwareTypeUtilsTest, Mi300XPeakComputeTFlops) {
   device_cap.set_clock_rate_in_ghz(2.1);
   device_cap.set_num_cores(304);
   device_cap.set_device_vendor("AMD");
-  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+  device_cap.set_device_name("gfx942");
 
   double peak_tflops =
       GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
@@ -249,17 +249,24 @@ TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToFamilyWithoutName) {
   EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
 }
 
-TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchAndStripsFeatures) {
+TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchFromDeviceName) {
   DeviceCapabilities device_cap;
   device_cap.set_device_vendor("AMD");
-  device_cap.mutable_compute_capability()->set_major(9);
-  device_cap.mutable_compute_capability()->set_minor(4);
-  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+  device_cap.set_device_name("gfx950");
 
   // Must remain more specific than the family fallback, and must still contain
   // "GPU" because ParseHardwareType and the frontend both key on that.
-  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx942");
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx950");
   EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameRejectsMalformedAmdDeviceName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  // Target-ID form, which the collector does not emit.
+  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU");
 }
 
 TEST(HardwareTypeUtilsTest, GpuModelNameResolvesAmdArchFromComputeCapability) {

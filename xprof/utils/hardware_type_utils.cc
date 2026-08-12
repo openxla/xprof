@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "absl/container/btree_map.h"
 #include "absl/log/log.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -240,10 +241,17 @@ const GpuFlopCapabilities kComputeCap_PerSM_PerCycle_2_0 = {
 };
 
 // ROCm XLA collector emits rocprofiler-sdk's agent name, composed via
-// fmt::format("gfx{}{}{:x}", major, minor, step), e.g. "gfx942".
+// fmt::format("gfx{}{}{:x}", major, minor, step), e.g. "gfx942". 
 // See rocprofiler-sdk source/lib/rocprofiler-sdk/agent.cpp.
-absl::string_view GfxVersionFromDeviceName(absl::string_view device_name) {
-  return device_name.substr(0, device_name.find(':'));
+// Reject a device name that does not follow this formatting.
+absl::string_view GfxVersionIfWellFormed(absl::string_view device_name) {
+  if (!absl::StartsWith(device_name, "gfx")) return "";
+  absl::string_view suffix = device_name.substr(3);
+  if (suffix.size() < 3) return "";
+  for (char c : suffix) {
+    if (!absl::ascii_isxdigit(c)) return "";
+  }
+  return device_name;
 }
 
 // Fallback for traces captured before the collector reported a device name.
@@ -255,7 +263,7 @@ absl::string_view GfxVersionFromComputeCapability(int major, int minor) {
 }
 
 absl::string_view ResolveAmdGfxVersion(const DeviceCapabilities& device_cap) {
-  absl::string_view gfx = GfxVersionFromDeviceName(device_cap.device_name());
+  absl::string_view gfx = GfxVersionIfWellFormed(device_cap.device_name());
   if (!gfx.empty()) return gfx;
   return GfxVersionFromComputeCapability(
       device_cap.compute_capability().major(),

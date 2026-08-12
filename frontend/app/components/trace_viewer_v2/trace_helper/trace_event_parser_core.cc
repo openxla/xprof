@@ -116,32 +116,41 @@ tsl::profiler::ContextType GetContextTypeFromString(
 
 void ProcessMetadataEvents(const xprof::TraceDataResponse& response,
                            ParsedTraceEvents& result) {
-  for (const auto& process : response.metadata().processes()) {
+  for (const xprof::Process& process : response.metadata().processes()) {
     TraceEvent process_ev;
     process_ev.ph = Phase::kMetadata;
     process_ev.pid = process.id();
     process_ev.name = kProcessName;
-    process_ev.args[std::string(kName)] = process.name();
+    process_ev.args[kName] = process.name();
     result.flame_events.push_back(std::move(process_ev));
 
-    if (process.sort_index() != 0) {
+    if (process.has_sort_index()) {
       TraceEvent process_sort_ev;
       process_sort_ev.ph = Phase::kMetadata;
       process_sort_ev.pid = process.id();
       process_sort_ev.name = kProcessSortIndex;
-      process_sort_ev.args[std::string(kSortIndex)] =
-          std::to_string(process.sort_index());
+      process_sort_ev.args[kSortIndex] = absl::StrCat(process.sort_index());
       result.flame_events.push_back(std::move(process_sort_ev));
     }
 
-    for (const auto& thread : process.threads()) {
+    for (const xprof::Thread& thread : process.threads()) {
       TraceEvent thread_ev;
       thread_ev.ph = Phase::kMetadata;
       thread_ev.pid = process.id();
       thread_ev.tid = thread.id();
       thread_ev.name = kThreadName;
-      thread_ev.args[std::string(kName)] = thread.name();
+      thread_ev.args[kName] = thread.name();
       result.flame_events.push_back(std::move(thread_ev));
+
+      if (thread.has_sort_index()) {
+        TraceEvent thread_sort_ev;
+        thread_sort_ev.ph = Phase::kMetadata;
+        thread_sort_ev.pid = process.id();
+        thread_sort_ev.tid = thread.id();
+        thread_sort_ev.name = kThreadSortIndex;
+        thread_sort_ev.args[kSortIndex] = absl::StrCat(thread.sort_index());
+        result.flame_events.push_back(std::move(thread_sort_ev));
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 #include "frontend/app/components/trace_viewer_v2/timeline/data_provider.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -89,6 +90,8 @@ struct TraceInformation {
       ProcessId, absl::btree_map<std::string, std::vector<const CounterEvent*>>>
       counters_by_pid_name;
   absl::btree_map<std::pair<ProcessId, ThreadId>, std::string> thread_names;
+  absl::flat_hash_map<std::pair<ProcessId, ThreadId>, uint32_t>
+      thread_sort_indices;
   absl::flat_hash_map<ProcessId, std::string> process_names;
   absl::flat_hash_map<ProcessId, uint32_t> process_sort_indices;
   absl::btree_map<std::string, std::vector<const TraceEvent*>>
@@ -145,20 +148,61 @@ std::string GetDefaultProcessName(ProcessId pid) {
   return absl::StrCat("Process_", pid);
 }
 
-// Extracts the name from event.args. If not found or empty, returns the
-// provided default name.
-std::string GetNameWithDefault(const TraceEvent& event,
-                               absl::string_view default_name) {
-  const auto it = event.args.find(std::string(kName));
-  if (it != event.args.end() && !it->second.empty()) {
-    return it->second;
+// Compares two tracks (threads or processes) for ordering in the timeline.
+// Tracks are sorted hierarchically:
+// 1. Explicit sort index: Tracks with an explicit sort index precede unindexed
+//    tracks (i.e. having a sort index is ordered before / higher priority than
+//    not having one). If both have sort indices, they are ordered in ascending
+//    order of index value.
+// 2. Name: Tracks with explicit names precede unnamed tracks, ordered
+//    lexicographically.
+// 3. ID: Ordered by ProcessId or ThreadId in ascending order as a tie-breaker.
+template <typename IdType>
+bool CompareTrackMetadata(std::optional<uint32_t> sort_index_a,
+                          std::optional<uint32_t> sort_index_b,
+                          std::optional<absl::string_view> name_a,
+                          std::optional<absl::string_view> name_b,
+                          IdType id_a, IdType id_b) {
+  if (sort_index_a.has_value() && sort_index_b.has_value()) {
+    if (*sort_index_a != *sort_index_b) return *sort_index_a < *sort_index_b;
+  } else if (sort_index_a.has_value() != sort_index_b.has_value()) {
+    return sort_index_a.has_value();
   }
-  return std::string(default_name);
+
+  if (name_a.has_value() && name_b.has_value()) {
+    if (*name_a != *name_b) return *name_a < *name_b;
+  } else if (name_a.has_value() != name_b.has_value()) {
+    return name_a.has_value();
+  }
+
+  return id_a < id_b;
+}
+
+bool CompareThreadsForSort(ProcessId pid, const TraceInformation& trace_info,
+                           ThreadId a, ThreadId b) {
+  auto get_thread_sort_index = [&](ThreadId tid) -> std::optional<uint32_t> {
+    if (const auto it = trace_info.thread_sort_indices.find({pid, tid});
+        it != trace_info.thread_sort_indices.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  };
+  auto get_thread_name =
+      [&](ThreadId tid) -> std::optional<absl::string_view> {
+    if (const auto it = trace_info.thread_names.find({pid, tid});
+        it != trace_info.thread_names.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  };
+
+  return CompareTrackMetadata(get_thread_sort_index(a),
+                              get_thread_sort_index(b),
+                              get_thread_name(a), get_thread_name(b), a, b);
 }
 
 // Handles a metadata event, extracting and storing metadata such as
 // thread names, process names, etc.
-// TODO: b/439791754 - Handle sort index.
 // An example of the JSON structure for a thread name metadata event:
 // {
 //   "args": {
@@ -172,21 +216,37 @@ std::string GetNameWithDefault(const TraceEvent& event,
 void HandleMetadataEvent(const TraceEvent& event,
                          TraceInformation& trace_info) {
   if (event.name == kThreadName) {
-    const std::string name =
-        GetNameWithDefault(event, GetDefaultThreadName(event.tid));
-    trace_info.thread_names[{event.pid, event.tid}] = name;
-    if (name == kXlaModules) {
-      trace_info.xla_modules_tids[event.pid] = event.tid;
+    if (const auto it = event.args.find(kName);
+        it != event.args.end() && !it->second.empty()) {
+      trace_info.thread_names[{event.pid, event.tid}] = it->second;
+      if (it->second == kXlaModules) {
+        trace_info.xla_modules_tids[event.pid] = event.tid;
+      }
     }
   } else if (event.name == kProcessName) {
-    trace_info.process_names[event.pid] =
-        GetNameWithDefault(event, GetDefaultProcessName(event.pid));
+    if (const auto it = event.args.find(kName);
+        it != event.args.end() && !it->second.empty()) {
+      trace_info.process_names[event.pid] = it->second;
+    }
   } else if (event.name == kProcessSortIndex) {
-    if (auto it = event.args.find(std::string(kSortIndex));
-        it != event.args.end()) {
+    if (const auto it = event.args.find(kSortIndex); it != event.args.end()) {
       double sort_index_double;
-      if (absl::SimpleAtod(it->second, &sort_index_double)) {
+      if (absl::SimpleAtod(it->second, &sort_index_double) &&
+          std::isfinite(sort_index_double) && sort_index_double >= 0.0 &&
+          sort_index_double <=
+              static_cast<double>(std::numeric_limits<uint32_t>::max())) {
         trace_info.process_sort_indices[event.pid] =
+            static_cast<uint32_t>(sort_index_double);
+      }
+    }
+  } else if (event.name == kThreadSortIndex) {
+    if (const auto it = event.args.find(kSortIndex); it != event.args.end()) {
+      double sort_index_double;
+      if (absl::SimpleAtod(it->second, &sort_index_double) &&
+          std::isfinite(sort_index_double) && sort_index_double >= 0.0 &&
+          sort_index_double <=
+              static_cast<double>(std::numeric_limits<uint32_t>::max())) {
+        trace_info.thread_sort_indices[{event.pid, event.tid}] =
             static_cast<uint32_t>(sort_index_double);
       }
     }
@@ -655,7 +715,18 @@ void PopulateAsyncProcessTrack(
   }
 
   // Populate standard thread tracks.
-  for (const auto& [tid, events] : sync_groups) {
+  std::vector<ThreadId> sorted_tids;
+  sorted_tids.reserve(sync_groups.size());
+  for (const auto& [tid, _] : sync_groups) {
+    sorted_tids.push_back(tid);
+  }
+
+  absl::c_stable_sort(sorted_tids, [&](ThreadId a, ThreadId b) {
+    return CompareThreadsForSort(pid, trace_info, a, b);
+  });
+
+  for (const ThreadId tid : sorted_tids) {
+    absl::Span<const TraceEvent* const> events = sync_groups.at(tid);
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
                         default_expanded, expanded_states);
@@ -671,7 +742,7 @@ void PopulateSyncProcessTrack(
     bool default_expanded,
     const absl::btree_map<GroupKey, bool>& expanded_states) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
-  std::set<ThreadId> tids;
+  absl::flat_hash_set<ThreadId> tids;
   if (it_events != trace_info.events_by_pid_tid.end()) {
     for (const auto& [tid, _] : it_events->second) {
       tids.insert(tid);
@@ -684,7 +755,12 @@ void PopulateSyncProcessTrack(
     tids.insert(it->first.second);
   }
 
-  for (const ThreadId tid : tids) {
+  std::vector<ThreadId> sorted_tids(tids.begin(), tids.end());
+  absl::c_stable_sort(sorted_tids, [&](ThreadId a, ThreadId b) {
+    return CompareThreadsForSort(pid, trace_info, a, b);
+  });
+
+  for (const ThreadId tid : sorted_tids) {
     absl::Span<const TraceEvent* const> events;
     if (it_events != trace_info.events_by_pid_tid.end()) {
       const auto it = it_events->second.find(tid);
@@ -729,7 +805,13 @@ void PopulateProcessTrack(
     return;
   }
 
-  const std::string process_group_name = trace_info.process_names.at(pid);
+  std::string process_group_name;
+  if (auto it = trace_info.process_names.find(pid);
+      it != trace_info.process_names.end()) {
+    process_group_name = it->second;
+  } else {
+    process_group_name = GetDefaultProcessName(pid);
+  }
 
   bool expanded = GetExpandedState(kProcessNestingLevel, process_group_name, "",
                                    default_expanded, expanded_states);
@@ -771,41 +853,65 @@ void PopulateProcessTrack(
 }
 
 std::vector<ProcessId> GetSortedProcessIds(const TraceInformation& trace_info) {
-  std::vector<ProcessId> pids;
-  pids.reserve(trace_info.process_names.size());
+  absl::flat_hash_set<ProcessId> pid_set;
   for (const auto& [pid, _] : trace_info.process_names) {
-    pids.push_back(pid);
+    pid_set.insert(pid);
   }
+  for (const auto& [pid, _] : trace_info.events_by_pid_tid) {
+    pid_set.insert(pid);
+  }
+  for (const auto& [pid, _] : trace_info.counters_by_pid_name) {
+    pid_set.insert(pid);
+  }
+  for (const auto& [key, _] : trace_info.thread_names) {
+    pid_set.insert(key.first);
+  }
+  for (const auto& [_, events] : trace_info.flow_events_by_id) {
+    for (const auto* event : events) {
+      pid_set.insert(event->pid);
+    }
+  }
+
+  std::vector<ProcessId> pids(pid_set.begin(), pid_set.end());
 
   absl::flat_hash_map<ProcessId, int> async_process_priorities;
   for (const ProcessId pid : pids) {
     async_process_priorities[pid] = GetAsyncProcessPriority(pid, trace_info);
   }
 
+  auto get_process_sort_index = [&](ProcessId pid) -> std::optional<uint32_t> {
+    if (const auto it = trace_info.process_sort_indices.find(pid);
+        it != trace_info.process_sort_indices.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  };
+  auto get_process_name =
+      [&](ProcessId pid) -> std::optional<absl::string_view> {
+    if (const auto it = trace_info.process_names.find(pid);
+        it != trace_info.process_names.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  };
+
   absl::c_stable_sort(pids, [&](ProcessId a, ProcessId b) {
-    int priority_a = async_process_priorities[a];
-    int priority_b = async_process_priorities[b];
+    const int priority_a = async_process_priorities.at(a);
+    const int priority_b = async_process_priorities.at(b);
     if (priority_a != priority_b) return priority_a > priority_b;
 
-    uint32_t index_a = a;
-    if (auto it = trace_info.process_sort_indices.find(a);
-        it != trace_info.process_sort_indices.end()) {
-      index_a = it->second;
-    }
-    uint32_t index_b = b;
-    if (auto it = trace_info.process_sort_indices.find(b);
-        it != trace_info.process_sort_indices.end()) {
-      index_b = it->second;
-    }
-    if (index_a != index_b) return index_a < index_b;
-    return a < b;
+    return CompareTrackMetadata(get_process_sort_index(a),
+                                get_process_sort_index(b),
+                                get_process_name(a), get_process_name(b),
+                                a, b);
   });
   return pids;
 }
 
 FlameChartTimelineData CreateTimelineData(
-    TraceInformation& trace_info, absl::Span<const int> top_5_flow_categories,
-    TimeBounds& bounds, const absl::btree_map<GroupKey, bool>& expanded_states,
+    TraceInformation& trace_info, absl::Span<const ProcessId> sorted_pids,
+    absl::Span<const int> top_5_flow_categories, TimeBounds& bounds,
+    const absl::btree_map<GroupKey, bool>& expanded_states,
     const ColorPalette& palette) {
   FlameChartTimelineData data;
   int current_level = 0;
@@ -813,7 +919,7 @@ FlameChartTimelineData CreateTimelineData(
       thread_levels;
 
   bool first_process = true;
-  for (const ProcessId pid : GetSortedProcessIds(trace_info)) {
+  for (const ProcessId pid : sorted_pids) {
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
                          thread_levels, first_process, expanded_states);
     first_process = false;
@@ -847,6 +953,7 @@ FlameChartTimelineData CreateTimelineData(
 // This function is independent of Emscripten types.
 void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                                       Timeline& timeline) {
+  process_names_.clear();
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty() &&
       parsed_events.flow_events.empty()) {
@@ -889,31 +996,13 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   for (const auto& event : parsed_events.counter_events) {
     HandleCounterEvent(event, trace_info);
   }
-  for (const auto& [pid, _] : trace_info.counters_by_pid_name) {
-    trace_info.process_names.try_emplace(pid, GetDefaultProcessName(pid));
-  }
-
-  // Ensure all pids from thread_names are registered.
-  for (const auto& [key, _] : trace_info.thread_names) {
-    trace_info.process_names.try_emplace(key.first,
-                                         GetDefaultProcessName(key.first));
-  }
 
   // Ensure all pids/tids from flow events are registered so that thread tracks
   // are created for them, which is required for level calculation.
   for (const auto& [id, events] : trace_info.flow_events_by_id) {
     for (const auto* event : events) {
-      trace_info.process_names.try_emplace(event->pid,
-                                           GetDefaultProcessName(event->pid));
       trace_info.events_by_pid_tid[event->pid].try_emplace(event->tid);
     }
-  }
-
-  // Sort events, first by timestamp (ascending), then by duration
-  // (descending).
-  // Ensure all processes have a name in process_names.
-  for (const auto& [pid, _] : trace_info.events_by_pid_tid) {
-    trace_info.process_names.try_emplace(pid, GetDefaultProcessName(pid));
   }
 
   // Sort events, first by timestamp (ascending), then by duration
@@ -954,12 +1043,20 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
   const absl::btree_map<GroupKey, bool> expanded_states =
       GetRestoredExpandedStates(timeline.timeline_data().groups);
 
-  timeline.SetTimelineData(CreateTimelineData(
-      trace_info, GetTop5FlowCategories(flow_category_counts), time_bounds,
-      expanded_states, timeline.GetPalette()));
+  const std::vector<ProcessId> sorted_pids = GetSortedProcessIds(trace_info);
 
-  process_names_.insert(trace_info.process_names.begin(),
-                        trace_info.process_names.end());
+  timeline.SetTimelineData(CreateTimelineData(
+      trace_info, sorted_pids, GetTop5FlowCategories(flow_category_counts),
+      time_bounds, expanded_states, timeline.GetPalette()));
+
+  for (const ProcessId pid : sorted_pids) {
+    if (auto it = trace_info.process_names.find(pid);
+        it != trace_info.process_names.end()) {
+      process_names_[pid] = it->second;
+    } else {
+      process_names_[pid] = GetDefaultProcessName(pid);
+    }
+  }
 
   // Don't need to check for max_time because the TimeRange constructor will
   // handle any potential issues with max_time.

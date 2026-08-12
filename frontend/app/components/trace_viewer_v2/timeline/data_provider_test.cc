@@ -9,6 +9,7 @@
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/algorithm/container.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "imgui.h"
@@ -38,6 +39,23 @@ TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
           .dur = 0.0,
           .id = "",
           .args = {{std::string(kName), std::move(thread_or_process_name)}}};
+}
+
+// Creates a metadata trace event (e.g. process_sort_index or thread_sort_index)
+// where args contains the key "sort_index" (kSortIndex) mapped to the given
+// sort_index_value string (e.g. "10", "0", "-5.0").
+TraceEvent CreateSortIndexMetadataEvent(std::string event_name, ProcessId pid,
+                                        ThreadId tid,
+                                        std::string sort_index_value) {
+  return {.ph = Phase::kMetadata,
+          .pid = pid,
+          .tid = tid,
+          .name = std::move(event_name),
+          .ts = 0.0,
+          .dur = 0.0,
+          .id = "",
+          .args = {{/*key=*/std::string(kSortIndex),
+                    /*value=*/std::move(sort_index_value)}}};
 }
 
 CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
@@ -211,6 +229,470 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
   EXPECT_EQ(data.groups[0].nesting_level, 1);
   EXPECT_EQ(data.groups[1].name, "Thread_101");
   EXPECT_EQ(data.groups[1].nesting_level, 2);
+}
+
+TEST_F(DataProviderTest, ThreadSorting) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "C"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "B"),
+      // Thread 200 has sort_index 10
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 200,
+       .name = std::string(kThreadSortIndex),
+       .args = {{std::string(kSortIndex), "10"}}},
+      CreateMetadataEvent(std::string(kThreadName), 1, 300, "A"),
+      {.ph = Phase::kMetadata,
+       .pid = 1,
+       .tid = 300,
+       .name = std::string(kThreadSortIndex),
+       .args = {{std::string(kSortIndex), "5"}}},
+      // Complete events to ensure tracks are generated
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E2", .ts = 2.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 300, .name = "E3", .ts = 3.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  // Index 5 comes before 10. For Index 5, "A" comes before "B".
+  // Expected: A, B, C
+  EXPECT_EQ(data.groups[1].name, "A");
+  EXPECT_EQ(data.groups[2].name, "B");
+  EXPECT_EQ(data.groups[3].name, "C");
+}
+
+TEST_F(DataProviderTest, ProcessSorting) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(
+          std::string(kProcessName), 2003, 0,
+          "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:0"),
+      CreateMetadataEvent(std::string(kThreadName), 2003, 1, "Thread_TPU0"),
+      CreateMetadataEvent(
+          std::string(kProcessName), 2001, 0,
+          "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:2"),
+      CreateMetadataEvent(std::string(kThreadName), 2001, 1, "Thread_TPU2"),
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  // TPU:0 (pid 2003) should sort before TPU:2 (pid 2001) alphabetically when
+  // sort indices are equal.
+  EXPECT_EQ(data.groups[0].name,
+            "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:0");
+  EXPECT_EQ(data.groups[2].name,
+            "server.9894.0000-yumciex-dwe13.0.0_2328527 /device:TPU:2");
+}
+
+// --- Thread Sorting Tests (CompareThreadsForSort) ---
+
+TEST_F(DataProviderTest,
+       ThreadSortingDifferentSortIndicesAscendingAndDescending) {
+  // Thread 100 has sort_index 5, Thread 200 has sort_index 10.
+  // Thread 100 should come before Thread 200 regardless of thread name.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Zebra"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 100, "5"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "Apple"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 200, "10"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Zebra");
+  EXPECT_EQ(data.groups[2].name, "Apple");
+}
+
+TEST_F(DataProviderTest, ThreadSortingEqualSortIndicesFallbackToName) {
+  // Both threads have sort_index = 5. Fallback to alphabetical thread name.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Zebra"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 100, "5"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "Apple"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 200, "5"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Apple");
+  EXPECT_EQ(data.groups[2].name, "Zebra");
+}
+
+TEST_F(DataProviderTest, ThreadSortingOneThreadHasSortIndexPrecedesOneWithout) {
+  // Thread 100 has sort_index 10 and name "Zebra".
+  // Thread 200 has no sort_index and name "Apple".
+  // Thread with sort index must sort BEFORE thread without sort index.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Zebra"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 100, "10"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "Apple"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Zebra");
+  EXPECT_EQ(data.groups[2].name, "Apple");
+
+  // Inverted: Thread 100 has no sort index ("Apple"), Thread 200 has sort index
+  // ("Zebra")
+  Timeline timeline2(palette_);
+  DataProvider data_provider2;
+  const std::vector<TraceEvent> events2 = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Apple"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "Zebra"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 200, "10"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider2.ProcessTraceEvents({events2, {}}, timeline2);
+
+  const FlameChartTimelineData& data2 = timeline2.timeline_data();
+  ASSERT_THAT(data2.groups, SizeIs(3));
+  EXPECT_EQ(data2.groups[0].name, "Process_1");
+  EXPECT_EQ(data2.groups[1].name, "Zebra");
+  EXPECT_EQ(data2.groups[2].name, "Apple");
+}
+
+TEST_F(DataProviderTest, ThreadSortingNeitherThreadHasSortIndexFallbackToName) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Zebra"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 200, "Apple"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 200, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Apple");
+  EXPECT_EQ(data.groups[2].name, "Zebra");
+}
+
+TEST_F(DataProviderTest, ThreadSortingEqualNamesFallbackToTidTieBreaker) {
+  // Both threads have the same name "Worker", neither has sort index.
+  // Fallback to tid comparison: tid 50 < tid 100.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 100, "Worker"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 50, "Worker"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 100, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 50, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Worker");
+  EXPECT_EQ(data.groups[2].name, "Worker");
+  ASSERT_THAT(data.entry_tids, ElementsAre(50, 100));
+}
+
+TEST_F(DataProviderTest, ThreadSorting_NaturalNumericalTidWhenUnnamed) {
+  // Unnamed threads fall back to numerical tid order: tid 2 < tid 10.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      // Thread 2 has complete event (no name metadata)
+      {.ph = Phase::kComplete, .pid = 1, .tid = 2, .name = "E1", .ts = 1.0},
+      // Thread 10 has complete event (no name metadata)
+      {.ph = Phase::kComplete, .pid = 1, .tid = 10, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Thread_2");
+  EXPECT_EQ(data.groups[2].name, "Thread_10");
+}
+
+TEST_F(DataProviderTest, ThreadSorting_NamedThreadsPrioritizedOverUnnamed) {
+  // Named threads are prioritized before unnamed threads when neither has a
+  // sort index.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Process_1"),
+      // Thread 1 is unnamed (fallback name "Thread_1")
+      {.ph = Phase::kComplete, .pid = 1, .tid = 1, .name = "E1", .ts = 1.0},
+      // Thread 2 is named "Worker" ('W' > 'T' in ASCII, but named takes
+      // precedence)
+      CreateMetadataEvent(std::string(kThreadName), 1, 2, "Worker"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 2, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(3));
+  EXPECT_EQ(data.groups[0].name, "Process_1");
+  EXPECT_EQ(data.groups[1].name, "Worker");
+  EXPECT_EQ(data.groups[2].name, "Thread_1");
+}
+
+TEST_F(DataProviderTest, ProcessSorting_NaturalNumericalPidWhenUnnamed) {
+  // Unnamed processes fall back to numerical pid order: pid 2 < pid 10.
+  const std::vector<TraceEvent> events = {
+      // Process 10 has complete event (no name metadata)
+      {.ph = Phase::kComplete, .pid = 10, .tid = 1, .name = "E1", .ts = 1.0},
+      // Process 2 has complete event (no name metadata)
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Process_2");
+  EXPECT_EQ(data.groups[2].name, "Process_10");
+}
+
+TEST_F(DataProviderTest, ThreadSortingInAsyncProcessTrack) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Async Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "AsyncThread"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 20, "Thread20"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 20, "2"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 30, "Thread30"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 30, "5"),
+      // Async event (is_async = true) on tid 10 to trigger
+      // PopulateAsyncProcessTrack
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 10,
+       .name = "AsyncOp",
+       .ts = 1.0,
+       .dur = 10.0,
+       .is_async = true},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 20,
+       .name = "SyncOp1",
+       .ts = 2.0,
+       .dur = 5.0,
+       .is_async = false},
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 30,
+       .name = "SyncOp2",
+       .ts = 3.0,
+       .dur = 5.0,
+       .is_async = false},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Async Process");
+  EXPECT_EQ(data.groups[1].name, "AsyncOp");
+  // Index 2 ("Thread20") precedes Index 5 ("Thread30")
+  EXPECT_EQ(data.groups[2].name, "Thread20");
+  EXPECT_EQ(data.groups[3].name, "Thread30");
+}
+
+// --- Process Sorting Tests (GetSortedProcessIds) ---
+
+TEST_F(DataProviderTest, ProcessSortingBothHaveEqualSortIndexFallsBackToName) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Zebra Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "5"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 1, .name = "E1", .ts = 1.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Apple Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 2, 0, "5"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread2"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Apple Process");
+  EXPECT_EQ(data.groups[2].name, "Zebra Process");
+}
+
+TEST_F(DataProviderTest, ProcessSortingOneHasSortIndexPrecedesOneWithout) {
+  // Process 1 has sort_index 10 and name "Zebra Process".
+  // Process 2 has no sort_index and name "Apple Process".
+  // Process with sort index must sort BEFORE process without sort index.
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Zebra Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0, "10"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 1, .name = "E1", .ts = 1.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Apple Process"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread2"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Zebra Process");
+  EXPECT_EQ(data.groups[2].name, "Apple Process");
+
+  // Inverted: Process 1 has no sort index, Process 2 has sort index
+  Timeline timeline2(palette_);
+  DataProvider data_provider2;
+  const std::vector<TraceEvent> events2 = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Apple Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 1, .name = "E1", .ts = 1.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Zebra Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 2, 0, "10"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread2"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider2.ProcessTraceEvents({events2, {}}, timeline2);
+
+  const FlameChartTimelineData& data2 = timeline2.timeline_data();
+  ASSERT_THAT(data2.groups, SizeIs(4));
+  EXPECT_EQ(data2.groups[0].name, "Zebra Process");
+  EXPECT_EQ(data2.groups[2].name, "Apple Process");
+}
+
+TEST_F(DataProviderTest,
+       ProcessSortingNeitherProcessHasSortIndexFallbackToName) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Zebra Process"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 1, .name = "E1", .ts = 1.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Apple Process"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread2"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Apple Process");
+  EXPECT_EQ(data.groups[2].name, "Zebra Process");
+}
+
+TEST_F(DataProviderTest,
+       ProcessSortingNeitherProcessHasSortIndexSameNameFallbackToPid) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 50, 0, "Node"),
+      CreateMetadataEvent(std::string(kThreadName), 50, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 50, .tid = 1, .name = "E1", .ts = 1.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 20, 0, "Node"),
+      CreateMetadataEvent(std::string(kThreadName), 20, 1, "Thread2"),
+      {.ph = Phase::kComplete, .pid = 20, .tid = 1, .name = "E2", .ts = 2.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(4));
+  EXPECT_EQ(data.groups[0].name, "Node");
+  EXPECT_EQ(data.groups[2].name, "Node");
+  ASSERT_THAT(data.entry_pids, ElementsAre(20, 50));
+}
+
+// --- Metadata Handling Tests ---
+
+TEST_F(DataProviderTest, MetadataSortIndexFloatingPointString) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Proc1"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0,
+                                   "10.0"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "Thread10"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 10,
+                                   "20.0"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 20, "Thread20"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 20, "8.9"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 10, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 20, .name = "E2", .ts = 2.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Proc2"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 2, 0, "5.5"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E3", .ts = 3.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(5));
+  // Proc2 (sort index 5.5 -> 5) precedes Proc1 (sort index 10.0 -> 10)
+  EXPECT_EQ(data.groups[0].name, "Proc2");
+  EXPECT_EQ(data.groups[2].name, "Proc1");
+  // Inside Proc1: Thread20 (sort index 8.9 -> 8) precedes Thread10 (sort
+  // index 20.0 -> 20)
+  EXPECT_EQ(data.groups[3].name, "Thread20");
+  EXPECT_EQ(data.groups[4].name, "Thread10");
+}
+
+TEST_F(DataProviderTest, MetadataSortIndexInvalidStringIgnored) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "Zebra Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0,
+                                   "not_a_number"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 10, "Zebra Thread"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 10,
+                                   "invalid_val"),
+      CreateMetadataEvent(std::string(kThreadName), 1, 20, "Apple Thread"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 1, 20, "xyz"),
+      {.ph = Phase::kComplete, .pid = 1, .tid = 10, .name = "E1", .ts = 1.0},
+      {.ph = Phase::kComplete, .pid = 1, .tid = 20, .name = "E2", .ts = 2.0},
+
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "Apple Process"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 2, 0, "abc"),
+      CreateMetadataEvent(std::string(kThreadName), 2, 1, "Thread1"),
+      {.ph = Phase::kComplete, .pid = 2, .tid = 1, .name = "E3", .ts = 3.0},
+  };
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  ASSERT_THAT(data.groups, SizeIs(5));
+  // Invalid sort indices ignored -> Process fallback to alphabetical: Apple
+  // Process before Zebra Process
+  EXPECT_EQ(data.groups[0].name, "Apple Process");
+  EXPECT_EQ(data.groups[2].name, "Zebra Process");
+  // Inside Zebra Process -> Thread fallback to alphabetical: Apple Thread
+  // before Zebra Thread
+  EXPECT_EQ(data.groups[3].name, "Apple Thread");
+  EXPECT_EQ(data.groups[4].name, "Zebra Thread");
 }
 
 TEST_F(DataProviderTest, ProcessCompleteEvents) {
@@ -3241,6 +3723,103 @@ TEST_F(DataProviderTest, PopulateSyncThreadTrackWithNestedSameStartTieBreaker) {
 
   // EventA should be level 0, EventB level 1.
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1));
+}
+
+TEST_F(DataProviderTest, ProcessNamesClearedBetweenRuns) {
+  const std::vector<TraceEvent> first_trace = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "FirstProcess"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task1",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({first_trace, {}}, timeline_);
+  const absl::flat_hash_map<ProcessId, std::string> first_mappings =
+      data_provider_.GetProcessMappings();
+  const auto it1 = first_mappings.find(1);
+  ASSERT_NE(it1, first_mappings.end());
+  EXPECT_EQ(it1->second, "FirstProcess");
+
+  const std::vector<TraceEvent> second_trace = {
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "SecondProcess"),
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task2",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({second_trace, {}}, timeline_);
+  const absl::flat_hash_map<ProcessId, std::string> second_mappings =
+      data_provider_.GetProcessMappings();
+  EXPECT_EQ(second_mappings.find(1), second_mappings.end());
+  const auto it2 = second_mappings.find(2);
+  ASSERT_NE(it2, second_mappings.end());
+  EXPECT_EQ(it2->second, "SecondProcess");
+}
+
+TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
+  const std::vector<TraceEvent> events = {
+      CreateMetadataEvent(std::string(kProcessName), 1, 0, "ProcessA"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 1, 0,
+                                   "-100.0"),
+      CreateMetadataEvent(std::string(kProcessName), 2, 0, "ProcessB"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 2, 0,
+                                   "1e25"),
+      CreateMetadataEvent(std::string(kProcessName), 3, 0, "ProcessC"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 3, 0, "NaN"),
+      CreateMetadataEvent(std::string(kProcessName), 4, 0, "ProcessD"),
+      CreateSortIndexMetadataEvent(std::string(kProcessSortIndex), 4, 0,
+                                   "10.0"),
+      CreateMetadataEvent(std::string(kThreadName), 4, 401, "ThreadA"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 4, 401,
+                                   "-5.0"),
+      CreateMetadataEvent(std::string(kThreadName), 4, 402, "ThreadB"),
+      CreateSortIndexMetadataEvent(std::string(kThreadSortIndex), 4, 402,
+                                   "1.0"),
+      {.ph = Phase::kComplete,
+       .pid = 1,
+       .tid = 101,
+       .name = "Task1",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 2,
+       .tid = 201,
+       .name = "Task2",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 3,
+       .tid = 301,
+       .name = "Task3",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 4,
+       .tid = 401,
+       .name = "Task4A",
+       .ts = 100.0,
+       .dur = 50.0},
+      {.ph = Phase::kComplete,
+       .pid = 4,
+       .tid = 402,
+       .name = "Task4B",
+       .ts = 100.0,
+       .dur = 50.0}};
+
+  data_provider_.ProcessTraceEvents({events, {}}, timeline_);
+
+  const FlameChartTimelineData& data = timeline_.timeline_data();
+  // Process 4 has valid sort_index 10.0 (Tier 1), sorting before unindexed.
+  // ThreadB has sort_index 1.0 (Tier 1), sorting before ThreadA (invalid
+  // sort_index -> Tier 2).
+  ASSERT_THAT(data.groups, SizeIs(testing::Ge(5)));
+  EXPECT_EQ(data.groups[0].name, "ProcessD");
+  EXPECT_EQ(data.groups[1].name, "ThreadB");
+  EXPECT_EQ(data.groups[2].name, "ThreadA");
 }
 
 }  // namespace

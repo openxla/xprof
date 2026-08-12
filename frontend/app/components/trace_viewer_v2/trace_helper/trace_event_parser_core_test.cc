@@ -12,6 +12,8 @@ namespace traceviewer {
 namespace {
 
 TEST(TraceEventParserCoreTest, ProcessMetadata) {
+  // Input setup: A process with explicit sort_index=5 and a thread with
+  // explicit sort_index=3.
   xprof::TraceDataResponse response;
 
   auto* process = response.mutable_metadata()->add_processes();
@@ -22,11 +24,14 @@ TEST(TraceEventParserCoreTest, ProcessMetadata) {
   auto* thread = process->add_threads();
   thread->set_id(10);
   thread->set_name("Worker Thread");
+  thread->set_sort_index(3);
 
   ParsedTraceEvents result;
   ProcessMetadataEvents(response, result);
 
-  ASSERT_EQ(result.flame_events.size(), 3);
+  // Expectation: Both process and thread emit their respective name and
+  // sort_index metadata events.
+  ASSERT_EQ(result.flame_events.size(), 4);
 
   EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
   EXPECT_EQ(result.flame_events[0].pid, 1);
@@ -44,6 +49,187 @@ TEST(TraceEventParserCoreTest, ProcessMetadata) {
   EXPECT_EQ(result.flame_events[2].name, kThreadName);
   EXPECT_EQ(result.flame_events[2].args.at(std::string(kName)),
             "Worker Thread");
+
+  EXPECT_EQ(result.flame_events[3].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[3].pid, 1);
+  EXPECT_EQ(result.flame_events[3].tid, 10);
+  EXPECT_EQ(result.flame_events[3].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[3].args.at(std::string(kSortIndex)), "3");
+}
+
+TEST(TraceEventParserCoreTest, ProcessMetadataDefaultSortIndexEmitted) {
+  // Input setup: Process and thread with sort_index explicitly set to 0.
+  xprof::TraceDataResponse response;
+
+  auto* process = response.mutable_metadata()->add_processes();
+  process->set_id(2);
+  process->set_name("Default Process");
+  process->set_sort_index(0);
+
+  auto* thread = process->add_threads();
+  thread->set_id(20);
+  thread->set_name("Default Thread");
+  thread->set_sort_index(0);
+
+  ParsedTraceEvents result;
+  ProcessMetadataEvents(response, result);
+
+  // Expectation: A sort_index of 0 is explicitly emitted as "0" rather than
+  // omitted, allowing track ordering at index 0.
+  ASSERT_EQ(result.flame_events.size(), 4);
+
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[0].pid, 2);
+  EXPECT_EQ(result.flame_events[0].name, kProcessName);
+  EXPECT_EQ(result.flame_events[0].args.at(std::string(kName)),
+            "Default Process");
+
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[1].pid, 2);
+  EXPECT_EQ(result.flame_events[1].name, kProcessSortIndex);
+  EXPECT_EQ(result.flame_events[1].args.at(std::string(kSortIndex)), "0");
+
+  EXPECT_EQ(result.flame_events[2].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[2].pid, 2);
+  EXPECT_EQ(result.flame_events[2].tid, 20);
+  EXPECT_EQ(result.flame_events[2].name, kThreadName);
+  EXPECT_EQ(result.flame_events[2].args.at(std::string(kName)),
+            "Default Thread");
+
+  EXPECT_EQ(result.flame_events[3].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[3].pid, 2);
+  EXPECT_EQ(result.flame_events[3].tid, 20);
+  EXPECT_EQ(result.flame_events[3].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[3].args.at(std::string(kSortIndex)), "0");
+}
+
+TEST(TraceEventParserCoreTest, ProcessMetadataUnsetSortIndexNotEmitted) {
+  // Input setup: Process and thread with names but no sort_index set on proto.
+  xprof::TraceDataResponse response;
+
+  auto* process = response.mutable_metadata()->add_processes();
+  process->set_id(2);
+  process->set_name("Unindexed Process");
+
+  auto* thread = process->add_threads();
+  thread->set_id(20);
+  thread->set_name("Unindexed Thread");
+
+  ParsedTraceEvents result;
+  ProcessMetadataEvents(response, result);
+
+  // Expectation: Only name metadata events are emitted; no sort_index events.
+  ASSERT_EQ(result.flame_events.size(), 2);
+
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[0].pid, 2);
+  EXPECT_EQ(result.flame_events[0].name, kProcessName);
+  EXPECT_EQ(result.flame_events[0].args.at(std::string(kName)),
+            "Unindexed Process");
+
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[1].pid, 2);
+  EXPECT_EQ(result.flame_events[1].tid, 20);
+  EXPECT_EQ(result.flame_events[1].name, kThreadName);
+  EXPECT_EQ(result.flame_events[1].args.at(std::string(kName)),
+            "Unindexed Thread");
+}
+
+TEST(TraceEventParserCoreTest, ProcessMetadataMixedThreadsSortIndex) {
+  // Input setup: Process with sort_index=10 and four threads with varying
+  // sort_index configurations:
+  // - Thread 100: sort_index=5
+  // - Thread 200: sort_index=0
+  // - Thread 300: sort_index=20
+  // - Thread 400: sort_index unset
+  xprof::TraceDataResponse response;
+
+  auto* process = response.mutable_metadata()->add_processes();
+  process->set_id(1);
+  process->set_name("Process 1");
+  process->set_sort_index(10);
+
+  // Thread 1: sort_index > 0
+  auto* thread1 = process->add_threads();
+  thread1->set_id(100);
+  thread1->set_name("Thread 100");
+  thread1->set_sort_index(5);
+
+  // Thread 2: sort_index == 0 (explicitly set)
+  auto* thread2 = process->add_threads();
+  thread2->set_id(200);
+  thread2->set_name("Thread 200");
+  thread2->set_sort_index(0);
+
+  // Thread 3: sort_index > 0
+  auto* thread3 = process->add_threads();
+  thread3->set_id(300);
+  thread3->set_name("Thread 300");
+  thread3->set_sort_index(20);
+
+  // Thread 4: sort_index NOT set
+  auto* thread4 = process->add_threads();
+  thread4->set_id(400);
+  thread4->set_name("Thread 400");
+
+  ParsedTraceEvents result;
+  ProcessMetadataEvents(response, result);
+
+  // Expectation: All four threads emit name events, but only threads with
+  // explicit sort_index set (threads 100, 200, 300) emit sort_index events.
+  ASSERT_EQ(result.flame_events.size(), 9);
+
+  EXPECT_EQ(result.flame_events[0].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[0].pid, 1);
+  EXPECT_EQ(result.flame_events[0].name, kProcessName);
+  EXPECT_EQ(result.flame_events[0].args.at(std::string(kName)), "Process 1");
+
+  EXPECT_EQ(result.flame_events[1].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[1].pid, 1);
+  EXPECT_EQ(result.flame_events[1].name, kProcessSortIndex);
+  EXPECT_EQ(result.flame_events[1].args.at(std::string(kSortIndex)), "10");
+
+  EXPECT_EQ(result.flame_events[2].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[2].pid, 1);
+  EXPECT_EQ(result.flame_events[2].tid, 100);
+  EXPECT_EQ(result.flame_events[2].name, kThreadName);
+  EXPECT_EQ(result.flame_events[2].args.at(std::string(kName)), "Thread 100");
+
+  EXPECT_EQ(result.flame_events[3].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[3].pid, 1);
+  EXPECT_EQ(result.flame_events[3].tid, 100);
+  EXPECT_EQ(result.flame_events[3].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[3].args.at(std::string(kSortIndex)), "5");
+
+  EXPECT_EQ(result.flame_events[4].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[4].pid, 1);
+  EXPECT_EQ(result.flame_events[4].tid, 200);
+  EXPECT_EQ(result.flame_events[4].name, kThreadName);
+  EXPECT_EQ(result.flame_events[4].args.at(std::string(kName)), "Thread 200");
+
+  EXPECT_EQ(result.flame_events[5].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[5].pid, 1);
+  EXPECT_EQ(result.flame_events[5].tid, 200);
+  EXPECT_EQ(result.flame_events[5].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[5].args.at(std::string(kSortIndex)), "0");
+
+  EXPECT_EQ(result.flame_events[6].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[6].pid, 1);
+  EXPECT_EQ(result.flame_events[6].tid, 300);
+  EXPECT_EQ(result.flame_events[6].name, kThreadName);
+  EXPECT_EQ(result.flame_events[6].args.at(std::string(kName)), "Thread 300");
+
+  EXPECT_EQ(result.flame_events[7].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[7].pid, 1);
+  EXPECT_EQ(result.flame_events[7].tid, 300);
+  EXPECT_EQ(result.flame_events[7].name, kThreadSortIndex);
+  EXPECT_EQ(result.flame_events[7].args.at(std::string(kSortIndex)), "20");
+
+  EXPECT_EQ(result.flame_events[8].ph, Phase::kMetadata);
+  EXPECT_EQ(result.flame_events[8].pid, 1);
+  EXPECT_EQ(result.flame_events[8].tid, 400);
+  EXPECT_EQ(result.flame_events[8].name, kThreadName);
+  EXPECT_EQ(result.flame_events[8].args.at(std::string(kName)), "Thread 400");
 }
 
 TEST(TraceEventParserCoreTest, ProcessCompleteEvents) {

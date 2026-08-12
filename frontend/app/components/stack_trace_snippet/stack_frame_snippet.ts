@@ -1,11 +1,11 @@
-import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy, ViewChild} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
 import {Address, Content, SOURCE_CODE_SERVICE_INTERFACE_TOKEN, SourceCodeServiceInterface} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {Subject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
-
+import {SourceCodeEditor} from 'org_xprof/frontend/app/components/source_code_editor/source_code_editor';
 /**
  * A component to display a snippet of source code corresponding to a given
  * stack frame address.
@@ -32,6 +32,9 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   codeSearchLinkTooltip: string|undefined = undefined;
   lineNumberToMetricMap: Map<number, Metric>|undefined = undefined;
   isCodeFetchEnabled = false;
+
+  @ViewChild(SourceCodeEditor, {static: false})
+  sourceCodeEditor?: SourceCodeEditor;
 
   constructor() {
     this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {
@@ -72,6 +75,14 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
     // We intentionally treat `undefined` as `false` here. That is if we don't
     // know whether we are at the top of the stack, we assume that we are not.
     return this.topOfStack ?? false;
+  }
+
+  getEditorForTesting(): monaco.editor.IStandaloneCodeEditor | undefined {
+    return this.sourceCodeEditor?.getEditorForTesting();
+  }
+
+  getContentWidgetsForTesting(): monaco.editor.IContentWidget[] {
+    return this.sourceCodeEditor?.getContentWidgetsForTesting() || [];
   }
 
   private areDifferentAddresses(

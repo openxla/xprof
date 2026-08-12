@@ -15,6 +15,8 @@ limitations under the License.
 
 #include "xprof/convert/unified_tools_registration.h"
 
+#include "xprof/convert/unified_framework_op_stats_processor.h"
+#include "xprof/convert/unified_graph_viewer_processor.h"
 #include "xprof/convert/unified_hlo_stats_processor.h"
 #include "xprof/convert/unified_input_pipeline_analyzer_processor.h"
 #include "xprof/convert/unified_memory_profile_processor.h"
@@ -25,6 +27,7 @@ limitations under the License.
 #include "xprof/convert/unified_roofline_model_processor.h"
 #include "xprof/convert/unified_utilization_viewer_processor.h"
 #include "xprof/convert/unified_perf_counters_processor.h"
+#include "xprof/convert/unified_trace_viewer_processor.h"
 
 namespace xprof {
 
@@ -33,6 +36,10 @@ void RegisterUnifiedToolRegistrations() {
   REGISTER_UNIFIED_PROFILE_PROCESSOR("hlo_stats", UnifiedHloStatsProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("input_pipeline_analyzer",
                                      UnifiedInputPipelineAnalyzerProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("framework_op_stats",
+                                     UnifiedFrameworkOpStatsProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("graph_viewer",
+                                     UnifiedGraphViewerProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("memory_profile",
                                      UnifiedMemoryProfileProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("memory_viewer",
@@ -46,6 +53,8 @@ void RegisterUnifiedToolRegistrations() {
                                      UnifiedUtilizationViewerProcessor);
   REGISTER_UNIFIED_PROFILE_PROCESSOR("perf_counters",
                                      UnifiedPerfCountersProcessor);
+  REGISTER_UNIFIED_PROFILE_PROCESSOR("trace_viewer",
+                                     UnifiedTraceViewerProcessor);
 }
 
 }  // namespace xprof

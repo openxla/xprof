@@ -460,9 +460,10 @@ std::string GpuModelName(const DeviceCapabilities& device_cap) {
         return "Nvidia GPU";
     }
   } else if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorAMD) {
-    // Prefer ROCm provided GCN architecture name if provided.
-    // Otherwise, fallback to existing name derivation via major/minor.
-    absl::string_view gfx = GfxVersionFromDeviceName(device_cap.device_name());
+    // Resolved as the roofline tables do, so the reported architecture and the
+    // rates keyed on it never disagree. Falls back to the family below when
+    // neither the device name nor the compute capability identifies one.
+    absl::string_view gfx = ResolveAmdGfxVersion(device_cap);
     if (!gfx.empty()) return absl::StrCat("AMD GPU - ", gfx);
     switch (device_cap.compute_capability().major()) {
       case 9:

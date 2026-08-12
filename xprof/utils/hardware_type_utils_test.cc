@@ -262,10 +262,23 @@ TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchAndStripsFeatures) {
   EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
 }
 
+TEST(HardwareTypeUtilsTest, GpuModelNameResolvesAmdArchFromComputeCapability) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(4);
+
+  // The pair identifies gfx942 alone, and is what the roofline tables key on.
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx942");
+}
+
 TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToAmdFamilyWithoutName) {
   DeviceCapabilities device_cap;
   device_cap.set_device_vendor("AMD");
   device_cap.mutable_compute_capability()->set_major(9);
+  // (9, 0) is ambiguous between gfx908 and gfx90a, so the family is as precise
+  // as this can get.
+  device_cap.mutable_compute_capability()->set_minor(0);
 
   EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx-9XX series");
 }

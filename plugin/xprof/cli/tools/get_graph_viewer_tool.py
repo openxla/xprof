@@ -104,7 +104,7 @@ def get_graph_viewer(
   }
 
   try:
-    result = client.fetch(**params)
+    result = client.fetch(**params)  # pyrefly: ignore[missing-argument]
     if isinstance(result, tuple) and len(result) == 2:
       _, data = result
     else:

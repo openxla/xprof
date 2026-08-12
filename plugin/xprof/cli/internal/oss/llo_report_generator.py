@@ -8,7 +8,7 @@ bottlenecks.
 
 import sqlite3
 from typing import Any
-from xprof.cli.internal.oss import llo_detectors
+from xprof.cli.internal.oss import llo_detectors  # pyrefly: ignore[missing-import]
 
 
 def generate_structured_report(

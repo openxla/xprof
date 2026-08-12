@@ -190,7 +190,7 @@ class ToolsCacheGCSTest(absltest.TestCase):
     profile_io.get_storage_client.cache_clear()
 
     self.cache = profile_plugin.ToolsCache(  # pytype: disable=wrong-arg-types
-        self.profile_run_dir,
+        self.profile_run_dir,  # pyrefly: ignore[bad-argument-type]
         profile_io.get_file_system(str(self.profile_run_dir)),
     )
 

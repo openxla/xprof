@@ -447,9 +447,9 @@ def analyze_hlo_module_proto(
           "total_self_time_ms": prof_info.get("total_self_time_ms", 0.0),
       }
       if sg_type == "topological_chain":
-        bottleneck["unfused_chain"] = chain_str
+        bottleneck["unfused_chain"] = chain_str  # pyrefly: ignore[unbound-name]
       else:
-        bottleneck["unfused_cluster"] = cluster_str
+        bottleneck["unfused_cluster"] = cluster_str  # pyrefly: ignore[unbound-name]
       bottlenecks.append(bottleneck)
 
   # 4. Collect unflagged candidates for Type 2 cross-module heuristic

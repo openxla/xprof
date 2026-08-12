@@ -232,7 +232,7 @@ class _HloModuleTracer:
         if instr.called_computation_ids:
           comp = self.computations.get(instr.called_computation_ids[0])
           if comp:
-            stack.append((comp.root_id, tuple_index, call_stack + (instr.id,)))
+            stack.append((comp.root_id, tuple_index, call_stack + (instr.id,)))  # pyrefly: ignore[bad-argument-type]
             handled = True
 
       # 6. Fallback General Operations (Element-wise and Shapes)
@@ -318,7 +318,7 @@ class _HloModuleTracer:
               ]
               for idx in reversed(indices):
                 stack.append(
-                    (caller_instr.id, idx, caller_instr.id, new_call_stack)
+                    (caller_instr.id, idx, caller_instr.id, new_call_stack)  # pyrefly: ignore[bad-argument-type]
                 )
             else:
               stack.append((
@@ -349,7 +349,7 @@ class _HloModuleTracer:
               _F16_TYPE,
           }:
             continue
-          stack.append((consumer.id, tuple_index, curr_id, call_stack))
+          stack.append((consumer.id, tuple_index, curr_id, call_stack))  # pyrefly: ignore[bad-argument-type]
           continue
 
         # Any consumer we cannot trace through consumes the value while still
@@ -360,7 +360,7 @@ class _HloModuleTracer:
         # B. Get-Tuple-Element
         if consumer_op == "get-tuple-element":
           if tuple_index is None or consumer.tuple_index == tuple_index:
-            stack.append((consumer.id, None, curr_id, call_stack))
+            stack.append((consumer.id, None, curr_id, call_stack))  # pyrefly: ignore[bad-argument-type]
 
         # C. Tuple Packing
         elif consumer_op == "tuple":
@@ -370,7 +370,7 @@ class _HloModuleTracer:
               if op_id == curr_id
           ]
           for idx in reversed(indices):
-            stack.append((consumer.id, idx, curr_id, call_stack))
+            stack.append((consumer.id, idx, curr_id, call_stack))  # pyrefly: ignore[bad-argument-type]
 
         # D. Entering Fusion
         elif consumer_op == "fusion":
@@ -387,7 +387,7 @@ class _HloModuleTracer:
                     idx
                 )
                 if param_instr is not None:
-                  stack.append((
+                  stack.append((  # pyrefly: ignore[bad-argument-type]
                       param_instr.id,
                       tuple_index,
                       curr_id,
@@ -396,7 +396,7 @@ class _HloModuleTracer:
 
         # E. General precision-transparent op
         else:
-          stack.append((consumer.id, tuple_index, curr_id, call_stack))
+          stack.append((consumer.id, tuple_index, curr_id, call_stack))  # pyrefly: ignore[bad-argument-type]
 
     return False
 

@@ -33,7 +33,7 @@ _EPOCHS = 1
 _TRAIN_STEPS = 40
 _EVAL_STEPS = 10
 
-log_dir: str = None
+log_dir: str = None  # pyrefly: ignore[bad-assignment]
 
 LOG_DIRECTORY = flags.DEFINE_string(
     'log_directory', None, 'Location of trace file, if already available'

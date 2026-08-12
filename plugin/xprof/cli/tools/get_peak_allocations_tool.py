@@ -451,7 +451,7 @@ def get_peak_allocations(
   if include_summary:
     return json.dumps(
         {
-            "summary": dataclasses.asdict(summary_data),
+            "summary": dataclasses.asdict(summary_data),  # pyrefly: ignore[bad-argument-type]
             "modules": [dataclasses.asdict(m) for m in sorted_modules_data],
         },
         indent=2,

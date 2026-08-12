@@ -105,7 +105,7 @@ def _wrap_with_logdir(tool_func):
     xprof_client.get_client().set_logdir(logdir)
     return tool_func(*args, **kwargs)
 
-  wrapper.__signature__ = sig.replace(parameters=new_params)
+  wrapper.__signature__ = sig.replace(parameters=new_params)  # pyrefly: ignore[missing-attribute]
   return wrapper
 
 

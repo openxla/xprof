@@ -372,7 +372,7 @@ def respond(
       ('X-Content-Type-Options', 'nosniff'),
   ]
   if content_encoding:
-    headers.append(('Content-Encoding', content_encoding))
+    headers.append(('Content-Encoding', content_encoding))  # pyrefly: ignore[bad-argument-type]
   else:
     headers.append(('Content-Encoding', 'gzip'))
     body = gzip.compress(body)
@@ -707,7 +707,7 @@ def _logging_wrapper(
   return wrapper
 
 
-class ProfilePlugin(base_plugin.TBPlugin):
+class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritance]
   """Profile Plugin for TensorBoard."""
 
   plugin_name = PLUGIN_NAME
@@ -802,8 +802,8 @@ class ProfilePlugin(base_plugin.TBPlugin):
   def get_plugin_apps(
       self,
   ) -> dict[str, Callable[[wrappers.Request], wrappers.Response]]:
-    return {
-        route: _logging_wrapper(app)
+    return {  # pyrefly: ignore[bad-return]
+        route: _logging_wrapper(app)  # pyrefly: ignore[bad-argument-type]
         for route, app in {
             BASE_ROUTE: self.default_handler,
             INDEX_JS_ROUTE: self.static_file_route,
@@ -1018,7 +1018,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         id for other host implementations
     """
     run_dir = self._run_dir(run, request)
-    return list(self.generate_tools_of_run(run, run_dir))
+    return list(self.generate_tools_of_run(run, run_dir))  # pyrefly: ignore[bad-argument-type]
 
   def _run_host_impl(
       self, run: str, run_dir: str, tool: str
@@ -1073,7 +1073,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
         "module2"}]
     """
     run_dir = self._run_dir(run, request)
-    return self._run_host_impl(run, run_dir, tool)
+    return self._run_host_impl(run, run_dir, tool)  # pyrefly: ignore[bad-argument-type]
 
   # pytype: disable=wrong-arg-types
   @wrappers.Request.application
@@ -1398,7 +1398,7 @@ class ProfilePlugin(base_plugin.TBPlugin):
       data, content_type, content_encoding = self.data_impl(request)
       if data is None:
         return respond('No Data', 'text/plain', code=404)
-      return respond(data, content_type, content_encoding=content_encoding)
+      return respond(data, content_type, content_encoding=content_encoding)  # pyrefly: ignore[bad-argument-type]
     # Data fetch error handler
     except TimeoutError as e:
       return respond(str(e), 'text/plain', code=500)

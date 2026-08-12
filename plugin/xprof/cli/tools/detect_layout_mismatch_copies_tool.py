@@ -666,7 +666,7 @@ def find_upstream_compute_stages(
     if dist < max_depth:
       if opcode == "parameter":
         curr_comp_id = comp_id_by_instr_id.get(curr_id)
-        callers = callers_by_comp_id.get(curr_comp_id, [])
+        callers = callers_by_comp_id.get(curr_comp_id, [])  # pyrefly: ignore[no-matching-overload]
         param_num = getattr(curr_instr, "parameter_number", 0)
         for caller_id in callers:
           caller = instr_by_id.get(caller_id)
@@ -712,8 +712,8 @@ def find_upstream_compute_stages(
         if operands:
           target_id = _get_id(operands[0])
           if (target_id, parent_idx) not in visited:
-            visited.add((target_id, parent_idx))
-            queue.append((target_id, parent_idx, dist + 1))
+            visited.add((target_id, parent_idx))  # pyrefly: ignore[bad-argument-type]
+            queue.append((target_id, parent_idx, dist + 1))  # pyrefly: ignore[bad-argument-type]
 
       elif opcode == "tuple":
         operands = _get_operands(curr_instr)
@@ -843,10 +843,10 @@ def find_downstream_compute_stages(
     if dist < max_depth:
       opcode = opcode_by_id[curr_id]
       curr_comp_id = comp_id_by_instr_id.get(curr_id)
-      root_id = root_id_by_comp_id.get(curr_comp_id)
+      root_id = root_id_by_comp_id.get(curr_comp_id)  # pyrefly: ignore[bad-argument-type]
 
       if curr_id == root_id:
-        callers = callers_by_comp_id.get(curr_comp_id, [])
+        callers = callers_by_comp_id.get(curr_comp_id, [])  # pyrefly: ignore[no-matching-overload]
         for caller_id in callers:
           caller = instr_by_id.get(caller_id)
           if not caller:
@@ -908,8 +908,8 @@ def find_downstream_compute_stages(
         new_idx = shape_idx + (idx,)
         for user_id in users_by_id.get(curr_id, []):
           if (user_id, new_idx) not in visited:
-            visited.add((user_id, new_idx))
-            queue.append((user_id, new_idx, dist + 1))
+            visited.add((user_id, new_idx))  # pyrefly: ignore[bad-argument-type]
+            queue.append((user_id, new_idx, dist + 1))  # pyrefly: ignore[bad-argument-type]
 
       elif opcode == "while":
         curr_called = called_comp_ids_by_id.get(curr_id, [])
@@ -959,8 +959,8 @@ def find_downstream_compute_stages(
               if operand_id == curr_id:
                 new_shape_idx = shape_idx + (operand_idx,)
                 if (user_id, new_shape_idx) not in visited:
-                  visited.add((user_id, new_shape_idx))
-                  queue.append((user_id, new_shape_idx, dist + 1))
+                  visited.add((user_id, new_shape_idx))  # pyrefly: ignore[bad-argument-type]
+                  queue.append((user_id, new_shape_idx, dist + 1))  # pyrefly: ignore[bad-argument-type]
           else:
             if (user_id, shape_idx) not in visited and user_id in instr_by_id:
               visited.add((user_id, shape_idx))

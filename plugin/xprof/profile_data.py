@@ -163,7 +163,7 @@ class ProfileEvent:
   def close(self) -> None:
     """Closes the event and frees internal resources."""
     self._finalizer()
-    self._handle = None
+    self._handle = None  # pyrefly: ignore[bad-assignment]
 
   @property
   def closed(self) -> bool:
@@ -255,7 +255,7 @@ class ProfileLine:
       for event in self._events:
         event.close()
     self._finalizer()
-    self._handle = None
+    self._handle = None  # pyrefly: ignore[bad-assignment]
 
   @property
   def closed(self) -> bool:
@@ -337,7 +337,7 @@ class ProfilePlane:
       for line in self._lines:
         line.close()
     self._finalizer()
-    self._handle = None
+    self._handle = None  # pyrefly: ignore[bad-assignment]
 
   @property
   def closed(self) -> bool:
@@ -492,7 +492,7 @@ class ProfileData:
       for plane in self._planes:
         plane.close()
     self._finalizer()
-    self._handle = None
+    self._handle = None  # pyrefly: ignore[bad-assignment]
 
   @property
   def closed(self) -> bool:

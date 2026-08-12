@@ -230,9 +230,9 @@ def _format_utilization_viewer_output(
 
     filtered_results = {k: v for k, v in results.items() if v is not None}
     if metrics:
-      filtered_results["metrics"] = metrics
+      filtered_results["metrics"] = metrics  # pyrefly: ignore[unsupported-operation]
     if warnings:
-      filtered_results["warnings"] = warnings
+      filtered_results["warnings"] = warnings  # pyrefly: ignore[unsupported-operation]
 
     return json.dumps(filtered_results, indent=2)
 

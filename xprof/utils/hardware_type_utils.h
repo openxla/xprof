@@ -59,14 +59,13 @@ struct GpuFlopCapabilities {
   }
 };
 
-// Get peak single precision throughput of the GPU in GFLOPS per
-// streaming multiprocessor.
+// Get peak single precision throughput of the GPU in GFLOPS per core (SM, CU)
 // TODO: Need design on how to use the sparsity capability of FLOPs.
-double GetFlopMaxThroughputPerSM(const DeviceCapabilities& device_cap);
+double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap);
 
-// for Nvidia GPU, return shared memory bandwidth in Bytes Per Second on
-// one single SM given the GPU core freq in device_cap.
-double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap);
+// Return shared memory bandwidth (or LDS) in Bytes Per Second on one single core
+// given the GPU core freq in device_cap.
+double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap);
 
 // Returns the GPU model name from the given DeviceCapabilities.
 // For nvidia GPUs, the name is like "Nvidia GPU (Kepler)" or "Nvidia GPU

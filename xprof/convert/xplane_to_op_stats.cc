@@ -142,13 +142,13 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
     if (peak_tera_flops_per_second <= 0.0) {
       peak_tera_flops_per_second =
           cap.num_cores() *
-          tsl::profiler::GigaToTera(GetFlopMaxThroughputPerSM(cap));
+          tsl::profiler::GigaToTera(GetFlopMaxThroughputPerCore(cap));
     }
     double hbm_bw_giga_bytes_per_second =
         tsl::profiler::UniToGiga(cap.memory_bandwidth());
     double derived_shm_giga_bytes_per_second =
         cap.num_cores() *
-        tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(cap));
+        tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(cap));
     // Note that treat SRAM_RD and SRAM_WR as the same. So in future, we could
     // only use one for shared memory / L1 cache, one for another like L2.
     double sram_rd_giga_bytes_per_second = GetDoubleStatOrZero(

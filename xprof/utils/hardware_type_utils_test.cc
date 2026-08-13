@@ -38,7 +38,7 @@ TEST(HardwareTypeUtilsTest, B200PeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 2218, /*abs_error=*/1.0);
 }
 
@@ -58,7 +58,7 @@ TEST(HardwareTypeUtilsTest, FutureBlackwellPeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 2218, /*abs_error=*/1.0);
 }
 
@@ -78,7 +78,7 @@ TEST(HardwareTypeUtilsTest, H100PeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 756, /*abs_error=*/1.0);
 }
 
@@ -97,7 +97,7 @@ TEST(HardwareTypeUtilsTest, A100PeakComputTFlops) {
   device_cap.mutable_compute_capability()->set_minor(0);
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 312, /*abs_error=*/1.0);
 }
 
@@ -110,7 +110,7 @@ TEST(HardwareTypeUtilsTest, Mi300XPeakComputeTFlops) {
   device_cap.set_device_name("gfx942");
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   // Guards the bf16 trap: if the matrix rate were stored only in bf16_tflops,
   // the max would skip it and report the vector fp32 peak of 163.4 instead.
   EXPECT_NEAR(peak_tflops, 1307.4, /*abs_error=*/1.0);
@@ -126,7 +126,7 @@ TEST(HardwareTypeUtilsTest, Mi100PeakComputeTFlops) {
   device_cap.set_device_name("gfx908");
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 184.6, /*abs_error=*/1.0);
 }
 
@@ -139,7 +139,7 @@ TEST(HardwareTypeUtilsTest, Mi250XPeakComputeTFlopsPerGcd) {
   device_cap.set_device_name("gfx90a");
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 362.1, /*abs_error=*/1.0);
 }
 
@@ -152,7 +152,7 @@ TEST(HardwareTypeUtilsTest, Mi355XPeakComputeTFlops) {
   device_cap.set_device_name("gfx950");
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 2516.6, /*abs_error=*/1.0);
 }
 
@@ -166,7 +166,7 @@ TEST(HardwareTypeUtilsTest, AmbiguousAmdComputeCapabilityReportsNoPeak) {
   device_cap.mutable_compute_capability()->set_major(9);
   device_cap.mutable_compute_capability()->set_minor(0);
 
-  EXPECT_EQ(GetFlopMaxThroughputPerSM(device_cap), 0.0);
+  EXPECT_EQ(GetFlopMaxThroughputPerCore(device_cap), 0.0);
 }
 
 TEST(HardwareTypeUtilsTest, Mi300XSharedMemoryBandwidth) {
@@ -179,7 +179,7 @@ TEST(HardwareTypeUtilsTest, Mi300XSharedMemoryBandwidth) {
 
   double aggregate_giga_bytes_per_second =
       device_cap.num_cores() *
-      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
   // 304 * 128 B * 2.1e9 = 81,715.2 GB/s. Notably half of what the Nvidia bank
   // model would report, since CDNA has the same 32 banks at half the width.
   EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
@@ -195,7 +195,7 @@ TEST(HardwareTypeUtilsTest, Mi355XSharedMemoryBandwidthDoubles) {
 
   double aggregate_giga_bytes_per_second =
       device_cap.num_cores() *
-      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
   EXPECT_NEAR(aggregate_giga_bytes_per_second, 157286.4, /*abs_error=*/1.0);
 }
 
@@ -211,7 +211,7 @@ TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthFromComputeCapability) {
 
   double aggregate_giga_bytes_per_second =
       device_cap.num_cores() *
-      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(device_cap));
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
   EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
 }
 
@@ -225,7 +225,7 @@ TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthUnknownAmdArchReportsNothing) {
   device_cap.mutable_compute_capability()->set_major(9);
   device_cap.mutable_compute_capability()->set_minor(0);
 
-  EXPECT_EQ(GetSharedMemoryBandwidthPerSM(device_cap), 0.0);
+  EXPECT_EQ(GetSharedMemoryBandwidthPerCore(device_cap), 0.0);
 }
 
 TEST(HardwareTypeUtilsTest, GpuModelNameIgnoresNvidiaProductName) {

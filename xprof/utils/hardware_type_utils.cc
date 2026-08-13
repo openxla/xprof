@@ -366,7 +366,7 @@ std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
   return it->second;
 }
 
-GpuFlopCapabilities GetGpuFlopCapabilitiesPerSM(
+GpuFlopCapabilities GetGpuFlopCapabilitiesPerCore(
     const DeviceCapabilities& device_cap) {
   GpuFlopCapabilities flops_cap{};
   if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorNvidia) {
@@ -392,16 +392,16 @@ GpuFlopCapabilities GetGpuFlopCapabilitiesPerSM(
 
 }  // namespace
 
-double GetFlopMaxThroughputPerSM(const DeviceCapabilities& device_cap) {
-  GpuFlopCapabilities sm_flops = GetGpuFlopCapabilitiesPerSM(device_cap);
+double GetFlopMaxThroughputPerCore(const DeviceCapabilities& device_cap) {
+  GpuFlopCapabilities core_flops = GetGpuFlopCapabilitiesPerCore(device_cap);
   double result = std::max(
-      {sm_flops.vector_unit.fp32_tflops, sm_flops.vector_unit.fp16_tflops,
-       sm_flops.matrix_unit.fp32_tflops, sm_flops.matrix_unit.fp16_tflops});
-  VLOG(3) << "GetFlopMaxThroughputPerSM get result: " << result << " GFLOPs";
+      {core_flops.vector_unit.fp32_tflops, core_flops.vector_unit.fp16_tflops,
+       core_flops.matrix_unit.fp32_tflops, core_flops.matrix_unit.fp16_tflops});
+  VLOG(3) << "GetFlopMaxThroughputPerCore get result: " << result << " GFLOPs";
   return result;
 }
 
-double GetSharedMemoryBandwidthPerSM(const DeviceCapabilities& device_cap) {
+double GetSharedMemoryBandwidthPerCore(const DeviceCapabilities& device_cap) {
   double transaction_byts_per_cycle = 0.0;
   if (device_cap.device_vendor() == tsl::profiler::kDeviceVendorNvidia) {
     // https://docs.nvidia.com/gameworks/content/developertools/desktop/analysis/report/cudaexperiments/kernellevel/memorystatisticsshared.htm

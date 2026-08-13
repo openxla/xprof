@@ -159,6 +159,7 @@ class Application {
   void UpdateApplicationColors();
 
   ImGuiMouseCursor last_cursor_ = ImGuiMouseCursor_Arrow;
+  bool frame_active_ = false;
 };
 
 }  // namespace traceviewer

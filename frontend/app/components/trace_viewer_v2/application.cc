@@ -281,11 +281,22 @@ void Application::MainLoop() {
 }
 
 void Application::Draw() {
+  // Prevent re-entrant draws (nested frames). Under Angular 18/Zone.js,
+  // a canvas resize observer callback can fire synchronously inside an
+  // active draw loop. Calling ImGui rendering functions nested inside
+  // another active frame triggers a crash. If a draw is already active,
+  // we defer the redraw to the next animation frame tick.
+  if (frame_active_) {
+    RequestRedraw();
+    return;
+  }
+  frame_active_ = true;
   UpdateApplicationColors();
   platform_->NewFrame();
   timeline_->Draw();
   UpdateMouseCursor();
   platform_->RenderFrame();
+  frame_active_ = false;
 
   if (Animation::HasActiveAnimations()) {
     RequestRedraw();
@@ -400,11 +411,19 @@ void Application::Resize(float dpr, int width, int height) {
     fonts::LoadFonts(canvas_state.device_pixel_ratio());
   }
 
-  // Trigger an immediate synchronous redraw instead of waiting for the next
-  // animation frame via RequestRedraw(). This ensures the canvas is updated in
-  // the same event loop tick as the resize, preventing a blank or stretched
-  // frame from being displayed (flicker).
-  MainLoop();
+  if (frame_active_) {
+    // If a frame draw is already active (re-entrant call during drawing),
+    // defer redraw to the next frame tick via RequestRedraw(). Attempting
+    // to redraw synchronously now would nested-call ImGui NewFrame()
+    // and cause an assertion abort.
+    RequestRedraw();
+  } else {
+    // Otherwise, trigger an immediate synchronous redraw. This ensures
+    // the canvas layout size updates in the same event tick as the resize,
+    // preventing a blank or stretched canvas frame from flashing on screen
+    // (window resizing layout flicker).
+    MainLoop();
+  }
 }
 
 }  // namespace traceviewer

@@ -136,11 +136,6 @@ declare global {
   interface Window {
     wasmMemoryBytes: number;
     getFeatureFlag?: (name: string) => boolean;
-    gtag?: (
-      event: string,
-      action: string,
-      params: Record<string, unknown>,
-    ) => void;
   }
 }
 

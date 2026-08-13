@@ -195,6 +195,13 @@ class Timeline {
   void zoom_for_test(float zoom_factor, Microseconds pivot) {
     Zoom(zoom_factor, pivot);
   }
+  // Applies a deterministic vertical scroll offset (in pixels) for tests,
+  // reusing the production scroll-restore path so the offset takes effect
+  // on the next Draw().
+  void set_scroll_offset_for_test(float scroll_y) {
+    last_scroll_y_ = scroll_y;
+    should_restore_scroll_ = true;
+  }
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`

@@ -70,15 +70,40 @@ cc_test(
 )
 
 cc_library(
-    name = "hardware_type_utils",
-    srcs = ["hardware_type_utils.cc"],
-    hdrs = ["hardware_type_utils.h"],
+    name = "cuda_type_utils",
+    srcs = ["cuda_type_utils.cc"],
+    hdrs = ["cuda_type_utils.h"],
+    deps = [
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/log",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_library(
+    name = "rocm_type_utils",
+    srcs = ["rocm_type_utils.cc"],
+    hdrs = ["rocm_type_utils.h"],
     deps = [
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_library(
+    name = "hardware_type_utils",
+    srcs = ["hardware_type_utils.cc"],
+    hdrs = ["hardware_type_utils.h"],
+    deps = [
+        ":cuda_type_utils",
+        ":rocm_type_utils",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
+        "@org_xprof//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )

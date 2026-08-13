@@ -332,6 +332,6 @@ exports_files(
         "trace_filter_config.proto",
     ],
     visibility = [
-        "@org_xprof//plugin/xprof/protobuf:__pkg__",
+        "//plugin/xprof/protobuf:__pkg__",
     ],
 )

@@ -1,6 +1,10 @@
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@repository_configuration//:repository_config.bzl", "PROFILER_REQUIREMENTS_FILE")
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+npm_link_all_packages(name = "node_modules")
 
 # Description
 # XProf, ML Performance Toolbox (for TPU, GPU, CPU).
@@ -58,4 +62,16 @@ platform(
         "@platforms//os:windows",
         "@bazel_tools//tools/cpp:clang-cl",
     ],
+)
+
+copy_to_bin(
+    name = "tsconfig",
+    srcs = ["tsconfig.json"],
+    visibility = ["//frontend:__subpackages__"],
+)
+
+copy_to_bin(
+    name = "package_json",
+    srcs = ["package.json"],
+    visibility = ["//frontend:__subpackages__"],
 )

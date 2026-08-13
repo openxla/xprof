@@ -14,7 +14,7 @@ import {takeUntil} from 'rxjs/operators';
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'memory-profile',
   templateUrl: './memory_profile.ng.html',
-  styleUrls: ['./memory_profile.css'],
+  styleUrls: ['./memory_profile.scss'],
 })
 export class MemoryProfile extends MemoryProfileBase implements OnDestroy {
   tool = 'memory_profile';

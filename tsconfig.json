@@ -1,10 +1,20 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "es2018"],
+    "lib": ["dom", "es2022"],
+    "module": "es2022",
+    "target": "es2022",
     "moduleResolution": "node",
     "strict": false,
     "inlineSourceMap": true,
     "experimentalDecorators": true,
-    "baseUrl": "./"
+    "baseUrl": "./",
+    "skipLibCheck": true,
+    "paths": {
+      "org_xprof/*": ["*"],
+      "@angular/*": ["node_modules/@angular/*"]
+    },
+    "types": [
+      "node"
+    ]
   }
 }

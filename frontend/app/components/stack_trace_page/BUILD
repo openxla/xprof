@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,10 +13,10 @@ xprof_ng_module(
         "stack_trace_page.ng.html",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/components/source_mapper",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",
@@ -32,11 +31,11 @@ xprof_ng_module(
     ],
     deps = [
         ":stack_trace_page",
+        "//:node_modules/@angular/core_testing",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/core_testing",
-        "@npm//@angular/router",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",
         "@org_xprof//frontend/app/services/source_code_service:source_code_service_interface",
         "@org_xprof//frontend/app/store",

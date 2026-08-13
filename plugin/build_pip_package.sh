@@ -115,3 +115,4 @@ cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/trace_viewer_v2_wasm/tr
 cp -LR "$FRONTEND_RUNFILE_DIR/bundle.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/styles.css" .
 cp -LR "$FRONTEND_RUNFILE_DIR/zone.js" .
+cp -LR "$FRONTEND_RUNFILE_DIR/runtime.js" .

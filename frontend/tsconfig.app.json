@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/app",
+    "baseUrl": "./",
+    "paths": {
+      "org_xprof/*": ["../*"]
+    },
+    "types": [
+      "node",
+      "google.visualization",
+      "emscripten",
+      "@webgpu/types"
+    ]
+  },
+  "files": [
+    "main.ts"
+  ],
+  "include": [
+    "**/*.d.ts",
+    "app/**/*.ts"
+  ]
+}

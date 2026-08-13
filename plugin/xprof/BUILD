@@ -1,3 +1,5 @@
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
+
 # Description:
 #  TensorBoard plugin for the performance profiling.
 package(default_visibility = ["//plugin:internal"])
@@ -96,7 +98,7 @@ py_library(
     srcs = ["version.py"],
 )
 
-filegroup(
+copy_to_bin(
     name = "resources",
     srcs = [
         "__init__.py",
@@ -104,7 +106,7 @@ filegroup(
         "static/index.js",
         "static/materialicons.woff2",
     ],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//visibility:public"],
 )
 
 py_test(

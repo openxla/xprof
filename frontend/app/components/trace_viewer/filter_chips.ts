@@ -72,7 +72,7 @@ const CHIP_TEXT_MAX_LENGTH = 15;
       </ng-container>
     </mat-chip-grid>
 `,
-  styleUrls: ['./trace_viewer.css'],
+  styleUrls: ['./trace_viewer.scss'],
 })
 export class FilterChips {
   @Input() filters: FilterEntry[] = [];

@@ -172,7 +172,7 @@ function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
   standalone: false,
   selector: 'trace-viewer',
   templateUrl: './trace_viewer.ng.html',
-  styleUrls: ['./trace_viewer.css'],
+  styleUrls: ['./trace_viewer.scss'],
 })
 export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private readonly destroyed = new ReplaySubject<void>(1);

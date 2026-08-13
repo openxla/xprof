@@ -25,7 +25,7 @@ const DOWNLOAD_HLO_PROTO_MENU_ITEMS: DownloadMenuItem[] = [
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'download-hlo',
   templateUrl: './download_hlo.ng.html',
-  styleUrls: ['./download_hlo.css'],
+  styleUrls: ['./download_hlo.scss'],
   providers: [BlobDownloader],
 })
 export class DownloadHlo implements OnDestroy {

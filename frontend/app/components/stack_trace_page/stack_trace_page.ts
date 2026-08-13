@@ -20,7 +20,7 @@ import {takeUntil} from 'rxjs/operators';
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'stack-trace-page',
   templateUrl: './stack_trace_page.ng.html',
-  styleUrls: ['./stack_trace_page.css'],
+  styleUrls: ['./stack_trace_page.scss'],
 })
 export class StackTracePage implements OnDestroy {
   private readonly injector = inject(Injector);

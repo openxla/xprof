@@ -27,7 +27,7 @@ import {takeUntil} from 'rxjs/operators';
   standalone: false,
   selector: 'inference-profile',
   templateUrl: './inference_profile.ng.html',
-  styleUrls: ['./inference_profile.css'],
+  styleUrls: ['./inference_profile.scss'],
 })
 export class InferenceProfile implements OnDestroy {
   tool = 'inference_profile';

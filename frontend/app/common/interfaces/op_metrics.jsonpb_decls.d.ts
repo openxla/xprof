@@ -4,8 +4,12 @@ import {SourceInfo} from 'org_xprof/frontend/app/common/interfaces/source_info.j
 
 /** */
 export type MemBwType =
-    'MEM_BW_TYPE_FIRST'|'MEM_BW_TYPE_ALL'|'MEM_BW_TYPE_HBM_RW'|
-    'MEM_BW_TYPE_SRAM_RD'|'MEM_BW_TYPE_SRAM_WR'|'MEM_BW_TYPE_MAX';
+  | 'MEM_BW_TYPE_FIRST'
+  | 'MEM_BW_TYPE_ALL'
+  | 'MEM_BW_TYPE_HBM_RW'
+  | 'MEM_BW_TYPE_SRAM_RD'
+  | 'MEM_BW_TYPE_SRAM_WR'
+  | 'MEM_BW_TYPE_MAX';
 
 /** */
 export enum MemBwType$Names {
@@ -27,8 +31,11 @@ export enum NumericMemBwType {
 }
 
 /** */
-export type MemorySpace = 'MEMORY_SPACE_UNDEFINED'|'MEMORY_SPACE_HBM'|
-    'MEMORY_SPACE_ON_CHIP'|'MEMORY_SPACE_ALL';
+export type MemorySpace =
+  | 'MEMORY_SPACE_UNDEFINED'
+  | 'MEMORY_SPACE_HBM'
+  | 'MEMORY_SPACE_ON_CHIP'
+  | 'MEMORY_SPACE_ALL';
 
 /** */
 export enum MemorySpace$Names {
@@ -48,7 +55,10 @@ export enum NumericMemorySpace {
 
 /** */
 export type LayoutDimensionSemantics =
-    'UNKNOWN_SEMANTICS'|'FEATURE'|'BATCH'|'SPATIAL';
+  | 'UNKNOWN_SEMANTICS'
+  | 'FEATURE'
+  | 'BATCH'
+  | 'SPATIAL';
 
 /** */
 export enum LayoutDimensionSemantics$Names {
@@ -113,7 +123,7 @@ export namespace OpMetrics {
     bytesAccessed?: /* uint64 */ string;
   }
   export namespace MemoryAccessed {
-    export type OperationType = 'UNKNOWN'|'READ'|'WRITE';
+    export type OperationType = 'UNKNOWN' | 'READ' | 'WRITE';
     export enum OperationType$Names {
       UNKNOWN = 'UNKNOWN',
       READ = 'READ',
@@ -128,13 +138,13 @@ export namespace OpMetrics {
 }
 
 /** */
-export interface PrecisionStats extends {
+export interface PrecisionStats {
   compute16bitPs?: /* uint64 */ string;
   compute32bitPs?: /* uint64 */ string;
 }
 
 /** */
-export interface OpMetricsDb extends {
+export interface OpMetricsDb {
   metricsDb?: OpMetrics[];
   totalHostInfeedEnqDurationPs?: /* uint64 */ string;
   totalHostInfeedEnqStartTimestampPsDiff?: /* uint64 */ string;

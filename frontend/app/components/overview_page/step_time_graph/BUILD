@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,8 +13,8 @@ xprof_ng_module(
         "step_time_graph.ng.html",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@types/google.visualization",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/angular:angular_material_card",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
@@ -30,9 +29,9 @@ xprof_ng_module(
     ],
     deps = [
         ":step_time_graph",
+        "//:node_modules/@angular/core",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/utils:testing",
     ],

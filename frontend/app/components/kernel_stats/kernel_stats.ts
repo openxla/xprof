@@ -8,7 +8,7 @@ import {getKernelStatsDataState} from 'org_xprof/frontend/app/store/common_data_
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'kernel-stats',
   templateUrl: './kernel_stats.ng.html',
-  styleUrls: ['./kernel_stats.css']
+  styleUrls: ['./kernel_stats.scss']
 })
 export class KernelStats {
   data: SimpleDataTable|null = null;

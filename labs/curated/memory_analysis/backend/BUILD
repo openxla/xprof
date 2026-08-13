@@ -1,5 +1,5 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("@org_xprof//plugin/xprof/build_utils/oss:build_config.bzl", "cc_library")
+load("//plugin/xprof/build_utils/oss:build_config.bzl", "cc_library")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],

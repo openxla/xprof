@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -20,12 +19,12 @@ xprof_ng_module(
         "trace_viewer.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/forms",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/forms",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_material_autocomplete",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
@@ -61,14 +60,14 @@ xprof_ng_module(
         ":trace_viewer",
         "//javascript/angular2/testing/catalyst/fake_async",
         # ksf,
-        "@npm//@angular/common",
+        "//:node_modules/@angular/common",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
-        "@npm//@angular/router",
+        "//:node_modules/@angular/router",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
         "@org_xprof//frontend/app/common/angular:angular_material_dialog",
         "@org_xprof//frontend/app/common/angular:angular_material_menu_testing",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/trace_viewer_container",

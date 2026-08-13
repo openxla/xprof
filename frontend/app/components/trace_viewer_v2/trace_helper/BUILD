@@ -1,9 +1,8 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
-# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-
 load("@org_xprof//frontend/app/components/trace_viewer_v2:build_defs.bzl", "wasm_cc_library", "wasm_cc_test")
 load("@rules_proto//proto:defs.bzl", "proto_library")
+load("//defs:defs.bzl", "ts_library")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_library.bzl", "cc_library")
+# load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = [
     "@org_xprof//frontend/app/components/trace_viewer_v2:__subpackages__",
@@ -31,6 +30,7 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         ":trace_event_parser_core",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/hash",
@@ -38,7 +38,6 @@ wasm_cc_library(
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
         "@tsl//tsl/platform:fingerprint",
     ],
@@ -52,11 +51,11 @@ wasm_cc_library(
     deps = [
         ":trace_event",
         ":trace_event_parser_core",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_absl//absl/status:statusor",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/helper:time_formatter",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline:data_provider",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
     ],
     alwayslink = True,
@@ -69,10 +68,10 @@ cc_library(
     hdrs = ["trace_event_parser_core.h"],
     deps = [
         ":trace_event",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@tsl//tsl/platform:fingerprint",
         "@tsl//tsl/profiler/lib:context_types",
     ],
@@ -126,12 +125,12 @@ wasm_cc_test(
     ],
     deps = [
         ":trace_pb_event_parser",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
         "@org_xprof//frontend/app/components/trace_viewer_v2:application",
         "@org_xprof//frontend/app/components/trace_viewer_v2/timeline",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:zstd_compression",
     ],
 )
@@ -164,8 +163,8 @@ cc_test(
     deps = [
         ":trace_event",
         ":trace_event_parser_core",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
         "@tsl//tsl/profiler/lib:context_types",
     ],
 )

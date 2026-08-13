@@ -64,7 +64,7 @@ const VDD_ENERGY_ID = 'vdd_energy';
   standalone: false,
   selector: 'hlo-stats',
   templateUrl: './hlo_stats.ng.html',
-  styleUrls: ['./hlo_stats.css'],
+  styleUrls: ['./hlo_stats.scss'],
 })
 export class HloStats extends Dashboard implements OnDestroy {
   tool = 'hlo_op_stats';

@@ -1,6 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "ts_library", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -17,7 +15,7 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         ":device_side_analysis_detail_data_provider",
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
         "@org_xprof//frontend/app/components/chart",

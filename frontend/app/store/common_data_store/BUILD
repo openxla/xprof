@@ -11,9 +11,9 @@ xprof_ng_module(
         "state.ts",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/store:types",
     ],
@@ -28,9 +28,9 @@ xprof_ng_module(
     ],
     deps = [
         ":common_data_store",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
     ],
 )

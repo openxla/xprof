@@ -1,5 +1,5 @@
 import {HttpClientModule} from '@angular/common/http';
-import {NgModule} from '@angular/core';
+import {NgModule, provideZoneChangeDetection} from '@angular/core';
 import {MatProgressBarModule} from '@angular/material/progress-bar';
 import {BrowserModule} from '@angular/platform-browser';
 import {BrowserAnimationsModule} from '@angular/platform-browser/animations';
@@ -29,7 +29,7 @@ import {App} from './app';
     RootStoreModule,
   ],
   providers: [
-    /* provideZoneChangeDetection(), */
+    provideZoneChangeDetection(),
     DataDispatcher,
     DataServiceV2,
     {provide: DATA_SERVICE_INTERFACE_TOKEN, useClass: DataServiceV2},

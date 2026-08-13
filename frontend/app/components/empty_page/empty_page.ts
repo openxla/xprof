@@ -10,7 +10,7 @@ import {takeUntil} from 'rxjs/operators';
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'empty-page',
   templateUrl: './empty_page.ng.html',
-  styleUrls: ['./empty_page.css']
+  styleUrls: ['./empty_page.scss']
 })
 export class EmptyPage {
   private readonly destroyed = new ReplaySubject<void>(1);

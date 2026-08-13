@@ -1,4 +1,4 @@
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
+load("//defs:defs.bzl", "ts_library")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -21,7 +21,7 @@ ts_library(
         "roofline_model_constants.ts",
     ],
     deps = [
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
     ],
 )
 
@@ -31,7 +31,7 @@ ts_library(
         "testing.ts",
     ],
     deps = [
-        "@npm//@types/google.visualization",
+        "//:node_modules/@types/google.visualization",
         "@org_xprof//frontend/app/common/interfaces",
     ],
 )

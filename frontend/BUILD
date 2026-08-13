@@ -1,6 +1,5 @@
-load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary", "npm_sass_library")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("@npm//:@angular/cli/package_json.bzl", "bin")
+load("@rules_python//python:defs.bzl", "py_binary")
 
 package(default_visibility = [
     "//frontend:__subpackages__",
@@ -11,79 +10,70 @@ licenses(["notice"])
 
 package_group(
     name = "internal",
-    packages = [
-        "//frontend/...",
-    ],
+    packages = ["//..."],
 )
 
-xprof_ng_module(
-    name = "main",
+# Runs the Angular CLI build.
+# Outputs files into dist/xprof directory.
+# TODO: Migrate away from legacy Webpack builder (bin.ng) to the
+# new esbuild/Vite-based application builder. Webpack-based builders are
+# officially deprecated since Angular 17 and completely removed in Angular 21+.
+bin.ng(
+    name = "build",
     srcs = [
+        "angular.json",
+        "tsconfig.app.json",
+        "//:node_modules",
+        "//:package_json",
+        "//:tsconfig",
+        "//frontend/app",
+        "//plugin/xprof:resources",
+    ] + glob([
         "main.ts",
+        "index.html",
+        "styles.scss",
+    ]),
+    args = [
+        "build",
+        "--configuration",
+        "production",
     ],
-    deps = [
-        "@npm//@angular/core",
-        "@npm//@angular/localize",
-        "@npm//@angular/platform-browser-dynamic",
-        "@org_xprof//frontend/app",
-    ],
-)
-
-rollup_bundle(
-    name = "zone",
-    srcs = ["@npm//:node_modules/zone.js/dist/zone.js"],
-    config_file = "//:rollup.config.js",
-    entry_point = "@npm//:node_modules/zone.js/dist/zone.js",
-    format = "iife",
-    link_workspace_root = True,
-    deps = [
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
+    chdir = "frontend",
+    out_dirs = [
+        "dist/xprof",
     ],
 )
 
-rollup_bundle(
+# Expose bundle.js from Angular CLI output
+genrule(
     name = "bundle",
-    config_file = "//:rollup.config.js",
-    entry_point = "main.ts",
-    format = "iife",
-    link_workspace_root = True,
-    deps = [
-        ":main",
-        "@npm//@angular/animations",
-        "@npm//@angular/cdk",
-        "@npm//@angular/core",
-        "@npm//@angular/forms",
-        "@npm//@angular/material",
-        "@npm//@angular/platform-browser-dynamic",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
-    ],
+    srcs = [":build"],
+    outs = ["bundle.js"],
+    cmd = "cp $(execpath :build)/main.js $@",
 )
 
-npm_sass_library(
-  name = "angular_material_sass_deps",
-  deps = ["@npm//@angular/material"],
-)
-
-sass_binary(
+# Expose styles.css from Angular CLI output
+genrule(
     name = "css",
-    src = "styles.scss",
-    # @use was very different in angular v13.x using a relative path @use '../../../cdk/a11y'
-    # instead to the new one in v14.x @use '@angular/cdk'
-    # need to include the node_modules path to enable sass to find the theming file
-    include_paths = [
-      "node_modules",
-      # used for resolve the external @npm dependencies
-      "external/npm/node_modules",
-    ],
-    output_name = "styles.css",
-    sourcemap = False,
-    deps = [
-        ":angular_material_sass_deps",
-    ],
+    srcs = [":build"],
+    outs = ["styles.css"],
+    cmd = "cp $(execpath :build)/styles.css $@",
+)
+
+# Expose zone.js from Angular CLI output (polyfills.js)
+genrule(
+    name = "zone.js",
+    srcs = [":build"],
+    outs = ["zone.js"],
+    cmd = "cp $(execpath :build)/polyfills.js $@",
+)
+
+# Expose runtime.js from Angular CLI output
+genrule(
+    name = "runtime.js",
+    srcs = [":build"],
+    outs = ["runtime.js"],
+    cmd = "cp $(execpath :build)/runtime.js $@",
 )
 
 py_binary(
@@ -92,9 +82,41 @@ py_binary(
     srcs = ["server.py"],
     data = [
         "index.html",
-        ":bundle.js",
+        ":bundle",
         ":css",
         ":zone.js",
+        ":runtime.js",
     ],
     python_version = "PY3",
+)
+
+# To run this local development server:
+# 1. Start the python backend server (e.g. on port 8791):
+#    /tmp/xprof_venv_3_13/bin/xprof server --logdir=/path/to/logdir --port=8791
+# 2. Run this target: bazel run //frontend:serve
+# 3. Open browser at http://localhost:4200/ (with HMR and Host Header bypass active)
+bin.ng_binary(
+    name = "serve",
+    args = [
+        "serve",
+        "--host=0.0.0.0",
+        "--port=4200",
+        "--proxy-config=proxy.conf.json",
+        "--disable-host-check",
+    ],
+    chdir = "frontend",
+    data = [
+        "angular.json",
+        "tsconfig.app.json",
+        "//:node_modules",
+        "//:package_json",
+        "//:tsconfig",
+        "//frontend/app:app",
+        "//plugin/xprof:resources",
+        "proxy.conf.json",
+    ] + glob([
+        "main.ts",
+        "index.html",
+        "styles.scss",
+    ]),
 )

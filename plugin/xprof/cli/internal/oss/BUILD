@@ -1,6 +1,6 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
-package(default_visibility = ["@org_xprof//plugin/xprof/cli:__subpackages__"])
+package(default_visibility = ["//plugin/xprof/cli:__subpackages__"])
 
 pytype_library(
     name = "hlo_tools",
@@ -8,8 +8,8 @@ pytype_library(
     # strict_deps = False,
     deps = [
         ":xprof_client",
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/convert:raw_to_tool_data",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/convert:raw_to_tool_data",
     ],
 )
 
@@ -19,8 +19,8 @@ pytype_library(
     # strict_deps = False,
     deps = [
         ":xprof_client",
-        "@org_xprof//plugin/xprof:profile_data",
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof:profile_data",
+        "//plugin/xprof/cli/internal:decorators",
     ],
 )
 
@@ -30,7 +30,7 @@ pytype_library(
     # strict_deps = False,
     deps = [
         ":xplane_tools",
-        "@org_xprof//plugin/xprof:profile_data",
+        "//plugin/xprof:profile_data",
     ],
 )
 
@@ -40,7 +40,7 @@ pytype_library(
     # strict_deps = False,
     visibility = ["//visibility:public"],
     deps = [
-        "@org_xprof//plugin/xprof/convert:raw_to_tool_data",
+        "//plugin/xprof/convert:raw_to_tool_data",
     ],
 )
 
@@ -58,7 +58,7 @@ pytype_library(
     srcs = ["llo_parser.py"],
     # strict_deps = False,
     deps = [
-        "@org_xprof//plugin/xprof:profile_data",
+        "//plugin/xprof:profile_data",
     ],
 )
 

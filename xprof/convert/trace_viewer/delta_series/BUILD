@@ -33,6 +33,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":zstd_compression",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "//plugin/xprof/protobuf:trace_events_proto_cc",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:any_invocable",
@@ -40,8 +42,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
-        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
         "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
         "@tsl//tsl/profiler/lib:context_types",
@@ -55,10 +55,10 @@ cc_test(
     deps = [
         ":trace_data_to_compressed_delta_series_proto",
         ":zstd_compression",
+        "//plugin/xprof/protobuf:trace_data_response_proto_cc",
+        "//plugin/xprof/protobuf:trace_events_proto_cc",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
-        "@org_xprof//plugin/xprof/protobuf:trace_data_response_proto_cc",
-        "@org_xprof//plugin/xprof/protobuf:trace_events_proto_cc",
         "@org_xprof//xprof/convert/trace_viewer:trace_events",
     ],
 )

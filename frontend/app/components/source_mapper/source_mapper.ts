@@ -27,7 +27,7 @@ enum CompilerPass {
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'source-mapper',
   templateUrl: './source_mapper.ng.html',
-  styleUrls: ['./source_mapper.css'],
+  styleUrls: ['./source_mapper.scss'],
 })
 export class SourceMapper implements OnDestroy, OnChanges {
   private readonly destroyed = new ReplaySubject<void>(1);

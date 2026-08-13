@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -10,10 +9,10 @@ xprof_ng_module(
     ],
     deps = [
         ":kernel_stats",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/store",
@@ -31,8 +30,8 @@ xprof_ng_module(
         "kernel_stats.ng.html",
     ],
     deps = [
-        "@npm//@angular/core",
-        "@npm//@ngrx/store",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@ngrx/store",
         "@org_xprof//frontend/app/common/angular:angular_material_divider",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/components/controls/export_as_csv",
@@ -51,11 +50,11 @@ xprof_ng_module(
     deps = [
         ":kernel_stats",
         ":kernel_stats_adapter",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/utils:testing",

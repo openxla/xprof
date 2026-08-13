@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,9 +13,9 @@ xprof_ng_module(
         "hlo_text_view.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//rxjs",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
@@ -34,12 +33,12 @@ xprof_ng_module(
     srcs = ["hlo_text_view_test.ts"],
     deps = [
         ":hlo_text_view",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@angular/router_testing",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/router",
-        "@npm//@angular/router_testing",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_expansion_testing",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

@@ -1,6 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary", "sass_library")
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "sass_library", "ts_library", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -17,10 +15,10 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         ":op_profile_base",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
@@ -51,11 +49,11 @@ xprof_ng_module(
     ],
     deps = [
         ":op_profile_data",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//angular-split",
-        "@npm//rxjs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/angular-split",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_form_field",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_input",
@@ -84,10 +82,10 @@ xprof_ng_module(
     deps = [
         ":op_profile",
         ":op_profile_base",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/router",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:op_metrics_proto_defs",
@@ -109,8 +107,8 @@ xprof_ng_module(
         "//javascript/angular2/testing/catalyst/async",
         # ksf,
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
-        "@npm//@angular/router",
-        "@npm//rxjs",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/interfaces:op_profile_proto_defs",
         "@org_xprof//frontend/app/services/data_service_v2:data_service_v2_interface",

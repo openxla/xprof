@@ -24,10 +24,21 @@
   <app></app>
   <script>
     function loadBundle() {
-      const script = document.createElement('script');
-      script.src = 'bundle.js';
-      document.body.appendChild(script);
-      return script;
+      const runtimeScript = document.createElement('script');
+      runtimeScript.src = 'runtime.js';
+      document.body.appendChild(runtimeScript);
+      runtimeScript.onload = () => {
+        const bundleScript = document.createElement('script');
+        bundleScript.src = 'bundle.js';
+        document.body.appendChild(bundleScript);
+      };
+      runtimeScript.onerror = () => {
+        // If runtime.js fails to load (e.g. Google3 build where runtime is pre-bundled in bundle.js),
+        // fallback to loading bundle.js directly.
+        const bundleScript = document.createElement('script');
+        bundleScript.src = 'bundle.js';
+        document.body.appendChild(bundleScript);
+      };
     }
 
     function loadChart(domain) {

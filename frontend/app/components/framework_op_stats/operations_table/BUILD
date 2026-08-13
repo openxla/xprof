@@ -1,6 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "ts_library", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -17,7 +15,7 @@ xprof_ng_module(
     # strict_templates = False,
     deps = [
         ":operations_table_data_provider",
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
@@ -31,7 +29,7 @@ ts_library(
         "operations_table_data_provider.ts",
     ],
     deps = [
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/constants",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/interfaces:chart",
@@ -48,9 +46,9 @@ xprof_ng_module(
     ],
     deps = [
         ":operations_table",
+        "//:node_modules/@angular/core",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants",
     ],

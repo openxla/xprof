@@ -38,9 +38,9 @@ py_test(
     deps = [
         ":trace_events_json",
         "//:expect_tensorflow_installed",
+        "//plugin/xprof/protobuf:trace_events_old_proto_py",
         "//third_party/py/google/protobuf",
         "//third_party/py/google/protobuf:use_fast_cpp_protos",  # Automatically added go/proto_python_upb_flip
-        "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@pypi//absl-py",  # build_cleaner: keep; go/disable_tf2
     ],
 )
@@ -55,7 +55,7 @@ py_library(
     deps = [
         ":csv_writer",
         ":trace_events_json",
-        "@org_xprof//plugin/xprof/protobuf:trace_events_old_proto_py",
+        "//plugin/xprof/protobuf:trace_events_old_proto_py",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )

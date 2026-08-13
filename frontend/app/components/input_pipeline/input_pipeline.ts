@@ -31,7 +31,7 @@ const STEPTIME_COLUMN_IDS_FOR_TPU_INTERNAL = [
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'input-pipeline',
   templateUrl: './input_pipeline.ng.html',
-  styleUrls: ['./input_pipeline.css']
+  styleUrls: ['./input_pipeline.scss']
 })
 export class InputPipeline extends InputPipelineCommon implements OnDestroy {
   private readonly dataService: DataServiceV2Interface =

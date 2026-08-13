@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,12 +20,12 @@ xprof_ng_module(
         "treemap/treemap.ng.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/core_rxjs_interop",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_rxjs_interop",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_button_toggle",
         "@org_xprof//frontend/app/common/angular:angular_material_card",
@@ -77,15 +76,15 @@ xprof_ng_module(
     ],
     deps = [
         ":memory_analysis",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core_testing",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/angular_components:cdk_testing",
         "//third_party/javascript/angular_components:cdk_testing_testbed",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/common",
-        "@npm//@angular/core_testing",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_card_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_input_testing",

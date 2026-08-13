@@ -50,7 +50,7 @@ const DISAGGREGATED_SERVING_LATENCY_INDEX = 8;
   standalone: false,
   selector: 'overview-page',
   templateUrl: './overview_page.ng.html',
-  styleUrls: ['./overview_page.css'],
+  styleUrls: ['./overview_page.scss'],
 })
 export class OverviewPage implements OnDestroy {
   @Input() darkTheme = false;

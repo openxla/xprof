@@ -10,9 +10,9 @@ xprof_ng_module(
         "kernel_analysis.component.html",
     ],
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/forms",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/forms",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_stepper",
         "@org_xprof//frontend/app/components/kernel_analysis/data",
@@ -29,9 +29,9 @@ xprof_ng_module(
     ],
     deps = [
         ":kernel_analysis",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/components/kernel_analysis/data",
         "@org_xprof//frontend/app/components/kernel_analysis/execution_preview",

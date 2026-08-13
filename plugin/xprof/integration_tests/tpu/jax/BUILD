@@ -1,4 +1,4 @@
-load("@org_xprof//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
+load("//plugin/xprof/build_utils:profiler_test.bzl", "profiler_test")
 
 profiler_test(
     name = "perf_counters_test",
@@ -16,10 +16,10 @@ profiler_test(
         "requires-net:external",
     ],
     deps = [
+        "//plugin/xprof/convert:raw_to_tool_data",
         "//third_party/py/jax",
         "@absl_py//absl/flags",
         "@absl_py//absl/testing:absltest",
-        "@org_xprof//plugin/xprof/convert:raw_to_tool_data",
     ],
 )
 
@@ -38,10 +38,10 @@ profiler_test(
         "requires-net:external",
     ],
     deps = [
+        "//plugin/xprof/convert:raw_to_tool_data",
         "//third_party/py/jax",
         "@absl_py//absl/flags",
         "@absl_py//absl/testing:absltest",
-        "@org_xprof//plugin/xprof/convert:raw_to_tool_data",
     ],
 )
 

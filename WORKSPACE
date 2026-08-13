@@ -270,9 +270,27 @@ load("@rules_java//java:rules_java_deps.bzl", "rules_java_dependencies")
 rules_java_dependencies()
 
 http_archive(
+    name = "aspect_rules_js",
+    sha256 = "75c25a0f15a9e4592bbda45b57aa089e4bf17f9176fd735351e8c6444df87b52",
+    strip_prefix = "rules_js-2.1.0",
+    url = "https://github.com/aspect-build/rules_js/releases/download/v2.1.0/rules_js-v2.1.0.tar.gz",
+)
+
+load("@aspect_rules_js//js:repositories.bzl", "rules_js_dependencies")
+
+rules_js_dependencies()
+
+load("@aspect_bazel_lib//lib:repositories.bzl", "aspect_bazel_lib_dependencies", "aspect_bazel_lib_register_toolchains")
+
+aspect_bazel_lib_dependencies()
+
+aspect_bazel_lib_register_toolchains()
+
+http_archive(
     name = "rules_nodejs",
-    sha256 = "0c2277164b1752bb71ecfba3107f01c6a8fb02e4835a790914c71dfadcf646ba",
-    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/5.8.5/rules_nodejs-core-5.8.5.tar.gz"],
+    sha256 = "87c6171c5be7b69538d4695d9ded29ae2626c5ed76a9adeedce37b63c73bef67",
+    strip_prefix = "rules_nodejs-6.2.0",
+    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/v6.2.0/rules_nodejs-v6.2.0.tar.gz"],
 )
 
 load("@rules_nodejs//nodejs:repositories.bzl", "nodejs_register_toolchains")
@@ -282,48 +300,18 @@ nodejs_register_toolchains(
     node_version = "20.14.0",
 )
 
-http_archive(
-    name = "build_bazel_rules_nodejs",
-    sha256 = "a1295b168f183218bc88117cf00674bcd102498f294086ff58318f830dd9d9d1",
-    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/5.8.5/rules_nodejs-5.8.5.tar.gz"],
-)
+load("@aspect_rules_js//npm:repositories.bzl", "npm_translate_lock")
 
-load("@build_bazel_rules_nodejs//:repositories.bzl", "build_bazel_rules_nodejs_dependencies")
-
-build_bazel_rules_nodejs_dependencies()
-
-load("@build_bazel_rules_nodejs//:index.bzl", "yarn_install")
-
-yarn_install(
+npm_translate_lock(
     name = "npm",
-    data = ["//:patch_keys.py"],
-    # "Some rules only work by referencing labels nested inside npm packages
-    # and therefore require turning off exports_directories_only."
-    # This includes "ts_library".
-    # See: https://github.com/bazelbuild/rules_nodejs/wiki/Migrating-to-5.0#exports_directories_only
-    exports_directories_only = False,
-    package_json = "//:package.json",
-    yarn_lock = "//:yarn.lock",
+    pnpm_lock = "//:pnpm-lock.yaml",
 )
 
-# rules_sass release information is difficult to find but it does seem to
-# regularly release with same cadence and version as core sass.
-# We typically upgrade this library whenever we upgrade rules_nodejs.
-#
-# rules_sass 1.55.0: https://github.com/bazelbuild/rules_sass/tree/1.55.0
-http_archive(
-    name = "io_bazel_rules_sass",
-    sha256 = "1ea0103fa6adcb7d43ff26373b5082efe1d4b2e09c4f34f8a8f8b351e9a8a9b0",
-    strip_prefix = "rules_sass-1.55.0",
-    urls = [
-        "http://mirror.tensorflow.org/github.com/bazelbuild/rules_sass/archive/1.55.0.zip",
-        "https://github.com/bazelbuild/rules_sass/archive/1.55.0.zip",
-    ],
-)
+load("@npm//:repositories.bzl", "npm_repositories")
 
-load("@io_bazel_rules_sass//:defs.bzl", "sass_repositories")
+npm_repositories()
 
-sass_repositories()
+
 
 http_archive(
     name = "org_tensorflow_tensorboard",

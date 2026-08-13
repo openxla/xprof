@@ -181,6 +181,34 @@ export class SideNav implements OnInit, OnDestroy {
     const label = params.get('label') ?? '';
     const opName = params.get('node_name') ?? params.get('opName') ?? '';
     const moduleName = params.get('module_name') ?? '';
+
+    const isHostsEqual = this.isMultiHostsEnabled
+      ? this.selectedHostsInternal.join(',') === (hostsParam || '')
+      : this.selectedHostInternal === host;
+
+    // Guard to prevent infinite navigation loops on identical route params.
+    // In Angular 18, navigating to the same route triggers NavigationEnd because
+    // getNavigationEvent() returns a new object reference on every call, which
+    // is treated as a parameter change by reference comparison.
+    //
+    // TODO: b/536901902 - Refactor SideNav routing to follow a reactive, one-way
+    // data flow (URL as single source of truth) where UI dropdowns only trigger
+    // navigations, and an ActivatedRoute queryParams subscription handles all
+    // state syncs and data fetches. See xprof_angular_routing_refactor_proposal.md.
+    if (
+      this.selectedRunInternal === run &&
+      this.selectedTagInternal === tag &&
+      this.selectedModuleInternal === moduleName &&
+      this.runPathInternal === runPath &&
+      this.sessionPathInternal === sessionPath &&
+      this.labelInternal === label &&
+      (this.navigationParams['opName'] || '') === opName &&
+      (this.dataService.getBaseSessionId() ?? '') === baseSessionId &&
+      isHostsEqual
+    ) {
+      return;
+    }
+
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;

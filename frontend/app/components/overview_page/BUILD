@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//frontend:internal"])
 
@@ -14,12 +13,12 @@ xprof_ng_module(
     ],
     # strict_templates = False,
     deps = [
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//@types/google.visualization",
-        "@npm//rxjs",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/@types/google.visualization",
+        "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils",
         "@org_xprof//frontend/app/components/diagnostics_view",
@@ -43,12 +42,12 @@ xprof_ng_module(
     ],
     deps = [
         ":overview_page",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_testing",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/core",
-        "@npm//@angular/core_testing",
-        "@npm//@angular/router",
-        "@npm//rxjs",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
         "@org_xprof//frontend/app/common/constants:testing",
         "@org_xprof//frontend/app/common/interfaces",
@@ -81,11 +80,11 @@ xprof_ng_module(
         ":overview_page",
         "//javascript/angular2/testing/catalyst/async",
         # ksf,
-        "@npm//@angular/core",
+        "//:node_modules/@angular/core",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
-        "@npm//@angular/router",
-        "@npm//rxjs",
-        "@npm//safevalues",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
+        "//:node_modules/safevalues",
         "//third_party/javascript/safevalues/dom",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/constants:testing",

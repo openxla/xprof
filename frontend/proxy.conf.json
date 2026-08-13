@@ -1,0 +1,22 @@
+{
+  "/data": {
+    "target": "http://localhost:8791",
+    "secure": false
+  },
+  "/trace_viewer_v2.js": {
+    "target": "http://localhost:8791",
+    "secure": false
+  },
+  "/trace_viewer_v2.wasm": {
+    "target": "http://localhost:8791",
+    "secure": false
+  },
+  "/trace_viewer_index.html": {
+    "target": "http://localhost:8791",
+    "secure": false
+  },
+  "/trace_viewer_index.js": {
+    "target": "http://localhost:8791",
+    "secure": false
+  }
+}

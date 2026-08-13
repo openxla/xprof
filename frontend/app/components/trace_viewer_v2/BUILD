@@ -1,7 +1,6 @@
 load("@emsdk//emscripten_toolchain:wasm_rules.bzl", "wasm_cc_binary")
-load("@npm//@bazel/concatjs:index.bzl", "ts_library")
-load("@npm//@bazel/rollup:index.bzl", "rollup_bundle")
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_test")
+load("//defs:defs.bzl", "rollup_bundle", "ts_library")
 
 # load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 load(":build_defs.bzl", "wasm_cc_library")
@@ -201,10 +200,10 @@ ts_library(
     ],
     visibility = ["//frontend:__subpackages__"],
     deps = [
-        "@npm//@material/web",
-        "@npm//@types/emscripten",
-        "@npm//@webgpu/types",
-        "@npm//lit",
+        "//:node_modules/@material/web",
+        "//:node_modules/@types/emscripten",
+        "//:node_modules/@webgpu/types",
+        "//:node_modules/lit",
     ],
 )
 
@@ -221,7 +220,7 @@ ts_library(
         ":app_bundle_ts",
         # ksf,
         "//third_party/javascript/typings/jasmine",
-        "@npm//@webgpu/types",
+        "//:node_modules/@webgpu/types",
     ],
 )
 
@@ -235,8 +234,8 @@ rollup_bundle(
     link_workspace_root = True,
     deps = [
         ":app_bundle_ts",
-        "@npm//@rollup/plugin-commonjs",
-        "@npm//@rollup/plugin-node-resolve",
+        "//:node_modules/@rollup/plugin-commonjs",
+        "//:node_modules/@rollup/plugin-node-resolve",
     ],
 )
 

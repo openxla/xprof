@@ -15,7 +15,7 @@ import {PodViewerCommon} from './pod_viewer_common';
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'pod-viewer',
   templateUrl: './pod_viewer.ng.html',
-  styleUrls: ['./pod_viewer.css']
+  styleUrls: ['./pod_viewer.scss']
 })
 export class PodViewer extends PodViewerCommon implements OnDestroy {
   /** Handles on-destroy Subject, used to unsubscribe. */

@@ -11,7 +11,7 @@ import {firstValueFrom} from 'rxjs';
   changeDetection: ChangeDetectionStrategy.Default,standalone: false,
   selector: 'app',
   templateUrl: './app.ng.html',
-  styleUrls: ['./app.css'],
+  styleUrls: ['./app.scss'],
 })
 export class App implements OnInit {
   loading = true;

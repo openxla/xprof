@@ -1,5 +1,4 @@
-load("@io_bazel_rules_sass//:defs.bzl", "sass_binary")
-load("//defs:defs.bzl", "xprof_ng_module")
+load("//defs:defs.bzl", "sass_binary", "xprof_ng_module")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -16,15 +15,15 @@ xprof_ng_module(
         "labs.ng.html",
     ],
     deps = [
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_rxjs_interop",
+        "//:node_modules/@angular/forms",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
+        "//:node_modules/safevalues",
         "//third_party/javascript/safevalues/dom",
-        "@npm//@angular/common",
-        "@npm//@angular/core",
-        "@npm//@angular/core_rxjs_interop",
-        "@npm//@angular/forms",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
-        "@npm//safevalues",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_button_toggle",
@@ -54,16 +53,16 @@ xprof_ng_module(
     ],
     deps = [
         ":labs",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/core_testing",
+        "//:node_modules/@angular/router",
+        "//:node_modules/@ngrx/store",
+        "//:node_modules/rxjs",
+        "//:node_modules/safevalues",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/angular_components:cdk_testing_catalyst",
         "//third_party/javascript/safevalues/dom",
         "//third_party/javascript/typings/jasmine",
-        "@npm//@angular/core",
-        "@npm//@angular/core_testing",
-        "@npm//@angular/router",
-        "@npm//@ngrx/store",
-        "@npm//rxjs",
-        "@npm//safevalues",
         "@org_xprof//frontend/app/common/angular:angular_common_http",
         "@org_xprof//frontend/app/common/angular:angular_common_http_testing",
         "@org_xprof//frontend/app/common/angular:angular_material_input_testing",

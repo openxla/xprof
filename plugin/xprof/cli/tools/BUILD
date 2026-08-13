@@ -7,12 +7,12 @@ pytype_strict_library(
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/gemini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
         "//third_party/py/tokamax:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:kernel_stats_tools",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
     ],
 )
 
@@ -22,11 +22,11 @@ pytype_strict_library(
     visibility = [
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
 
@@ -36,21 +36,21 @@ pytype_strict_library(
     visibility = [
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
 
 pytype_strict_library(
     name = "get_llo_analysis_tool",
     srcs = ["get_llo_analysis_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
@@ -58,10 +58,10 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_llo_debug_string_tool",
     srcs = ["get_llo_debug_string_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "@org_xprof//xprof/pywrap:_pywrap_profiler_plugin",
     ],
 )
@@ -72,11 +72,11 @@ pytype_strict_library(
     visibility = [
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
 
@@ -86,11 +86,11 @@ pytype_strict_library(
     visibility = [
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
 
@@ -100,12 +100,12 @@ pytype_strict_library(
     visibility = [
         "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
         "//learning/performance/agents:__subpackages__",
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
-        "@org_xprof//plugin/xprof/protobuf:op_profile_proto_py",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/protobuf:op_profile_proto_py",
         "@pypi//protobuf",
     ],
 )
@@ -113,7 +113,7 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_kpi_metrics_tool",
     srcs = ["get_kpi_metrics_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
         ":get_memory_profile_tool",
         ":get_overview_tool",
@@ -123,27 +123,27 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_graph_viewer_tool",
     srcs = ["get_graph_viewer_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
-    deps = ["@org_xprof//plugin/xprof/cli/internal/oss:xprof_client"],
+    visibility = ["//plugin/xprof:__subpackages__"],
+    deps = ["//plugin/xprof/cli/internal/oss:xprof_client"],
 )
 
 pytype_strict_library(
     name = "get_smart_suggestions_tool",
     srcs = ["get_smart_suggestions_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
-        "@org_xprof//plugin/xprof/cli/internal:decorators",
-        "@org_xprof//plugin/xprof/cli/internal/oss:smart_suggestion_tools",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:smart_suggestion_tools",
     ],
 )
 
 pytype_strict_library(
     name = "detect_unfused_reshapes_tool",
     srcs = ["detect_unfused_reshapes_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
         ":get_top_hlo_ops_tool",
-        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )
 
@@ -151,30 +151,30 @@ pytype_strict_library(
     name = "detect_layout_mismatch_copies_tool",
     srcs = ["detect_layout_mismatch_copies_tool.py"],
     visibility = [
-        "//plugin:__subpackages__",
+        "//plugin/xprof:__subpackages__",
     ],
     deps = [
         ":get_top_hlo_ops_tool",
-        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )
 
 pytype_strict_library(
     name = "detect_unnecessary_convert_reduce_tool",
     srcs = ["detect_unnecessary_convert_reduce_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
         ":get_top_hlo_ops_tool",
-        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )
 
 pytype_strict_library(
     name = "detect_unfused_updates_tool",
     srcs = ["detect_unfused_updates_tool.py"],
-    visibility = ["//plugin:__subpackages__"],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
         ":get_top_hlo_ops_tool",
-        "@org_xprof//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )

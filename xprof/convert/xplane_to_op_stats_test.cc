@@ -54,6 +54,7 @@ using ::tsl::profiler::GetOrCreateGpuXPlane;
 using ::tsl::profiler::GetOrCreateHostXPlane;
 using ::tsl::profiler::GetOrCreateTpuXPlane;
 using ::tsl::profiler::HostEventType;
+using ::tsl::profiler::kDeviceVendorAMD;
 using ::tsl::profiler::kDeviceVendorNvidia;
 using ::tsl::profiler::kSparseCoreModuleLineName;
 using ::tsl::profiler::kSparseCoreOpLineName;
@@ -116,6 +117,106 @@ TEST(ConvertXPlaneToOpStats, GpuPerfEnv) {
       kMaxError);
   // Ridge point changed accordingly from above peak flops change.
   EXPECT_NEAR(139.26, perf_env.ridge_point(), kMaxError);
+}
+
+// MI300X: 304 CU at 2.1 GHz, 5.3 TB/s HBM. The built-in tables derive
+// 1307.44 TFLOP/s and 81715.2 GB/s of LDS from this.
+void SetMi300xDeviceCaps(XPlane* plane) {
+  XPlaneBuilder device_plane(plane);
+  device_plane.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kDevVendor)),
+                            kDeviceVendorAMD);
+  device_plane.AddStatValue(*device_plane.GetOrCreateStatMetadata(
+                                GetStatTypeStr(StatType::kGpuDeviceName)),
+                            "gfx942");
+  device_plane.AddStatValue(*device_plane.GetOrCreateStatMetadata("clock_rate"),
+                            2100000);
+  device_plane.AddStatValue(*device_plane.GetOrCreateStatMetadata("core_count"),
+                            304);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata("memory_bandwidth"),
+      uint64_t{5300} * 1000 * 1000 * 1000);
+}
+
+void SetBackendPeakStats(XPlane* plane, double tera_flops, double sram_rd,
+                         double sram_wr) {
+  XPlaneBuilder device_plane(plane);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kDevCapPeakTeraflopsPerSecond)),
+      tera_flops);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kDevCapPeakSramRdBwGigabytesPerSecond)),
+      sram_rd);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kDevCapPeakSramWrBwGigabytesPerSecond)),
+      sram_wr);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuPerfEnvPrefersBackendPeaks) {
+  constexpr double kMaxError = 0.01;
+  XSpace space;
+  XPlane* device_plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  SetMi300xDeviceCaps(device_plane);
+  SetBackendPeakStats(device_plane, /*tera_flops=*/1250.0,
+                      /*sram_rd=*/65000.0, /*sram_wr=*/48000.0);
+
+  PerfEnv perf_env = GetPerfEnvFromXPlane(*device_plane);
+  EXPECT_NEAR(1250.0, perf_env.peak_tera_flops_per_second(), kMaxError);
+  EXPECT_NEAR(
+      65000.0,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_RD),
+      kMaxError);
+  EXPECT_NEAR(
+      48000.0,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_WR),
+      kMaxError);
+  // HBM has no backend stat on the GPU path, so it still comes from the caps.
+  EXPECT_NEAR(
+      5300.0,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_HBM_RW),
+      kMaxError);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuPerfEnvDerivesPeaksWithoutBackendStats) {
+  constexpr double kMaxError = 0.01;
+  XSpace space;
+  XPlane* device_plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  SetMi300xDeviceCaps(device_plane);
+
+  PerfEnv perf_env = GetPerfEnvFromXPlane(*device_plane);
+  EXPECT_NEAR(1307.44, perf_env.peak_tera_flops_per_second(), kMaxError);
+  // Read and write both fall back to the one derived LDS figure.
+  EXPECT_NEAR(
+      81715.2,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_RD),
+      kMaxError);
+  EXPECT_NEAR(
+      81715.2,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_WR),
+      kMaxError);
+}
+
+TEST(ConvertXPlaneToOpStats, GpuPerfEnvDerivesPeaksWhenBackendReportsZero) {
+  constexpr double kMaxError = 0.01;
+  XSpace space;
+  XPlane* device_plane = GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0);
+  SetMi300xDeviceCaps(device_plane);
+  SetBackendPeakStats(device_plane, /*tera_flops=*/0.0, /*sram_rd=*/0.0,
+                      /*sram_wr=*/0.0);
+
+  PerfEnv perf_env = GetPerfEnvFromXPlane(*device_plane);
+  EXPECT_NEAR(1307.44, perf_env.peak_tera_flops_per_second(), kMaxError);
+  EXPECT_NEAR(
+      81715.2,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_RD),
+      kMaxError);
+  EXPECT_NEAR(
+      81715.2,
+      perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_SRAM_WR),
+      kMaxError);
 }
 
 TEST(ConvertXPlaneToOpStats, GpuRunEnvironment) {

@@ -120,7 +120,7 @@
   <div class="main-content-area">
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
-        <div class="canvas-container">
+        <div class="canvas-container" #canvasContainer>
           <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
         </div>
       </as-split-area>

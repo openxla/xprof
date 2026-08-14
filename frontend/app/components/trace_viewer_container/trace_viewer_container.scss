@@ -68,6 +68,7 @@ iframe {
   border-radius: 16px;
   background: var(--md-sys-color-surface);
   overflow: hidden;
+  position: relative;
 }
 
 canvas {
@@ -75,6 +76,27 @@ canvas {
   height: 100%;
   box-sizing: border-box;
   border-style: unset;
+}
+
+.hovered-source-code-tooltip {
+  position: absolute;
+  z-index: 100;
+  pointer-events: none;
+  background: var(--md-sys-color--surface, white);
+  // border: 1px solid var(--md-sys-color--outline, #ccc);
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  // padding: 8px;
+  max-width: 90%;
+  max-height: 300px;
+  overflow: hidden;
+  width: 80%;
+
+  source-code-editor {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 }
 
 .search-container {
@@ -333,8 +355,6 @@ canvas {
       color: var(--md-sys-color-on-surface);
     }
 
-
-
     .split-area-left {
       box-sizing: border-box;
       padding: 4px;
@@ -416,9 +436,7 @@ canvas {
 .error-overlay {
   position: absolute;
   width: 100%;
-  height: calc(
-    100% - $search-bar-height
-  );
+  height: calc(100% - $search-bar-height);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -434,9 +452,7 @@ canvas {
 .loading-overlay {
   position: absolute;
   width: 100%;
-  height: calc(
-    100% - $search-bar-height
-  );
+  height: calc(100% - $search-bar-height);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -524,4 +540,8 @@ canvas {
   border-left: 1px solid var(--md-sys-color-outline-variant);
   border-top: 1px solid var(--md-sys-color-outline-variant);
   transform: rotate(45deg);
+}
+
+.source-code-snippet-wrapper {
+  margin-top: 10px;
 }

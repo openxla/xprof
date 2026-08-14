@@ -98,6 +98,7 @@ struct TraceInformation {
       flow_events_by_id;
   absl::flat_hash_map<ProcessId, ThreadId> xla_modules_tids;
   absl::flat_hash_set<ProcessId> async_processes_by_events;
+  bool is_mpmd = false;
 };
 
 int GetAsyncProcessPriority(ProcessId pid, const TraceInformation& trace_info) {
@@ -418,6 +419,10 @@ void GenerateFlowLines(const TraceInformation& trace_info,
     for (size_t i = 0; i < flow_events.size() - 1; ++i) {
       const TraceEvent* u = flow_events[i];
       const TraceEvent* v = flow_events[i + 1];
+      if (!thread_levels.contains({u->pid, u->tid}) ||
+          !thread_levels.contains({v->pid, v->tid})) {
+        continue;
+      }
       const ImU32 flow_color =
           GetFlowColorForCategory(u->category, top_5_flow_categories,
                                   palette);  // Use flow category for color
@@ -760,12 +765,28 @@ void PopulateSyncProcessTrack(
     return CompareThreadsForSort(pid, trace_info, a, b);
   });
 
+  const auto it_xla_tid = trace_info.xla_modules_tids.find(pid);
+
   for (const ThreadId tid : sorted_tids) {
     absl::Span<const TraceEvent* const> events;
     if (it_events != trace_info.events_by_pid_tid.end()) {
       const auto it = it_events->second.find(tid);
       if (it != it_events->second.end()) {
         events = it->second;
+      }
+    }
+    if (trace_info.is_mpmd && events.empty()) {
+      const auto it_name = trace_info.thread_names.find({pid, tid});
+      const absl::string_view thread_name =
+          (it_name != trace_info.thread_names.end())
+              ? absl::string_view(it_name->second)
+              : "";
+      const bool is_primary_mpmd_track =
+          (thread_name == kXlaModules ||
+           (it_xla_tid != trace_info.xla_modules_tids.end() &&
+            it_xla_tid->second == tid));
+      if (!is_primary_mpmd_track) {
+        continue;
       }
     }
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
@@ -823,6 +844,7 @@ void PopulateProcessTrack(
     track_subtitle = process_group_name.substr(0, separator_pos);
   }
 
+  size_t initial_group_count = data.groups.size();
   data.groups.push_back({.name = process_group_name,
                          .subtitle = std::move(track_subtitle),
                          .start_level = current_level,
@@ -849,6 +871,10 @@ void PopulateProcessTrack(
                            bounds, process_group_name, default_expanded,
                            expanded_states);
     }
+  }
+
+  if (trace_info.is_mpmd && data.groups.size() == initial_group_count + 1) {
+    data.groups.pop_back();
   }
 }
 
@@ -918,11 +944,10 @@ FlameChartTimelineData CreateTimelineData(
   absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>
       thread_levels;
 
-  bool first_process = true;
   for (const ProcessId pid : sorted_pids) {
+    const bool default_expanded = data.groups.empty();
     PopulateProcessTrack(pid, trace_info, current_level, data, bounds,
-                         thread_levels, first_process, expanded_states);
-    first_process = false;
+                         thread_levels, default_expanded, expanded_states);
   }
 
   data.events_by_level.resize(current_level);
@@ -954,6 +979,7 @@ FlameChartTimelineData CreateTimelineData(
 void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
                                       Timeline& timeline) {
   process_names_.clear();
+  timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
   if (parsed_events.flame_events.empty() &&
       parsed_events.counter_events.empty() &&
       parsed_events.flow_events.empty()) {
@@ -963,9 +989,8 @@ void DataProvider::ProcessTraceEvents(const ParsedTraceEvents& parsed_events,
     return;
   }
 
-  timeline.set_mpmd_pipeline_view_enabled(parsed_events.mpmd_pipeline_view);
-
   TraceInformation trace_info;
+  trace_info.is_mpmd = parsed_events.mpmd_pipeline_view;
   for (const auto& event : parsed_events.flame_events) {
     switch (event.ph) {
       case Phase::kMetadata:

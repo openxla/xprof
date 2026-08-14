@@ -12,6 +12,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "imgui.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
@@ -24,46 +25,95 @@ namespace traceviewer {
 namespace {
 
 using ::testing::ElementsAre;
+using ::testing::Ge;
 using ::testing::IsEmpty;
+using ::testing::Not;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
-TraceEvent CreateMetadataEvent(std::string event_name, ProcessId pid,
+// Creates a metadata trace event with the specified event name and thread or
+// process name argument.
+TraceEvent CreateMetadataEvent(absl::string_view event_name, ProcessId pid,
                                ThreadId tid,
-                               std::string thread_or_process_name) {
+                               absl::string_view thread_or_process_name) {
   return {.ph = Phase::kMetadata,
           .pid = pid,
           .tid = tid,
-          .name = std::move(event_name),
+          .name = std::string(event_name),
           .ts = 0.0,
           .dur = 0.0,
           .id = "",
-          .args = {{std::string(kName), std::move(thread_or_process_name)}}};
+          .args = {{std::string(kName), std::string(thread_or_process_name)}}};
 }
 
 // Creates a metadata trace event (e.g. process_sort_index or thread_sort_index)
 // where args contains the key "sort_index" (kSortIndex) mapped to the given
 // sort_index_value string (e.g. "10", "0", "-5.0").
-TraceEvent CreateSortIndexMetadataEvent(std::string event_name, ProcessId pid,
-                                        ThreadId tid,
-                                        std::string sort_index_value) {
+TraceEvent CreateSortIndexMetadataEvent(absl::string_view event_name,
+                                        ProcessId pid, ThreadId tid,
+                                        absl::string_view sort_index_value) {
   return {.ph = Phase::kMetadata,
           .pid = pid,
           .tid = tid,
-          .name = std::move(event_name),
+          .name = std::string(event_name),
           .ts = 0.0,
           .dur = 0.0,
           .id = "",
           .args = {{/*key=*/std::string(kSortIndex),
-                    /*value=*/std::move(sort_index_value)}}};
+                    /*value=*/std::string(sort_index_value)}}};
 }
 
-CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
-                                std::vector<double> timestamps,
-                                std::vector<double> values) {
+// Creates a process metadata event setting the process name.
+TraceEvent CreateProcessEvent(ProcessId pid, absl::string_view name) {
+  return CreateMetadataEvent(kProcessName, pid, 0, name);
+}
+
+// Creates a thread metadata event setting the thread name.
+TraceEvent CreateThreadEvent(ProcessId pid, ThreadId tid,
+                             absl::string_view name) {
+  return CreateMetadataEvent(kThreadName, pid, tid, name);
+}
+
+// Creates a process sort index metadata event.
+TraceEvent CreateProcessSortIndexEvent(ProcessId pid, absl::string_view idx) {
+  return CreateSortIndexMetadataEvent(kProcessSortIndex, pid, 0, idx);
+}
+
+// Creates a complete trace event with timing information.
+TraceEvent CreateCompleteEvent(ProcessId pid, ThreadId tid,
+                               absl::string_view name, Microseconds ts = 1000.0,
+                               Microseconds dur = 100.0, EventId event_id = 0) {
+  return {.ph = Phase::kComplete,
+          .event_id = event_id,
+          .pid = pid,
+          .tid = tid,
+          .name = std::string(name),
+          .ts = ts,
+          .dur = dur};
+}
+
+// Creates a flow trace event for tracking causality between events.
+TraceEvent CreateFlowEvent(Phase ph, EventId event_id, ProcessId pid,
+                           ThreadId tid, absl::string_view name,
+                           Microseconds ts, absl::string_view id = "1") {
+  return {.ph = ph,
+          .event_id = event_id,
+          .pid = pid,
+          .tid = tid,
+          .name = std::string(name),
+          .ts = ts,
+          .id = std::string(id),
+          .category = tsl::profiler::ContextType::kGeneric};
+}
+
+// Creates a counter event with timestamped values and calculated min/max
+// bounds.
+CounterEvent CreateCounterEvent(ProcessId pid, absl::string_view name,
+                                const std::vector<double>& timestamps,
+                                const std::vector<double>& values) {
   CounterEvent event;
   event.pid = pid;
-  event.name = std::move(name);
+  event.name = std::string(name);
   event.timestamps = timestamps;
   event.values = values;
   for (double val : values) {
@@ -73,11 +123,43 @@ CounterEvent CreateCounterEvent(ProcessId pid, std::string name,
   return event;
 }
 
+// Returns the list of group names from timeline data.
+std::vector<std::string> GetGroupNames(const FlameChartTimelineData& data) {
+  std::vector<std::string> names;
+  names.reserve(data.groups.size());
+  for (const Group& group : data.groups) {
+    names.push_back(group.name);
+  }
+  return names;
+}
+
+// Matches a FlameChartGroup with the specified name and expanded state.
+MATCHER_P2(GroupIs, name, expanded, "") {
+  return arg.name == name && arg.expanded == expanded;
+}
+
+// Matches a FlowLine with the specified source and target timestamps.
+MATCHER_P2(FlowLineIs, source_ts, target_ts, "") {
+  return arg.source_ts == source_ts && arg.target_ts == target_ts;
+}
+
 class DataProviderTest : public ::testing::Test {
- public:
+ protected:
   DataProviderTest() : palette_(ColorPalette::Default()), timeline_(palette_) {}
 
- protected:
+  // Resets timeline data and processes the given trace events.
+  const FlameChartTimelineData& Process(
+      const std::vector<TraceEvent>& flame_events, bool mpmd = false,
+      const std::vector<TraceEvent>& flow_events = {}) {
+    timeline_.SetTimelineData({});
+    data_provider_.ProcessTraceEvents(
+        ParsedTraceEvents{.flame_events = flame_events,
+                          .flow_events = flow_events,
+                          .mpmd_pipeline_view = mpmd},
+        timeline_);
+    return timeline_.timeline_data();
+  }
+
   ColorPalette palette_;
   Timeline timeline_;
   DataProvider data_provider_;
@@ -159,10 +241,11 @@ TEST_F(DataProviderTest, GetProcessMappingsSplitsSpaceTokens) {
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
-  auto map = data_provider_.GetProcessMappings();
+  const absl::flat_hash_map<ProcessId, std::string> map =
+      data_provider_.GetProcessMappings();
   EXPECT_EQ(map.size(), 2);
-  EXPECT_EQ(map[1], "hostNameA");
-  EXPECT_EQ(map[2], "hostNameB");
+  EXPECT_EQ(map.at(1), "hostNameA");
+  EXPECT_EQ(map.at(2), "hostNameB");
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
@@ -626,6 +709,148 @@ TEST_F(DataProviderTest,
   EXPECT_EQ(data.groups[0].name, "Node");
   EXPECT_EQ(data.groups[2].name, "Node");
   ASSERT_THAT(data.entry_pids, ElementsAre(20, 50));
+}
+
+TEST_F(DataProviderTest, MpmdSuppressEmptyTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "MPMD_Process"),
+      CreateThreadEvent(10, 1, "Active_Thread"),
+      CreateCompleteEvent(10, 1, "_layer_0.Event 1"),
+      CreateThreadEvent(10, 2, "Empty_Thread"),
+  };
+
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/true)),
+              ElementsAre("MPMD_Process", "Active_Thread"));
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/false)),
+              ElementsAre("MPMD_Process", "Active_Thread", "Empty_Thread"));
+}
+
+TEST_F(DataProviderTest, MpmdSuppressEmptyProcessTracks) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "Active_Process"),
+      CreateThreadEvent(10, 1, "Active_Thread"),
+      CreateCompleteEvent(10, 1, "_layer_0.Event 1"),
+      CreateProcessEvent(20, "Empty_Process"),
+      CreateThreadEvent(20, 1, "Steps"),
+      CreateThreadEvent(20, 2, "Empty_Thread"),
+  };
+
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/true)),
+              ElementsAre("Active_Process", "Active_Thread"));
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/false)),
+              ElementsAre("Active_Process", "Active_Thread", "Empty_Process",
+                          "Empty_Thread", "Steps"));
+}
+
+TEST_F(DataProviderTest, MpmdPreserveCollectiveAndNonLayerEvents) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "TPU_Process"),
+      CreateThreadEvent(10, 1, "Active_Thread"),
+      CreateThreadEvent(10, 2, "AllReduce"),
+      CreateThreadEvent(10, 3, "AllGather"),
+      CreateCompleteEvent(10, 1, "_layer_0.inc_prefill_step_2k", 1000.0, 100.0),
+      CreateCompleteEvent(10, 2, "AllReduce.Sync", 1000.0, 50.0),
+      CreateCompleteEvent(10, 3, "AllGather.Sync", 1000.0, 50.0),
+  };
+
+  EXPECT_THAT(
+      GetGroupNames(Process(events, /*mpmd=*/true)),
+      ElementsAre("TPU_Process", "Active_Thread", "AllGather", "AllReduce"));
+  EXPECT_THAT(
+      GetGroupNames(Process(events, /*mpmd=*/false)),
+      ElementsAre("TPU_Process", "Active_Thread", "AllGather", "AllReduce"));
+}
+
+TEST_F(DataProviderTest, MpmdPreservePrimaryTrackWhenEmptyDuringZoomPan) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "TPU_Process"),
+      CreateThreadEvent(10, 1, "XLA Modules"),
+      CreateThreadEvent(10, 2, "Secondary_Thread"),
+  };
+
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/true)),
+              ElementsAre("TPU_Process", "XLA Modules"));
+}
+
+TEST_F(DataProviderTest, MpmdThreadSortingPermutation) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "TPU_Process"),
+      CreateThreadEvent(10, 1, "Async_Framework"),
+      CreateThreadEvent(10, 2, "XLA Modules"),
+  };
+
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/true)),
+              ElementsAre("TPU_Process", "XLA Modules"));
+  EXPECT_THAT(GetGroupNames(Process(events, /*mpmd=*/false)),
+              ElementsAre("TPU_Process", "Async_Framework", "XLA Modules"));
+}
+
+TEST_F(DataProviderTest, MpmdFirstProcessSuppressedExpansion) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(10, "Empty_Process"),
+      CreateProcessSortIndexEvent(10, "1"),
+      CreateThreadEvent(10, 1, "Steps"),
+      CreateThreadEvent(10, 2, "Async_Framework"),
+
+      CreateProcessEvent(20, "Active_Process"),
+      CreateProcessSortIndexEvent(20, "2"),
+      CreateThreadEvent(20, 1, "Active_Thread"),
+      CreateCompleteEvent(20, 1, "Event_1"),
+
+      CreateProcessEvent(30, "Active_Process_2"),
+      CreateProcessSortIndexEvent(30, "3"),
+      CreateThreadEvent(30, 1, "Active_Thread_2"),
+      CreateCompleteEvent(30, 1, "Event_2"),
+  };
+
+  EXPECT_THAT(Process(events, /*mpmd=*/true).groups,
+              ElementsAre(GroupIs("Active_Process", true),
+                          GroupIs("Active_Thread", true),
+                          GroupIs("Active_Process_2", false),
+                          GroupIs("Active_Thread_2", true)));
+  EXPECT_THAT(
+      Process(events, /*mpmd=*/false).groups,
+      ElementsAre(
+          GroupIs("Empty_Process", true), GroupIs("Async_Framework", true),
+          GroupIs("Steps", true), GroupIs("Active_Process", false),
+          GroupIs("Active_Thread", true), GroupIs("Active_Process_2", false),
+          GroupIs("Active_Thread_2", true)));
+}
+
+TEST_F(DataProviderTest, ProcessTraceEventsEmptyEventsSetsMpmdFlag) {
+  Process({}, /*mpmd=*/true);
+  EXPECT_TRUE(timeline_.mpmd_pipeline_view_enabled());
+
+  Process({}, /*mpmd=*/false);
+  EXPECT_FALSE(timeline_.mpmd_pipeline_view_enabled());
+}
+
+TEST_F(DataProviderTest, MpmdSuppressFlowLinesForSuppressedTracks) {
+  const std::vector<TraceEvent> flame_events = {
+      CreateProcessEvent(10, "Host_Process"),
+      CreateThreadEvent(10, 1, "Host_Thread"),
+      CreateProcessEvent(20, "TPU_Process"),
+      CreateThreadEvent(20, 1, "XLA Modules"),
+      CreateCompleteEvent(20, 1, "Module_A", /*ts=*/100.0, /*dur=*/50.0,
+                          /*event_id=*/1),
+  };
+  const std::vector<TraceEvent> flow_events = {
+      CreateFlowEvent(Phase::kFlowStart, 101, 10, 1, "flow1", 100.0),
+      CreateFlowEvent(Phase::kFlowEnd, 102, 20, 1, "flow1", 120.0),
+  };
+
+  const FlameChartTimelineData& mpmd_data =
+      Process(flame_events, /*mpmd=*/true, flow_events);
+  EXPECT_THAT(GetGroupNames(mpmd_data),
+              ElementsAre("TPU_Process", "XLA Modules"));
+  EXPECT_THAT(mpmd_data.flow_lines, IsEmpty());
+
+  const FlameChartTimelineData& std_data =
+      Process(flame_events, /*mpmd=*/false, flow_events);
+  EXPECT_THAT(
+      GetGroupNames(std_data),
+      ElementsAre("Host_Process", "Host_Thread", "TPU_Process", "XLA Modules"));
+  EXPECT_THAT(std_data.flow_lines, ElementsAre(FlowLineIs(100.0, 120.0)));
 }
 
 // --- Metadata Handling Tests ---
@@ -1856,7 +2081,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -1958,7 +2183,7 @@ TEST_F(DataProviderTest, FlowEventsAffectTimeRange) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -2010,7 +2235,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelDefaultsToThreadStartLevel) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -2071,7 +2296,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelDeepestLevel) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -2137,7 +2362,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelMultipleEventsOnLevel) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -2182,7 +2407,7 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
   };
   std::vector<TraceEvent> flame_events;
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (event.ph == Phase::kComplete) {
       flame_events.push_back(event);
     }
@@ -2224,7 +2449,7 @@ TEST_F(DataProviderTest, FlowEventWithSameIdAndEventId) {
        .id = "1"},
   };
   std::vector<TraceEvent> flow_events;
-  for (const auto& event : all_events) {
+  for (const TraceEvent& event : all_events) {
     if (!event.id.empty()) {
       flow_events.push_back(event);
     }
@@ -2279,7 +2504,7 @@ TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
   int flow_id_counter = 0;
   auto add_cat_flows = [&](tsl::profiler::ContextType cat, int count) {
     for (int i = 0; i < count; ++i) {
-      std::string flow_id = absl::StrCat("f", flow_id_counter++);
+      std::string flow_id = absl::StrCat("f", ++flow_id_counter);
       flow_events.push_back({.ph = Phase::kFlowStart,
                              .pid = 1,
                              .tid = 1,
@@ -2308,7 +2533,7 @@ TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
   auto get_color = [&](tsl::profiler::ContextType cat) {
-    for (const auto& line : data.flow_lines) {
+    for (const FlowLine& line : data.flow_lines) {
       if (line.category == cat) return line.color;
     }
     return static_cast<ImU32>(0);
@@ -2370,7 +2595,7 @@ TEST_F(DataProviderTest, FlowLineColoringWithTieBreaker) {
   const FlameChartTimelineData& data = timeline_.timeline_data();
 
   auto get_color = [&](tsl::profiler::ContextType cat) -> ImU32 {
-    for (const auto& line : data.flow_lines) {
+    for (const FlowLine& line : data.flow_lines) {
       if (line.category == cat) return line.color;
     }
     return 0;
@@ -3540,7 +3765,7 @@ TEST_F(DataProviderTest, AsyncProcessNamedAsyncXlaOpsIsTreatedAsAsync) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(testing::Ge(2)));
+  ASSERT_THAT(data.groups, SizeIs(Ge(2)));
   EXPECT_EQ(data.groups[1].name, "AsyncOp");
 }
 
@@ -3816,7 +4041,7 @@ TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
   // Process 4 has valid sort_index 10.0 (Tier 1), sorting before unindexed.
   // ThreadB has sort_index 1.0 (Tier 1), sorting before ThreadA (invalid
   // sort_index -> Tier 2).
-  ASSERT_THAT(data.groups, SizeIs(testing::Ge(5)));
+  ASSERT_THAT(data.groups, SizeIs(Ge(5)));
   EXPECT_EQ(data.groups[0].name, "ProcessD");
   EXPECT_EQ(data.groups[1].name, "ThreadB");
   EXPECT_EQ(data.groups[2].name, "ThreadA");

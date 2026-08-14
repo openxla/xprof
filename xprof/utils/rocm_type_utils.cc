@@ -41,8 +41,8 @@ struct GpuFlopCapabilities {
     double bf16_tflops = 0;
     double fp16_tflops = 0;
     double fp8_tflops = 0;
-    double fp6_tflops = 0;
-    double fp4_tflops = 0;
+    double mxfp6_tflops = 0;
+    double mxfp4_tflops = 0;
     double int8_tops = 0;
 
     void ScaleWith(double scale) {
@@ -52,8 +52,8 @@ struct GpuFlopCapabilities {
       bf16_tflops *= scale;
       fp16_tflops *= scale;
       fp8_tflops *= scale;
-      fp6_tflops *= scale;
-      fp4_tflops *= scale;
+      mxfp6_tflops *= scale;
+      mxfp4_tflops *= scale;
       int8_tops *= scale;
     }
   };
@@ -170,8 +170,8 @@ std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
                             .bf16_tflops = 4096,
                             .fp16_tflops = 4096,
                             .fp8_tflops = 8192,
-                            .fp6_tflops = 16384,
-                            .fp4_tflops = 16384,
+                            .mxfp6_tflops = 16384,
+                            .mxfp4_tflops = 16384,
                             .int8_tops = 8192}}},
       };
   auto it = kTable.find(gfx_version);

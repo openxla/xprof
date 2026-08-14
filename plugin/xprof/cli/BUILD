@@ -17,6 +17,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
         "//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
         "//plugin/xprof/cli/tools:detect_unfused_updates_tool",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
         "//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
         "//plugin/xprof/cli/tools:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",

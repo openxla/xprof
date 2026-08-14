@@ -215,3 +215,16 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:parameterized",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "detect_unnecessary_convert_dynamic_scale_tool_test",
+    srcs = ["detect_unnecessary_convert_dynamic_scale_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
+        "@absl_py//absl/testing:absltest",
+        "@xla//xla/python:xla_client",
+        "@xla//xla/service:hlo_proto_py",
+    ],
+)

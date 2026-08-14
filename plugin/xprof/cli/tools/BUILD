@@ -178,3 +178,13 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )
+
+pytype_strict_library(
+    name = "detect_unnecessary_convert_dynamic_scale_tool",
+    srcs = ["detect_unnecessary_convert_dynamic_scale_tool.py"],
+    visibility = ["//plugin/xprof:__subpackages__"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)

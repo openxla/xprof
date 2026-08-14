@@ -130,9 +130,10 @@ TEST(HardwareTypeUtilsTest, Mi100PeakComputeTFlops) {
   EXPECT_NEAR(peak_tflops, 184.6, /*abs_error=*/1.0);
 }
 
-TEST(HardwareTypeUtilsTest, Mi250XPeakComputeTFlopsPerGcd) {
+TEST(HardwareTypeUtilsTest, Mi250PeakComputeTFlopsPerGcd) {
   DeviceCapabilities device_cap;
-  // MI250X: 104 CU per GCD at 1.7 GHz, published FP16/BF16 362.1 TFLOPS per GCD.
+  // MI250: 104 CU per GCD at 1.7 GHz. Published 362.1 TFLOPS is the 208 CU
+  // package; the profiler sees one GCD.
   device_cap.set_clock_rate_in_ghz(1.7);
   device_cap.set_num_cores(104);
   device_cap.set_device_vendor("AMD");
@@ -140,7 +141,7 @@ TEST(HardwareTypeUtilsTest, Mi250XPeakComputeTFlopsPerGcd) {
 
   double peak_tflops =
       GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
-  EXPECT_NEAR(peak_tflops, 362.1, /*abs_error=*/1.0);
+  EXPECT_NEAR(peak_tflops, 181.0, /*abs_error=*/1.0);
 }
 
 TEST(HardwareTypeUtilsTest, Mi355XPeakComputeTFlops) {
@@ -157,7 +158,7 @@ TEST(HardwareTypeUtilsTest, Mi355XPeakComputeTFlops) {
 }
 
 TEST(HardwareTypeUtilsTest, AmbiguousAmdComputeCapabilityReportsNoPeak) {
-  // (9, 0) is gfx908 or gfx90a, whose rates differ by 2x. Without a device name
+  // (9, 0) is gfx908 or gfx90a, whose rate tables differ. Without a device name
   // to disambiguate, report nothing rather than pick one.
   DeviceCapabilities device_cap;
   device_cap.set_clock_rate_in_ghz(1.7);

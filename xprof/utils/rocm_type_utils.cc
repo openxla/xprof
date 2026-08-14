@@ -114,24 +114,20 @@ double GetAmdLdsBytesPerCuPerCycle(absl::string_view gfx_version) {
   return it == kTable.end() ? 0.0 : it->second;
 }
 
-// FMA considered as 2 FLOPs.
-// Matrix rates are dense MFMA, vector rates are VALU.
 std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
     absl::string_view gfx_version) {
   static const auto& kTable =
       *new absl::btree_map<absl::string_view, GpuFlopCapabilities>{
-          // MI100 (CDNA 1), 120 CU at 1.502 GHz: FP64 11.5, FP32 23.1,
-          // BF16 92.3, FP16 184.6 TFLOPS. bf16 MFMA is half rate on CDNA 1.
+          // MI100 (CDNA 1), FLOPS/CLOCK/CU
           // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi100.html
           {"gfx908",
            {.vector_unit = {.fp64_tflops = 64, .fp32_tflops = 128},
             .matrix_unit = {.bf16_tflops = 512, .fp16_tflops = 1024}}},
-          // MI250X (CDNA 2), 104 CU per GCD at 1.7 GHz: FP64 45.3, FP32 45.3,
-          // FP16 = BF16 362.1 TFLOPS per GCD. Full-rate FP64.
+          // MI250X (CDNA 2), FLOPS/CLOCK/CU
           // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi250.html
           {"gfx90a",
-           {.vector_unit = {.fp64_tflops = 256, .fp32_tflops = 256},
-            .matrix_unit = {.bf16_tflops = 2048, .fp16_tflops = 2048}}},
+           {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 128},
+            .matrix_unit = {.bf16_tflops = 1024, .fp16_tflops = 1024}}},
           // MI300X (CDNA 3). CDNA 4 whitepaper Table 1, MI300X column.
           // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
           {"gfx942",

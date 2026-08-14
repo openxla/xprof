@@ -37,16 +37,24 @@ struct GpuFlopCapabilities {
   struct FlopCapabilityOnPrecisions {
     double fp64_tflops = 0;
     double fp32_tflops = 0;
+    double tf32_tflops = 0;
     double bf16_tflops = 0;
     double fp16_tflops = 0;
     double fp8_tflops = 0;
+    double fp6_tflops = 0;
+    double fp4_tflops = 0;
+    double int8_tops = 0;
 
     void ScaleWith(double scale) {
       fp64_tflops *= scale;
       fp32_tflops *= scale;
+      tf32_tflops *= scale;
       bf16_tflops *= scale;
       fp16_tflops *= scale;
       fp8_tflops *= scale;
+      fp6_tflops *= scale;
+      fp4_tflops *= scale;
+      int8_tops *= scale;
     }
   };
 
@@ -118,29 +126,53 @@ std::optional<GpuFlopCapabilities> GetAmdFlopCapsPerCuPerCycle(
     absl::string_view gfx_version) {
   static const auto& kTable =
       *new absl::btree_map<absl::string_view, GpuFlopCapabilities>{
-          // MI100 (CDNA 1), FLOPS/CLOCK/CU
+          // MI100 (CDNA 1), Table 1 FLOPS/CLOCK/CU
+          // https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/white-papers/amd-cdna-white-paper.pdf
           // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi100.html
           {"gfx908",
            {.vector_unit = {.fp64_tflops = 64, .fp32_tflops = 128},
-            .matrix_unit = {.bf16_tflops = 512, .fp16_tflops = 1024}}},
-          // MI250X (CDNA 2), FLOPS/CLOCK/CU
+            .matrix_unit = {.fp32_tflops = 256,
+                            .bf16_tflops = 512,
+                            .fp16_tflops = 1024,
+                            .int8_tops = 1024}}},
+          // MI250X (CDNA 2), Table 1 FLOPS/CLOCK/CU.
+          // https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/white-papers/amd-cdna2-white-paper.pdf
           // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi250.html
           {"gfx90a",
            {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 128},
-            .matrix_unit = {.bf16_tflops = 1024, .fp16_tflops = 1024}}},
-          // MI300X (CDNA 3). CDNA 4 whitepaper Table 1, MI300X column.
-          // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
+            .matrix_unit = {.fp64_tflops = 256,
+                            .fp32_tflops = 256,
+                            .bf16_tflops = 1024,
+                            .fp16_tflops = 1024,
+                            .int8_tops = 1024}}},
+          // MI300X (CDNA 3), Table 1 FLOPS/CLOCK/CU
+          // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-3-white-paper.pdf
+          // https://rocm.docs.amd.com/en/latest/reference/gpu-arch/mi300.html
           {"gfx942",
-           {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 256},
-            .matrix_unit = {.bf16_tflops = 2048,
+           {.vector_unit = {.fp64_tflops = 128,
+                            .fp32_tflops = 256,
+                            .fp16_tflops = 256},
+            .matrix_unit = {.fp64_tflops = 256,
+                            .fp32_tflops = 256,
+                            .tf32_tflops = 1024,
+                            .bf16_tflops = 2048,
                             .fp16_tflops = 2048,
-                            .fp8_tflops = 4096}}},
-          // MI355X (CDNA 4). CDNA 4 whitepaper Table 1, MI355X column.
+                            .fp8_tflops = 4096,
+                            .int8_tops = 4096}}},
+          // MI355X (CDNA 4), Table 1 FLOPS/CLOCK/CU
+          // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
           {"gfx950",
-           {.vector_unit = {.fp64_tflops = 128, .fp32_tflops = 256},
-            .matrix_unit = {.bf16_tflops = 4096,
+           {.vector_unit = {.fp64_tflops = 128,
+                            .fp32_tflops = 256,
+                            .fp16_tflops = 256},
+            .matrix_unit = {.fp64_tflops = 128,
+                            .fp32_tflops = 256,
+                            .bf16_tflops = 4096,
                             .fp16_tflops = 4096,
-                            .fp8_tflops = 8192}}},
+                            .fp8_tflops = 8192,
+                            .fp6_tflops = 16384,
+                            .fp4_tflops = 16384,
+                            .int8_tops = 8192}}},
       };
   auto it = kTable.find(gfx_version);
   if (it == kTable.end()) return std::nullopt;

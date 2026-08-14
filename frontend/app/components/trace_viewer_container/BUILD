@@ -15,6 +15,7 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
+        "//:node_modules/@angular/router",
         "//:node_modules/angular-split",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",

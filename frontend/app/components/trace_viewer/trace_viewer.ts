@@ -492,12 +492,14 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     // We don't need the source code service to be persistently available.
     // We temporarily use the service to check if it is available and show
     // UI accordingly.
-    sourceCodeService
-      ?.isAvailable()
-      .pipe(takeUntil(this.destroyed))
-      .subscribe((isAvailable) => {
-        this.sourceCodeServiceIsAvailable = isAvailable;
-      });
+    if (sourceCodeService && typeof sourceCodeService.isAvailable === 'function') {
+      sourceCodeService
+        .isAvailable()
+        .pipe(takeUntil(this.destroyed))
+        .subscribe((isAvailable) => {
+          this.sourceCodeServiceIsAvailable = isAvailable;
+        });
+    }
   }
 
   ngOnInit(): void {

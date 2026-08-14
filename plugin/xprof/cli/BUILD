@@ -20,7 +20,6 @@ pytype_strict_library(
         "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
         "//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
         "//plugin/xprof/cli/tools:get_graph_viewer_tool",
-        "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
         "//plugin/xprof/cli/tools:get_llo_analysis_tool",
         "//plugin/xprof/cli/tools:get_llo_debug_string_tool",

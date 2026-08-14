@@ -65,3 +65,7 @@ compute-bound. 4. **Execute** `aggregate_xplane_events` if timeline analysis is
     from the analysis.
 
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
+
+-   **[Numerical Verification](references/numerical_correctness.md)**: Verify
+    bit-level numerical equivalence between baseline and candidate kernels using
+    heavy-tailed distributions and ULP distance metrics.

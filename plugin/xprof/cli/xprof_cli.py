@@ -118,8 +118,9 @@ class XProfCli:
 
   if _is_oss():
 
-    @staticmethod
+    @classmethod
     def server(
+        cls,
         logdir: str | None = None,
         port: int = 8791,
         hide_capture_profile_button: bool = False,
@@ -141,6 +142,7 @@ class XProfCli:
         src_prefix: Prefix for source paths.
         max_concurrent_worker_requests: Maximum concurrent worker requests.
       """
+      del cls
       if isinstance(logdir, bool):
         raise fire.core.FireError("The --logdir flag requires a value.")
       xprof_client.get_client().set_logdir(logdir)
@@ -160,8 +162,9 @@ class XProfCli:
 
   else:
 
-    @staticmethod
+    @classmethod
     def server(
+        cls,
         logdir: str | None = None,
         port: int = 8791,
         hide_capture_profile_button: bool = False,
@@ -183,6 +186,7 @@ class XProfCli:
         src_prefix: Prefix for source paths.
         max_concurrent_worker_requests: Maximum concurrent worker requests.
       """
+      del cls
       try:
         server.start_server(
             logdir=logdir,

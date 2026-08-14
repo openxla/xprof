@@ -228,3 +228,41 @@ pytype_strict_contrib_test(
         "@xla//xla/service:hlo_proto_py",
     ],
 )
+
+pytype_strict_contrib_test(
+    name = "tolerance_dilemma_test",
+    srcs = ["tolerance_dilemma_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:numerical_generator",
+        "//plugin/xprof/cli/internal:numerical_validator",
+        "//third_party/py/numpy",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@pypi//jax",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "numerical_generator_test",
+    srcs = ["numerical_generator_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:numerical_generator",
+        "//third_party/py/numpy",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+pytype_strict_contrib_test(
+    name = "verify_numerical_parity_tool_test",
+    srcs = ["verify_numerical_parity_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
+        "//third_party/py/numpy",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)

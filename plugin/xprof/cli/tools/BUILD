@@ -188,3 +188,15 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
     ],
 )
+
+pytype_strict_library(
+    name = "verify_numerical_parity_tool",
+    srcs = ["verify_numerical_parity_tool.py"],
+    visibility = [
+        "//learning/performance/agents:__subpackages__",
+        "//plugin/xprof:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:numerical_validator",
+    ],
+)

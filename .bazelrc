@@ -40,12 +40,20 @@ build:windows --host_copt=-DWIN32_LEAN_AND_MEAN
 build:windows --copt=-DNOGDI
 build:windows --host_copt=-DNOGDI
 build:windows --incompatible_strict_action_env=true
+build:windows --action_env=PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+build:windows --host_action_env=PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+build:windows --action_env=PATH="C:\\tools\\msys64\\usr\\bin;C:\\tools\\msys64\\bin;C:\\tools\\msys64\\mingw64\\bin;C:\\tools\\LLVM\\bin;C:\\Python310;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\usr\\bin"
+build:windows --host_action_env=PATH="C:\\tools\\msys64\\usr\\bin;C:\\tools\\msys64\\bin;C:\\tools\\msys64\\mingw64\\bin;C:\\tools\\LLVM\\bin;C:\\Python310;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\usr\\bin"
 
 # Windows x86 CI configs
 build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"
 build:ci_windows_amd64 --extra_toolchains="@xla//tools/toolchains/win2022/20241118:cc-toolchain-x64_windows-clang-cl"
 build:ci_windows_amd64 --color=yes
 build:ci_windows_amd64 --enable_runfiles
+build:ci_windows_amd64 --action_env=PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+build:ci_windows_amd64 --host_action_env=PATHEXT=.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW
+build:ci_windows_amd64 --action_env=PATH="C:\\tools\\msys64\\usr\\bin;C:\\tools\\msys64\\bin;C:\\tools\\msys64\\mingw64\\bin;C:\\tools\\LLVM\\bin;C:\\Python310;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\usr\\bin"
+build:ci_windows_amd64 --host_action_env=PATH="C:\\tools\\msys64\\usr\\bin;C:\\tools\\msys64\\bin;C:\\tools\\msys64\\mingw64\\bin;C:\\tools\\LLVM\\bin;C:\\Python310;C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\usr\\bin"
 
 
 # Fixes C++17 and /FORCE:MULTIPLE for clang-cl without passing raw MSVC flags into WASM cross-compilation toolchain.

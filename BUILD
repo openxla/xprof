@@ -19,6 +19,7 @@ exports_files([
 ])  # Needed for pip package description and requirements
 
 exports_files([
+    "pnpm-workspace.yaml",
     "rollup.config.js",
     "tsconfig.json",
 ])

@@ -4697,7 +4697,9 @@ TEST_F(RealTimelineImGuiFixture,
   int callback_count = 0;
   timeline_.set_event_callback(
       [&](absl::string_view type, const EventData& detail) {
-        callback_count++;
+        if (type == kEventSelected) {
+          callback_count++;
+        }
       });
 
   ImGui::GetIO().MousePos = ImVec2(GetTimelineStartX() + 50.0f, kFirstEventY);

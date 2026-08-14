@@ -824,6 +824,14 @@ void Timeline::Draw() {
   DrawToast(bounds_notification_message_, bounds_notification_timer_,
             bounds_toast_offset);
 
+  if (hovered_event_index_ != last_reported_hovered_event_index_) {
+    last_reported_hovered_event_index_ = hovered_event_index_;
+    if (event_callback_) {
+      ImVec2 mouse_pos = ImGui::GetMousePos();
+      EmitEventHovered(hovered_event_index_, mouse_pos.x, mouse_pos.y);
+    }
+  }
+
   ImGui::PopStyleVar();  // ItemSpacing
   ImGui::PopStyleVar();  // CellPadding
   ImGui::PopStyleVar();  // WindowPadding
@@ -1239,36 +1247,82 @@ void Timeline::ConstrainTimeRange(TimeRange& range) {
   }
 }
 
-void Timeline::EmitEventSelected(int event_index) {
+EventData Timeline::CreateBaseEventData(int event_index, bool is_hover) const {
   EventData event_data;
   event_data.try_emplace(kEventSelectedIndex, event_index);
+  if (event_index < 0 || event_index >= timeline_data_.entry_names.size()) {
+    return event_data;
+  }
   event_data.try_emplace(kEventSelectedName,
                          timeline_data_.entry_names[event_index]);
-  event_data.try_emplace(kEventSelectedStart,
-                         timeline_data_.entry_start_times[event_index]);
-  event_data.try_emplace(kEventSelectedDuration,
-                         timeline_data_.entry_total_times[event_index]);
-  event_data.try_emplace(
-      kEventSelectedStartFormatted,
-      FormatTime(timeline_data_.entry_start_times[event_index]));
-  event_data.try_emplace(
-      kEventSelectedDurationFormatted,
-      FormatTime(timeline_data_.entry_total_times[event_index]));
-  event_data.try_emplace(
-      kEventSelectedPid,
-      static_cast<double>(timeline_data_.entry_pids[event_index]));
-  const absl::flat_hash_map<std::string, std::string>& args =
-      timeline_data_.entry_args[event_index];
-  if (const auto it = args.find("uid"); it != args.end()) {
-    event_data.try_emplace(kEventSelectedUid, it->second);
+  if (event_index < timeline_data_.entry_start_times.size()) {
+    event_data.try_emplace(kEventSelectedStart,
+                           timeline_data_.entry_start_times[event_index]);
+    event_data.try_emplace(
+        kEventSelectedStartFormatted,
+        FormatTime(timeline_data_.entry_start_times[event_index]));
   }
-  if (const auto it = args.find(kHloModule); it != args.end()) {
-    event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+  if (event_index < timeline_data_.entry_total_times.size()) {
+    event_data.try_emplace(kEventSelectedDuration,
+                           timeline_data_.entry_total_times[event_index]);
+    event_data.try_emplace(
+        kEventSelectedDurationFormatted,
+        FormatTime(timeline_data_.entry_total_times[event_index]));
   }
-  if (const auto it = args.find(kHloOp); it != args.end()) {
-    event_data.try_emplace(kEventSelectedHloOpName, it->second);
+  if (event_index < timeline_data_.entry_pids.size()) {
+    event_data.try_emplace(
+        kEventSelectedPid,
+        static_cast<double>(timeline_data_.entry_pids[event_index]));
   }
+  if (event_index < timeline_data_.entry_args.size()) {
+    const absl::flat_hash_map<std::string, std::string>& args =
+        timeline_data_.entry_args[event_index];
+    if (const auto it = args.find("uid"); it != args.end()) {
+      event_data.try_emplace(kEventSelectedUid, it->second);
+    }
+    if (!is_hover) {
+      if (const auto it = args.find(kHloModule); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloModuleName, it->second);
+      }
+      if (const auto it = args.find(kHloOp); it != args.end()) {
+        event_data.try_emplace(kEventSelectedHloOpName, it->second);
+      }
+    }
+  }
+  return event_data;
+}
+
+void Timeline::EmitEventSelected(int event_index) {
+  if (!event_callback_) return;
+  EventData event_data = CreateBaseEventData(event_index, /*is_hover=*/false);
   event_callback_(kEventSelected, event_data);
+}
+
+void Timeline::EmitEventHovered(int event_index, float mouse_x, float mouse_y) {
+  if (!event_callback_) return;
+  EventData event_data = CreateBaseEventData(event_index, /*is_hover=*/true);
+  event_data.try_emplace("mouse_x", static_cast<double>(mouse_x));
+  event_data.try_emplace("mouse_y", static_cast<double>(mouse_y));
+
+  if (event_index >= 0 && event_index < timeline_data_.entry_names.size() &&
+      event_index < timeline_data_.entry_levels.size()) {
+    // Find track name (group name)
+    int level = timeline_data_.entry_levels[event_index];
+    int group_index = -1;
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      int next_group_start_level = GetNextGroupStartLevel(timeline_data_, i);
+      if (level >= timeline_data_.groups[i].start_level &&
+          level < next_group_start_level) {
+        group_index = i;
+        break;
+      }
+    }
+    if (group_index != -1) {
+      event_data.try_emplace("trackName",
+                             timeline_data_.groups[group_index].name);
+    }
+  }
+  event_callback_(kEventHovered, event_data);
 }
 
 void Timeline::EmitViewportChanged(const TimeRange& range) {

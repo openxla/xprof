@@ -271,9 +271,11 @@ rules_java_dependencies()
 
 http_archive(
     name = "aspect_rules_js",
-    sha256 = "75c25a0f15a9e4592bbda45b57aa089e4bf17f9176fd735351e8c6444df87b52",
-    strip_prefix = "rules_js-2.1.0",
-    url = "https://github.com/aspect-build/rules_js/releases/download/v2.1.0/rules_js-v2.1.0.tar.gz",
+    sha256 = "e7ed62fa2188505b8124ffe20f51a5935b7c6fd23ba2f53673067886d7d812b3",
+    strip_prefix = "rules_js-2.8.0",
+    url = "https://github.com/aspect-build/rules_js/releases/download/v2.8.0/rules_js-v2.8.0.tar.gz",
+    patches = ["//:rules_js_windows_yq.patch"],
+    patch_args = ["-p1", "-l"],
 )
 
 load("@aspect_rules_js//js:repositories.bzl", "rules_js_dependencies")

@@ -1,0 +1,13 @@
+diff --git a/npm/private/npm_translate_lock_state.bzl b/npm/private/npm_translate_lock_state.bzl
+--- a/npm/private/npm_translate_lock_state.bzl
++++ b/npm/private/npm_translate_lock_state.bzl
+@@ -483,8 +483,8 @@
+     host_yq = Label("@{}_{}//:yq{}".format(attr.yq_toolchain_prefix, repo_utils.platform(rctx), ".exe" if is_windows else ""))
+     yq_args = [
+         str(rctx.path(host_yq)),
+-        str(pnpm_lock_path),
+         "-o=json",
++        str(pnpm_lock_path),
+     ]
+     result = rctx.execute(yq_args)
+     if result.return_code:

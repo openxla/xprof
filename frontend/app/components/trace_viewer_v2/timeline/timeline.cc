@@ -139,14 +139,18 @@ absl::flat_hash_map<ProcessId, uint32_t> GetProcessSortIndices(
 }
 
 // Draws an expand/collapse button.
-bool DrawExpandCollapseButton(bool& expanded, Pixel height) {
+bool DrawExpandCollapseButton(
+    bool& expanded, Pixel height, bool is_virtual_header = false,
+    std::optional<Pixel> custom_center_y_offset = std::nullopt) {
   bool toggled = false;
   // Draw a smaller arrow button.
   const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonHeight = height;
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
-  Pixel center_y = p.y + kButtonHeight * 0.5f;
+  Pixel center_y = custom_center_y_offset.has_value()
+                       ? p.y + *custom_center_y_offset
+                       : p.y + kButtonHeight * 0.5f;
   Pixel center_x = p.x + kArrowSize * 0.5f;
 
   // Invisible button for interaction
@@ -164,21 +168,32 @@ bool DrawExpandCollapseButton(bool& expanded, Pixel height) {
     arrow_col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
   }
 
-  Pixel h = kArrowSize * 0.4f;
-  Pixel w = kArrowSize * 0.2f;
+  const Pixel h = kArrowSize * 0.4f;
+  const Pixel w = kArrowSize * 0.2f;
 
-  if (expanded) {
-    // Down arrow, like v
-    draw_list->AddLine(ImVec2(center_x - h, center_y - w),
-                       ImVec2(center_x, center_y + w), arrow_col, 1.2f);
-    draw_list->AddLine(ImVec2(center_x, center_y + w),
-                       ImVec2(center_x + h, center_y - w), arrow_col, 1.2f);
+  ImVec2 p1(-h, -w);
+  ImVec2 p2(0, w);
+  ImVec2 p3(h, -w);
+
+  if (!expanded) {
+    // Rotate 90 degrees CCW to point Right (Y-down): x' = y, y' = -x
+    p1 = ImVec2(p1.y, -p1.x);
+    p2 = ImVec2(p2.y, -p2.x);
+    p3 = ImVec2(p3.y, -p3.x);
+  }
+
+  if (is_virtual_header) {
+    draw_list->AddTriangleFilled(ImVec2(center_x + p1.x, center_y + p1.y),
+                                 ImVec2(center_x + p3.x, center_y + p3.y),
+                                 ImVec2(center_x + p2.x, center_y + p2.y),
+                                 arrow_col);
   } else {
-    // Right arrow, like >
-    draw_list->AddLine(ImVec2(center_x - w, center_y - h),
-                       ImVec2(center_x + w, center_y), arrow_col, 1.2f);
-    draw_list->AddLine(ImVec2(center_x + w, center_y),
-                       ImVec2(center_x - w, center_y + h), arrow_col, 1.2f);
+    draw_list->AddLine(ImVec2(center_x + p1.x, center_y + p1.y),
+                       ImVec2(center_x + p2.x, center_y + p2.y), arrow_col,
+                       1.2f);
+    draw_list->AddLine(ImVec2(center_x + p2.x, center_y + p2.y),
+                       ImVec2(center_x + p3.x, center_y + p3.y), arrow_col,
+                       1.2f);
   }
 
   return toggled;
@@ -630,12 +645,12 @@ void Timeline::Draw() {
         ImVec2(ruler_start_pos.x + kIndentSize, ruler_start_pos.y));
     ImGui::PushFont(traceviewer::fonts::label_large);
 
-    // Vertically center "Process" within ruler height (kRulerHeight = 20.0f)
+    // Vertically center "Process" within ruler height
     const Pixel text_height = ImGui::GetTextLineHeight();
     const Pixel vertical_offset = (kRulerHeight - text_height) * 0.5f;
     ImGui::SetCursorPosY(ruler_start_pos.y + std::max(0.0f, vertical_offset));
 
-    ImGui::TextUnformatted("Process");
+    ImGui::TextUnformatted(kProcessHeaderLabel);
     ImGui::PopFont();
   }
 
@@ -850,13 +865,16 @@ bool Timeline::DrawHeaderRow(const Group* group_ptr,
   bool toggled = false;
   if (group_ptr->name == kAllHeaderName) {
     toggled =
-        DrawExpandCollapseButton(header_all_expanded_, kVirtualHeaderHeight);
+        DrawExpandCollapseButton(header_all_expanded_, kVirtualHeaderHeight,
+                                 /*is_virtual_header=*/true);
   } else if (group_ptr->name == kHiddenHeaderName) {
     toggled =
-        DrawExpandCollapseButton(header_hidden_expanded_, kVirtualHeaderHeight);
+        DrawExpandCollapseButton(header_hidden_expanded_, kVirtualHeaderHeight,
+                                 /*is_virtual_header=*/true);
   } else if (group_ptr->name == kPinnedHeaderName) {
     toggled =
-        DrawExpandCollapseButton(header_pinned_expanded_, kVirtualHeaderHeight);
+        DrawExpandCollapseButton(header_pinned_expanded_, kVirtualHeaderHeight,
+                                 /*is_virtual_header=*/true);
   }
 
   if (toggled) {
@@ -1023,9 +1041,6 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 
   const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
   Pixel indent_amount = (group.nesting_level + 1) * kIndentSize;
-  if (!expandable && group.nesting_level > 0) {
-    indent_amount = kIndentSize;
-  }
 
   const Pixel label_start_y = ImGui::GetCursorPosY();
   const Pixel centereable_height =
@@ -1035,15 +1050,36 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
 
   ImGui::Indent(indent_amount);
 
+  // Calculate custom_center_y_offset to align arrow with first line of label
+  ImGui::PushFont(traceviewer::fonts::label_large);
+  const Pixel text_height_large = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  ImGui::PushFont(traceviewer::fonts::label_medium);
+  const Pixel text_height_medium = ImGui::GetTextLineHeight();
+  ImGui::PopFont();
+
+  const bool has_subtitle = !group.subtitle.empty();
+  const Pixel spacing = ImGui::GetStyle().ItemSpacing.y;
+  const Pixel total_text_height =
+      has_subtitle ? (text_height_large + spacing + text_height_medium)
+                   : text_height_large;
+
+  const Pixel vertical_offset = (centereable_height - total_text_height) * 0.5f;
+  const Pixel custom_center_y_offset =
+      std::max(0.0f, vertical_offset) + text_height_large * 0.5f;
+
   if (expandable) {
-    if (DrawExpandCollapseButton(group.expanded, centereable_height)) {
+    if (DrawExpandCollapseButton(group.expanded, centereable_height, false,
+                                 custom_center_y_offset)) {
       needs_layout_update = true;
     }
-  } else {
+    ImGui::SameLine();
+  } else if (group.nesting_level == kProcessNestingLevel) {
     ImGui::Dummy(ImVec2(kArrowSize, centereable_height));
+    ImGui::SameLine();
   }
 
-  ImGui::SameLine();
   ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kLabelPaddingLeft);
 
   DrawTrackLabel(group, centereable_height);

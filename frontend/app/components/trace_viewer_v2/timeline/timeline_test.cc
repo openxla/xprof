@@ -47,7 +47,7 @@ using ::testing::Return;
 using ::testing::Test;
 
 // Calculated vertical center of the first event.
-// The first event starts after the ruler (kRulerHeight=20.0f).
+// The first event starts after the ruler.
 // Y = kRulerHeight + kEventHeight / 2.
 constexpr float kFirstEventY = kRulerHeight + kEventHeight / 2.0f;
 
@@ -1351,7 +1351,7 @@ class TimelineImGuiTestFixture : public Test {
     // `GetTimelineArea()` which would trigger `HandleMouseDown`, ensuring only
     // resize happens.
     float resize_handle_x = win_x + GetTimelineStartX() - 2.0f;
-    float resize_handle_y = win_y + 30.0f;
+    float resize_handle_y = win_y + 46.0f;
 
     ImGuiIO& io = ImGui::GetIO();
     io.AddMousePosEvent(resize_handle_x, resize_handle_y);
@@ -5796,9 +5796,9 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   }
 
   // With dummy event at level 50, the content is tall enough to avoid clamp
-  // limit. Target scroll is calculated exactly to 565.0f based on level 30.
+  // limit. Target scroll is calculated exactly to 581.0f based on level 30.
   // Reduced tolerance to 0.1f to kill mutant at line 2067.
-  EXPECT_NEAR(tracks_window->Scroll.y, 565.0f, 0.1f);
+  EXPECT_NEAR(tracks_window->Scroll.y, 581.0f, 0.1f);
 }
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
@@ -6964,7 +6964,7 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  const float hover_y_group2 = 55.0f;
+  const float hover_y_group2 = 71.0f;
 
   // Drag selection near group2 event (120.0us).
   // Drag from 50.0us (500px) to 121.0us (1210px).
@@ -7005,7 +7005,7 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  const float hover_y_group2 = 55.0f;
+  const float hover_y_group2 = 71.0f;
 
   // Drag selection near group1 event (100.0us) while hovering group2.
   // Drag from 50.0us (500px) to 101.0us (1010px).
@@ -7436,27 +7436,27 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
-  // Use a window height of 20.0f and a scroll of 0 so that the top edge of the
-  // event (which is at 20.0f) is exactly at the bottom visible edge of the
+  // Use a window height of 36.0f and a scroll of 0 so that the top edge of the
+  // event (which is at 36.0f) is exactly at the bottom visible edge of the
   // window. This verifies the strict > comparison for skipping events outside
   // view.
-  SimulateFrame(0.0f, 20.0f);
+  SimulateFrame(0.0f, 36.0f);
 
   ImGuiIO& io = ImGui::GetIO();
 
   // Start near 100.0 us (990px -> 99.0 us)
-  // We place the mouse at 35.0f to be vertically inside the group's bounding
+  // We place the mouse at 51.0f to be vertically inside the group's bounding
   // box so `is_group_hovered` allows the snap event detection.
-  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, 35.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, 51.0f);
   io.AddMouseButtonEvent(0, true);
-  SimulateFrame(0.0f, 20.0f);
+  SimulateFrame(0.0f, 36.0f);
 
   // End near 200.0 us (2010px -> 201.0 us)
-  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, 35.0f);
-  SimulateFrame(0.0f, 20.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 2010.0f, 51.0f);
+  SimulateFrame(0.0f, 36.0f);
 
   io.AddMouseButtonEvent(0, false);
-  SimulateFrame(0.0f, 20.0f);
+  SimulateFrame(0.0f, 36.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   // It should snap
@@ -7486,8 +7486,8 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
 
   ImGuiIO& io = ImGui::GetIO();
 
-  // We place the mouse at 35.0f on screen to be inside the group.
-  float hover_y = 35.0f;
+  // We place the mouse at 51.0f on screen to be inside the group.
+  float hover_y = 51.0f;
   // Start near 100.0 us (990px -> 99.0 us)
   io.MousePos = ImVec2(GetTimelineStartX() + 990.0f, hover_y);
   io.AddMouseButtonEvent(0, true);
@@ -7745,7 +7745,7 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsEmitsJson) {
   SimulateFrame();  // Warm-up frame
 
   // Set start position.
-  io.MousePos = ImVec2(GetTimelineStartX() + 200.0f, 35.0f);
+  io.MousePos = ImVec2(GetTimelineStartX() + 200.0f, 51.0f);
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();  // Frame 1
 
@@ -8171,8 +8171,8 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   // Y should be around 50px (first track).
   // Move mouse over the track label.
   // Y should be inside the track height (kEventHeight = 23) +
-  // kRulerHeight (20).
-  io.MousePos = ImVec2(100.0f, 30.0f);
+  // kRulerHeight (36).
+  io.MousePos = ImVec2(100.0f, 46.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_TextInput);
@@ -8193,7 +8193,7 @@ TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
   SimulateFrame();
 
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(100.0f, 30.0f);
+  io.MousePos = ImVec2(100.0f, 46.0f);
   SimulateFrame();
 
   io.AddMouseButtonEvent(0, true);
@@ -8227,9 +8227,9 @@ TEST_F(RealTimelineImGuiFixture,
   // Button is at X = (nesting_level + 1) * kIndentSize.
   // For kThreadNestingLevel (2), indent is 3 * 10 = 30.
   // Button width is around 13px. So X=35 is inside.
-  // Y should be inside the track (20-43).
+  // Y should be inside the track (36-59).
   ImGuiIO& io = ImGui::GetIO();
-  io.MousePos = ImVec2(35.0f, 30.0f);
+  io.MousePos = ImVec2(35.0f, 46.0f);
   SimulateFrame();
 
   // It should be a Hand cursor over the button
@@ -8572,11 +8572,11 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
 
   ImGuiIO& io = ImGui::GetIO();
   // Click on "All" header expand/collapse button
-  // "Hidden" header is at 0-30 (screen 20-50)
-  // "Pinned" header is at 30-60 (screen 50-80)
-  // "All" header is at 60-90 (screen 80-110)
-  // Button is at X = kIndentSize (10), Y ~ 95
-  io.MousePos = ImVec2(15.0f, 95.0f);
+  // "Hidden" header is at 0-30 (screen 36-66)
+  // "Pinned" header is at 30-60 (screen 66-96)
+  // "All" header is at 60-90 (screen 96-126)
+  // Button is at X = kIndentSize (10), Y ~ 111
+  io.MousePos = ImVec2(15.0f, 111.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -8618,9 +8618,9 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
 
   ImGuiIO& io = ImGui::GetIO();
   // Click on "Hidden" header expand/collapse button
-  // "Hidden" header is at 0-30 (screen 20-50)
-  // Button is at X = kIndentSize (10), Y ~ 35
-  io.MousePos = ImVec2(15.0f, 35.0f);
+  // "Hidden" header is at 0-30 (screen 36-66)
+  // Button is at X = kIndentSize (10), Y ~ 51
+  io.MousePos = ImVec2(15.0f, 51.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -8659,8 +8659,9 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   ImGuiIO& io = ImGui::GetIO();
   // Expand "Hidden" section
   // "Hidden" header is at 0-30 (screen 20-50)
-  // Button is at X = kIndentSize (10), Y ~ 35
-  io.MousePos = ImVec2(15.0f, 35.0f);
+  // Button is at X = kIndentSize (10), Y ~ 35  // 1. Expand Hidden header
+  // Hidden is at 0-30 local, 36-66 screen.
+  io.MousePos = ImVec2(15.0f, 51.0f);
   SimulateFrame();
   io.AddMouseButtonEvent(0, true);
   SimulateFrame();
@@ -8680,8 +8681,8 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   // Click the hide button of Process A in Hidden section.
   // Hide button is at X ~ 241 (label_width_ - offset).
   // Y should be centered in the track height
-  // (e.g. 30 + 25 = 55 local, + 20 = 75 screen).
-  io.MousePos = ImVec2(241.0f, 75.0f);
+  // (e.g. 30 + 25 = 55 local, + 36 = 91 screen).
+  io.MousePos = ImVec2(241.0f, 91.0f);
   SimulateFrame();
 
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
@@ -8797,7 +8798,7 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   //  label_width - splitter_offset].
   // Set position to the center of the range.
   io.MousePos =
-      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 45.0f);
+      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 61.0f);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -8817,9 +8818,9 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // Under mutated code (Mutant 610), it renders a button here,
   // so cursor would be Hand.
   // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
-  // Y = 20.0f). Its center Y is 20.0f + 54.0f + 23.0f * 0.5f = 85.5f.
+  // Y = 36.0f). Its center Y = 36.0f + 54.0f + 23.0f * 0.5f = 101.5f.
   io.MousePos =
-      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 85.5f);
+      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 101.5f);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }
@@ -9166,10 +9167,10 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
 
   // Resize end of the range.
   // Origin X and py_per_time = 10.0.
-  // Hovering mouse over Process A (mouse_y = 30.0f).
+  // Hovering mouse over Process A (mouse_y = 46.0f).
   // The threshold is 1.6us. We drag to 99.0, it should snap to the event at
   // 100.0.
-  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/30.0f);
+  Drag(80.0, 99.0, /*shift=*/false, /*mouse_y=*/46.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
@@ -9218,8 +9219,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
 
   // Resize start of the range (50.0) near event start (40.0).
   // Drag to 41.0, it should snap to 40.0.
-  // Hovering mouse over Process A (mouse_y = 30.0f).
-  Drag(50.0, 41.0, /*shift=*/false, /*mouse_y=*/30.0f);
+  // Hovering mouse over Process A (mouse_y = 46.0f).
+  Drag(50.0, 41.0, /*shift=*/false, /*mouse_y=*/46.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 40.0);
@@ -9244,7 +9245,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
 
   // Resize start of the range (50.0) past end (80.0) to near event (100.0).
   // Drag to 99.0, it should crossover and snap to 100.0.
-  Drag(50.0, 99.0, /*shift=*/false, /*mouse_y=*/30.0f);
+  Drag(50.0, 99.0, /*shift=*/false, /*mouse_y=*/46.0f);
 
   ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 80.0);

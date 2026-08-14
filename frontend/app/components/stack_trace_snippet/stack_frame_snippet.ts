@@ -1,4 +1,4 @@
-import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy} from '@angular/core';
+import {Component, inject, Input, OnChanges, OnDestroy, SimpleChanges, ChangeDetectionStrategy, ViewChild} from '@angular/core';
 import {ActivatedRoute} from '@angular/router';
 import {Metric} from 'org_xprof/frontend/app/common/interfaces/source_stats';
 import * as utils from 'org_xprof/frontend/app/common/utils/utils';
@@ -32,6 +32,7 @@ export class StackFrameSnippet implements OnChanges, OnDestroy {
   codeSearchLinkTooltip: string|undefined = undefined;
   lineNumberToMetricMap: Map<number, Metric>|undefined = undefined;
   isCodeFetchEnabled = false;
+
 
   constructor() {
     this.route.params.pipe(takeUntil(this.destroy$)).subscribe((params) => {

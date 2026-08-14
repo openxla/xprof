@@ -2,7 +2,7 @@ load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_
 
 package(default_visibility = [
     "//plugin:internal",
-    "//plugin/xprof:__subpackages__",
+    "@org_xprof//plugin:__subpackages__",
 ])
 
 pytype_strict_library(

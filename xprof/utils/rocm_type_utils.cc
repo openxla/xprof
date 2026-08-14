@@ -95,6 +95,11 @@ absl::string_view ResolveAmdGfxVersion(const DeviceCapabilities& device_cap) {
 // AMD CDNA 4 architecture whitepaper, which additionally covers the LDS spec 
 // for earlier generations (CDNA 3 and prior):
 // https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-4-architecture-whitepaper.pdf
+// 
+// "The LDS in the AMD CDNA 3 architecture and prior 
+// generations was a directly addressed structure with 32 banks, each containing 512 entries for 32-bits of 
+// data – a total of 64KB of data. Each bank could read and write a 32-bit value and the LDS incorporates logic 
+// for conflict detection and scheduling, a sophisticated crossbar and swizzle unit along with atomic execution units."
 //
 // RDNA series is absent as its LDS belongs to a workgroup processor rather than
 // a CU. The published per-cycle figure cannot clearly be attributed per CU.

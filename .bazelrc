@@ -40,6 +40,7 @@ build:windows --host_copt=-DWIN32_LEAN_AND_MEAN
 build:windows --copt=-DNOGDI
 build:windows --host_copt=-DNOGDI
 build:windows --incompatible_strict_action_env=true
+build:windows --action_env=PATH
 
 # Windows x86 CI configs
 build:ci_windows_amd64 --crosstool_top="@xla//tools/toolchains/win2022/20241118:toolchain"

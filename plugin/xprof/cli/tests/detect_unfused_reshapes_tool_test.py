@@ -13,7 +13,10 @@ for behavior that neither exercised, including:
   * The presence of output metadata and log metrics.
 """
 
+from collections.abc import Sequence
 import json
+import types
+from typing import Any
 from unittest import mock
 
 from absl.testing import absltest
@@ -24,12 +27,36 @@ from xprof.cli.tools import detect_unfused_reshapes_tool
 _MB = 1024 * 1024
 
 
-def _top_ops_json(ops):
+def _make_instr(
+    id_val: int,
+    name: str,
+    opcode: str,
+    operands: Sequence[int] | None = None,
+    calls: Sequence[int] | None = None,
+) -> types.SimpleNamespace:
+  if operands is None:
+    operands = []
+  if calls is None:
+    calls = []
+  return types.SimpleNamespace(
+      id=id_val,
+      name=name,
+      opcode=opcode,
+      operand_ids=operands,
+      called_computation_ids=calls,
+  )
+
+
+def _top_ops_json(ops: Sequence[dict[str, Any]]) -> str:
   """Wraps a list of op dicts in the JSON envelope the tool expects."""
   return json.dumps({"top_by_bytes_accessed": ops})
 
 
-def _op(name, category="other", bytes_accessed=20 * _MB):
+def _op(
+    name: str,
+    category: str = "other",
+    bytes_accessed: int = 20 * _MB,
+) -> dict[str, Any]:
   return {
       "name": name,
       "category": category,
@@ -37,7 +64,11 @@ def _op(name, category="other", bytes_accessed=20 * _MB):
   }
 
 
-def _neighborhood(instr_name, downstream_op, computation="main.1"):
+def _neighborhood(
+    instr_name: str,
+    downstream_op: str,
+    computation: str = "main.1",
+) -> str:
   """Builds a two-line neighborhood: a standalone def feeding a compute op."""
   return (
       f"[dist=0] [{computation}] %{instr_name} = f32[100,100]"
@@ -51,13 +82,20 @@ class DetectUnfusedReshapesToolTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    # Guard against any accidental real network call for the module-listing
-    # fallback path. Individual tests override the return value as needed.
+    # Guard against any accidental real network call for module listing and
+    # debug-info paths. Individual tests override the return value as needed.
     self.mock_list_modules = self.enter_context(
         mock.patch.object(
             detect_unfused_reshapes_tool.hlo_tools,
             "list_hlo_modules",
             return_value="No HLO modules found.",
+        )
+    )
+    self.mock_fetch_debug_info = self.enter_context(
+        mock.patch.object(
+            detect_unfused_reshapes_tool.hlo_tools,
+            "_fetch_debug_info",
+            return_value=None,
         )
     )
 
@@ -452,7 +490,12 @@ class DetectUnfusedReshapesToolTest(parameterized.TestCase):
   # Helper.
   # ---------------------------------------------------------------------------
 
-  def _run(self, ops, neighborhood_fn, **kwargs):
+  def _run(
+      self,
+      ops: Sequence[dict[str, Any]],
+      neighborhood_fn: Any,
+      **kwargs: Any,
+  ) -> dict[str, Any]:
     """Runs the tool with mocked dependencies and returns the parsed result."""
     result_json = detect_unfused_reshapes_tool.detect_unfused_reshapes(
         "test_session",
@@ -461,6 +504,172 @@ class DetectUnfusedReshapesToolTest(parameterized.TestCase):
         **kwargs,
     )
     return json.loads(result_json)
+
+  def test_proto_based_analysis_detects_unfused_reshapes(self):
+    p0 = _make_instr(1, "p0", "parameter")
+    reshape1 = _make_instr(2, "reshape.1", "reshape", operands=[1])
+    dot1 = _make_instr(3, "dot.1", "dot", operands=[2])
+    main_comp = types.SimpleNamespace(
+        id=10, name="main", instructions=[p0, reshape1, dot1]
+    )
+    module_proto = types.SimpleNamespace(
+        name="jit_func", computations=[main_comp]
+    )
+    debug_info = types.SimpleNamespace(
+        hlo_proto=[types.SimpleNamespace(hlo_module=module_proto)],
+        program_id=[None],
+    )
+
+    ops = [_op("by_program/jit_func/reshape.1", "reshape", 20 * _MB)]
+    result_str = detect_unfused_reshapes_tool.detect_unfused_reshapes(
+        "s",
+        get_top_hlo_ops_fn=lambda s, limit: _top_ops_json(ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    result = json.loads(result_str)
+    self.assertTrue(result["bottlenecks_found"])
+    self.assertLen(result["inefficient_ops"], 1)
+    op = result["inefficient_ops"][0]
+    self.assertEqual(op["downstream_compute"], "dot")
+    self.assertTrue(op["hbm_materialization_overhead"])
+
+  def test_proto_based_analysis_ignores_fused_reshapes(self):
+    p0 = _make_instr(1, "p0", "parameter")
+    reshape1 = _make_instr(2, "reshape.1", "reshape", operands=[1])
+    dot1 = _make_instr(3, "dot.1", "dot", operands=[2])
+    fused_comp = types.SimpleNamespace(
+        id=101, name="fused_computation", instructions=[p0, reshape1, dot1]
+    )
+    fusion_instr = _make_instr(10, "fusion.1", "fusion", calls=[101])
+    main_comp = types.SimpleNamespace(
+        id=10, name="main", instructions=[fusion_instr]
+    )
+    module_proto = types.SimpleNamespace(
+        name="jit_func", computations=[main_comp, fused_comp]
+    )
+    debug_info = types.SimpleNamespace(
+        hlo_proto=[types.SimpleNamespace(hlo_module=module_proto)],
+        program_id=[None],
+    )
+
+    ops = [_op("by_program/jit_func/reshape.1", "reshape", 20 * _MB)]
+    result_str = detect_unfused_reshapes_tool.detect_unfused_reshapes(
+        "s",
+        get_top_hlo_ops_fn=lambda s, limit: _top_ops_json(ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    result = json.loads(result_str)
+    self.assertFalse(result["bottlenecks_found"])
+    self.assertEmpty(result["inefficient_ops"])
+
+  def test_proto_based_analysis_multi_module_lookup(self):
+    # Module 1 (unrelated)
+    p0 = _make_instr(1, "p0", "parameter")
+    comp1 = types.SimpleNamespace(id=1, name="main", instructions=[p0])
+    mod1 = types.SimpleNamespace(name="module_a", computations=[comp1])
+
+    # Module 2 (contains candidate)
+    p1 = _make_instr(10, "p1", "parameter")
+    transpose1 = _make_instr(11, "transpose.1", "transpose", operands=[10])
+    einsum1 = _make_instr(12, "einsum.1", "einsum", operands=[11])
+    comp2 = types.SimpleNamespace(
+        id=2, name="main", instructions=[p1, transpose1, einsum1]
+    )
+    mod2 = types.SimpleNamespace(name="module_b", computations=[comp2])
+
+    debug_info = types.SimpleNamespace(
+        hlo_proto=[
+            types.SimpleNamespace(hlo_module=mod1),
+            types.SimpleNamespace(hlo_module=mod2),
+        ],
+        program_id=["111", "222"],
+    )
+
+    # Candidate specifies module name with program ID: module_b(222)
+    ops = [_op("by_program/module_b(222)/transpose.1", "transpose", 25 * _MB)]
+    result_str = detect_unfused_reshapes_tool.detect_unfused_reshapes(
+        "s",
+        get_top_hlo_ops_fn=lambda s, limit: _top_ops_json(ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    result = json.loads(result_str)
+    self.assertTrue(result["bottlenecks_found"])
+    self.assertLen(result["inefficient_ops"], 1)
+    self.assertEqual(
+        result["inefficient_ops"][0]["downstream_compute"], "einsum"
+    )
+
+  def test_large_proto_performance(self):
+    modules = []
+    for mod_idx in range(20):
+      instructions = [
+          _make_instr(
+              mod_idx * 1000 + i,
+              f"instr_{mod_idx}_{i}",
+              "reshape" if i == 10 else ("dot" if i == 11 else "add"),
+              operands=[mod_idx * 1000 + i - 1] if i > 0 else [],
+          )
+          for i in range(1000)
+      ]
+      comp = types.SimpleNamespace(
+          id=mod_idx, name="main", instructions=instructions
+      )
+      mod = types.SimpleNamespace(name=f"module_{mod_idx}", computations=[comp])
+      modules.append(types.SimpleNamespace(hlo_module=mod))
+
+    debug_info = types.SimpleNamespace(
+        hlo_proto=modules, program_id=[None] * 20
+    )
+
+    ops = [
+        _op("by_program/module_0/instr_0_10", "reshape", 20 * _MB),
+        _op("by_program/module_1/instr_1_10", "reshape", 20 * _MB),
+    ]
+
+    result_str = detect_unfused_reshapes_tool.detect_unfused_reshapes(
+        session_id="perf_test",
+        get_top_hlo_ops_fn=lambda s, limit=75: _top_ops_json(ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    result = json.loads(result_str)
+    self.assertTrue(result["bottlenecks_found"])
+    self.assertLen(result["inefficient_ops"], 2)
+
+  def test_proto_based_analysis_unnamed_module_no_false_match(self):
+    # Module 1 (unnamed module, does not match candidate)
+    p0 = _make_instr(1, "p0", "parameter")
+    # Instruction name matches candidate, but opcode is not formatting
+    add1 = _make_instr(2, "reshape.1", "add", operands=[1])
+    comp1 = types.SimpleNamespace(id=1, name="main", instructions=[p0, add1])
+    mod1 = types.SimpleNamespace(name="", computations=[comp1])
+
+    # Module 2 (named module, matches candidate correctly)
+    p1 = _make_instr(10, "p1", "parameter")
+    reshape1 = _make_instr(11, "reshape.1", "reshape", operands=[10])
+    dot1 = _make_instr(12, "dot.1", "dot", operands=[11])
+    comp2 = types.SimpleNamespace(
+        id=2, name="main", instructions=[p1, reshape1, dot1]
+    )
+    mod2 = types.SimpleNamespace(name="target_module", computations=[comp2])
+
+    debug_info = types.SimpleNamespace(
+        hlo_proto=[
+            types.SimpleNamespace(hlo_module=mod1),
+            types.SimpleNamespace(hlo_module=mod2),
+        ],
+        program_id=[None, None],
+    )
+
+    ops = [_op("by_program/target_module/reshape.1", "reshape", 20 * _MB)]
+    result_str = detect_unfused_reshapes_tool.detect_unfused_reshapes(
+        "s",
+        get_top_hlo_ops_fn=lambda s, limit: _top_ops_json(ops),
+        fetch_debug_info_fn=lambda s: debug_info,
+    )
+    result = json.loads(result_str)
+    self.assertTrue(result["bottlenecks_found"])
+    self.assertLen(result["inefficient_ops"], 1)
+    self.assertEqual(result["inefficient_ops"][0]["downstream_compute"], "dot")
 
 
 if __name__ == "__main__":

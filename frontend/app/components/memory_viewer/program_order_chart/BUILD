@@ -30,9 +30,12 @@ xprof_ng_module(
     ],
     deps = [
         ":program_order_chart",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@types/google.visualization",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",
+        "@org_xprof//frontend/app/common/interfaces",
         "@org_xprof//frontend/app/common/utils:testing",
     ],
 )

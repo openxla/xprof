@@ -1192,6 +1192,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:cost_utils",
@@ -1267,9 +1268,11 @@ cc_library(
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -1355,6 +1358,22 @@ cc_library(
         "@org_xprof//xprof/utils:roofline_model_utils",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_test(
+    name = "op_stats_to_roofline_model_sparsecore_test",
+    srcs = ["op_stats_to_roofline_model_sparsecore_test.cc"],
+    deps = [
+        ":data_table_utils",
+        ":op_stats_to_roofline_model",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:roofline_model_proto_cc",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -3595,6 +3614,7 @@ cc_library(
         "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",

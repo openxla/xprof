@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef XPROF_CONVERT_OP_METRICS_TO_RECORD_H_
 #define XPROF_CONVERT_OP_METRICS_TO_RECORD_H_
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <tuple>
@@ -95,6 +96,11 @@ auto SortedOpMetricsDb(const MetricsDbT& metrics_db, int max_records = -1) {
   }
   return result;
 }
+
+// Collects unique SparseCore ops from `metrics_db` (skipping TensorCore-issued
+// async wrappers) and returns up to `max_records` sorted by self_time_ps.
+std::vector<const OpMetrics*> ScSortedOpMetricsDb(const OpMetricsDb& metrics_db,
+                                                  int max_records = -1);
 
 template <typename Metrics>
 inline double GigaFlopsPerSecondPerCore(const Metrics& metrics) {
@@ -422,6 +428,71 @@ inline void SetRooflineMetrics(const Metrics& metrics, const PerfEnv& perf_env,
   record->set_bound_by(std::string(bottleneck_resource));
   record->set_bottleneck_operational_intensity(
       bottleneck_operational_intensity);
+}
+
+// Returns `flops` (accumulated across all occurrences of `metrics`), or 0 if
+// the value is negative or invalid. Cost analysis reports unknown FLOPs as -1,
+// which can wrap to ~2^64 per occurrence when stored as an unsigned value; such
+// values are treated as unknown (0) rather than producing absurd FLOP rates.
+inline double SanitizedSparseCoreFlops(double flops, const OpMetrics& metrics) {
+  if (!(flops > 0.0)) return 0.0;
+  constexpr double kMaxValidFlopsPerOccurrence = 9.2e18;  // ~INT64_MAX.
+  const double occurrences =
+      std::max<double>(1.0, static_cast<double>(metrics.occurrences()));
+  if (flops / occurrences >= kMaxValidFlopsPerOccurrence) return 0.0;
+  return flops;
+}
+
+template <typename Record>
+inline void SetSparseCoreRooflineMetrics(const OpMetrics& metrics,
+                                         Record* record,
+                                         bool apply_time_scale_factor = false) {
+  double raw_time_ns = tsl::profiler::PicoToNano(metrics.time_ps());
+  int64_t compute_time_ps =
+      (apply_time_scale_factor && metrics.normalized_time_ps() > 0)
+          ? metrics.normalized_time_ps()
+          : metrics.time_ps();
+  double compute_time_ns = tsl::profiler::PicoToNano(compute_time_ps);
+  double flops = SanitizedSparseCoreFlops(metrics.flops_v2(), metrics);
+  double model_flops =
+      SanitizedSparseCoreFlops(metrics.model_flops_v2(), metrics);
+  uint64_t bytes_accessed = metrics.bytes_accessed();
+
+  record->set_measured_flop_rate(
+      tsl::profiler::SafeDivide(flops, compute_time_ns));
+  record->set_model_flop_rate(
+      tsl::profiler::SafeDivide(model_flops, compute_time_ns));
+  record->set_measured_memory_bw(
+      tsl::profiler::GibibytesPerSecond(bytes_accessed, raw_time_ns));
+  record->set_operational_intensity(
+      tsl::profiler::SafeDivide(flops, bytes_accessed));
+
+  uint64_t hbm_bytes = 0;
+  for (const auto& memory_access : metrics.memory_accessed_breakdown()) {
+    // Only HBM is attributed here. `PerformanceInfo::MemoryAccessed::VMEM`
+    // represents TensorCore VMEM (SparseCore tile SPMEM is a separate XLA
+    // memory space not yet exported in `MemoryAccessed::MemorySpace`).
+    if (memory_access.memory_space() == PerformanceInfo::MemoryAccessed::HBM) {
+      hbm_bytes += memory_access.bytes_accessed();
+    }
+  }
+  if (metrics.memory_accessed_breakdown_size() == 0) {
+    // For profiles without a memory access breakdown, consider all memory
+    // access as HBM access (matching TensorCore behavior).
+    hbm_bytes = bytes_accessed;
+  }
+  record->set_hbm_bw(tsl::profiler::GibibytesPerSecond(hbm_bytes, raw_time_ns));
+  record->set_spmem_read_bw(0.0);
+  record->set_spmem_write_bw(0.0);
+
+  record->set_hbm_operational_intensity(
+      tsl::profiler::SafeDivide(flops, hbm_bytes));
+  record->set_spmem_read_operational_intensity(0.0);
+  record->set_spmem_write_operational_intensity(0.0);
+  // The bottleneck operational intensity depends on the bound resource, which
+  // is determined by the caller against the SparseCore peak limits. Default to
+  // the overall operational intensity.
+  record->set_bottleneck_operational_intensity(record->operational_intensity());
 }
 
 }  // namespace profiler

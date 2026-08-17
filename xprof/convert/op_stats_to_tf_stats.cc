@@ -18,6 +18,7 @@ limitations under the License.
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "absl/strings/match.h"
@@ -26,11 +27,13 @@ limitations under the License.
 #include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/flat_op_metrics_to_record.h"
 #include "xprof/convert/model_tracker.h"
 #include "xprof/convert/op_metrics_to_record.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/tf_stats.pb.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/kernel_stats_utils.h"
 #include "xprof/utils/op_metrics_db_utils.h"
 
@@ -44,23 +47,29 @@ using ::tensorflow::profiler::TfStatsTable;
 // 500 device side ops and 500 host side ops.
 const int kMaxNumOfOps = 500;
 
+template <typename OpMetricsType>
 TfStatsRecord ConvertOpMetricsToTfStatsRecord(bool on_device,
-                                              const OpMetrics& metrics,
+                                              const OpMetricsType& metrics,
                                               const PerfEnv& perf_env,
                                               const RunEnvironment& run_env) {
   TfStatsRecord record;
   record.set_host_or_device(on_device ? "Device" : "Host");
   record.set_is_eager(metrics.is_eager());
   record.set_op_type(metrics.category());
-  record.set_op_name(metrics.name());
+  if constexpr (std::is_same_v<OpMetricsType, FlatOpMetrics>) {
+    record.set_op_name(metrics.hlo_name());
+  } else {
+    record.set_op_name(metrics.name());
+  }
   SetExecutionTimes(metrics, &record);
   SetRooflineMetrics(metrics, perf_env, run_env, &record);
   return record;
 }
 
+template <typename DeviceOpMetricsDbType, typename DeviceOpMetricsType>
 TfStatsTable GenerateTfStatsTable(
     const OpMetricsDb& host_tf_metrics_db,
-    const OpMetricsDb& device_tf_metrics_db,
+    const DeviceOpMetricsDbType& device_tf_metrics_db,
     const KernelStatsByOpName& kernel_stats_by_op_name, const PerfEnv& perf_env,
     const RunEnvironment& run_env, bool exclude_idle) {
   TfStatsTable tf_stats_table;
@@ -75,7 +84,8 @@ TfStatsTable GenerateTfStatsTable(
       TotalTimePs(device_tf_metrics_db, exclude_idle);
   double total_device_time_us =
       tsl::profiler::PicoToMicro(total_device_time_ps);
-  for (const OpMetrics* metrics :
+
+  for (const DeviceOpMetricsType* metrics :
        SortedOpMetricsDb(device_tf_metrics_db, kMaxNumOfOps)) {
     if (exclude_idle && IsIdleOp(*metrics)) continue;
     TfStatsRecord* record = tf_stats_table.add_tf_stats_record();
@@ -113,21 +123,41 @@ TfStatsTable GenerateTfStatsTable(
 
 }  // namespace
 
-TfStatsDatabase ConvertOpStatsToTfStats(const OpStats& op_stats) {
-  const OpMetricsDb& host_tf_metrics_db = op_stats.host_op_metrics_db();
-  OpMetricsDb device_tf_metrics_db =
-      CreateTfMetricsDbFromDeviceOpMetricsDb(op_stats.device_op_metrics_db());
+TfStatsDatabase ConvertOpStatsToTfStats(const OpStats& op_stats,
+                                        bool use_flat_op_metrics_db) {
   const PerfEnv perf_env = op_stats.perf_env();
   const RunEnvironment run_env = op_stats.run_environment();
   KernelStatsByOpName kernel_stats_by_op_name =
       GroupKernelReportsByOpName(op_stats.kernel_stats_db());
   TfStatsDatabase tf_stats_db;
-  *tf_stats_db.mutable_with_idle() = GenerateTfStatsTable(
-      host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
-      perf_env, run_env, /*exclude_idle=*/false);
-  *tf_stats_db.mutable_without_idle() = GenerateTfStatsTable(
-      host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
-      perf_env, run_env, /*exclude_idle=*/true);
+
+  const OpMetricsDb& host_tf_metrics_db = op_stats.host_op_metrics_db();
+  if (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db()) {
+    FlatOpMetricsDb device_tf_metrics_db =
+        CreateTfMetricsDbFromDeviceOpMetricsDb(
+            op_stats.flat_device_op_metrics_db(), /*with_idle=*/true);
+    *tf_stats_db.mutable_with_idle() =
+        GenerateTfStatsTable<FlatOpMetricsDb, FlatOpMetrics>(
+            host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
+            perf_env, run_env, /*exclude_idle=*/false);
+    *tf_stats_db.mutable_without_idle() =
+        GenerateTfStatsTable<FlatOpMetricsDb, FlatOpMetrics>(
+            host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
+            perf_env, run_env, /*exclude_idle=*/true);
+  } else {
+    OpMetricsDb device_tf_metrics_db =
+        tensorflow::profiler::CreateTfMetricsDbFromDeviceOpMetricsDb(
+            op_stats.device_op_metrics_db());
+    *tf_stats_db.mutable_with_idle() =
+        GenerateTfStatsTable<OpMetricsDb, OpMetrics>(
+            host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
+            perf_env, run_env, /*exclude_idle=*/false);
+    *tf_stats_db.mutable_without_idle() =
+        GenerateTfStatsTable<OpMetricsDb, OpMetrics>(
+            host_tf_metrics_db, device_tf_metrics_db, kernel_stats_by_op_name,
+            perf_env, run_env, /*exclude_idle=*/true);
+  }
+
   tf_stats_db.set_device_type(op_stats.run_environment().device_type());
   return tf_stats_db;
 }

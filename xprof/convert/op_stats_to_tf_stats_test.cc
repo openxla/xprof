@@ -19,6 +19,7 @@ limitations under the License.
 #include <string>
 #include <utility>
 
+#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
@@ -167,6 +168,54 @@ occ_pct:100)MULTI";
   EXPECT_EQ(1, record_2.occurrences());
   EXPECT_EQ(tsl::profiler::NanoToMicro(kKernel3DurationNs),
             record_2.total_self_time_in_us());
+}
+
+TEST(OpStatsToTfStats, FlatOpMetricsDbSupport) {
+  OpStats op_stats = ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie(R"pb(
+    run_environment { device_type: "TPU" }
+    flat_device_op_metrics_db {
+      total_time_ps: 1000000
+      total_op_time_ps: 800000
+      op_instances {
+        hlo_name: "op_a"
+        category: "dense"
+        provenance: "op_a:dense"
+        occurrences: 2
+        self_time_ps: 500000
+        time_ps: 500000
+      }
+      op_instances {
+        hlo_name: "op_b"
+        category: "conv"
+        provenance: "op_b:conv"
+        occurrences: 1
+        self_time_ps: 300000
+        time_ps: 300000
+      }
+      op_instances {
+        hlo_name: "IDLE"
+        category: "IDLE"
+        occurrences: 1
+        self_time_ps: 200000
+        time_ps: 200000
+      }
+    }
+  )pb");
+
+  TfStatsDatabase tf_stats =
+      ConvertOpStatsToTfStats(op_stats, /*use_flat_op_metrics_db=*/true);
+
+  EXPECT_EQ(tf_stats.device_type(), "TPU");
+  // 2 ops + 1 idle record in with_idle
+  EXPECT_EQ(3, tf_stats.with_idle().tf_stats_record_size());
+  // 2 ops in without_idle
+  EXPECT_EQ(2, tf_stats.without_idle().tf_stats_record_size());
+
+  const TfStatsRecord& record_0 = tf_stats.with_idle().tf_stats_record(0);
+  EXPECT_EQ("dense", record_0.op_type());
+  EXPECT_EQ("op_a", record_0.op_name());
+  EXPECT_EQ(2, record_0.occurrences());
+  EXPECT_DOUBLE_EQ(0.5, record_0.total_self_time_in_us());
 }
 
 }  // namespace

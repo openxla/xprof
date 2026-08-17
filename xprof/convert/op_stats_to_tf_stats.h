@@ -27,7 +27,8 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
-TfStatsDatabase ConvertOpStatsToTfStats(const OpStats& op_stats);
+TfStatsDatabase ConvertOpStatsToTfStats(
+    const OpStats& op_stats, bool use_flat_op_metrics_db = false);
 
 std::unique_ptr<DataTable> TfStatsToDataTable(
     const tensorflow::profiler::TfStatsTable& table,

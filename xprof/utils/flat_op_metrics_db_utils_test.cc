@@ -20,6 +20,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "net/proto2/contrib/parse_proto/parse_text_proto.h"
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "xla/tsl/profiler/utils/xplane_builder.h"
@@ -28,11 +29,13 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
+#include "plugin/xprof/protobuf/source_info.pb.h"
 
 namespace tensorflow {
 namespace profiler {
 namespace {
 
+using ::google::protobuf::contrib::parse_proto::ParseTextProtoOrDie;
 using ::tensorflow::profiler::XEventMetadata;
 using ::tensorflow::profiler::XPlane;
 using ::tensorflow::profiler::XStatMetadata;
@@ -124,6 +127,30 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, BasicEventProcessing) {
   EXPECT_EQ(metric.occurrences(), 1);
   EXPECT_DOUBLE_EQ(metric.time_ps(), 500);
   EXPECT_DOUBLE_EQ(metric.self_time_ps(), 500);
+}
+
+// -----------------------------------------------------------------------------
+// Test Case: GetFlatOpKeyFromXEvent
+// -----------------------------------------------------------------------------
+TEST_F(XEventsFlatOpMetricsDbBuilderTest, GetFlatOpKeyFromXEvent) {
+  XPlane plane = CreateTestXPlane();
+  XPlaneBuilder plane_builder(&plane);
+  XLineBuilder line_builder = plane_builder.GetOrCreateLine(0);
+
+  // Create event with program_id=123, symbol_id=456
+  CreateXEvent(plane_builder, line_builder, "op1", 1000, 500, 123, 456);
+
+  XPlaneVisitor plane_visitor(&plane, {}, {tsl::profiler::FindStatType});
+  XEventVisitor event_visitor(&plane_visitor, &plane.lines(0),
+                              &plane.lines(0).events(0));
+
+  XEventsFlatOpMetricsDbBuilder::OpKey key =
+      XEventsFlatOpMetricsDbBuilder::GetFlatOpKeyFromXEvent(event_visitor);
+
+  ASSERT_TRUE(key.program_id.has_value());
+  EXPECT_EQ(*key.program_id, 123);
+  ASSERT_TRUE(key.symbol_id.has_value());
+  EXPECT_EQ(*key.symbol_id, 456);
 }
 
 // -----------------------------------------------------------------------------
@@ -715,6 +742,152 @@ TEST_F(XEventsFlatOpMetricsDbBuilderTest, SourceInformationParsing) {
   EXPECT_EQ(metric.source_info().file_name(), "filename.cc");
   EXPECT_EQ(metric.source_info().line_number(), 123);
   EXPECT_EQ(metric.source_info().stack_frame(), "stack_frame_contents");
+}
+
+// -----------------------------------------------------------------------------
+// Tests for CreateTfMetricsDbFromDeviceOpMetricsDb
+// -----------------------------------------------------------------------------
+
+TEST(CreateTfMetricsDbFromDeviceOpMetricsDbTest, AggregationAndIdle) {
+  FlatOpMetricsDb device_db = ParseTextProtoOrDie(R"pb(
+    total_op_time_ps: 1000
+    total_time_ps: 1500
+    op_instances {
+      hlo_name: "hlo1"
+      provenance: "TfOp1:TfOpType1"
+      time_ps: 500
+      self_time_ps: 400
+      flops: 100
+      flops_v2: 101
+      model_flops: 102
+      model_flops_v2: 103
+      bytes_accessed: 1000
+      occurrences: 1
+    }
+    op_instances {
+      hlo_name: "hlo2"
+      provenance: "TfOp1:TfOpType1"
+      time_ps: 300
+      self_time_ps: 300
+      flops: 50
+      flops_v2: 51
+      model_flops: 52
+      model_flops_v2: 53
+      bytes_accessed: 500
+      occurrences: 2
+    }
+    op_instances {
+      hlo_name: "hlo3"
+      time_ps: 200
+      self_time_ps: 200
+      flops: 20
+      bytes_accessed: 200
+      occurrences: 1
+    }
+    op_instances {
+      category: "IDLE"
+      time_ps: 500
+      self_time_ps: 500
+    }
+  )pb");
+
+  // Test with_idle = true
+  {
+    FlatOpMetricsDb tf_db =
+        CreateTfMetricsDbFromDeviceOpMetricsDb(device_db, /*with_idle=*/true);
+
+    EXPECT_EQ(tf_db.total_op_time_ps(), 1000);
+    EXPECT_EQ(tf_db.total_time_ps(), 1500);
+    ASSERT_EQ(tf_db.op_instances_size(), 3);
+
+    // Find ops
+    const FlatOpMetrics* tf_op1 = nullptr;
+    const FlatOpMetrics* tf_op3 = nullptr;
+    const FlatOpMetrics* tf_idle = nullptr;
+
+    for (const auto& op : tf_db.op_instances()) {
+      if (op.hlo_name() == "TfOp1")
+        tf_op1 = &op;
+      else if (op.hlo_name() == "hlo3")
+        tf_op3 = &op;
+      else if (op.hlo_name() == kIdle)
+        tf_idle = &op;
+    }
+
+    ASSERT_NE(tf_op1, nullptr);
+    EXPECT_EQ(tf_op1->category(), "TfOpType1");
+    EXPECT_EQ(tf_op1->time_ps(), 800);          // 500 + 300
+    EXPECT_EQ(tf_op1->self_time_ps(), 700);     // 400 + 300
+    EXPECT_EQ(tf_op1->flops(), 150);            // 100 + 50
+    EXPECT_EQ(tf_op1->flops_v2(), 152);         // 101 + 51
+    EXPECT_EQ(tf_op1->model_flops(), 154);      // 102 + 52
+    EXPECT_EQ(tf_op1->model_flops_v2(), 156);   // 103 + 53
+    EXPECT_EQ(tf_op1->bytes_accessed(), 1500);  // 1000 + 500
+    EXPECT_EQ(tf_op1->occurrences(), 2);        // max(1, 2)
+
+    ASSERT_NE(tf_op3, nullptr);
+    EXPECT_EQ(tf_op3->category(), "Unknown");
+    EXPECT_EQ(tf_op3->time_ps(), 200);
+
+    ASSERT_NE(tf_idle, nullptr);
+    EXPECT_EQ(tf_idle->category(), kIdle);
+    EXPECT_EQ(tf_idle->time_ps(), 500);
+  }
+
+  // Test with_idle = false
+  {
+    FlatOpMetricsDb tf_db =
+        CreateTfMetricsDbFromDeviceOpMetricsDb(device_db, /*with_idle=*/false);
+
+    EXPECT_EQ(tf_db.total_op_time_ps(), 1000);
+    EXPECT_EQ(tf_db.total_time_ps(), 1000);   // Should be total_op_time_ps
+    ASSERT_EQ(tf_db.op_instances_size(), 2);  // Idle should be skipped
+
+    const FlatOpMetrics* tf_idle = nullptr;
+    for (const auto& op : tf_db.op_instances()) {
+      if (op.hlo_name() == kIdle) tf_idle = &op;
+    }
+    EXPECT_EQ(tf_idle, nullptr);
+  }
+}
+
+TEST(FinalizeSortedTest, HandlesOrphanNodes) {
+  XEventsFlatOpMetricsDbBuilder builder;
+  FlatOpMetrics child;
+  child.set_op_id(100);
+  child.set_parent_op_id(9999);  // Non-existent parent ID
+  child.set_self_time_ps(500);
+
+  builder.AddOpMetric(child, {1, 100});
+  FlatOpMetricsDb db = builder.FinalizeSorted();
+
+  ASSERT_EQ(db.op_instances_size(), 1);
+  EXPECT_EQ(db.op_instances(0).op_id(), 100);
+  EXPECT_EQ(db.total_op_time_ps(), 500);
+}
+
+TEST(FlatOpMetricsDbUtilsTest, TotalTimePs) {
+  FlatOpMetricsDb db;
+  db.set_total_op_time_ps(800);
+  db.set_total_time_ps(1000);
+
+  EXPECT_EQ(TotalTimePs(db, /*exclude_idle=*/false), 1000);
+  EXPECT_EQ(TotalTimePs(db, /*exclude_idle=*/true), 800);
+}
+
+TEST(FlatOpMetricsDbUtilsTest, IsIdleOp) {
+  FlatOpMetrics idle_by_category;
+  idle_by_category.set_category(kIdle);
+  EXPECT_TRUE(IsIdleOp(idle_by_category));
+
+  FlatOpMetrics idle_by_hlo_name;
+  idle_by_hlo_name.set_hlo_name(kIdle);
+  EXPECT_TRUE(IsIdleOp(idle_by_hlo_name));
+
+  FlatOpMetrics non_idle;
+  non_idle.set_category("dense");
+  non_idle.set_hlo_name("op_a");
+  EXPECT_FALSE(IsIdleOp(non_idle));
 }
 
 }  // namespace

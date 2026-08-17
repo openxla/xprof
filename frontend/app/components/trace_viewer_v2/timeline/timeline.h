@@ -500,6 +500,9 @@ class Timeline {
 
   // Emits an event selected event to JS side.
   void EmitEventSelected(int event_index);
+  EventData CreateBaseEventData(int event_index, bool is_hover = false) const;
+  // Emits an event hovered event to JS side.
+  void EmitEventHovered(int event_index, float mouse_x, float mouse_y);
   // Emits viewport changed event to JS side.
   void EmitViewportChanged(const TimeRange& range);
   // Emits mouse mode changed event to JS side.
@@ -737,6 +740,7 @@ class Timeline {
   MouseMode mouse_mode_ = MouseMode::kPan;
 
   int hovered_event_index_ = -1;
+  int last_reported_hovered_event_index_ = -1;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
 

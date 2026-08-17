@@ -19,6 +19,9 @@ using EventData = absl::flat_hash_map<std::string, std::any>;
 
 // Following constants are used for event selected event.
 inline constexpr absl::string_view kEventSelected = "eventselected";
+
+inline constexpr absl::string_view kEventHovered = "eventhovered";
+
 inline constexpr absl::string_view kEventsSelected = "events_selected";
 inline constexpr absl::string_view kEventsSelectedData = "events_selected_data";
 

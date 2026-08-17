@@ -854,6 +854,7 @@ dashboard would integrate trace viewer app using iframe.
         var currentThread = event.parentContainer;
         var currentProcess = currentThread.parent;
         var hloOp;
+        var hloModule = "default";
         const dataMotionLayer = ['Compute Utilization/Roofline Efficiency', 'Data motion layers utilization'].includes(event.parentContainer.name);
         // Event is an XLA op if it is part of the XLA Ops line or in case of host XLA ops, if it
         // has hlo_op and hlo_module in the event args. The same logic applies to Sparse Core Ops.
@@ -1630,7 +1631,7 @@ dashboard would integrate trace viewer app using iframe.
         processes[i].addEventListener('mouseup', (e) => {
           this._canvasDrag = false;
           e.stopPropagation();
-          this._onViewportChange();
+          this._onViewportChanged();
         });
       }
     },

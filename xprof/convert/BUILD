@@ -1144,6 +1144,7 @@ cc_library(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -1154,6 +1155,36 @@ cc_test(
     deps = [
         ":op_metrics_to_record",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "flat_op_metrics_to_record",
+    srcs = ["flat_op_metrics_to_record.cc"],
+    hdrs = ["flat_op_metrics_to_record.h"],
+    deps = [
+        ":op_metrics_to_record",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/strings",
+        "@tsl//tsl/platform:protobuf",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_test(
+    name = "flat_op_metrics_to_record_test",
+    srcs = ["flat_op_metrics_to_record_test.cc"],
+    deps = [
+        ":flat_op_metrics_to_record",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1394,12 +1425,14 @@ cc_library(
         ":profile_time_breakdown",
         ":step_events_to_steps_db",
         ":tpu_input_pipeline_analysis_constants",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:steps_db_proto_cc",
         "//plugin/xprof/protobuf:tpu_input_pipeline_proto_cc",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
@@ -1407,6 +1440,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@org_xprof//xprof/utils:diagnostics",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:html_utils",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@org_xprof//xprof/utils:tpu_step_breakdown_utils",
@@ -1488,6 +1522,7 @@ cc_library(
     srcs = ["step_events_to_steps_db.cc"],
     hdrs = ["step_events_to_steps_db.h"],
     deps = [
+        ":flat_op_metrics_db_combiner",
         ":op_metrics_db_combiner",
         "//plugin/xprof/protobuf:steps_db_proto_cc",
         "@com_google_absl//absl/algorithm:container",
@@ -1495,6 +1530,7 @@ cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@xla//xla/tsl/lib/gtl:map_util",
         "@xla//xla/tsl/platform:logging",
@@ -1633,6 +1669,7 @@ cc_test(
         "@org_xprof//xprof/utils:hlo_proto_map",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/platform:status",
         "@xla//xla/tsl/platform:types",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
@@ -1656,6 +1693,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:event_span",
+        "@org_xprof//xprof/utils:flat_op_metrics_db_utils",
         "@org_xprof//xprof/utils:op_metrics_db_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:types",

@@ -35,6 +35,11 @@ class FlatOpMetricsDbCombiner : public FlatOpMetricsDbBuilder {
   // occurs.
   void Combine(const FlatOpMetricsDb& src, bool update_num_cores = true);
 
+  // Combines the memory access breakdown for FlatOpMetrics.
+  static void CombineMemoryAccessedBreakdown(
+      const tsl::protobuf::RepeatedPtrField<FlatOpMetrics::MemoryAccessed>& src,
+      tsl::protobuf::RepeatedPtrField<FlatOpMetrics::MemoryAccessed>* dst);
+
  private:
   // Copies FlatOpMetrics metadata (e.g., category, provenance) from src to dst.
   static void CopyFlatOpMetricsMetadata(const FlatOpMetrics& src,
@@ -43,11 +48,6 @@ class FlatOpMetricsDbCombiner : public FlatOpMetricsDbBuilder {
   // Combines FlatOpMetrics data from src into dst.
   static void CombineFlatOpMetrics(const FlatOpMetrics& src, FlatOpMetrics* dst,
                                    bool update_num_cores);
-
-  // Combines the memory access breakdown for FlatOpMetrics.
-  static void CombineMemoryAccessedBreakdown(
-      const tsl::protobuf::RepeatedPtrField<FlatOpMetrics::MemoryAccessed>& src,
-      tsl::protobuf::RepeatedPtrField<FlatOpMetrics::MemoryAccessed>* dst);
 };
 
 }  // namespace profiler

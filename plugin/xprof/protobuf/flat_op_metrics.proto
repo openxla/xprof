@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package tensorflow.profiler;
 
+import "plugin/xprof/protobuf/op_metrics.proto";
 import "plugin/xprof/protobuf/source_info.proto";
 
 message FlatOpMetrics {
@@ -160,6 +161,9 @@ message FlatOpMetricsDb {
 
   // Weighted average total op time if running on default pstate.
   uint64 normalized_total_op_time_ps = 7;
+
+  // The precision stats of ops in this database.
+  PrecisionStats precision_stats = 8;
 }
 
 message FlatOpMetricsDbMap {

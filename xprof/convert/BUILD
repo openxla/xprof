@@ -1264,6 +1264,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -1349,6 +1350,21 @@ cc_library(
         "@org_xprof//xprof/utils:roofline_model_utils",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
+        "@xla//xla/tsl/profiler/utils:math_utils",
+    ],
+)
+
+cc_test(
+    name = "op_stats_to_roofline_model_sparsecore_test",
+    srcs = ["op_stats_to_roofline_model_sparsecore_test.cc"],
+    deps = [
+        ":data_table_utils",
+        ":op_stats_to_roofline_model",
+        "//plugin/xprof/protobuf:hardware_types_proto_cc",
+        "//plugin/xprof/protobuf:op_metrics_proto_cc",
+        "//plugin/xprof/protobuf:op_stats_proto_cc",
+        "//plugin/xprof/protobuf:roofline_model_proto_cc",
+        "@com_google_googletest//:gtest_main",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )

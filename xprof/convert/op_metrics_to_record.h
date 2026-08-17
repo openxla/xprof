@@ -96,13 +96,17 @@ auto SortedOpMetricsDb(const MetricsDbT& metrics_db, int max_records = -1) {
   return result;
 }
 
+std::vector<const OpMetrics*> ScSortedOpMetricsDb(const OpMetricsDb& metrics_db,
+                                                  int max_records = -1);
+
 template <typename Metrics>
 inline double GigaFlopsPerSecondPerCore(const Metrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Normalized flop rate if running on default pstate.
@@ -126,7 +130,8 @@ inline double GigaModelFlopsPerSecondPerCore(const Metrics& metrics) {
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
   return tsl::profiler::SafeDivide(
-      metrics.model_flops_v2(), tsl::profiler::PicoToNano(metrics.time_ps()));
+      std::max(0.0, metrics.model_flops_v2()),
+      tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
 // Return ByteAccessed for memory_space and operation_type.
@@ -422,6 +427,94 @@ inline void SetRooflineMetrics(const Metrics& metrics, const PerfEnv& perf_env,
   record->set_bound_by(std::string(bottleneck_resource));
   record->set_bottleneck_operational_intensity(
       bottleneck_operational_intensity);
+}
+
+// Returns `flops` (accumulated across all occurrences of `metrics`), or 0 if
+// the value is negative or invalid. Cost analysis reports unknown FLOPs as -1,
+// which can wrap to ~2^64 per occurrence when stored as an unsigned value; such
+// values are treated as unknown (0) rather than producing absurd FLOP rates.
+inline double SanitizedSparseCoreFlops(double flops, const OpMetrics& metrics) {
+  if (!(flops > 0.0)) return 0.0;
+  constexpr double kMaxValidFlopsPerOccurrence = 9.2e18;  // ~INT64_MAX.
+  const double occurrences =
+      std::max<double>(1.0, static_cast<double>(metrics.occurrences()));
+  if (flops / occurrences >= kMaxValidFlopsPerOccurrence) return 0.0;
+  return flops;
+}
+
+template <typename Record>
+inline void SetSparseCoreRooflineMetrics(const OpMetrics& metrics,
+                                         const PerfEnv& perf_env,
+                                         const RunEnvironment& run_env,
+                                         Record* record,
+                                         bool apply_time_scale_factor = false) {
+  int64_t device_time_ps =
+      (apply_time_scale_factor && metrics.normalized_time_ps() > 0)
+          ? metrics.normalized_time_ps()
+          : metrics.time_ps();
+  double device_time_ns = tsl::profiler::PicoToNano(device_time_ps);
+  double flops = SanitizedSparseCoreFlops(metrics.flops_v2(), metrics);
+  double model_flops =
+      SanitizedSparseCoreFlops(metrics.model_flops_v2(), metrics);
+  uint64_t bytes_accessed = metrics.bytes_accessed();
+
+  record->set_measured_flop_rate(
+      tsl::profiler::SafeDivide(flops, device_time_ns));
+  record->set_model_flop_rate(
+      tsl::profiler::SafeDivide(model_flops, device_time_ns));
+  record->set_measured_memory_bw(
+      tsl::profiler::GibibytesPerSecond(bytes_accessed, device_time_ns));
+  record->set_operational_intensity(
+      tsl::profiler::SafeDivide(flops, bytes_accessed));
+
+  uint64_t hbm_bytes = 0;
+  uint64_t spmem_read_bytes = 0;
+  uint64_t spmem_write_bytes = 0;
+  bool has_classified_access = false;
+  for (const auto& memory_access : metrics.memory_accessed_breakdown()) {
+    // `memory_space` holds `PerformanceInfo::MemoryAccessed::MemorySpace`
+    // values. For ops executing on SparseCore, the on-chip memory space
+    // reported by the cost analysis (VMEM) is the SparseCore scratchpad
+    // memory (SPMEM). Accesses in other memory spaces (e.g. UNKNOWN, CMEM) are
+    // not attributed to any SparseCore roofline resource.
+    const auto mem_space = memory_access.memory_space();
+    const auto bytes = memory_access.bytes_accessed();
+    if (mem_space == PerformanceInfo::MemoryAccessed::HBM) {
+      hbm_bytes += bytes;
+      has_classified_access = true;
+    } else if (mem_space == PerformanceInfo::MemoryAccessed::VMEM) {
+      if (memory_access.operation_type() == OpMetrics::MemoryAccessed::READ) {
+        spmem_read_bytes += bytes;
+        has_classified_access = true;
+      } else if (memory_access.operation_type() ==
+                 OpMetrics::MemoryAccessed::WRITE) {
+        spmem_write_bytes += bytes;
+        has_classified_access = true;
+      }
+    }
+  }
+  if (!has_classified_access) {
+    // For profiles without a usable memory access breakdown, consider all
+    // memory access as HBM access.
+    hbm_bytes = bytes_accessed;
+  }
+  record->set_hbm_bw(
+      tsl::profiler::GibibytesPerSecond(hbm_bytes, device_time_ns));
+  record->set_spmem_read_bw(
+      tsl::profiler::GibibytesPerSecond(spmem_read_bytes, device_time_ns));
+  record->set_spmem_write_bw(
+      tsl::profiler::GibibytesPerSecond(spmem_write_bytes, device_time_ns));
+
+  record->set_hbm_operational_intensity(
+      tsl::profiler::SafeDivide(flops, hbm_bytes));
+  record->set_spmem_read_operational_intensity(
+      tsl::profiler::SafeDivide(flops, spmem_read_bytes));
+  record->set_spmem_write_operational_intensity(
+      tsl::profiler::SafeDivide(flops, spmem_write_bytes));
+  // The bottleneck operational intensity depends on the bound resource, which
+  // is determined by the caller against the SparseCore peak limits. Default to
+  // the overall operational intensity.
+  record->set_bottleneck_operational_intensity(record->operational_intensity());
 }
 
 }  // namespace profiler

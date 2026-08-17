@@ -35,13 +35,13 @@ limitations under the License.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/log/vlog_is_on.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
-#include "xla/tsl/profiler/utils/xplane_builder.h"
 #include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "xla/tsl/profiler/utils/xplane_utils.h"
 #include "xla/tsl/util/stats_calculator.h"
@@ -144,54 +144,33 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
                               /*SRAM_WR=*/shm_giga_bytes_per_second});
   } else {
     XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(&device_plane);
-    std::optional<XStatVisitor> peak_tera_flops_per_second =
-        visitor.GetStat(StatType::kDevCapPeakTeraflopsPerSecond);
+    auto get_double_stat = [&](StatType stat_type) -> double {
+      auto stat = visitor.GetStat(stat_type);
+      return stat.has_value() ? stat->DoubleValue() : 0.0;
+    };
     double peak_tera_flops_per_second_val =
-        peak_tera_flops_per_second.has_value()
-            ? peak_tera_flops_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> peak_hbm_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakHbmBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakTeraflopsPerSecond);
     double peak_hbm_bw_giga_bytes_per_second_val =
-        peak_hbm_bw_giga_bytes_per_second.has_value()
-            ? peak_hbm_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> peak_sram_rd_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakSramRdBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakHbmBwGigabytesPerSecond);
     double peak_sram_rd_bw_giga_bytes_per_second_val =
-        peak_sram_rd_bw_giga_bytes_per_second.has_value()
-            ? peak_sram_rd_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> peak_sram_wr_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakSramWrBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakSramRdBwGigabytesPerSecond);
     double peak_sram_wr_bw_giga_bytes_per_second_val =
-        peak_sram_wr_bw_giga_bytes_per_second.has_value()
-            ? peak_sram_wr_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> cmem_rd_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakCmemRdBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakSramWrBwGigabytesPerSecond);
     double cmem_rd_bw_giga_bytes_per_second_val =
-        cmem_rd_bw_giga_bytes_per_second.has_value()
-            ? cmem_rd_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> cmem_wr_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakCmemWrBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakCmemRdBwGigabytesPerSecond);
     double cmem_wr_bw_giga_bytes_per_second_val =
-        cmem_wr_bw_giga_bytes_per_second.has_value()
-            ? cmem_wr_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> vmem_rd_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakVmemRdBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakCmemWrBwGigabytesPerSecond);
     double vmem_rd_bw_giga_bytes_per_second_val =
-        vmem_rd_bw_giga_bytes_per_second.has_value()
-            ? vmem_rd_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
-    std::optional<XStatVisitor> vmem_wr_bw_giga_bytes_per_second =
-        visitor.GetStat(StatType::kDevCapPeakVmemWrBwGigabytesPerSecond);
+        get_double_stat(StatType::kDevCapPeakVmemRdBwGigabytesPerSecond);
     double vmem_wr_bw_giga_bytes_per_second_val =
-        vmem_wr_bw_giga_bytes_per_second.has_value()
-            ? vmem_wr_bw_giga_bytes_per_second->DoubleValue()
-            : 0.0;
+        get_double_stat(StatType::kDevCapPeakVmemWrBwGigabytesPerSecond);
+    double spmem_rd_bw_giga_bytes_per_second_val =
+        get_double_stat(StatType::kDevCapPeakSpmemRdBwGigabytesPerSecond);
+    double spmem_wr_bw_giga_bytes_per_second_val =
+        get_double_stat(StatType::kDevCapPeakSpmemWrBwGigabytesPerSecond);
+    double peak_sc_teraflops_per_second_val =
+        get_double_stat(StatType::kDevCapPeakScTeraflopsPerSecond);
+
     std::optional<XStatVisitor> has_megacore =
         visitor.GetStat(StatType::kDevHasMegacore);
     bool has_megacore_val =
@@ -200,7 +179,13 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
         visitor.GetStat(StatType::kDevHasMergedVmem);
     bool has_merged_vmem_val =
         has_merged_vmem.has_value() ? has_merged_vmem->BoolValue() : false;
-    return MakePerfEnvForTpu(
+    std::optional<XStatVisitor> num_sparse_core_tiles =
+        visitor.GetStat(StatType::kDevCapNumSparseCoreTiles);
+    int32_t num_sparse_core_tiles_val =
+        num_sparse_core_tiles.has_value()
+            ? static_cast<int32_t>(num_sparse_core_tiles->IntOrUintValue())
+            : 0;
+    PerfEnv perf_env = MakePerfEnvForTpu(
         peak_tera_flops_per_second_val,
         {/*HBM_RW=*/peak_hbm_bw_giga_bytes_per_second_val,
          /*SRAM_RD=*/peak_sram_rd_bw_giga_bytes_per_second_val,
@@ -208,8 +193,14 @@ PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
          /**CMEM_RD=*/cmem_rd_bw_giga_bytes_per_second_val,
          /**CMEM_WR=*/cmem_wr_bw_giga_bytes_per_second_val,
          /**VMEM_RD=*/vmem_rd_bw_giga_bytes_per_second_val,
-         /**VMEM_WR=*/vmem_wr_bw_giga_bytes_per_second_val},
+         /**VMEM_WR=*/vmem_wr_bw_giga_bytes_per_second_val,
+         /**SPMEM_RD=*/spmem_rd_bw_giga_bytes_per_second_val,
+         /**SPMEM_WR=*/spmem_wr_bw_giga_bytes_per_second_val},
         has_merged_vmem_val, has_megacore_val);
+    perf_env.set_peak_sc_tera_flops_per_second(
+        peak_sc_teraflops_per_second_val);
+    perf_env.set_num_sparse_core_tiles(num_sparse_core_tiles_val);
+    return perf_env;
   }
 }
 

@@ -28,6 +28,8 @@ limitations under the License.
 namespace tensorflow {
 namespace profiler {
 
+inline constexpr int64_t kIncompleteStepGroupId = 4294967294;
+
 using tsl::profiler::StatType;
 using tsl::profiler::XEventVisitor;
 using tsl::profiler::XLineVisitor;

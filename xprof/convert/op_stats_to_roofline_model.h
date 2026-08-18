@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/roofline_model.pb.h"
@@ -35,20 +36,23 @@ using tensorflow::profiler::roofline_model::RecordType;
 using tensorflow::profiler::roofline_model::RooflineModelDatabase;
 using tensorflow::profiler::roofline_model::RooflineModelRecord;
 
+template <typename MetricsT>
 RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
-    const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
+    const OpStats& op_stats, const MetricsT& metrics, RecordType record_type,
     uint32_t step_num, uint64_t total_time_ps,
     const RooflineModelDatabase& roofline_model_db, bool include_infeed_outfeed,
     bool apply_time_scale_multiplier = false);
 
+template <typename MetricsDbT>
 RooflineModelRecord GenerateRooflineModelProgramRecord(
-    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
 
+template <typename MetricsDbT>
 tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
-    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
 
@@ -59,17 +63,27 @@ ConvertOpStatsToRooflineModel(const tensorflow::profiler::OpStats& tf_op_stats,
 
 tensorflow::profiler::roofline_model::RooflineModelDatabase
 InitializeRooflineModelDatabaseFromOpStats(const OpStats& op_stats,
-                                           bool include_infeed_outfeed);
+                                           bool include_infeed_outfeed,
+                                           bool use_flat_op_metrics_db = false);
 // Generate RooflineModelRecord for the HLO DB over the entire profiling
 // duration including incomplete steps.
 inline void AddRooflineModelRecordForProfileDuration(
     const OpStats& op_stats, RooflineModelDatabase& roofline_model_db,
-    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false) {
-  *roofline_model_db.mutable_roofline_model_record() =
-      ConvertOpMetricsDbToRooflineModelRecords(
-          op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
-          /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
-          apply_time_scale_multiplier);
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false,
+    bool use_flat_op_metrics_db = false) {
+  if (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db()) {
+    *roofline_model_db.mutable_roofline_model_record() =
+        ConvertOpMetricsDbToRooflineModelRecords(
+            op_stats, op_stats.flat_device_op_metrics_db(), RecordType::ALL,
+            /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
+            apply_time_scale_multiplier);
+  } else {
+    *roofline_model_db.mutable_roofline_model_record() =
+        ConvertOpMetricsDbToRooflineModelRecords(
+            op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
+            /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
+            apply_time_scale_multiplier);
+  }
 }
 
 // Generate RooflineModelRecord for the HLO DB over complete steps only.

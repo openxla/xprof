@@ -146,6 +146,9 @@ bool DrawExpandCollapseButton(
   // Draw a smaller arrow button.
   const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonHeight = height;
+  if (kArrowSize <= 0.0f || kButtonHeight <= 0.0f) {
+    return false;
+  }
   ImVec2 p = ImGui::GetCursorScreenPos();
   // Center the arrow in the button area.
   Pixel center_y = custom_center_y_offset.has_value()
@@ -554,6 +557,7 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
 void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
   // Backfill level_count for tests that only set start_level.
   for (size_t i = 0; i < data.groups.size(); ++i) {
+    data.groups[i].original_index = i;
     if (data.groups[i].level_count <= 0) {
       int next_level = (i + 1 < data.groups.size())
                            ? data.groups[i + 1].start_level
@@ -819,6 +823,14 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 }
 
 void Timeline::Draw() {
+  // Reorder the track if a pending reorder is set.
+  if (pending_reorder_source_ != -1 && pending_reorder_target_ != -1) {
+    ReorderTrack(pending_reorder_source_, pending_reorder_target_,
+                 pending_reorder_drop_after_);
+    pending_reorder_source_ = -1;
+    pending_reorder_target_ = -1;
+  }
+  dnd_preview_line_y_ = -1.0f;
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
   bool needs_layout_update = false;
@@ -962,24 +974,33 @@ void Timeline::Draw() {
   // child window matches the total calculated height from group offsets.
   // Using a 1px dummy instead of a 0-height dummy helps avoid potential issues
   // with ImGui's `ItemSpacing` adding extra space around zero-sized items.
-  ImGui::SetCursorPos(
-      ImVec2(0, tracks_start_pos.y + group_offsets_.back() - 1.0f));
-  ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
+  const Pixel total_tracks_height =
+      group_offsets_.empty() ? 0.0f : group_offsets_.back();
+  if (total_tracks_height > 0.0f) {
+    ImGui::SetCursorPos(
+        ImVec2(0, tracks_start_pos.y + total_tracks_height - 1.0f));
+    ImGui::Dummy(ImVec2(content_region_avail_width, 1.0f));
+  }
 
   // Handle label resizing manually since we removed the table
-  ImGui::SetCursorPos(ImVec2(
-      tracks_start_pos.x + label_width_ - kSplitterOffset, tracks_start_pos.y));
-  ImGui::InvisibleButton("##LabelResizer",
-                         ImVec2(kSplitterWidth, group_offsets_.back()));
-  if (ImGui::IsItemActive()) {
-    label_width_ += ImGui::GetIO().MouseDelta.x;
-    label_width_ = std::max(10.0f, label_width_);
-    is_resizing_label_column_ = true;
+  if (kSplitterWidth > 0.0f && total_tracks_height > 0.0f) {
+    ImGui::SetCursorPos(
+        ImVec2(tracks_start_pos.x + label_width_ - kSplitterOffset,
+               tracks_start_pos.y));
+    ImGui::InvisibleButton("##LabelResizer",
+                           ImVec2(kSplitterWidth, total_tracks_height));
+    if (ImGui::IsItemActive()) {
+      label_width_ += ImGui::GetIO().MouseDelta.x;
+      label_width_ = std::max(10.0f, label_width_);
+      is_resizing_label_column_ = true;
+    } else {
+      is_resizing_label_column_ = false;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
   } else {
     is_resizing_label_column_ = false;
-  }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
   }
 
   HandleEventDeselection();
@@ -1006,6 +1027,16 @@ void Timeline::Draw() {
   }
 
   ProcessPendingScroll();
+
+  // Draw the preview line for the drag and drop operation.
+  if (dnd_preview_line_y_ >= 0.0f) {
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const Pixel x_start = tracks_start_screen_pos.x;
+    const Pixel x_end = x_start + label_width_ + current_timeline_width_;
+    draw_list->AddLine(ImVec2(x_start, dnd_preview_line_y_),
+                       ImVec2(x_end, dnd_preview_line_y_),
+                       IM_COL32(66, 133, 244, 255), 3.0f);
+  }
 
   last_scroll_y_ = ImGui::GetScrollY();
   ImGui::EndChild();
@@ -1285,8 +1316,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     if (group.type == Group::Type::kCounter) {
       group_height = kCounterTrackHeight;
     } else if (group.type == Group::Type::kFlame) {
-      const int end_level =
-          GetNextGroupStartLevel(timeline_data_, group_index);
+      const int end_level = group.start_level + group.level_count;
       group_height = std::max(1, end_level - group.start_level) *
                      (kEventHeight + kEventPaddingBottom);
     }
@@ -1354,6 +1384,11 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   } else {
     DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
   }
+
+  HandleTrackDragAndDropHoverAndFeedback(
+      group_index, group, tracks_start_pos, tracks_start_screen_pos,
+      group_height, indent_amount);
+
   ImGui::PopID();
 
   return needs_layout_update;
@@ -3354,6 +3389,9 @@ bool Timeline::DrawHideButton(int group_index, Pixel height,
   // so that the hit target matches the visual boundary of the hide icon.
   const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonVisibleHeight = height;
+  if (kIconDrawSize <= 0.0f || kButtonVisibleHeight <= 0.0f) {
+    return false;
+  }
 
   ImVec2 p = ImGui::GetCursorScreenPos();
   // The icon will be drawn within a kIconDrawSize * kIconDrawSize area.
@@ -3411,6 +3449,9 @@ bool Timeline::DrawPinButton(int group_index, Pixel height, bool is_pinned) {
   // Base size to determine the icon's drawing area and the button's width.
   const Pixel kIconDrawSize = ImGui::GetFontSize() * kIconSizeScale;
   const Pixel kButtonVisibleHeight = height;
+  if (kIconDrawSize <= 0.0f || kButtonVisibleHeight <= 0.0f) {
+    return false;
+  }
 
   ImVec2 p = ImGui::GetCursorScreenPos();
   const ImVec2 buttonSize(kIconDrawSize, kButtonVisibleHeight);
@@ -4680,6 +4721,423 @@ void Timeline::RemoveBookmark(Microseconds time) {
   if (it != bookmarks_.end()) {
     bookmarks_.erase(it);
     if (redraw_callback_) redraw_callback_();
+  }
+}
+
+Timeline::ParentInfo Timeline::FindGroupRelatives(Group* target_group) {
+  ParentInfo info;
+  if (!target_group) return info;
+
+  if (target_group->parent_index != -1) {
+    if (target_group->parent_index >= 0 &&
+        target_group->parent_index < timeline_data_.groups.size()) {
+      info.parent = &timeline_data_.groups[target_group->parent_index];
+      info.siblings = &timeline_data_.groups;
+      const auto& child_indices = info.parent->child_indices;
+      for (size_t i = 0; i < child_indices.size(); ++i) {
+        if (child_indices[i] >= 0 &&
+            child_indices[i] < timeline_data_.groups.size() &&
+            timeline_data_.groups[child_indices[i]].original_index ==
+                target_group->original_index) {
+          info.index_in_siblings = i;
+          break;
+        }
+      }
+    }
+  } else {
+    info.parent = nullptr;
+    info.siblings = &timeline_data_.groups;
+    int root_count = 0;
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        if (timeline_data_.groups[i].original_index ==
+            target_group->original_index) {
+          info.index_in_siblings = root_count;
+          break;
+        }
+        root_count++;
+      }
+    }
+  }
+  return info;
+}
+
+Group* Timeline::GetGroupByOriginalIndex(int original_index) {
+  for (auto& group : timeline_data_.groups) {
+    if (group.original_index == original_index) {
+      return &group;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<int> Timeline::GetReorderedRoots(Group* parent,
+                                             int source_org_idx,
+                                             int target_org_idx,
+                                             bool drop_after) {
+  std::vector<int> roots;
+  if (parent) {
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        roots.push_back(i);
+      }
+    }
+
+    int src_pos = -1;
+    int dst_pos = -1;
+    for (size_t i = 0; i < parent->child_indices.size(); ++i) {
+      if (timeline_data_.groups[parent->child_indices[i]].original_index ==
+          source_org_idx) {
+        src_pos = i;
+      }
+      if (timeline_data_.groups[parent->child_indices[i]].original_index ==
+          target_org_idx) {
+        dst_pos = i;
+      }
+    }
+    if (src_pos == -1 || dst_pos == -1) return roots;
+
+    int new_pos = dst_pos;
+    if (drop_after) {
+      new_pos++;
+    }
+    if (src_pos == new_pos || src_pos + 1 == new_pos) return roots;
+
+    int temp_child_idx = parent->child_indices[src_pos];
+    parent->child_indices.erase(parent->child_indices.begin() + src_pos);
+    if (new_pos > src_pos) {
+      parent->child_indices.insert(
+          parent->child_indices.begin() + new_pos - 1, temp_child_idx);
+    } else {
+      parent->child_indices.insert(parent->child_indices.begin() + new_pos,
+                                   temp_child_idx);
+    }
+  } else {
+    std::vector<int> root_indices;
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        root_indices.push_back(i);
+      }
+    }
+    int src_pos = -1;
+    int dst_pos = -1;
+    for (size_t i = 0; i < root_indices.size(); ++i) {
+      if (timeline_data_.groups[root_indices[i]].original_index ==
+          source_org_idx) {
+        src_pos = i;
+      }
+      if (timeline_data_.groups[root_indices[i]].original_index ==
+          target_org_idx) {
+        dst_pos = i;
+      }
+    }
+    if (src_pos == -1 || dst_pos == -1) return roots;
+
+    int new_pos = dst_pos;
+    if (drop_after) {
+      new_pos++;
+    }
+    if (src_pos == new_pos || src_pos + 1 == new_pos) return roots;
+
+    int temp_idx = root_indices[src_pos];
+    root_indices.erase(root_indices.begin() + src_pos);
+    if (new_pos > src_pos) {
+      root_indices.insert(root_indices.begin() + new_pos - 1, temp_idx);
+    } else {
+      root_indices.insert(root_indices.begin() + new_pos, temp_idx);
+    }
+    roots = std::move(root_indices);
+  }
+  return roots;
+}
+
+std::vector<Group> Timeline::RebuildGroupsArray(
+    const std::vector<int>& roots, std::vector<int>& old_to_new_idx) {
+  std::vector<Group> new_groups;
+  new_groups.reserve(timeline_data_.groups.size());
+  std::fill(old_to_new_idx.begin(), old_to_new_idx.end(), -1);
+
+  auto add_to_new = [&](auto& self, int old_idx) -> void {
+    if (old_idx < 0 || old_idx >= timeline_data_.groups.size()) return;
+    int new_idx = new_groups.size();
+    old_to_new_idx[old_idx] = new_idx;
+    new_groups.push_back(timeline_data_.groups[old_idx]);
+
+    std::vector<int> old_children =
+        timeline_data_.groups[old_idx].child_indices;
+    for (int old_child_idx : old_children) {
+      self(self, old_child_idx);
+    }
+  };
+
+  for (int r_idx : roots) {
+    add_to_new(add_to_new, r_idx);
+  }
+
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (old_to_new_idx[i] == -1) {
+      int new_idx = new_groups.size();
+      old_to_new_idx[i] = new_idx;
+      new_groups.push_back(timeline_data_.groups[i]);
+    }
+  }
+
+  for (auto& group : new_groups) {
+    if (group.parent_index != -1) {
+      group.parent_index = old_to_new_idx[group.parent_index];
+    }
+    for (int& child_idx : group.child_indices) {
+      child_idx = old_to_new_idx[child_idx];
+    }
+  }
+  return new_groups;
+}
+
+std::vector<int> Timeline::RemapLevelIndices(
+    std::vector<Group>& new_groups, std::vector<int>& old_to_new_level) {
+  std::fill(old_to_new_level.begin(), old_to_new_level.end(), -1);
+  int cur_level = 0;
+
+  auto update_levels_and_map = [&](auto& self, int idx) -> void {
+    Group& group = new_groups[idx];
+    int old_start = group.start_level;
+    int count = group.level_count;
+
+    group.start_level = cur_level;
+
+    if (group.child_indices.empty()) {
+      for (int offset = 0; offset < count; ++offset) {
+        if (old_start + offset >= 0 &&
+            old_start + offset < old_to_new_level.size()) {
+          old_to_new_level[old_start + offset] = cur_level + offset;
+        }
+      }
+      cur_level += count;
+    } else {
+      int parent_level_count = 0;
+      for (int child_idx : group.child_indices) {
+        self(self, child_idx);
+        parent_level_count += new_groups[child_idx].level_count;
+      }
+      group.level_count = parent_level_count;
+    }
+  };
+
+  for (size_t i = 0; i < new_groups.size(); ++i) {
+    if (new_groups[i].parent_index == -1) {
+      update_levels_and_map(update_levels_and_map, i);
+    }
+  }
+
+  for (size_t i = 0; i < old_to_new_level.size(); ++i) {
+    if (old_to_new_level[i] == -1) {
+      old_to_new_level[i] = i;
+    }
+  }
+  return old_to_new_level;
+}
+
+void Timeline::RemapEventsAndFlows(const std::vector<int>& old_to_new_level) {
+  std::vector<std::vector<int>> new_events_by_level(
+      timeline_data_.events_by_level.size());
+  for (size_t old_l = 0; old_l < timeline_data_.events_by_level.size();
+       ++old_l) {
+    int new_l = old_to_new_level[old_l];
+    if (new_l >= 0 && new_l < new_events_by_level.size()) {
+      new_events_by_level[new_l] =
+          std::move(timeline_data_.events_by_level[old_l]);
+    }
+  }
+  timeline_data_.events_by_level = std::move(new_events_by_level);
+
+  for (int& lvl : timeline_data_.entry_levels) {
+    if (lvl >= 0 && lvl < old_to_new_level.size()) {
+      lvl = old_to_new_level[lvl];
+    }
+  }
+
+  for (auto& flow : timeline_data_.flow_lines) {
+    if (flow.source_level >= 0 &&
+        flow.source_level < old_to_new_level.size()) {
+      flow.source_level = old_to_new_level[flow.source_level];
+    }
+    if (flow.target_level >= 0 &&
+        flow.target_level < old_to_new_level.size()) {
+      flow.target_level = old_to_new_level[flow.target_level];
+    }
+  }
+
+  for (auto& [flow_id, flow_lines] : timeline_data_.flow_lines_by_flow_id) {
+    for (auto& flow : flow_lines) {
+      if (flow.source_level >= 0 &&
+          flow.source_level < old_to_new_level.size()) {
+        flow.source_level = old_to_new_level[flow.source_level];
+      }
+      if (flow.target_level >= 0 &&
+          flow.target_level < old_to_new_level.size()) {
+        flow.target_level = old_to_new_level[flow.target_level];
+      }
+    }
+  }
+}
+
+void Timeline::RemapCounterAndSelection(
+    const std::vector<int>& old_to_new_idx) {
+  std::map<int, CounterData> new_counter_data;
+  for (const auto& [old_idx, counter_data] :
+       timeline_data_.counter_data_by_group_index) {
+    if (old_idx >= 0 && old_idx < old_to_new_idx.size()) {
+      new_counter_data[old_to_new_idx[old_idx]] = counter_data;
+    }
+  }
+  timeline_data_.counter_data_by_group_index = std::move(new_counter_data);
+
+  if (selected_group_index_ >= 0 &&
+      selected_group_index_ < old_to_new_idx.size()) {
+    selected_group_index_ = old_to_new_idx[selected_group_index_];
+  }
+}
+
+void Timeline::ReorderTrack(int source_org_idx, int target_org_idx,
+                            bool drop_after) {
+  if (source_org_idx == target_org_idx) return;
+
+  Group* source_group = GetGroupByOriginalIndex(source_org_idx);
+  Group* target_group = GetGroupByOriginalIndex(target_org_idx);
+  if (!source_group || !target_group) return;
+
+  ParentInfo source_info = FindParentInfo(source_group);
+  ParentInfo target_info = FindParentInfo(target_group);
+  if (source_info.parent != target_info.parent) return;
+
+  std::vector<int> roots = GetReorderedRoots(
+      source_info.parent, source_org_idx, target_org_idx, drop_after);
+  if (roots.empty()) return;
+
+  std::vector<int> old_to_new_idx(timeline_data_.groups.size(), -1);
+  std::vector<Group> new_groups = RebuildGroupsArray(roots, old_to_new_idx);
+
+  std::vector<int> old_to_new_level(timeline_data_.events_by_level.size(), -1);
+  RemapLevelIndices(new_groups, old_to_new_level);
+
+  RemapEventsAndFlows(old_to_new_level);
+  RemapCounterAndSelection(old_to_new_idx);
+
+  timeline_data_.groups = std::move(new_groups);
+
+  UpdateLevelPositions(timeline_data_);
+}
+
+bool Timeline::HandleTrackDragAndDrop(int group_index, Group& group,
+                                      const ImVec2& tracks_start_pos,
+                                      const ImVec2& tracks_start_screen_pos,
+                                      Pixel group_height,
+                                      Pixel hover_zone_width) {
+  const Pixel effective_height =
+      group_height > 0.0f
+          ? group_height
+          : (group_index >= 0 && group_index < group_heights_.size()
+                 ? group_heights_[group_index]
+                 : 0.0f);
+  if (hover_zone_width <= 0.0f || effective_height <= 0.0f) {
+    return false;
+  }
+
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x,
+             tracks_start_pos.y + group_offsets_[group_index]));
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 18950
+  ImGui::SetNextItemAllowOverlap();
+  ImGui::InvisibleButton(
+      "RowLabelHoverZone",
+      ImVec2(hover_zone_width, effective_height));
+#else
+  ImGui::InvisibleButton(
+      "RowLabelHoverZone",
+      ImVec2(hover_zone_width, effective_height));
+  ImGui::SetItemAllowOverlap();
+#endif
+  const bool is_drag_and_drop_action =
+      ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlapped);
+
+  if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+    Group* group_ptr_payload = &group;
+    ImGui::SetDragDropPayload("TRACK_REORDER", &group_ptr_payload,
+                              sizeof(Group*));
+    ImGui::Text("%s%s", kMovingTrackNotificationPrefix, group.name.c_str());
+    ImGui::EndDragDropSource();
+  }
+
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload* group_ptr_payload = ImGui::AcceptDragDropPayload(
+            "TRACK_REORDER", ImGuiDragDropFlags_AcceptBeforeDelivery |
+                             ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+      if (group_ptr_payload->Data != nullptr &&
+          group_ptr_payload->DataSize >= sizeof(Group*)) {
+        // Dereferencing as *(Group**)group_ptr_payload->Data
+        // retrieves the original pointer to the source group.
+        Group* source_group = *(Group**)group_ptr_payload->Data;
+        Group* target_group = &group;
+        if (source_group && target_group) {
+          ParentInfo source_info = FindGroupRelatives(source_group);
+          ParentInfo target_info = FindGroupRelatives(target_group);
+          if (source_info.parent == target_info.parent) {
+            Pixel line_y =
+                tracks_start_screen_pos.y + group_offsets_[group_index];
+            bool drop_after =
+                ImGui::GetIO().MousePos.y > line_y + group_height * 0.5f;
+            if (group_ptr_payload->IsDelivery()) {
+              pending_reorder_source_ = source_group->original_index;
+              pending_reorder_target_ = target_group->original_index;
+              pending_reorder_drop_after_ = drop_after;
+              if (redraw_callback_) redraw_callback_();
+            } else {
+              Pixel line_preview_y = line_y;
+              if (drop_after) {
+                line_preview_y += group_height;
+              }
+              reorder_preview_line_y_ = line_preview_y;
+            }
+          }
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+
+  return is_drag_and_drop_action;
+}
+
+void Timeline::HandleTrackDragAndDropHoverAndFeedback(
+    int group_index, Group& group, const ImVec2& tracks_start_pos,
+    const ImVec2& tracks_start_screen_pos, Pixel group_height) {
+  if (!track_management_enabled_) return;
+
+  // Draw invisible button covering the left panel row label text to handle
+  // hover and drag-and-drop.
+  Pixel hover_zone_width = label_width_ - kSplitterOffset;
+  // Only process tracks render track management buttons (Pin and Hide buttons)
+  // on the right side of the label area. Subtract their reserved width (plus
+  // gap and margin) so the invisible drag-and-drop button does not overlap or
+  // intercept clicks intended for those buttons. Child tracks (threads,
+  // counters) do not have management buttons, so their hover zone can safely
+  // span the full label width up to the splitter.
+  if (group.nesting_level == kProcessNestingLevel) {
+    const Pixel kArrowSize = ImGui::GetFontSize() * kIconSizeScale;
+    hover_zone_width -= (kArrowSize * 2.0f + kButtonGap + 8.0f);
+  }
+
+  if (hover_zone_width <= 0.0f || group_height <= 0.0f) {
+    return;
+  }
+
+  const bool is_drag_and_drop_action =
+      HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
+                             tracks_start_screen_pos, group_height,
+                             hover_zone_width);
+
+  if (is_drag_and_drop_action && ImGui::GetDragDropPayload() == nullptr) {
+    ImGui::SetTooltip("%s", kReorderTrackTooltip);
   }
 }
 

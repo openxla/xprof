@@ -107,6 +107,9 @@ struct Group {
   // Typically 2-10 children per process group.
   std::vector<int> child_indices = {};
 
+  // Stable index in the original sequential order.
+  int original_index = -1;
+
   // Number of timeline event levels occupied by this track.
   int level_count = 0;
   // Indicates if this group has nested child tracks.
@@ -194,6 +197,12 @@ class Timeline {
     std::string name;
     int loaded_index = -1;
   };
+
+  struct ParentInfo {
+    Group* parent = nullptr;
+    std::vector<Group>* siblings = nullptr;
+    int index_in_siblings = -1;
+  };
   // A callback function to handle events from the timeline. The first argument
   // is the event type string. The second argument, EventData, is the payload
   // dispatched as the `detail` of a `CustomEvent` on the `window` object.
@@ -253,6 +262,43 @@ class Timeline {
     last_scroll_y_ = scroll_y;
     should_restore_scroll_ = true;
   }
+  int get_pending_reorder_source_for_test() const {
+    return pending_reorder_source_;
+  }
+  void set_pending_reorder_source_for_test(int source) {
+    pending_reorder_source_ = source;
+  }
+  int get_pending_reorder_target_for_test() const {
+    return pending_reorder_target_;
+  }
+  void set_pending_reorder_target_for_test(int target) {
+    pending_reorder_target_ = target;
+  }
+  bool get_pending_reorder_drop_after_for_test() const {
+    return pending_reorder_drop_after_;
+  }
+  void set_pending_reorder_drop_after_for_test(bool drop_after) {
+    pending_reorder_drop_after_ = drop_after;
+  }
+  Pixel get_reorder_preview_line_y_for_test() const {
+    return reorder_preview_line_y_;
+  }
+  void set_reorder_preview_line_y_for_test(Pixel y) {
+    reorder_preview_line_y_ = y;
+  }
+  void set_group_offsets_for_test(const std::vector<Pixel>& offsets) {
+    group_offsets_ = offsets;
+  }
+  void set_group_heights_for_test(const std::vector<Pixel>& heights) {
+    group_heights_ = heights;
+  }
+  void set_label_width_for_test(Pixel width) {
+    label_width_ = width;
+  }
+  void set_track_management_enabled_for_test(bool enabled) {
+    track_management_enabled_ = enabled;
+  }
+
 
   // The provided callback is stored and invoked during the lifetime of this
   // `Timeline` instance. Any captured references must outlive the `Timeline`
@@ -396,6 +442,7 @@ class Timeline {
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
   void HideTrack(absl::string_view name);
+  void ReorderTrack(int source_org_idx, int target_org_idx, bool drop_after);
 
   void Draw();
 
@@ -603,6 +650,20 @@ class Timeline {
   void EmitMouseModeChanged();
   void ShowNavigationWarningNotification(absl::string_view message);
 
+ protected:
+  ParentInfo FindGroupRelatives(Group* target_group);
+  Group* GetGroupByOriginalIndex(int original_index);
+
+  std::vector<int> GetReorderedRoots(Group* parent, int source_org_idx,
+                                     int target_org_idx, bool drop_after);
+  std::vector<Group> RebuildGroupsArray(const std::vector<int>& roots,
+                                        std::vector<int>& old_to_new_idx);
+  std::vector<int> RemapLevelIndices(std::vector<Group>& new_groups,
+                                     std::vector<int>& old_to_new_level);
+  void RemapEventsAndFlows(const std::vector<int>& old_to_new_level);
+  void RemapCounterAndSelection(const std::vector<int>& old_to_new_idx);
+
+ private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
 
@@ -622,6 +683,20 @@ class Timeline {
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
                     Pixel window_height);
+
+ protected:
+  // Handles drag-and-drop source/target and
+  // item hover check for a track label row.
+  bool HandleTrackDragAndDrop(int group_index, Group& group,
+                              const ImVec2& tracks_start_pos,
+                              const ImVec2& tracks_start_screen_pos,
+                              Pixel group_height, Pixel hover_zone_width);
+  // Handles track hover, drag-and-drop, and reorder tooltip for a track row.
+  void HandleTrackDragAndDropHoverAndFeedback(
+      int group_index, Group& group, const ImVec2& tracks_start_pos,
+      const ImVec2& tracks_start_screen_pos, Pixel group_height);
+
+ private:
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.
@@ -811,6 +886,15 @@ class Timeline {
   bool should_restore_scroll_ = false;
   float last_scroll_y_ = 0.0f;
 
+  Pixel dnd_preview_line_y_ = -1.0f;
+  // The source and target indices for a pending reorder operation, and whether
+  // the target is to drop after the target index.
+  // This is used to reorder tracks when the user drops a track after a
+  // reorder operation is initiated.
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
+  bool pending_reorder_drop_after_ = false;
+
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
@@ -872,6 +956,11 @@ class Timeline {
   // the returned data is empty or sparse (and thus fetched_data_time_range_
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
+
+  Pixel reorder_preview_line_y_ = -1.0f;
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
+  bool pending_reorder_drop_after_ = false;
 
   std::string search_query_lower_;
   std::vector<SearchResult> search_results_;

@@ -21,6 +21,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "xla/tsl/profiler/utils/preprocess_xplane.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -230,6 +231,8 @@ TEST(ConvertXPlaneToStepEvents, SparseCoreShouldHaveStepMarkers) {
   OpMetricsDb op_metrics_db =
       step_1.PerCoreOpMetricsDb()[/*core_id=*/1 + kSparseCoreIndexStart];
   ASSERT_EQ(op_metrics_db.metrics_db_size(), 1);  // Sparse op
+  EXPECT_FALSE(step_1.PerCoreFlatOpMetricsDb().contains(
+      /*core_id=*/1 + kSparseCoreIndexStart));
   const OpMetrics* sparse_core_op = &op_metrics_db.metrics_db(0);
   EXPECT_EQ(sparse_core_op->name(), "sparse_op");
   EXPECT_EQ(sparse_core_op->time_ps(), 880);
@@ -299,7 +302,10 @@ TEST(ConvertXPlaneToStepEvents, TpuDevicePlaneNoStepLine) {
   }
 
   StepEvents step_events = ConvertDeviceTraceXPlaneToStepEvents(raw_plane);
-  EXPECT_EQ(step_events.size(), 0);
+  EXPECT_EQ(step_events.size(), 1);
+  ASSERT_TRUE(step_events.contains(kIncompleteStepGroupId));
+  const StepDetails& step_details = step_events.at(kIncompleteStepGroupId);
+  EXPECT_EQ(step_details.StepName(), "Incomplete Step");
 }
 
 TEST(ConvertXPlaneToOpStats, CpuOnlyPyGrainSingleProcessInputPipelineTest) {

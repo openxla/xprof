@@ -83,6 +83,18 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "get_hlo_stats_tool",
+    srcs = ["get_hlo_stats_tool.py"],
+    visibility = ["//plugin/xprof:__subpackages__"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/protobuf:hlo_stats_proto_py",
+        "@pypi//protobuf",
+    ],
+)
+
+pytype_strict_library(
     name = "get_kpi_metrics_tool",
     srcs = ["get_kpi_metrics_tool.py"],
     deps = [

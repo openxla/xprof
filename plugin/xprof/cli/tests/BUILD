@@ -66,6 +66,21 @@ py_test(
     ],
 )
 
+pytype_strict_contrib_test(
+    name = "get_hlo_stats_tool_test",
+    srcs = ["get_hlo_stats_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_hlo_stats_tool",
+        "//plugin/xprof/protobuf:hlo_stats_proto_py",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+        "@pypi//protobuf",
+    ],
+)
+
 py_test(
     name = "get_kpi_metrics_tool_test",
     srcs = ["get_kpi_metrics_tool_test.py"],

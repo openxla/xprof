@@ -38,6 +38,5 @@ ts_library(
         ":utils",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
-        "@org_xprof//frontend/app/common/interfaces:op_metrics_proto_defs",
     ],
 )

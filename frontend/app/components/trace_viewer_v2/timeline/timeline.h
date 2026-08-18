@@ -385,6 +385,13 @@ class Timeline {
   const std::vector<Pixel>& GetVisibleLevelOffsets() const {
     return visible_level_offsets_;
   }
+  const std::vector<const Group*>& flattened_groups() const {
+    return flattened_groups_;
+  }
+  const std::vector<int>& root_group_indices() const {
+    return root_group_indices_;
+  }
+  const std::vector<Pixel>& group_offsets() const { return group_offsets_; }
 
   void set_mpmd_pipeline_view_enabled(bool enabled) {
     mpmd_pipeline_view_enabled_ = enabled;
@@ -442,6 +449,7 @@ class Timeline {
   void SetVisibleFlowCategories(const std::vector<int>& category_ids);
 
   void HideTrack(absl::string_view name);
+  void ReorderTrack(int source_org_idx, int target_org_idx, bool drop_after);
 
   void Draw();
 
@@ -651,6 +659,7 @@ class Timeline {
 
  protected:
   GroupRelativeInfo FindGroupRelatives(Group* target_group);
+  Group* GetGroupByOriginalIndex(int original_index);
 
  private:
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
@@ -937,7 +946,21 @@ class Timeline {
   // doesn't cover the full requested range).
   TimeRange last_fetch_request_range_ = TimeRange::Zero();
 
+  // Stores the indices of the root groups in the timeline.
+  // This is used to determine the placement of each group in the timeline
+  // relative to one another.
+  // On a drag and drop operation, the root groups are reordered and the
+  // flattened groups are updated accordingly.
+  // For example, if the user drages process 1 to below process 2, the root
+  // groups will be reordered to {2, 1} and the flattened
+  // groups will be updated to reflect the new order.
+  std::vector<int> root_group_indices_;
+
   Pixel reorder_preview_line_y_ = -1.0f;
+  // The source and target indices for a pending reorder operation, and whether
+  // the target is to drop after the target index.
+  // This is used to reorder tracks when the user drops a track after a
+  // reorder operation is initiated.
   int pending_reorder_source_ = -1;
   int pending_reorder_target_ = -1;
   bool pending_reorder_drop_after_ = false;

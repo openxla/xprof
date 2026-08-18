@@ -25,6 +25,7 @@ limitations under the License.
 #include "<gtest/gtest.h>"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
@@ -1186,7 +1187,8 @@ TEST(ConvertXPlaneToOpStats, ConvertXSpaceToFlatOpMetricsDbTest) {
 
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
-  auto flat_op_metrics_db_or = ConvertXSpaceToFlatOpMetricsDb(space, options);
+  options.generate_step_db = true;
+  auto flat_op_metrics_db_or = ConvertXSpaceToOpStats(space, options, true);
 
   ASSERT_TRUE(flat_op_metrics_db_or.ok());
   OpStats op_stats = *flat_op_metrics_db_or;
@@ -1202,6 +1204,7 @@ TEST(ConvertXPlaneToOpStats, ConvertXSpaceToFlatOpMetricsDbTest) {
 
   // We expect at least 5 instances
   EXPECT_GE(flat_op_metrics_db.op_instances_size(), 5);
+  EXPECT_TRUE(flat_op_metrics_db.has_precision_stats());
 
   // Verify specific instances
   bool found_tc_op_1 = false;

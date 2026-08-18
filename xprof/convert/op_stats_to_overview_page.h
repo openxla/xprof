@@ -62,7 +62,8 @@ OverviewPageRecommendation ComputeGenericRecommendation(
     const BottleneckAnalysis& bottleneck,
     const PrecisionStats& precision_stats);
 
-OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats);
+OverviewPageAnalysis ComputeAnalysisResult(
+    const OpStats& op_stats, bool use_flat_op_metrics_db = false);
 
 struct TpuPerformanceLimits {
   double max_gigaflops_per_second = 0.0;
@@ -71,12 +72,14 @@ struct TpuPerformanceLimits {
 
 bool ComputeTpuAnalysisResult(
     const OpStats& op_stats, OverviewPageAnalysis* analysis,
-    std::optional<TpuPerformanceLimits> limits = std::nullopt);
+    std::optional<TpuPerformanceLimits> limits = std::nullopt,
+    bool use_flat_op_metrics_db = false);
 
 OverviewPageRunEnvironment ComputeRunEnvironment(
     const RunEnvironment& run_environment);
 
-OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats);
+OverviewPage ConvertOpStatsToOverviewPage(
+    const OpStats& op_stats, bool use_flat_op_metrics_db = false);
 
 // Returns a html which provides tf-function related recommendation.
 std::string TfFunctionRecommendationHtml(const TfFunctionDb& tf_function_db);

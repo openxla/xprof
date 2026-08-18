@@ -33,15 +33,15 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/format_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
 #include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xprof/convert/data_table_utils.h"
+#include "xprof/convert/flat_op_metrics_to_record.h"
 #include "xprof/convert/op_metrics_to_record.h"
-#include "xprof/convert/op_metrics_db_combiner.h"
 #include "xprof/convert/op_stats_to_input_pipeline_analysis.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
@@ -52,6 +52,7 @@ limitations under the License.
 #include "plugin/xprof/protobuf/steps_db.pb.h"
 #include "plugin/xprof/protobuf/tf_function.pb.h"
 #include "xprof/utils/diagnostics.h"
+#include "xprof/utils/flat_op_metrics_db_utils.h"
 #include "xprof/utils/hardware_type_utils.h"
 #include "xprof/utils/html_utils.h"
 #include "xprof/utils/kernel_stats_utils.h"
@@ -146,6 +147,110 @@ std::string GeneratePrecisionStatement(const PrecisionStats& precision_stats) {
   return "";
 }
 
+template <typename DeviceMetricsDb>
+void SetDeviceDutyCycleAndIdleTime(const DeviceMetricsDb& db,
+                                   OverviewPageAnalysis* analysis) {
+  analysis->set_device_duty_cycle_percent(
+      tsl::profiler::SafeDivide(
+          db.busy_time_ps(), db.busy_time_ps() + db.idle_time_ps()) *
+      100.0);
+  analysis->set_device_idle_time_percent(IdleTimeRatio(db) * 100.0);
+}
+
+template <typename MetricsDbT>
+void PopulateTopDeviceOps(const MetricsDbT& device_tf_op_metrics_db,
+                          const KernelStatsByOpName& kernel_stats_by_op_name,
+                          OverviewPageAnalysis& analysis) {
+  constexpr int kNumTopOpsShown = 10;
+  uint64_t total_device_time_ps = device_tf_op_metrics_db.total_time_ps();
+  double device_cumulative_fraction = 0.0;
+  for (const auto* metrics :
+       SortedOpMetricsDb(device_tf_op_metrics_db, kNumTopOpsShown)) {
+    OverviewTfOp* op = analysis.add_top_device_ops();
+    op->set_name(std::string(GetMetricsName(*metrics)));
+    op->set_category(std::string(GetMetricsCategory(*metrics)));
+    op->set_self_time_fraction(tsl::profiler::SafeDivide(
+        metrics->self_time_ps(), total_device_time_ps));
+    device_cumulative_fraction += op->self_time_fraction();
+    op->set_cumulative_time_fraction(device_cumulative_fraction);
+    op->set_flop_rate(tsl::profiler::SafeDivide(
+        metrics->flops_v2(), tsl::profiler::PicoToNano(metrics->time_ps())));
+    auto iter = kernel_stats_by_op_name.find(op->name());
+    if (iter != kernel_stats_by_op_name.end()) {
+      op->set_is_op_tensorcore_eligible(
+          iter->second.is_op_tensor_core_eligible);
+      op->set_is_op_using_tensorcore(iter->second.tensor_core_duration_ns != 0);
+    }
+  }
+}
+const auto& GetDbMetricsList(const OpMetricsDb& db) { return db.metrics_db(); }
+const auto& GetDbMetricsList(const FlatOpMetricsDb& db) {
+  return db.op_instances();
+}
+
+bool IsSparseCore(const OpMetrics&) { return false; }
+bool IsSparseCore(const FlatOpMetrics& m) {
+  return m.core_type() == FlatOpMetrics::SPARSE_CORE;
+}
+
+uint64_t HbmBytesAccessedPerCore(const OpMetrics& metrics) {
+  return BytesAccessedPerCore(metrics, MemorySpace::MEMORY_SPACE_HBM,
+                              OpMetrics::MemoryAccessed::READ) +
+         BytesAccessedPerCore(metrics, MemorySpace::MEMORY_SPACE_HBM,
+                              OpMetrics::MemoryAccessed::WRITE);
+}
+
+uint64_t HbmBytesAccessedPerCore(const FlatOpMetrics& metrics) {
+  return BytesAccessedPerCore(metrics, MemorySpace::MEMORY_SPACE_HBM,
+                              FlatOpMetrics::MemoryAccessed::READ) +
+         BytesAccessedPerCore(metrics, MemorySpace::MEMORY_SPACE_HBM,
+                              FlatOpMetrics::MemoryAccessed::WRITE);
+}
+
+template <typename MetricsDbT>
+void AccumulateHloFlopsAndBytes(const MetricsDbT& hlo_db, double& total_flops,
+                                uint64_t& total_bytes_accessed,
+                                uint64_t& total_time_ps) {
+  total_time_ps = hlo_db.total_time_ps();
+  for (const auto& metrics : GetDbMetricsList(hlo_db)) {
+    if (metrics.occurrences() == 0) continue;
+    if (IsSparseCore(metrics)) continue;
+    if (tsl::profiler::MayHaveInnerOps(GetMetricsCategory(metrics))) continue;
+    total_flops += metrics.flops_v2();
+    total_bytes_accessed += HbmBytesAccessedPerCore(metrics);
+  }
+}
+
+template <typename MetricsDbT>
+void AccumulateDeviceOpAnalysis(
+    const MetricsDbT& raw_device_db,
+    const KernelStatsByOpName& kernel_stats_by_op_name,
+    OverviewPageAnalysis& analysis, uint64_t& num_device_tf_ops,
+    uint64_t& total_device_op_time_ps_exclude_idle,
+    uint64_t& eager_device_op_time_ps,
+    uint64_t& outside_compilation_device_op_time_ps) {
+  auto device_tf_op_metrics_db =
+      CreateTfMetricsDbFromDeviceOpMetricsDb(raw_device_db,
+                                             /*with_idle=*/false);
+  PopulateTopDeviceOps(device_tf_op_metrics_db, kernel_stats_by_op_name,
+                       analysis);
+
+  for (const auto& metrics : GetDbMetricsList(device_tf_op_metrics_db)) {
+    num_device_tf_ops += metrics.occurrences();
+    if (!IsIdleOp(metrics)) {
+      total_device_op_time_ps_exclude_idle += metrics.self_time_ps();
+      if (metrics.is_eager()) eager_device_op_time_ps += metrics.self_time_ps();
+    }
+  }
+  for (const auto& metrics : GetDbMetricsList(raw_device_db)) {
+    if (!tsl::profiler::IsOutsideCompilationOp(metrics.provenance(),
+                                               metrics.long_name())) {
+      continue;
+    }
+    outside_compilation_device_op_time_ps += metrics.self_time_ps();
+  }
+}
+
 }  // namespace
 
 void SetCommonRecommendation(
@@ -189,35 +294,32 @@ OverviewPageRecommendation ComputeGenericRecommendation(
 
 bool ComputeTpuAnalysisResult(const OpStats& op_stats,
                               OverviewPageAnalysis* analysis,
-                              std::optional<TpuPerformanceLimits> limits) {
-  analysis->set_device_duty_cycle_percent(
-      tsl::profiler::SafeDivide(
-          op_stats.device_op_metrics_db().busy_time_ps(),
-          op_stats.device_op_metrics_db().busy_time_ps() +
-              op_stats.device_op_metrics_db().idle_time_ps()) *
-      100.0);
-  analysis->set_device_idle_time_percent(
-      IdleTimeRatio(op_stats.device_op_metrics_db()) * 100.0);
+                              std::optional<TpuPerformanceLimits> limits,
+                              bool use_flat_op_metrics_db) {
+  if (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db()) {
+    SetDeviceDutyCycleAndIdleTime(op_stats.flat_device_op_metrics_db(),
+                                  analysis);
+  } else {
+    SetDeviceDutyCycleAndIdleTime(op_stats.device_op_metrics_db(), analysis);
+  }
 
   analysis->set_host_idle_time_percent(
       IdleTimeRatio(op_stats.host_op_metrics_db()) * 100.0);
 
   if (limits.has_value()) {
-    const tensorflow::profiler::OpMetricsDb& hlo_db_complete_steps_only =
-        op_stats.hlo_metrics_db_complete_steps_only();
-    uint64_t total_time_ps = hlo_db_complete_steps_only.total_time_ps();
-    OpMetrics aggregated;
-    for (const auto& metrics : hlo_db_complete_steps_only.metrics_db()) {
-      if (metrics.occurrences() == 0) continue;
-      if (tsl::profiler::MayHaveInnerOps(metrics.category())) continue;
-      CombineOpMetrics(metrics, &aggregated, /*update_num_cores=*/false);
+    double total_flops = 0.0;
+    uint64_t total_bytes_accessed = 0;
+    uint64_t total_time_ps = 0;
+    if (use_flat_op_metrics_db &&
+        op_stats.has_flat_hlo_metrics_db_complete_steps_only()) {
+      AccumulateHloFlopsAndBytes(
+          op_stats.flat_hlo_metrics_db_complete_steps_only(), total_flops,
+          total_bytes_accessed, total_time_ps);
+    } else {
+      AccumulateHloFlopsAndBytes(
+          op_stats.hlo_metrics_db_complete_steps_only(), total_flops,
+          total_bytes_accessed, total_time_ps);
     }
-    double total_flops = aggregated.flops_v2();
-    uint64_t total_bytes_accessed =
-        BytesAccessedPerCore(aggregated, MemorySpace::MEMORY_SPACE_HBM,
-                             OpMetrics::MemoryAccessed::READ) +
-        BytesAccessedPerCore(aggregated, MemorySpace::MEMORY_SPACE_HBM,
-                             OpMetrics::MemoryAccessed::WRITE);
     double operational_intensity_flops_per_byte =
         tsl::profiler::SafeDivide(total_flops, total_bytes_accessed);
     double measured_gigaflops_per_second = tsl::profiler::SafeDivide(
@@ -240,46 +342,40 @@ bool ComputeTpuAnalysisResult(const OpStats& op_stats,
   return true;
 }
 
-OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
+OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats,
+                                            bool use_flat_op_metrics_db) {
   OverviewPageAnalysis analysis;
-  OpMetricsDb device_tf_op_metrics_db = CreateTfMetricsDbFromDeviceOpMetricsDb(
-      op_stats.device_op_metrics_db(), /*with_idle=*/false);
   KernelStatsByOpName kernel_stats_by_op_name =
       GroupKernelReportsByOpName(op_stats.kernel_stats_db());
-  uint64_t total_device_time_ps = device_tf_op_metrics_db.total_time_ps();
-  constexpr int kNumTopOpsShown = 10;
-  double device_cumulative_fraction = 0.0;
-  for (const OpMetrics* metrics :
-       SortedOpMetricsDb(device_tf_op_metrics_db, kNumTopOpsShown)) {
-    OverviewTfOp* op = analysis.add_top_device_ops();
-    op->set_name(metrics->name());
-    op->set_category(metrics->category());
-    op->set_self_time_fraction(tsl::profiler::SafeDivide(
-        metrics->self_time_ps(), total_device_time_ps));
-    device_cumulative_fraction += op->self_time_fraction();
-    op->set_cumulative_time_fraction(device_cumulative_fraction);
-    op->set_flop_rate(tsl::profiler::SafeDivide(
-        metrics->flops_v2(), tsl::profiler::PicoToNano(metrics->time_ps())));
-    auto iter = kernel_stats_by_op_name.find(op->name());
-    if (iter != kernel_stats_by_op_name.end()) {
-      op->set_is_op_tensorcore_eligible(
-          iter->second.is_op_tensor_core_eligible);
-      op->set_is_op_using_tensorcore(iter->second.tensor_core_duration_ns != 0);
-    }
+  uint64_t num_device_tf_ops = 0;
+  uint64_t total_device_op_time_ps_exclude_idle = 0;
+  uint64_t eager_device_op_time_ps = 0;
+  uint64_t outside_compilation_device_op_time_ps = 0;
+
+  if (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db()) {
+    AccumulateDeviceOpAnalysis(
+        op_stats.flat_device_op_metrics_db(), kernel_stats_by_op_name, analysis,
+        num_device_tf_ops, total_device_op_time_ps_exclude_idle,
+        eager_device_op_time_ps, outside_compilation_device_op_time_ps);
+  } else {
+    AccumulateDeviceOpAnalysis(
+        op_stats.device_op_metrics_db(), kernel_stats_by_op_name, analysis,
+        num_device_tf_ops, total_device_op_time_ps_exclude_idle,
+        eager_device_op_time_ps, outside_compilation_device_op_time_ps);
   }
+
+  const PrecisionStats& precision_stats =
+      (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db())
+          ? op_stats.flat_device_op_metrics_db().precision_stats()
+          : op_stats.device_op_metrics_db().precision_stats();
   uint64_t total_device_compute_ps =
-      op_stats.device_op_metrics_db().precision_stats().compute_16bit_ps() +
-      op_stats.device_op_metrics_db().precision_stats().compute_32bit_ps();
+      precision_stats.compute_16bit_ps() + precision_stats.compute_32bit_ps();
   analysis.set_device_compute_16bit_percent(
-      100.0 *
-      tsl::profiler::SafeDivide(
-          op_stats.device_op_metrics_db().precision_stats().compute_16bit_ps(),
-          total_device_compute_ps));
+      100.0 * tsl::profiler::SafeDivide(precision_stats.compute_16bit_ps(),
+                                        total_device_compute_ps));
   analysis.set_device_compute_32bit_percent(
-      100.0 *
-      tsl::profiler::SafeDivide(
-          op_stats.device_op_metrics_db().precision_stats().compute_32bit_ps(),
-          total_device_compute_ps));
+      100.0 * tsl::profiler::SafeDivide(precision_stats.compute_32bit_ps(),
+                                        total_device_compute_ps));
 
   uint64_t num_host_tf_ops = 0;
   uint64_t total_host_op_time_ps_exclude_idle = 0;
@@ -290,30 +386,6 @@ OverviewPageAnalysis ComputeAnalysisResult(const OpStats& op_stats) {
       total_host_op_time_ps_exclude_idle += metrics.self_time_ps();
       if (metrics.is_eager()) eager_host_op_time_ps += metrics.self_time_ps();
     }
-  }
-  uint64_t num_device_tf_ops = 0;
-  uint64_t total_device_op_time_ps_exclude_idle = 0;
-  uint64_t eager_device_op_time_ps = 0;
-  for (const OpMetrics& metrics : device_tf_op_metrics_db.metrics_db()) {
-    num_device_tf_ops += metrics.occurrences();
-    if (!IsIdleOp(metrics)) {
-      total_device_op_time_ps_exclude_idle += metrics.self_time_ps();
-      if (metrics.is_eager()) eager_device_op_time_ps += metrics.self_time_ps();
-    }
-  }
-  // Figures out outside_compilation time from
-  // op_stats.device_op_metrics_db().metrics_db(). We don't use the
-  // {metrics.provenance(), metrics.name()} from
-  // device_tf_op_metrics_db.metrics_db(), because metrics.provenance() there is
-  // not set and metrics.name() can be either HLO-Op name or TF-Op name, which
-  // will confuse tsl::profiler::IsOutsideCompilationOp().
-  uint64_t outside_compilation_device_op_time_ps = 0;
-  for (const OpMetrics& metrics :
-       op_stats.device_op_metrics_db().metrics_db()) {
-    if (!tsl::profiler::IsOutsideCompilationOp(metrics.provenance(),
-                                               metrics.long_name()))
-      continue;
-    outside_compilation_device_op_time_ps += metrics.self_time_ps();
   }
   uint64_t num_total_tf_ops = num_host_tf_ops + num_device_tf_ops;
   analysis.set_host_tf_op_percent(
@@ -439,7 +511,8 @@ std::string OutsideCompilationRecommendationHtml(
       "could be improved by avoiding outside compilation.");
 }
 
-OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
+OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats,
+                                           bool use_flat_op_metrics_db) {
   absl::Time start_time = absl::Now();
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting ComputeRunEnvironment";
   OverviewPage overview_page;
@@ -447,12 +520,14 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
       ComputeRunEnvironment(op_stats.run_environment());
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting ComputeAnalysisResult";
-  *overview_page.mutable_analysis() = ComputeAnalysisResult(op_stats);
+  *overview_page.mutable_analysis() =
+      ComputeAnalysisResult(op_stats, use_flat_op_metrics_db);
 
   HardwareType hardware_type =
       ParseHardwareType(op_stats.run_environment().device_type());
   if (hardware_type == tensorflow::profiler::TPU) {
-    ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis());
+    ComputeTpuAnalysisResult(op_stats, overview_page.mutable_analysis(),
+                             /*limits=*/std::nullopt, use_flat_op_metrics_db);
   }
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting "
@@ -468,8 +543,12 @@ OverviewPage ConvertOpStatsToOverviewPage(const OpStats& op_stats) {
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting "
                "ComputeGenericRecommendation";
-  *overview_page.mutable_recommendation() = ComputeGenericRecommendation(
-      bottleneck, op_stats.device_op_metrics_db().precision_stats());
+  const PrecisionStats& precision_stats =
+      (use_flat_op_metrics_db && op_stats.has_flat_device_op_metrics_db())
+          ? op_stats.flat_device_op_metrics_db().precision_stats()
+          : op_stats.device_op_metrics_db().precision_stats();
+  *overview_page.mutable_recommendation() =
+      ComputeGenericRecommendation(bottleneck, precision_stats);
 
   VLOG(1) << "ConvertOpStatsToOverviewPage: Starting SetCommonRecommendation";
   SetCommonRecommendation(

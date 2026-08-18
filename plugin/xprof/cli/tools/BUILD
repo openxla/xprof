@@ -44,6 +44,16 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "get_step_trace_tool",
+    srcs = ["get_step_trace_tool.py"],
+    visibility = ["//plugin/xprof:__subpackages__"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+    ],
+)
+
+pytype_strict_library(
     name = "get_memory_profile_tool",
     srcs = ["get_memory_profile_tool.py"],
     deps = [

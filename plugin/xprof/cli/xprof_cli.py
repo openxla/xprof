@@ -27,6 +27,7 @@ from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
 from xprof.cli.tools import get_peak_allocations_tool
 from xprof.cli.tools import get_roofline_model_tool
+from xprof.cli.tools import get_step_trace_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
@@ -61,6 +62,7 @@ def cli_main() -> dict[str, Any]:
       "get_peak_allocations": get_peak_allocations_tool.get_peak_allocations,
       "get_profile_summary": xprof_data.get_profile_summary,
       "get_roofline_model": get_roofline_model_tool.get_roofline_model,
+      "get_step_trace": get_step_trace_tool.get_step_trace,
       "get_top_hlo_ops": get_top_hlo_ops_tool.get_top_hlo_ops,
       "get_utilization_viewer": (
           get_utilization_viewer_tool.get_utilization_viewer

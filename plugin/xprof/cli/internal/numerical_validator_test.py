@@ -290,6 +290,210 @@ class NumericalValidatorTest(parameterized.TestCase):
           arr, arr, dtype_str="unsupported_custom_dtype"
       )
 
+  # ===========================================================================
+  # 6. Discrete Integer & Boolean Parity Validation Tests
+  # ===========================================================================
+
+  def test_integer_exact_equality_passes(self):
+    """Verifies candidate with exact integer match passes validation."""
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="int32",
+        tier="fast_agent",
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertEqual(report.overall_max_ulp, 0)
+    self.assertEqual(report.failed_batches_count, 0)
+
+  def test_integer_mismatch_fails_with_exact_delta(self):
+    """Verifies integer off-by-one is caught and delta is reported."""
+
+    def _cand_add_one(x):
+      return x + 1
+
+    custom_suite = [{
+        "name": "bounded_batch",
+        "args": (np.array([[10, 20], [30, 40]], dtype=np.int32),),
+        "kwargs": {},
+        "regime": "small_int",
+    }]
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _cand_add_one,
+        shapes=(2, 2),
+        dtype_str="int32",
+        test_suite=custom_suite,
+    )
+    self.assertFalse(report.is_numerically_equivalent)
+    self.assertEqual(report.overall_max_ulp, 1)
+    self.assertGreater(report.failed_batches_count, 0)
+
+  def test_boolean_mask_parity_and_mismatch(self):
+    """Verifies boolean mask validation and mismatch detection."""
+    report_pass = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(8, 8),
+        dtype_str="bool",
+        tier="fast_agent",
+    )
+    self.assertTrue(report_pass.is_numerically_equivalent)
+    self.assertEqual(report_pass.overall_max_ulp, 0)
+
+    def _invert_mask(x):
+      return ~x
+
+    report_fail = numerical_validator.validate_kernels(
+        _identity_fn,
+        _invert_mask,
+        shapes=(8, 8),
+        dtype_str="bool",
+        tier="fast_agent",
+    )
+    self.assertFalse(report_fail.is_numerically_equivalent)
+    self.assertEqual(report_fail.overall_max_ulp, 1)
+
+  # ===========================================================================
+  # 7. Tolerance Audit, Caution Banners & Hard Safety Ceilings
+  # ===========================================================================
+
+  def test_uint64_extreme_difference_no_overflow(self):
+    """Confirms uint64 distance computation does not wrap around to 1."""
+    actual = np.array([0], dtype=np.uint64)
+    expected = np.array([18446744073709551615], dtype=np.uint64)  # 2**64 - 1
+    dist = numerical_validator.compute_ulp_distance(
+        actual, expected, dtype_str="uint64"
+    )
+    self.assertGreater(int(dist[0]), 1000000)
+
+  def test_recommended_contract_and_caution_banner_emitted_when_relaxed(self):
+    """Verifies caution banner is generated when max_allowed_ulp exceeds contract."""
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        max_allowed_ulp=6,
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertIsNotNone(report.tolerance_audit)
+    self.assertTrue(report.tolerance_audit.is_relaxed_override)
+    self.assertEqual(report.tolerance_audit.recommended_contract_ulp, 2)
+    self.assertEqual(report.tolerance_audit.configured_max_ulp, 6)
+    self.assertIn("⚠️ CAUTION", report.summary_message)
+    self.assertIsNotNone(report.tolerance_audit.caution_banner)
+    self.assertIn(
+        "recommended contract is <= 2 ULP",
+        str(report.tolerance_audit.caution_banner),
+    )
+
+  def test_recommended_contract_standard_summary_when_strict(self):
+    """Verifies no caution banner when max_allowed_ulp is within contract."""
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        max_allowed_ulp=2,
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertIsNotNone(report.tolerance_audit)
+    self.assertFalse(report.tolerance_audit.is_relaxed_override)
+    self.assertIsNone(report.tolerance_audit.caution_banner)
+    self.assertNotIn("⚠️ CAUTION", report.summary_message)
+    self.assertIn("Recommended: <= 2", report.summary_message)
+
+  @parameterized.parameters(
+      ("bool", 1),
+      ("int32", 1),
+      ("int64", 1),
+      ("fp8_e4m3", 3),
+      ("fp8_e5m2", 3),
+      ("bfloat16", 10),
+      ("float16", 10),
+      ("float32", 5),
+      ("float64", 5),
+  )
+  def test_hard_safety_ceiling_all_dtypes_abuse_blocked(
+      self, dtype_str: str, abusive_max_ulp: int
+  ):
+    """Verifies exceeding hard ceiling raises ValueError across all dtypes."""
+    with self.assertRaises(ValueError) as ctx:
+      numerical_validator.validate_kernels(
+          _identity_fn,
+          _identity_fn,
+          shapes=(16, 16),
+          dtype_str=dtype_str,
+          tier="fast_agent",
+          max_allowed_ulp=abusive_max_ulp,
+      )
+    self.assertIn("exceeds immutable safety ceiling", str(ctx.exception))
+
+  @parameterized.parameters("bool", "int32", "int64", "uint32", "uint8")
+  def test_discrete_tolerance_override_raises_value_error(
+      self, dtype_str: str
+  ):
+    """Verifies specifying max_allowed_ulp > 0 on discrete dtypes raises ValueError."""
+    with self.assertRaises(ValueError) as ctx:
+      numerical_validator.validate_kernels(
+          _identity_fn,
+          _identity_fn,
+          shapes=(8, 8),
+          dtype_str=dtype_str,
+          tier="fast_agent",
+          max_allowed_ulp=1,
+      )
+    self.assertIn("exceeds immutable safety ceiling", str(ctx.exception))
+
+  def test_multi_arg_and_kwargs_variadic_validation(self):
+    """Verifies validate_kernels with multi-arguments and kwargs."""
+
+    def _custom_fused_op(a, b, scale=1.0, bias=0.0):
+      return (a + b) * scale + bias
+
+    def _cand_fused_op(a, b, scale=1.0, bias=0.0):
+      return (a + b) * scale + bias
+
+    custom_suite = [{
+        "name": "fused_batch",
+        "args": (
+            np.ones((4, 4), dtype=np.float32),
+            np.ones((4, 4), dtype=np.float32),
+        ),
+        "kwargs": {"scale": 2.0, "bias": 0.5},
+        "regime": "custom",
+    }]
+    report = numerical_validator.validate_kernels(
+        _custom_fused_op,
+        _cand_fused_op,
+        shapes=[(4, 4), (4, 4)],
+        dtype_str="float32",
+        test_suite=custom_suite,
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertEqual(report.overall_max_ulp, 0)
+
+  def test_float64_golden_reference_bound(self):
+    """Verifies float64 high-precision golden reference validation within 1 ULP."""
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="float64",
+        tier="fast_agent",
+        max_allowed_ulp=1,
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertEqual(report.overall_max_ulp, 0)
+    self.assertIsNotNone(report.tolerance_audit)
+    assert report.tolerance_audit is not None
+    self.assertEqual(report.tolerance_audit.recommended_contract_ulp, 1)
+
 
 if __name__ == "__main__":
   absltest.main()
+

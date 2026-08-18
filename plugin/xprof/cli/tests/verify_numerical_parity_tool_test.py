@@ -93,6 +93,60 @@ class VerifyNumericalParityToolTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       verify_numerical_parity_tool._resolve_callable("   ")
 
+  def test_verify_tool_emits_tolerance_audit_json(self):
+    """Verifies CLI tool output JSON contains full tolerance_audit metadata."""
+    report_json = verify_numerical_parity_tool.verify_numerical_parity(
+        kernel_ref=sample_ref_fn,
+        kernel_candidate=sample_candidate_fn,
+        shapes=[(16, 16)],
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        max_allowed_ulp=4,  # Relaxed override above 2
+    )
+    report = json.loads(report_json)
+    self.assertTrue(report["is_numerically_equivalent"])
+    self.assertIn("tolerance_audit", report)
+    audit = report["tolerance_audit"]
+    self.assertTrue(audit["is_relaxed_override"])
+    self.assertEqual(audit["recommended_contract_ulp"], 2)
+    self.assertEqual(audit["configured_max_ulp"], 4)
+    self.assertIn("caution_banner", audit)
+    self.assertIn("⚠️ CAUTION", audit["caution_banner"])
+
+  def test_verify_tool_discrete_integer_and_boolean(self):
+    """Verifies CLI tool verification on discrete integer and boolean functions."""
+
+    def int_ref_fn(x):
+      return x
+
+    def int_cand_fn(x):
+      return x
+
+    report_json = verify_numerical_parity_tool.verify_numerical_parity(
+        kernel_ref=int_ref_fn,
+        kernel_candidate=int_cand_fn,
+        shapes=[(8, 8)],
+        dtype_str="int32",
+        tier="fast_agent",
+    )
+    report = json.loads(report_json)
+    self.assertTrue(report["is_numerically_equivalent"])
+    self.assertEqual(report["overall_max_ulp"], 0)
+
+  def test_verify_tool_hard_ceiling_error_json(self):
+    """Verifies that exceeding hard safety ceiling raises ValueError."""
+    with self.assertRaises(ValueError) as ctx:
+      verify_numerical_parity_tool.verify_numerical_parity(
+          kernel_ref=sample_ref_fn,
+          kernel_candidate=sample_candidate_fn,
+          shapes=[(8, 8)],
+          dtype_str="bfloat16",
+          tier="fast_agent",
+          max_allowed_ulp=12,  # Hard ceiling for bfloat16 is 8
+      )
+    self.assertIn("exceeds immutable safety ceiling", str(ctx.exception))
+
 
 if __name__ == "__main__":
   absltest.main()
+

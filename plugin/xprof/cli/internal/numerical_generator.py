@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import os
+import types
 from typing import Any, BinaryIO
 import ml_dtypes
 import numpy as np
@@ -84,7 +85,59 @@ PROFILES: dict[str, DtypeProfile] = {
         default_df=3.0,
         outlier_scale_limit=50.0,
     ),
+    "float64": DtypeProfile(
+        dtype_str="float64",
+        numpy_dtype=np.float64,
+        mantissa_bits=52,
+        exponent_bits=11,
+        max_finite=float(np.finfo(np.float64).max),
+        min_normal=float(np.finfo(np.float64).tiny),
+        min_subnormal=float(np.nextafter(np.float64(0.0), np.float64(1.0))),
+        default_df=5.0,
+        outlier_scale_limit=100.0,
+    ),
 }
+
+
+@dataclasses.dataclass(frozen=True)
+class IntegerDtypeProfile:
+  dtype_str: str
+  numpy_dtype: Any
+  min_val: int
+  max_val: int
+  is_signed: bool
+
+
+INTEGER_PROFILES: types.MappingProxyType[str, IntegerDtypeProfile] = (
+    types.MappingProxyType({
+        "int32": IntegerDtypeProfile(
+            "int32", np.int32, -2147483648, 2147483647, True
+        ),
+        "int64": IntegerDtypeProfile(
+            "int64",
+            np.int64,
+            -9223372036854775808,
+            9223372036854775807,
+            True,
+        ),
+        "int16": IntegerDtypeProfile("int16", np.int16, -32768, 32767, True),
+        "int8": IntegerDtypeProfile("int8", np.int8, -128, 127, True),
+        "uint32": (
+            IntegerDtypeProfile("uint32", np.uint32, 0, 4294967295, False)
+        ),
+        "uint64": IntegerDtypeProfile(
+            "uint64", np.uint64, 0, 18446744073709551615, False
+        ),
+        "uint16": IntegerDtypeProfile("uint16", np.uint16, 0, 65535, False),
+        "uint8": IntegerDtypeProfile("uint8", np.uint8, 0, 255, False),
+    })
+)
+
+INTEGER_DTYPES: frozenset[str] = frozenset(INTEGER_PROFILES.keys())
+BOOLEAN_DTYPES: frozenset[str] = frozenset({"bool"})
+ALL_SUPPORTED_DTYPES: frozenset[str] = frozenset(
+    set(PROFILES.keys()) | INTEGER_DTYPES | BOOLEAN_DTYPES
+)
 
 
 def generate_student_t_tensor(
@@ -230,6 +283,226 @@ def generate_boundary_probe_tensor(
     arr[idx :: (len(probes) * tile_stride)] = p
 
   return arr.reshape(shape).astype(profile.numpy_dtype)
+
+
+def generate_index_tensor(
+    shape: _Sequence[int],
+    upper_bound: int,
+    lower_bound: int = 0,
+    dtype_str: str = "int32",
+    include_boundaries: bool = True,
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates bounded discrete indices in [lower_bound, upper_bound - 1].
+
+  Guarantees valid range for MoE expert IDs, embedding lookups, gather/scatter.
+  When include_boundaries=True, injects lower_bound and upper_bound - 1 to test
+  edge index conditions.
+
+  Args:
+    shape: Target tensor shape tuple.
+    upper_bound: Exclusive upper bound for generated indices.
+    lower_bound: Inclusive lower bound for generated indices (default: 0).
+    dtype_str: Target integer data type string ("int32", "int64", etc.).
+    include_boundaries: If True, injects lower_bound and upper_bound - 1.
+    seed: Random number generator seed.
+
+  Returns:
+    NumPy array with discrete indices strictly bounded in [lower_bound,
+    upper_bound - 1].
+
+  Raises:
+    ValueError: If upper_bound <= lower_bound.
+  """
+  if upper_bound <= lower_bound:
+    raise ValueError(
+        f"upper_bound ({upper_bound}) must be greater than lower_bound"
+        f" ({lower_bound})"
+    )
+  dtype = np.dtype(dtype_str)
+  rng = np.random.default_rng(seed)
+  indices = rng.integers(lower_bound, upper_bound, size=shape, dtype=dtype)
+  if include_boundaries and indices.size >= 1:
+    flat = indices.reshape(-1)
+    flat[0] = lower_bound
+    if indices.size >= 2:
+      flat[-1] = upper_bound - 1
+    indices = flat.reshape(shape)
+  return indices
+
+
+def generate_segment_ids_tensor(
+    shape: _Sequence[int],
+    num_segments: int,
+    is_sorted: bool = True,
+    dtype_str: str = "int32",
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates segment IDs in [0, num_segments - 1] for segmented reductions.
+
+  If is_sorted=True, values along the last axis are monotonically
+  non-decreasing.
+
+  Args:
+    shape: Target tensor shape tuple.
+    num_segments: Total number of distinct segment IDs.
+    is_sorted: If True, guarantees monotonically non-decreasing segment IDs.
+    dtype_str: Target integer data type string ("int32", "int64", etc.).
+    seed: Random number generator seed.
+
+  Returns:
+    NumPy array with segment IDs spanning [0, num_segments - 1].
+
+  Raises:
+    ValueError: If num_segments <= 0.
+  """
+  if num_segments <= 0:
+    raise ValueError(f"num_segments must be positive, got {num_segments}")
+  dtype = np.dtype(dtype_str)
+  rng = np.random.default_rng(seed)
+  if not shape:
+    return np.array(0, dtype=dtype)
+  if num_segments == 1:
+    return np.zeros(shape, dtype=dtype)
+  if is_sorted:
+    last_dim = shape[-1]
+    if last_dim >= num_segments:
+      cuts = np.sort(
+          rng.choice(last_dim - 1, size=num_segments - 1, replace=False) + 1
+      )
+      cuts = np.concatenate(([0], cuts, [last_dim]))
+      seg_1d = np.empty(last_dim, dtype=dtype)
+      for seg_id in range(num_segments):
+        seg_1d[cuts[seg_id] : cuts[seg_id + 1]] = seg_id
+      leading_shape = shape[:-1]
+      if leading_shape:
+        return np.broadcast_to(seg_1d, shape).copy()
+      return seg_1d
+    else:
+      return np.sort(
+          rng.integers(0, num_segments, size=shape, dtype=dtype), axis=-1
+      )
+  else:
+    return rng.integers(0, num_segments, size=shape, dtype=dtype)
+
+
+def generate_mask_tensor(
+    shape: _Sequence[int],
+    mask_type: str = "causal",
+    density: float = 0.5,
+    seq_lens: _Sequence[int] | None = None,
+    dtype_str: str = "bool",
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates boolean or binary masks: causal, bernoulli sparse, or padding.
+
+  Args:
+    shape: Target mask shape tuple.
+    mask_type: Topology of mask ("causal", "bernoulli", "padding").
+    density: Active ratio for Bernoulli sparse mask (default: 0.5).
+    seq_lens: Optional explicit sequence lengths for padding mask.
+    dtype_str: Target data type string ("bool", "int32", etc.).
+    seed: Random number generator seed.
+
+  Returns:
+    NumPy array containing the structured boolean or integer mask.
+
+  Raises:
+    ValueError: If density is not in [0, 1], if causal mask shape has fewer
+      than 2 dimensions, or if mask_type is unknown.
+  """
+  if not (0.0 <= density <= 1.0):
+    raise ValueError(f"density must be in [0, 1], got {density}")
+  dtype = np.dtype(dtype_str)
+  rng = np.random.default_rng(seed)
+  if mask_type == "causal":
+    if len(shape) < 2:
+      raise ValueError(
+          f"Causal mask requires at least 2 dimensions, got shape {shape}"
+      )
+    n, m = shape[-2], shape[-1]
+    causal_2d = np.tril(np.ones((n, m), dtype=dtype))
+    if len(shape) > 2:
+      leading_ones = (1,) * (len(shape) - 2)
+      return np.broadcast_to(
+          causal_2d.reshape(leading_ones + (n, m)), shape
+      ).copy()
+    return causal_2d
+  elif mask_type == "bernoulli":
+    raw_bool = rng.uniform(size=shape) < density
+    return raw_bool.astype(dtype)
+  elif mask_type == "padding":
+    if len(shape) < 2:
+      seq_len = shape[-1] if shape else 1
+      lengths = seq_lens if seq_lens is not None else [max(1, seq_len // 2)]
+      mask = np.arange(seq_len) < lengths[0]
+      return mask.astype(dtype).reshape(shape)
+    batch_size, max_len = shape[0], shape[-1]
+    if seq_lens is not None:
+      lengths = np.asarray(seq_lens, dtype=np.int32)
+    else:
+      lengths = rng.integers(1, max_len + 1, size=batch_size, dtype=np.int32)
+    positions = np.arange(max_len)
+    mask_2d = positions[None, :] < lengths[:, None]
+    if len(shape) > 2:
+      leading_ones = (1,) * (len(shape) - 2)
+      return (
+          np.broadcast_to(
+              mask_2d.reshape((batch_size,) + leading_ones + (max_len,)), shape
+          )
+          .astype(dtype)
+          .copy()
+      )
+    return mask_2d.astype(dtype)
+  else:
+    raise ValueError(
+        f"Unknown mask_type '{mask_type}'. Supported: 'causal', 'bernoulli',"
+        " 'padding'"
+    )
+
+
+def generate_integer_tensor(
+    shape: _Sequence[int],
+    dtype_str: str = "int32",
+    min_val: int | None = None,
+    max_val: int | None = None,
+    seed: int = 42,
+) -> np.ndarray:
+  """Generates integer test tensors covering uniform, boundary extremes, and strides.
+
+  Args:
+    shape: Target tensor shape tuple.
+    dtype_str: Target integer data type string ("int32", "int64", etc.).
+    min_val: Optional minimum integer value (defaults to profile minimum).
+    max_val: Optional maximum integer value (defaults to profile maximum).
+    seed: Random number generator seed.
+
+  Returns:
+    NumPy array with integer test values and injected boundary extremes.
+
+  Raises:
+    KeyError: If dtype_str is not in INTEGER_PROFILES.
+  """
+  if dtype_str not in INTEGER_PROFILES:
+    raise KeyError(
+        f"Unsupported integer dtype_str '{dtype_str}'. Supported:"
+        f" {list(INTEGER_PROFILES.keys())}"
+    )
+  prof = INTEGER_PROFILES[dtype_str]
+  low = min_val if min_val is not None else prof.min_val
+  high = max_val if max_val is not None else prof.max_val
+  rng = np.random.default_rng(seed)
+  arr = rng.integers(
+      low, high, size=shape, endpoint=True, dtype=prof.numpy_dtype
+  )
+  if arr.size >= 4:
+    flat = arr.reshape(-1)
+    flat[0] = low
+    flat[1] = high
+    flat[2] = 0 if low <= 0 <= high else low
+    flat[3] = -1 if low <= -1 <= high else (1 if low <= 1 <= high else low)
+    arr = flat.reshape(shape)
+  return arr
 
 
 def _resolve_dtype(dtype_str: str) -> np.dtype:
@@ -404,6 +677,161 @@ def _generate_procedural_suite(
       return jnp.asarray(arr)
     return arr
 
+  if dtype_str == "bool":
+    suite = []
+    # 1. Causal mask batch
+    causal_tensors = []
+    for s in shapes:
+      if len(s) >= 2:
+        causal_tensors.append(
+            _convert(
+                generate_mask_tensor(
+                    s, mask_type="causal", dtype_str="bool", seed=seed
+                )
+            )
+        )
+      else:
+        causal_tensors.append(
+            _convert(
+                generate_mask_tensor(
+                    s,
+                    mask_type="bernoulli",
+                    density=0.5,
+                    dtype_str="bool",
+                    seed=seed,
+                )
+            )
+        )
+    suite.append({
+        "name": "causal_masks",
+        "args": tuple(causal_tensors),
+        "kwargs": {},
+        "regime": "causal_mask",
+    })
+
+    # 2. Bernoulli sparse mask batches
+    densities = [0.1, 0.5, 0.9] if tier != "fast_agent" else [0.5]
+    for idx, d in enumerate(densities):
+      sparse_tensors = [
+          _convert(
+              generate_mask_tensor(
+                  s,
+                  mask_type="bernoulli",
+                  density=d,
+                  dtype_str="bool",
+                  seed=seed + 10 + idx * 5 + i,
+              )
+          )
+          for i, s in enumerate(shapes)
+      ]
+      suite.append({
+          "name": f"bernoulli_density_{int(d*100)}pct",
+          "args": tuple(sparse_tensors),
+          "kwargs": {},
+          "regime": "bernoulli_mask",
+      })
+
+    # 3. Padding mask batch
+    padding_tensors = [
+        _convert(
+            generate_mask_tensor(
+                s,
+                mask_type="padding",
+                dtype_str="bool",
+                seed=seed + 100 + i,
+            )
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": "padding_masks",
+        "args": tuple(padding_tensors),
+        "kwargs": {},
+        "regime": "padding_mask",
+    })
+    return suite
+
+  if dtype_str in INTEGER_PROFILES:
+    prof = INTEGER_PROFILES[dtype_str]
+    suite = []
+    # 1. Small dynamic range batch (e.g. [-10, 20] or [0, 20])
+    low_val = -10 if prof.is_signed else 0
+    small_tensors = [
+        _convert(
+            generate_integer_tensor(
+                s,
+                dtype_str=dtype_str,
+                min_val=low_val,
+                max_val=20,
+                seed=seed + i,
+            )
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": "small_dynamic_range",
+        "args": tuple(small_tensors),
+        "kwargs": {},
+        "regime": "small_int",
+    })
+
+    # 2. Bounded index batches (e.g. expert IDs / vocab indices [0, 64])
+    index_tensors = [
+        _convert(
+            generate_index_tensor(
+                s, upper_bound=64, dtype_str=dtype_str, seed=seed + 20 + i
+            )
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": "bounded_indices_64",
+        "args": tuple(index_tensors),
+        "kwargs": {},
+        "regime": "bounded_index",
+    })
+
+    # 3. Monotonic segment IDs batch
+    seg_tensors = [
+        _convert(
+            generate_segment_ids_tensor(
+                s,
+                num_segments=min(8, s[-1] if s else 1),
+                is_sorted=True,
+                dtype_str=dtype_str,
+                seed=seed + 30 + i,
+            )
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": "monotonic_segment_ids",
+        "args": tuple(seg_tensors),
+        "kwargs": {},
+        "regime": "segment_ids",
+    })
+
+    # 4. Full boundary extremes batch (min_int, max_int, 0, 1, -1)
+    boundary_tensors = [
+        _convert(
+            generate_integer_tensor(s, dtype_str=dtype_str, seed=seed + 40 + i)
+        )
+        for i, s in enumerate(shapes)
+    ]
+    suite.append({
+        "name": "boundary_extremes",
+        "args": tuple(boundary_tensors),
+        "kwargs": {},
+        "regime": "boundary_extremes",
+    })
+    return suite
+
+  if dtype_str not in PROFILES:
+    raise KeyError(
+        f"Unsupported dtype_str '{dtype_str}'. Supported:"
+        f" {sorted(list(ALL_SUPPORTED_DTYPES))}"
+    )
+
   suite = []
   for b in range(num_student_t):
     tensors = [
@@ -488,7 +916,7 @@ def generate_test_suite(
   Args:
     shapes: Single shape tuple or sequence of shape tuples.
     dtype_str: Data type string ("bfloat16", "float32", "float16", "fp8_e4m3",
-      "fp8_e5m2").
+      "fp8_e5m2", "int32", "int64", "int16", "int8", "uint32", "uint8", "bool").
     tier: Test thoroughness tier ("fast_agent", "presubmit", "deep_fuzzing").
     seed: Random number generator seed.
     persisted_path: Optional path to a .npz file or resource to load/save.
@@ -500,7 +928,13 @@ def generate_test_suite(
 
   Raises:
     RuntimeError: If mode is 'read_only' and persisted_path does not exist.
+    KeyError: If dtype_str is not supported.
   """
+  if dtype_str not in ALL_SUPPORTED_DTYPES:
+    raise KeyError(
+        f"Unsupported dtype_str '{dtype_str}'. Supported:"
+        f" {sorted(list(ALL_SUPPORTED_DTYPES))}"
+    )
   shape_list: list[_Sequence[int]] = []
   shapes_any: Any = shapes
   if isinstance(shapes, tuple) and not shapes:

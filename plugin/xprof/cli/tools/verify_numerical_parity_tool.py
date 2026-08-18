@@ -161,6 +161,11 @@ def verify_numerical_parity(
       "failed_batches_count": report.failed_batches_count,
       "total_batches_count": report.total_batches_count,
       "summary_message": report.summary_message,
+      "tolerance_audit": (
+          dataclasses.asdict(report.tolerance_audit)
+          if report.tolerance_audit is not None
+          else None
+      ),
       "batch_results": [dataclasses.asdict(b) for b in report.batch_results],
   }
   return json.dumps(results_dict, indent=2)

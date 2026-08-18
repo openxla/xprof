@@ -4,6 +4,7 @@ import importlib.util
 import io
 import os
 import pathlib
+import types
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
@@ -707,6 +708,338 @@ class NumericalGeneratorTest(parameterized.TestCase):
       loaded = numerical_generator.load_test_suite(temp_path)
       self.assertLen(loaded, len(suite))
 
+  # ===========================================================================
+  # Discrete, Integer & Mask Generator Tests
+  # ===========================================================================
+
+  @parameterized.parameters(
+      "int32", "int64", "int16", "int8", "uint32", "uint8"
+  )
+  def test_generate_index_tensor_bounds_and_extremes(self, dtype_str: str):
+    """Verifies index tensor strictly satisfies bounds and hits extremes."""
+    upper = 32
+    indices = numerical_generator.generate_index_tensor(
+        shape=(16, 64),
+        upper_bound=upper,
+        lower_bound=0,
+        dtype_str=dtype_str,
+        include_boundaries=True,
+        seed=42,
+    )
+    self.assertEqual(str(indices.dtype), dtype_str)
+    self.assertTrue((indices >= 0).all())
+    self.assertTrue((indices < upper).all())
+    self.assertEqual(indices.flat[0], 0)
+    self.assertEqual(indices.flat[-1], upper - 1)
+
+  def test_generate_index_tensor_single_element(self):
+    indices = numerical_generator.generate_index_tensor(
+        shape=(1,), upper_bound=10, lower_bound=0, include_boundaries=True
+    )
+    self.assertEqual(indices.shape, (1,))
+    self.assertEqual(indices[0], 0)
+
+  def test_generate_index_tensor_invalid_bounds(self):
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_index_tensor(
+          shape=(4, 4), upper_bound=5, lower_bound=5
+      )
+
+  @parameterized.parameters("int32", "int64")
+  def test_generate_segment_ids_monotonic_and_span(self, dtype_str: str):
+    num_segments = 6
+    seg_ids = numerical_generator.generate_segment_ids_tensor(
+        shape=(8, 48),
+        num_segments=num_segments,
+        is_sorted=True,
+        dtype_str=dtype_str,
+        seed=42,
+    )
+    self.assertEqual(str(seg_ids.dtype), dtype_str)
+    # Check monotonicity along the last axis
+    diffs = np.diff(seg_ids, axis=-1)
+    self.assertTrue(
+        (diffs >= 0).all(), msg="Segment IDs are not non-decreasing"
+    )
+    self.assertEqual(np.min(seg_ids), 0)
+    self.assertEqual(np.max(seg_ids), num_segments - 1)
+
+  @parameterized.parameters(
+      ((1,),),
+      ((128, 1),),
+      ((4, 8),),
+  )
+  def test_generate_segment_ids_single_segment(self, shape):
+    seg_ids = numerical_generator.generate_segment_ids_tensor(
+        shape=shape, num_segments=1, is_sorted=True
+    )
+    self.assertEqual(seg_ids.shape, shape)
+    self.assertTrue((seg_ids == 0).all())
+
+  def test_generate_segment_ids_invalid_num_segments(self):
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_segment_ids_tensor(
+          shape=(4, 4), num_segments=0
+      )
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_segment_ids_tensor(
+          shape=(4, 4), num_segments=-5
+      )
+
+  def test_generate_mask_causal_triangular(self):
+    """Verifies causal mask generates lower-triangular matrix."""
+    shape = (2, 8, 8)
+    mask = numerical_generator.generate_mask_tensor(
+        shape=shape, mask_type="causal", dtype_str="bool"
+    )
+    self.assertEqual(mask.dtype, np.bool_)
+    self.assertEqual(mask.shape, shape)
+    for b in range(2):
+      for i in range(8):
+        for j in range(8):
+          if j <= i:
+            self.assertTrue(mask[b, i, j], f"Expected True at [{b}, {i}, {j}]")
+          else:
+            self.assertFalse(
+                mask[b, i, j], f"Expected False at [{b}, {i}, {j}]"
+            )
+
+  def test_generate_mask_causal_invalid_shape(self):
+    """Verifies ValueError when causal mask shape has fewer than 2 dimensions."""
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_mask_tensor(shape=(8,), mask_type="causal")
+
+  def test_generate_mask_bernoulli_density(self):
+    """Verifies Bernoulli mask average active density matches target."""
+    mask = numerical_generator.generate_mask_tensor(
+        shape=(100, 100), mask_type="bernoulli", density=0.3, seed=42
+    )
+    active_ratio = float(np.mean(mask))
+    self.assertAlmostEqual(active_ratio, 0.3, delta=0.03)
+
+  def test_generate_mask_invalid_density(self):
+    """Verifies ValueError when density is outside [0, 1]."""
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_mask_tensor(
+          shape=(4, 4), mask_type="bernoulli", density=-0.1
+      )
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_mask_tensor(
+          shape=(4, 4), mask_type="bernoulli", density=1.5
+      )
+
+  def test_generate_mask_padding(self):
+    """Verifies padding mask respects explicit sequence lengths."""
+    seq_lens = [3, 6, 1, 8]
+    mask = numerical_generator.generate_mask_tensor(
+        shape=(4, 8), mask_type="padding", seq_lens=seq_lens, seed=42
+    )
+    for row, l in enumerate(seq_lens):
+      self.assertEqual(int(np.sum(mask[row])), l)
+      self.assertTrue((mask[row, :l]).all())
+      if l < 8:
+        self.assertFalse((mask[row, l:]).any())
+
+  def test_generate_mask_unknown_type(self):
+    """Verifies ValueError for unknown mask_type."""
+    with self.assertRaises(ValueError):
+      numerical_generator.generate_mask_tensor(
+          shape=(4, 4), mask_type="unsupported_type"
+      )
+
+  @parameterized.parameters(
+      "int32", "int64", "int16", "int8", "uint32", "uint8"
+  )
+  def test_generate_integer_tensor_boundaries(self, dtype_str: str):
+    """Verifies integer tensor contains boundary limits."""
+    arr = numerical_generator.generate_integer_tensor(
+        shape=(4, 8), dtype_str=dtype_str, seed=42
+    )
+    self.assertEqual(str(arr.dtype), dtype_str)
+    prof = numerical_generator.INTEGER_PROFILES[dtype_str]
+    self.assertEqual(arr.flat[0], prof.min_val)
+    self.assertEqual(arr.flat[1], prof.max_val)
+
+  def test_generate_integer_unsupported_dtype(self):
+    """Verifies KeyError for unsupported integer dtype string."""
+    with self.assertRaises(KeyError):
+      numerical_generator.generate_integer_tensor(
+          shape=(4, 4), dtype_str="float32"
+      )
+
+  @parameterized.parameters("int32", "bool")
+  def test_procedural_suite_integer_and_boolean(self, dtype_str: str):
+    """Verifies generate_test_suite supports integer and boolean regimes."""
+    suite = numerical_generator.generate_test_suite(
+        shapes=[(16, 16)], dtype_str=dtype_str, tier="fast_agent", seed=42
+    )
+    self.assertNotEmpty(suite)
+    for batch in suite:
+      arr = batch["args"][0]
+      self.assertEqual(str(arr.dtype), dtype_str)
+      self.assertIn("regime", batch)
+
+  def test_integer_profiles_is_immutable(self):
+    """Verifies INTEGER_PROFILES is an immutable MappingProxyType."""
+    self.assertIsInstance(
+        numerical_generator.INTEGER_PROFILES, types.MappingProxyType
+    )
+    self.assertFalse(
+        hasattr(numerical_generator.INTEGER_PROFILES, "__setitem__")
+    )
+
+  def test_095_max_finite_clipping_all_dtypes(self):
+    """Verifies generated values are strictly bounded by 0.95 * max_finite."""
+    for dtype_str in (
+        "float32",
+        "bfloat16",
+        "float16",
+        "fp8_e4m3",
+        "fp8_e5m2",
+    ):
+      profile = numerical_generator.PROFILES[dtype_str]
+      max_allowed = 0.95 * profile.max_finite
+
+      # 1. Student-t heavy tail draws
+      t_tensor = numerical_generator.generate_student_t_tensor(
+          shape=(50, 500), dtype_str=dtype_str, df=2.5, seed=123
+      )
+      t_arr = np.asarray(t_tensor, dtype=np.float64)
+      self.assertTrue(
+          np.all(np.abs(t_arr) <= max_allowed + 1e-5),
+          msg=(
+              f"Student-t exceeded 0.95*max_finite ({max_allowed}) for"
+              f" {dtype_str}"
+          ),
+      )
+
+      # 2. Outlier activation spikes
+      outlier_tensor = numerical_generator.generate_outlier_tensor(
+          shape=(50, 500),
+          dtype_str=dtype_str,
+          outlier_scale=100.0,
+          outlier_ratio=0.05,
+          seed=456,
+      )
+      outlier_arr = np.asarray(outlier_tensor, dtype=np.float64)
+      self.assertTrue(
+          np.all(np.abs(outlier_arr) <= max_allowed + 1e-5),
+          msg=(
+              f"Outlier exceeded 0.95*max_finite ({max_allowed}) for"
+              f" {dtype_str}"
+          ),
+      )
+
+  def test_cancellation_dynamic_ulp_floor(self):
+    """Verifies cancellation generator raises sub-ULP epsilon to at least 2 ULP."""
+    # In bfloat16, at magnitude 1000.0, 1 ULP is 4.0.
+    # Passing a tiny epsilon=1e-6 must be floored to >= 2 ULP (>= 8.0).
+    tensor = numerical_generator.generate_cancellation_tensor(
+        shape=(4, 64),
+        dtype_str="bfloat16",
+        reduction_axis=-1,
+        epsilon=1e-6,
+    )
+    arr = np.asarray(tensor, dtype=np.float32)
+    # The sum across the reduction axis should not collapse to 0.0
+    reduced = np.sum(arr, axis=-1)
+    self.assertTrue(
+        np.all(np.abs(reduced) > 0.0),
+        msg=(
+            "Dynamic ULP floor failed to preserve cancellation residual in"
+            " bfloat16"
+        ),
+    )
+
+  def test_vmem_128_byte_boundary_strides(self):
+    """Verifies boundary probe generator aligns with 128-byte VMEM strides."""
+    tensor = numerical_generator.generate_boundary_probe_tensor(
+        shape=(8, 256), dtype_str="bfloat16", tile_stride=128
+    )
+    arr = np.asarray(tensor)
+    self.assertEqual(arr.shape, (8, 256))
+    flat = arr.flatten()
+    # Stride of 128 elements in 16-bit preserves periodic boundary probes
+    self.assertEqual(flat[0], flat[5 * 128])
+
+  def test_bounded_index_extreme_pinning_multi_dim(self):
+    """Verifies multi-dimensional bounded index generation pins extremes."""
+    shape = (4, 8, 32)
+    upper = 64
+    indices = numerical_generator.generate_index_tensor(
+        shape=shape,
+        upper_bound=upper,
+        lower_bound=0,
+        dtype_str="int32",
+        include_boundaries=True,
+        seed=101,
+    )
+    self.assertEqual(indices.shape, shape)
+    self.assertEqual(indices.flat[0], 0)
+    self.assertEqual(indices.flat[-1], upper - 1)
+    self.assertTrue((indices >= 0).all())
+    self.assertTrue((indices < upper).all())
+
+  def test_monotonic_segment_ids_ragged_reductions(self):
+    """Verifies monotonic segment IDs for ragged reductions across segment counts."""
+    for num_segments in (4, 16, 64, 128):
+      seg_ids = numerical_generator.generate_segment_ids_tensor(
+          shape=(4, 256),
+          num_segments=num_segments,
+          is_sorted=True,
+          dtype_str="int32",
+          seed=42 + num_segments,
+      )
+      diffs = np.diff(seg_ids, axis=-1)
+      self.assertTrue(
+          (diffs >= 0).all(),
+          msg=f"Non-monotonic segment IDs for num_segments={num_segments}",
+      )
+      self.assertEqual(int(np.min(seg_ids)), 0)
+      self.assertEqual(int(np.max(seg_ids)), num_segments - 1)
+
+  def test_causal_mask_multi_head_broadcasting(self):
+    """Verifies 4D multi-head attention causal mask broadcasting (B, H, S, S)."""
+    shape = (2, 4, 16, 16)
+    mask = numerical_generator.generate_mask_tensor(
+        shape=shape, mask_type="causal", dtype_str="bool"
+    )
+    self.assertEqual(mask.shape, shape)
+    for b in range(2):
+      for h in range(4):
+        for i in range(16):
+          for j in range(16):
+            if j <= i:
+              self.assertTrue(mask[b, h, i, j])
+            else:
+              self.assertFalse(mask[b, h, i, j])
+
+  def test_padding_mask_multi_head_broadcasting(self):
+    """Verifies 3D multi-head padding mask broadcasting."""
+    shape = (2, 4, 8)
+    seq_lens = [3, 7]
+    mask = numerical_generator.generate_mask_tensor(
+        shape=shape, mask_type="padding", seq_lens=seq_lens, seed=42
+    )
+    self.assertEqual(mask.shape, shape)
+    for b, l in enumerate(seq_lens):
+      for h in range(4):
+        self.assertEqual(int(np.sum(mask[b, h])), l)
+        self.assertTrue((mask[b, h, :l]).all())
+        if l < 8:
+          self.assertFalse((mask[b, h, l:]).any())
+
+  def test_integer_profiles_and_boundaries_all_dtypes(self):
+    """Verifies integer profiles and boundary generation across all int types."""
+    for dtype_str in ("int32", "int64", "int16", "int8", "uint32", "uint8"):
+      arr = numerical_generator.generate_integer_tensor(
+          shape=(8, 16), dtype_str=dtype_str, seed=42
+      )
+      prof = numerical_generator.INTEGER_PROFILES[dtype_str]
+      self.assertEqual(arr.flat[0], prof.min_val)
+      self.assertEqual(arr.flat[1], prof.max_val)
+
 
 if __name__ == "__main__":
   absltest.main()
+

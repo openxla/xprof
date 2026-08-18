@@ -114,6 +114,94 @@ class ToleranceDilemmaTest(parameterized.TestCase):
     self.assertTrue(report.is_numerically_equivalent)
     self.assertEqual(report.overall_max_ulp, 0)
 
+  def test_split_k_reduction_non_associativity_pass(self):
+    """Proves parallel Split-K reduction reordering passes under relaxed contract."""
+
+    def parallel_split_k_sim(a):
+      # Simulates parallel reduction with intermediate block sums
+      # Produces ~2 ULP non-associative jitter relative to sequential FP32 sum
+      reshaped = a.reshape(a.shape[0], 16, -1)
+      block_sums = jnp.sum(reshaped.astype(jnp.float32), axis=-1)
+      return jnp.sum(block_sums, axis=-1).astype(a.dtype)
+
+    shape = (32, 2048)
+    report = numerical_validator.validate_kernels(
+        reference_reduction,
+        parallel_split_k_sim,
+        shapes=shape,
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        max_allowed_ulp=4,  # Analytically justified Split-K contract
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertLessEqual(report.overall_max_ulp, 4)
+    self.assertIsNotNone(report.tolerance_audit)
+    assert report.tolerance_audit is not None
+    self.assertTrue(report.tolerance_audit.is_relaxed_override)
+
+  def test_flashattention_accumulator_downcast_detected(self):
+    """Proves accumulator downcast is caught when scalar allclose falsely passes."""
+
+    def fp32_acc_attention(q, k):
+      # Golden reference with FP32 accumulator
+      scores = jnp.matmul(q.astype(jnp.float32), k.astype(jnp.float32).T)
+      return jnp.sum(scores, axis=-1).astype(q.dtype)
+
+    def bf16_acc_attention(q, k):
+      # Buggy candidate accumulating in BF16
+      scores = jnp.matmul(q, k.T)
+      return jnp.sum(scores, axis=-1)
+
+    shapes = [(16, 128), (16, 128)]
+    report = numerical_validator.validate_kernels(
+        fp32_acc_attention,
+        bf16_acc_attention,
+        shapes=shapes,
+        dtype_str="bfloat16",
+        tier="fast_agent",
+        max_allowed_ulp=2,  # Standard recommended contract
+    )
+    # The accumulator truncation error is caught by ULP validator
+    self.assertFalse(report.is_numerically_equivalent)
+    self.assertGreater(report.overall_max_ulp, 2)
+
+  def test_moe_token_routing_off_by_one_boundary_catch(self):
+    """Proves MoE boundary off-by-one wrap (expert 63 -> 0) is caught with Delta > 0."""
+
+    def ref_dispatch(expert_table, expert_ids):
+      return expert_table[expert_ids]
+
+    def buggy_dispatch(expert_table, expert_ids):
+      buggy_ids = np.where(expert_ids == 63, 0, expert_ids)
+      return expert_table[buggy_ids]
+
+    expert_table = np.arange(64 * 32, dtype=np.float32).reshape(64, 32)
+    expert_ids = numerical_generator.generate_index_tensor(
+        shape=(512,),
+        upper_bound=64,
+        include_boundaries=True,
+        dtype_str="int32",
+        seed=42,
+    )
+
+    custom_suite = [{
+        "name": "moe_batch",
+        "args": (expert_table, expert_ids),
+        "kwargs": {},
+        "regime": "discrete_index",
+    }]
+    report = numerical_validator.validate_kernels(
+        ref_dispatch,
+        buggy_dispatch,
+        shapes=[(64, 32), (512,)],
+        dtype_str="float32",
+        test_suite=custom_suite,
+        max_allowed_ulp=0,
+    )
+    self.assertFalse(report.is_numerically_equivalent)
+    self.assertGreater(report.overall_max_ulp, 0)
+
 
 if __name__ == "__main__":
   absltest.main()
+

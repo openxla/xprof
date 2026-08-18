@@ -1,7 +1,7 @@
 ---
 name: xprof
 description: >-
-  Central entry point for ALL XProf operations and analyses. Use this skill first for any task involving XProf sessions, performance, memory, HLO ops, or collecting/triggering XProf profiles.
+  Central entry point for ALL XProf operations and analyses. Use this skill first for any task involving XProf traces, performance, memory, HLO ops, collecting/triggering XProf profiles, or numerical correctness verification.
 ---
 
 > ⚠️ **CRITICAL RULES** * **ALWAYS** use `find_session` first to get the correct
@@ -67,5 +67,6 @@ compute-bound. 4. **Execute** `aggregate_xplane_events` if timeline analysis is
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
 
 -   **[Numerical Verification](references/numerical_correctness.md)**: Verify
-    bit-level numerical equivalence between baseline and candidate kernels using
-    heavy-tailed distributions and ULP distance metrics.
+    numerical equivalence between baseline and candidate kernels using
+    multi-regime distributions, discrete bounded indices, monotonic segment IDs,
+    boolean masks, and ULP distance metrics.

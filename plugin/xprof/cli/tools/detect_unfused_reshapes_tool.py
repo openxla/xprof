@@ -298,3 +298,8 @@ def detect_unfused_reshapes(
         "Error detecting unfused reshapes for Session ID: %s. %s", session_id, e
     )
     return json.dumps({"error": f"Internal error during detection: {e}"})
+
+
+def clear_caches() -> None:
+  """Clears in-memory HLO and client LRU caches."""
+  hlo_tools.clear_hlo_memory_caches()

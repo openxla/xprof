@@ -169,7 +169,14 @@ TEST(TimeRangeTest, OperatorMinus) {
 TEST(TimeRangeTest, Abs) {
   TimeRange range(10.0, 20.0);
 
-  EXPECT_EQ(abs(range), 30.0);
+  EXPECT_EQ(abs(range), 20.0);
+}
+
+TEST(TimeRangeTest, FuzzyEquality) {
+  TimeRange range1(10.0, 20.0);
+  TimeRange range2(10.0 + 1e-12, 20.0 - 1e-12);
+
+  EXPECT_EQ(range1, range2);
 }
 
 TEST(TimeRangeTest, AnimatedTimeRangeBeforeUpdate) {

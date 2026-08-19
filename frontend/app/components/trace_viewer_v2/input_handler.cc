@@ -77,6 +77,12 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
   Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
 
+  // If Cmd/Ctrl modifier shortcuts (e.g. Cmd+R, Cmd+C, Cmd+V, Cmd+F)
+  // are pressed, return false to allow browser native behaviors.
+  if (event->ctrlKey || event->metaKey) {
+    return false;
+  }
+
   // If a native input element has focus, do not let ImGui capture the keyboard.
   if (IsActiveElementInput()) {
     return false;
@@ -97,6 +103,10 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
 EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
   Scheduler::Instance().RequestRedraw();
   UpdateModifierKeys(event);
+
+  if (event->ctrlKey || event->metaKey) {
+    return false;
+  }
 
   // If a native input element has focus, do not let ImGui capture the keyboard.
   if (IsActiveElementInput()) {

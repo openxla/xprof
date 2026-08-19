@@ -152,5 +152,15 @@ TEST_F(InputHandlerTest, HandleKeyDownSlashReturnsFalse) {
   EXPECT_FALSE(HandleKeyDown(0, &event, nullptr));
 }
 
+TEST_F(InputHandlerTest, HandleKeyDownReturnsFalseWhenModifierKeysArePressed) {
+  EmscriptenKeyboardEvent event;
+  memset(&event, 0, sizeof(event));
+  event.metaKey = true;
+  strncpy(event.code, "KeyR", sizeof(event.code) - 1);
+
+  EM_BOOL handled = HandleKeyDown(0, &event, nullptr);
+
+  EXPECT_FALSE(handled);
+}
 }  // namespace
 }  // namespace traceviewer

@@ -87,24 +87,23 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     fake_bytes = real_profile.SerializeToString()
     self.mock_client.fetch.return_value = (None, fake_bytes)
 
-    result_json = get_top_hlo_ops_tool.get_top_hlo_ops(
-        "test_session", limit=2
-    )
+    result_json = get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=2)
     result = json.loads(result_json)
 
     self.assertNotIn("error", result)
     self.assertLen(result["top_by_time"], 2)
     self.assertEqual(result["top_by_time"][0]["name"], "root/Op1")
     self.assertEqual(result["top_by_time"][1]["name"], "root/Op2")
+    self.mock_client.fetch.assert_called_with(
+        tool_name="op_profile", session_id="test_session", format="pb"
+    )
 
   def test_get_top_hlo_ops_by_flops(self):
     real_profile = self._create_fake_profile()
     fake_bytes = real_profile.SerializeToString()
     self.mock_client.fetch.return_value = (None, fake_bytes)
 
-    result_json = get_top_hlo_ops_tool.get_top_hlo_ops(
-        "test_session", limit=2
-    )
+    result_json = get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=2)
     result = json.loads(result_json)
 
     self.assertNotIn("error", result)
@@ -117,9 +116,7 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     fake_bytes = real_profile.SerializeToString()
     self.mock_client.fetch.return_value = (None, fake_bytes)
 
-    result_json = get_top_hlo_ops_tool.get_top_hlo_ops(
-        "test_session", limit=2
-    )
+    result_json = get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=2)
     result = json.loads(result_json)
 
     self.assertNotIn("error", result)
@@ -174,6 +171,15 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     )
     self.assertLen(result["top_by_time"], 1)
     self.assertEqual(result["top_by_time"][0]["name"], "root/Op2")
+
+  def test_missing_hlo_returns_clean_diagnostic(self):
+    """Verifies trace without HLO returns clean diagnostic without crash."""
+    self.mock_client.fetch.return_value = (None, None)
+    result_str = get_top_hlo_ops_tool.get_top_hlo_ops("session_without_hlo")
+    data = json.loads(result_str)
+    self.assertIn("error", data)
+    self.assertEqual(data.get("error"), "NO_HLO_DATA_IN_PROFILE")
+    self.assertNotIn("Traceback", result_str)
 
 
 if __name__ == "__main__":

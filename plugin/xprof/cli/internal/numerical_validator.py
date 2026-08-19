@@ -162,8 +162,21 @@ def compute_ulp_distance(
     actual: np.ndarray,
     expected: np.ndarray,
     dtype_str: str = "bfloat16",
+    zero_threshold: float = 0.05,
 ) -> np.ndarray:
-  """Computes exact integer bitwise ULP distance or exact integer/boolean delta."""
+  """Computes exact integer bitwise ULP distance with zero-crossing mitigation.
+
+  Args:
+    actual: The candidate tensor.
+    expected: The reference tensor.
+    dtype_str: The data type string.
+    zero_threshold: Magnitude threshold below which opposite-sign values are
+      evaluated using scaled absolute difference to avoid sign-crossing ULP
+      singularities.
+
+  Returns:
+    An ndarray of bitwise ULP distances.
+  """
   if (
       dtype_str == "bool"
       or actual.dtype == np.bool_
@@ -182,9 +195,43 @@ def compute_ulp_distance(
         expected.astype(np.uint64) - actual.astype(np.uint64),
     )
     return np.minimum(diff, np.iinfo(np.int64).max).astype(np.int64)
+
+  act_f64 = np.asarray(actual, dtype=np.float64)
+  exp_f64 = np.asarray(expected, dtype=np.float64)
   int_act = _sign_magnitude_to_continuous_int(actual, dtype_str)
   int_exp = _sign_magnitude_to_continuous_int(expected, dtype_str)
-  return np.abs(int_act - int_exp)
+  raw_ulp = np.abs(int_act - int_exp)
+
+  # Check for opposite-sign values below the zero_threshold
+  cross_zero_mask = (
+      (act_f64 * exp_f64 < 0)
+      & (np.abs(act_f64) < zero_threshold)
+      & (np.abs(exp_f64) < zero_threshold)
+  )
+
+  if np.any(cross_zero_mask):
+    if dtype_str == "float32":
+      eps = float(np.finfo(np.float32).eps)
+    elif dtype_str == "bfloat16":
+      eps = 7.8125e-3
+    elif dtype_str == "float16":
+      eps = float(np.finfo(np.float16).eps)
+    elif dtype_str.startswith("fp8"):
+      eps = 0.125
+    else:
+      eps = 1e-3
+
+    scaled_diff = np.abs(act_f64 - exp_f64) / eps
+    # Only replace if raw bit distance exhibits the sign-magnitude jump
+    # (> 10 ULP)
+    mitigate_mask = cross_zero_mask & (raw_ulp > 10)
+    return np.where(
+        mitigate_mask,
+        np.ceil(scaled_diff).astype(np.int64),
+        raw_ulp,
+    )
+
+  return raw_ulp
 
 
 def validate_kernels(
@@ -224,7 +271,7 @@ def validate_kernels(
   caution_msg = None
   if is_relaxed:
     caution_msg = (
-        f"⚠️ CAUTION: A relaxed tolerance threshold"
+        "⚠️ CAUTION: A relaxed tolerance threshold"
         f" (max_allowed_ulp={actual_max_allowed_ulp}) was configured. The"
         f" recommended contract is <= {recommended_ulp} ULP for"
         f" '{canonical_dtype}' to guarantee numerical correctness. Ensure this"

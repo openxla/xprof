@@ -295,7 +295,16 @@ def get_utilization_viewer(
 
     if not raw_data:
       return json.dumps(
-          {"error": f"No data returned for session {session_id}"}, indent=2
+          {
+              "status": "UNAVAILABLE",
+              "reason": "UTILIZATION_VIEWER_UNSUPPORTED_IN_OSS",
+              "message": (
+                  "utilization_viewer is an internal XProf processor not"
+                  " registered in the open-source XProf C++ engine."
+              ),
+              "error": f"No data returned for session {session_id}",
+          },
+          indent=2,
       )
 
     decoded_data = (

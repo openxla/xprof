@@ -39,10 +39,18 @@ def get_top_hlo_ops(
   client = xprof_client.get_client()
   try:
     op_profile_result = client.fetch(
-        tool_name="hlo_op_profile.json",
+        tool_name="op_profile",
         session_id=session_id,
         format="pb",
     )
+    if not op_profile_result or (
+        isinstance(op_profile_result, tuple) and not op_profile_result[1]
+    ):
+      op_profile_result = client.fetch(
+          tool_name="hlo_op_profile.json",
+          session_id=session_id,
+          format="pb",
+      )
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching top HLO ops for session %s", session_id)
     return json.dumps(
@@ -65,7 +73,21 @@ def get_top_hlo_ops(
     if len(op_profile_result) != 2:
       return json.dumps(dict(error="Unexpected tuple length"), indent=2)
     content_type, data = op_profile_result
+    if isinstance(data, str):
+      data = data.encode("utf-8")
     if not isinstance(data, bytes):
+      if data is None or not data:
+        return json.dumps(
+            {
+                "error": "NO_HLO_DATA_IN_PROFILE",
+                "message": (
+                    "No HLO op_profile found in trace. For JAX traces, ensure"
+                    " compilation is captured in the trace or pass"
+                    " XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'."
+                ),
+            },
+            indent=2,
+        )
       return json.dumps(
           dict(error=f"Unexpected data type: {type(data)}"), indent=2
       )

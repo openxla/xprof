@@ -1,5 +1,7 @@
 """Tool to verify numerical parity between reference and candidate kernels."""
 
+# pylint: disable=g-import-not-at-top
+
 import ast
 import builtins
 import collections.abc
@@ -7,7 +9,6 @@ import dataclasses
 import importlib
 import json
 from typing import Any
-from xprof.cli.internal import numerical_validator
 
 _Callable = collections.abc.Callable
 _Sequence = collections.abc.Sequence
@@ -101,6 +102,18 @@ def _resolve_callable(target: _Callable[..., Any] | str) -> _Callable[..., Any]:
       )
     return current
 
+  root_pkg = parts[0]
+  if root_pkg in ("jax", "torch", "tensorflow", "flax", "equinox"):
+    try:
+      importlib.import_module(root_pkg)
+    except ModuleNotFoundError as e:
+      raise ImportError(
+          f"Package '{root_pkg}' is not installed in current environment. "
+          f"To verify '{target_str}', please install {root_pkg} separately "
+          f"(e.g. 'pip install {root_pkg}'). Note: {root_pkg} is not bundled "
+          "in xprof to prevent cyclic dependencies (jax <--> xprof)."
+      ) from e
+
   raise ImportError(f"Could not import module from '{target_str}'")
 
 
@@ -143,6 +156,15 @@ def verify_numerical_parity(
   parsed_shapes: Any = shapes
   if isinstance(shapes, str):
     parsed_shapes = ast.literal_eval(shapes)
+
+  try:
+    from xprof.cli.internal import numerical_validator
+  except ModuleNotFoundError as e:
+    raise ImportError(
+        "Required numerical dependencies are not installed in current"
+        f" environment: {e}. Please install numpy and ml_dtypes (e.g. 'pip"
+        " install numpy ml_dtypes') to use verify_numerical_parity."
+    ) from e
 
   report = numerical_validator.validate_kernels(
       kernel_ref=ref_fn,

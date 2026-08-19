@@ -1,3 +1,5 @@
+import inspect
+import pathlib
 from typing import Any
 import unittest
 from unittest import mock
@@ -88,6 +90,61 @@ class XProfCliTest(unittest.TestCase):
     xprof_cli.main([])
     mock_fire.assert_called_once_with(mock.ANY, command=None, name='xprof')
     self.assertIsInstance(mock_fire.call_args[0][0], xprof_cli.XProfCli)
+
+  def test_all_tool_modules_registered_in_cli_main(self):
+    """Ensures every *_tool.py file in cli/tools/ is registered in cli_main."""
+    cli_module_dir = pathlib.Path(xprof_cli.__file__).parent
+    tools_dir = cli_module_dir / 'tools'
+    tool_files = [
+        f
+        for f in tools_dir.glob('*_tool.py')
+        if f.name != '__init__.py' and not f.name.startswith('test_')
+    ]
+
+    cli_dict = xprof_cli.cli_main()
+
+    for tool_file in tool_files:
+      tool_name = tool_file.stem
+      if tool_name.endswith('_tool'):
+        tool_name = tool_name[:-5]
+      self.assertIn(
+          tool_name,
+          cli_dict,
+          msg=(
+              f"Tool '{tool_name}' from '{tool_file.name}' is missing"
+              ' registration in cli_main()!'
+          ),
+      )
+
+  @mock.patch.object(xprof_cli, '_is_oss', return_value=True)
+  def test_wrap_with_logdir_preserves_valid_signature_in_oss(self, _):
+    """Ensures _wrap_with_logdir creates valid inspect signatures in OSS mode."""
+    # Test on all real registered tools.
+    for tool_name, tool_func in xprof_cli.cli_main().items():
+      wrapped = xprof_cli._wrap_with_logdir(tool_func)
+      self.assertTrue(callable(wrapped), msg=f'Failed wrapping {tool_name}')
+      sig = inspect.signature(wrapped)
+      self.assertIn('logdir', sig.parameters)
+
+    # Test on a synthetic function with kwargs to prevent invalid parameter
+    # ordering.
+    def sample_func_with_kwargs(session_id: str, limit: int = 10, **kwargs):
+      del session_id, limit, kwargs
+      return 'ok'
+
+    wrapped_sample = xprof_cli._wrap_with_logdir(sample_func_with_kwargs)
+    sig_sample = inspect.signature(wrapped_sample)
+    params = list(sig_sample.parameters.values())
+    self.assertEqual(params[-1].kind, inspect.Parameter.VAR_KEYWORD)
+    self.assertIn('logdir', sig_sample.parameters)
+    self.assertIn('bypass_cache', sig_sample.parameters)
+    self.assertEqual(
+        sig_sample.parameters['logdir'].kind, inspect.Parameter.KEYWORD_ONLY
+    )
+    self.assertEqual(
+        sig_sample.parameters['bypass_cache'].kind,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
 
 
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import re
 import traceback
 from typing import Any, Literal
 from xprof.cli.internal import decorators
+from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xprof_client
 
 _INSTRUCTION_NAME_REGEX = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\.\d+")
@@ -283,19 +284,26 @@ def _get_module_names(
   else:
     data = result
 
-  if not data:
-    raise ValueError("No memory viewer data returned for the session")
+  if data:
+    if isinstance(data, bytes):
+      data = data.decode("utf-8", errors="replace")
 
-  if isinstance(data, bytes):
-    data = data.decode("utf-8", errors="replace")
-
-  module_names = [m.strip() for m in data.split(",") if m.strip()]
-  if not module_names:
+    module_names = [m.strip() for m in data.split(",") if m.strip()]
+    if module_names:
+      return module_names
     raise ValueError(
         "No HLO modules found in memory viewer data for the session"
     )
 
-  return module_names
+  # Fallback to discovering HLO module files in the session
+  try:
+    files = hlo_tools.get_hlo_proto_files(session_id)
+    if files:
+      return [f.name.removesuffix(".hlo_proto.pb") for f in files]
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.warning("Failed to discover HLO module files: %s", e)
+
+  raise ValueError("No memory viewer data returned for the session")
 
 
 def _fetch_modules_data(

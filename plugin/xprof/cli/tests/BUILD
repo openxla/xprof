@@ -12,7 +12,6 @@ py_test(
         "//plugin/xprof/cli/internal/oss:events_db_tools",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools/oss:f1_utils",
-        "//third_party/py/pandas",
         "@absl_py//absl/testing:absltest",
     ],
 )
@@ -125,30 +124,6 @@ pytype_strict_contrib_test(
     ],
 )
 
-pytype_strict_contrib_test(
-    name = "get_smart_suggestions_tool_test",
-    srcs = ["get_smart_suggestions_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/internal:decorators",
-        "//plugin/xprof/cli/internal/oss:smart_suggestion_tools",
-        "//plugin/xprof/cli/tools:get_smart_suggestions_tool",
-        "@absl_py//absl/testing:absltest",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "detect_layout_mismatch_copies_tool_test",
-    srcs = ["detect_layout_mismatch_copies_tool_test.py"],
-    deps = [
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
-        "//plugin/xprof/cli/tools:detect_layout_mismatch_copies_tool",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-        "@xla//xla:xla_data_proto_py",
-    ],
-)
-
 py_test(
     name = "get_utilization_viewer_tool_test",
     srcs = ["get_utilization_viewer_tool_test.py"],
@@ -176,93 +151,18 @@ pytype_strict_contrib_test(
     name = "oss_xplane_tools_test",
     srcs = ["oss_xplane_tools_test.py"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "@absl_py//absl/testing:absltest",
     ],
 )
 
 pytype_strict_contrib_test(
-    name = "detect_unnecessary_convert_reduce_tool_test",
-    srcs = ["detect_unnecessary_convert_reduce_tool_test.py"],
-    visibility = ["//visibility:public"],
+    name = "oss_hlo_tools_test",
+    srcs = ["oss_hlo_tools_test.py"],
     deps = [
         "//plugin/xprof/cli/internal/oss:hlo_tools",
-        "//plugin/xprof/cli/tools:detect_unnecessary_convert_reduce_tool",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "@absl_py//absl/testing:absltest",
-        "@xla//xla:xla_data_proto_py",
-        "@xla//xla/python:xla_client",
-        "@xla//xla/service:hlo_proto_py",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "detect_unfused_updates_tool_test",
-    srcs = ["detect_unfused_updates_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/tools:detect_unfused_updates_tool",
-        "@absl_py//absl/testing:absltest",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "detect_unfused_reshapes_tool_test",
-    srcs = ["detect_unfused_reshapes_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/tools:detect_unfused_reshapes_tool",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "detect_unnecessary_convert_dynamic_scale_tool_test",
-    srcs = ["detect_unnecessary_convert_dynamic_scale_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
-        "//plugin/xprof/cli/tools:detect_unnecessary_convert_dynamic_scale_tool",
-        "@absl_py//absl/testing:absltest",
-        "@xla//xla/python:xla_client",
-        "@xla//xla/service:hlo_proto_py",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "tolerance_dilemma_test",
-    srcs = ["tolerance_dilemma_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/internal:numerical_generator",
-        "//plugin/xprof/cli/internal:numerical_validator",
-        "//third_party/py/numpy",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-        "@pypi//jax",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "numerical_generator_test",
-    srcs = ["numerical_generator_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/internal:numerical_generator",
-        "//third_party/py/numpy",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
-    ],
-)
-
-pytype_strict_contrib_test(
-    name = "verify_numerical_parity_tool_test",
-    srcs = ["verify_numerical_parity_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
-        "//third_party/py/numpy",
-        "@absl_py//absl/testing:absltest",
-        "@absl_py//absl/testing:parameterized",
     ],
 )

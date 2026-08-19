@@ -308,7 +308,7 @@ def cached(
         )
         params.append(new_param)
         new_sig = func_sig.replace(parameters=params)
-        wrapper.__signature__ = new_sig  # pytype: disable=attribute-error
+        wrapper.__signature__ = new_sig  # pyrefly: ignore[missing-attribute]
       except Exception:  # pylint: disable=broad-except
         pass
 

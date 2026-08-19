@@ -62,7 +62,14 @@ def get_llo_analysis(session_id: str, host: str = "") -> str:
 
       if not analysis.get("success", False):
         return json.dumps(
-            dict(error="Failed to analyze LLO from xspace"), indent=2
+            dict(
+                status="UNAVAILABLE",
+                error=(
+                    "Failed to analyze LLO from xspace (LLO trace data is not"
+                    " available in this session)."
+                ),
+            ),
+            indent=2,
         )
 
       return json.dumps(analysis, indent=2)

@@ -12,10 +12,26 @@ import tempfile
 from unittest import mock
 
 from absl.testing import absltest
+from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xplane_tools
 
 
 class IterPlanesTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    mock_cache = mock.create_autospec(
+        decorators.Cache, instance=True, spec_set=True
+    )
+    mock_cache.get.return_value = decorators.Cache.UNKNOWN
+    self.enter_context(
+        mock.patch.object(
+            decorators,
+            "get_cache",
+            return_value=mock_cache,
+            autospec=True,
+        )
+    )
 
   def test_nonexistent_absolute_path_raises_filenotfounderror(self):
     """A path starting with / that doesn't exist should raise FileNotFoundError."""
@@ -78,6 +94,49 @@ class IterPlanesTest(absltest.TestCase):
       # Should not raise FileNotFoundError; should try server path.
       list(xplane_tools.iter_planes("nonexistent_relative_session_id"))
       mock_get_client.assert_called_once()
+
+  def test_list_xplane_events_max_events_negative_one_returns_all(self):
+    """Verifies max_events=-1 or 0 is treated as unlimited."""
+
+    class _FakeEvent:
+
+      def __init__(self, name, start_ns=0, duration_ns=10, stats=None):
+        self.name = name
+        self.start_ns = start_ns
+        self.duration_ns = duration_ns
+        self.stats = stats or []
+
+    class _FakeLine:
+
+      def __init__(self, name, events=None):
+        self.name = name
+        self.events = events or []
+
+    class _FakePlane:
+
+      def __init__(self, name, lines=None):
+        self.name = name
+        self.lines = lines or []
+
+    fake_event1 = _FakeEvent("event1", 0, 10)
+    fake_event2 = _FakeEvent("event2", 10, 10)
+    fake_line = _FakeLine("line1", [fake_event1, fake_event2])
+    fake_plane = _FakePlane("plane1", [fake_line])
+
+    with mock.patch.object(
+        xplane_tools, "iter_planes", return_value=[fake_plane]
+    ):
+      # max_events=-1 should return all 2 events, not 1
+      res_unlimited = xplane_tools.list_xplane_events(
+          "test_session", max_events=-1
+      )
+      self.assertIn("event1", res_unlimited)
+      self.assertIn("event2", res_unlimited)
+
+      # max_events=1 should return only 1 event
+      res_one = xplane_tools.list_xplane_events("test_session", max_events=1)
+      self.assertIn("event1", res_one)
+      self.assertNotIn("event2", res_one)
 
 
 if __name__ == "__main__":

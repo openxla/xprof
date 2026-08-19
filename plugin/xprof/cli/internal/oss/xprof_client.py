@@ -7,9 +7,9 @@ from typing import Any
 
 # pylint: disable=g-import-not-at-top
 try:
-  from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+  from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 except ImportError:
-  from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+  from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 
 
 class LocalXprofClient:
@@ -39,40 +39,52 @@ class LocalXprofClient:
     """The current logdir."""
     return self._logdir
 
-  def get_run_dir(self, session_id: str) -> pathlib.Path:
+  def get_run_dir(self, session_id: str | None = None) -> pathlib.Path:
     """Resolves the run directory for a given session_id (run name).
 
     Args:
-      session_id: The session ID, which is treated as the run name.
+      session_id: The session ID, run name, or direct directory/file path.
 
     Returns:
       A pathlib.Path to the run directory.
 
     Raises:
-      ValueError: If the logdir has not been set.
+      ValueError: If neither session_id nor logdir is specified.
       FileNotFoundError: If the run directory cannot be found.
     """
-    try:
-      session_path = pathlib.Path(session_id).expanduser()
-      if session_path.is_dir() and session_path.exists():
-        plugins_dir = session_path / "plugins" / "profile"
-        if plugins_dir.is_dir() and plugins_dir.exists():
-          subdirs = [d for d in plugins_dir.iterdir() if d.is_dir()]
-          if len(subdirs) == 1:
-            return subdirs[0]
-        return session_path
-    except (ValueError, TypeError, RuntimeError, OSError):
-      pass
+    if session_id:
+      try:
+        session_path = pathlib.Path(str(session_id)).expanduser()
+        if session_path.is_file() and session_path.exists():
+          return session_path.parent
+        if session_path.is_dir() and session_path.exists():
+          plugins_dir = session_path / "plugins" / "profile"
+          if plugins_dir.is_dir() and plugins_dir.exists():
+            subdirs = sorted([d for d in plugins_dir.iterdir() if d.is_dir()])
+            if subdirs:
+              return subdirs[-1]
+          return session_path
+      except (ValueError, TypeError, RuntimeError, OSError):
+        pass
 
     if not self._logdir:
+      if session_id:
+        raise FileNotFoundError(f"Path not found: {session_id}")
       raise ValueError("Logdir not set. Please configure logdir first.")
+
+    if not session_id:
+      plugins_dir = self._logdir / "plugins" / "profile"
+      if plugins_dir.is_dir() and plugins_dir.exists():
+        subdirs = sorted([d for d in plugins_dir.iterdir() if d.is_dir()])
+        if subdirs:
+          return subdirs[-1]
+      return self._logdir
 
     # Session ID is treated as the run name.
     # Standard TensorBoard structure: <logdir>/plugins/profile/<run>/.
     run_dir = self._logdir / "plugins" / "profile" / str(session_id)
     if not run_dir.exists():
-      # Try fallback to formatted date string if it looks like fire stripped
-      # underscores.
+      # Try fallback to formatted date string if fire stripped underscores.
       session_id_str = str(session_id)
       if len(session_id_str) == 14 and session_id_str.isdigit():
         formatted_id = (
@@ -93,11 +105,11 @@ class LocalXprofClient:
       )
     return run_dir
 
-  def get_xspace_paths(self, run_dir: pathlib.Path) -> Sequence[str]:
-    """Finds all .xplane.pb or .xspace.pb files in the run directory.
+  def get_xspace_paths(self, run_dir: pathlib.Path | str) -> Sequence[str]:
+    """Finds all .xplane.pb or .xspace.pb files in the run directory or path.
 
     Args:
-      run_dir: The directory to search within.
+      run_dir: The directory or file path to search within.
 
     Returns:
       A sorted list of paths to the found files.
@@ -105,9 +117,15 @@ class LocalXprofClient:
     Raises:
       FileNotFoundError: If no .xplane.pb or .xspace.pb files are found.
     """
+    p = pathlib.Path(run_dir).expanduser()
+    if p.is_file() and (
+        p.name.endswith(".xplane.pb") or p.name.endswith(".xspace.pb")
+    ):
+      return [str(p)]
+
     paths = []
     for pattern in ("**/*.xplane.pb", "**/*.xspace.pb"):
-      paths.extend(str(p) for p in run_dir.glob(pattern))
+      paths.extend(str(x) for x in p.glob(pattern))
     if not paths:
       raise FileNotFoundError(
           f"No .xplane.pb or .xspace.pb files found in {run_dir}"
@@ -150,6 +168,8 @@ class LocalXprofClient:
     # hlo_op_profile.json, graph_viewer.
     # Convert accepts: overview_page, memory_profile, op_profile, etc.
     tb_tool = tool_name[:-5] if tool_name.endswith(".json") else tool_name
+    if tb_tool == "hlo_op_profile":
+      tb_tool = "op_profile"
 
     run_dir = self.get_run_dir(session_id)
     xspace_paths = self.get_xspace_paths(run_dir)

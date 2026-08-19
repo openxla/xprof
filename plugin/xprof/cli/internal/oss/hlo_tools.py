@@ -7,17 +7,63 @@ import operator
 import pathlib
 import re
 
-from xprof.convert import raw_to_tool_data as convert  # pytype: disable=import-error
+# pylint: disable=g-import-not-at-top,g-direct-tensorflow-import
+try:
+  from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
+except ImportError:
+  from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 
 from xprof.cli.internal import decorators
 
 from . import xprof_client
 
+try:
+  from google3.perftools.accelerators.xprof.service import hlo_proto_dump_pb2  # pyrefly: ignore[missing-import]
+  from tensorflow.compiler.xla.service import hlo_pb2  # pyrefly: ignore[missing-import]
+except ImportError:
+  try:
+    from tensorflow.compiler.xla.service import hlo_pb2  # pyrefly: ignore[missing-import]
+  except ImportError:
+    hlo_pb2 = None
+  hlo_proto_dump_pb2 = None
+
 # Pre-compile regexes to improve performance.
-_COMP_NAME_RE = re.compile(r"%([a-zA-Z0-9._-]+)\s*\(")
-_INSTR_RE = re.compile(r"%([a-zA-Z0-9._-]+)\s*=(.*)")
+_COMP_NAME_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*\(")
+_INSTR_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*=(.*)")
 _METADATA_RE = re.compile(r"metadata={.*?}", re.DOTALL)
 _OPERAND_RE = re.compile(r"%([a-zA-Z0-9._-]+)")
+
+
+class _DebugInfoCollection:
+  """Container for HLO protos matching DebugInfoCollection interface."""
+
+  def __init__(self, hlo_proto=None, program_id=None):
+    self.hlo_proto = list(hlo_proto or [])
+    self.program_id = list(program_id or [])
+
+
+def fetch_debug_info(session_id: str):
+  """Compatibility helper for OSS detectors to load HloProto collection."""
+  proto_files = _get_hlo_proto_files(session_id)
+  debug_info = (
+      hlo_proto_dump_pb2.DebugInfoCollection()
+      if hlo_proto_dump_pb2 is not None
+      else _DebugInfoCollection()
+  )
+  for p in proto_files:
+    try:
+      with open(p, "rb") as f:
+        if hlo_pb2 is not None:
+          proto = hlo_pb2.HloProto()
+          proto.ParseFromString(f.read())
+          debug_info.hlo_proto.append(proto)
+          debug_info.program_id.append(p.stem)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Failed to parse HLO proto file %s: %s", p, e)
+  return debug_info
+
+
+_fetch_debug_info = fetch_debug_info
 
 
 def generate_hlo_protos(session_id: str) -> str:
@@ -32,14 +78,16 @@ def generate_hlo_protos(session_id: str) -> str:
   client = xprof_client.get_client()
   run_dir = client.get_run_dir(session_id)
 
-  if any(run_dir.glob("*.hlo_proto.pb")):
+  if any(run_dir.glob("*.hlo_proto.pb")) or any(
+      run_dir.glob("**/*.hlo_proto.pb")
+  ):
     return "Skipped: Already exist."
 
   convert.xspace_to_tool_names(client.get_xspace_paths(run_dir))
   return "Generated HLO protos."
 
 
-def _get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
+def get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
   """Finds all HLO proto files for the session.
 
   Args:
@@ -52,7 +100,12 @@ def _get_hlo_proto_files(session_id: str) -> Sequence[pathlib.Path]:
   client = xprof_client.get_client()
   run_dir = client.get_run_dir(str(session_id))
   files = list(run_dir.glob("*.hlo_proto.pb"))
-  return sorted(f for f in files if f.name != "NO_MODULE.hlo_proto.pb")
+  if not files:
+    files = list(run_dir.glob("**/*.hlo_proto.pb"))
+  return sorted(set(f for f in files if f.name != "NO_MODULE.hlo_proto.pb"))
+
+
+_get_hlo_proto_files = get_hlo_proto_files
 
 
 @decorators.cached(expire=86_400)
@@ -175,6 +228,7 @@ def get_hlo_text(
     path: str | None = None,
     module_name: str | None = None,
     op_name: str | None = None,
+    bypass_cache: bool = False,
 ) -> str:
   """Retrieves HLO module content for static analysis.
 
@@ -183,6 +237,7 @@ def get_hlo_text(
     path: Path to save the HLO text file.
     module_name: Name of the module.
     op_name: Name of the operation to focus on (optional).
+    bypass_cache: Whether to bypass cache.
 
   Returns:
     The retrieved HLO text content.
@@ -193,10 +248,18 @@ def get_hlo_text(
   try:
     if op_name:
       text = get_hlo_neighborhood(
-          session_id, op_name, radius=2, module_name=module_name
+          session_id,
+          op_name,
+          radius=2,
+          module_name=module_name,
+          bypass_cache=bypass_cache,
       )
     else:
-      text = get_hlo_module_content(session_id, module_name=module_name)
+      text = get_hlo_module_content(
+          session_id,
+          module_name=module_name,
+          bypass_cache=bypass_cache,
+      )
 
     if path:
       path_obj = pathlib.Path(path)

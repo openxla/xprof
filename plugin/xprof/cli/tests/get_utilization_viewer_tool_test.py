@@ -87,7 +87,13 @@ class GetUtilizationViewerToolTest(parameterized.TestCase):
           csv_data=None,
           kwargs={},
           expected_result={
-              "error": "No data returned for session test-session"
+              "status": "UNAVAILABLE",
+              "reason": "UTILIZATION_VIEWER_UNSUPPORTED_IN_OSS",
+              "message": (
+                  "utilization_viewer is an internal XProf processor not"
+                  " registered in the open-source XProf C++ engine."
+              ),
+              "error": "No data returned for session test-session",
           },
       ),
       dict(

@@ -11,12 +11,12 @@ from typing import Any, Iterator
 
 # pylint: disable=g-import-not-at-top
 try:
-  from xprof import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+  from xprof import profile_data as profiler  # pyrefly: ignore[missing-import]
 except ImportError:
   try:
-    from xprof import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+    from xprof import profile_data as profiler  # pyrefly: ignore[missing-import]
   except ImportError:
-    from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pytype: disable=import-error  # pyrefly: ignore[missing-import]
+    from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pyrefly: ignore[missing-import]
 
 from xprof.cli.internal import decorators
 
@@ -193,11 +193,11 @@ def list_xplane_events(
               "duration_ps": duration_ps,
           })
 
-          if len(events) >= max_events:
+          if max_events > 0 and len(events) >= max_events:
             break
-        if len(events) >= max_events:
+        if max_events > 0 and len(events) >= max_events:
           break
-      if len(events) >= max_events:
+      if max_events > 0 and len(events) >= max_events:
         break
 
     return json.dumps(events, indent=2)
@@ -331,5 +331,26 @@ def get_xspace_proto(
     with open(p, "wb") as f:
       f.write(data)
     return str(p)
+
+  # Guard against massive binary dumps (e.g. >10MB) flooding stdout or
+  # overflowing AI agent context windows.
+  if isinstance(data, bytes) and len(data) > 10 * 1024 * 1024:
+    safe_session = re.sub(r"[^a-zA-Z0-9_-]", "_", str(session_id))
+    tmp_path = pathlib.Path(f"/tmp/xspace_{safe_session}.pb")
+    with open(tmp_path, "wb") as f:
+      f.write(data)
+    return json.dumps(
+        {
+            "status": "SAVED_TO_FILE",
+            "size_bytes": len(data),
+            "size_mib": round(len(data) / (1024 * 1024), 2),
+            "file_path": str(tmp_path),
+            "message": (
+                "XSpace payload exceeded 10 MB. Saved to file to prevent"
+                " terminal buffer overflow. Specify --output_path to customize."
+            ),
+        },
+        indent=2,
+    )
 
   return data

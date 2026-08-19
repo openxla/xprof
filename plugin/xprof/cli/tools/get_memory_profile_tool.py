@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import traceback
+from typing import Any
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
@@ -288,7 +289,7 @@ def get_memory_profile(session_id: str) -> str:
         else -1.0
     )
 
-    output = {
+    output: dict[str, Any] = {
         "memory_capacity_gib": memory_capacity_gib,
         "peak_memory_usage_gib": peak_memory_usage_gib,
         "peak_usage_details": {
@@ -299,7 +300,6 @@ def get_memory_profile(session_id: str) -> str:
             "utilization_percent": utilization_percent,
         },
     }
-
     return json.dumps(output, indent=2)
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(

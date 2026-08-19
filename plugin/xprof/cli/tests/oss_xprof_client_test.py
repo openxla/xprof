@@ -24,6 +24,17 @@ class OssXprofClientTest(unittest.TestCase):
     client.set_logdir('/tmp/test')
     self.assertIsNotNone(client.logdir)
 
+  def test_get_run_dir_with_direct_dir(self):
+    client = xprof_client.LocalXprofClient()
+    run_dir = client.get_run_dir('/tmp')
+    self.assertEqual(str(run_dir), '/tmp')
+
+  def test_get_xspace_paths_single_file(self):
+    client = xprof_client.LocalXprofClient()
+    with mock.patch('pathlib.Path.is_file', return_value=True):
+      paths = client.get_xspace_paths('/tmp/test.xplane.pb')
+      self.assertEqual(paths, ['/tmp/test.xplane.pb'])
+
 
 if __name__ == '__main__':
   unittest.main()

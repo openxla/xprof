@@ -62,7 +62,13 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
 
       if not debug_str:
         return json.dumps(
-            dict(error="Failed to extract LLO debug string from xspace"),
+            dict(
+                status="UNAVAILABLE",
+                error=(
+                    "Failed to extract LLO debug string (LLO trace data is not"
+                    " available in this session)."
+                ),
+            ),
             indent=2,
         )
 

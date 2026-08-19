@@ -61,6 +61,7 @@ def get_overview(session_id: str, include_command: bool = False) -> str:
       session_id: The unique XProf session ID.
       include_command: Whether to include the full command line in the run
         environment (can be noisy).
+
   Returns:
       A JSON-formatted string containing 'performance_summary',
       'run_environment', and 'normalized_metrics'.
@@ -69,10 +70,16 @@ def get_overview(session_id: str, include_command: bool = False) -> str:
   client = xprof_client.get_client()
   try:
     result = client.fetch(
-        tool_name="overview_page.json",
+        tool_name="overview_page",
         session_id=session_id,
         format="json",
     )
+    if not result or (isinstance(result, tuple) and not result[1]):
+      result = client.fetch(
+          tool_name="overview_page.json",
+          session_id=session_id,
+          format="json",
+      )
     if isinstance(result, tuple) and len(result) == 2:
       _, data = result
     else:

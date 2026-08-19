@@ -4,12 +4,13 @@ import json
 import logging
 import traceback
 
+from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xprof_client
 
 
 def get_graph_viewer(
-    *,
     session_id: str = "",
+    *,
     symbol_id: str = "",
     symbol_type: str = "",
     graph_type: str = "xla",
@@ -59,13 +60,13 @@ def get_graph_viewer(
 
   if symbol_id:
     session_id = "xsymbol"
-  # copybara:uncomment_begin(external)
-  #   else:
-  #     try:
-  #       hlo_tools.generate_hlo_protos(session_id)
-  #     except Exception as e:  # pylint: disable=broad-exception-caught
-  #       logging.warning("Failed to generate HLO protos: %s", e)
-  #   # copybara:uncomment_end
+  elif not module_name:
+    try:
+      files = hlo_tools.get_hlo_proto_files(session_id)
+      if files:
+        module_name = files[0].name.removesuffix(".hlo_proto.pb")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.warning("Failed to auto-discover HLO module: %s", e)
 
   client = xprof_client.get_client()
 
@@ -98,7 +99,7 @@ def get_graph_viewer(
     params["use_xplane"] = str(use_xplane)
 
   params = {
-      "tool_name": "graph_viewer.json",
+      "tool_name": "graph_viewer",
       "session_id": session_id,
       "graph_viewer_options": params,
   }
@@ -112,7 +113,15 @@ def get_graph_viewer(
 
     if not data:
       return json.dumps(
-          dict(error="No data returned for graph_viewer.json"), indent=2
+          {
+              "error": "NO_HLO_DATA_IN_PROFILE",
+              "message": (
+                  "No graph_viewer data found in profile session. Ensure"
+                  " workload was profiled with"
+                  " XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'."
+              ),
+          },
+          indent=2,
       )
 
     if isinstance(data, bytes):
@@ -120,6 +129,19 @@ def get_graph_viewer(
 
     return data
   except Exception as e:  # pylint: disable=broad-except
+    if "Can not load hlo proto" in str(e) or "No HLO" in str(e):
+      return json.dumps(
+          {
+              "error": "NO_HLO_PROTO_IN_PROFILE",
+              "message": (
+                  "No compiled HLO module proto found in profile session. To"
+                  " capture HLO graphs, export"
+                  " XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'"
+                  " before profiling."
+              ),
+          },
+          indent=2,
+      )
     logging.exception("Error fetching data for graph_viewer.json")
     return json.dumps(
         dict(

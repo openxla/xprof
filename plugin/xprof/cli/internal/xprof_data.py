@@ -28,14 +28,19 @@ def get_profile_summary(session_id: str) -> str:
   client = xprof_client.get_client()
   try:
     # Fetch Op Profile for Top Ops
-    # Use hlo_op_profile.json as op_profile.pb is not available in some
-    # environments.
     op_profile_result = client.fetch(
-        tool_name="hlo_op_profile.json",
+        tool_name="op_profile",
         session_id=session_id,
-        # usually auto-detected
         format="json",
     )
+    if not op_profile_result or (
+        isinstance(op_profile_result, tuple) and not op_profile_result[1]
+    ):
+      op_profile_result = client.fetch(
+          tool_name="hlo_op_profile.json",
+          session_id=session_id,
+          format="json",
+      )
     op_profile = op_profile_pb2.Profile()
 
     if isinstance(op_profile_result, tuple) and len(op_profile_result) == 2:
@@ -49,6 +54,12 @@ def get_profile_summary(session_id: str) -> str:
         else:
           op_profile.ParseFromString(data)
       else:
+        if data is None:
+          return (
+              f"Profile Summary for {session_id}\nNo HLO op_profile data found"
+              " in profile. (Ensure JAX compilation occurs within the profiler"
+              " trace window or pass XLA_FLAGS='--xla_dump_to=<path>')."
+          )
         return (
             f"Unexpected data type for op_profile: {type(data)} (data={data})"
         )
@@ -142,10 +153,18 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
   client = xprof_client.get_client()
   try:
     op_profile_result = client.fetch(
-        tool_name="hlo_op_profile.json",
+        tool_name="op_profile",
         session_id=session_id,
         format="json",
     )
+    if not op_profile_result or (
+        isinstance(op_profile_result, tuple) and not op_profile_result[1]
+    ):
+      op_profile_result = client.fetch(
+          tool_name="hlo_op_profile.json",
+          session_id=session_id,
+          format="json",
+      )
     op_profile = op_profile_pb2.Profile()
 
     if isinstance(op_profile_result, tuple) and len(op_profile_result) == 2:
@@ -157,6 +176,18 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
         else:
           op_profile.ParseFromString(data)
       else:
+        if data is None:
+          return json.dumps(
+              {
+                  "error": "NO_HLO_DATA_IN_PROFILE",
+                  "message": (
+                      "No HLO op_profile found in trace. For JAX traces, ensure"
+                      " compilation is captured in the trace or pass"
+                      " XLA_FLAGS='--xla_dump_to=<path>'."
+                  ),
+              },
+              indent=2,
+          )
         return f"Unexpected data type for op_profile: {type(data)}"
     elif isinstance(op_profile_result, bytes):
       op_profile.ParseFromString(op_profile_result)
@@ -190,12 +221,35 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
           category_str = node.xla.category
         elif node.HasField("category"):
           category_str = "Category: " + name
+        else:
+          lower_name = name.lower()
+          for cat in (
+              "custom-call",
+              "fusion",
+              "convolution",
+              "dot",
+              "reduce",
+              "copy",
+              "reshape",
+              "broadcast",
+              "while",
+              "tuple",
+          ):
+            if cat in lower_name:
+              category_str = cat
+              break
+          if category_str == "unknown" and name.startswith("%"):
+            category_str = name.lstrip("%").split(".")[0].split("_")[0]
+
+        occurrences = metrics.occurrences
+        if occurrences == 0 and not node.children:
+          occurrences = 1
 
         flat_ops.append({
             "name": full_name,
             "category": category_str,
             "total_self_time_ps": metrics.raw_time,
-            "occurrences": metrics.occurrences,
+            "occurrences": occurrences,
             "flops": metrics.raw_flops,
             "bytes_accessed": total_bytes,
         })

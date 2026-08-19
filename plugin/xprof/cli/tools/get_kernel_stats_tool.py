@@ -4,11 +4,13 @@ import json
 from typing import Any, Literal
 
 from xprof.cli.internal import decorators
+
 from xprof.cli.internal.oss import kernel_stats_tools
 
 
 def compute_kernel_stats(
-    source: Any,
+    source: Any = None,
+    session_id: str | None = None,
     *,
     kernel_name: str | None = None,
     limit: int = 10,
@@ -26,6 +28,7 @@ def compute_kernel_stats(
   Args:
       source: XProf session ID, local file/directory path, serialized XSpace
         bytes, in-memory ProfileData/XSpace object, or pre-computed records.
+      session_id: Alias for source representing an XProf session ID or path.
       kernel_name: Optional specific tf_op_name / kernel name to filter by.
       limit: Number of top kernels to return when kernel_name is not provided.
       output_format: Output format - 'json' (JSON string), 'markdown' (markdown
@@ -39,6 +42,9 @@ def compute_kernel_stats(
       A formatted string representation or dictionary containing kernel
       statistics.
   """
+  source = source or session_id
+  if source is None:
+    raise ValueError("Must provide either 'source' or 'session_id'.")
   return kernel_stats_tools.get_kernel_stats(
       source,
       kernel_name=kernel_name,
@@ -52,7 +58,8 @@ def compute_kernel_stats(
 
 @decorators.rate_limited(rate=1.0, burst=3)
 def get_kernel_stats(
-    source: Any,
+    source: Any = None,
+    session_id: str | None = None,
     *,
     kernel_name: str | None = None,
     limit: int = 10,
@@ -75,6 +82,7 @@ def get_kernel_stats(
   Args:
       source: XProf session ID, local file/directory path, serialized XSpace
         bytes, in-memory ProfileData/XSpace object, or pre-computed records.
+      session_id: Alias for source representing an XProf session ID or path.
       kernel_name: Optional specific tf_op_name / kernel name to filter by.
       limit: Number of top kernels to return when kernel_name is not provided.
       output_format: Output format - 'json' (JSON string), 'markdown' (markdown
@@ -83,12 +91,15 @@ def get_kernel_stats(
         Interval Union alongside per-kernel records.
       device_to_use: Device plane to target (e.g., "TPU:0").
       trace_matchers: Optional tuple of event name matchers for filtering.
-      bypass_cache: If True, skip cache lookup and storage.
+      bypass_cache: Whether to bypass cache.
 
   Returns:
       A formatted string representation or dictionary containing kernel
       statistics.
   """
+  source = source or session_id
+  if source is None:
+    raise ValueError("Must provide either 'source' or 'session_id'.")
   if isinstance(source, str) and not source.startswith(("/", "local_")):
     cache = decorators.get_cache()
     cache_key = json.dumps(

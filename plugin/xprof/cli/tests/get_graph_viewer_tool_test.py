@@ -86,23 +86,36 @@ class GetGraphViewerToolTest(absltest.TestCase):
         output_type="short_txt",
     )
     self.assertEqual(result, "graph content")
-    self.mock_client.fetch.assert_called_once_with(
-        tool_name="graph_viewer.json",
-        session_id="session_123",
-        graph_viewer_options={
-            "graph_type": "xla",
-            "type": "short_txt",
-            "show_metadata": "false",
-            "node_name": "fusion.112",
-            "module_name": "jit_train_step",
-            "graph_width": "2",
-            "merge_fusion": "true",
-            "tag": "graph_viewer",
-            "tool": "hlo_op_profile",
-            "op_profile_limit": "1",
-            "use_xplane": "1",
-        },
+      self.mock_client.fetch.assert_called_once_with(
+          tool_name="graph_viewer.json",
+          session_id="session_123",
+          graph_viewer_options={
+              "graph_type": "xla",
+              "type": "short_txt",
+              "show_metadata": "false",
+              "node_name": "fusion.112",
+              "module_name": "jit_train_step",
+              "graph_width": "2",
+              "merge_fusion": "true",
+              "tag": "graph_viewer",
+              "tool": "hlo_op_profile",
+              "op_profile_limit": "1",
+              "use_xplane": "1",
+          },
+      )
+
+  def test_missing_hlo_proto_returns_clean_diagnostic(self):
+    """Verifies graph_viewer returns clean diagnostic when HLO proto is missing."""
+    self.mock_client.fetch.side_effect = ValueError(
+        "Can not load hlo proto from options."
     )
+    res = get_graph_viewer_tool.get_graph_viewer(
+        session_id="session_without_hlo"
+    )
+    data = json.loads(res)
+    self.assertIn("error", data)
+    self.assertEqual(data.get("error"), "NO_HLO_PROTO_IN_PROFILE")
+    self.assertIn("xla_flags", res.lower())
 
 
 if __name__ == "__main__":

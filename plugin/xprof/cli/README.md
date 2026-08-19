@@ -1,68 +1,62 @@
 <!-- disableFinding(LINE_OVER_80) -->
 # XProf CLI
 
-`xprof_cli` is a command-line interface tool for interacting with Google's XProf profiling data. It provides various commands to extract, analyze, and query different aspects of TPU and GPU profiles.
+`xprof_cli` is a command-line interface tool for interacting with Google's XProf profiling data. It provides various commands to extract, analyze, and query different aspects of TPU and GPU profiles across both 1P and open-source environments.
 
 ## Usage
 
 ```bash
-bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> [args...]
+# Standalone PyPI / Open-Source CLI
+xprof <command> <path_to_trace_or_logdir> [flags...]
+
+# In Google3 monorepo
+bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> <path_to_trace> [flags...]
 ```
 
-## Available Commands and Parameters
+## Available Commands
 
-The CLI exposes numerous tools for analysis. Most tools require at least a `--session_id`.
+The CLI provides 23 core tools for comprehensive accelerator profile analysis:
 
-*   **`llo_load`**: Load LLO traces from a session into a SQLite DB.
-    *   `--session_id=<str>`: The XProf session ID.
-    *   `--db_path=<str>`: Path to the SQLite database file.
-*   **`llo_query`**: Query a generated LLO SQLite DB.
-    *   `--db_path=<str>`: Path to the SQLite database file.
-    *   `--query=<str>`: SQL query string or pre-baked query name.
-*   **`get_overview`**: Get high-level overview of a session.
-    *   `--session_id=<str>`
-    *   `--include_command=<bool>` (Optional)
-*   **`get_memory_profile`**: Analyze memory allocations.
-    *   `--session_id=<str>`
-*   **`get_top_hlo_ops`**: Fetch the most expensive HLO operations.
-    *   `--session_id=<str>`
-    *   `--limit=<int>` (Optional, default 10)
-*   **`get_kpi_metrics`**: Get Key Performance Indicators.
-    *   `--session_id=<str>`
-*   **`detect_unfused_reshapes`**: Find reshapes that aren't fused.
-    *   `--session_id=<str>`
-*   **`diff_sessions`**: Compare two profiling sessions.
-    *   `--session_id_1=<str>`
-    *   `--session_id_2=<str>`
-*   **`find_session`**: Locate an XProf session.
-    *   `--session_id=<str>`
-*   **`get_events_db_session_root`**: Locate the events DB session root.
-    *   `--session_id=<str>`
-*   **`get_graph_viewer`**: Fetch graph viewer data.
-    *   `--session_id=<str>`
-    *   `--graph_type=<str>` (Optional)
-    *   `--output_type=<str>` (Optional)
-    *   `--show_metadata=<bool>` (Optional)
-    *   `--graph_width=<int>` (Optional)
-    *   `--merge_fusion=<bool>` (Optional)
-*   **`get_hlo_neighborhood`**: Get the neighborhood of an HLO instruction.
-    *   `--session_id=<str>`
-    *   `--module_name=<str>`
-    *   `--instruction_name=<str>`
-*   **`get_hlo_text`**: Get textual representation of an HLO module.
-    *   `--session_id=<str>`
-    *   `--module_name=<str>`
-*   **`get_peak_allocations`**: Identify peak memory allocations.
-    *   `--session_id=<str>`
-*   **`get_smart_suggestions`**: Receive automated performance suggestions.
-    *   `--session_id=<str>`
-*   **`get_utilization_viewer`**: Fetch utilization data.
-    *   `--session_id=<str>`
-*   **`detect_layout_mismatch_copies`**: Find copies caused by layout mismatches.
-    *   `--session_id=<str>`
-*   **`get_kernel_stats`**: Fetch performance statistics and step times across workloads.
-    *   `--session_id=<str>`: The XProf session ID or local profile path.
-    *   `--include_summary=<bool>`: If true, computes ground-truth device compute duration via Disjoint Interval Union alongside per-kernel records.
+### Overview & Telemetry
+
+*   **`get_overview`**: High-level performance overview (Compute vs Host vs Communication, step times, duty cycle).
+*   **`get_profile_summary`**: Executive-level text summary of top bottlenecks and memory utilization.
+*   **`get_kpi_metrics`**: Key Performance Indicators (duty cycle, step time, FLOP utilization).
+*   **`get_device_information`**: Hardware topology and theoretical roofline compute/bandwidth constants.
+*   **`get_hosts`**: List hostnames and workers present in the profile session.
+
+### Memory & Allocation Analysis
+
+*   **`get_memory_profile`**: Detailed memory breakdown (HBM capacity, peak usage, fragmentation).
+*   **`get_peak_allocations`**: Identifies peak memory allocations and buffer consumption ordered by HBM usage.
+
+### HLO & Compiler Analysis
+
+*   **`get_top_hlo_ops`**: Fetches the most expensive HLO operations sorted by execution time, FLOPs, or memory traffic.
+*   **`get_hlo_op_profile`**: Formatted HLO operation profile breakdown table.
+*   **`list_hlo_modules`**: Lists all HLO modules available in the profile session.
+*   **`get_hlo_text`**: Retrieves textual representation of compiled HLO instructions.
+*   **`get_hlo_module_content`**: Fetches full HLO instruction graph for a selected module.
+*   **`get_hlo_neighborhood`**: Traverses BFS neighborhood (operands and users) around a target HLO instruction.
+*   **`get_graph_viewer`**: Fetches DOT/pbtxt/text AST graph representation of HLO computation graphs.
+
+### Timeline & XPlane Inspection
+
+*   **`list_xplane_events`**: Streams timeline execution events from accelerator execution planes.
+*   **`aggregate_xplane_events`**: Aggregates event occurrences and total active durations.
+*   **`get_xspace_proto`**: Extracts raw XSpace protocol buffer bytes or dumps to file.
+*   **`get_kernel_stats`**: Performance statistics and step times across workloads.
+*   **`get_utilization_viewer`**: Accelerator utilization metrics across execution streams.
+
+### Low-Level Operator (LLO) & Diagnostics
+
+*   **`get_llo_analysis`**: Low-level instruction metrics and execution schedules.
+*   **`get_llo_debug_string`**: Raw low-level operator debug disassembly.
+
+### Ingestion & Numerical Correctness
+
+*   **`upload_trace`**: Ingests and registers `.xplane.pb` traces into profile run directories.
+*   **`verify_numerical_parity`**: Multi-batch numerical equivalence verification ($f_{\text{ref}} \leftrightarrow f_{\text{cand}}$) with ULP tolerance checking.
 
 ## Kernel Statistics & Disjoint Interval Union
 
@@ -75,3 +69,4 @@ Disjoint Interval Union uses a sweep-line algorithm to merge all active `[start,
 ## LLO (Low Level Operator) Analysis
 
 For detailed instructions on extracting, loading, and querying LLO events, see the [LLO Analysis Documentation](internal/google/LLO_ANALYSIS_README.md).
+

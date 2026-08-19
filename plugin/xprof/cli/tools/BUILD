@@ -7,13 +7,7 @@ package(default_visibility = [
 pytype_strict_library(
     name = "get_kernel_stats_tool",
     srcs = ["get_kernel_stats_tool.py"],
-    visibility = [
-        "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
-        "//learning/gemini:__subpackages__",
-        "//learning/performance/agents:__subpackages__",
-        "//plugin/xprof:__subpackages__",
-        "//third_party/py/tokamax:__subpackages__",
-    ],
+    visibility = ["//plugin/xprof:__subpackages__"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
@@ -63,6 +57,7 @@ pytype_strict_library(
     srcs = ["get_peak_allocations_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
@@ -99,63 +94,10 @@ pytype_strict_library(
 pytype_strict_library(
     name = "get_graph_viewer_tool",
     srcs = ["get_graph_viewer_tool.py"],
-    deps = ["//plugin/xprof/cli/internal/oss:xprof_client"],
-)
-
-pytype_strict_library(
-    name = "get_smart_suggestions_tool",
-    srcs = ["get_smart_suggestions_tool.py"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
-        "//plugin/xprof/cli/internal/oss:smart_suggestion_tools",
-    ],
-)
-
-pytype_strict_library(
-    name = "detect_unfused_reshapes_tool",
-    srcs = ["detect_unfused_reshapes_tool.py"],
-    visibility = [
-        "//plugin/xprof:__subpackages__",
-    ],
-    deps = [
-        ":get_top_hlo_ops_tool",
         "//plugin/xprof/cli/internal/oss:hlo_tools",
-    ],
-)
-
-pytype_strict_library(
-    name = "detect_layout_mismatch_copies_tool",
-    srcs = ["detect_layout_mismatch_copies_tool.py"],
-    deps = [
-        ":get_top_hlo_ops_tool",
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
-    ],
-)
-
-pytype_strict_library(
-    name = "detect_unnecessary_convert_reduce_tool",
-    srcs = ["detect_unnecessary_convert_reduce_tool.py"],
-    deps = [
-        ":get_top_hlo_ops_tool",
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
-    ],
-)
-
-pytype_strict_library(
-    name = "detect_unfused_updates_tool",
-    srcs = ["detect_unfused_updates_tool.py"],
-    deps = [
-        ":get_top_hlo_ops_tool",
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
-    ],
-)
-
-pytype_strict_library(
-    name = "detect_unnecessary_convert_dynamic_scale_tool",
-    srcs = ["detect_unnecessary_convert_dynamic_scale_tool.py"],
-    deps = [
-        ":get_top_hlo_ops_tool",
-        "//plugin/xprof/cli/internal/oss:hlo_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
     ],
 )
 

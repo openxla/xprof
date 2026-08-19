@@ -92,7 +92,7 @@ class XprofDataTest(absltest.TestCase):
     result = xprof_data.get_profile_summary("session_summary")
 
     self.mock_client.fetch.assert_called_with(
-        tool_name="hlo_op_profile.json",
+        tool_name="op_profile",
         session_id="session_summary",
         format="json",
     )

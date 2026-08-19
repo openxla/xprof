@@ -510,6 +510,16 @@ class GetPeakAllocationsToolTest(parameterized.TestCase):
         expected_calls, self.mock_client.fetch.call_args_list
     )
 
+  def test_missing_memory_returns_clean_diagnostic(self):
+    """Verifies peak_allocations returns clean diagnostic on missing memory data."""
+    self.mock_client.fetch.return_value = ("application/json", "")
+    res = get_peak_allocations_tool.get_peak_allocations(
+        "session_without_memory"
+    )
+    data = json.loads(res)
+    self.assertIn("error", data)
+    self.assertIn("Failed to get peak allocations", data["error"])
+
 
 class InternalFunctionsTest(parameterized.TestCase):
 

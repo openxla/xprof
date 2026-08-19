@@ -28,6 +28,7 @@ limitations under the License.
 #include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/lib/gtl/map_util.h"
@@ -438,7 +439,8 @@ void ConvertSparseCoreDeviceTraceXPlaneToOpMetricsDb(
   });
   // Now walk through the events and add them to their proper OpMetricsDb
   plane.ForEachLine([&](const XLineVisitor& line) {
-    if (line.Name() == tsl::profiler::kSparseCoreOpLineName) {
+    if (line.Name() == tsl::profiler::kSparseCoreOpLineName ||
+        absl::StartsWith(line.Name(), "TEC ")) {
       auto module_it = module_timespans.begin();
       line.ForEachEvent([&](const XEventVisitor& event) {
         const tsl::profiler::Timespan timespan = GetDeviceEventTimespan(event);
@@ -555,7 +557,7 @@ OpMetricsDb ConvertDeviceTraceXPlaneToOpMetricsDb(
                 } else if (stat.Name() == "flops") {
                   // Store single occurrence value, assume identical for merged
                   // ops.
-                  current.flops = stat.IntOrUintValue();
+                  current.flops = std::max<int64_t>(0, stat.IntOrUintValue());
                 } else if (stat.Name() == "bytes_accessed") {
                   current.bytes_accessed = stat.IntOrUintValue();
                 }

@@ -1230,6 +1230,19 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "op_stats_to_roofline_model_sparsecore_test",
+    srcs = ["op_stats_to_roofline_model_sparsecore_test.cc"],
+    deps = [
+        ":op_metrics_to_record",
+        ":op_stats_to_roofline_model",
+        "//third_party/tensorflow/core/profiler/protobuf:op_metrics_proto_cc",
+        "//third_party/tensorflow/core/profiler/protobuf:op_stats_proto_cc",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//plugin/xprof/protobuf:roofline_model_proto_cc",
+    ],
+)
+
 cc_library(
     name = "op_stats_to_op_profile",
     srcs = ["op_stats_to_op_profile.cc"],

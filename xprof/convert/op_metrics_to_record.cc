@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "xprof/convert/op_metrics_to_record.h"
 
+#include <queue>
 #include <tuple>
 #include <vector>
 
@@ -30,6 +31,39 @@ std::vector<const OpMetrics*> SortedOpMetricsDb(const OpMetricsDb& metrics_db,
   result.reserve(metrics_db.metrics_db_size());
   for (const OpMetrics& metrics : metrics_db.metrics_db()) {
     result.push_back(&metrics);
+  }
+
+  auto comp = [](const OpMetrics* a, const OpMetrics* b) {
+    return std::make_tuple(a->self_time_ps(), b->name()) >
+           std::make_tuple(b->self_time_ps(), a->name());
+  };
+  int result_size = result.size();
+  if (max_records != -1 && result_size > max_records) {
+    absl::c_partial_sort(result, result.begin() + max_records, comp);
+    result.resize(max_records);
+  } else {
+    absl::c_sort(result, comp);
+  }
+  return result;
+}
+
+std::vector<const OpMetrics*> ScSortedOpMetricsDb(const OpMetricsDb& metrics_db,
+                                                  int max_records) {
+  std::queue<const OpMetrics*> queue;
+  for (const OpMetrics& metrics : metrics_db.metrics_db()) {
+    queue.push(&metrics);
+  }
+  std::vector<const OpMetrics*> result;
+  result.reserve(metrics_db.metrics_db_size());
+  while (!queue.empty()) {
+    const OpMetrics* metric_node = queue.front();
+    if (metric_node->core_type() == OpMetrics::SPARSE_CORE) {
+      result.push_back(metric_node);
+    }
+    for (const OpMetrics& child_metric : metric_node->children().metrics_db()) {
+      queue.push(&child_metric);
+    }
+    queue.pop();
   }
 
   auto comp = [](const OpMetrics* a, const OpMetrics* b) {

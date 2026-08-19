@@ -1,11 +1,32 @@
-import {Component, inject, OnDestroy, ViewChild, ChangeDetectionStrategy} from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+  ViewChild,
+} from '@angular/core';
 import {ActivatedRoute, Params} from '@angular/router';
 import {Store} from '@ngrx/store';
 import {Throbber} from 'org_xprof/frontend/app/common/classes/throbber';
-import {DEVICE_INFO, NUMERIC_DATA_FORMAT, PIE_CHART_PALETTE, ROOFLINE_NAMES, ROOFLINE_SERIES_NAMES, ROOFLINE_STYLES, SCATTER_CHART_AXIS, SCATTER_CHART_OPTIONS, } from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
+import {
+  DEVICE_INFO,
+  NUMERIC_DATA_FORMAT,
+  PIE_CHART_PALETTE,
+  ROOFLINE_NAMES,
+  ROOFLINE_SERIES_NAMES,
+  ROOFLINE_STYLES,
+  SCATTER_CHART_AXIS,
+  SCATTER_CHART_OPTIONS,
+} from 'org_xprof/frontend/app/common/constants/roofline_model_constants';
 import {RooflineModelData} from 'org_xprof/frontend/app/common/interfaces/roofline_model';
-import {getGigaflopsReadableString, setLoadingState} from 'org_xprof/frontend/app/common/utils/utils';
-import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
+import {
+  getGigaflopsReadableString,
+  setLoadingState,
+} from 'org_xprof/frontend/app/common/utils/utils';
+import {
+  DATA_SERVICE_INTERFACE_TOKEN,
+  DataServiceV2Interface,
+} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {setCurrentToolStateAction} from 'org_xprof/frontend/app/store/actions';
 import {combineLatest, ReplaySubject} from 'rxjs';
@@ -18,7 +39,7 @@ interface DeviceInfoData {
   id: string;
   label: string;
   type?: string;
-  value?: string|number;
+  value?: string | number;
   unit?: string;
   context?: string;
   display?: boolean;
@@ -30,7 +51,7 @@ declare interface DeviceIndicators {
   isGpu: boolean;
   timeScaleMultiplier: number;
 }
-type ColumnIdxArr = Array<number|google.visualization.ColumnSpec>;
+type ColumnIdxArr = Array<number | google.visualization.ColumnSpec>;
 
 interface TooltipRow {
   id: string;
@@ -42,7 +63,8 @@ const GPU_TYPE_SUBSTRING = 'GPU';
 
 /** A roofline model component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'roofline-model',
   templateUrl: './roofline_model.ng.html',
   styleUrls: ['./roofline_model.scss'],
@@ -51,10 +73,13 @@ export class RooflineModel implements OnDestroy {
   sessionId = '';
   tool = 'roofline_model';
 
-  private readonly dataService: DataServiceV2Interface =
-      inject(DATA_SERVICE_INTERFACE_TOKEN);
-  private readonly sourceCodeService =
-      inject(SOURCE_CODE_SERVICE_INTERFACE_TOKEN, {optional: true});
+  private readonly dataService: DataServiceV2Interface = inject(
+    DATA_SERVICE_INTERFACE_TOKEN,
+  );
+  private readonly sourceCodeService = inject(
+    SOURCE_CODE_SERVICE_INTERFACE_TOKEN,
+    {optional: true},
+  );
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
@@ -90,15 +115,15 @@ export class RooflineModel implements OnDestroy {
   columnsIdxProgram: ColumnIdxArr = [];
   // preprocessed data for underlying roofline scatter chart
   scatterDataProgram: google.visualization.DataTable | null = null;
-  readonly scatterChartOptionsProgram:
-      google.visualization.ScatterChartOptions = {
-    ...SCATTER_CHART_OPTIONS,
-    tooltip: {
-      ...(SCATTER_CHART_OPTIONS.tooltip || {}),
-      trigger: 'selection',
-    },
-    series: [],
-  };
+  readonly scatterChartOptionsProgram: google.visualization.ScatterChartOptions =
+    {
+      ...SCATTER_CHART_OPTIONS,
+      tooltip: {
+        ...(SCATTER_CHART_OPTIONS.tooltip || {}),
+        trigger: 'selection',
+      },
+      series: [],
+    };
   readonly programLevelAgg = ['Total', 'Total (HW)', 'Average', 'Step'];
 
   /** Operation level section variables */
@@ -113,37 +138,55 @@ export class RooflineModel implements OnDestroy {
     },
     series: [],
   };
+
+  /** SparseCore Operation level section variables */
+  dataTableOpSparseCore?: google.visualization.DataTable | null = null;
+  columnsIdxOpSparseCore: ColumnIdxArr = [];
+  scatterDataOpSparseCore?: google.visualization.DataTable | null = null;
+  readonly scatterChartOptionsOpSparseCore: google.visualization.ScatterChartOptions =
+    {
+      ...SCATTER_CHART_OPTIONS,
+      title: 'SparseCore Roofline Model',
+      tooltip: {
+        ...(SCATTER_CHART_OPTIONS.tooltip || {}),
+        trigger: 'selection',
+      },
+      series: [],
+    };
   // Prepopulated op name from url
   selectedOpName = '';
 
   sourceCodeServiceIsAvailable = false;
 
   constructor(
-      route: ActivatedRoute,
-      private readonly store: Store<{}>,
+    route: ActivatedRoute,
+    private readonly store: Store<{}>,
   ) {
     combineLatest([route.params, route.queryParams])
-        .pipe(takeUntil(this.destroyed))
-        .subscribe(([params, queryParams]) => {
-          const oldSessionId = this.sessionId;
-          const oldTool = this.tool;
-          const oldHost = this.host;
+      .pipe(takeUntil(this.destroyed))
+      .subscribe(([params, queryParams]) => {
+        const oldSessionId = this.sessionId;
+        const oldTool = this.tool;
+        const oldHost = this.host;
 
-          this.sessionId = params['sessionId'] || this.sessionId;
-          this.processQueryParams(queryParams);
-          // Trigger update only if the parameters actually changed.
-          const hasChanged = this.sessionId !== oldSessionId ||
-              this.tool !== oldTool || this.host !== oldHost;
-          if (hasChanged) {
-            this.update();
-          }
-        });
+        this.sessionId = params['sessionId'] || this.sessionId;
+        this.processQueryParams(queryParams);
+        // Trigger update only if the parameters actually changed.
+        const hasChanged =
+          this.sessionId !== oldSessionId ||
+          this.tool !== oldTool ||
+          this.host !== oldHost;
+        if (hasChanged) {
+          this.update();
+        }
+      });
     this.store.dispatch(setCurrentToolStateAction({currentTool: this.tool}));
-    this.sourceCodeService?.isAvailable()
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((isAvailable) => {
-          this.sourceCodeServiceIsAvailable = isAvailable;
-        });
+    this.sourceCodeService
+      ?.isAvailable()
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((isAvailable) => {
+        this.sourceCodeServiceIsAvailable = isAvailable;
+      });
   }
 
   /**
@@ -172,7 +215,7 @@ export class RooflineModel implements OnDestroy {
 
   parseUrlParams() {
     this.selectedOpName =
-        this.dataService.getSearchParams().get('roofline_op_name') || '';
+      this.dataService.getSearchParams().get('roofline_op_name') || '';
   }
 
   refreshDashboards() {
@@ -195,31 +238,33 @@ export class RooflineModel implements OnDestroy {
     this.refreshDashboards();
 
     // get tool data
-    this.dataService.getData(this.sessionId, this.tool, this.host)
-        .pipe(takeUntil(this.destroyed))
-        .subscribe((data) => {
-          this.throbber.stop();
-          setLoadingState(false, this.store);
-          this.parseData(data as RooflineModelData[]);
-          // TODO(muditgokhale): Add support for roofline model link from trace
-          // viewer in 3P. Merge parseUrlParams with processQuery method once
-          // done.
-          this.parseUrlParams();
-        });
+    this.dataService
+      .getData(this.sessionId, this.tool, this.host)
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((data) => {
+        this.throbber.stop();
+        setLoadingState(false, this.store);
+        this.parseData(data as RooflineModelData[]);
+        // TODO(muditgokhale): Add support for roofline model link from trace
+        // viewer in 3P. Merge parseUrlParams with processQuery method once
+        // done.
+        this.parseUrlParams();
+      });
   }
 
   updateAnalysis() {
     this.loadingAnalysis = true;
-    const params = new Map<string, string|boolean>();
+    const params = new Map<string, string | boolean>();
     if (this.applyScalingFactor) {
       params.set('apply_time_scale_multiplier', this.applyScalingFactor);
     }
-    this.dataService.getData(this.sessionId, this.tool, this.host, params)
-        .pipe(take(1))
-        .subscribe((data) => {
-          this.parseData(data as RooflineModelData[]);
-          this.loadingAnalysis = false;
-        });
+    this.dataService
+      .getData(this.sessionId, this.tool, this.host, params)
+      .pipe(take(1))
+      .subscribe((data) => {
+        this.parseData(data as RooflineModelData[]);
+        this.loadingAnalysis = false;
+      });
   }
 
   parseData(data?: RooflineModelData[]) {
@@ -245,11 +290,19 @@ export class RooflineModel implements OnDestroy {
     // process section 2 data
     this.setColumnsIdxOp();
     this.processScatterDataOp();
+
+    // process section 3 data
+    if (this.deviceInfoHasSparseCore()) {
+      this.setColumnsIdxOpSparseCore();
+      this.processScatterDataOpSparseCore();
+    }
   }
 
   hasValidTimeScaleMultiplier(): boolean {
-    return this.deviceIndicators.timeScaleMultiplier > 0 &&
-        this.deviceIndicators.timeScaleMultiplier !== 1;
+    return (
+      this.deviceIndicators.timeScaleMultiplier > 0 &&
+      this.deviceIndicators.timeScaleMultiplier !== 1
+    );
   }
 
   /** parse the device information from the original dataset */
@@ -258,10 +311,11 @@ export class RooflineModel implements OnDestroy {
       hasMergedVmem: !!Number(dataTableRaw.getTableProperty('has_merged_vmem')),
       hasCmem: !!Number(dataTableRaw.getTableProperty('has_cmem')),
       hasMegacore: !!Number(dataTableRaw.getTableProperty('megacore')),
-      isGpu: dataTableRaw.getTableProperty('device_type')
-                 .includes(GPU_TYPE_SUBSTRING),
+      isGpu: (dataTableRaw.getTableProperty('device_type') || '').includes(
+        GPU_TYPE_SUBSTRING,
+      ),
       timeScaleMultiplier:
-          Number(dataTableRaw.getTableProperty('time_scale_multiplier')) || 1,
+        Number(dataTableRaw.getTableProperty('time_scale_multiplier')) || 1,
     };
 
     this.deviceInfoArray = DEVICE_INFO.reduce(
@@ -299,22 +353,27 @@ export class RooflineModel implements OnDestroy {
             }
           } else if (cur.id === 'megacore') {
             curInfo.context +=
-                '(if yes, the analysis assumes Megacore where an HLO runs on both TensorCores utilizing the full chip\'s resources so that the rooflines are twice higher)';
+              "(if yes, the analysis assumes Megacore where an HLO runs on both TensorCores utilizing the full chip's resources so that the rooflines are twice higher)";
             curInfo.value = this.deviceIndicators.hasMegacore ? 'Yes' : 'No';
           } else if (
-              cur.id === 'time_scale_multiplier' &&
-              !this.hasValidTimeScaleMultiplier()) {
+            cur.id === 'time_scale_multiplier' &&
+            !this.hasValidTimeScaleMultiplier()
+          ) {
             curInfo.display = false;
           }
         }
         let value = this.dataTableRaw!.getTableProperty(cur.id);
         value = cur.type === 'number' ? Number(value) : value;
-        if ([
-              'peak_flop_rate', 'peak_vmem_read_bw', 'peak_vmem_write_bw'
-            ].includes(cur.id)) {
-          curInfo.value = this.applyScalingFactor ?
-              (value * this.deviceIndicators.timeScaleMultiplier).toFixed(2) :
-              value;
+        if (
+          [
+            'peak_flop_rate',
+            'peak_vmem_read_bw',
+            'peak_vmem_write_bw',
+          ].includes(cur.id)
+        ) {
+          curInfo.value = this.applyScalingFactor
+            ? (value * this.deviceIndicators.timeScaleMultiplier).toFixed(2)
+            : value;
         }
         acc.push({
           // convert numeric value to numbers, as some ridge numbers will be
@@ -346,29 +405,48 @@ export class RooflineModel implements OnDestroy {
     this.dataTableProgram = gViewProgram.toDataTable();
     this.formatTableData(this.dataTableProgram);
 
-    const gViewOp = new google.visualization.DataView(this.dataTableRaw);
-    gViewOp.setRows(
-      this.dataTableRaw.getFilteredRows([
-        {column: this.dataTableRaw.getColumnIndex('step'), value: 'Total'},
-      ]),
+    const isSparseCoreCol = this.dataTableRaw.getColumnIndex('is_sparse_core');
+    const stepCol = this.dataTableRaw.getColumnIndex('step');
+
+    const totalRows = this.dataTableRaw.getFilteredRows([
+      {column: stepCol, value: 'Total'},
+    ]);
+
+    const tensorCoreRows = totalRows.filter(
+      (r) =>
+        isSparseCoreCol < 0 || !this.dataTableRaw!.getValue(r, isSparseCoreCol),
     );
-    // TODO(b/359276801) Enable injecting Graph Viewer crosslink after
-    // dispatching host list to global store, so we can infer module name from
-    // program_id given the module list (aka host list in graph viewer)
+
+    const gViewOp = new google.visualization.DataView(this.dataTableRaw);
+    gViewOp.setRows(tensorCoreRows);
     const dataTableOp = gViewOp.toDataTable();
     this.dataTableOp =
-        this.injectGraphViewerLinksForOpTable(dataTableOp) || null;
+      this.injectGraphViewerLinksForOpTable(dataTableOp) || null;
     this.formatTableData(this.dataTableOp);
+
+    if (isSparseCoreCol >= 0) {
+      const sparseCoreRows = totalRows.filter(
+        (r) => !!this.dataTableRaw!.getValue(r, isSparseCoreCol),
+      );
+      const gViewOpSparseCore = new google.visualization.DataView(
+        this.dataTableRaw,
+      );
+      gViewOpSparseCore.setRows(sparseCoreRows);
+      const dataTableOpSparseCore = gViewOpSparseCore.toDataTable();
+      this.dataTableOpSparseCore =
+        this.injectGraphViewerLinksForOpTable(dataTableOpSparseCore) || null;
+      this.formatTableData(this.dataTableOpSparseCore);
+    }
   }
 
   injectGraphViewerLinksForOpTable(
-      dataTableOp: google.visualization.DataTable,
+    dataTableOp: google.visualization.DataTable,
   ) {
     if (!dataTableOp) return;
 
     const operationIndex = dataTableOp.getColumnIndex('operation');
     const programIdIndex =
-        this.dataTableProgram!.getColumnIndex('hlo_module_id');
+      this.dataTableProgram!.getColumnIndex('hlo_module_id');
     const numRows = dataTableOp.getNumberOfRows();
     if (!operationIndex || !programIdIndex || !numRows) return;
     for (let i = 0; i < numRows; ++i) {
@@ -376,10 +454,14 @@ export class RooflineModel implements OnDestroy {
       const programId = dataTableOp.getValue(i, programIdIndex);
       if (!programId || programId === '0' || !opName) continue;
       const graphViewerLink = this.dataService.getGraphViewerLink(
-          this.sessionId, '', opName, programId);
-      const hyperlinkValue = graphViewerLink ?
-          `<a href="${graphViewerLink}" target="_blank">${opName}</a>` :
-          opName;
+        this.sessionId,
+        '',
+        opName,
+        programId,
+      );
+      const hyperlinkValue = graphViewerLink
+        ? `<a href="${graphViewerLink}" target="_blank">${opName}</a>`
+        : opName;
       dataTableOp.setCell(i, operationIndex, hyperlinkValue);
     }
     return dataTableOp;
@@ -403,13 +485,15 @@ export class RooflineModel implements OnDestroy {
 
     const getColumnIdxes = (columnIds: string[]) => {
       return columnIds.reduce(
-          (acc: ColumnIdxArr, cur: string): ColumnIdxArr => {
-            const columnIndex = this.dataTableRaw!.getColumnIndex(cur);
-            if (columnIndex >= 0) {
-              acc.push(columnIndex);
-            }
-            return acc;
-          }, [] as ColumnIdxArr);
+        (acc: ColumnIdxArr, cur: string): ColumnIdxArr => {
+          const columnIndex = this.dataTableRaw!.getColumnIndex(cur);
+          if (columnIndex >= 0) {
+            acc.push(columnIndex);
+          }
+          return acc;
+        },
+        [] as ColumnIdxArr,
+      );
     };
     return getColumnIdxes(columnsIds);
   }
@@ -441,6 +525,26 @@ export class RooflineModel implements OnDestroy {
       'source_info',
     ];
     this.columnsIdxOp = this.getColumnIdx(baseColumnIds);
+  }
+
+  setColumnsIdxOpSparseCore() {
+    const baseColumnIds = [
+      'step',
+      'rank',
+      'hlo_module_id',
+      'category',
+      'operation',
+      'occurrences',
+      'total_time',
+      'measured_flop_rate',
+      'model_flop_rate',
+      'bound_by',
+      'hbm_bw',
+      'spmem_read_bw',
+      'spmem_write_bw',
+      'source_info',
+    ];
+    this.columnsIdxOpSparseCore = this.getColumnIdx(baseColumnIds);
   }
 
   formatTableData(data: google.visualization.DataTable | null) {
@@ -532,8 +636,9 @@ export class RooflineModel implements OnDestroy {
     yVal: number,
     tooltip: string,
   ) {
-    const newRow: Array<number|string|null> =
-        Array.from<number|string|null>({length: numColumns}).fill(null);
+    const newRow: Array<number | string | null> = Array.from<
+      number | string | null
+    >({length: numColumns}).fill(null);
     newRow[xIndex] = xVal;
     newRow[yIndex] = yVal;
     newRow[yIndex + 1] = tooltip;
@@ -542,10 +647,10 @@ export class RooflineModel implements OnDestroy {
 
   /** Helper function to add a data row for the scatter chart */
   addSeriesRow(
-      sourceDataTable: google.visualization.DataTable,
-      scatterDataTable: google.visualization.DataTable,
-      rowIndex: number,
-      columnIndex: number,
+    sourceDataTable: google.visualization.DataTable,
+    scatterDataTable: google.visualization.DataTable,
+    rowIndex: number,
+    columnIndex: number,
   ) {
     if (rowIndex < 0 || columnIndex < 0) {
       return;
@@ -575,12 +680,12 @@ export class RooflineModel implements OnDestroy {
 
   /** Helper function to add data rows for a single roofline */
   addRoofline(
-      rooflineName: string,
-      seriesIndex: number,
-      peakFlopRate: number,
-      peakMemoryBw: number,
-      ridgePoint: number,
-      scatterData: google.visualization.DataTable,
+    rooflineName: string,
+    seriesIndex: number,
+    peakFlopRate: number,
+    peakMemoryBw: number,
+    ridgePoint: number,
+    scatterData: google.visualization.DataTable,
   ) {
     if (seriesIndex < 0) {
       return;
@@ -687,12 +792,154 @@ export class RooflineModel implements OnDestroy {
     const opCategories = this.getOpCategories(filteredDataTableOp);
     const opSeries = this.getOpSeries(opCategories);
 
-    // clear the original scatter data
     this.scatterDataOp = new google.visualization.DataTable();
     this.addScatterDataColumns(opSeries, this.scatterDataOp);
     this.addRooflinesSeriesRows(this.scatterDataOp);
     this.addOpSeriesRows(opSeries, filteredDataTableOp);
     this.updateOpScatterStyles(opSeries);
+  }
+
+  deviceInfoHasSparseCore(): boolean {
+    return !!Number(
+      this.dataTableRaw?.getTableProperty('num_sparse_core_tiles'),
+    );
+  }
+
+  updateDataTableOpSparseCore(
+    newFilters: google.visualization.DataTableCellFilter[],
+  ) {
+    this.processScatterDataOpSparseCore(newFilters);
+  }
+
+  getRooflineBaseSeriesSparseCore() {
+    return [
+      ROOFLINE_SERIES_NAMES.SPMEM_READ,
+      ROOFLINE_SERIES_NAMES.SPMEM_WRITE,
+      ROOFLINE_SERIES_NAMES.HBM,
+    ];
+  }
+
+  getOpSeriesSparseCore(opCategories: string[]) {
+    return [
+      ...this.getRooflineBaseSeriesSparseCore(),
+      'Program',
+      ...opCategories,
+      'Program',
+    ];
+  }
+
+  addRooflinesSeriesRowsSparseCore(
+    scatterData: google.visualization.DataTable,
+  ) {
+    const rooflineInfo = this.deviceInfoArray.reduce(
+      (acc, item) => {
+        acc[item.id] = Number(item.value || 0);
+        return acc;
+      },
+      {} as {[key: string]: number},
+    );
+
+    const peakScFlopRate = rooflineInfo['peak_sc_flop_rate'] || 1525;
+    const peakScHbmBw =
+      rooflineInfo['peak_sc_hbm_bw'] || rooflineInfo['peak_hbm_bw'] || 1287.45;
+    const peakSpmemReadBw = rooflineInfo['peak_spmem_read_bw'] || 20000;
+    const peakSpmemWriteBw = rooflineInfo['peak_spmem_write_bw'] || 6600;
+
+    let columnIndex = 1;
+
+    if (peakSpmemReadBw > 0) {
+      const ridgePointSpmemRead = peakSpmemReadBw
+        ? peakScFlopRate / peakSpmemReadBw
+        : 0;
+      this.addRoofline(
+        ROOFLINE_NAMES.SPMEM_READ,
+        columnIndex,
+        peakScFlopRate,
+        peakSpmemReadBw,
+        ridgePointSpmemRead,
+        scatterData,
+      );
+      columnIndex += 2;
+    }
+
+    if (peakSpmemWriteBw > 0) {
+      const ridgePointSpmemWrite = peakSpmemWriteBw
+        ? peakScFlopRate / peakSpmemWriteBw
+        : 0;
+      this.addRoofline(
+        ROOFLINE_NAMES.SPMEM_WRITE,
+        columnIndex,
+        peakScFlopRate,
+        peakSpmemWriteBw,
+        ridgePointSpmemWrite,
+        scatterData,
+      );
+      columnIndex += 2;
+    }
+
+    const ridgePointHbm = peakScHbmBw ? peakScFlopRate / peakScHbmBw : 0;
+    this.addRoofline(
+      ROOFLINE_NAMES.HBM,
+      columnIndex,
+      peakScFlopRate,
+      peakScHbmBw,
+      ridgePointHbm,
+      scatterData,
+    );
+  }
+
+  updateOpScatterStylesSparseCore(opSeries: string[]) {
+    const styles = this.getRooflineSeriesStyles();
+    const numRooflineSeries = 3;
+    for (let i = 0; i < opSeries.length; i++) {
+      const seriesName = opSeries[i] || '';
+      if (seriesName === 'Program') {
+        this.scatterChartOptionsOpSparseCore.series[i] = {
+          pointSize: 20,
+          color: '#FF0000',
+          pointShape: 'star',
+        };
+        if (i === opSeries.length - 1) {
+          this.scatterChartOptionsOpSparseCore.series[i].visibleInLegend =
+            false;
+        }
+      } else if (seriesName in styles) {
+        this.scatterChartOptionsOpSparseCore.series[i] = styles[seriesName];
+      } else {
+        this.scatterChartOptionsOpSparseCore.series[i] = {
+          pointSize: 3,
+          color:
+            PIE_CHART_PALETTE[
+              (i - (numRooflineSeries + 1)) % PIE_CHART_PALETTE.length
+            ],
+        };
+      }
+    }
+  }
+
+  processScatterDataOpSparseCore(
+    filters?: google.visualization.DataTableCellFilter[],
+  ) {
+    if (!this.dataTableOpSparseCore) {
+      return;
+    }
+    const filteredDataTableOp = this.getFilteredDataTable(
+      this.dataTableOpSparseCore,
+      filters,
+    );
+
+    const opCategories = this.getOpCategories(filteredDataTableOp);
+    const opSeries = this.getOpSeriesSparseCore(opCategories);
+
+    this.scatterDataOpSparseCore = new google.visualization.DataTable();
+    this.addScatterDataColumns(opSeries, this.scatterDataOpSparseCore);
+    this.addRooflinesSeriesRowsSparseCore(this.scatterDataOpSparseCore);
+    this.addOpSeriesRows(
+      opSeries,
+      filteredDataTableOp,
+      this.scatterDataOpSparseCore,
+    );
+    this.updateOpScatterStylesSparseCore(opSeries);
   }
 
   /**
@@ -805,27 +1052,34 @@ export class RooflineModel implements OnDestroy {
    */
   addRooflinesSeriesRows(scatterData: google.visualization.DataTable) {
     const rooflineInfo = this.deviceInfoArray.reduce(
-        (acc, item) => {
-          acc[item.id] = Number(item.value || 0);
-          return acc;
-        },
-        {} as {[key: string]: number},
+      (acc, item) => {
+        acc[item.id] = Number(item.value || 0);
+        return acc;
+      },
+      {} as {[key: string]: number},
     );
     let columnIndex = 1;
 
     if (!this.deviceIndicators.isGpu) {
-      const addRooflinePairs = (memType: 'cmem'|'vmem') => {
+      const addRooflinePairs = (memType: 'cmem' | 'vmem') => {
         for (const opType of ['read', 'write'] as const) {
-          const rooflineName = memType === 'vmem' ?
-              (opType === 'read' ? ROOFLINE_NAMES.VMEM_READ :
-                                   ROOFLINE_NAMES.VMEM_WRITE) :
-              (opType === 'read' ? ROOFLINE_NAMES.CMEM_READ :
-                                   ROOFLINE_NAMES.CMEM_WRITE);
+          const rooflineName =
+            memType === 'vmem'
+              ? opType === 'read'
+                ? ROOFLINE_NAMES.VMEM_READ
+                : ROOFLINE_NAMES.VMEM_WRITE
+              : opType === 'read'
+                ? ROOFLINE_NAMES.CMEM_READ
+                : ROOFLINE_NAMES.CMEM_WRITE;
           this.addRoofline(
-              rooflineName, columnIndex, rooflineInfo['peak_flop_rate'],
-              rooflineInfo[`peak_${memType}_${opType}_bw`],
-              rooflineInfo[`${memType}_${opType}_ridge_point`], scatterData);
-          columnIndex += 2;  // value col + tooltip col
+            rooflineName,
+            columnIndex,
+            rooflineInfo['peak_flop_rate'],
+            rooflineInfo[`peak_${memType}_${opType}_bw`],
+            rooflineInfo[`${memType}_${opType}_ridge_point`],
+            scatterData,
+          );
+          columnIndex += 2; // value col + tooltip col
         }
       };
       if (this.deviceIndicators.hasMergedVmem) {
@@ -837,23 +1091,23 @@ export class RooflineModel implements OnDestroy {
     } else {
       // Just use vmem_read for gpu SHM/L1
       this.addRoofline(
-          ROOFLINE_NAMES.SHARED_MEM_L1,
-          columnIndex,
-          rooflineInfo['peak_flop_rate'],
-          rooflineInfo['peak_vmem_write_bw'],
-          rooflineInfo['vmem_write_ridge_point'],
-          scatterData,
+        ROOFLINE_NAMES.SHARED_MEM_L1,
+        columnIndex,
+        rooflineInfo['peak_flop_rate'],
+        rooflineInfo['peak_vmem_write_bw'],
+        rooflineInfo['vmem_write_ridge_point'],
+        scatterData,
       );
       columnIndex += 2; // value col + tooltip col
     }
 
     this.addRoofline(
-        ROOFLINE_NAMES.HBM,
-        columnIndex,
-        rooflineInfo['peak_flop_rate'],
-        rooflineInfo['peak_hbm_bw'],
-        rooflineInfo['hbm_ridge_point'],
-        scatterData,
+      ROOFLINE_NAMES.HBM,
+      columnIndex,
+      rooflineInfo['peak_flop_rate'],
+      rooflineInfo['peak_hbm_bw'],
+      rooflineInfo['hbm_ridge_point'],
+      scatterData,
     );
   }
 
@@ -895,7 +1149,9 @@ export class RooflineModel implements OnDestroy {
   addOpSeriesRows(
     opSeries: string[],
     filteredDataTableOp: google.visualization.DataTable,
+    targetScatterData?: google.visualization.DataTable,
   ) {
+    const destScatterData = targetScatterData || this.scatterDataOp!;
     for (
       let rowIndex = 0;
       rowIndex < filteredDataTableOp.getNumberOfRows();
@@ -915,7 +1171,7 @@ export class RooflineModel implements OnDestroy {
       ) {
         this.addSeriesRow(
           filteredDataTableOp,
-          this.scatterDataOp!,
+          destScatterData,
           rowIndex,
           columnIndex,
         );
@@ -1188,9 +1444,11 @@ export class RooflineModel implements OnDestroy {
   }
 
   getRooflineSeriesStyles() {
-    const styles:
-        {[key: string]: google.visualization.ScatterChartOptions} = {};
+    const styles: {[key: string]: google.visualization.ScatterChartOptions} =
+      {};
     styles[ROOFLINE_SERIES_NAMES.HBM] = ROOFLINE_STYLES.hbm;
+    styles[ROOFLINE_SERIES_NAMES.SPMEM_READ] = ROOFLINE_STYLES.read;
+    styles[ROOFLINE_SERIES_NAMES.SPMEM_WRITE] = ROOFLINE_STYLES.write;
     if (this.deviceIndicators.isGpu) {
       styles[ROOFLINE_SERIES_NAMES.SHARED_MEM_L1] = ROOFLINE_STYLES.write;
     } else {
@@ -1241,8 +1499,10 @@ export class RooflineModel implements OnDestroy {
           // Use the same color palette as the pie chart for the scatter chart
           // numRooflineSeries is also the number of colors are used for the
           // roofline series, and another color is used for the 'Program' series
-          color: PIE_CHART_PALETTE
-              [(i - (numRooflineSeries + 1)) % PIE_CHART_PALETTE.length],
+          color:
+            PIE_CHART_PALETTE[
+              (i - (numRooflineSeries + 1)) % PIE_CHART_PALETTE.length
+            ],
         };
       }
     }

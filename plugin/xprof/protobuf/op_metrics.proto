@@ -49,6 +49,8 @@ enum MemBwType {
   MEM_BW_TYPE_CMEM_WR = 4;
   MEM_BW_TYPE_VMEM_RD = 5;
   MEM_BW_TYPE_VMEM_WR = 6;
+  MEM_BW_TYPE_SPMEM_RD = 7;
+  MEM_BW_TYPE_SPMEM_WR = 8;
 
   // Leave last.
   // Leave this MAX unchanged now to avoid op profile changes.

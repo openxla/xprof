@@ -2,9 +2,25 @@
  * color palette for roofline model pie chart
  */
 export const PIE_CHART_PALETTE = [
-  '#3366CC', '#FF9900', '#109618', '#990099', '#3B3EAC', '#0099C6', '#DD4477',
-  '#66AA00', '#B82E2E', '#316395', '#994499', '#22AA99', '#AAAA11', '#6633CC',
-  '#E67300', '#8B0707', '#329262', '#5574A6', '#3B3EAC',
+  '#3366CC',
+  '#FF9900',
+  '#109618',
+  '#990099',
+  '#3B3EAC',
+  '#0099C6',
+  '#DD4477',
+  '#66AA00',
+  '#B82E2E',
+  '#316395',
+  '#994499',
+  '#22AA99',
+  '#AAAA11',
+  '#6633CC',
+  '#E67300',
+  '#8B0707',
+  '#329262',
+  '#5574A6',
+  '#3B3EAC',
 ];
 
 /** axis boundary for roofline model scatter chart */
@@ -29,18 +45,7 @@ export const SCATTER_CHART_OPTIONS = {
     },
     // Ticks have to be explicitly defined for scaling axis evenly.
     ticks: [
-      0,
-      0.00001,
-      0.0001,
-      0.001,
-      0.01,
-      0.1,
-      1,
-      10,
-      100,
-      1000,
-      10000,
-      100000,
+      0, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000,
     ],
   },
   vAxis: {
@@ -86,6 +91,9 @@ export const ROOFLINE_NAMES = {
   VMEM_WRITE: 'VMEM Write',
   CMEM_READ: 'CMEM Read',
   CMEM_WRITE: 'CMEM Write',
+  SPMEM_READ: 'SPMEM Read',
+  SPMEM_WRITE: 'SPMEM Write',
+  SPMEM: 'SPMEM',
 };
 
 /** Roofline series names. */
@@ -96,6 +104,9 @@ export const ROOFLINE_SERIES_NAMES = {
   VMEM_WRITE: 'VMEM Write Roofline',
   CMEM_READ: 'CMEM Read Roofline',
   CMEM_WRITE: 'CMEM Write Roofline',
+  SPMEM_READ: 'SPMEM Read Roofline',
+  SPMEM_WRITE: 'SPMEM Write Roofline',
+  SPMEM: 'SPMEM Roofline',
 };
 
 /** roofline model properties configuration */
@@ -192,6 +203,41 @@ export const DEVICE_INFO = [
     display: false,
   },
   {
+    id: 'num_sparse_core_tiles',
+    label: 'Number of SparseCore Tiles',
+    type: 'number',
+    unit: '',
+    display: true,
+  },
+  {
+    id: 'peak_sc_flop_rate',
+    label: 'Peak FLOP Rate per SparseCore',
+    type: 'number',
+    unit: 'GFLOP/s',
+    display: true,
+  },
+  {
+    id: 'peak_sc_hbm_bw',
+    label: 'Peak HBM Bandwidth per SparseCore',
+    type: 'number',
+    unit: 'GiB/s',
+    display: true,
+  },
+  {
+    id: 'peak_spmem_read_bw',
+    label: 'Peak SPMEM Read Bandwidth per SparseCore',
+    type: 'number',
+    unit: 'GiB/s',
+    display: true,
+  },
+  {
+    id: 'peak_spmem_write_bw',
+    label: 'Peak SPMEM Write Bandwidth per SparseCore',
+    type: 'number',
+    unit: 'GiB/s',
+    display: true,
+  },
+  {
     id: 'time_scale_multiplier',
     label: 'Time Scale Multiplier',
     type: 'number',
@@ -204,74 +250,75 @@ export const DEVICE_INFO = [
  * numeric data display formatting config
  *  might be feasible to be passed through api response data
  */
-export const NUMERIC_DATA_FORMAT:
-    {[key: string]: {type: string; digit?: number};} = {
-      'total_time_per_core': {
-        type: 'decimal',
-        digit: 0,
-      },
-      'total_time': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'avg_time': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'total_self_time': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'avg_self_time': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'measured_flop_rate': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'measured_memory_bw': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'hbm_bw': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'cmem_read_bw': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'cmem_write_bw': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'operational_intensity': {
-        type: 'decimal',
-        digit: 2,
-      },
-      'total_self_time_percent': {
-        type: 'percent',
-        digit: 1,
-      },
-      'cumulative_total_self_time_percent': {
-        type: 'percent',
-        digit: 1,
-      },
-      'dma_stall_percent': {
-        type: 'percent',
-        digit: 1,
-      },
-      'roofline_efficiency': {
-        type: 'percent',
-        digit: 1,
-      },
-      'compute_efficiency': {
-        type: 'percent',
-        digit: 1,
-      },
-      'max_mem_bw_utilization': {
-        type: 'percent',
-        digit: 1,
-      },
-    };
+export const NUMERIC_DATA_FORMAT: {
+  [key: string]: {type: string; digit?: number};
+} = {
+  'total_time_per_core': {
+    type: 'decimal',
+    digit: 0,
+  },
+  'total_time': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'avg_time': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'total_self_time': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'avg_self_time': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'measured_flop_rate': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'measured_memory_bw': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'hbm_bw': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'cmem_read_bw': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'cmem_write_bw': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'operational_intensity': {
+    type: 'decimal',
+    digit: 2,
+  },
+  'total_self_time_percent': {
+    type: 'percent',
+    digit: 1,
+  },
+  'cumulative_total_self_time_percent': {
+    type: 'percent',
+    digit: 1,
+  },
+  'dma_stall_percent': {
+    type: 'percent',
+    digit: 1,
+  },
+  'roofline_efficiency': {
+    type: 'percent',
+    digit: 1,
+  },
+  'compute_efficiency': {
+    type: 'percent',
+    digit: 1,
+  },
+  'max_mem_bw_utilization': {
+    type: 'percent',
+    digit: 1,
+  },
+};

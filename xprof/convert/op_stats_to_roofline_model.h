@@ -41,6 +41,12 @@ RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
     const RooflineModelDatabase& roofline_model_db, bool include_infeed_outfeed,
     bool apply_time_scale_multiplier = false);
 
+roofline_model::ScRooflineModelRecord ConvertOpMetricsToScRooflineModelRecord(
+    const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
+    uint32_t step_num, uint64_t total_time_ps,
+    const RooflineModelDatabase& roofline_model_db, bool include_infeed_outfeed,
+    bool apply_time_scale_multiplier = false);
+
 RooflineModelRecord GenerateRooflineModelProgramRecord(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
@@ -48,6 +54,12 @@ RooflineModelRecord GenerateRooflineModelProgramRecord(
 
 tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
+    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
+    bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
+
+tsl::protobuf::RepeatedPtrField<roofline_model::ScRooflineModelRecord>
+ConvertOpMetricsDbToScRooflineModelRecords(
     const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     bool include_infeed_outfeed, bool apply_time_scale_multiplier = false);
@@ -67,6 +79,11 @@ inline void AddRooflineModelRecordForProfileDuration(
     bool include_infeed_outfeed, bool apply_time_scale_multiplier = false) {
   *roofline_model_db.mutable_roofline_model_record() =
       ConvertOpMetricsDbToRooflineModelRecords(
+          op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
+          /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
+          apply_time_scale_multiplier);
+  *roofline_model_db.mutable_sc_roofline_model_record() =
+      ConvertOpMetricsDbToScRooflineModelRecords(
           op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
           /*step_num=*/0, roofline_model_db, include_infeed_outfeed,
           apply_time_scale_multiplier);

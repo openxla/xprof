@@ -99,6 +99,15 @@ def run_server(plugin, host, port):
     server.stop()
 
 
+def _has_ipv6():
+    """Returns whether IPv6 is supported or unsupported"""
+    try:
+        socket.socket(socket.AF_INET6).close()
+        return True
+    except IOError as e:
+        return False
+
+
 def _get_wildcard_address(port) -> str:
   """Returns a wildcard address for the port in question.
 
@@ -116,7 +125,8 @@ def _get_wildcard_address(port) -> str:
   Returns:
     The wildcard address.
   """
-  fallback_address = "::" if socket.has_ipv6 else "0.0.0.0"
+  has_ipv6 = _has_ipv6()
+  fallback_address = "::" if has_ipv6 else "0.0.0.0"
   if hasattr(socket, "AI_PASSIVE"):
     try:
       addrinfos = socket.getaddrinfo(
@@ -134,7 +144,7 @@ def _get_wildcard_address(port) -> str:
       # Format of the "sockaddr" socket address varies by address family,
       # but [0] is always the IP address portion.
       addrs_by_family[family].append(sockaddr[0])
-    if hasattr(socket, "AF_INET6") and addrs_by_family[socket.AF_INET6]:
+    if has_ipv6 and hasattr(socket, "AF_INET6") and addrs_by_family[socket.AF_INET6]:
       return addrs_by_family[socket.AF_INET6][0]
     if hasattr(socket, "AF_INET") and addrs_by_family[socket.AF_INET]:
       return addrs_by_family[socket.AF_INET][0]

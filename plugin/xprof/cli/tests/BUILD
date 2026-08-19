@@ -266,3 +266,13 @@ pytype_strict_contrib_test(
         "@absl_py//absl/testing:parameterized",
     ],
 )
+
+py_test(
+    name = "oss_xprof_client_test",
+    srcs = ["oss_xprof_client_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@absl_py//absl/testing:absltest",
+        "@org_xprof//plugin/xprof/cli/internal/oss:xprof_client",
+    ],
+)

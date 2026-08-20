@@ -23,9 +23,7 @@ class GetKernelStatsToolTest(absltest.TestCase):
   @mock.patch.object(events_db_tools, "get_events_db_session_root")
   @mock.patch.object(f1_utils, "execute_f1_query")
   def test_get_kernel_stats_json(self, mock_execute, mock_root):
-    mock_root.return_value = events_db_tools.EventsDbSessionRootResult(
-        status="success", session_root="/blob/sess1"
-    )
+    mock_root.return_value = "/blob/sess1"
     mock_df = pd.DataFrame([{
         "kernel_name": "matmul",
         "total_duration_us": 1200.5,
@@ -48,9 +46,7 @@ class GetKernelStatsToolTest(absltest.TestCase):
   @mock.patch.object(events_db_tools, "get_events_db_session_root")
   @mock.patch.object(f1_utils, "execute_f1_query")
   def test_get_avg_step_time(self, mock_execute, mock_root):
-    mock_root.return_value = events_db_tools.EventsDbSessionRootResult(
-        status="success", session_root="/blob/sess1"
-    )
+    mock_root.return_value = "/blob/sess1"
     mock_df = pd.DataFrame([{"avg_step_time_ms": 15.42, "step_count": 100}])
     mock_execute.return_value = mock_df
 
@@ -125,9 +121,7 @@ class GetKernelStatsToolTest(absltest.TestCase):
   @mock.patch.object(events_db_tools, "get_events_db_session_root")
   @mock.patch.object(f1_utils, "execute_f1_query")
   def test_get_kernel_stats_f1_sql_matchers(self, mock_execute, mock_root):
-    mock_root.return_value = events_db_tools.EventsDbSessionRootResult(
-        status="success", session_root="/blob/sess1"
-    )
+    mock_root.return_value = "/blob/sess1"
     mock_df = pd.DataFrame([{
         "kernel_name": "matmul",
         "total_duration_us": 1200.5,
@@ -147,9 +141,7 @@ class GetKernelStatsToolTest(absltest.TestCase):
   @mock.patch.object(events_db_tools, "get_events_db_session_root")
   @mock.patch.object(f1_utils, "execute_f1_query")
   def test_get_kernel_stats_markdown_formatting(self, mock_execute, mock_root):
-    mock_root.return_value = events_db_tools.EventsDbSessionRootResult(
-        status="success", session_root="/blob/sess1"
-    )
+    mock_root.return_value = "/blob/sess1"
     mock_df = pd.DataFrame([{
         "kernel_name": "matmul",
         "total_duration_us": 1200.5,

@@ -65,10 +65,10 @@ class XProfCliTest(unittest.TestCase):
 
   @mock.patch.object(xprof_cli.XProfCli, 'get_events_db_session_root')
   def test_get_events_db_session_root(self, mock_get_root):
-    mock_get_root.return_value = {'status': 'success'}
+    mock_get_root.return_value = '/path/to/session'
     result = self.cli.get_events_db_session_root('session_123')
     mock_get_root.assert_called_with('session_123')
-    self.assertEqual(result, {'status': 'success'})
+    self.assertEqual(result, '/path/to/session')
 
   @mock.patch.object(xprof_cli.XProfCli, 'get_profile_summary')
   def test_get_profile_summary(self, mock_get_summary):

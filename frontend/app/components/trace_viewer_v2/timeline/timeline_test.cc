@@ -3586,6 +3586,8 @@ class TestTimeline : public Timeline {
   using Timeline::hidden_track_names_;
   using Timeline::pinned_track_names_;
 
+  using Timeline::ReorderTrack;
+  using Timeline::BuildFlattenedGroups;
   using Timeline::group_visible;
   using Timeline::Pan;
   using Timeline::Scroll;
@@ -11648,6 +11650,353 @@ TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
 
   EXPECT_DOUBLE_EQ(actual_min, 0.0);
   EXPECT_DOUBLE_EQ(actual_max, 400.0);
+}
+
+TEST(TimelineTest, ReorderTrackTest) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group process_a{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+      .child_indices = {1, 2},
+  };
+
+  Group thread_a1{
+      .type = Group::Type::kFlame,
+      .name = "Thread A1",
+      .start_level = 0,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+  };
+
+  Group thread_a2{
+      .type = Group::Type::kFlame,
+      .name = "Thread A2",
+      .start_level = 1,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(thread_a1));
+  data.groups.push_back(std::move(thread_a2));
+
+  timeline.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 3);
+
+  const Group* process_a_ptr = timeline.flattened_groups_[0];
+  const Group* thread_a1_ptr = timeline.flattened_groups_[1];
+  const Group* thread_a2_ptr = timeline.flattened_groups_[2];
+
+  EXPECT_EQ(process_a_ptr->name, "Process A");
+  EXPECT_EQ(thread_a1_ptr->name, "Thread A1");
+  EXPECT_EQ(thread_a2_ptr->name, "Thread A2");
+
+  // Reorder Thread A2 before Thread A1 (dragging up)
+  timeline.ReorderTrack(thread_a2_ptr->original_index,
+                        thread_a1_ptr->original_index, false);
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 3);
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Thread A2");
+  EXPECT_EQ(timeline.flattened_groups_[2]->name, "Thread A1");
+}
+
+TEST(TimelineTest, ReorderProcessTrackTest) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group process_a{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+
+  Group process_b{
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 1,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(process_b));
+
+  timeline.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 2);
+
+  const Group* process_a_ptr = timeline.flattened_groups_[0];
+  const Group* process_b_ptr = timeline.flattened_groups_[1];
+
+  EXPECT_EQ(process_a_ptr->name, "Process A");
+  EXPECT_EQ(process_b_ptr->name, "Process B");
+
+  int process_a_id = process_a_ptr->original_index;
+  int process_b_id = process_b_ptr->original_index;
+
+  // Reorder Process B before Process A (dragging up)
+  timeline.ReorderTrack(process_b_id, process_a_id, false);
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 2);
+  EXPECT_EQ(timeline.flattened_groups_[0]->name, "Process B");
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Process A");
+
+  // Reorder Process B after Process A (dragging down)
+  timeline.ReorderTrack(process_b_id, process_a_id, true);
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 2);
+  EXPECT_EQ(timeline.flattened_groups_[0]->name, "Process A");
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Process B");
+}
+
+TEST(TimelineTest, ReorderDragNoOpTest) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group process_a{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+
+  Group process_b{
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 1,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(process_b));
+
+  timeline.SetTimelineData(std::move(data));
+
+  const Group* process_a_ptr = timeline.flattened_groups_[0];
+
+  // Drag item onto itself (drop_after = false) -> no-op
+  timeline.ReorderTrack(process_a_ptr->original_index,
+                        process_a_ptr->original_index, false);
+  EXPECT_EQ(timeline.flattened_groups_[0]->name, "Process A");
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Process B");
+
+  // Drag item onto itself (drop_after = true) -> no-op
+  timeline.ReorderTrack(process_a_ptr->original_index,
+                        process_a_ptr->original_index, true);
+  EXPECT_EQ(timeline.flattened_groups_[0]->name, "Process A");
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Process B");
+}
+
+TEST(TimelineTest, ReorderDragDifferentParentsRejected) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group process_a{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+      .child_indices = {1},
+  };
+  Group thread_a1{
+      .type = Group::Type::kFlame,
+      .name = "Thread A1",
+      .start_level = 0,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 0,
+  };
+
+  Group process_b{
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 1,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+      .child_indices = {3},
+  };
+  Group thread_b1{
+      .type = Group::Type::kFlame,
+      .name = "Thread B1",
+      .start_level = 1,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+      .parent_index = 2,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(thread_a1));
+  data.groups.push_back(std::move(process_b));
+  data.groups.push_back(std::move(thread_b1));
+
+  timeline.SetTimelineData(std::move(data));
+
+  // Try to drag Thread A1 (index 1) to Thread B1 (index 3) (different parents).
+  timeline.ReorderTrack(1, 3, false);
+
+  EXPECT_EQ(timeline.flattened_groups_[1]->name, "Thread A1");
+  EXPECT_EQ(timeline.flattened_groups_[3]->name, "Thread B1");
+}
+
+TEST(TimelineTest, ReorderDragAcrossSectionsLayoutOrderOnly) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group process_a{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+  Group process_b{
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 1,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+      .parent_index = -1,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(process_b));
+
+  timeline.SetTimelineData(std::move(data));
+  timeline.set_track_management_enabled(true);
+
+  // Pin Process B. Now B is in Pinned header, A is in All header.
+  timeline.pinned_track_names_.insert("Process B");
+  timeline.UpdateLevelPositions(timeline.timeline_data());
+
+  // Confirm starting visibility structure:
+  // Index 0: Hidden Header (since hidden list is empty)
+  // Index 1: Pinned Header
+  // Index 2: Process B (pinned)
+  // Index 3: All Header
+  // Index 4: Process A (unpinned)
+  ASSERT_EQ(timeline.flattened_groups_.size(), 5);
+  EXPECT_EQ(timeline.flattened_groups_[2]->name, "Process B");
+  EXPECT_EQ(timeline.flattened_groups_[4]->name, "Process A");
+
+  // Reordering Process A before Process B
+  // (which are in different visual sections)
+  // changes layout tree structure, but doesn't change their pinned state.
+  // The layout should still render them in their respective sections
+  // (B is pinned, A is in All).
+  timeline.ReorderTrack(4, 2, false);
+
+  ASSERT_EQ(timeline.flattened_groups_.size(), 5);
+  EXPECT_EQ(timeline.flattened_groups_[2]->name, "Process B");
+  EXPECT_EQ(timeline.flattened_groups_[4]->name, "Process A");
+}
+
+TEST_F(RealTimelineImGuiFixture, DragDropReorderProcessTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  // Two expanded processes: Process A and Process B.
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true},
+                 Group{Group::Type::kFlame, "Process B", "", 1,
+                       kProcessNestingLevel, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+  timeline_.UpdateLevelPositions(timeline_.timeline_data());
+
+  SimulateFrame();
+
+  // Find Process A and Process B in flat list to get offsets.
+  const Group* process_a = nullptr;
+  const Group* process_b = nullptr;
+  for (const Group* g : timeline_.flattened_groups_) {
+    if (g->name == "Process A") process_a = g;
+    if (g->name == "Process B") process_b = g;
+  }
+  ASSERT_NE(process_a, nullptr);
+  ASSERT_NE(process_b, nullptr);
+
+  const float tracks_start_screen_pos_y =
+      timeline_.get_tracks_start_screen_pos_for_test().y;
+  const float process_a_offset =
+      timeline_.get_group_offsets_for_test()[process_a->original_index];
+  const float process_a_height =
+      timeline_.get_group_heights_for_test()[process_a->original_index];
+  const float process_b_offset =
+      timeline_.get_group_offsets_for_test()[process_b->original_index];
+  const float process_b_height =
+      timeline_.get_group_heights_for_test()[process_b->original_index];
+
+  const float process_a_y =
+      tracks_start_screen_pos_y + process_a_offset + process_a_height * 0.5f;
+  const float process_b_y =
+      tracks_start_screen_pos_y + process_b_offset + process_b_height * 0.5f;
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float drag_x =
+      timeline_.get_tracks_start_screen_pos_for_test().x +
+      timeline_.GetLabelWidth() * 0.5f;
+
+  // Step 1: Click on Process A label.
+  io.AddMousePosEvent(drag_x, process_a_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Step 2: Drag to Process B label (with +10.0f offset to trigger drop_after).
+  io.AddMousePosEvent(drag_x, process_b_y + 10.0f);
+  SimulateFrame();
+
+  // Step 3: Release drop.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  SimulateFrame();
+
+  // Verify that Process A was moved after Process B.
+  const auto flat = timeline_.flattened_groups_;
+  ASSERT_EQ(flat.size(), 5);
+  EXPECT_EQ(flat[3]->name, "Process B");
+  EXPECT_EQ(flat[4]->name, "Process A");
 }
 
 }  // namespace

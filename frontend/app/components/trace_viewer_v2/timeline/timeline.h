@@ -78,6 +78,25 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
+
+  // Parent index in groups vector, or -1 for top-level processes.
+  int parent_index = -1;
+  // List of child process/thread indices in the groups vector.
+  std::vector<int> child_indices = {};
+
+  // Stable index in the original sequential order.
+  int original_index = -1;
+  // Number of timeline event levels occupied by this track.
+  int level_count = 0;
+  // Indicates if this group has nested child tracks.
+  bool has_children = false;
+
+  // Cached layout offset (screen Y coordinate in pixels).
+  mutable Pixel offset = 0.0f;
+  // Cached full height (in pixels) of the track based on level count.
+  mutable Pixel height = 0.0f;
+  // Indicates if the track is visible (not hidden by a collapsed parent).
+  mutable bool visible = true;
 };
 
 struct FlowLine {
@@ -195,6 +214,22 @@ class Timeline {
   void zoom_for_test(float zoom_factor, Microseconds pivot) {
     Zoom(zoom_factor, pivot);
   }
+  void set_pending_reorder_source_for_test(int idx) {
+    pending_reorder_source_ = idx;
+  }
+  void set_pending_reorder_target_for_test(int idx) {
+    pending_reorder_target_ = idx;
+  }
+  ImVec2 get_tracks_start_screen_pos_for_test() const {
+    return tracks_start_screen_pos_;
+  }
+  const std::vector<Pixel>& get_group_offsets_for_test() const {
+    return group_offsets_;
+  }
+  const std::vector<Pixel>& get_group_heights_for_test() const {
+    return group_heights_;
+  }
+
   // Applies a deterministic vertical scroll offset (in pixels) for tests,
   // reusing the production scroll-restore path so the offset takes effect
   // on the next Draw().
@@ -311,6 +346,9 @@ class Timeline {
     track_management_enabled_ = enabled;
   }
   bool track_management_enabled() const { return track_management_enabled_; }
+  const std::vector<const Group*>& flat_groups() const {
+    return flattened_groups_;
+  }
 
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
@@ -508,6 +546,25 @@ class Timeline {
   // Emits mouse mode changed event to JS side.
   void EmitMouseModeChanged();
   void ShowNavigationWarningNotification(absl::string_view message);
+  struct ParentInfo {
+    Group* parent = nullptr;
+    std::vector<Group>* siblings = nullptr;
+    int index_in_siblings = -1;
+  };
+
+  ParentInfo FindParentInfo(Group* target_group);
+  Group* GetGroupByOriginalIndex(int original_index);
+  int FindFlatIndex(const Group* group);
+  void UpdateStartLevels();
+
+  std::vector<int> GetReorderedRoots(Group* parent, int source_org_idx,
+                                     int target_org_idx, bool drop_after);
+  std::vector<Group> RebuildGroupsArray(const std::vector<int>& roots,
+                                        std::vector<int>& old_to_new_idx);
+  std::vector<int> RemapLevelIndices(std::vector<Group>& new_groups,
+                                     std::vector<int>& old_to_new_level);
+  void RemapEventsAndFlows(const std::vector<int>& old_to_new_level);
+  void RemapCounterAndSelection(const std::vector<int>& old_to_new_idx);
 
   // Draws the timeline ruler UI (background, horizontal line, labels, ticks).
   void DrawRulerUI(const TickInfo& info, Pixel timeline_width);
@@ -528,6 +585,13 @@ class Timeline {
                     Pixel content_region_avail_width,
                     double px_per_time_unit_val, Pixel scroll_y,
                     Pixel window_height);
+
+  // Handles drag-and-drop source/target and
+  // item hover check for a track label row.
+  bool HandleTrackDragAndDrop(int group_index, Group& group,
+                              const ImVec2& tracks_start_pos,
+                              const ImVec2& tracks_start_screen_pos,
+                              Pixel group_height, Pixel hover_zone_width);
   // Draws vertical grid lines across the background of the tracks.
   // `viewport_bottom` is the y-coordinate of the bottom of the viewport, used
   // to draw vertical grid lines across the tracks.
@@ -593,6 +657,12 @@ class Timeline {
   // Processes any pending vertical scroll request to reveal a specific event.
   void ProcessPendingScroll();
 
+ protected:
+  // Reorders the track at `source_org_idx` to the position after
+  // `target_org_idx`. Used for drag-and-drop reordering of tracks.
+  void ReorderTrack(int source_org_idx, int target_org_idx, bool drop_after);
+
+ private:
   // Handles deselection of events when clicking on an empty area.
   void HandleEventDeselection();
 
@@ -712,6 +782,15 @@ class Timeline {
   bool should_restore_scroll_ = false;
   float last_scroll_y_ = 0.0f;
 
+  Pixel dnd_preview_line_y_ = -1.0f;
+  // The source and target indices for a pending reorder operation, and whether
+  // the target is to drop after the target index.
+  // This is used to reorder tracks when the user drops a track after a
+  // reorder operation is initiated.
+  int pending_reorder_source_ = -1;
+  int pending_reorder_target_ = -1;
+  bool pending_reorder_drop_after_ = false;
+
   EventCallback event_callback_ = [](absl::string_view, const EventData&) {};
   // Flag to track if an event was clicked in the current frame. This is used
   // to detect clicks in empty areas for deselection logic.
@@ -801,6 +880,9 @@ class Timeline {
 
   // Flattened sequence of virtual headers and group tracks.
   // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  // This is the primary data structure used for rendering data as it
+  // currently appears in the timeline, including collapsed groups and hidden
+  // tracks.
   std::vector<const Group*> flattened_groups_;
 };
 

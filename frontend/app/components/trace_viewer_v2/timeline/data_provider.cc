@@ -585,6 +585,7 @@ void PopulateThreadTrack(
         thread_levels,
     const std::string& process_group_name, bool default_expanded,
     const absl::btree_map<GroupKey, bool>& expanded_states,
+    int parent_index = -1,
     std::optional<absl::string_view> custom_name = std::nullopt) {
   std::string thread_group_name;
   if (custom_name.has_value()) {
@@ -600,16 +601,26 @@ void PopulateThreadTrack(
       GetExpandedState(kThreadNestingLevel, thread_group_name,
                        process_group_name, default_expanded, expanded_states);
 
-  data.groups.push_back({.name = thread_group_name,
+  int child_index = static_cast<int>(data.groups.size());
+  data.groups.push_back({.type = Group::Type::kFlame,
+                         .name = thread_group_name,
                          .start_level = current_level,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = expanded});
+                         .expanded = expanded,
+                         .parent_index = parent_index,
+                         .original_index = child_index});
+
+  if (parent_index != -1) {
+    data.groups[parent_index].child_indices.push_back(child_index);
+  }
 
   int start_level = current_level;
   int max_level = start_level;
 
   PopulateThreadTrackEvents(events, start_level, max_level, data, bounds,
                             trace_info, thread_group_name);
+
+  data.groups.back().level_count = max_level - start_level + 1;
 
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
@@ -625,19 +636,22 @@ void PopulateCounterTrack(
     const TraceInformation& trace_info, int& current_level,
     FlameChartTimelineData& data, TimeBounds& bounds,
     const std::string& process_group_name, bool default_expanded,
-    const absl::btree_map<GroupKey, bool>& expanded_states) {
+    const absl::btree_map<GroupKey, bool>& expanded_states,
+    int parent_index = -1) {
   Group group;
   group.type = Group::Type::kCounter;
   group.name = name;
   group.nesting_level = kCounterNestingLevel;
   group.start_level = current_level;
+  group.parent_index = parent_index;
 
   // Counters always take one level, so force them to be expanded.
   group.expanded = true;
+  group.level_count = 1;
 
   size_t total_entries = 0;
   // The number of counter events per counter track won't be too large, so
-  // it's fine to iterate twice to reserve vector capacity.
+  // it is fine to iterate twice to reserve vector capacity.
   for (const CounterEvent* event : events) {
     total_entries += event->timestamps.size();
   }
@@ -649,7 +663,6 @@ void PopulateCounterTrack(
   counter_data.timestamps.reserve(total_entries);
   counter_data.values.reserve(total_entries);
 
-  // Bulk insert all data first.
   for (const CounterEvent* event : events) {
     if (event->timestamps.empty()) continue;
 
@@ -671,10 +684,16 @@ void PopulateCounterTrack(
     bounds.max = std::max(bounds.max, counter_data.timestamps.back());
   }
 
+  int child_index = static_cast<int>(data.groups.size());
+  group.original_index = child_index;
+
   data.groups.push_back(std::move(group));
 
-  data.counter_data_by_group_index[data.groups.size() - 1] =
-      std::move(counter_data);
+  if (parent_index != -1) {
+    data.groups[parent_index].child_indices.push_back(child_index);
+  }
+
+  data.counter_data_by_group_index[child_index] = std::move(counter_data);
 
   // Increment the level by one for the next group. This will be used for binary
   // search for the visible groups.
@@ -688,7 +707,8 @@ void PopulateAsyncProcessTrack(
     absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
     bool default_expanded,
-    const absl::btree_map<GroupKey, bool>& expanded_states) {
+    const absl::btree_map<GroupKey, bool>& expanded_states,
+    int parent_index = -1) {
   absl::btree_map<std::string, std::vector<const TraceEvent*>> async_groups;
   absl::btree_map<ThreadId, std::vector<const TraceEvent*>> sync_groups;
 
@@ -715,7 +735,7 @@ void PopulateAsyncProcessTrack(
     PopulateThreadTrack(pid, next_synthetic_tid, named_events, trace_info,
                         current_level, data, bounds, thread_levels,
                         process_group_name, default_expanded, expanded_states,
-                        name);
+                        parent_index, name);
     next_synthetic_tid++;
   }
 
@@ -734,7 +754,7 @@ void PopulateAsyncProcessTrack(
     absl::Span<const TraceEvent* const> events = sync_groups.at(tid);
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
-                        default_expanded, expanded_states);
+                        default_expanded, expanded_states, parent_index);
   }
 }
 
@@ -745,7 +765,8 @@ void PopulateSyncProcessTrack(
     absl::btree_map<std::pair<ProcessId, ThreadId>, ThreadLevelInfo>&
         thread_levels,
     bool default_expanded,
-    const absl::btree_map<GroupKey, bool>& expanded_states) {
+    const absl::btree_map<GroupKey, bool>& expanded_states,
+    int parent_index = -1) {
   const auto it_events = trace_info.events_by_pid_tid.find(pid);
   absl::flat_hash_set<ThreadId> tids;
   if (it_events != trace_info.events_by_pid_tid.end()) {
@@ -791,7 +812,7 @@ void PopulateSyncProcessTrack(
     }
     PopulateThreadTrack(pid, tid, events, trace_info, current_level, data,
                         bounds, thread_levels, process_group_name,
-                        default_expanded, expanded_states);
+                        default_expanded, expanded_states, parent_index);
   }
 }
 
@@ -844,24 +865,27 @@ void PopulateProcessTrack(
     track_subtitle = process_group_name.substr(0, separator_pos);
   }
 
-  size_t initial_group_count = data.groups.size();
+  int start_level = current_level;
+  int process_index = static_cast<int>(data.groups.size());
   data.groups.push_back({.name = process_group_name,
                          .subtitle = std::move(track_subtitle),
                          .start_level = current_level,
                          .nesting_level = kProcessNestingLevel,
-                         .expanded = expanded});
+                         .expanded = expanded,
+                         .parent_index = -1,
+                         .original_index = process_index});
 
   if (has_events || has_named_threads) {
     bool is_async_process = IsAsyncProcess(pid, trace_info);
 
     if (is_async_process) {
-      PopulateAsyncProcessTrack(pid, process_group_name, trace_info,
-                                current_level, data, bounds, thread_levels,
-                                default_expanded, expanded_states);
+      PopulateAsyncProcessTrack(
+          pid, process_group_name, trace_info, current_level, data, bounds,
+          thread_levels, default_expanded, expanded_states, process_index);
     } else {
-      PopulateSyncProcessTrack(pid, process_group_name, trace_info,
-                               current_level, data, bounds, thread_levels,
-                               default_expanded, expanded_states);
+      PopulateSyncProcessTrack(
+          pid, process_group_name, trace_info, current_level, data, bounds,
+          thread_levels, default_expanded, expanded_states, process_index);
     }
   }
 
@@ -869,12 +893,16 @@ void PopulateProcessTrack(
     for (const auto& [name, events] : it_counters->second) {
       PopulateCounterTrack(pid, name, events, trace_info, current_level, data,
                            bounds, process_group_name, default_expanded,
-                           expanded_states);
+                           expanded_states, process_index);
     }
   }
 
-  if (trace_info.is_mpmd && data.groups.size() == initial_group_count + 1) {
+  if (trace_info.is_mpmd && data.groups.size() == process_index + 1) {
     data.groups.pop_back();
+  } else {
+    data.groups[process_index].level_count = current_level - start_level;
+    data.groups[process_index].has_children =
+        !data.groups[process_index].child_indices.empty();
   }
 }
 

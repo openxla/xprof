@@ -78,6 +78,25 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
+
+  // Parent index in groups vector, or -1 for top-level processes.
+  int parent_index = -1;
+  // List of child process/thread indices in the groups vector.
+  std::vector<int> child_indices = {};
+
+  // Stable index in the original sequential order.
+  int original_index = -1;
+  // Number of timeline event levels occupied by this track.
+  int level_count = 0;
+  // Indicates if this group has nested child tracks.
+  bool has_children = false;
+
+  // Cached layout offset (screen Y coordinate in pixels).
+  mutable Pixel offset = 0.0f;
+  // Cached full height (in pixels) of the track based on level count.
+  mutable Pixel height = 0.0f;
+  // Indicates if the track is visible (not hidden by a collapsed parent).
+  mutable bool visible = true;
 };
 
 struct FlowLine {
@@ -801,6 +820,9 @@ class Timeline {
 
   // Flattened sequence of virtual headers and group tracks.
   // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  // This is the primary data structure used for rendering data as it
+  // currently appears in the timeline, including collapsed groups and hidden
+  // tracks.
   std::vector<const Group*> flattened_groups_;
 };
 

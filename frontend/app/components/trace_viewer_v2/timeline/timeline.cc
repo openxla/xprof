@@ -199,16 +199,11 @@ bool DrawExpandCollapseButton(
   return toggled;
 }
 
-// Gets the starting level index of the group immediately following the group
-// at the given index. If the given group is the last one, returns the total
-// number of levels.
 int GetNextGroupStartLevel(const FlameChartTimelineData& data,
                            int group_index) {
-  if (group_index + 1 < data.groups.size()) {
-    const auto& next_group = data.groups[group_index + 1];
-    if (next_group.nesting_level >= kProcessNestingLevel) {
-      return next_group.start_level;
-    }
+  if (group_index >= 0 && group_index < data.groups.size()) {
+    return data.groups[group_index].start_level +
+           data.groups[group_index].level_count;
   }
   return static_cast<int>(data.events_by_level.size());
 }
@@ -223,6 +218,32 @@ bool IsVirtualHeader(const Group* group) {
 // Formats the header text with the process count.
 std::string FormatHeaderText(absl::string_view name, int count) {
   return absl::StrCat(name, " (", count, ")");
+}
+
+// Infers parent-child links for flat inputs.
+void InferLinks(FlameChartTimelineData& data) {
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    auto& group = data.groups[i];
+    group.parent_index = -1;
+    group.child_indices.clear();
+    group.original_index = i;
+  }
+
+  std::vector<int> parent_stack;
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    const auto& group = data.groups[i];
+    while (!parent_stack.empty() &&
+           data.groups[parent_stack.back()].nesting_level >=
+               group.nesting_level) {
+      parent_stack.pop_back();
+    }
+    if (!parent_stack.empty()) {
+      int parent_idx = parent_stack.back();
+      data.groups[i].parent_index = parent_idx;
+      data.groups[parent_idx].child_indices.push_back(i);
+    }
+    parent_stack.push_back(i);
+  }
 }
 
 }  // namespace
@@ -282,23 +303,8 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   hidden_processes_count_ = 0;
   pinned_processes_count_ = 0;
 
-  if (!track_management_enabled_) {
-    flattened_groups_.reserve(group_count);
-    for (int i = 0; i < group_count; ++i) {
-      flattened_groups_.push_back(&data.groups[i]);
-      if (data.groups[i].nesting_level == kProcessNestingLevel) {
-        all_processes_count_++;
-      }
-    }
-    return;
-  }
+  if (data.groups.empty()) return;
 
-  // Pre-categorize groups into hidden, pinned, and all sections.
-  // Since a process and all its nested subtracks form a visual block, we
-  // propagate the process's status (hidden/pinned) down to its descendant
-  // tracks. Retaining this state across iterations avoids performing
-  // redundant string-key lookup queries on `hidden_track_names_` and
-  // `pinned_track_names_` for every subtrack.
   std::vector<const Group*> hidden_groups;
   std::vector<const Group*> pinned_groups;
   std::vector<const Group*> all_groups;
@@ -334,26 +340,21 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
     }
   }
 
-  // Reserve capacity on flattened_groups_ to prevent multiple internal
-  // reallocations as elements are added (headers + groups).
   flattened_groups_.reserve(3 + hidden_groups.size() + pinned_groups.size() +
                             all_groups.size());
 
   // 1. Hidden processes / "Hidden" Header
   flattened_groups_.push_back(&header_hidden_);
-  // 2. Hidden processes and their children
   flattened_groups_.insert(flattened_groups_.end(), hidden_groups.begin(),
                            hidden_groups.end());
 
-  // 3. Pinned processes / "Pinned" Header
+  // 2. Pinned processes / "Pinned" Header
   flattened_groups_.push_back(&header_pinned_);
-  // 4. Pinned processes and their children
   flattened_groups_.insert(flattened_groups_.end(), pinned_groups.begin(),
                            pinned_groups.end());
 
-  // 5. All Processes / "All" Header
+  // 3. All Processes / "All" Header
   flattened_groups_.push_back(&header_all_);
-  // 6. All processes and their children
   flattened_groups_.insert(flattened_groups_.end(), all_groups.begin(),
                            all_groups.end());
 }
@@ -454,9 +455,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     new_group_offsets[group_index] = current_offset;
     has_visible_group = true;
 
-    const bool has_children =
-        group_index + 1 < data.groups.size() &&
-        data.groups[group_index + 1].nesting_level > group.nesting_level;
+    const bool has_children = group.has_children;
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
 
@@ -476,7 +475,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
                        (kEventHeight + kEventPaddingBottom);
       }
     }
-
     if (is_collapsed &&
         hidden_nesting_level == std::numeric_limits<int>::max()) {
       hidden_nesting_level = group.nesting_level;
@@ -526,6 +524,43 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
 }
 
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
+  // Check if structure is flat and needs parent/child link inference.
+  bool needs_infer = true;
+  for (const auto& group : data.groups) {
+    if (group.parent_index != -1 || !group.child_indices.empty()) {
+      needs_infer = false;
+      break;
+    }
+  }
+  if (needs_infer) {
+    InferLinks(data);
+  }
+
+  // Set original_index and backfill level_counts for child tracks.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    data.groups[i].original_index = i;
+    data.groups[i].has_children = !data.groups[i].child_indices.empty();
+    if (data.groups[i].level_count <= 0) {
+      int next_level = (i + 1 < data.groups.size())
+                           ? data.groups[i + 1].start_level
+                           : static_cast<int>(data.events_by_level.size());
+      data.groups[i].level_count =
+          std::max(1, next_level - data.groups[i].start_level);
+    }
+  }
+
+  // Calculate process level counts from the sum of their child level counts.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    if (data.groups[i].nesting_level == kProcessNestingLevel &&
+        !data.groups[i].child_indices.empty()) {
+      int parent_level_count = 0;
+      for (int child_idx : data.groups[i].child_indices) {
+        parent_level_count += data.groups[child_idx].level_count;
+      }
+      data.groups[i].level_count = parent_level_count;
+    }
+  }
+
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
@@ -1020,10 +1055,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
              tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
       true);
 
-  const bool has_children =
-      group_index + 1 < timeline_data_.groups.size() &&
-      timeline_data_.groups[group_index + 1].nesting_level >
-          group.nesting_level;
+  const bool has_children = group.has_children;
   const int next_group_start_level =
       GetNextGroupStartLevel(timeline_data_, group_index);
   const bool has_multiple_levels =

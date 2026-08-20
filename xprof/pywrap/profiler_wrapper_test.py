@@ -16,6 +16,10 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.tsl.profiler.protobuf import xplane_pb2
+
+# pylint: enable=g-direct-tensorflow-import
 from xprof.convert import _pywrap_profiler_plugin as profiler_wrapper_plugin
 
 
@@ -41,6 +45,7 @@ class ProfilerSessionTest(parameterized.TestCase):
   @parameterized.named_parameters(
       ("default_options", "trace_viewer", None),
       ("with_list_options", "trace_viewer@", {"hosts": ["host1", "host2"]}),
+      ("utilization_viewer", "utilization_viewer", None),
   )
   def test_xspace_to_tools_data(self, tool_name, options):
     res, success = profiler_wrapper_plugin.xspace_to_tools_data(
@@ -66,6 +71,19 @@ class ProfilerSessionTest(parameterized.TestCase):
     test_file = self.create_tempfile().full_path
     result = profiler_wrapper_plugin.analyze_llo(test_file)
     self.assertFalse(result["success"])
+
+  def test_utilization_viewer_conversion(self):
+    """Tests that utilization_viewer is supported via fallback."""
+    xspace = xplane_pb2.XSpace()
+    res, success = (
+        profiler_wrapper_plugin.xspace_to_tools_data_from_byte_string(
+            xspace_strings=[xspace.SerializeToString()],
+            filenames_list=["test_host.xplane.pb"],
+            tool_name="utilization_viewer",
+        )
+    )
+    self.assertTrue(success)
+    self.assertIn(b"rows", res)
 
 
 if __name__ == "__main__":

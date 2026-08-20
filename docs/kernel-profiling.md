@@ -11,8 +11,8 @@ bundles to link Low-level Optimizer (LLO) instructions back to traced events.
 While this provides lightweight tracing, it lacks visibility into the detailed
 runtime behavior of various TPU components. XProf Kernel fills this gap by
 enabling the profiling of fine-grained runtime performance counters. This guide
-explains how to trigger, collect, and visualize these counters in a
-time-series format within the Trace Viewer.
+explains how to trigger, collect, and visualize these counters in a time-series
+format within the Trace Viewer.
 
 > **Note:** This advanced feature is available for Ironwood (TPU7x) and
 > subsequent versions.
@@ -20,8 +20,23 @@ time-series format within the Trace Viewer.
 ## Enabling Fine-Grained Performance Counters
 
 Enable performance counters through the
-[Advanced Configuration Options](https://docs.jax.dev/en/latest/profiling.html#advanced-configuration-options) in your
-JAX Profiler TPU options, as shown in the example below:
+[Advanced Configuration Options](https://docs.jax.dev/en/latest/profiling.html#advanced-configuration-options)
+in your JAX Profiler TPU options.
+
+For basic kernel profiling for common performance counters, you can use default
+kernel profiling settings:
+
+```py
+options = jax.profiler.ProfileOptions()
+options.advanced_configuration = {
+    "tpu_enable_kernel_profiling": True,
+}
+```
+
+This setting profiles some standard TC counters every 1 us.
+
+If you want more advanced settings, the example below uses all the available
+settings:
 
 ```py
 options = jax.profiler.ProfileOptions()
@@ -33,52 +48,101 @@ options.advanced_configuration = {
 }
 ```
 
-* `tpu_enable_periodic_counter_sampling`: Set this flag to signal that
-  fine-grained performance counters should be collected.
-* `tpu_<component>_perf_counter_sampling_options`: Use these flags to configure
-  sampling parameters and specify which counter indices to profile for a
-  specific component (components are listed in the
-  [Determining Counter Indices](#determining-counter-indices) section).
-  Supported settings are detailed in the table below; settings not explicitly
-  defined will use their default values.
+*   `tpu_enable_periodic_counter_sampling`: Set this flag to signal that
+    fine-grained performance counters should be collected.
+*   `tpu_<component>_perf_counter_sampling_options`: Use these flags to
+    configure sampling parameters and specify which counter indices to profile
+    for a specific component (components are listed in the
+    [Determining Counter Indices](#determining-counter-indices) section).
+    Supported settings are detailed in the table below; settings not explicitly
+    defined will use their default values.
 
-| Field | Description | Default |
-| :---- | :---- | :---- |
-| `interval_us` | The frequency of counter collection in microseconds (*us*). The minimum interval is 1 *us*. | 10000 us |
-| `scaling` | The number of bits to right-shift when collecting counter values. Use this if least significant bits (LSBs) are unnecessary for your analysis. Scaling helps reduce payload size and prevents trace drops, while Trace Viewer will automatically restore the original values for display. | 0 |
-| `counter_size_bits` | The bit-width of counters in the packed payload. Valid values (n) range from 0 to 3, corresponding to a size of `2^(n+3)` bits: 0=8 bits, 1=16 bits, 2=32 bits, and 3=64 bits. | 3 (64 bits) |
-| `indices` | The specific counter indices to profile. These are determined using the perf counters tool (see instructions below). | none |
+| Field               | Description                              | Default     |
+| :------------------ | :--------------------------------------- | :---------- |
+| `interval_us`       | The frequency of counter collection in   | 10000 us    |
+:                     : microseconds (*us*). The minimum         :             :
+:                     : interval is 1 *us*.                      :             :
+| `scaling`           | The number of bits to right-shift when   | 0           |
+:                     : collecting counter values. Use this if   :             :
+:                     : least significant bits (LSBs) are        :             :
+:                     : unnecessary for your analysis. Scaling   :             :
+:                     : helps reduce payload size and prevents   :             :
+:                     : trace drops, while Trace Viewer will     :             :
+:                     : automatically restore the original       :             :
+:                     : values for display.                      :             :
+| `counter_size_bits` | The bit-width of counters in the packed  | 3 (64 bits) |
+:                     : payload. Valid values (n) range from 0   :             :
+:                     : to 3, corresponding to a size of         :             :
+:                     : `2^(n+3)` bits\: 0=8 bits, 1=16 bits,    :             :
+:                     : 2=32 bits, and 3=64 bits.                :             :
+| `indices`           | The specific counter indices to profile. | none        |
+:                     : These are determined using the perf      :             :
+:                     : counters tool (see instructions below).  :             :
 
 ## Determining Counter Indices
 
 Use the **Perf Counters** tool to identify the specific indices for the
 component you wish to profile. Follow these steps:
 
-1. Navigate to perf counters in any TensorBoard trace supporting perf counters.
-2. Enable "Show Zero Values" to get a complete list of counters profiled.
-3. Search for your target **component**. Use the **bolded** keywords from the
-   table below as search queries to locate the correct counters:
+1.  Navigate to perf counters in any TensorBoard trace supporting perf counters.
+2.  Enable "Show Zero Values" to get a complete list of counters profiled.
+3.  Search for your target **component**. Use the **bolded** keywords from the
+    table below as search queries to locate the correct counters:
 
-| Component | Keyword |
-| :---- | :---- |
-| TC | vf\_chip\_**die0\_tc\_tcs**\_tc\_misc\_tcs\_stats\_tcs\_stats\_counters |
-| SCS | vf\_chip\_**die0\_sc\_0\_scs**\_sc\_stats\_counters |
-| SCTD | vf\_chip\_**die0\_sc\_0\_sctd\_0\_sc**\_stats\_counters |
-| SCTC | vf\_chip\_**die0\_sc\_0\_sctc\_0**\_sc\_stats\_counters |
-| CMN | vf\_chip\_**die0\_cmn\_cmnur\_0**\_cmn\_stats\_debug\_fixed\_stats\_counters |
-| ICR | vf\_chip\_chiplet\_**icr\_icr\_data\_0\_debug\_domain\_icr\_data\_stats\_packet**\_counters |
+Component | Keyword
+:-------- | :------
+TC        | vf\_chip\_**die0\_tc\_tcs**\_tc\_misc\_tcs\_stats\_tcs\_stats\_counters
+SCS       | vf\_chip\_**die0\_sc\_0\_scs**\_sc\_stats\_counters
+SCTC      | vf\_chip\_**die0\_sc\_0\_sctc\_0**\_sc\_stats\_counters
+SCTD      | vf\_chip\_**die0\_sc\_0\_sctd\_0\_sc**\_stats\_counters
+CMN       | vf\_chip\_**die0\_cmn\_cmnur\_0**\_cmn\_stats\_debug\_fixed\_stats\_counters
+ICR       | vf\_chip\_chiplet\_**icr\_icr\_data\_0\_debug\_domain\_icr\_data\_stats\_packet**\_counters
 
-4. Identify your counter in the resulting table. Calculate the index as
-   (**row index - 1**). Below is an example of the perf counters tool and
-   the corresponding TC counters.
+4.  Identify your counter in the resulting table. Calculate the index as (**row
+    index - 1**). Below is an example of the perf counters tool and the
+    corresponding TC counters.
 
-   ![Perf counters tool](./images/kernel_1.png)
+    ![Perf counters tool](./images/kernel_1.png)
+
+### Using default counter sets
+
+To allow users to customize perf counter sampling options without having to
+memorize desired counter indices, we have provided a few counter sets geared
+towards specific use cases. To use these sets, simply add
+`tpu_perf_counter_sets` to your configuration:
+
+```py
+options = jax.profiler.ProfileOptions()
+options.advanced_configuration = {
+    "tpu_enable_periodic_counter_sampling" : True,
+    "tpu_tc_perf_counter_sampling_options" : (
+        'interval_us:1 scaling:0 counter_size_bits:1 indices:2`
+    ),
+    "tpu_perf_counter_sets" : 'TC_COMPUTATION,TC_MEMORY',
+}
+```
+
+Any sets provided will profile all indices in the set in addition to any
+provided in the sampling options. The following table lists the currently
+available counter sets:
+
+| Name           | Components      | Description                               |
+| :------------- | :-------------- | :---------------------------------------- |
+| TC_COMPUTATION | TC              | Indices used for compute analysis on      |
+:                :                 : TensorCore.                               :
+| TC_MEMORY      | TC              | Indices used for memory overhead analysis |
+:                :                 : on TensorCore.                            :
+| SC_ACTIVITY    | SCS, SCTC, SCTD | Indices used for activity analysis on     |
+:                :                 : SparseCore.                               :
+| SC_MEMORY      | SCS, SCTC, SCTD | Indices used for memory overhead analysis |
+:                :                 : on SparseCore.                            :
+| HBM            | CMN             | Basic HBM profiling.                      |
 
 ## Visualizing Runtime Counters
 
-In the Trace Viewer, collected counters appear as lines, based on the
-specified indices and frequency. Selecting counter points opens a bottom modal
-displaying its value, including the increment since the last data point and its
+In the Trace Viewer, collected counters appear as lines, based on the specified
+indices and frequency. Selecting counter points opens a bottom modal displaying
+its value, including the increment since the last data point and its
 corresponding timestamp.
 
 ![Runtime counters](./images/kernel_2.png)
@@ -89,13 +153,13 @@ In addition to periodic performance counter collection, you can configure
 counters to sample based on external events, such as the execution of custom
 calls or specific TPU instructions.
 
-This event-driven approach provides sub-microsecond capture latency and
-highly precise attribution. By comparing runtime performance against static
-execution models, you can more effectively identify bottlenecks down to the
-bundle or instruction level.
+This event-driven approach provides sub-microsecond capture latency and highly
+precise attribution. By comparing runtime performance against static execution
+models, you can more effectively identify bottlenecks down to the bundle or
+instruction level.
 
-To enable event-triggered collection, replace the `interval_us` parameter
-with `is_external_trigger:true` in your configuration. Example:
+To enable event-triggered collection, replace the `interval_us` parameter with
+`is_external_trigger:true` in your configuration. Example:
 
 ```py
 options = jax.profiler.ProfileOptions()

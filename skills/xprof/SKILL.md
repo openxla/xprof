@@ -98,6 +98,8 @@ When asked to find performance bottlenecks for a session:
 
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
 
+-   **[Get Graph Viewer Data](references/get_graph_viewer.md)**: Get graph
+    viewer data (HLO text) from XProf using XSymbol ID.
 -   **[Numerical Verification](references/numerical_correctness.md)**: Verify
     numerical equivalence between baseline and candidate kernels using
     multi-regime distributions, discrete bounded indices, monotonic segment IDs,

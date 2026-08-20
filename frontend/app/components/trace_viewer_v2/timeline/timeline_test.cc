@@ -1582,8 +1582,7 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyD_PansRight) {
   SimulateFrame();
 }
 
-TEST_F(MockTimelineImGuiFixture,
-       HandleKeyboard_LeftArrow_PansWhenNoSelection) {
+TEST_F(MockTimelineImGuiFixture, HandleKeyboard_LeftArrow_PansWhenNoSelection) {
   timeline_.RevealEvent(-1);  // Ensure no event is selected
   ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
   EXPECT_CALL(timeline_, Pan(FloatEq(-timeline_.panning_speed() *
@@ -8635,6 +8634,167 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
 
   // Verify Process A became VISIBLE
   EXPECT_TRUE(timeline_.group_visible()[0]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_Expand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, false},
+      {Group::Type::kFlame, "Thread A2", "", 1, kThreadNestingLevel, false}};
+  data.events_by_level = {{0}, {1}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is collapsed, so the child is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  // "All" header is at Y ~ 111 screen.
+  // The collapse/expand all button is at X ~ 231.0f.
+  io.MousePos = ImVec2(231.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became expanded, so the child is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_Collapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, false},
+      {Group::Type::kFlame, "Thread A2", "", 1, kThreadNestingLevel, false}};
+  data.events_by_level = {{0}, {1}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially Process A is expanded, so the child is visible.
+  EXPECT_TRUE(timeline_.group_visible()[1]);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(231.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify Process A became collapsed, so the child is not visible.
+  EXPECT_FALSE(timeline_.group_visible()[1]);
+}
+
+TEST_F(RealTimelineImGuiFixture, CollapseExpandAllButton_MultipleGroupsExpand) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
+      {Group::Type::kFlame, "Process B", "", 2, kProcessNestingLevel, false}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially both are collapsed.
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(231.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify BOTH Process A and Process B became expanded.
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       CollapseExpandAllButton_MultipleGroupsCollapse) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1, 2, 3};
+  data.entry_total_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0, 10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0, 0.0, 0.0};
+  data.entry_names = {"event1", "event2", "event3", "event4"};
+
+  data.groups = {
+      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
+      {Group::Type::kFlame, "Process B", "", 2, kProcessNestingLevel, true}};
+  data.events_by_level = {{0}, {1}, {2}, {3}};
+
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(data);
+
+  SimulateFrame();
+
+  // Initially both are expanded.
+  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+
+  ImGuiIO& io = ImGui::GetIO();
+  // Click on "All" header collapse/expand all button.
+  io.MousePos = ImVec2(231.0f, 111.0f);
+  SimulateFrame();
+
+  EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
+
+  // Click
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Verify BOTH Process A and Process B became collapsed.
+  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
 }
 
 TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {

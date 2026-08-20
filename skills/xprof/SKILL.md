@@ -40,8 +40,7 @@ skill's markdown files but are NOT visible by running `xprof -h`.
 
 ## Referring to Sessions & Inputs
 
-In Open-Source and local profiling, `xprof` tools accept trace inputs through
-multiple flexible formats:
+`xprof` tools accept trace inputs through multiple flexible formats:
 
 1.  **Base Log Directory (Auto-Discovery)**: Pass the root directory where
     profiles are stored. `xprof` automatically discovers the latest profile run
@@ -73,6 +72,9 @@ multiple flexible formats:
     or running complex queries) can take a long time. For these, consider
     spawning a subagent. However, for quick lookups like `get_hosts` or
     `get_overview`, execute the command directly.
+-   **Trace Buffer Overflows**: If traces show dropped events or truncated
+    steps, shorten the profiling duration (e.g. 2–5 steps instead of 20) or
+    filter targeted event types using `--plane_regex` in timeline tools.
 -   When running commands that get sent to the background as tasks, **DO NOT**
     attempt to guess the log file path or use `grep` manually to poll for
     completion.
@@ -99,7 +101,31 @@ When asked to find performance bottlenecks for a session:
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
 
 -   **[Get Graph Viewer Data](references/get_graph_viewer.md)**: Get graph
-    viewer data (HLO text) from XProf using XSymbol ID.
+    viewer data (HLO text) and source line mappings from XProf.
+-   **[Get Session Overview](references/get_overview.md)**: Get a comprehensive
+    overview (Performance Summary, Run Environment) of an XProf session.
+-   **[Get Memory Profile](references/get_memory_profile.md)**: Get a detailed
+    memory profile analysis (Peak/device memory details) of an XProf session.
+-   **[Get Peak Allocations](references/get_peak_allocations.md)**: Get HLO
+    modules and buffers ordered by memory usage.
+-   **[Get Top HLO Operations](references/get_top_hlo_ops.md)**: Identify top
+    HLO operations by time, FLOPs, or bytes accessed.
+-   **[Get KPI Metrics](references/get_kpi_metrics.md)**: Fetch consolidated KPI
+    metrics (step time, duty cycle, MXU utilization, roofline) for a session.
+-   **[Get HLO Neighborhood](references/get_hlo_neighborhood.md)**: Fetch the
+    BFS neighborhood of an HLO instruction to identify fusion blockers.
+-   **[Get Utilization Viewer](references/get_utilization_viewer.md)**: Fetch
+    utilization metrics filtered by host, device, or node.
+-   **[Analyze XLA Module Performance](references/analysis.md)**: Analyze XLA
+    module performance, inspect HLO operations, and query timeline events.
+-   **[Import Trace File](references/upload_trace.md)**: Import raw trace files
+    into an xprof logdir for analysis.
+-   **[Get Smart Suggestions](references/smart_suggestions.md)**: Dynamic
+    bottleneck rules and static HLO optimization patterns (data types, einsum
+    folding, layout alignment).
+-   **[Diff Sessions](references/diff_session.md)**: Compare performance, kernel
+    execution times, top operations, and HLO graphs between baseline and
+    candidate sessions.
 -   **[Numerical Verification](references/numerical_correctness.md)**: Verify
     numerical equivalence between baseline and candidate kernels using
     multi-regime distributions, discrete bounded indices, monotonic segment IDs,

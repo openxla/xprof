@@ -16,17 +16,25 @@ for detailed analysis.
 
 ## Instructions
 
-1.  Use the `xprof` command-line tool, providing the required arguments. `xprof
-    get_graph_viewer <logdir> --symbol_id=<symbol_id>
-    --symbol_type=<symbol_type>`
+1.  Use the `xprof` command-line tool, providing the log directory or session:
+
+```bash
+# View HLO text for the primary module in a logdir
+xprof get_graph_viewer <logdir> --output_type=short_txt
+
+# View subgraph around a specific node
+xprof get_graph_viewer <logdir> --module_name=<module_name> --node_name=<node_name> --output_type=graph
+```
+
+> [!NOTE] **Compilation Proto Requirement**: To capture HLO graph structures in
+> trace sessions, ensure workloads are run with
+> `XLA_FLAGS='--xla_dump_to=<logdir> --xla_dump_hlo_as_proto'`.
 
 ### Parameters
 
-#### Parameters
-
--   `--session_id`: The unique XProf session ID. Optional if `--symbol_id` is
-    provided, but **cannot be set together with `--symbol_id`**. Use `'xsymbol'`
-    for looking up symbols by ID.
+-   `<logdir>` or `--session_id`: The XProf log directory or session ID.
+    Optional if `--symbol_id` is provided, but **cannot be set together with
+    `--symbol_id`**.
 -   `--symbol_id`: The unique ID of the symbol to fetch. Optional, but required
     if `--session_id` is not provided, and **cannot be set together with
     `--session_id`**.
@@ -52,8 +60,14 @@ for detailed analysis.
 
 ## Example Usage
 
-If the user says: "Get the HLO text for symbol 5872881440787210439 of type
-XDB_COMPILER_METADATA", you should: 1. Run the CLI command: `xprof
-get_graph_viewer <logdir> --symbol_id=5872881440787210439
---symbol_type=XDB_COMPILER_METADATA` 2. Save the output or present it to the
-user.
+1.  **View Module HLO Text**:
+
+    ```bash
+    xprof get_graph_viewer /path/to/logdir --module_name=jit_train_step --output_type=short_txt
+    ```
+
+2.  **Lookup by Symbol ID**:
+
+    ```bash
+    xprof get_graph_viewer /path/to/logdir --symbol_id=5872881440787210439 --symbol_type=XDB_COMPILER_METADATA
+    ```

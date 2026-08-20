@@ -93,7 +93,7 @@ xprof verify_numerical_parity \
 For programmatic integration within Python test harnesses or optimization loops:
 
 ```python
-from google3.third_party.xprof.plugin.xprof.cli.internal import numerical_validator
+from xprof.cli.internal import numerical_validator
 
 # 1. Define Reference and Candidate Kernels
 def ref_kernel(a, b):
@@ -150,11 +150,12 @@ Whenever a user or agent selects a relaxed tolerance
 ($\text{RECOMMENDED} < \text{max\_allowed\_ulp} \le \text{HARD\_CEILING}$):
 
 1. **CLI / Text Summary**: Prepends a prominent warning banner:
-   ```
-   ⚠️ CAUTION: A relaxed tolerance threshold (max_allowed_ulp=4) was configured.
-   The recommended contract is <= 2 ULP for 'bfloat16' to guarantee numerical
-   correctness. Ensure this elevation is analytically justified.
-   ```
+
+    ```
+    ⚠️ CAUTION: A relaxed tolerance threshold (max_allowed_ulp=4) was configured.
+    The recommended contract is <= 2 ULP for 'bfloat16' to guarantee numerical
+    correctness. Ensure this elevation is analytically justified.
+    ```
 2. **Structured JSON Output**: Embeds a `"tolerance_audit"` block with
    `"is_relaxed_override": true` and the full `"caution_banner"`.
 3. **Hard Ceiling Exception**: If `max_allowed_ulp > MAX_HARD_CEILING_ULP`,
@@ -175,7 +176,7 @@ Generates valid discrete indices strictly bounded in $[0,
 ($0$ and $\text{upper\_bound}-1$) to catch off-by-one errors:
 
 ```python
-from google3.third_party.xprof.plugin.xprof.cli.internal import numerical_generator
+from xprof.cli.internal import numerical_generator
 
 # Generate expert IDs in [0, 63] for MoE routing
 expert_ids = numerical_generator.generate_index_tensor(
@@ -277,7 +278,7 @@ test suites are persisted to `.npz` archive files with embedded JSON metadata
 manifests:
 
 ```python
-from google3.third_party.xprof.plugin.xprof.cli.internal import numerical_generator
+from xprof.cli.internal import numerical_generator
 
 # Generate and persist test suite fixture
 suite = numerical_generator.generate_test_suite(

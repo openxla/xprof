@@ -38,7 +38,7 @@ TEST(HardwareTypeUtilsTest, B200PeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 2218, /*abs_error=*/1.0);
 }
 
@@ -58,7 +58,7 @@ TEST(HardwareTypeUtilsTest, FutureBlackwellPeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 2218, /*abs_error=*/1.0);
 }
 
@@ -78,7 +78,7 @@ TEST(HardwareTypeUtilsTest, H100PeakComputTFlops) {
 
   // Get target TFLOPS per SM and check.
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 756, /*abs_error=*/1.0);
 }
 
@@ -97,8 +97,198 @@ TEST(HardwareTypeUtilsTest, A100PeakComputTFlops) {
   device_cap.mutable_compute_capability()->set_minor(0);
 
   double peak_tflops =
-      GetFlopMaxThroughputPerSM(device_cap) * device_cap.num_cores() / 1000.0;
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
   EXPECT_NEAR(peak_tflops, 312, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi300XPeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI300X: 304 CU at 2.1 GHz, published dense FP16/BF16 matrix 1307.4 TFLOPS.
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx942");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  // Guards the bf16 trap: if the matrix rate were stored only in bf16_tflops,
+  // the max would skip it and report the vector fp32 peak of 163.4 instead.
+  EXPECT_NEAR(peak_tflops, 1307.4, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi100PeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI100: 120 CU at 1.502 GHz, published FP16 matrix 184.6 TFLOPS. CDNA 1 is
+  // the one architecture where bf16 MFMA is half rate, so fp16 is the headline.
+  device_cap.set_clock_rate_in_ghz(1.502);
+  device_cap.set_num_cores(120);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx908");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 184.6, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi250PeakComputeTFlopsPerGcd) {
+  DeviceCapabilities device_cap;
+  // MI250: 104 CU per GCD at 1.7 GHz. Published 362.1 TFLOPS is the 208 CU
+  // package; the profiler sees one GCD.
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx90a");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 181.0, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi355XPeakComputeTFlops) {
+  DeviceCapabilities device_cap;
+  // MI355X: 256 CU at 2.4 GHz, published dense FP16/BF16 matrix 2.5 PFLOPS.
+  device_cap.set_clock_rate_in_ghz(2.4);
+  device_cap.set_num_cores(256);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx950");
+
+  double peak_tflops =
+      GetFlopMaxThroughputPerCore(device_cap) * device_cap.num_cores() / 1000.0;
+  EXPECT_NEAR(peak_tflops, 2516.6, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, AmbiguousAmdComputeCapabilityReportsNoPeak) {
+  // (9, 0) is gfx908 or gfx90a, whose rate tables differ. Without a device name
+  // to disambiguate, report nothing rather than pick one.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(0);
+
+  EXPECT_EQ(GetFlopMaxThroughputPerCore(device_cap), 0.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi300XSharedMemoryBandwidth) {
+  DeviceCapabilities device_cap;
+  // MI300X: 304 CU at 2.1 GHz, CDNA 3 (32 LDS banks x 4 B = 128 B/clock/CU).
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx942");
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
+  // 304 * 128 B * 2.1e9 = 81,715.2 GB/s. Notably half of what the Nvidia bank
+  // model would report, since CDNA has the same 32 banks at half the width.
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, Mi355XSharedMemoryBandwidthDoubles) {
+  DeviceCapabilities device_cap;
+  // MI355X: 256 CU at 2.4 GHz, CDNA 4 (64 LDS banks x 4 B = 256 B/clock/CU).
+  device_cap.set_clock_rate_in_ghz(2.4);
+  device_cap.set_num_cores(256);
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx950");
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 157286.4, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthFromComputeCapability) {
+  // Traces captured before the collector emitted a device name still resolve,
+  // because (9, 4) identifies CDNA 3 unambiguously.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(2.1);
+  device_cap.set_num_cores(304);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(4);
+
+  double aggregate_giga_bytes_per_second =
+      device_cap.num_cores() *
+      tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(device_cap));
+  EXPECT_NEAR(aggregate_giga_bytes_per_second, 81715.2, /*abs_error=*/1.0);
+}
+
+TEST(HardwareTypeUtilsTest, SharedMemoryBandwidthUnknownAmdArchReportsNothing) {
+  // (9, 0) is gfx908 or gfx90a, whose rates differ. Report nothing rather than
+  // pick one.
+  DeviceCapabilities device_cap;
+  device_cap.set_clock_rate_in_ghz(1.7);
+  device_cap.set_num_cores(104);
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(0);
+
+  EXPECT_EQ(GetSharedMemoryBandwidthPerCore(device_cap), 0.0);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameIgnoresNvidiaProductName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(9);
+  // CUPTI reports a product name, which contains no "GPU" substring. Returning
+  // it would make ParseHardwareType, the GPU roofline table selection and the
+  // frontend all stop recognising the device.
+  device_cap.set_device_name("NVIDIA H100 80GB HBM3");
+
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
+  EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToFamilyWithoutName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("Nvidia");
+  device_cap.mutable_compute_capability()->set_major(9);
+
+  EXPECT_EQ(GpuModelName(device_cap), "Nvidia GPU (Hopper)");
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameReportsAmdArchFromDeviceName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.set_device_name("gfx950");
+
+  // Must remain more specific than the family fallback, and must still contain
+  // "GPU" because ParseHardwareType and the frontend both key on that.
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx950");
+  EXPECT_EQ(ParseHardwareType(GpuModelName(device_cap)), HardwareType::GPU);
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameRejectsMalformedAmdDeviceName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  // Target-ID form, which the collector does not emit.
+  device_cap.set_device_name("gfx942:sramecc+:xnack-");
+
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU");
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameResolvesAmdArchFromComputeCapability) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  device_cap.mutable_compute_capability()->set_minor(4);
+
+  // The pair identifies gfx942 alone, and is what the roofline tables key on.
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx942");
+}
+
+TEST(HardwareTypeUtilsTest, GpuModelNameFallsBackToAmdFamilyWithoutName) {
+  DeviceCapabilities device_cap;
+  device_cap.set_device_vendor("AMD");
+  device_cap.mutable_compute_capability()->set_major(9);
+  // (9, 0) is ambiguous between gfx908 and gfx90a, so the family is as precise
+  // as this can get.
+  device_cap.mutable_compute_capability()->set_minor(0);
+
+  EXPECT_EQ(GpuModelName(device_cap), "AMD GPU - gfx-9XX series");
 }
 
 }  // namespace

@@ -94,6 +94,11 @@ std::string Hostname(const XSpace& space) {
   return hostname;
 }
 
+double GetDoubleStatOrZero(const XPlaneVisitor& visitor, StatType stat_type) {
+  std::optional<XStatVisitor> stat = visitor.GetStat(stat_type);
+  return stat.has_value() ? stat->DoubleValue() : 0.0;
+}
+
 }  // namespace
 
 PerfEnv MakePerfEnv(double peak_tera_flops_per_second,
@@ -128,20 +133,38 @@ PerfEnv MakePerfEnvForGpu(double peak_tera_flops_per_second,
 PerfEnv GetPerfEnvFromXPlane(const XPlane& device_plane) {
   DeviceCapabilities cap = GetDeviceCaps(device_plane);
   if (!absl::StartsWith(device_plane.name(), kTpuPlanePrefix)) {
+    XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(&device_plane);
+    // An XLA profiler backend may populate the stat in the XPlane directly, as
+    // libtpu does for TPU. If so, prefer the provided stat, as in future XLA
+    // GPU backends may choose to provide it directly too.
     double peak_tera_flops_per_second =
-        cap.num_cores() *
-        tsl::profiler::GigaToTera(GetFlopMaxThroughputPerSM(cap));
+        GetDoubleStatOrZero(visitor, StatType::kDevCapPeakTeraflopsPerSecond);
+    if (peak_tera_flops_per_second <= 0.0) {
+      peak_tera_flops_per_second =
+          cap.num_cores() *
+          tsl::profiler::GigaToTera(GetFlopMaxThroughputPerCore(cap));
+    }
     double hbm_bw_giga_bytes_per_second =
         tsl::profiler::UniToGiga(cap.memory_bandwidth());
-    double shm_giga_bytes_per_second =
+    double derived_shm_giga_bytes_per_second =
         cap.num_cores() *
-        tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerSM(cap));
+        tsl::profiler::UniToGiga(GetSharedMemoryBandwidthPerCore(cap));
     // Note that treat SRAM_RD and SRAM_WR as the same. So in future, we could
     // only use one for shared memory / L1 cache, one for another like L2.
+    double sram_rd_giga_bytes_per_second = GetDoubleStatOrZero(
+        visitor, StatType::kDevCapPeakSramRdBwGigabytesPerSecond);
+    double sram_wr_giga_bytes_per_second = GetDoubleStatOrZero(
+        visitor, StatType::kDevCapPeakSramWrBwGigabytesPerSecond);
+    if (sram_rd_giga_bytes_per_second <= 0.0) {
+      sram_rd_giga_bytes_per_second = derived_shm_giga_bytes_per_second;
+    }
+    if (sram_wr_giga_bytes_per_second <= 0.0) {
+      sram_wr_giga_bytes_per_second = derived_shm_giga_bytes_per_second;
+    }
     return MakePerfEnvForGpu(peak_tera_flops_per_second,
                              {/*HBM_RW=*/hbm_bw_giga_bytes_per_second,
-                              /*SRAM_RD=*/shm_giga_bytes_per_second,
-                              /*SRAM_WR=*/shm_giga_bytes_per_second});
+                              /*SRAM_RD=*/sram_rd_giga_bytes_per_second,
+                              /*SRAM_WR=*/sram_wr_giga_bytes_per_second});
   } else {
     XPlaneVisitor visitor = tsl::profiler::CreateTfXPlaneVisitor(&device_plane);
     std::optional<XStatVisitor> peak_tera_flops_per_second =
@@ -222,10 +245,9 @@ void SetRunEnvironment(const XSpace& space, RunEnvironment* env) {
   std::vector<const XPlane*> gpu_planes =
       FindPlanesWithPrefix(space, kGpuPlanePrefix);
   if (!gpu_planes.empty()) {
-    absl::string_view gpu_model =
-        GpuModelName(GetDeviceCaps(*gpu_planes.front()));
+    std::string gpu_model = GpuModelName(GetDeviceCaps(*gpu_planes.front()));
     if (!gpu_model.empty()) {
-      env->set_device_type(std::string(gpu_model));
+      env->set_device_type(std::move(gpu_model));
     } else {
       env->set_device_type("GPU");
     }

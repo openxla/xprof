@@ -56,6 +56,11 @@ void SetDeviceCaps(const DeviceCapabilities& caps, XPlane* plane) {
   xplane.AddStatValue(
       *xplane.GetOrCreateStatMetadata(GetStatTypeStr(StatType::kDevVendor)),
       caps.device_vendor());
+  if (!caps.device_name().empty()) {
+    xplane.AddStatValue(*xplane.GetOrCreateStatMetadata(
+                            GetStatTypeStr(StatType::kGpuDeviceName)),
+                        caps.device_name());
+  }
 }
 
 DeviceCapabilities GetDeviceCaps(const XPlane& plane) {
@@ -84,6 +89,9 @@ DeviceCapabilities GetDeviceCaps(const XPlane& plane) {
         break;
       case StatType::kDevVendor:
         caps.set_device_vendor(std::string(stat.StrOrRefValue()));
+        break;
+      case StatType::kGpuDeviceName:
+        caps.set_device_name(std::string(stat.StrOrRefValue()));
         break;
     }
   });

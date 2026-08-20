@@ -1746,6 +1746,7 @@ cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@org_xprof//xprof/utils:device_caps_utils",
         "@org_xprof//xprof/utils:gpu_event_stats",
         "@org_xprof//xprof/utils:kernel_stats_utils",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",

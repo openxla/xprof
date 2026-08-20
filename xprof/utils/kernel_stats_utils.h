@@ -32,8 +32,10 @@ namespace profiler {
 void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
                              KernelReport* kernel);
 
-// Returns true if kernel uses TensorCores.
-bool IsKernelUsingTensorCore(absl::string_view kernel_name);
+// Returns true if kernel uses Tensor Cores. Unrecognised/unimplemented vendors
+// return false.
+bool IsKernelUsingTensorCore(absl::string_view kernel_name,
+                             absl::string_view device_vendor);
 
 // Returns true if operation is eligible to use TensorCores.
 bool IsOpTensorCoreEligible(absl::string_view tf_op_name);

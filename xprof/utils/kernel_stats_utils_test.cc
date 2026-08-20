@@ -20,6 +20,7 @@ limitations under the License.
 #include "testing/base/public/gmock.h"
 #include "absl/strings/string_view.h"
 #include "xla/backends/profiler/gpu/cupti_buffer_events.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
 
 namespace tensorflow {
@@ -27,6 +28,9 @@ namespace profiler {
 namespace {
 
 using ::testing::FieldsAre;
+
+const absl::string_view kNvidia = tsl::profiler::kDeviceVendorNvidia;
+const absl::string_view kAmd = tsl::profiler::kDeviceVendorAMD;
 
 TEST(KernelStatsUtilsTest, TestGroupKernelReportsByOpName) {
   KernelStatsDb kernel_stats_db;
@@ -83,9 +87,121 @@ TEST(KernelStatsUtilsTest, IsOpTensorCoreEligibleRecognisesXlaOps) {
 }
 
 TEST(KernelStatsUtilsTest, IsKernelUsingTensorCoreMatchesNvidia) {
-  EXPECT_TRUE(IsKernelUsingTensorCore("volta_h884gemm_64x64_ldg8_nn"));
-  EXPECT_TRUE(IsKernelUsingTensorCore("sm90_xmma_gemm_f32f32_tf32f32_f32"));
-  EXPECT_FALSE(IsKernelUsingTensorCore("volta_sgemm_128x64_nn"));
+  EXPECT_TRUE(IsKernelUsingTensorCore("volta_h884gemm_64x64_ldg8_nn", kNvidia));
+  EXPECT_TRUE(
+      IsKernelUsingTensorCore("sm90_xmma_gemm_f32f32_tf32f32_f32", kNvidia));
+  EXPECT_FALSE(IsKernelUsingTensorCore("volta_sgemm_128x64_nn", kNvidia));
+}
+
+TEST(KernelStatsUtilsTest, IsKernelUsingTensorCoreGatesOnVendor) {
+  // Not all patterns are vendor-specific strings, so each vendor's patterns
+  // must only be applied to that vendor's kernels.
+  EXPECT_FALSE(IsKernelUsingTensorCore("gemm_fusion_dot_188.kd", kNvidia));
+  EXPECT_TRUE(IsKernelUsingTensorCore("gemm_fusion_dot_188.kd", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("volta_h884gemm_64x64_ldg8_nn", kAmd));
+
+  // An unrecognised or unimplemented vendor classifies nothing.
+  EXPECT_FALSE(IsKernelUsingTensorCore("volta_h884gemm_64x64_ldg8_nn", ""));
+  EXPECT_FALSE(IsKernelUsingTensorCore("gemm_fusion_dot_188.kd", "Intel"));
+}
+
+TEST(KernelStatsUtilsTest, IsKernelUsingTensorCoreMatchesAmdMatrixCore) {
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "Cijk_Ailk_Bljk_BBS_BH_Bias_HA_S_SAV_UserArgs_MT128x320x64_MI16x16x1_SN_"
+      "LDSB1_ISA942_MIAV0_MIWT4_10_WS64_WG32_8_1.kd",
+      kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "Cijk_Ailk_Bljk_HHS_BH_MT128x128x16_MI32x32x8x1_SE_K1", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "Custom_Cijk_Ailk_Bljk_F8NH_HHS_BH_Bias_GG_AS_SAB_SAV_UserArgs_"
+      "shortname1_gfx942",
+      kAmd));
+  EXPECT_TRUE(
+      IsKernelUsingTensorCore("kernel_gemm_mfma_f32_32x32x8bf16", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore("gemm_fusion_dot_188.kd", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "_ZN2ck16tensor_operation6device12_GLOBAL__N_1"
+      "39kernel_grouped_conv_fwd_xdl_cshuffle_v3INS_34GridwiseGemmMultiD_xdl_"
+      "cshuffle_v3INS_13tensor_layout4gemm8RowMajorE",
+      kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "igemm_fwd_gtcx3_nhwc_fp16_bx0_ex0_bt128x128x32_wt32x32x8_ws1x1_wr2x2",
+      kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "miopenSp3AsmConvRage_v4_6_0_gfx9_fp16_fp32acc_f2x3_stride1", kAmd));
+  EXPECT_FALSE(
+      IsKernelUsingTensorCore("igemm_bwd_gtc_nchw_fp32_bx0_ex0", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("miopenGcnAsmConv1x1U", kAmd));
+  EXPECT_FALSE(
+      IsKernelUsingTensorCore("ConvHipImplicitGemmGroupFwdXdlops", kAmd));
+
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "Cijk_SB_BiasS_HAS_ScaleAlphaVec_PostGSU4_VW4.kd", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("triton_softmax_13.kd", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("__amd_rocclr_copyBuffer.kd", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("elementwise_add_kernel", kAmd));
+}
+
+TEST(KernelStatsUtilsTest, IsKernelUsingTensorCoreMatchesAmdAttention) {
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "std::enable_if<!(kattr_no_packed_fp32_ops_v<ck_tile::gfx9_t>), "
+      "void>::type ck_tile::kentry<ck_tile::gfx9_t, 1, "
+      "ck_tile::FmhaBwdDQDKDVKernel<ck_tile::BlockFmhaBwdDQDKDVPipeline<"
+      "ck_tile::TileFmhaBwdShape<ck_tile::sequence<16, 16, 32> > > >",
+      kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "ck_tile::kentry<1, ck_tile::FmhaFwdKernel<ck_tile::TileFmhaShape<"
+      "ck_tile::sequence<32, 32, 16> > > >",
+      kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "ck_tile::kentry<1, ck_tile::GemmKernel<ck_tile::TileGemmShape<"
+      "ck_tile::sequence<256, 256, 64> > > >",
+      kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "ck_tile::kentry<ck_tile::gfx9_t, 1, ck_tile::FmhaBwdDQDKDVKernel<"
+      "ck_tile::TileFmhaBwdShape<ck_tile::sequence<16, 16, 32> > "
+      ">::DqAccPrezeroKernel::Kargs>",
+      kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "ck_tile::kentry<1, ck_tile::FmhaFwdSplitKVCombineKernel<...> >", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "ck_tile::kentry<1, ck_tile::FmhaFwdAppendKVKernel<...> >", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "_ZN5aiter34fmha_fwd_hd192x128_bf16_causal_rtzE.kd", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "_ZN5aiter45fmha_bwd_hd128_bf16_causal_a32_rtz_psskddvE.kd", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "aiter::fmoe_bf16_a16_blockscaleFp8_g1u1_vs_silu_1tg_16x128_pf3", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "aiter::mla_a16w16_qh16_m16x4_n16x1_coex0_mask1_lse_ps", kAmd));
+  EXPECT_TRUE(
+      IsKernelUsingTensorCore("aiter::PA_A16W8_BLK1024_1TG_4W_MTP_PS", kAmd));
+  EXPECT_TRUE(
+      IsKernelUsingTensorCore("aiter::bf16gemm_bf16_tn_128x128x64", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore(
+      "MXFP8_FMHA_FWD_D128_1TG_4W_64mx4_128nx1_CAUSAL_KERNEL_FUNC", kAmd));
+  EXPECT_FALSE(
+      IsKernelUsingTensorCore("aiter::topksoftmax_4x128x8_bf16", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore("attn_fwd", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore("bwd_kernel_dk_dv", kAmd));
+  EXPECT_TRUE(IsKernelUsingTensorCore("bwd_kernel_fuse", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("bwd_preprocess_varlen", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore("bwd_postprocess", kAmd));
+  EXPECT_FALSE(
+      IsKernelUsingTensorCore("_ZN5aiter28fmha_bwd_hd128_odo_bf16E.kd", kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "_ZN5aiter38fmha_bwd_hd128_dq_convert_bf16_rtzE.kd", kAmd));
+
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "std::enable_if<!(kattr_no_packed_fp32_ops_v<ck_tile::gfx9_t>), "
+      "void>::type ck_tile::kentry<ck_tile::gfx9_t, 2, "
+      "ck_tile::BlockFmhaBwdOGradDotO<...> >",
+      kAmd));
+  EXPECT_FALSE(IsKernelUsingTensorCore(
+      "std::enable_if<!(kattr_no_packed_fp32_ops_v<ck_tile::gfx9_t>), "
+      "void>::type ck_tile::kentry<ck_tile::gfx9_t, 2, "
+      "ck_tile::BlockFmhaBwdConvertQGrad<...> >",
+      kAmd));
 }
 
 TEST(KernelStatsUtilsTest, GroupKernelReportsByOpNameMixedEligibility) {

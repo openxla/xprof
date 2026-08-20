@@ -29,8 +29,10 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "xla/tsl/platform/logging.h"
 #include "xla/tsl/platform/types.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
 #include "xprof/utils/cuda_type_utils.h"
+#include "xprof/utils/rocm_type_utils.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -95,9 +97,18 @@ void ParseKernelLaunchParams(absl::string_view xstat_kernel_details,
   }
 }
 
-bool IsKernelUsingTensorCore(absl::string_view kernel_name) {
+bool IsKernelUsingTensorCore(absl::string_view kernel_name,
+                             absl::string_view device_vendor) {
   VLOG(1) << "kernel name: " << kernel_name;
-  return cuda::IsKernelUsingTensorCore(kernel_name);
+  if (device_vendor == tsl::profiler::kDeviceVendorNvidia) {
+    return cuda::IsKernelUsingTensorCore(kernel_name);
+  }
+  if (device_vendor == tsl::profiler::kDeviceVendorAMD) {
+    return rocm::IsKernelUsingMatrixCore(kernel_name);
+  }
+  // Several patterns are not vendor-specific strings, so report false rather
+  // than matching a name against another vendor's patterns.
+  return false;
 }
 
 // This list is not exhaustive.

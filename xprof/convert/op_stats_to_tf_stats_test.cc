@@ -106,6 +106,10 @@ occ_pct:100)MULTI";
   XSpace space;
   XPlaneBuilder device_plane(
       tsl::profiler::GetOrCreateGpuXPlane(&space, /*device_ordinal=*/0));
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata(
+          GetStatTypeStr(StatType::kDevVendor)),
+      tsl::profiler::kDeviceVendorNvidia);
   XLineBuilder stream1 = device_plane.GetOrCreateLine(/*line_id=*/10);
   AddTensorFlowOpEvent(absl::StrCat(kTfOp1, ":", kTfOp1), kKernel1StartNs,
                        kKernel1DurationNs, /*on_device=*/true, kKernel1,

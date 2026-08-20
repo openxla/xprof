@@ -35,6 +35,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/data_table_utils.h"
 #include "plugin/xprof/protobuf/kernel_stats.pb.h"
+#include "xprof/utils/device_caps_utils.h"
 #include "xprof/utils/gpu_event_stats.h"
 #include "xprof/utils/kernel_stats_utils.h"
 
@@ -48,6 +49,7 @@ void ConvertDeviceTraceXPlaneToKernelReports(
     KernelReportMap* reports) {
   tsl::profiler::XPlaneVisitor plane =
       tsl::profiler::CreateTfXPlaneVisitor(&device_trace);
+  const std::string device_vendor = GetDeviceCaps(device_trace).device_vendor();
   plane.ForEachLine([&](const tsl::profiler::XLineVisitor& line) {
     if (tsl::profiler::IsDerivedThreadId(line.Id())) {
       return;
@@ -60,7 +62,7 @@ void ConvertDeviceTraceXPlaneToKernelReports(
 
       kernel.set_name(std::string(event.Name()));
       kernel.set_is_kernel_using_tensor_core(
-          IsKernelUsingTensorCore(event.Name()));
+          IsKernelUsingTensorCore(event.Name(), device_vendor));
       kernel.set_total_duration_ns(event.DurationNs());
       kernel.set_min_duration_ns(event.DurationNs());
       kernel.set_max_duration_ns(event.DurationNs());

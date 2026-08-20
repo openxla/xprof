@@ -77,6 +77,7 @@ cc_library(
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/log",
+        "@com_google_absl//absl/strings",
         "@xla//xla/tsl/profiler/utils:math_utils",
     ],
 )
@@ -343,6 +344,7 @@ cc_library(
     srcs = ["kernel_stats_utils.cc"],
     hdrs = ["kernel_stats_utils.h"],
     deps = [
+        ":cuda_type_utils",
         "//plugin/xprof/protobuf:kernel_stats_proto_cc",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/container:flat_hash_map",

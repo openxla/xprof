@@ -82,6 +82,12 @@ TEST(KernelStatsUtilsTest, IsOpTensorCoreEligibleRecognisesXlaOps) {
   EXPECT_FALSE(IsOpTensorCoreEligible("jit(train_step)/jit(main)/add"));
 }
 
+TEST(KernelStatsUtilsTest, IsKernelUsingTensorCoreMatchesNvidia) {
+  EXPECT_TRUE(IsKernelUsingTensorCore("volta_h884gemm_64x64_ldg8_nn"));
+  EXPECT_TRUE(IsKernelUsingTensorCore("sm90_xmma_gemm_f32f32_tf32f32_f32"));
+  EXPECT_FALSE(IsKernelUsingTensorCore("volta_sgemm_128x64_nn"));
+}
+
 TEST(KernelStatsUtilsTest, GroupKernelReportsByOpNameMixedEligibility) {
   KernelStatsDb kernel_stats_db;
   KernelReport* kernel_report_1 = kernel_stats_db.add_reports();

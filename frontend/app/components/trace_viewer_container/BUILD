@@ -6,6 +6,7 @@ xprof_ng_module(
     name = "trace_viewer_container",
     srcs = [
         "trace_viewer_container.ts",
+        "trace_viewer_utils.ts",
     ],
     assets = [
         ":trace_viewer_container_css",

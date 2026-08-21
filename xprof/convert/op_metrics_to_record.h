@@ -33,7 +33,8 @@ namespace profiler {
 std::vector<const OpMetrics*> SortedOpMetricsDb(const OpMetricsDb& metrics_db,
                                                 int max_records = -1);
 
-inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
+template <typename Metrics>
+inline double GigaFlopsPerSecondPerCore(const Metrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
@@ -43,8 +44,9 @@ inline double GigaFlopsPerSecondPerCore(const OpMetrics& metrics) {
 
 // Normalized flop rate if running on default pstate.
 // Used to compare with default device peak flop rate to get utilization.
+template <typename Metrics>
 inline double GigaFlopsPerSecondPerCoreNormalizedOnDvfs(
-    const OpMetrics& metrics) {
+    const Metrics& metrics) {
   // If dvfs tracing is not enabled, the normalized time ps is not set thus
   // default to 0, should be no-op on the peak flops calculation.
   if (metrics.normalized_time_ps() == 0) {
@@ -55,7 +57,8 @@ inline double GigaFlopsPerSecondPerCoreNormalizedOnDvfs(
                                     metrics.normalized_time_ps()));
 }
 
-inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
+template <typename Metrics>
+inline double GigaModelFlopsPerSecondPerCore(const Metrics& metrics) {
   // flops and time_ps are accumulated across all occurrences on all cores.
   // time_ps is used instead of self_time_ps because flops for an op includes
   // the flops executed by children (nested) ops.
@@ -64,9 +67,10 @@ inline double GigaModelFlopsPerSecondPerCore(const OpMetrics& metrics) {
 }
 
 // Return ByteAccessed for memory_space and operation_type.
+template <typename Metrics>
 inline double BytesAccessedPerCore(
-    const OpMetrics& metrics, uint64_t memory_space,
-    OpMetrics::MemoryAccessed::OperationType operation_type) {
+    const Metrics& metrics, uint64_t memory_space,
+    typename Metrics::MemoryAccessed::OperationType operation_type) {
   uint64_t bytes = 0;
   if (memory_space == MemorySpace::MEMORY_SPACE_ALL) {
     bytes = metrics.bytes_accessed();
@@ -74,7 +78,7 @@ inline double BytesAccessedPerCore(
     for (const auto& breakdown : metrics.memory_accessed_breakdown()) {
       // Count either on-chip or off-chip bytes.
       if ((breakdown.operation_type() != operation_type) &&
-          (operation_type != OpMetrics::MemoryAccessed::UNKNOWN)) {
+          (operation_type != Metrics::MemoryAccessed::UNKNOWN)) {
         continue;
       }
       if (((memory_space == MemorySpace::MEMORY_SPACE_HBM) &&
@@ -88,9 +92,10 @@ inline double BytesAccessedPerCore(
   return bytes;
 }
 
+template <typename Metrics>
 inline double GigaBytesPerSecondPerCore(
-    const OpMetrics& metrics, uint64_t memory_space,
-    OpMetrics::MemoryAccessed::OperationType operation_type) {
+    const Metrics& metrics, uint64_t memory_space,
+    typename Metrics::MemoryAccessed::OperationType operation_type) {
   // bytes_accessed and time_ps are accumulated across all occurrences on all
   // cores.
   // time_ps is used instead of self_time_ps because bytes_accessed for an op
@@ -100,15 +105,16 @@ inline double GigaBytesPerSecondPerCore(
       tsl::profiler::PicoToNano(metrics.time_ps()));
 }
 
+template <typename Metrics>
 inline double GibiBytesPerSecondPerCore(
-    const OpMetrics& metrics, uint64_t memory_space,
-    OpMetrics::MemoryAccessed::OperationType op_type) {
+    const Metrics& metrics, uint64_t memory_space,
+    typename Metrics::MemoryAccessed::OperationType op_type) {
   return tsl::profiler::GigaToGibi(
       GigaBytesPerSecondPerCore(metrics, memory_space, op_type));
 }
 
-template <typename Record>
-inline void SetExecutionTimes(const OpMetrics& metrics, Record* record) {
+template <typename Metrics, typename Record>
+inline void SetExecutionTimes(const Metrics& metrics, Record* record) {
   record->set_occurrences(metrics.occurrences());
   record->set_total_time_in_us(tsl::profiler::PicoToMicro(metrics.time_ps()));
   record->set_avg_time_in_us(tsl::profiler::SafeDivide(
@@ -119,8 +125,8 @@ inline void SetExecutionTimes(const OpMetrics& metrics, Record* record) {
       record->total_self_time_in_us(), metrics.occurrences()));
 }
 
-template <typename Record>
-inline void SetTpuUnitFractions(const OpMetrics& metrics, Record* record) {
+template <typename Metrics, typename Record>
+inline void SetTpuUnitFractions(const Metrics& metrics, Record* record) {
   record->set_dma_stall_fraction(
       tsl::profiler::SafeDivide(metrics.dma_stall_ps(), metrics.time_ps()));
 }
@@ -170,8 +176,8 @@ static inline double GetMemoryPeakBandwidth(const PerfEnv& perf_env,
   return perf_env.peak_hbm_bw_giga_bytes_per_second();
 }
 
-template <typename Record>
-inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
+template <typename Metrics, typename Record>
+inline void SetRooflineMetrics(const Metrics& metrics, const PerfEnv& perf_env,
                                const RunEnvironment& run_env, Record* record,
                                bool apply_time_scale_factor = false) {
   using ::tensorflow::profiler::MemorySpace;
@@ -182,7 +188,7 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
   record->set_model_flop_rate(GigaModelFlopsPerSecondPerCore(metrics));
   record->set_measured_memory_bw(GibiBytesPerSecondPerCore(
       metrics, tensorflow::profiler::MemorySpace::MEMORY_SPACE_ALL,
-      OpMetrics::MemoryAccessed::UNKNOWN));
+      Metrics::MemoryAccessed::UNKNOWN));
   record->set_flops(metrics.flops());
   record->set_flops_v2(metrics.flops_v2());
   record->set_bytes_accessed(metrics.bytes_accessed());
@@ -199,18 +205,18 @@ inline void SetRooflineMetrics(const OpMetrics& metrics, const PerfEnv perf_env,
       hbm_bytes += memory_access.bytes_accessed();
     } else if (memory_access.memory_space() ==
                PerformanceInfo::MemoryAccessed::CMEM) {
-      if (memory_access.operation_type() == OpMetrics::MemoryAccessed::READ) {
+      if (memory_access.operation_type() == Metrics::MemoryAccessed::READ) {
         cmem_read_bytes += memory_access.bytes_accessed();
       } else if (memory_access.operation_type() ==
-                 OpMetrics::MemoryAccessed::WRITE) {
+                 Metrics::MemoryAccessed::WRITE) {
         cmem_write_bytes += memory_access.bytes_accessed();
       }
     } else if (memory_access.memory_space() ==
                PerformanceInfo::MemoryAccessed::VMEM) {
-      if (memory_access.operation_type() == OpMetrics::MemoryAccessed::READ) {
+      if (memory_access.operation_type() == Metrics::MemoryAccessed::READ) {
         vmem_read_bytes += memory_access.bytes_accessed();
       } else if (memory_access.operation_type() ==
-                 OpMetrics::MemoryAccessed::WRITE) {
+                 Metrics::MemoryAccessed::WRITE) {
         vmem_write_bytes += memory_access.bytes_accessed();
       }
     }

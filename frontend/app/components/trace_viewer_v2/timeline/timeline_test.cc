@@ -74,6 +74,9 @@ class MockTimeline : public Timeline {
               (override));
 
   // Helpers to call base class protected methods from tests/lambdas.
+  ImVec2 GetTextSizeBase(absl::string_view text) const {
+    return Timeline::GetTextSize(text);
+  }
   void DrawGroupBase(int group_index, double px_per_time_unit_val,
                      Pixel scroll_y, Pixel window_height) {
     Timeline::DrawGroup(group_index, px_per_time_unit_val, scroll_y,
@@ -125,6 +128,10 @@ class MockTimeline : public Timeline {
 
  private:
   void SetupDefaultMockBehavior() {
+    ON_CALL(*this, GetTextSize)
+        .WillByDefault([this](absl::string_view text) {
+          return this->Timeline::GetTextSize(text);
+        });
     ON_CALL(*this, DrawGroup)
         .WillByDefault([this](int group_index, double px_per_time_unit_val,
                               Pixel scroll_y, Pixel window_height) {
@@ -1428,7 +1435,8 @@ class TimelineImGuiTestFixture : public Test {
   TimelineT timeline_;
 };
 
-using MockTimelineImGuiFixture = TimelineImGuiTestFixture<MockTimeline>;
+using MockTimelineImGuiFixture =
+    TimelineImGuiTestFixture<::testing::NiceMock<MockTimeline>>;
 
 TEST(TimelineTest, MaybeRequestDataTriggeredWhenPanningOutsidePreserveRange) {
   ColorPalette palette = ColorPalette::Default();
@@ -3158,7 +3166,11 @@ TEST_F(MockTimelineImGuiFixture,
   // DrawEventName should not draw text, so GetTextForDisplay and
   // CalculateEventTextRect won't be called, and GetTextSize should not be
   // called.
-  EXPECT_CALL(timeline_, GetTextSize(_)).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize(_))
+      .WillRepeatedly([&](absl::string_view s) {
+        return timeline_.GetTextSizeBase(s);
+      });
+  EXPECT_CALL(timeline_, GetTextSize(absl::string_view("event1"))).Times(0);
 
   SimulateFrame();
 }
@@ -3186,7 +3198,11 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   // Since 2.0f < 5.0f, DrawEventName should not draw text, so GetTextForDisplay
   // and CalculateEventTextRect won't be called, and thus GetTextSize should not
   // be called.
-  EXPECT_CALL(timeline_, GetTextSize(_)).Times(0);
+  EXPECT_CALL(timeline_, GetTextSize(_))
+      .WillRepeatedly([&](absl::string_view s) {
+        return timeline_.GetTextSizeBase(s);
+      });
+  EXPECT_CALL(timeline_, GetTextSize(absl::string_view("event1"))).Times(0);
 
   SimulateFrame();
 }

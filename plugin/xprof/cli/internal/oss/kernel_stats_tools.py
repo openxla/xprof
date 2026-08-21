@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Literal
 
 from xprof.cli.internal.oss import xplane_tools
 
+_DEVICE_PLANE_RE = re.compile(r"^/device:.*")
+
 # Standard device line inclusion filters for active hardware compute events.
 # These lines represent actual device execution (compute + transfers).
 _DEVICE_LINE_INCLUDE = (
@@ -143,7 +145,7 @@ def get_kernel_stats(
     step_durations_us: list[float] = []
 
     for plane in xplane_tools.iter_planes(source):
-      if not re.search(r"^/device:.*", plane.name):
+      if not _DEVICE_PLANE_RE.search(plane.name):
         continue
 
       is_tpu = "TPU" in plane.name.upper()
@@ -226,15 +228,21 @@ def get_kernel_stats(
       count = len(dur_list)
       total_us = sum(dur_list)
       avg_us = total_us / count if count > 0 else 0.0
+      # Extract compact canonical name (e.g. 'fusion.668')
+      canonical = name.strip().split(":")[0].strip().split()[0] if name else ""
       records.append({
           "kernel_name": name,
+          "canonical_name": canonical,
+          "short_name": canonical,
+          "hlo_op_name": canonical,
+          "raw_name": name,
           "total_duration_us": round(total_us, 4),
           "execution_count": count,
           "avg_duration_us": round(avg_us, 4),
       })
 
     records.sort(key=lambda x: x["total_duration_us"], reverse=True)
-    if not kernel_name:
+    if not kernel_name and limit > 0:
       records = records[:limit]
 
     if include_summary:

@@ -4,8 +4,10 @@ import collections.abc
 import dataclasses
 import types
 from typing import Any
+
 import ml_dtypes
 import numpy as np
+
 from xprof.cli.internal import numerical_generator
 
 
@@ -247,6 +249,7 @@ def validate_kernels(
     max_allowed_ulp: int = 2,
     p99_9_allowed_ulp: int = 1,
     seed: int = 42,
+    regimes: collections.abc.Sequence[str] | None = None,
 ) -> KernelValidationReport:
   """Validates candidate kernel against reference implementation."""
   canonical_dtype = _resolve_canonical_dtype(dtype_str)
@@ -290,6 +293,17 @@ def validate_kernels(
     test_suite = numerical_generator.generate_test_suite(
         shapes, dtype_str=dtype_str, tier=tier, seed=seed
     )
+
+  if regimes is not None:
+    allowed_regimes = set(regimes)
+    test_suite = [
+        b
+        for b in test_suite
+        if (
+            b.get("regime") in allowed_regimes
+            or b.get("name") in allowed_regimes
+        )
+    ]
 
   batch_results = []
   overall_max_ulp = 0

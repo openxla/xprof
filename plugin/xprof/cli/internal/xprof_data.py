@@ -195,9 +195,6 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
       return f"Failed to fetch op_profile: {op_profile_result}"
 
     # Traverse the tree to flatten ops
-    # This is a bit complex as OpProfile is hierarchical.
-    # We will collect all leaf nodes (or nodes with self time > 0)
-
     flat_ops = []
 
     def traverse(node, current_name_prefix=""):
@@ -206,22 +203,24 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
           f"{current_name_prefix}/{name}" if current_name_prefix else name
       )
 
-      # Helper to get metrics safe
       metrics = node.metrics
-      if metrics.raw_time > 0:
-        # Sum bytes accessed across all memory types if array exists
+      # Only emit leaf instructions with non-zero execution time
+      is_xla_leaf = node.HasField("xla") and metrics.raw_time > 0
+      is_other_leaf = not node.children and metrics.raw_time > 0
+
+      if is_xla_leaf or is_other_leaf:
         total_bytes = (
             sum(metrics.raw_bytes_accessed_array)
             if metrics.raw_bytes_accessed_array
             else 0
         )
 
-        category_str = "unknown"
         if node.HasField("xla"):
           category_str = node.xla.category
         elif node.HasField("category"):
-          category_str = "Category: " + name
+          category_str = f"Category: {name}"
         else:
+          category_str = "unknown"
           lower_name = name.lower()
           for cat in (
               "custom-call",
@@ -242,24 +241,33 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
             category_str = name.lstrip("%").split(".")[0].split("_")[0]
 
         occurrences = metrics.occurrences
-        if occurrences == 0 and not node.children:
+        if occurrences == 0:
           occurrences = 1
 
-        flat_ops.append({
+        item = {
             "name": full_name,
             "category": category_str,
-            "total_self_time_ps": metrics.raw_time,
+            "total_self_time_ms": metrics.raw_time / 1e9,
             "occurrences": occurrences,
             "flops": metrics.raw_flops,
             "bytes_accessed": total_bytes,
-        })
+        }
+        if node.HasField("xla") and node.xla.HasField("source_info"):
+          item["source_file"] = node.xla.source_info.file_name
+          item["source_line"] = node.xla.source_info.line_number
+          if node.xla.source_info.stack_frame:
+            item["stack_frame"] = node.xla.source_info.stack_frame
+        flat_ops.append(item)
 
       for child in node.children:
         traverse(child, full_name)
 
-    if op_profile.by_category and op_profile.by_category.metrics.raw_time > 0:
+    if (
+        op_profile.HasField("by_category")
+        and op_profile.by_category.metrics.raw_time > 0
+    ):
       traverse(op_profile.by_category)
-    elif op_profile.by_program:
+    elif op_profile.HasField("by_program"):
       traverse(op_profile.by_program)
 
     # If still empty, return error
@@ -273,15 +281,9 @@ def get_hlo_op_profile(session_id: str, top_n: int = 15) -> str:
       )
 
     # Sort by self_time descending
-    flat_ops.sort(key=lambda x: x["total_self_time_ps"], reverse=True)
+    flat_ops.sort(key=lambda x: x["total_self_time_ms"], reverse=True)
 
     top_ops = flat_ops[:top_n]
-
-    # Convert picoseconds to seconds/ms for readability
-    for op in top_ops:
-      op["total_self_time_ms"] = op["total_self_time_ps"] / 1e9
-      del op["total_self_time_ps"]
-
     return json.dumps(top_ops, indent=2)
 
   except Exception as e:  # pylint: disable=broad-exception-caught

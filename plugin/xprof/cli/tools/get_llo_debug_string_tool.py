@@ -27,10 +27,13 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
     if not _pywrap_profiler_plugin.built_with_embedded():
       return json.dumps(
           dict(
-              error=(
-                  "LLO debug string is not supported in this build. Ensure"
-                  " xprof is installed via pypi."
-              )
+              status="UNAVAILABLE",
+              reason="LLO_ANALYSIS_UNSUPPORTED_IN_OSS",
+              message=(
+                  "LLO debug string is not supported in this standard OSS build"
+                  " (requires a TPU profiler binary with embedded LLO analysis"
+                  " support)."
+              ),
           ),
           indent=2,
       )

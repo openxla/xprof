@@ -133,7 +133,11 @@ def _parse_profile_data(data: str) -> MemoryProfileMetrics:
 
 
 @decorators.cached(expire=86400)
-def get_memory_profile(session_id: str) -> str:
+def get_memory_profile(
+    session_id: str,
+    *,
+    bypass_cache: bool = False,
+) -> str:
   """Fetches a detailed memory profile analysis from an XProf session.
 
   **Use this** to get the XProf memory profile, which contains peak HBM usage,
@@ -141,6 +145,7 @@ def get_memory_profile(session_id: str) -> str:
 
   Args:
       session_id: The unique XProf session ID.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing memory profile details.
@@ -164,11 +169,13 @@ def get_memory_profile(session_id: str) -> str:
       host: str | None = None,
   ) -> tuple[MemoryProfileMetrics | None, str | None]:
     try:
-      kwargs = {
+      kwargs: dict[str, Any] = {
           "tool_name": "memory_profile.json",
           "session_id": session_id,
           "format": "json",
       }
+      if bypass_cache:
+        kwargs["bypass_cache"] = True
       if host:
         kwargs["host"] = host
       result = client.fetch(**kwargs)

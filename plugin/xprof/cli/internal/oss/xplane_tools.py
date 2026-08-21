@@ -145,6 +145,7 @@ def list_xplane_events(
   """
   try:
     events = []
+    total_matched = 0
     skipped_count = 0
 
     p_re = re.compile(plane_regex)
@@ -181,26 +182,28 @@ def list_xplane_events(
           if not e_re.search(event_name):
             continue
 
+          total_matched += 1
+
           if skipped_count < offset:
             skipped_count += 1
             continue
 
-          events.append({
-              "plane": plane.name,
-              "line_id": line.name,
-              "event": event_name,
-              "offset_ps": offset_ps,
-              "duration_ps": duration_ps,
-          })
+          if max_events <= 0 or len(events) < max_events:
+            events.append({
+                "plane": plane.name,
+                "line_id": line.name,
+                "event": event_name,
+                "offset_ps": offset_ps,
+                "duration_ps": duration_ps,
+            })
 
-          if max_events > 0 and len(events) >= max_events:
-            break
-        if max_events > 0 and len(events) >= max_events:
-          break
-      if max_events > 0 and len(events) >= max_events:
-        break
-
-    return json.dumps(events, indent=2)
+    result_payload = {
+        "events": events,
+        "returned": len(events),
+        "total_matched": total_matched,
+        "truncated": total_matched > (len(events) + offset),
+    }
+    return json.dumps(result_payload, indent=2)
 
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
@@ -244,7 +247,7 @@ def aggregate_xplane_events(
     e_re = re.compile(event_regex)
 
     total_events_scanned = 0
-    max_events_to_scan = 500_000
+    max_events_to_scan = 5_000_000
 
     stats_data = collections.defaultdict(list)
 
@@ -295,7 +298,14 @@ def aggregate_xplane_events(
       })
 
     results.sort(key=lambda x: x["total_duration_ps"], reverse=True)
-    return json.dumps(results, indent=2)
+    result_payload = {
+        "aggregates": results,
+        "returned": len(results),
+        "total_matched": len(results),
+        "events_scanned": total_events_scanned,
+        "truncated": total_events_scanned > max_events_to_scan,
+    }
+    return json.dumps(result_payload, indent=2)
 
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(

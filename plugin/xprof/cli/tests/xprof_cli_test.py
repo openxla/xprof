@@ -1,4 +1,5 @@
 import inspect
+import json
 import pathlib
 from typing import Any
 import unittest
@@ -63,11 +64,11 @@ class XProfCliTest(unittest.TestCase):
     self.cli.get_xspace_proto('session_123')
     mock_get_xspace.assert_called_with('session_123')
 
-  @mock.patch.object(xprof_cli.XProfCli, 'get_events_db_session_root')
-  def test_get_events_db_session_root(self, mock_get_root):
-    mock_get_root.return_value = {'status': 'success'}
-    result = self.cli.get_events_db_session_root('session_123')
-    mock_get_root.assert_called_with('session_123')
+  @mock.patch.object(xprof_cli.XProfCli, 'get_overview')
+  def test_get_overview(self, mock_get_overview):
+    mock_get_overview.return_value = {'status': 'success'}
+    result = self.cli.get_overview('session_123')
+    mock_get_overview.assert_called_with('session_123')
     self.assertEqual(result, {'status': 'success'})
 
   @mock.patch.object(xprof_cli.XProfCli, 'get_profile_summary')
@@ -80,10 +81,15 @@ class XProfCliTest(unittest.TestCase):
     self.cli.get_hosts('session_123')
     mock_get_hosts.assert_called_with('session_123')
 
-  @mock.patch.object(xprof_cli.XProfCli, 'detect_layout_mismatch_copies')
-  def test_detect_layout_mismatch_copies(self, mock_detect):
-    self.cli.detect_layout_mismatch_copies('session_123')
-    mock_detect.assert_called_with('session_123')
+  @mock.patch.object(xprof_cli.XProfCli, 'get_roofline_model')
+  def test_get_roofline_model(self, mock_get_roofline):
+    self.cli.get_roofline_model('session_123')
+    mock_get_roofline.assert_called_with('session_123')
+
+  @mock.patch.object(xprof_cli.XProfCli, 'get_kpi_metrics')
+  def test_get_kpi_metrics(self, mock_get_kpi):
+    self.cli.get_kpi_metrics('session_123')
+    mock_get_kpi.assert_called_with('session_123')
 
   @mock.patch.object(xprof_cli.fire, 'Fire')
   def test_main(self, mock_fire):
@@ -145,6 +151,72 @@ class XProfCliTest(unittest.TestCase):
         sig_sample.parameters['bypass_cache'].kind,
         inspect.Parameter.KEYWORD_ONLY,
     )
+
+  @mock.patch.object(
+      xprof_cli.fire,
+      'Fire',
+      side_effect=xprof_cli.fire.core.FireError('Invalid flag'),
+  )
+  @mock.patch('sys.stdout')
+  @mock.patch('sys.stderr')
+  def test_main_fire_usage_error_exit_2(self, mock_stderr, mock_stdout, _):
+    with self.assertRaises(SystemExit) as cm:
+      xprof_cli.main(['xprof', '--unknown'])
+    self.assertEqual(cm.exception.code, 2)
+    mock_stdout.write.assert_called()
+    payload = json.loads(mock_stdout.write.call_args_list[0][0][0])
+    self.assertEqual(payload['status'], 'ERROR')
+    self.assertEqual(payload['reason'], 'USAGE_ERROR')
+    mock_stderr.write.assert_called()
+    self.assertIn('USAGE_ERROR', mock_stderr.write.call_args[0][0])
+
+  @mock.patch.object(
+      xprof_cli.fire, 'Fire', side_effect=FileNotFoundError('Trace not found')
+  )
+  @mock.patch('sys.stdout')
+  @mock.patch('sys.stderr')
+  def test_main_file_not_found_exit_3(self, mock_stderr, mock_stdout, _):
+    with self.assertRaises(SystemExit) as cm:
+      xprof_cli.main(['xprof', 'get_overview', 'non_existent_dir'])
+    self.assertEqual(cm.exception.code, 3)
+    mock_stdout.write.assert_called()
+    payload = json.loads(mock_stdout.write.call_args_list[0][0][0])
+    self.assertEqual(payload['status'], 'ERROR')
+    self.assertEqual(payload['reason'], 'PATH_ERROR')
+    mock_stderr.write.assert_called()
+    self.assertIn('PATH_ERROR', mock_stderr.write.call_args[0][0])
+
+  @mock.patch.object(
+      xprof_cli.fire, 'Fire', side_effect=ValueError('Corrupt data')
+  )
+  @mock.patch('sys.stdout')
+  @mock.patch('sys.stderr')
+  def test_main_value_error_exit_4(self, mock_stderr, mock_stdout, _):
+    with self.assertRaises(SystemExit) as cm:
+      xprof_cli.main(['xprof', 'get_overview', 'corrupt_dir'])
+    self.assertEqual(cm.exception.code, 4)
+    mock_stdout.write.assert_called()
+    payload = json.loads(mock_stdout.write.call_args_list[0][0][0])
+    self.assertEqual(payload['status'], 'ERROR')
+    self.assertEqual(payload['reason'], 'INVALID_VALUE')
+    mock_stderr.write.assert_called()
+    self.assertIn('INVALID_VALUE', mock_stderr.write.call_args[0][0])
+
+  @mock.patch.object(
+      xprof_cli.fire, 'Fire', side_effect=RuntimeError('Unexpected failure')
+  )
+  @mock.patch('sys.stdout')
+  @mock.patch('sys.stderr')
+  def test_main_internal_error_exit_1(self, mock_stderr, mock_stdout, _):
+    with self.assertRaises(SystemExit) as cm:
+      xprof_cli.main(['xprof', 'get_overview', 'broken_dir'])
+    self.assertEqual(cm.exception.code, 1)
+    mock_stdout.write.assert_called()
+    payload = json.loads(mock_stdout.write.call_args_list[0][0][0])
+    self.assertEqual(payload['status'], 'ERROR')
+    self.assertEqual(payload['reason'], 'INTERNAL_ERROR')
+    mock_stderr.write.assert_called()
+    self.assertIn('INTERNAL_ERROR', mock_stderr.write.call_args[0][0])
 
 
 if __name__ == '__main__':

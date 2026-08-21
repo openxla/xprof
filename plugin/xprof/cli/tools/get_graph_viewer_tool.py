@@ -3,6 +3,7 @@
 import json
 import logging
 import traceback
+from typing import Any
 
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xprof_client
@@ -24,6 +25,7 @@ def get_graph_viewer(
     tool: str = "",
     op_profile_limit: int = 0,
     use_xplane: int = 0,
+    bypass_cache: bool = False,
 ) -> str:
   """Gets graph viewer data from XProf.
 
@@ -44,6 +46,7 @@ def get_graph_viewer(
       tool: Optional tool name query param.
       op_profile_limit: Optional limit for op profile (e.g., 1).
       use_xplane: Optional flag to use xplane (e.g., 1).
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       The content returned by XProf.
@@ -71,11 +74,13 @@ def get_graph_viewer(
   client = xprof_client.get_client()
 
   # Construct parameters, ensuring strings for boolean-like flags
-  params = {
+  params: dict[str, Any] = {
       "graph_type": graph_type,
       "type": output_type,
       "show_metadata": str(show_metadata).lower(),
   }
+  if bypass_cache:
+    params["bypass_cache"] = True
 
   if symbol_id:
     params["symbol_id"] = symbol_id

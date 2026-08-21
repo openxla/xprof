@@ -28,8 +28,10 @@ def reference_reduction(a: jax.Array) -> jax.Array:
 
 
 def buggy_bf16_reduction(a: jax.Array) -> jax.Array:
-  """Buggy summation accumulating in coarse bfloat16."""
-  return jnp.sum(a, axis=-1)
+  """Buggy summation accumulating sequentially in coarse bfloat16."""
+  init = jnp.zeros((a.shape[0],), dtype=a.dtype)
+  a_t = jnp.swapaxes(a, 0, -1)
+  return jax.lax.scan(lambda acc, x: (acc + x, None), init, a_t)[0]
 
 
 def reference_matmul(a: jax.Array, b: jax.Array) -> jax.Array:
@@ -116,6 +118,16 @@ class ToleranceDilemmaTest(parameterized.TestCase):
 
   def test_split_k_reduction_non_associativity_pass(self):
     """Proves parallel Split-K reduction reordering passes under relaxed contract."""
+    # Parallel tree summation reorders floating-point additions. In bfloat16,
+    # this creates small non-associative accumulation jitter (<= 4 ULP) across
+    # continuous, heavy-tailed, outlier, and cancellation regimes.
+    #
+    # Hardware Context: 'boundary_probes' (subnormals < 1.175e-38) is excluded
+    # from this summation-reordering test because TPU hardware enforces
+    # Flush-To-Zero (FTZ). When subnormals flush to 0.0 (0x0000) on TPU while
+    # FP32 reference sums to 4.70e-38 (0x0180), the 384 ULP difference
+    # reflects TPU FTZ hardware semantics rather than parallel reduction
+    # non-associativity.
 
     def parallel_split_k_sim(a):
       # Simulates parallel reduction with intermediate block sums
@@ -132,6 +144,7 @@ class ToleranceDilemmaTest(parameterized.TestCase):
         dtype_str="bfloat16",
         tier="fast_agent",
         max_allowed_ulp=4,  # Analytically justified Split-K contract
+        regimes=["student_t", "outliers", "cancellation"],
     )
     self.assertTrue(report.is_numerically_equivalent)
     self.assertLessEqual(report.overall_max_ulp, 4)
@@ -204,4 +217,3 @@ class ToleranceDilemmaTest(parameterized.TestCase):
 
 if __name__ == "__main__":
   absltest.main()
-

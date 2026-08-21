@@ -31,7 +31,6 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/platform/errors.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/tsl/profiler/utils/session_manager.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -61,7 +60,12 @@ static const absl::NoDestructor<absl::flat_hash_set<std::string>>
         "trace_viewer",
         "trace_viewer@",
         "op_profile",
-        "utilization_viewer",
+        // TODO(b/537521030): Route utilization_viewer to the legacy
+        // ConvertMultiXSpacesToToolData path until ProfileProcessor supports
+        // single-host XSpace preprocessing (step grouping and derived
+        // timelines). Routing to ProfileProcessor currently causes
+        // utilization_viewer.json to return null on counter-bearing traces.
+        // "utilization_viewer",
         "perf_counters",
     });
 

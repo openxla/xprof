@@ -13,11 +13,12 @@ from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
 
 
-def get_kpi_metrics(session_id: str) -> str:
+def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
   """Creates a consolidated KPI metrics JSON for a specific session.
 
   Args:
       session_id: The unique XProf session ID.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing the KPI metrics:
@@ -32,8 +33,12 @@ def get_kpi_metrics(session_id: str) -> str:
   overview_data = {}
   memory_data = {}
   try:
-    overview_json = get_overview_tool.get_overview(session_id)
-    memory_json = get_memory_profile_tool.get_memory_profile(session_id)
+    overview_json = get_overview_tool.get_overview(
+        session_id, bypass_cache=bypass_cache
+    )
+    memory_json = get_memory_profile_tool.get_memory_profile(
+        session_id, bypass_cache=bypass_cache
+    )
 
     overview_data = json.loads(overview_json)
     memory_data = json.loads(memory_json)

@@ -493,6 +493,21 @@ class NumericalValidatorTest(parameterized.TestCase):
     assert report.tolerance_audit is not None
     self.assertEqual(report.tolerance_audit.recommended_contract_ulp, 1)
 
+  def test_validate_kernels_with_regimes_filtering(self):
+    """Verifies validate_kernels runs only requested regimes when specified."""
+    report = numerical_validator.validate_kernels(
+        _identity_fn,
+        _identity_fn,
+        shapes=(16, 16),
+        dtype_str="float32",
+        tier="fast_agent",
+        regimes=["student_t"],
+    )
+    self.assertTrue(report.is_numerically_equivalent)
+    self.assertNotEmpty(report.batch_results)
+    for batch in report.batch_results:
+      self.assertIn("student_t", batch.batch_name)
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -6,11 +6,14 @@ import {CommonModule} from '@angular/common';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   CUSTOM_ELEMENTS_SCHEMA,
   ElementRef,
   EventEmitter,
+  inject,
   Input,
+  NgZone,
   OnChanges,
   OnDestroy,
   OnInit,
@@ -30,6 +33,9 @@ import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {AngularSplitModule} from 'angular-split';
+import {ActivatedRoute} from '@angular/router';
+import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
+
 import {
   isSearchEventsEvent,
   LOADING_STATUS_UPDATE_EVENT_NAME,
@@ -39,7 +45,7 @@ import {
   type TraceViewerV2Module,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/main';
 import {PipesModule} from 'org_xprof/frontend/app/pipes/pipes_module';
-import {interval, ReplaySubject, Subject, Subscription} from 'rxjs';
+import {fromEvent, interval, ReplaySubject, Subject, Subscription} from 'rxjs';
 import {debounceTime, distinctUntilChanged, takeUntil} from 'rxjs/operators';
 
 const DEPRECATED_STORAGE_KEYS = ['trace_viewer_timing_prompted'];
@@ -55,6 +61,12 @@ function clearDeprecatedStorageKeys(): void {
  * Viewer v2.
  */
 export const EVENT_SELECTED_EVENT_NAME = 'eventselected';
+
+/**
+ * The name of the event hovered custom event, dispatched from WASM in Trace
+ * Viewer v2.
+ */
+export const EVENT_HOVERED_EVENT_NAME = 'eventhovered';
 
 /**
  * The name of the events selected custom event, dispatched from WASM in Trace
@@ -253,13 +265,34 @@ export class TraceViewerContainer
   @Input() showHelpButton = false;
   @Input() selectedEvent?: SelectedEvent | null;
   @Input() searching = false;
+
+  hoveredEvent?: SelectedEvent | null;
+  hoveredEventMouseX = 0;
+  hoveredEventMouseY = 0;
+
   isInitialLoading = true;
   @Input() eventDetailColumns: string[] = [];
   @Input() selectionStartFormat?: string;
   @Input() selectionExtentFormat?: string;
 
+  private readonly route: ActivatedRoute = inject(ActivatedRoute);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  private sessionId: string | undefined = undefined;
+
   /** Whether the component is currently in fullscreen mode. */
   isFullscreen = false;
+
+  get enableSourceCodeTooltip(): boolean {
+    try {
+      const stored = window.localStorage.getItem('xprof_ff_enable_source_code_tooltip');
+      if (stored !== null) {
+        return stored === 'true';
+      }
+    } catch {
+      // ignore
+    }
+    return getDefaultFeatureFlag('enable_source_code_tooltip');
+  }
 
   /** Toggles the fullscreen mode for the trace viewer component. */
   toggleFullscreen(): void {
@@ -369,6 +402,18 @@ export class TraceViewerContainer
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
 
+  @Output() readonly requestHoveredEventArgs =
+    new EventEmitter<SelectedEvent>();
+  @Input() set hoveredEventArgs(args: Record<string, string> | null) {
+    if (this.hoveredEvent && args) {
+      if (!this.hoveredEvent.args) {
+        this.hoveredEvent.args = {};
+      }
+      this.hoveredEvent.args = {...this.hoveredEvent.args, ...args};
+      this.cdRef.markForCheck();
+    }
+  }
+
   getTotal(
     column: string,
     dataSource: MatTableDataSource<SelectedEventProperty> = this
@@ -403,6 +448,7 @@ export class TraceViewerContainer
   private readonly TIMING_PROMPTED_STORAGE_KEY =
     'trace_viewer_timing_prompted_v2';
   searchQuery = '';
+  hoveredEventRequest$ = new Subject<SelectedEvent>();
   search$ = new Subject<string>();
   currentSearchQuery = '';
   searchResultCountText = '';
@@ -415,6 +461,7 @@ export class TraceViewerContainer
 
   /** Handles on-destroy Subject, used to unsubscribe. */
   private readonly destroyed = new ReplaySubject<void>(1);
+  private readonly ngZone = inject(NgZone);
 
   constructor(private readonly el: ElementRef) {
     this.search$
@@ -433,9 +480,22 @@ export class TraceViewerContainer
           this.searchResultCountText = '';
         }
       });
+
+    this.hoveredEventRequest$
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((event) => {
+        this.ngZone.run(() => {
+          this.requestHoveredEventArgs.emit(event);
+        });
+      });
   }
 
   ngOnInit() {
+    this.route.params.pipe(takeUntil(this.destroyed)).subscribe((params) => {
+      this.sessionId =
+        (params || {})['sessionId'] || (params || {})['run'] || this.sessionId;
+    });
+
     clearDeprecatedStorageKeys();
 
     window.addEventListener(
@@ -462,9 +522,14 @@ export class TraceViewerContainer
       'fullscreenchange',
       this.fullscreenChangeEventListener,
     );
+    window.addEventListener(
+      EVENT_HOVERED_EVENT_NAME,
+      this.eventHoveredEventListener,
+    );
   }
 
   ngAfterViewInit() {
+
     window.addEventListener('keydown', this.keyDownEventListener);
     if (this.useTraceViewerV2) {
       this.initializeWasm.emit();
@@ -497,6 +562,10 @@ export class TraceViewerContainer
     document.removeEventListener(
       'fullscreenchange',
       this.fullscreenChangeEventListener,
+    );
+    window.removeEventListener(
+      EVENT_HOVERED_EVENT_NAME,
+      this.eventHoveredEventListener,
     );
     window.removeEventListener('keydown', this.keyDownEventListener);
     if (!this.useTraceViewerV2) {
@@ -600,6 +669,24 @@ export class TraceViewerContainer
 
   private readonly fullscreenChangeEventListener = () => {
     this.isFullscreen = !!document.fullscreenElement;
+  };
+
+  private readonly eventHoveredEventListener = (e: Event) => {
+    if (
+      e instanceof CustomEvent &&
+      e.detail &&
+      e.detail.eventIndex !== undefined
+    ) {
+      if (e.detail.eventIndex === -1) {
+        this.hoveredEvent = null;
+        this.cdRef.markForCheck();
+        return;
+      }
+      this.hoveredEvent = e.detail as SelectedEvent;
+      this.hoveredEventMouseX = e.detail.mouse_x || 0;
+      this.hoveredEventMouseY = e.detail.mouse_y || 0;
+      this.cdRef.markForCheck();
+    }
   };
 
   private readonly eventSelectedEventListener = (e: Event) => {

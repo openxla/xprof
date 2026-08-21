@@ -84,8 +84,8 @@ py_binary(
         "index.html",
         ":bundle",
         ":css",
-        ":zone.js",
         ":runtime.js",
+        ":zone.js",
     ],
     python_version = "PY3",
 )
@@ -107,13 +107,13 @@ bin.ng_binary(
     chdir = "frontend",
     data = [
         "angular.json",
+        "proxy.conf.json",
         "tsconfig.app.json",
         "//:node_modules",
         "//:package_json",
         "//:tsconfig",
-        "//frontend/app:app",
+        "//frontend/app",
         "//plugin/xprof:resources",
-        "proxy.conf.json",
     ] + glob([
         "main.ts",
         "index.html",

@@ -15,11 +15,12 @@ bazel run //third_party/xprof/plugin/xprof/cli:xprof_cli -- <command> <path_to_t
 
 ## Available Commands
 
-The CLI provides 23 core tools for comprehensive accelerator profile analysis:
+The CLI provides 24 core tools for comprehensive accelerator profile analysis:
 
 ### Overview & Telemetry
 
-*   **`get_overview`**: High-level performance overview (Compute vs Host vs Communication, step times, duty cycle).
+*   **`get_overview`**: High-level performance overview (Compute vs Host vs Communication, step times, duty cycle, and fallback roofline metrics).
+*   **`get_roofline_model`**: Detailed roofline efficiency, arithmetic intensity (FLOP/Byte), hardware limits, and per-op bottleneck bounds.
 *   **`get_profile_summary`**: Executive-level text summary of top bottlenecks and memory utilization.
 *   **`get_kpi_metrics`**: Key Performance Indicators (duty cycle, step time, FLOP utilization).
 *   **`get_device_information`**: Hardware topology and theoretical roofline compute/bandwidth constants.

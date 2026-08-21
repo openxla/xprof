@@ -1,10 +1,11 @@
 """Decorators for caching."""
 
 import atexit
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 import contextlib
 import functools
 import getpass
+import hashlib
 import json
 import pathlib
 import random
@@ -83,26 +84,44 @@ class Cache:
     Returns:
       The cached Python object, or the default value.
     """
+    res, _ = self.get_with_metadata(key, default=default)
+    return res
+
+  def get_with_metadata(
+      self, key: str, default: Any = _UNKNOWN
+  ) -> tuple[Any, float | None]:
+    """Retrieves value and set_time metadata from the cache.
+
+    Args:
+      key: The cache key to look up.
+      default: Value to return if key is not found or expired. Defaults to
+        Cache.UNKNOWN.
+
+    Returns:
+      A tuple of (cached_value, set_time).
+    """
     try:
       with contextlib.closing(self._get_conn()) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT value, expire FROM cache WHERE key = ?", (key,))
+        cursor.execute(
+            "SELECT value, expire, set_time FROM cache WHERE key = ?", (key,)
+        )
         row = cursor.fetchone()
         if row is None:
-          return default
-        value_str, expire = row
+          return default, None
+        value_str, expire, set_time = row
         if expire is not None and expire < time.time():
           self.delete(key)
-          return default
+          return default, None
         if value_str is None:
-          return default
+          return default, None
         try:
-          return json.loads(value_str)
+          return json.loads(value_str), set_time
         except json.JSONDecodeError:
           self.delete(key)
-          return default
+          return default, None
     except sqlite3.Error:
-      return default
+      return default, None
 
   def set(self, key: str, value: Any, expire: float | None = None, **kwargs):
     """Stores a value in the cache.
@@ -119,16 +138,19 @@ class Cache:
     Raises:
       TypeError: If the value is not JSON serializable.
     """
-    del kwargs  # Unused by this minimal cache implementation.
+    if _is_error_payload(value):
+      return
+
     # This will raise a TypeError if the value is bytes (not JSON serializable).
     val_str = json.dumps(value)
-    expire_time = time.time() + expire if expire is not None else None
+    now = time.time()
+    expire_time = now + expire if expire is not None else None
     try:
       with contextlib.closing(self._get_conn()) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO cache (key, value, expire) VALUES (?,"
-            " ?, ?)",
-            (key, val_str, expire_time),
+            "INSERT OR REPLACE INTO cache (key, value, expire, set_time)"
+            " VALUES (?, ?, ?, ?)",
+            (key, val_str, expire_time, now),
         )
         conn.commit()
     except sqlite3.Error:
@@ -168,15 +190,107 @@ class Cache:
     """Closes the cache (noop for this implementation)."""
 
 
-def _add_cache_indicator(value: Any) -> Any:
-  """Adds a cache indicator to the value if it's a dict or JSON string."""
+def _is_error_payload(value: Any) -> bool:
+  """Checks if a payload represents an error that should not be cached."""
   if isinstance(value, dict):
-    return {**value, "__cached__": True}
+    return "error" in value or value.get("status") in (
+        "ERROR",
+        "INTERNAL_ERROR",
+    )
+  if isinstance(value, str):
+    val_strip = value.strip()
+    if val_strip.startswith("{") and val_strip.endswith("}"):
+      try:
+        data = json.loads(val_strip)
+        if isinstance(data, dict):
+          return "error" in data or data.get("status") in (
+              "ERROR",
+              "INTERNAL_ERROR",
+          )
+      except Exception:
+        pass
+  return False
+
+
+def _compute_path_fingerprint(
+    val: Any, xspace_paths: Sequence[str] | None = None
+) -> str:
+  """Computes a timestamp+size fingerprint covering exact raw trace inputs."""
+  if not isinstance(val, (str, pathlib.Path)) and not xspace_paths:
+    return "NO_TRACE_INPUTS"
+  try:
+    if xspace_paths:
+      files = [
+          pathlib.Path(p) for p in xspace_paths if pathlib.Path(p).is_file()
+      ]
+    else:
+      p = pathlib.Path(val).expanduser()
+      if not p.exists():
+        return "NONEXISTENT"
+      if p.is_file():
+        st = p.stat()
+        return f"f:{st.st_mtime_ns}:{st.st_size}"
+      # Recursive trace discovery matching get_xspace_paths
+      files = sorted(p.glob("**/*.xplane.pb")) + sorted(
+          p.glob("**/*.xspace.pb")
+      )
+      if not files:
+        # Fallback for generic naming, excluding generated artifacts
+        files = [
+            f
+            for f in sorted(p.glob("**/*.pb"))
+            if not f.name.endswith(".op_stats_v2.pb")
+            and not f.name.endswith(".op_stats.pb")
+            and "op_stats" not in f.name
+            and "hlo_proto" not in f.name
+            and not f.name.startswith(".")
+        ] or [
+            f
+            for f in sorted(p.glob("**/*.json.gz")) + sorted(p.glob("**/*.json"))
+            if not f.name.startswith(".")
+        ]
+
+    if not files:
+      return "NO_TRACE_INPUTS"
+
+    base_dir = (
+        pathlib.Path(val)
+        if isinstance(val, (str, pathlib.Path)) and pathlib.Path(val).is_dir()
+        else files[0].parent
+    )
+    stats = []
+    for f in files:
+      if f.is_file():
+        st = f.stat()
+        rel = (
+            str(f.relative_to(base_dir))
+            if f.is_relative_to(base_dir)
+            else f.name
+        )
+        stats.append(f"{rel}:{st.st_mtime_ns}:{st.st_size}")
+
+    if not stats:
+      return "NO_TRACE_INPUTS"
+    return hashlib.sha256(";".join(stats).encode("utf-8")).hexdigest()[:16]
+  except Exception:  # pylint: disable=broad-exception-caught
+    pass
+  return "NO_TRACE_INPUTS"
+
+
+def _add_cache_indicator(value: Any, set_time: float | None = None) -> Any:
+  """Adds cache indicators to the value if it's a dict or JSON string."""
+  if isinstance(value, dict):
+    res = {**value, "__cached__": True}
+    if set_time is not None:
+      res["__cache_age_s__"] = round(time.time() - set_time, 2)
+    return res
   if isinstance(value, str):
     try:
       data = json.loads(value)
       if isinstance(data, dict):
         data["__cached__"] = True
+        if set_time is not None:
+          data["__cache_age_s__"] = round(time.time() - set_time, 2)
         return json.dumps(data)
     except json.JSONDecodeError:
       pass
@@ -246,12 +360,16 @@ def cached(
       else:
         bypass_cache = kwargs_call.pop("bypass_cache", False)
 
-      # 1. Compute a stable key.
+      # 1. Compute a stable key with path fingerprinting.
       key_kwargs = {
           k: v
           for k, v in kwargs_call.items()
           if k not in ignore and k != "bypass_cache"
       }
+      fingerprints = [_compute_path_fingerprint(arg) for arg in args] + [
+          _compute_path_fingerprint(v) for v in key_kwargs.values()
+      ]
+      fingerprint_str = ";".join(f for f in fingerprints if f)
       try:
         # Sort items to ensure order stability for JSON dict kwargs.
         key_kwargs_sorted = sorted(key_kwargs.items())
@@ -261,6 +379,7 @@ def cached(
                 getattr(func, "__qualname__", ""),
                 args,
                 key_kwargs_sorted,
+                fingerprint_str,
             ],
             sort_keys=True,
         )
@@ -277,10 +396,27 @@ def cached(
       cache_instance = cache if cache is not None else get_cache()
       if not bypass_cache:
         # 2. Check the cache.
-        value = cache_instance.get(key, default=_UNKNOWN)
+        value = _UNKNOWN
+        set_time = None
+        if hasattr(cache_instance, "get_with_metadata"):
+          try:
+            res = cache_instance.get_with_metadata(key, default=_UNKNOWN)
+            if (
+                isinstance(res, tuple)
+                and len(res) == 2
+                and "Mock" not in type(res).__name__
+            ):
+              value, set_time = res
+            else:
+              value = cache_instance.get(key, default=_UNKNOWN)
+          except Exception:  # pylint: disable=broad-except
+            value = cache_instance.get(key, default=_UNKNOWN)
+        else:
+          value = cache_instance.get(key, default=_UNKNOWN)
+
         if value is not _UNKNOWN:
           logging.debug("Cache hit for %s", getattr(func, "__name__", ""))
-          return _add_cache_indicator(value)
+          return _add_cache_indicator(value, set_time=set_time)
 
       # 3. MISS or BYPASS.
       logging.debug("Cache miss for %s", getattr(func, "__name__", ""))

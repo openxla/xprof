@@ -111,8 +111,42 @@ def _calculate_idleness_percentage(
   return 100.0
 
 
+def _parse_utilization_data(
+    raw_data: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+  """Parses utilization data from either Google DataTable JSON or CSV string."""
+  raw_trimmed = raw_data.strip()
+  if raw_trimmed.startswith("{"):
+    try:
+      table_json = json.loads(raw_trimmed)
+      if isinstance(table_json, dict) and "cols" in table_json:
+        cols = [
+            c.get("label") or c.get("id", f"col_{i}")
+            for i, c in enumerate(table_json.get("cols", []))
+        ]
+        rows = []
+        for row in table_json.get("rows", []):
+          cells = row.get("c", [])
+          row_dict = {}
+          for i, cell in enumerate(cells):
+            if i < len(cols):
+              val = cell.get("v") if isinstance(cell, dict) else cell
+              row_dict[cols[i]] = val
+          rows.append(row_dict)
+        return rows, cols
+    except (ValueError, TypeError, json.JSONDecodeError):
+      pass
+
+  reader = csv.DictReader(io.StringIO(raw_data), skipinitialspace=True)
+  fieldnames = [f.strip() for f in reader.fieldnames or [] if f]
+  rows = [
+      {k.strip(): str(v).strip() for k, v in row.items() if k} for row in reader
+  ]
+  return rows, fieldnames
+
+
 def _format_utilization_viewer_output(
-    csv_data: str,
+    raw_data: str,
     session_id: str,
     *,
     host: int = 0,
@@ -125,54 +159,62 @@ def _format_utilization_viewer_output(
     device = int(device)
     node = int(node)
 
-    reader = csv.DictReader(io.StringIO(csv_data), skipinitialspace=True)
-    if not reader.fieldnames or "Name" not in [
-        f.strip() for f in reader.fieldnames if f
-    ]:
-      return json.dumps({"error": "Missing required column: Name"}, indent=2)
+    rows, fieldnames = _parse_utilization_data(raw_data)
+    if not rows:
+      return json.dumps(
+          {
+              "status": "NO_DATA",
+              "message": (
+                  "No hardware performance counter events found in trace"
+              ),
+          },
+          indent=2,
+      )
 
-    rows = [
-        {k.strip(): str(v).strip() for k, v in row.items() if k}
-        for row in reader
-    ]
+    has_name = "Name" in fieldnames or any("Name" in r for r in rows)
+    if not has_name:
+      return json.dumps({"error": "Missing required column: Name"}, indent=2)
 
     warnings = []
     node_rows = rows
 
-    if reader.fieldnames and any(
-        f and f.strip() == "Host" for f in reader.fieldnames
-    ):
+    has_host = any(f and f.strip() == "Host" for f in fieldnames) or any(
+        "Host" in r for r in rows
+    )
+    if has_host:
       node_rows = [
           r
           for r in node_rows
-          if r.get("Host")
-          and str(r.get("Host")).lower() != "nan"
+          if r.get("Host") is not None
+          and str(r.get("Host")).lower() not in ("nan", "none", "")
           and int(_safe_float(r.get("Host"), -1.0)) == host
       ]
     elif host != 0:
       warnings.append(f"Host column missing; ignoring host={host} filter")
 
-    if reader.fieldnames and any(
-        f and f.strip() == "Device" for f in reader.fieldnames
-    ):
+    has_device = any(f and f.strip() == "Device" for f in fieldnames) or any(
+        "Device" in r for r in rows
+    )
+    if has_device:
       node_rows = [
           r
           for r in node_rows
-          if r.get("Device")
-          and str(r.get("Device")).lower() != "nan"
+          if r.get("Device") is not None
+          and str(r.get("Device")).lower() not in ("nan", "none", "")
           and int(_safe_float(r.get("Device"), -1.0)) == device
       ]
     elif device != 0:
       warnings.append(f"Device column missing; ignoring device={device} filter")
 
-    if reader.fieldnames and any(
-        f and f.strip() == "Node" for f in reader.fieldnames
-    ):
+    has_node = any(f and f.strip() == "Node" for f in fieldnames) or any(
+        "Node" in r for r in rows
+    )
+    if has_node:
       node_rows = [
           r
           for r in node_rows
-          if r.get("Node")
-          and str(r.get("Node")).lower() != "nan"
+          if r.get("Node") is not None
+          and str(r.get("Node")).lower() not in ("nan", "none", "")
           and int(_safe_float(r.get("Node"), -1.0)) == node
       ]
     elif node != 0:
@@ -181,9 +223,10 @@ def _format_utilization_viewer_output(
     if not node_rows:
       return json.dumps(
           {
+              "status": "NO_DATA",
               "message": (
                   f"No data found for Host {host} Device {device} Node {node}"
-              )
+              ),
           },
           indent=2,
       )
@@ -209,8 +252,8 @@ def _format_utilization_viewer_output(
       if name:
         rows_by_name[name].append(r)
 
-    for name, rows in rows_by_name.items():
-      pct = _get_percentage_from_rows(rows)
+    for name, named_rows in rows_by_name.items():
+      pct = _get_percentage_from_rows(named_rows)
       if pct is not None:
         metrics[name] = pct
 
@@ -253,7 +296,12 @@ def _format_utilization_viewer_output(
 
 @decorators.cached(expire=86_400)
 def get_utilization_viewer(
-    session_id: str, *, host: int = 0, device: int = 0, node: int = 0
+    session_id: str,
+    *,
+    host: int = 0,
+    device: int = 0,
+    node: int = 0,
+    bypass_cache: bool = False,
 ) -> str:
   """Fetches and returns key metrics from utilization_viewer data.
 
@@ -262,6 +310,7 @@ def get_utilization_viewer(
       host: The host ID to filter by (default is 0).
       device: The device ID to filter by (default is 0).
       node: The node ID to filter by (default is 0).
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON string containing key utilization metrics or an error message.
@@ -272,6 +321,7 @@ def get_utilization_viewer(
         tool_name="utilization_viewer.json",
         session_id=session_id,
         tqx="out:csv",
+        bypass_cache=bypass_cache,
     )
   except Exception as e:  # pylint: disable=broad-except
     logging.exception(
@@ -296,13 +346,8 @@ def get_utilization_viewer(
     if not raw_data:
       return json.dumps(
           {
-              "status": "UNAVAILABLE",
-              "reason": "UTILIZATION_VIEWER_UNSUPPORTED_IN_OSS",
-              "message": (
-                  "utilization_viewer is an internal XProf processor not"
-                  " registered in the open-source XProf C++ engine."
-              ),
-              "error": f"No data returned for session {session_id}",
+              "status": "NO_DATA",
+              "message": f"No data returned for session {session_id}",
           },
           indent=2,
       )
@@ -310,7 +355,7 @@ def get_utilization_viewer(
     decoded_data = (
         raw_data.decode("utf-8", errors="replace")
         if isinstance(raw_data, bytes)
-        else raw_data
+        else str(raw_data)
     )
 
     return _format_utilization_viewer_output(

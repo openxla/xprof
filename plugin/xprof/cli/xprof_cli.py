@@ -2,6 +2,8 @@
 
 import functools
 import inspect
+import json
+import pathlib
 from typing import Any
 
 from absl import app
@@ -10,7 +12,6 @@ import fire
 
 from xprof import server
 from xprof.cli.internal import xprof_data
-
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
@@ -22,6 +23,7 @@ from xprof.cli.tools import get_llo_debug_string_tool
 from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
 from xprof.cli.tools import get_peak_allocations_tool
+from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
@@ -35,7 +37,7 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 23 Core Tools (Available in both 1P and 3P):
+      # 24 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
       "get_device_information": xprof_data.get_device_information,
@@ -53,6 +55,7 @@ def cli_main() -> dict[str, Any]:
       "get_overview": get_overview_tool.get_overview,
       "get_peak_allocations": get_peak_allocations_tool.get_peak_allocations,
       "get_profile_summary": xprof_data.get_profile_summary,
+      "get_roofline_model": get_roofline_model_tool.get_roofline_model,
       "get_top_hlo_ops": get_top_hlo_ops_tool.get_top_hlo_ops,
       "get_utilization_viewer": (
           get_utilization_viewer_tool.get_utilization_viewer
@@ -115,38 +118,45 @@ def _wrap_with_logdir(tool_func):
   ):
     if isinstance(logdir, bool):
       raise fire.core.FireError("The --logdir flag requires a value.")
-    if logdir is not None:
-      if _is_oss():
-        if (
-            "destination" not in sig.parameters
-            and "run_name" not in sig.parameters
-        ):
-          import pathlib  # pylint: disable=g-import-not-at-top
 
-          p = pathlib.Path(str(logdir))
-          if not p.exists() and not str(logdir).startswith("gs://"):
-            raise FileNotFoundError(f"Trace path '{logdir}' does not exist.")
-        xprof_client.get_client().set_logdir(str(logdir))
-      if (
-          "session_id" in sig.parameters
-          and "session_id" not in kwargs
-          and not args
-      ):
-        kwargs["session_id"] = str(logdir)
-    elif args and "session_id" in sig.parameters and _is_oss():
+    target_path = None
+    if logdir is not None:
+      target_path = str(logdir)
+    elif args and "session_id" in sig.parameters:
       first_arg = args[0]
       if isinstance(first_arg, str) and (
           "/" in first_arg or "\\" in first_arg or "." in first_arg
       ):
-        if (
-            "destination" not in sig.parameters
-            and "run_name" not in sig.parameters
-        ):
-          import pathlib  # pylint: disable=g-import-not-at-top
+        target_path = first_arg
 
-          p = pathlib.Path(first_arg)
-          if not p.exists() and not first_arg.startswith("gs://"):
-            raise FileNotFoundError(f"Trace path '{first_arg}' does not exist.")
+    if target_path is not None and _is_oss():
+      if (
+          "destination" not in sig.parameters
+          and "run_name" not in sig.parameters
+      ):
+        if not target_path.startswith("gs://"):
+          p = pathlib.Path(target_path).expanduser()
+          if not p.exists():
+            raise FileNotFoundError(
+                f"Trace path '{target_path}' does not exist."
+            )
+          if p.is_dir():
+            has_trace = any(p.glob("**/*.xplane.pb")) or any(
+                p.glob("**/*.xspace.pb")
+            )
+            if not has_trace:
+              raise FileNotFoundError(
+                  "No .xplane.pb or .xspace.pb files found in directory"
+                  f" '{target_path}' (DATA_ABSENT)."
+              )
+      if logdir is not None:
+        xprof_client.get_client().set_logdir(str(logdir))
+        if (
+            "session_id" in sig.parameters
+            and "session_id" not in kwargs
+            and not args
+        ):
+          kwargs["session_id"] = str(logdir)
 
     if "bypass_cache" not in sig.parameters:
       if not (
@@ -156,7 +166,72 @@ def _wrap_with_logdir(tool_func):
       ):
         kwargs.pop("bypass_cache", None)
 
-    return tool_func(*args, **kwargs)
+    res = tool_func(*args, **kwargs)
+
+    # Inspect JSON result for DATA_ABSENT or CORRUPT_TRACE
+    if (
+        isinstance(res, str)
+        and res.strip().startswith("{")
+        and res.strip().endswith("}")
+    ):
+      try:
+        data = json.loads(res)
+        if isinstance(data, dict) and "error" in data:
+          err_msg = str(data["error"])
+          err_lower = err_msg.lower()
+          if (
+              "no .xplane.pb or .xspace.pb files found" in err_lower
+              or "data_absent" in err_lower
+          ):
+            raise FileNotFoundError(err_msg)
+          if (
+              "corrupt" in err_lower
+              or "invalid wire type" in err_lower
+              or "error parsing message" in err_lower
+              or "failed to parse" in err_lower
+              or "cannot load hlo proto" in err_lower
+              or "no overview data returned for the session" in err_lower
+          ):
+            raise ValueError(f"CORRUPT_TRACE: {err_msg}")
+      except (json.JSONDecodeError, KeyError):
+        pass
+
+    # Enforce volume spill guard (X-6) if output exceeds 10 MB.
+    if isinstance(res, (str, bytes)):
+      byte_len = (
+          len(res) if isinstance(res, bytes) else len(res.encode("utf-8"))
+      )
+      if byte_len > 10 * 1024 * 1024:
+        import tempfile  # pylint: disable=g-import-not-at-top
+        import uuid  # pylint: disable=g-import-not-at-top
+
+        tool_name_safe = getattr(tool_func, "__name__", "output")
+        spill_file = (
+            pathlib.Path(tempfile.gettempdir())
+            / f"xprof_spill_{tool_name_safe}_{uuid.uuid4().hex[:8]}.json"
+        )
+        if isinstance(res, bytes):
+          with open(spill_file, "wb") as f:
+            f.write(res)
+        else:
+          with open(spill_file, "w", encoding="utf-8") as f:
+            f.write(res)
+        return json.dumps(
+            {
+                "status": "SAVED_TO_FILE",
+                "size_bytes": byte_len,
+                "size_mib": round(byte_len / (1024 * 1024), 2),
+                "file_path": str(spill_file),
+                "message": (
+                    f"Output payload ({round(byte_len / (1024 * 1024), 2)} MB)"
+                    " exceeded 10 MB threshold. Saved to file to prevent"
+                    " terminal buffer overflow."
+                ),
+            },
+            indent=2,
+        )
+
+    return res
 
   wrapper.__signature__ = sig.replace(parameters=params)  # pyrefly: ignore[missing-attribute]
   return wrapper
@@ -260,26 +335,55 @@ for _name, _tool in cli_main().items():
   setattr(XProfCli, _name, staticmethod(_wrap_with_logdir(_tool)))
 
 
+def _check_xprof_version() -> None:
+  """Checks that the installed xprof package meets minimum version 2.23.0."""
+  try:
+    import importlib.metadata  # pylint: disable=g-import-not-at-top
+    import sys  # pylint: disable=g-import-not-at-top
+
+    version_str = importlib.metadata.version("xprof")
+    parts = [int(p) for p in version_str.split(".") if p.isdigit()]
+    if len(parts) >= 2 and (parts[0], parts[1]) < (2, 23):
+      sys.stderr.write(
+          f"WARNING: xprof version {version_str} is installed, but xprof >="
+          " 2.23.0 is recommended for complete tool support.\n"
+      )
+  except Exception:  # pylint: disable=broad-exception-caught
+    pass
+
+
+def _emit_error(reason: str, message: str, exit_code: int) -> None:
+  """Emits structured JSON on stdout and human-readable header on stderr."""
+  import json  # pylint: disable=g-import-not-at-top
+  import sys  # pylint: disable=g-import-not-at-top
+
+  payload = {
+      "status": "ERROR",
+      "reason": reason,
+      "error": message,
+  }
+  sys.stdout.write(json.dumps(payload, indent=2) + "\n")
+  sys.stderr.write(f"{reason}: {message}\n")
+  sys.exit(exit_code)
+
+
 def main(argv=None) -> None:
   """Main function for the xprof CLI."""
-  import sys  # pylint: disable=g-import-not-at-top
   import logging  # pylint: disable=g-import-not-at-top
+
+  _check_xprof_version()
 
   try:
     fire.Fire(XProfCli(), command=argv[1:] if argv else None, name="xprof")
-  except fire.core.FireError as e:
-    sys.stderr.write(f"USAGE ERROR: {e}\n")
-    sys.exit(2)
+  except (fire.core.FireError, TypeError) as e:
+    _emit_error("USAGE_ERROR", str(e), 2)
   except FileNotFoundError as e:
-    sys.stderr.write(f"PATH ERROR: {e}\n")
-    sys.exit(2)
+    _emit_error("PATH_ERROR", str(e), 3)
   except ValueError as e:
-    sys.stderr.write(f"INVALID ARGUMENT: {e}\n")
-    sys.exit(2)
+    _emit_error("INVALID_VALUE", str(e), 4)
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Unhandled defect in xprof_cli")
-    sys.stderr.write(f"INTERNAL ERROR: {e}\nPlease report to b/547935083\n")
-    sys.exit(1)
+    _emit_error("INTERNAL_ERROR", f"{e}\nPlease report to b/547935083", 1)
 
 
 if __name__ == "__main__":

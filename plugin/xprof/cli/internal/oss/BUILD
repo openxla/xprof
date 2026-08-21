@@ -40,6 +40,7 @@ pytype_library(
     # strict_deps = False,
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/convert:raw_to_tool_data",
     ],
 )

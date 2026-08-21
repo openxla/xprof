@@ -28,8 +28,10 @@ def reference_reduction(a: jax.Array) -> jax.Array:
 
 
 def buggy_bf16_reduction(a: jax.Array) -> jax.Array:
-  """Buggy summation accumulating in coarse bfloat16."""
-  return jnp.sum(a, axis=-1)
+  """Buggy summation accumulating sequentially in coarse bfloat16."""
+  init = jnp.zeros((a.shape[0],), dtype=a.dtype)
+  a_t = jnp.swapaxes(a, 0, -1)
+  return jax.lax.scan(lambda acc, x: (acc + x, None), init, a_t)[0]
 
 
 def reference_matmul(a: jax.Array, b: jax.Array) -> jax.Array:
@@ -204,4 +206,3 @@ class ToleranceDilemmaTest(parameterized.TestCase):
 
 if __name__ == "__main__":
   absltest.main()
-

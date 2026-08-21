@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import traceback
+from typing import Any
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
@@ -51,8 +52,119 @@ RUN_ENVIRONMENT_KEYS = frozenset({
 })
 
 
+def _populate_roofline_fallback(
+    client: xprof_client.CachedXprofClient,
+    session_id: str,
+    performance_summary: dict[str, Any],
+) -> None:
+  """Plumbs roofline metrics into performance_summary if missing or 0.0%."""
+  flop_roofline = performance_summary.get(
+      "flop_rate_utilization_relative_to_roofline"
+  )
+  mem_bw = performance_summary.get("memory_bw_utilization_relative_to_hw_limit")
+  hbm_bw = performance_summary.get("hbm_bw_utilization_percent")
+
+  needs_flop = not flop_roofline or flop_roofline in (
+      "0.0%",
+      "0%",
+      "0.0",
+      0,
+      0.0,
+  )
+  needs_mem = (not mem_bw or mem_bw in ("0.0%", "0%", "0.0", 0, 0.0)) and (
+      not hbm_bw or hbm_bw in ("0.0%", "0%", "0.0", 0, 0.0)
+  )
+
+  if not needs_flop and not needs_mem:
+    return
+
+  try:
+    result = client.fetch(
+        tool_name="roofline_model.json",
+        session_id=session_id,
+    )
+    if not result or (isinstance(result, tuple) and not result[1]):
+      result = client.fetch(
+          tool_name="roofline_model",
+          session_id=session_id,
+      )
+    if isinstance(result, tuple) and len(result) == 2:
+      _, data = result
+    else:
+      data = result
+
+    if not data:
+      return
+
+    if isinstance(data, bytes):
+      data = data.decode("utf-8", errors="replace")
+
+    roofline_data = json.loads(data)
+    if not isinstance(roofline_data, list) or not roofline_data:
+      return
+
+    table_data = roofline_data[0]
+    cols = [col.get("id", "") for col in table_data.get("cols", [])]
+    rows = table_data.get("rows", [])
+    if not rows:
+      return
+
+    row_cells = rows[0].get("c", [])
+    vals = [c.get("v") if isinstance(c, dict) else c for c in row_cells]
+    prog_dict = dict(zip(cols, vals))
+
+    def safe_float(val: Any) -> float | None:
+      if val is None:
+        return None
+      try:
+        return float(val)
+      except (ValueError, TypeError):
+        return None
+
+    roofline_eff = safe_float(prog_dict.get("roofline_efficiency"))
+    compute_eff = safe_float(prog_dict.get("compute_efficiency"))
+    max_mem_bw = safe_float(prog_dict.get("max_mem_bw_utilization"))
+    bound_by = prog_dict.get("bound_by")
+    operational_intensity = safe_float(prog_dict.get("operational_intensity"))
+
+    if roofline_eff is not None:
+      roofline_str = f"{roofline_eff * 100.0:.2f}%"
+      performance_summary["roofline_efficiency_percent"] = roofline_str
+      if needs_flop:
+        performance_summary["flop_rate_utilization_relative_to_roofline"] = (
+            roofline_str
+        )
+
+    if compute_eff is not None:
+      performance_summary["compute_efficiency_percent"] = (
+          f"{compute_eff * 100.0:.2f}%"
+      )
+
+    if max_mem_bw is not None:
+      max_mem_bw_str = f"{max_mem_bw * 100.0:.2f}%"
+      performance_summary["max_mem_bw_utilization_percent"] = max_mem_bw_str
+      if needs_mem:
+        performance_summary["memory_bw_utilization_relative_to_hw_limit"] = (
+            max_mem_bw_str
+        )
+        performance_summary["hbm_bw_utilization_percent"] = max_mem_bw_str
+
+    if bound_by:
+      performance_summary["bound_by"] = bound_by
+    if operational_intensity is not None:
+      performance_summary["operational_intensity_flop_per_byte"] = round(
+          operational_intensity, 4
+      )
+  except Exception:  # pylint: disable=broad-exception-caught
+    logging.exception("Failed to fetch roofline fallback")
+
+
 @decorators.cached(expire=86400)
-def get_overview(session_id: str, include_command: bool = False) -> str:
+def get_overview(
+    session_id: str,
+    include_command: bool = False,
+    bypass_cache: bool = False,
+) -> str:
   """Gets a comprehensive overview of the XProf session.
 
   **Use this** to get a unified view of the session's performance summary,
@@ -61,6 +173,7 @@ def get_overview(session_id: str, include_command: bool = False) -> str:
       session_id: The unique XProf session ID.
       include_command: Whether to include the full command line in the run
         environment (can be noisy).
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing 'performance_summary',
@@ -73,12 +186,14 @@ def get_overview(session_id: str, include_command: bool = False) -> str:
         tool_name="overview_page",
         session_id=session_id,
         format="json",
+        bypass_cache=bypass_cache,
     )
     if not result or (isinstance(result, tuple) and not result[1]):
       result = client.fetch(
           tool_name="overview_page.json",
           session_id=session_id,
           format="json",
+          bypass_cache=bypass_cache,
       )
     if isinstance(result, tuple) and len(result) == 2:
       _, data = result
@@ -126,6 +241,9 @@ def get_overview(session_id: str, include_command: bool = False) -> str:
           or key in PERFORMANCE_SUMMARY_KEYS
       ):
         performance_summary[key] = val
+
+    _populate_roofline_fallback(client, session_id, performance_summary)
+
     # Extract Run Environment
     run_environment = {}
     for key, val in all_p_dict.items():

@@ -5,11 +5,6 @@ import sys
 import unittest
 from unittest import mock
 
-# Mock xprof and dependencies so it can be imported in google3 test environment
-sys.modules["xprof"] = mock.MagicMock()
-sys.modules["xprof.convert"] = mock.MagicMock()
-sys.modules["xprof.profile_data"] = mock.MagicMock()
-
 # pylint: disable=g-import-not-at-top
 from xprof.cli.internal.oss import kernel_stats_tools
 from xprof.cli.internal.oss import xplane_tools

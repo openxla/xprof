@@ -1,20 +1,7 @@
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(default_visibility = ["//plugin/xprof:__subpackages__"])
-
-py_test(
-    name = "get_kernel_stats_tool_test",
-    srcs = ["get_kernel_stats_tool_test.py"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//plugin/xprof/cli/internal:decorators",
-        "//plugin/xprof/cli/internal/oss:events_db_tools",
-        "//plugin/xprof/cli/tools:get_kernel_stats_tool",
-        "//plugin/xprof/cli/tools/oss:f1_utils",
-        "@absl_py//absl/testing:absltest",
-    ],
-)
 
 py_test(
     name = "oss_kernel_stats_tools_test",
@@ -80,10 +67,22 @@ py_test(
 )
 
 py_test(
+    name = "get_roofline_model_tool_test",
+    srcs = ["get_roofline_model_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_roofline_model_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_test(
     name = "get_overview_tool_test",
     srcs = ["get_overview_tool_test.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_overview_tool",
         "@absl_py//absl/testing:absltest",
@@ -138,10 +137,21 @@ py_test(
 )
 
 py_test(
+    name = "decorators_test",
+    srcs = ["decorators_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_test(
     name = "oss_xprof_client_test",
     srcs = ["oss_xprof_client_test.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "@absl_py//absl/testing:absltest",
     ],
@@ -164,5 +174,117 @@ pytype_strict_contrib_test(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_library(
+    name = "oracles",
+    srcs = ["e2e/oracles.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+    ],
+)
+
+py_test(
+    name = "test_numerical_fidelity",
+    srcs = ["e2e/test_numerical_fidelity.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":oracles",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "//plugin/xprof/cli/tools:get_memory_profile_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
+        "//plugin/xprof/cli/tools:get_peak_allocations_tool",
+        "//plugin/xprof/cli/tools:get_roofline_model_tool",
+        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
+    name = "test_cross_cutting_contracts",
+    srcs = ["e2e/test_cross_cutting_contracts.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli:xprof_cli_lib",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
+        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
+    name = "test_defect_regressions",
+    srcs = ["e2e/test_defect_regressions.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli:xprof_cli_lib",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_kernel_stats_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
+        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
+    name = "test_agent_analysis_rubrics",
+    srcs = ["e2e/test_agent_analysis_rubrics.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "//plugin/xprof/cli/tools:get_memory_profile_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
+        "//plugin/xprof/cli/tools:get_roofline_model_tool",
+        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ],
+)
+
+py_test(
+    name = "test_numerical_parity_and_scale",
+    srcs = ["e2e/test_numerical_parity_and_scale.py"],
+    data = [
+        "//xprof:demo_traces",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":oracles",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
+        "//plugin/xprof/cli/tools:get_overview_tool",
+        "//plugin/xprof/cli/tools:get_roofline_model_tool",
+        "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/tools:verify_numerical_parity_tool",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
     ],
 )

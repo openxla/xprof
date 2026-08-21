@@ -44,30 +44,30 @@ class GetGraphViewerToolTest(absltest.TestCase):
     self.mock_client.fetch.return_value = (81, b"hlo content")
     result = get_graph_viewer_tool.get_graph_viewer(session_id="session_123")
     self.assertEqual(result, "hlo content")
-      self.mock_client.fetch.assert_called_once_with(
-          tool_name="graph_viewer.json",
-          session_id="session_123",
-          graph_viewer_options={
-              "graph_type": "xla",
-              "type": "short_txt",
-              "show_metadata": "true",
-          },
-      )
+    self.mock_client.fetch.assert_called_once_with(
+        tool_name="graph_viewer",
+        session_id="session_123",
+        graph_viewer_options={
+            "graph_type": "xla",
+            "type": "short_txt",
+            "show_metadata": "true",
+        },
+    )
 
   def test_get_graph_viewer_with_symbol_id(self):
     self.mock_client.fetch.return_value = (81, b"hlo content")
     result = get_graph_viewer_tool.get_graph_viewer(symbol_id="symbol_123")
     self.assertEqual(result, "hlo content")
-      self.mock_client.fetch.assert_called_once_with(
-          tool_name="graph_viewer.json",
-          session_id="xsymbol",
-          graph_viewer_options={
-              "graph_type": "xla",
-              "type": "short_txt",
-              "show_metadata": "true",
-              "symbol_id": "symbol_123",
-          },
-      )
+    self.mock_client.fetch.assert_called_once_with(
+        tool_name="graph_viewer",
+        session_id="xsymbol",
+        graph_viewer_options={
+            "graph_type": "xla",
+            "type": "short_txt",
+            "show_metadata": "true",
+            "symbol_id": "symbol_123",
+        },
+    )
 
   def test_get_graph_viewer_with_advanced_params(self):
     self.mock_client.fetch.return_value = (81, b"graph content")
@@ -86,23 +86,23 @@ class GetGraphViewerToolTest(absltest.TestCase):
         output_type="short_txt",
     )
     self.assertEqual(result, "graph content")
-      self.mock_client.fetch.assert_called_once_with(
-          tool_name="graph_viewer.json",
-          session_id="session_123",
-          graph_viewer_options={
-              "graph_type": "xla",
-              "type": "short_txt",
-              "show_metadata": "false",
-              "node_name": "fusion.112",
-              "module_name": "jit_train_step",
-              "graph_width": "2",
-              "merge_fusion": "true",
-              "tag": "graph_viewer",
-              "tool": "hlo_op_profile",
-              "op_profile_limit": "1",
-              "use_xplane": "1",
-          },
-      )
+    self.mock_client.fetch.assert_called_once_with(
+        tool_name="graph_viewer",
+        session_id="session_123",
+        graph_viewer_options={
+            "graph_type": "xla",
+            "type": "short_txt",
+            "show_metadata": "false",
+            "node_name": "fusion.112",
+            "module_name": "jit_train_step",
+            "graph_width": "2",
+            "merge_fusion": "true",
+            "tag": "graph_viewer",
+            "tool": "hlo_op_profile",
+            "op_profile_limit": "1",
+            "use_xplane": "1",
+        },
+    )
 
   def test_missing_hlo_proto_returns_clean_diagnostic(self):
     """Verifies graph_viewer returns clean diagnostic when HLO proto is missing."""

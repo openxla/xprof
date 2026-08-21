@@ -22,7 +22,11 @@ DecodeError = message.DecodeError
 
 @decorators.cached(expire=86400)
 def get_top_hlo_ops(
-    session_id: str, *, limit: int = 10, category_filter: str | None = None
+    session_id: str,
+    *,
+    limit: int = 10,
+    category_filter: str | None = None,
+    bypass_cache: bool = False,
 ) -> str:
   """Fetches top HLO operations sorted by Time, FLOPs, and Bytes Accessed.
 
@@ -31,26 +35,27 @@ def get_top_hlo_ops(
       limit: Number of top operations to return per list (default is 10).
       category_filter: Optional HLO op category name to filter by (e.g.,
         'convolution' or 'fusion').
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing three lists of top operations with
       mandatory source provenance metadata whenever available.
   """
   client = xprof_client.get_client()
+  fetch_kwargs: dict[str, Any] = {
+      "tool_name": "op_profile",
+      "session_id": session_id,
+      "format": "pb",
+  }
+  if bypass_cache:
+    fetch_kwargs["bypass_cache"] = True
   try:
-    op_profile_result = client.fetch(
-        tool_name="op_profile",
-        session_id=session_id,
-        format="pb",
-    )
+    op_profile_result = client.fetch(**fetch_kwargs)
     if not op_profile_result or (
         isinstance(op_profile_result, tuple) and not op_profile_result[1]
     ):
-      op_profile_result = client.fetch(
-          tool_name="hlo_op_profile.json",
-          session_id=session_id,
-          format="pb",
-      )
+      fetch_kwargs["tool_name"] = "hlo_op_profile.json"
+      op_profile_result = client.fetch(**fetch_kwargs)
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching top HLO ops for session %s", session_id)
     return json.dumps(
@@ -168,25 +173,38 @@ def get_top_hlo_ops(
   if not flat_ops:
     return json.dumps(
         {
-            "error": "No ops found",
+            "top_by_time": [],
+            "top_by_flops": [],
+            "top_by_bytes_accessed": [],
+            "total_matched": 0,
             "has_by_program": op_profile.HasField("by_program"),
         },
         indent=2,
     )
 
-  top_by_time = heapq.nlargest(
-      limit, flat_ops, key=lambda x: x["total_self_time_ms"]
-  )
-  top_by_flops = heapq.nlargest(limit, flat_ops, key=lambda x: x["flops"])
-  top_by_bytes = heapq.nlargest(
-      limit, flat_ops, key=lambda x: x["bytes_accessed"]
-  )
+  if limit > 0:
+    top_by_time = heapq.nlargest(
+        limit, flat_ops, key=lambda x: x["total_self_time_ms"]
+    )
+    top_by_flops = heapq.nlargest(limit, flat_ops, key=lambda x: x["flops"])
+    top_by_bytes = heapq.nlargest(
+        limit, flat_ops, key=lambda x: x["bytes_accessed"]
+    )
+  else:
+    top_by_time = sorted(
+        flat_ops, key=lambda x: x["total_self_time_ms"], reverse=True
+    )
+    top_by_flops = sorted(flat_ops, key=lambda x: x["flops"], reverse=True)
+    top_by_bytes = sorted(
+        flat_ops, key=lambda x: x["bytes_accessed"], reverse=True
+    )
 
   return json.dumps(
       {
           "top_by_time": top_by_time,
           "top_by_flops": top_by_flops,
           "top_by_bytes_accessed": top_by_bytes,
+          "total_matched": len(flat_ops),
       },
       indent=2,
   )

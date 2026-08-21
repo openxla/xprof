@@ -1,15 +1,43 @@
 """Local XProf Client using OSS xprof converters."""
 
 from collections.abc import Sequence
+import hashlib
 import logging
+import os
 import pathlib
+import tempfile
 from typing import Any
 
 # pylint: disable=g-import-not-at-top
 try:
+  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 except ImportError:
+  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
+
+
+KNOWN_TOOLS: frozenset[str] = frozenset({
+    "overview_page",
+    "input_pipeline_analyzer",
+    "framework_op_stats",
+    "kernel_stats",
+    "memory_profile",
+    "pod_viewer",
+    "op_profile",
+    "hlo_op_profile",
+    "hlo_stats",
+    "roofline_model",
+    "graph_viewer",
+    "memory_viewer",
+    "megascale_stats",
+    "inference_profile",
+    "perf_counters",
+    "utilization_viewer",
+    "smart_suggestion",
+    "trace_viewer",
+    "trace_viewer@",
+})
 
 
 class LocalXprofClient:
@@ -171,11 +199,66 @@ class LocalXprofClient:
     if tb_tool == "hlo_op_profile":
       tb_tool = "op_profile"
 
+    if tb_tool not in KNOWN_TOOLS:
+      raise ValueError(f"Unknown XProf tool name: {tool_name!r}")
+
     run_dir = self.get_run_dir(session_id)
     xspace_paths = self.get_xspace_paths(run_dir)
 
+    fetch_params = dict(kwargs)
+    bypass_cache = fetch_params.pop("bypass_cache", False)
+
+    current_fp = None
+    if xspace_paths:
+      try:
+        current_fp = decorators._compute_path_fingerprint(
+            run_dir, xspace_paths=xspace_paths
+        )
+      except Exception:  # pylint: disable=broad-exception-caught
+        current_fp = "NO_TRACE_INPUTS"
+    else:
+      current_fp = "NO_TRACE_INPUTS"
+
+    fp_dir = decorators._get_cache_dir() / "fingerprints"
+    fp_dir.mkdir(parents=True, exist_ok=True)
+    run_dir_hash = hashlib.sha256(str(run_dir).encode("utf-8")).hexdigest()[:16]
+    fp_file = fp_dir / f"{run_dir_hash}.fp"
+
+    stored_fp = None
+    if fp_file.exists():
+      try:
+        stored_fp = fp_file.read_text(encoding="utf-8").strip()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+
+    is_fresh = (
+        (stored_fp is None)
+        or (current_fp == "NO_TRACE_INPUTS")
+        or (stored_fp != current_fp)
+    )
+
+    if bypass_cache or is_fresh:
+      fetch_params["use_saved_result"] = "0"
+      try:
+        for osp in pathlib.Path(run_dir).glob("*op_stats*.pb"):
+          if osp.is_file():
+            osp.unlink(missing_ok=True)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning("Failed to reset stale op_stats files: %s", e)
+
+      if current_fp and current_fp != "NO_TRACE_INPUTS":
+        try:
+          fd, tmp_path = tempfile.mkstemp(dir=fp_dir, prefix="fp_tmp_")
+          with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(current_fp)
+          os.replace(tmp_path, fp_file)
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          logging.warning("Failed to write fingerprint file: %s", e)
+    else:
+      fetch_params["use_saved_result"] = "1"
+
     data, content_type = convert.xspace_to_tool_data(
-        xspace_paths=xspace_paths, tool=tb_tool, params=kwargs
+        xspace_paths=xspace_paths, tool=tb_tool, params=fetch_params
     )
 
     return content_type, data

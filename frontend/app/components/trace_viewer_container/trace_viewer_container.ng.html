@@ -132,7 +132,7 @@
                 <as-split-area [size]="60" class="split-area-left">
                   <div class="split-area-inner">
                     <h3>{{selectedEvent.name}}</h3>
-                    <div class="detail-row" *ngFor="let prop of leftSideProperties">
+                    <div class="detail-row" *ngFor="let prop of leftSideProperties; trackBy: trackByProperty">
                       <span class="detail-label">{{prop.property}}:</span>
                       <span class="detail-value">{{prop.value}}</span>
                     </div>
@@ -140,7 +140,7 @@
                 </as-split-area>
                 <as-split-area [size]="40" class="split-area-right">
                   <div class="split-area-inner">
-                    <div class="detail-row" *ngFor="let prop of rightSideProperties">
+                    <div class="detail-row" *ngFor="let prop of rightSideProperties; trackBy: trackByProperty">
                       <span class="detail-label">{{prop.property}}:</span>
                       <span class="detail-value">{{prop.value}}</span>
                     </div>

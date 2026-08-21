@@ -394,6 +394,10 @@ export class TraceViewerContainer
       return p === 'Operands' || p === 'Consumers';
     });
   }
+
+  trackByProperty(index: number, prop: SelectedEventProperty): string {
+    return `${prop.property ?? ''}:${prop.value ?? ''}`;
+  }
   @Output()
   readonly eventSelected = new EventEmitter<EntrySelectedEventDetail | null>();
   @Output()

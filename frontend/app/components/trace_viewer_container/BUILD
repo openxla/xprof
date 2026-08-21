@@ -16,6 +16,7 @@ xprof_ng_module(
         "//:node_modules/@angular/common",
         "//:node_modules/@angular/core",
         "//:node_modules/@angular/forms",
+        "//:node_modules/@angular/router",
         "//:node_modules/angular-split",
         "//:node_modules/rxjs",
         "@org_xprof//frontend/app/common/angular:angular_material_button",
@@ -44,6 +45,8 @@ xprof_ng_module(
     deps = [
         ":trace_viewer_container",
         "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
+        "//:node_modules/rxjs",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",
         "@org_xprof//frontend/app/common/angular:angular_platform-browser_animation",

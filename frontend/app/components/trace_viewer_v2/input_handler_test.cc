@@ -162,5 +162,42 @@ TEST_F(InputHandlerTest, HandleKeyDownReturnsFalseWhenModifierKeysArePressed) {
 
   EXPECT_FALSE(handled);
 }
+EM_JS(void, SetDOMSelectionForTest, (const char* selectedText), {
+  const range = document.createRange();
+  let span = document.getElementById('test-selection-span');
+  if (!span) {
+    span = document.createElement('span');
+    span.id = 'test-selection-span';
+    document.body.appendChild(span);
+  }
+  span.textContent = UTF8ToString(selectedText);
+  range.selectNodeContents(span);
+  const selection = window.getSelection();
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+});
+
+EM_JS(void, ClearDOMSelectionForTest, (), {
+  const selection = window.getSelection();
+  if (selection) selection.removeAllRanges();
+  const span = document.getElementById('test-selection-span');
+  if (span) span.remove();
+});
+
+TEST_F(InputHandlerTest, HandleKeyDownReturnsFalseWhenDOMTextIsSelected) {
+  SetDOMSelectionForTest("sample selected text");
+
+  EmscriptenKeyboardEvent event;
+  memset(&event, 0, sizeof(event));
+  strncpy(event.code, "KeyA", sizeof(event.code) - 1);
+
+  EM_BOOL handled = HandleKeyDown(0, &event, nullptr);
+
+  ClearDOMSelectionForTest();
+
+  EXPECT_FALSE(handled);
+}
 }  // namespace
 }  // namespace traceviewer

@@ -46,14 +46,24 @@ void UpdateModifierKeys(const EmscriptenKeyboardEvent* event) {
 
 }  // namespace
 
-// Returns true if the currently active element is an input element.
-int IsActiveElementInput() {
+// Returns true if an input element has focus or DOM text is selected.
+int HasDOMSelectionOrActiveInput() {
   return EM_ASM_INT({
+    const selection = window.getSelection() || document.getSelection();
+    if (selection) {
+      if (selection.type === 'Range') {
+        return 1;
+      }
+      const text = selection.toString();
+      if (text && text.length > 0) {
+        return 1;
+      }
+    }
     const activeElement = document.activeElement;
     if (!activeElement) return 0;
     const tagName = activeElement.tagName.toLowerCase();
-    return tagName == 'input' || tagName == 'textarea' ||
-           activeElement.isContentEditable;
+    return tagName === 'input' || tagName === 'textarea' ||
+           activeElement.isContentEditable ? 1 : 0;
   });
 }
 
@@ -83,8 +93,9 @@ EM_BOOL HandleKeyDown(int, const EmscriptenKeyboardEvent* event, void*) {
     return false;
   }
 
-  // If a native input element has focus, do not let ImGui capture the keyboard.
-  if (IsActiveElementInput()) {
+  // If a native input element has focus or DOM text is selected, do not let
+  // ImGui capture the keyboard or trigger canvas redraws.
+  if (HasDOMSelectionOrActiveInput()) {
     return false;
   }
 
@@ -108,8 +119,7 @@ EM_BOOL HandleKeyUp(int, const EmscriptenKeyboardEvent* event, void*) {
     return false;
   }
 
-  // If a native input element has focus, do not let ImGui capture the keyboard.
-  if (IsActiveElementInput()) {
+  if (HasDOMSelectionOrActiveInput()) {
     return false;
   }
 

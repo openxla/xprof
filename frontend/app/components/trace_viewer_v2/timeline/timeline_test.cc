@@ -64,7 +64,7 @@ class MockTimeline : public Timeline {
   MOCK_METHOD(void, Zoom, (float zoom_factor, double pivot), (override));
   MOCK_METHOD(void, Scroll, (Pixel pixel_amount), (override));
   MOCK_METHOD(void, DrawGroup,
-              (int group_index, double px_per_time_unit_val, Pixel scroll_y,
+              (Group* group_ptr, double px_per_time_unit_val, Pixel scroll_y,
                Pixel window_height),
               (override));
   MOCK_METHOD(void, DrawEventsForLevel,
@@ -74,9 +74,9 @@ class MockTimeline : public Timeline {
               (override));
 
   // Helpers to call base class protected methods from tests/lambdas.
-  void DrawGroupBase(int group_index, double px_per_time_unit_val,
+  void DrawGroupBase(Group* group_ptr, double px_per_time_unit_val,
                      Pixel scroll_y, Pixel window_height) {
-    Timeline::DrawGroup(group_index, px_per_time_unit_val, scroll_y,
+    Timeline::DrawGroup(group_ptr, px_per_time_unit_val, scroll_y,
                         window_height);
   }
   void DrawEventsForLevelBase(int group_index,
@@ -126,9 +126,9 @@ class MockTimeline : public Timeline {
  private:
   void SetupDefaultMockBehavior() {
     ON_CALL(*this, DrawGroup)
-        .WillByDefault([this](int group_index, double px_per_time_unit_val,
+        .WillByDefault([this](Group* group_ptr, double px_per_time_unit_val,
                               Pixel scroll_y, Pixel window_height) {
-          this->DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+          this->DrawGroupBase(group_ptr, px_per_time_unit_val, scroll_y,
                               window_height);
         });
     ON_CALL(*this, DrawEventsForLevel)
@@ -1293,10 +1293,10 @@ class TimelineImGuiTestFixture : public Test {
          {},
          {},
          {},
-         {{.name = "group",
-           .start_level = 0,
-           .nesting_level = kThreadNestingLevel,
-           .expanded = true}},
+         {GroupNode{Group{.name = "group",
+                          .start_level = 0,
+                          .nesting_level = kThreadNestingLevel,
+                          .expanded = true}}},
          {},
          {}});
   }
@@ -1757,10 +1757,10 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
   data.entry_names.push_back("apricot");
@@ -2002,10 +2002,10 @@ TEST(TimelineTest, RevealEventAlreadyInView) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2029,14 +2029,14 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Process 1",
-                         .start_level = 0,
-                         .nesting_level = kProcessNestingLevel,
-                         .expanded = false});
-  data.groups.push_back({.name = "Thread 1",
-                         .start_level = 1,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = false});
+  data.groups.push_back(Group{.name = "Process 1",
+                              .start_level = 0,
+                              .nesting_level = kProcessNestingLevel,
+                              .expanded = false});
+  data.groups.push_back(Group{.name = "Thread 1",
+                              .start_level = 1,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = false});
 
   data.events_by_level.resize(2);
   data.events_by_level[1].push_back(0);
@@ -2052,13 +2052,13 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
   timeline.set_data_time_range({0.0, 100.0});
   timeline.SetVisibleRange({0.0, 100.0});
 
-  EXPECT_FALSE(timeline.timeline_data().groups[0].expanded);
-  EXPECT_FALSE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline.flat_groups()[0]->expanded);
+  EXPECT_FALSE(timeline.flat_groups()[1]->expanded);
 
   timeline.RevealEvent(0);
 
-  EXPECT_TRUE(timeline.timeline_data().groups[0].expanded);
-  EXPECT_TRUE(timeline.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline.flat_groups()[0]->expanded);
+  EXPECT_TRUE(timeline.flat_groups()[1]->expanded);
 }
 
 TEST(TimelineTest, RevealEventInvalidIndex) {
@@ -2066,7 +2066,7 @@ TEST(TimelineTest, RevealEventInvalidIndex) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -2167,10 +2167,10 @@ TEST(TimelineTest, RevealEventOutOfView) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2194,10 +2194,10 @@ TEST(TimelineTest, RevealEventOutOfViewRight) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2220,10 +2220,10 @@ TEST(TimelineTest, RevealEventOutToRight) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2247,10 +2247,10 @@ TEST(TimelineTest, RevealEventOutToRightLarge) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2275,7 +2275,7 @@ TEST(TimelineTest, RevealEventTriggersCallback) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -2302,7 +2302,7 @@ TEST(TimelineTest, RevealEventUnequalSizes) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -2359,10 +2359,10 @@ TEST(TimelineTest, SetSearchQuery) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names.push_back("apple");
   data.entry_names.push_back("banana");
@@ -2451,10 +2451,10 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("apple");
   data.entry_levels.push_back(0);
@@ -2577,7 +2577,7 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Event X (will be loaded at index 0): level = 1, start_time = 100.0
   data.entry_names.push_back("event");
@@ -2620,7 +2620,7 @@ TEST(TimelineTest, SetTimelineData) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
@@ -2721,10 +2721,10 @@ TEST(TimelineTest, ZoomEvent) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -2761,7 +2761,7 @@ TEST(TimelineTest, ZoomEventInvalidIndex) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
@@ -3027,8 +3027,9 @@ TEST_F(MockTimelineImGuiFixture, DrawPinButton_Erase) {
 TEST_F(MockTimelineImGuiFixture, DrawHideButton_Insert) {
   timeline_.set_track_management_enabled(true);
   FlameChartTimelineData data;
-  data.groups = {{.name = "group", .nesting_level = kProcessNestingLevel},
-                 {.name = "group2", .nesting_level = kProcessNestingLevel}};
+  data.groups = {
+      Group{.name = "group", .nesting_level = kProcessNestingLevel},
+      Group{.name = "group2", .nesting_level = kProcessNestingLevel}};
   timeline_.SetTimelineData(data);
 
   // Frame 1: Register window and layout
@@ -3140,10 +3141,10 @@ TEST_F(MockTimelineImGuiFixture,
        DrawEventNameTextHiddenWhenSlightlyNarrowerThanMinTextWidth) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -3166,10 +3167,10 @@ TEST_F(MockTimelineImGuiFixture,
 TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -3194,10 +3195,10 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
 TEST_F(MockTimelineImGuiFixture,
        DrawEvent_HoverInstantEvent_UsesTrianglesNotRectangles) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("instant_event");
   data.entry_levels.push_back(0);
@@ -3256,10 +3257,10 @@ TEST_F(MockTimelineImGuiFixture,
 TEST_F(MockTimelineImGuiFixture,
        DrawEvent_SelectedHoveredInstantEvent_ChevronSizeIncreases) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("instant_event");
   data.entry_levels.push_back(0);
@@ -3329,10 +3330,10 @@ TEST_F(MockTimelineImGuiFixture,
        DrawEventsForLevel_BinarySearchCorrectlySelectsVisibleEvents) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1, 2});
 
   // Event 0: Outside left
@@ -3373,9 +3374,9 @@ TEST_F(MockTimelineImGuiFixture,
   // Vertical culling should call DrawGroup and DrawEventsForLevel.
   EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+      .WillRepeatedly([&](Group* group_ptr, double px_per_time_unit_val,
                           Pixel scroll_y, Pixel window_height) {
-        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+        timeline_.DrawGroupBase(group_ptr, px_per_time_unit_val, scroll_y,
                                 window_height);
       });
   EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
@@ -3397,10 +3398,10 @@ TEST_F(MockTimelineImGuiFixture,
   FlameChartTimelineData data;
   // Create 20 groups to ensure we have enough to cull.
   for (int i = 0; i < 20; ++i) {
-    data.groups.push_back({.name = "Group " + std::to_string(i),
-                           .start_level = i,
-                           .nesting_level = kThreadNestingLevel,
-                           .expanded = true});
+    data.groups.push_back(Group{.name = "Group " + std::to_string(i),
+                                .start_level = i,
+                                .nesting_level = kThreadNestingLevel,
+                                .expanded = true});
     data.events_by_level.push_back({});
   }
 
@@ -3421,10 +3422,10 @@ TEST_F(MockTimelineImGuiFixture,
        DrawGroup_LevelCalculationCullingCorrectlySelectsVisibleLevels) {
   FlameChartTimelineData data;
   // Create 1 group with many levels.
-  data.groups.push_back({.name = "Big Group",
-                         .start_level = 0,
-                         .nesting_level = 1,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Big Group",
+                              .start_level = 0,
+                              .nesting_level = 1,
+                              .expanded = true});
   for (int i = 0; i < 100; ++i) {
     data.events_by_level.push_back({i});  // One event per level
     data.entry_names.push_back("event" + std::to_string(i));
@@ -3449,9 +3450,9 @@ TEST_F(MockTimelineImGuiFixture,
   // call too.
   EXPECT_CALL(timeline_, DrawGroup(_, _, _, _))
       .Times(::testing::AnyNumber())
-      .WillRepeatedly([&](int group_index, double px_per_time_unit_val,
+      .WillRepeatedly([&](Group* group_ptr, double px_per_time_unit_val,
                           Pixel scroll_y, Pixel window_height) {
-        timeline_.DrawGroupBase(group_index, px_per_time_unit_val, scroll_y,
+        timeline_.DrawGroupBase(group_ptr, px_per_time_unit_val, scroll_y,
                                 window_height);
       });
   EXPECT_CALL(timeline_, DrawEventsForLevel(_, _, _, _, _, _, _, _))
@@ -3580,7 +3581,7 @@ INSTANTIATE_TEST_SUITE_P(VariousInteractions, MaybeRequestDataDeferredTest,
 
 class TestTimeline : public Timeline {
  public:
-  using Timeline::flattened_groups_;
+  using Timeline::ReorderTrack;
   using Timeline::GetGroupBottom;
   using Timeline::GetGroupTop;
   using Timeline::hidden_track_names_;
@@ -4251,11 +4252,11 @@ TEST_F(MockTimelineImGuiFixture, ConfigurableMouseWheelZoomSpeed) {
 
 TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -4308,10 +4309,10 @@ TEST_F(RealTimelineImGuiFixture, ClickCounterEventSetsSelectionIndices) {
 
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4346,10 +4347,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
 
 FlameChartTimelineData GetTestFlowData() {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1});
   data.entry_names = {"event0", "event1"};
   data.entry_event_ids = {1000, 2000};
@@ -4379,10 +4380,10 @@ FlameChartTimelineData GetTestFlowData() {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4429,10 +4430,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4485,10 +4486,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
 TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4518,10 +4519,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
 TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4565,10 +4566,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
 TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event_with_args");
   data.entry_levels.push_back(0);
@@ -4617,10 +4618,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
 
 TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4647,10 +4648,10 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
 TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4680,10 +4681,10 @@ TEST_F(RealTimelineImGuiFixture,
        ClickingSelectedEventAgainDoesNotFireCallback) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4726,11 +4727,11 @@ TEST_F(RealTimelineImGuiFixture,
 
 TEST_F(RealTimelineImGuiFixture, DragOverCounterPointDoesNotSelectEvent) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -4780,10 +4781,10 @@ TEST_F(RealTimelineImGuiFixture, DragOverCounterPointDoesNotSelectEvent) {
 TEST_F(RealTimelineImGuiFixture, DragOverEventDoesNotSelectEvent) {
   FlameChartTimelineData data;
 
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -4820,11 +4821,11 @@ TEST_F(RealTimelineImGuiFixture, DragOverEventDoesNotSelectEvent) {
 
 TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -4860,11 +4861,11 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrack) {
 
 TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -4898,11 +4899,11 @@ TEST_F(RealTimelineImGuiFixture, DrawCounterTrackConstantValue) {
 TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame,
-       .name = "Process Group",
-       .start_level = 0,
-       .nesting_level = kProcessNestingLevel,  // Process level
-       .expanded = true});
+      Group{.type = Group::Type::kFlame,
+            .name = "Process Group",
+            .start_level = 0,
+            .nesting_level = kProcessNestingLevel,  // Process level
+            .expanded = true});
 
   // Add one event covering the very end of visible range [99.95, 100.0]
   data.events_by_level.push_back({0});
@@ -4950,11 +4951,12 @@ TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
 
 TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Flame Group",
-                         .start_level = 0,
-                         .nesting_level = 2,
-                         .expanded = false});  // Collapsed triggers preview
+  data.groups.push_back(
+      Group{.type = Group::Type::kFlame,
+            .name = "Flame Group",
+            .start_level = 0,
+            .nesting_level = 2,
+            .expanded = false});  // Collapsed triggers preview
 
   data.events_by_level.push_back({0});
   // Add one more real event on a new level to make the group expandable.
@@ -5259,18 +5261,18 @@ TEST_F(RealTimelineImGuiFixture, DrawFlowsWithZeroViewDuration) {
 TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
   FlameChartTimelineData data;
   // Group 0: Process track at nesting level 0
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Process Track",
-                         .start_level = 0,
-                         .nesting_level = 1,
-                         .expanded = false});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Process Track",
+                              .start_level = 0,
+                              .nesting_level = 1,
+                              .expanded = false});
   // Group 1: Next track at same nesting level, starts at level 1.
   // This will cause the loop in timeline.cc to break and set end_level to 1.
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Next Track",
-                         .start_level = 1,
-                         .nesting_level = 1,
-                         .expanded = false});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Next Track",
+                              .start_level = 1,
+                              .nesting_level = 1,
+                              .expanded = false});
 
   data.events_by_level.push_back({0});  // Level 0 has event 0
   data.events_by_level.push_back({1});  // Level 1 has event 1
@@ -5330,7 +5332,7 @@ TEST_F(RealTimelineImGuiFixture, DrawRulerRendersProperly) {
   timeline_.SetVisibleRange({0.0, 100.0});
   timeline_.set_data_time_range({0.0, 100.0});
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1", .start_level = 0});
+  data.groups.push_back(Group{.name = "Group 1", .start_level = 0});
   timeline_.SetTimelineData(std::move(data));
 
   SimulateFrame();
@@ -5546,11 +5548,11 @@ TEST_F(RealTimelineImGuiFixture,
 
 TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -5629,11 +5631,11 @@ TEST_F(RealTimelineImGuiFixture, HoverCounterTrackShowsTooltip) {
 
 TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Test Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Test Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.resize(1);
   data.events_by_level[0].push_back(0);
   data.entry_names.push_back("instant_event");
@@ -5741,10 +5743,10 @@ TEST_F(RealTimelineImGuiFixture, PanRightBeyondDataRangeShouldBeConstrained) {
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   // Event 0 is at level 30
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(30);
@@ -5805,10 +5807,10 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
 
 TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   // Event 0 at level 5
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(5);
@@ -5867,10 +5869,10 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -5892,10 +5894,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
 
 TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
@@ -5937,10 +5939,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventInvalidIndexReturnsEarly) {
 
 TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(100);  // High level to trigger scrolling
   data.entry_start_times.push_back(100.0);
@@ -5980,10 +5982,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
 TEST_F(RealTimelineImGuiFixture,
        SetTimelineDataPreservesScrollOnIncrementalUpdate) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = kThreadNestingLevel,
+                              .expanded = true});
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(100);
   data.entry_start_times.push_back(100.0);
@@ -6060,10 +6062,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
 
 TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -6085,10 +6087,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
 
 TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -6111,10 +6113,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
 TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   FlameChartTimelineData data;
   // Group 0: Flame Events
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -6124,11 +6126,11 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
   data.entry_args.push_back({});
 
   // Group 1: Counter Events
-  data.groups.push_back({.type = Group::Type::kCounter,
-                         .name = "Counter Group",
-                         .start_level = 1,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kCounter,
+                              .name = "Counter Group",
+                              .start_level = 1,
+                              .nesting_level = 0,
+                              .expanded = true});
   CounterData counter_data;
   // We need at least 2 timestamps for the counter track to be drawn.
   counter_data.timestamps = {20.0, 30.0};
@@ -6197,7 +6199,7 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
 TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
   // Ensure we have some data so tracks are drawn.
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1", .start_level = 0});
+  data.groups.push_back(Group{.name = "Group 1", .start_level = 0});
   timeline_.SetTimelineData(std::move(data));
 
   ImGui::NewFrame();
@@ -6231,10 +6233,10 @@ TEST_F(RealTimelineImGuiFixture, SelectionOverlayIsDrawnOnTopOfTracks) {
 
 TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0});
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
@@ -6277,10 +6279,10 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
 TEST_F(RealTimelineImGuiFixture,
        ShiftClickMultipleEventsSelectsMultipleRanges) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1});  // event 0 and 1 on level 0
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
@@ -6533,7 +6535,7 @@ class TimelineMouseModeSelectTestSuite : public TimelineDragSelectionTest {
     data.entry_tids = {1, 1};
     data.entry_args = {{}, {}};
     data.groups = {
-        {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+        Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
     data.events_by_level = {{0}, {1}};
     timeline_.SetTimelineData(data);
   }
@@ -6921,7 +6923,7 @@ TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -6958,8 +6960,8 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
   data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
-      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
-      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
+      Group{Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
 
@@ -6999,8 +7001,8 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
   data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
-      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
-      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
+      Group{Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
 
@@ -7180,7 +7182,7 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7218,7 +7220,7 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
   data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0, 1}};
   timeline_.SetTimelineData(data);
 
@@ -7258,7 +7260,7 @@ TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7307,7 +7309,7 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, false}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, false}};
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
 
@@ -7347,8 +7349,8 @@ TEST_F(TimelineDragSelectionTest,
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
   // But it is NOT kFlame!
-  data.groups = {
-      {Group::Type::kCounter, "group", "", 0, kCounterNestingLevel, false}};
+  data.groups = {Group{Group::Type::kCounter, "group", "", 0,
+                       kCounterNestingLevel, false}};
   data.events_by_level = {{0}, {}};
   timeline_.SetTimelineData(data);
 
@@ -7392,8 +7394,8 @@ TEST_F(TimelineDragSelectionTest,
   // not >). Thus, it should NOT be considered as having children, so it should
   // not be considered expandable/collapsed even if `expanded` is false.
   data.groups = {
-      {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, false},
-      {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, false}};
+      Group{Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, false},
+      Group{Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, false}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
 
@@ -7434,7 +7436,7 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   data.entry_args = {{}};
   // Group is expanded.
   data.groups = {
-      {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
+      Group{Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7478,7 +7480,7 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is expanded.
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {Group{Group::Type::kFlame, "group", "", 0, 0, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7519,7 +7521,7 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {Group{Group::Type::kFlame, "group", "", 0, 0, true}};
   data.events_by_level = {{0}};
 
   // Verify strict viewport culling logic at the lower boundary.
@@ -7575,7 +7577,7 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
   data.entry_pids = {1};
   data.entry_tids = {1};
   data.entry_args = {{}};
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {Group{Group::Type::kFlame, "group", "", 0, 0, true}};
   data.events_by_level = {{0}};
 
   // Verify strict viewport culling logic at the upper boundary.
@@ -7634,7 +7636,7 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
   data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   // Group is expanded and has multiple levels.
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
+  data.groups = {Group{Group::Type::kFlame, "group", "", 0, 0, true}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
 
@@ -7669,7 +7671,7 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
   data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is NOT expanded, but it is NOT expandable (only 1 level, no children)
-  data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
+  data.groups = {Group{Group::Type::kFlame, "group", "", 0, 0, false}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -7783,7 +7785,7 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
 
   FlameChartTimelineData data;
   data.groups = {
-      {Group::Type::kCounter, "counter_group", "subtitle", 0, 0, true}};
+      Group{Group::Type::kCounter, "counter_group", "subtitle", 0, 0, true}};
 
   CounterData counter_data;
   counter_data.timestamps = {10.0, 20.0, 30.0};
@@ -7824,18 +7826,18 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {
 
 TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
   FlameChartTimelineData data;
-  data.groups.push_back({.name = "Group 0",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.groups.push_back({.name = "Group 1",
-                         .start_level = 2,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.groups.push_back({.name = "Group 2",
-                         .start_level = 3,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.name = "Group 0",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
+  data.groups.push_back(Group{.name = "Group 1",
+                              .start_level = 2,
+                              .nesting_level = 0,
+                              .expanded = true});
+  data.groups.push_back(Group{.name = "Group 2",
+                              .start_level = 3,
+                              .nesting_level = 0,
+                              .expanded = true});
   // Level 0, 1 in Group 0
   // Level 2 in Group 1
   // Level 3, 4, 5 in Group 2
@@ -7877,7 +7879,7 @@ TEST_F(TimelineImGuiFixture, SelectEvents) {
   // 1. Setup Data
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.events_by_level.resize(1);
   data.events_by_level[0].push_back(0);
   data.entry_names.push_back("Event 1");
@@ -7978,7 +7980,7 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
 
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.name = "Group 1", .start_level = 0, .expanded = true});
+      Group{.name = "Group 1", .start_level = 0, .expanded = true});
   data.events_by_level.resize(1);
   data.events_by_level[0].push_back(0);
   data.entry_names.push_back("Event 1");
@@ -8160,8 +8162,8 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
-                  kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Test Group Name", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -8187,8 +8189,8 @@ TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
-                  kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Test Group Name", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
 
@@ -8219,8 +8221,8 @@ TEST_F(RealTimelineImGuiFixture,
   // Needs to test an expandable group, so has_multiple_levels or has_children.
   // Let's set start_level=0 and next_group_start_level=2 to simulate multiple
   // levels.
-  data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
-                  kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Test Group Name", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};  // 2 levels, second level empty
   timeline_.SetTimelineData(data);
 
@@ -8242,7 +8244,7 @@ TEST_F(RealTimelineImGuiFixture,
   io.AddMouseButtonEvent(0, false);
   SimulateFrame();
 
-  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.flat_groups()[0]->expanded);
 }
 
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
@@ -8250,22 +8252,27 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
   data.events_by_level.resize(5);
 
   // Group 0: Parent (Collapsed, nesting_level = 0)
-  data.groups.push_back({
+  GroupNode parent_node;
+  parent_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Parent",
       .start_level = 0,
       .nesting_level = 0,
       .expanded = false,
-  });
+  };
 
-  // Group 1: Child (nesting_level = 1)
-  data.groups.push_back({
+  // Group 1: Child (nested inside Parent, nesting_level = 1)
+  GroupNode child_node;
+  child_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Child",
       .start_level = 1,
       .nesting_level = 1,
       .expanded = true,
-  });
+  };
+  parent_node.children.push_back(std::move(child_node));
+
+  data.groups.push_back(std::move(parent_node));
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -8288,31 +8295,38 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
   data.events_by_level.resize(5);
 
   // Group 0: Grand Parent (Expanded, nesting_level = 0)
-  data.groups.push_back({
+  GroupNode grand_parent_node;
+  grand_parent_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Grand Parent",
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
-  });
+  };
 
   // Group 1: Parent (Collapsed, nesting_level = 1)
-  data.groups.push_back({
+  GroupNode parent_node;
+  parent_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Parent",
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
-  });
+  };
 
   // Group 2: Child (nesting_level = 2)
-  data.groups.push_back({
+  GroupNode child_node;
+  child_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Child",
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
-  });
+  };
+  parent_node.children.push_back(std::move(child_node));
+  grand_parent_node.children.push_back(std::move(parent_node));
+
+  data.groups.push_back(std::move(grand_parent_node));
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -8331,40 +8345,50 @@ TEST_F(MockTimelineImGuiFixture,
   data.events_by_level.resize(5);
 
   // Group 0: Parent (Expanded, nesting_level = 0)
-  data.groups.push_back({
+  GroupNode parent_node;
+  parent_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Parent",
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
-  });
+  };
 
   // Group 1: Child A (Collapsed, nesting_level = 1)
-  data.groups.push_back({
+  GroupNode child_a_node;
+  child_a_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Child A",
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
-  });
+  };
 
   // Group 2: Grandchild A (nesting_level = 2)
-  data.groups.push_back({
+  GroupNode grandchild_a_node;
+  grandchild_a_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Grandchild A",
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
-  });
+  };
+  child_a_node.children.push_back(std::move(grandchild_a_node));
 
   // Group 3: Child B (Expanded, nesting_level = 1, sibling of Child A)
-  data.groups.push_back({
+  GroupNode child_b_node;
+  child_b_node.group = Group{
       .type = Group::Type::kFlame,
       .name = "Child B",
       .start_level = 3,
       .nesting_level = 1,
       .expanded = true,
-  });
+  };
+
+  parent_node.children.push_back(std::move(child_a_node));
+  parent_node.children.push_back(std::move(child_b_node));
+
+  data.groups.push_back(std::move(parent_node));
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -8390,7 +8414,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   data.events_by_level.resize(5);
 
   // Group 0: Process A
-  data.groups.push_back({
+  data.groups.push_back(Group{
       .type = Group::Type::kFlame,
       .name = "Process A",
       .start_level = 0,
@@ -8399,7 +8423,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   });
 
   // Group 1: Thread A1
-  data.groups.push_back({
+  data.groups.push_back(Group{
       .type = Group::Type::kFlame,
       .name = "Thread A1",
       .start_level = 0,
@@ -8408,7 +8432,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   });
 
   // Group 2: Thread A2
-  data.groups.push_back({
+  data.groups.push_back(Group{
       .type = Group::Type::kFlame,
       .name = "Thread A2",
       .start_level = 1,
@@ -8417,7 +8441,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   });
 
   // Group 3: Process B
-  data.groups.push_back({
+  data.groups.push_back(Group{
       .type = Group::Type::kFlame,
       .name = "Process B",
       .start_level = 2,
@@ -8426,7 +8450,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   });
 
   // Group 4: Thread B1
-  data.groups.push_back({
+  data.groups.push_back(Group{
       .type = Group::Type::kFlame,
       .name = "Thread B1",
       .start_level = 2,
@@ -8466,7 +8490,7 @@ TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   // 2. Now disable the feature flag. Hiding should be ignored and
   // all tracks should reappear.
   timeline_.set_track_management_enabled(false);
-  timeline_.UpdateLevelPositions(timeline_.timeline_data());
+  timeline_.UpdateLevelPositions();
 
   EXPECT_TRUE(timeline_.CallGroupVisible()[0]);  // Process A visible again
   EXPECT_TRUE(timeline_.CallGroupVisible()[1]);  // Thread A1 visible again
@@ -8485,9 +8509,11 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
 
   // Process A is collapsed, but has children.
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true},
-      {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, false}};
+      Group{Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel,
+            false},
+      Group{Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true},
+      Group{Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel,
+            false}};
   data.events_by_level = {{0}, {}, {}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8518,9 +8544,10 @@ TEST_F(RealTimelineImGuiFixture, CannotHideLastVisibleProcess) {
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
 
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, false},
+                 Group{Group::Type::kFlame, "Thread A1", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8559,9 +8586,10 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
 
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, false},
+                 Group{Group::Type::kFlame, "Thread A1", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -8601,9 +8629,10 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
 
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, false},
+                 Group{Group::Type::kFlame, "Thread A1", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -8645,9 +8674,10 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
 
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
-      {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, false},
+                 Group{Group::Type::kFlame, "Thread A1", "", 0,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {}};
 
   timeline_.set_track_management_enabled(true);
@@ -8710,8 +8740,8 @@ TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {
   data.entry_names = {"event"};
 
   // Group with name "MySubtitle//MyTrack" and subtitle "MySubtitle"
-  data.groups = {{Group::Type::kFlame, "MySubtitle//MyTrack", "MySubtitle", 0,
-                  kProcessNestingLevel, false}};
+  data.groups = {Group{Group::Type::kFlame, "MySubtitle//MyTrack", "MySubtitle",
+                       0, kProcessNestingLevel, false}};
   data.events_by_level = {{0}};
 
   timeline_.set_track_management_enabled(true);
@@ -8748,7 +8778,7 @@ TEST_F(RealTimelineImGuiFixture, DrawTrackManagementHiddenTrackPopIDCovered) {
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
@@ -8776,9 +8806,10 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   data.entry_names = {"event1", "event2"};
 
   // Process A is expanded, Thread A1 is expanded.
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
-      {Group::Type::kFlame, "Thread A1", "", 1, kThreadNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true},
+                 Group{Group::Type::kFlame, "Thread A1", "", 1,
+                       kThreadNestingLevel, true}};
   data.events_by_level = {{0}, {1}};
   timeline_.SetTimelineData(data);
   timeline_.set_track_management_enabled(true);
@@ -8793,14 +8824,30 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
 
   ImGuiIO& io = ImGui::GetIO();
 
+  // Find groups in the flattened list.
+  const Group* process_a = nullptr;
+  const Group* thread_a1 = nullptr;
+  for (const Group* g : timeline_.BuildFlattenedGroups()) {
+    if (g->name == "Process A") process_a = g;
+    if (g->name == "Thread A1") thread_a1 = g;
+  }
+  ASSERT_NE(process_a, nullptr);
+  ASSERT_NE(thread_a1, nullptr);
+
+  const float tracks_start_screen_pos_y = 20.0f;
+  const float process_a_center_y =
+      tracks_start_screen_pos_y + process_a->offset + process_a->height * 0.5f;
+  const float thread_a1_center_y =
+      tracks_start_screen_pos_y + thread_a1->offset + thread_a1->height * 0.5f;
+
   // Test 1: Verify that hovering over a process track's hide button
   // sets the cursor to Hand.
   // The correct button horizontal range is:
   // [label_width - splitter_offset - arrow_size,
   //  label_width - splitter_offset].
   // Set position to the center of the range.
-  io.MousePos =
-      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 61.0f);
+  io.MousePos = ImVec2(label_width - splitter_offset - arrow_size * 0.5f,
+                       process_a_center_y);
   SimulateFrame();
   EXPECT_EQ(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -8808,8 +8855,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // Under correct code, this is outside. Cursor should NOT be Hand.
   // Under mutated code (Mutant 612), arrow_size is increased by 1px,
   // making the range wider to the left, so it would be Hand.
-  io.MousePos =
-      ImVec2(label_width - splitter_offset - arrow_size - 0.5f, 45.0f);
+  io.MousePos = ImVec2(label_width - splitter_offset - arrow_size - 0.5f,
+                       process_a_center_y);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 
@@ -8819,10 +8866,9 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   // right-end position is NOT Hand.
   // Under mutated code (Mutant 610), it renders a button here,
   // so cursor would be Hand.
-  // Thread A1 starts at group_offset = 54.0f (Tracks screen starting
-  // Y = 36.0f). Its center Y = 36.0f + 54.0f + 23.0f * 0.5f = 101.5f.
-  io.MousePos =
-      ImVec2(label_width - splitter_offset - arrow_size * 0.5f, 101.5f);
+  // Thread A1 center Y is calculated dynamically above.
+  io.MousePos = ImVec2(label_width - splitter_offset - arrow_size * 0.5f,
+                       thread_a1_center_y);
   SimulateFrame();
   EXPECT_NE(ImGui::GetMouseCursor(), ImGuiMouseCursor_Hand);
 }
@@ -8834,8 +8880,8 @@ TEST_F(RealTimelineImGuiFixture, PinUnpinnedTrack) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8866,8 +8912,8 @@ TEST_F(RealTimelineImGuiFixture, PinPinnedTrackDoesNothing) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.set_track_management_enabled(true);
   // Pre-pin programmatically
@@ -8894,8 +8940,8 @@ TEST_F(RealTimelineImGuiFixture, UnpinPinnedTrack) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.set_track_management_enabled(true);
   // Pre-pin programmatically
@@ -8929,8 +8975,8 @@ TEST_F(RealTimelineImGuiFixture, UnpinUnpinnedTrackDoesNothing) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8955,8 +9001,8 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
   data.entry_self_times = {10.0};
   data.entry_start_times = {0.0};
   data.entry_names = {"event"};
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   data.events_by_level = {{0}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -9003,8 +9049,8 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
 TEST_F(RealTimelineImGuiFixture,
        GetGroupTopBottom_Headers_TrackManagementEnabled) {
   FlameChartTimelineData data;
-  data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true}};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
   SimulateFrame();
@@ -9013,7 +9059,7 @@ TEST_F(RealTimelineImGuiFixture,
   const Group* header_pinned = nullptr;
   const Group* header_all = nullptr;
 
-  for (const Group* g : timeline_.flattened_groups_) {
+  for (const Group* g : timeline_.BuildFlattenedGroups()) {
     if (g->name == kHiddenHeaderName) header_hidden = g;
     if (g->name == kPinnedHeaderName) header_pinned = g;
     if (g->name == kAllHeaderName) header_all = g;
@@ -9036,8 +9082,9 @@ TEST_F(RealTimelineImGuiFixture,
 TEST_F(RealTimelineImGuiFixture, GetGroupTopBottom_RegularGroups) {
   FlameChartTimelineData data;
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
-      {Group::Type::kFlame, "Thread 1", "", 1, kThreadNestingLevel, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel,
+            true},
+      Group{Group::Type::kFlame, "Thread 1", "", 1, kThreadNestingLevel, true},
   };
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -9048,11 +9095,10 @@ TEST_F(RealTimelineImGuiFixture, GetGroupTopBottom_RegularGroups) {
   // We can verify this by checking that
   // they are valid (non-zero or consistent).
   // Or we can just verify the interface doesn't crash.
-  const auto& groups = timeline_.timeline_data().groups;
-  ASSERT_EQ(groups.size(), 2);
+  ASSERT_EQ(timeline_.flat_groups().size(), 2);
 
-  const Group* group_a = &groups[0];
-  const Group* group_1 = &groups[1];
+  const Group* group_a = timeline_.flat_groups()[0];
+  const Group* group_1 = timeline_.flat_groups()[1];
 
   // They should have some offset.
   EXPECT_GE(timeline_.GetGroupTop(group_a), 0.0f);
@@ -9159,7 +9205,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
   data.entry_start_times = {100.0};
   data.entry_names = {"event"};
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
@@ -9186,7 +9232,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeDoesNotSnapWhenOutsideTrack) {
   data.entry_start_times = {100.0};
   data.entry_names = {"event"};
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
@@ -9211,7 +9257,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
   data.entry_start_times = {40.0};
   data.entry_names = {"event"};
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
@@ -9237,7 +9283,7 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
   data.entry_start_times = {100.0};
   data.entry_names = {"event"};
   data.groups = {
-      {Group::Type::kFlame, "Process A", "", 0, 0, true},
+      Group{Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(data);
@@ -10015,11 +10061,11 @@ TEST_F(MockTimelineImGuiFixture, ZoomEventExpandsRelatedTracks) {
   data.events_by_level = {{0}};
   timeline_.SetTimelineData(std::move(data));
 
-  EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_FALSE(timeline_.flat_groups()[0]->expanded);
 
   timeline_.NavigateToNextSearchResult();
 
-  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);
+  EXPECT_TRUE(timeline_.flat_groups()[0]->expanded);
 }
 
 TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
@@ -10030,11 +10076,11 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
   // Load timeline data with one matching event, one non-matching event, and one
   // instant non-matching event
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Group 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Group 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
   data.events_by_level.push_back({0, 1, 2, 3});
 
   // Event 0: matching_2 (starts at 10.0, duration 40.0)
@@ -10177,7 +10223,7 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
@@ -10203,7 +10249,7 @@ TEST_F(MockTimelineImGuiFixture,
   // must remain -1.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data2.entry_names.push_back("eventB");
   data2.entry_start_times.push_back(200.0);
   data2.entry_total_times.push_back(50.0);
@@ -10228,7 +10274,7 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
@@ -10264,7 +10310,7 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
   // Event 2 (index 1): Duration 50.0 (Matches old search result).
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Event 1: Different duration
   data2.entry_names.push_back("eventA");
@@ -10297,7 +10343,7 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
@@ -10332,7 +10378,7 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
   // Reconciliation should set selected_event_index_ to 0.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Add a dummy event at index 0
   data2.entry_names.push_back("dummy");
@@ -10365,7 +10411,7 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
@@ -10400,7 +10446,7 @@ TEST_F(MockTimelineImGuiFixture,
   // Reconciliation should set selected_event_index_ to -1.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Add a dummy event that doesn't match
   data2.entry_names.push_back("dummy");
@@ -10423,7 +10469,7 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Load data with one thread having two events on the same level (0)
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Event X (will be loaded at index 0): start_time = 200.0 (later)
   data.entry_names.push_back("eventA");
@@ -10490,7 +10536,7 @@ TEST_F(MockTimelineImGuiFixture, SetSearchResultsPreservesActiveSelectionZoom) {
   // 1. Load data with evA (index 0) and evB (index 1)
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data.entry_names.push_back("evA");
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -10560,7 +10606,7 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Load data with evA (index 0)
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
   data.entry_names.push_back("evA");
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
@@ -10623,10 +10669,10 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Setup with duration 0.0 (instant event)
   // Use empty name "" to avoid text drawing which can mask vertex counts.
   FlameChartTimelineData data1;
-  data1.groups.push_back({.name = "Group 1",
-                          .start_level = 0,
-                          .nesting_level = kThreadNestingLevel,
-                          .expanded = true});
+  data1.groups.push_back(Group{.name = "Group 1",
+                               .start_level = 0,
+                               .nesting_level = kThreadNestingLevel,
+                               .expanded = true});
   data1.events_by_level.push_back({0});
   data1.entry_names.push_back("");
   data1.entry_levels.push_back(0);
@@ -10655,10 +10701,10 @@ TEST_F(MockTimelineImGuiFixture,
 
   // 2. Setup with duration 10.0 (non-instant event)
   FlameChartTimelineData data2;
-  data2.groups.push_back({.name = "Group 1",
-                          .start_level = 0,
-                          .nesting_level = kThreadNestingLevel,
-                          .expanded = true});
+  data2.groups.push_back(Group{.name = "Group 1",
+                               .start_level = 0,
+                               .nesting_level = kThreadNestingLevel,
+                               .expanded = true});
   data2.events_by_level.push_back({0});
   data2.entry_names.push_back("");
   data2.entry_levels.push_back(0);
@@ -10694,7 +10740,7 @@ TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
   // 1. Load data with evA and evB
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      Group{.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
 
   // Group Y events: evY1 (index 0), evY2 (index 1)
   data.entry_names.push_back("evY1");
@@ -10760,11 +10806,11 @@ TEST_F(MockTimelineImGuiFixture,
        SetSearchResultsSortsResultsByMinLevelForUnloadedEventOnActiveThread) {
   // 1. Populate timeline data with single thread (tid 1)
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Process Group",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Process Group",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   // Event 0 (index 0): pid 1, tid 1 (Thread A) - loaded at level 1
   data.entry_names.push_back("evB");
@@ -10825,16 +10871,16 @@ TEST_F(MockTimelineImGuiFixture,
        SetSearchResultsSortsResultsByProcessSortIndexFallbackToPid) {
   // 1. Populate timeline data (loaded) with two events in different processes
   FlameChartTimelineData data;
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Process 1",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
-  data.groups.push_back({.type = Group::Type::kFlame,
-                         .name = "Process 2",
-                         .start_level = 0,
-                         .nesting_level = 0,
-                         .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Process 1",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
+  data.groups.push_back(Group{.type = Group::Type::kFlame,
+                              .name = "Process 2",
+                              .start_level = 0,
+                              .nesting_level = 0,
+                              .expanded = true});
 
   // Event B (index 0, event_id 100): pid 2
   data.entry_names.push_back("evB");
@@ -11648,6 +11694,172 @@ TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
 
   EXPECT_DOUBLE_EQ(actual_min, 0.0);
   EXPECT_DOUBLE_EQ(actual_max, 400.0);
+}
+
+TEST(TimelineTest, ReorderTrackTest) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  GroupNode process_a;
+  process_a.group = Group{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+  };
+
+  GroupNode thread_a1;
+  thread_a1.group = Group{
+      .type = Group::Type::kFlame,
+      .name = "Thread A1",
+      .start_level = 0,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+  };
+
+  GroupNode thread_a2;
+  thread_a2.group = Group{
+      .type = Group::Type::kFlame,
+      .name = "Thread A2",
+      .start_level = 1,
+      .nesting_level = kThreadNestingLevel,
+      .expanded = true,
+  };
+
+  process_a.children.push_back(std::move(thread_a1));
+  process_a.children.push_back(std::move(thread_a2));
+  data.groups.push_back(std::move(process_a));
+
+  timeline.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline.flat_groups().size(), 3);
+
+  const Group* process_a_ptr = timeline.flat_groups()[0];
+  const Group* thread_a1_ptr = timeline.flat_groups()[1];
+  const Group* thread_a2_ptr = timeline.flat_groups()[2];
+
+  EXPECT_EQ(process_a_ptr->name, "Process A");
+  EXPECT_EQ(thread_a1_ptr->name, "Thread A1");
+  EXPECT_EQ(thread_a2_ptr->name, "Thread A2");
+
+  // Reorder Thread A2 before Thread A1
+  timeline.ReorderTrack(thread_a2_ptr->original_index,
+                        thread_a1_ptr->original_index, false);
+
+  ASSERT_EQ(timeline.flat_groups().size(), 3);
+  EXPECT_EQ(timeline.flat_groups()[1]->name, "Thread A2");
+  EXPECT_EQ(timeline.flat_groups()[2]->name, "Thread A1");
+}
+
+TEST(TimelineTest, ReorderProcessTrackTest) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  GroupNode process_a;
+  process_a.group = Group{
+      .type = Group::Type::kFlame,
+      .name = "Process A",
+      .start_level = 0,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+  };
+
+  GroupNode process_b;
+  process_b.group = Group{
+      .type = Group::Type::kFlame,
+      .name = "Process B",
+      .start_level = 1,
+      .nesting_level = kProcessNestingLevel,
+      .expanded = true,
+  };
+
+  data.groups.push_back(std::move(process_a));
+  data.groups.push_back(std::move(process_b));
+
+  timeline.SetTimelineData(std::move(data));
+
+  ASSERT_EQ(timeline.flat_groups().size(), 2);
+
+  const Group* process_a_ptr = timeline.flat_groups()[0];
+  const Group* process_b_ptr = timeline.flat_groups()[1];
+
+  EXPECT_EQ(process_a_ptr->name, "Process A");
+  EXPECT_EQ(process_b_ptr->name, "Process B");
+
+  // Reorder Process B before Process A
+  timeline.ReorderTrack(process_b_ptr->original_index,
+                        process_a_ptr->original_index, false);
+
+  ASSERT_EQ(timeline.flat_groups().size(), 2);
+  EXPECT_EQ(timeline.flat_groups()[0]->name, "Process B");
+  EXPECT_EQ(timeline.flat_groups()[1]->name, "Process A");
+}
+
+TEST_F(RealTimelineImGuiFixture, DragDropReorderProcessTrack) {
+  FlameChartTimelineData data;
+  data.entry_levels = {0, 1};
+  data.entry_total_times = {10.0, 10.0};
+  data.entry_self_times = {10.0, 10.0};
+  data.entry_start_times = {0.0, 0.0};
+  data.entry_names = {"event1", "event2"};
+
+  // Two expanded processes: Process A and Process B.
+  data.groups = {Group{Group::Type::kFlame, "Process A", "", 0,
+                       kProcessNestingLevel, true},
+                 Group{Group::Type::kFlame, "Process B", "", 1,
+                       kProcessNestingLevel, true}};
+  data.events_by_level = {{0}, {1}};
+  timeline_.SetTimelineData(data);
+  timeline_.set_track_management_enabled(true);
+
+  SimulateFrame();
+
+  // Find Process A and Process B in flat list to get offsets.
+  const Group* process_a = nullptr;
+  const Group* process_b = nullptr;
+  for (const Group* g : timeline_.BuildFlattenedGroups()) {
+    if (g->name == "Process A") process_a = g;
+    if (g->name == "Process B") process_b = g;
+  }
+  ASSERT_NE(process_a, nullptr);
+  ASSERT_NE(process_b, nullptr);
+
+  const float tracks_start_screen_pos_y = 20.0f;
+  const float process_a_y =
+      tracks_start_screen_pos_y + process_a->offset + process_a->height * 0.5f;
+  const float process_b_y =
+      tracks_start_screen_pos_y + process_b->offset + process_b->height * 0.5f;
+
+  ImGuiIO& io = ImGui::GetIO();
+  const float drag_x = timeline_.GetLabelWidth() * 0.5f;
+
+  // Step 1: Click on Process A label.
+  io.AddMousePosEvent(drag_x, process_a_y);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  // Step 2: Drag to Process B label (with +10.0f offset to trigger drop_after).
+  io.AddMousePosEvent(drag_x, process_b_y + 10.0f);
+  SimulateFrame();
+
+  // Step 3: Release drop.
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+  SimulateFrame();
+
+  // Verify that Process A was moved after Process B.
+  const auto flat = timeline_.BuildFlattenedGroups();
+  ASSERT_EQ(flat.size(), 5);
+  EXPECT_EQ(flat[3]->name, "Process B");
+  EXPECT_EQ(flat[4]->name, "Process A");
 }
 
 }  // namespace

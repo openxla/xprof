@@ -126,16 +126,21 @@ CounterEvent CreateCounterEvent(ProcessId pid, absl::string_view name,
 // Returns the list of group names from timeline data.
 std::vector<std::string> GetGroupNames(const FlameChartTimelineData& data) {
   std::vector<std::string> names;
-  names.reserve(data.groups.size());
-  for (const Group& group : data.groups) {
-    names.push_back(group.name);
+  auto visit = [&](auto& self, const GroupNode& node) -> void {
+    names.push_back(node.group.name);
+    for (const auto& child : node.children) {
+      self(self, child);
+    }
+  };
+  for (const auto& root : data.groups) {
+    visit(visit, root);
   }
   return names;
 }
 
 // Matches a FlameChartGroup with the specified name and expanded state.
 MATCHER_P2(GroupIs, name, expanded, "") {
-  return arg.name == name && arg.expanded == expanded;
+  return arg->name == name && arg->expanded == expanded;
 }
 
 // Matches a FlowLine with the specified source and target timestamps.
@@ -195,16 +200,17 @@ TEST(DataProviderNoFixtureTest, SyncProcessWithNamedThreadsWithoutEvents) {
   data_provider.ProcessTraceEvents({events, {}}, timeline);
 
   const FlameChartTimelineData& data = timeline.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(4));
+  (void)data;
+  ASSERT_THAT(timeline.flat_groups(), SizeIs(4));
 
-  EXPECT_EQ(data.groups[0].name, "Process_10");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread with events");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].name, "Thread without events");
-  EXPECT_EQ(data.groups[2].nesting_level, 2);
-  EXPECT_EQ(data.groups[3].name, "Thread_3");
-  EXPECT_EQ(data.groups[3].nesting_level, 2);
+  EXPECT_EQ(timeline.flat_groups()[0]->name, "Process_10");
+  EXPECT_EQ(timeline.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline.flat_groups()[1]->name, "Thread with events");
+  EXPECT_EQ(timeline.flat_groups()[1]->nesting_level, 2);
+  EXPECT_EQ(timeline.flat_groups()[2]->name, "Thread without events");
+  EXPECT_EQ(timeline.flat_groups()[2]->nesting_level, 2);
+  EXPECT_EQ(timeline.flat_groups()[3]->name, "Thread_3");
+  EXPECT_EQ(timeline.flat_groups()[3]->nesting_level, 2);
 
   EXPECT_THAT(data.entry_names, ElementsAre("Event 1", "Event 3"));
 }
@@ -214,7 +220,7 @@ TEST_F(DataProviderTest, ProcessEmptyTraceData) {
 
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
-  EXPECT_THAT(timeline_.timeline_data().groups, IsEmpty());
+  EXPECT_THAT(timeline_.flat_groups(), IsEmpty());
   EXPECT_THAT(timeline_.timeline_data().entry_start_times, IsEmpty());
 }
 
@@ -228,9 +234,10 @@ TEST_F(DataProviderTest, ProcessMetadataEvents) {
   // Metadata for named threads creates entries in timeline_data even without
   // events.
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(2));
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[1].name, "Thread_A");
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_A");
 }
 
 TEST_F(DataProviderTest, GetProcessMappingsSplitsSpaceTokens) {
@@ -265,13 +272,14 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithEmptyName) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 }
 
 TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
@@ -305,13 +313,14 @@ TEST_F(DataProviderTest, ProcessMetadataEventsWithNoNameArg) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 }
 
 TEST_F(DataProviderTest, ThreadSorting) {
@@ -803,13 +812,15 @@ TEST_F(DataProviderTest, MpmdFirstProcessSuppressedExpansion) {
       CreateCompleteEvent(30, 1, "Event_2"),
   };
 
-  EXPECT_THAT(Process(events, /*mpmd=*/true).groups,
+  Process(events, /*mpmd=*/true);
+  EXPECT_THAT(timeline_.flat_groups(),
               ElementsAre(GroupIs("Active_Process", true),
                           GroupIs("Active_Thread", true),
                           GroupIs("Active_Process_2", false),
                           GroupIs("Active_Thread_2", true)));
+  Process(events, /*mpmd=*/false);
   EXPECT_THAT(
-      Process(events, /*mpmd=*/false).groups,
+      timeline_.flat_groups(),
       ElementsAre(
           GroupIs("Empty_Process", true), GroupIs("Async_Framework", true),
           GroupIs("Steps", true), GroupIs("Active_Process", false),
@@ -941,18 +952,19 @@ TEST_F(DataProviderTest, ProcessCompleteEvents) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(3));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].start_level, 0);
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].name, "Thread_102");
-  EXPECT_EQ(data.groups[2].start_level, 1);
-  EXPECT_EQ(data.groups[2].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
+  EXPECT_EQ(timeline_.flat_groups()[1]->start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Thread_102");
+  EXPECT_EQ(timeline_.flat_groups()[2]->start_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[2]->nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(1000.0, 1100.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(200.0, 300.0));
@@ -992,15 +1004,16 @@ TEST_F(DataProviderTest, ProcessNestedCompleteEvents) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].start_level, 0);
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
+  EXPECT_EQ(timeline_.flat_groups()[1]->start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 110.0, 120.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(100.0, 50.0, 20.0));
@@ -1035,9 +1048,10 @@ TEST_F(DataProviderTest, ProcessOverlappingNonNestedEvents) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 120.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(50.0, 50.0));
@@ -1062,11 +1076,12 @@ TEST_F(DataProviderTest, ProcessNonOverlappingCompleteEventsSameThread) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));  // Process and Thread
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));  // Process and Thread
 
-  EXPECT_EQ(data.groups[1].name, "Thread_101");
-  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_101");
+  EXPECT_EQ(timeline_.flat_groups()[1]->start_level, 0);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 160.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(50.0, 50.0));
@@ -1094,6 +1109,7 @@ TEST_F(DataProviderTest, PopulateThreadTrackWithPackedLayoutSorting) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Verify they are sorted by timestamp and packed onto the same row.
   EXPECT_THAT(data.entry_start_times, ElementsAre(100.0, 150.0));
@@ -1152,19 +1168,20 @@ TEST_F(DataProviderTest, ProcessMixedEvents) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(5));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(5));
 
-  EXPECT_EQ(data.groups[0].name, "Main_Process");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Worker Thread");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].name, "Thread_102");
-  EXPECT_EQ(data.groups[2].nesting_level, 2);
-  EXPECT_EQ(data.groups[3].name, "Process_2");
-  EXPECT_EQ(data.groups[3].nesting_level, 1);
-  EXPECT_EQ(data.groups[4].name, "Thread_201");
-  EXPECT_EQ(data.groups[4].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Main_Process");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Worker Thread");
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Thread_102");
+  EXPECT_EQ(timeline_.flat_groups()[2]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[3]->name, "Process_2");
+  EXPECT_EQ(timeline_.flat_groups()[3]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Thread_201");
+  EXPECT_EQ(timeline_.flat_groups()[4]->nesting_level, 2);
 
   EXPECT_THAT(data.entry_start_times, ElementsAre(5000.0, 5500.0, 6000.0));
   EXPECT_THAT(data.entry_total_times, ElementsAre(1000.0, 1500.0, 500.0));
@@ -1211,24 +1228,25 @@ TEST_F(DataProviderTest, ProcessMultipleProcesses) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(5));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(5));
 
   // Process A
-  EXPECT_EQ(data.groups[0].name, "Process_A");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_A1");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_EQ(data.groups[1].start_level, 0);
-  EXPECT_EQ(data.groups[2].name, "Thread_A2");
-  EXPECT_EQ(data.groups[2].nesting_level, 2);
-  EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_A");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_A1");
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[1]->start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Thread_A2");
+  EXPECT_EQ(timeline_.flat_groups()[2]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[2]->start_level, 1);
 
   // Process B
-  EXPECT_EQ(data.groups[3].name, "Process_B");
-  EXPECT_EQ(data.groups[3].nesting_level, 1);
-  EXPECT_EQ(data.groups[4].name, "Thread_B1");
-  EXPECT_EQ(data.groups[4].nesting_level, 2);
-  EXPECT_EQ(data.groups[4].start_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[3]->name, "Process_B");
+  EXPECT_EQ(timeline_.flat_groups()[3]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Thread_B1");
+  EXPECT_EQ(timeline_.flat_groups()[4]->nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[4]->start_level, 2);
 
   EXPECT_THAT(data.entry_levels, ElementsAre(0, 1, 2));
   EXPECT_THAT(data.entry_start_times, ElementsAre(1000.0, 1100.0, 1200.0));
@@ -1241,16 +1259,18 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups, SizeIs(2));  // Process group + Counter group
+  ASSERT_THAT(timeline_.flat_groups(),
+              SizeIs(2));  // Process group + Counter group
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
 
-  EXPECT_EQ(data.groups[1].name, "Counter A");
-  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
-  EXPECT_TRUE(data.groups[1].expanded);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Counter A");
+  EXPECT_EQ(timeline_.flat_groups()[1]->type, Group::Type::kCounter);
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
+  EXPECT_TRUE(timeline_.flat_groups()[1]->expanded);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
@@ -1272,6 +1292,7 @@ TEST_F(DataProviderTest, ProcessCounterEventWithNegativeValues) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
   const CounterData& counter_data = data.counter_data_by_group_index.at(1);
 
@@ -1286,6 +1307,7 @@ TEST_F(DataProviderTest, ProcessCounterEventWithSingleValue) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
   const CounterData& counter_data = data.counter_data_by_group_index.at(1);
 
@@ -1300,6 +1322,7 @@ TEST_F(DataProviderTest, ProcessCounterEventWithEmptyValues) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_EQ(data.counter_data_by_group_index.size(), 1);
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
   const CounterData& counter_data = data.counter_data_by_group_index.at(1);
@@ -1324,6 +1347,7 @@ TEST_F(DataProviderTest, ProcessMultipleCounterEventsSorted) {
                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(2));
 
@@ -1347,19 +1371,20 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEvent) {
                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups,
+  ASSERT_THAT(timeline_.flat_groups(),
               SizeIs(3));  // Process group + Thread group + Counter group
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
 
-  EXPECT_EQ(data.groups[1].name, "Thread_1");
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_1");
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 
-  EXPECT_EQ(data.groups[2].name, "Counter A");
-  EXPECT_EQ(data.groups[2].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[2].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Counter A");
+  EXPECT_EQ(timeline_.flat_groups()[2]->type, Group::Type::kCounter);
+  EXPECT_EQ(timeline_.flat_groups()[2]->nesting_level, 2);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(2));
 
@@ -1388,22 +1413,23 @@ TEST_F(DataProviderTest, ProcessCounterEventAndCompleteEventInDifferentPid) {
                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
-  ASSERT_THAT(data.groups,
+  ASSERT_THAT(timeline_.flat_groups(),
               SizeIs(4));  // Process 1, Counter A, Process 2, Thread 1
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
 
-  EXPECT_EQ(data.groups[1].name, "Counter A");
-  EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Counter A");
+  EXPECT_EQ(timeline_.flat_groups()[1]->type, Group::Type::kCounter);
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 
-  EXPECT_EQ(data.groups[2].name, "Process_2");
-  EXPECT_EQ(data.groups[2].nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Process_2");
+  EXPECT_EQ(timeline_.flat_groups()[2]->nesting_level, 1);
 
-  EXPECT_EQ(data.groups[3].name, "Thread_1");
-  EXPECT_EQ(data.groups[3].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[3]->name, "Thread_1");
+  EXPECT_EQ(timeline_.flat_groups()[3]->nesting_level, 2);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 }
@@ -1431,6 +1457,7 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
                                     timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Expected Groups:
   // 0: Process 1
@@ -1440,16 +1467,16 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
   // 4: Thread 2 (pid 2, tid 2). start_level = 2 (IF incremented) OR 1 (IF
   // NOT).
 
-  ASSERT_THAT(data.groups, SizeIs(5));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(5));
 
-  EXPECT_EQ(data.groups[1].name, "Thread_1");
-  EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_1");
+  EXPECT_EQ(timeline_.flat_groups()[1]->start_level, 0);
 
-  EXPECT_EQ(data.groups[2].name, "CounterA");
-  EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "CounterA");
+  EXPECT_EQ(timeline_.flat_groups()[2]->start_level, 1);
 
-  EXPECT_EQ(data.groups[4].name, "Thread_2");
-  EXPECT_EQ(data.groups[4].start_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Thread_2");
+  EXPECT_EQ(timeline_.flat_groups()[4]->start_level, 2);
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
@@ -1474,6 +1501,7 @@ TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {
   data_provider_.ProcessTraceEvents({{}, events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Group 0 is process, Group 1 is counter.
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
@@ -1535,17 +1563,18 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndex) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 3 processes, each having 1 thread track -> 6 groups total.
-  ASSERT_THAT(data.groups, SizeIs(6));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(6));
 
   // Expected order: Process 2 (index 1), Process 1 (index 2), Process 3 (index
   // 3 / default)
   // Groups for Process 2 are at indices 0 (process) and 1 (thread)
   // Groups for Process 1 are at indices 2 (process) and 3 (thread)
   // Groups for Process 3 are at indices 4 (process) and 5 (thread)
-  EXPECT_EQ(data.groups[0].name, "Process_2");
-  EXPECT_EQ(data.groups[2].name, "Process_1");
-  EXPECT_EQ(data.groups[4].name, "Process_3");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_2");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Process_3");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
@@ -1585,15 +1614,16 @@ TEST_F(DataProviderTest, ProcessesSortedBySortIndexStable) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 2 processes, each having 1 thread track -> 4 groups total.
-  ASSERT_THAT(data.groups, SizeIs(4));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
 
   // Stable sort: Process 1 (pid 1) comes before Process 2 (pid 2) as they have
   // same sort index.
   // Groups for Process 1 are at indices 0 (process) and 1 (thread)
   // Groups for Process 2 are at indices 2 (process) and 3 (thread)
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[2].name, "Process_2");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Process_2");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedByAsyncPriority) {
@@ -1639,8 +1669,9 @@ TEST_F(DataProviderTest, ProcessesSortedByAsyncPriority) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 4 processes -> 8 groups (process + thread each)
-  ASSERT_THAT(data.groups, SizeIs(8));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(8));
 
   // Expected order:
   // 1. Async XLA Ops (priority 2)
@@ -1648,10 +1679,10 @@ TEST_F(DataProviderTest, ProcessesSortedByAsyncPriority) {
   // 3. Device Process (priority 0, but sort_index 0)
   // 4. Host Process (priority 0, fallback pid 1)
 
-  EXPECT_EQ(data.groups[0].name, kAsyncXlaOps);
-  EXPECT_EQ(data.groups[2].name, "Device DMA");
-  EXPECT_EQ(data.groups[4].name, "Device Process");
-  EXPECT_EQ(data.groups[6].name, "Host Process");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, kAsyncXlaOps);
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Device DMA");
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Device Process");
+  EXPECT_EQ(timeline_.flat_groups()[6]->name, "Host Process");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedByAsyncThreadPriority) {
@@ -1677,14 +1708,15 @@ TEST_F(DataProviderTest, ProcessesSortedByAsyncThreadPriority) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 2 processes -> 4 groups
-  ASSERT_THAT(data.groups, SizeIs(4));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
 
   // Expected order:
   // 1. Async Host (priority 2 because of thread name)
   // 2. Host Process (priority 0)
-  EXPECT_EQ(data.groups[0].name, "Async Host");
-  EXPECT_EQ(data.groups[2].name, "Host Process");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Async Host");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Host Process");
 }
 
 TEST_F(DataProviderTest, AsyncProcessesGroupedByName) {
@@ -1709,12 +1741,13 @@ TEST_F(DataProviderTest, AsyncProcessesGroupedByName) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 1 process + 2 named tracks = 3 groups
-  ASSERT_THAT(data.groups, SizeIs(3));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
 
-  EXPECT_EQ(data.groups[0].name, "Generic Process");
-  EXPECT_EQ(data.groups[1].name, "async-copy-1");
-  EXPECT_EQ(data.groups[2].name, "async-copy-2");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Generic Process");
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "async-copy-1");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "async-copy-2");
 }
 
 TEST_F(DataProviderTest, AsyncProcessesMixedGrouping) {
@@ -1739,12 +1772,13 @@ TEST_F(DataProviderTest, AsyncProcessesMixedGrouping) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // 1 process header + 1 thread track + 1 async track = 3 groups
-  ASSERT_THAT(data.groups, SizeIs(3));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
 
-  EXPECT_EQ(data.groups[0].name, "Mixed Process");
-  EXPECT_EQ(data.groups[1].name, "async-op");
-  EXPECT_EQ(data.groups[2].name, "Thread_55");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Mixed Process");
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "async-op");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Thread_55");
 }
 
 TEST_F(DataProviderTest, AsyncProcessesConcurrentPacking) {
@@ -1769,14 +1803,15 @@ TEST_F(DataProviderTest, AsyncProcessesConcurrentPacking) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(2));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 
-  EXPECT_EQ(data.groups[0].name, "Packed Process");
-  EXPECT_EQ(data.groups[1].name, "async-op");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Packed Process");
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "async-op");
 
   ASSERT_THAT(data.entry_start_times, SizeIs(2));
 
-  int start_level = data.groups[1].start_level;
+  int start_level = timeline_.flat_groups()[1]->start_level;
   EXPECT_EQ(data.entry_levels[0], start_level);
   EXPECT_EQ(data.entry_levels[1], start_level + 1);
 }
@@ -1834,15 +1869,16 @@ TEST_F(DataProviderTest, ProcessesSortedWithMalformedAndMissingSortIndex) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(6));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(6));
 
   // pid 1 -> sort key 1 (fallback)
   // pid 2 -> sort key 0
   // pid 3 -> sort key 3 (fallback)
   // Expected order: 2, 1, 3
-  EXPECT_EQ(data.groups[0].name, "Process_2");
-  EXPECT_EQ(data.groups[2].name, "Process_1");
-  EXPECT_EQ(data.groups[4].name, "Process_3");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_2");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[4]->name, "Process_3");
 }
 
 TEST_F(DataProviderTest, MpmdPipelineViewEnabledPropagated) {
@@ -1992,6 +2028,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({{}, {event1, event2}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
   const CounterData& counter_data = data.counter_data_by_group_index.at(1);
 
@@ -2103,6 +2140,7 @@ TEST_F(DataProviderTest, ProcessFlowEvents) {
                });
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Check categories - list should be sorted.
   EXPECT_THAT(data_provider_.GetFlowCategories(),
@@ -2246,6 +2284,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelDefaultsToThreadStartLevel) {
 
   data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   // p1/t101 is level 0, p1/t102 is level 1.
   // Flow start is at 120, falls in Task A, so source_level should be 0.
@@ -2307,6 +2346,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelDeepestLevel) {
 
   data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   // p1/t101 has 2 levels. Task A is level 0, Task B is level 1.
   // Flow starts at 130, falls in Task B, deepest level is 1.
@@ -2373,6 +2413,7 @@ TEST_F(DataProviderTest, FlowEventFindLevelMultipleEventsOnLevel) {
 
   data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   // p1/t101: Task A lvl 0, Task B lvl 1, Task C lvl 1.
   // Flow starts at 145, falls in Task C, deepest level is 1.
@@ -2418,6 +2459,7 @@ TEST_F(DataProviderTest, CompleteEventWithIdIsHandledAsFlowEvent) {
 
   data_provider_.ProcessTraceEvents({flame_events, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.flow_lines, SizeIs(1));
   EXPECT_EQ(data.flow_lines[0].source_ts, 100.0);
   EXPECT_EQ(data.flow_lines[0].target_ts, 200.0);
@@ -2457,6 +2499,7 @@ TEST_F(DataProviderTest, FlowEventWithSameIdAndEventId) {
 
   data_provider_.ProcessTraceEvents({{}, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   EXPECT_THAT(data.flow_ids_by_event_id.at(10), ElementsAre("1"));
 }
 
@@ -2531,6 +2574,7 @@ TEST_F(DataProviderTest, FlowLineColoringWithTop5Categories) {
 
   data_provider_.ProcessTraceEvents({{}, {}, flow_events}, timeline_);
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   auto get_color = [&](tsl::profiler::ContextType cat) {
     for (const FlowLine& line : data.flow_lines) {
@@ -2593,6 +2637,7 @@ TEST_F(DataProviderTest, FlowLineColoringWithTieBreaker) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   auto get_color = [&](tsl::profiler::ContextType cat) -> ImU32 {
     for (const FlowLine& line : data.flow_lines) {
@@ -2629,6 +2674,7 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
       timeline_);
   {
     const FlameChartTimelineData& data = timeline_.timeline_data();
+    (void)data;
     ASSERT_THAT(data.flow_lines, SizeIs(1));
     EXPECT_EQ(data.flow_lines[0].category,
               tsl::profiler::ContextType::kGpuLaunch);
@@ -2640,6 +2686,7 @@ TEST_F(DataProviderTest, MultipleProcessTraceEventsClearsTop5FlowCategories) {
       timeline_);
   {
     const FlameChartTimelineData& data = timeline_.timeline_data();
+    (void)data;
     ASSERT_THAT(data.flow_lines, SizeIs(1));
     EXPECT_EQ(data.flow_lines[0].category,
               tsl::profiler::ContextType::kTfExecutor);
@@ -2730,6 +2777,7 @@ TEST_F(DataProviderTest, FlowLinesNestedEventLevelTest) {
   data_provider_.ProcessTraceEvents({events, {}, flow_events}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.flow_lines, SizeIs(1));
 
   // The base thread level is 1 (group 0 is Process, group 1 is Thread)
@@ -2772,20 +2820,22 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   // By default, first process is expanded, others collapsed.
   // Group 0: Process 1, Group 1: Thread 101, Group 2: Process 2, Group 3:
   // Thread 201
-  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
-  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);   // Process 1
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);   // Thread 101
-  EXPECT_FALSE(timeline_.timeline_data().groups[2].expanded);  // Process 2
-  EXPECT_TRUE(timeline_.timeline_data().groups[3].expanded);   // Thread 201
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
+  EXPECT_TRUE(timeline_.flat_groups()[0]->expanded);   // Process 1
+  EXPECT_TRUE(timeline_.flat_groups()[1]->expanded);   // Thread 101
+  EXPECT_FALSE(timeline_.flat_groups()[2]->expanded);  // Process 2
+  EXPECT_TRUE(timeline_.flat_groups()[3]->expanded);   // Thread 201
 
   // Manually collapse Process 1 and Thread 101.
   // Manually expand Process 2 and collapse Thread 201 (which shouldn't stick).
   {
     FlameChartTimelineData data = timeline_.timeline_data();
-    data.groups[0].expanded = false;  // Process 1 -> false
-    data.groups[1].expanded = false;  // Thread 101 (collapsible) -> false
-    data.groups[2].expanded = true;   // Process 2 -> true
-    data.groups[3].expanded = false;  // Thread 201 (non-collapsible) -> false
+    timeline_.flat_groups()[0]->expanded = false;  // Process 1 -> false
+    timeline_.flat_groups()[1]->expanded =
+        false;  // Thread 101 (collapsible) -> false
+    timeline_.flat_groups()[2]->expanded = true;  // Process 2 -> true
+    timeline_.flat_groups()[3]->expanded =
+        false;  // Thread 201 (non-collapsible) -> false
     timeline_.SetTimelineData(std::move(data));
   }
 
@@ -2810,19 +2860,15 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
 
   // Verify that expansion states are preserved for collapsible tracks,
   // but unconditionally forced to true for non-collapsible tracks.
-  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(4));
-  EXPECT_FALSE(timeline_.timeline_data()
-                   .groups[0]
-                   .expanded);  // Process 1 (PRESERVED false)
-  EXPECT_FALSE(timeline_.timeline_data()
-                   .groups[1]
-                   .expanded);  // Thread 101 (PRESERVED false, multi-level)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[2]
-                  .expanded);  // Process 2 (PRESERVED true)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[3]
-                  .expanded);  // Thread 201 (FORCED TRUE, single-level)
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
+  EXPECT_FALSE(
+      timeline_.flat_groups()[0]->expanded);  // Process 1 (PRESERVED false)
+  EXPECT_FALSE(timeline_.flat_groups()[1]
+                   ->expanded);  // Thread 101 (PRESERVED false, multi-level)
+  EXPECT_TRUE(
+      timeline_.flat_groups()[2]->expanded);  // Process 2 (PRESERVED true)
+  EXPECT_TRUE(timeline_.flat_groups()[3]
+                  ->expanded);  // Thread 201 (FORCED TRUE, single-level)
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
@@ -2843,13 +2889,13 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   provider.ProcessTraceEvents(parsed_events, timeline_);
 
   // Thread 101 should be expanded by default (one line)
-  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
+  EXPECT_TRUE(timeline_.flat_groups()[1]->expanded);
 
   // Manually collapse Thread 101
   {
     FlameChartTimelineData data = timeline_.timeline_data();
-    data.groups[1].expanded = false;
+    timeline_.flat_groups()[1]->expanded = false;
     timeline_.SetTimelineData(std::move(data));
   }
 
@@ -2859,7 +2905,7 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   // One-line threads should be expanded by default on initial load, but
   // even if collapsed by user, the current implementation overrides it to true
   // upon reload.
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_TRUE(timeline_.flat_groups()[1]->expanded);
 }
 
 TEST_F(DataProviderTest,
@@ -2886,18 +2932,21 @@ TEST_F(DataProviderTest,
   // 0: Process 1
   // 1: Thread 101
   // 2: Test Counter
-  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
-  EXPECT_TRUE(timeline_.timeline_data().groups[0].expanded);  // Process 1
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);  // Thread 101
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
+  EXPECT_TRUE(timeline_.flat_groups()[0]->expanded);  // Process 1
+  EXPECT_TRUE(timeline_.flat_groups()[1]->expanded);  // Thread 101
   // Counter groups are typically expanded by default depending on the
   // name/process.
-  EXPECT_TRUE(timeline_.timeline_data().groups[2].expanded);  // Counter
+  EXPECT_TRUE(timeline_.flat_groups()[2]->expanded);  // Counter
 
   {
     FlameChartTimelineData data = timeline_.timeline_data();
-    data.groups[0].expanded = false;  // Manually collapse Process 1
-    data.groups[1].expanded = false;  // Manually collapse single-line thread
-    data.groups[2].expanded = false;  // Manually collapse counter track
+    timeline_.flat_groups()[0]->expanded =
+        false;  // Manually collapse Process 1
+    timeline_.flat_groups()[1]->expanded =
+        false;  // Manually collapse single-line thread
+    timeline_.flat_groups()[2]->expanded =
+        false;  // Manually collapse counter track
     timeline_.SetTimelineData(std::move(data));
   }
 
@@ -2917,16 +2966,13 @@ TEST_F(DataProviderTest,
   // Verify that expansion states are preserved for processes, but
   // single-line threads and counters are unconditionally forced to true,
   // making them effectively uncollapsible.
-  ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(3));
-  EXPECT_FALSE(timeline_.timeline_data()
-                   .groups[0]
-                   .expanded);  // Process 1 (PRESERVED false)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[1]
-                  .expanded);  // Thread 101 (FORCED TRUE)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[2]
-                  .expanded);  // Test Counter (FORCED TRUE)
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
+  EXPECT_FALSE(
+      timeline_.flat_groups()[0]->expanded);  // Process 1 (PRESERVED false)
+  EXPECT_TRUE(
+      timeline_.flat_groups()[1]->expanded);  // Thread 101 (FORCED TRUE)
+  EXPECT_TRUE(
+      timeline_.flat_groups()[2]->expanded);  // Test Counter (FORCED TRUE)
 }
 
 TEST_F(DataProviderTest, ProcessesSortedByThreadDmaPriority) {
@@ -2953,10 +2999,11 @@ TEST_F(DataProviderTest, ProcessesSortedByThreadDmaPriority) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(4));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
 
-  EXPECT_EQ(data.groups[0].name, "Another Process");
-  EXPECT_EQ(data.groups[2].name, "Normal Process");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Another Process");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Normal Process");
 }
 
 TEST_F(DataProviderTest, ProcessesSortedByAsyncEventPriority) {
@@ -2993,10 +3040,11 @@ TEST_F(DataProviderTest, ProcessesSortedByAsyncEventPriority) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(4));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
 
-  EXPECT_EQ(data.groups[0].name, "Async Process Event");
-  EXPECT_EQ(data.groups[2].name, "Normal Process");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Async Process Event");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Normal Process");
 }
 
 TEST_F(DataProviderTest,
@@ -3015,6 +3063,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "HloOpValue");
 }
@@ -3034,6 +3083,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
 
   // Normal thread should NOT enter HLO processing block and should NOT create
@@ -3056,6 +3106,7 @@ TEST_F(DataProviderTest, AppendEventToTimelineDataDecoratesHloModule) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
 
   // Should be decorated as "ModuleValue(123)"
@@ -3081,6 +3132,7 @@ TEST_F(DataProviderTest, PopulateSyncProcessTrackDoesNotUseAsyncLayout) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // In Sync mode, it should group by TID. We expect:
   // - 1 Process Track
@@ -3088,7 +3140,7 @@ TEST_F(DataProviderTest, PopulateSyncProcessTrackDoesNotUseAsyncLayout) {
   // Total 2 groups.
   // If the mutant makes it Async, it will split by name into "Task A" and "Task
   // B" tracks (Total 3 groups).
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 }
 
 TEST_F(DataProviderTest,
@@ -3119,12 +3171,14 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Process 2 (Data Motion Layers Utilization) has priority 1.
   // Process 1 (Normal Process) has priority 0.
   // So Process 2 should be first!
-  ASSERT_THAT(data.groups, Not(IsEmpty()));
-  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
+  ASSERT_THAT(timeline_.flat_groups(), Not(IsEmpty()));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name,
+            std::string(kDataMotionLayersUtilization));
 }
 
 TEST_F(DataProviderTest, PopulateProcessTrackWithDmaThreadNameIsAsync) {
@@ -3153,12 +3207,13 @@ TEST_F(DataProviderTest, PopulateProcessTrackWithDmaThreadNameIsAsync) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Process 2 (has DMA thread) has priority 1.
   // Process 1 (Normal Process) has priority 0.
   // So Process 2 should be first!
-  ASSERT_THAT(data.groups, Not(IsEmpty()));
-  EXPECT_EQ(data.groups[0].name, "Process_2");
+  ASSERT_THAT(timeline_.flat_groups(), Not(IsEmpty()));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_2");
 }
 
 TEST_F(DataProviderTest,
@@ -3187,12 +3242,14 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Process 2 (DataMotionLayersUtilization) has higher priority because of its
   // name. Process 1 (Normal Process) has priority 0. So Process 2 should be
   // first!
-  ASSERT_THAT(data.groups, Not(IsEmpty()));
-  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
+  ASSERT_THAT(timeline_.flat_groups(), Not(IsEmpty()));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name,
+            std::string(kDataMotionLayersUtilization));
 }
 
 TEST_F(DataProviderTest,
@@ -3223,6 +3280,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // In Async mode with non-overlapping events, it should PACK them into ONE
   // track. We expect:
@@ -3231,7 +3289,7 @@ TEST_F(DataProviderTest,
   // Total 2 groups.
   // If the mutant makes it create a new row unconditionally, it will split into
   // "Task A" and "Task B" tracks (Total 3 groups).
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
 }
 
 TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadName) {
@@ -3250,10 +3308,11 @@ TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadName) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Verify that the thread is present and named correctly.
-  ASSERT_THAT(data.groups, SizeIs(2));
-  EXPECT_EQ(data.groups[1].name, std::string(kDma));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, std::string(kDma));
 }
 
 TEST_F(DataProviderTest, PopulateThreadTrackWithPackedLayoutNonNestedOverlap) {
@@ -3278,9 +3337,10 @@ TEST_F(DataProviderTest, PopulateThreadTrackWithPackedLayoutNonNestedOverlap) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // We expect Process Track and Synthetic Async Track.
-  ASSERT_THAT(data.groups, SizeIs(2));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(2));
   // We expect BOTH events to be rendered in Packed Layout.
   EXPECT_THAT(data.entry_names, SizeIs(2));
 }
@@ -3309,14 +3369,16 @@ TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncProcessNamePriorityFlip) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Async process named kDataMotionLayersUtilization should be prioritized
   // over normal process, even with a higher PID.
   // Track order: Process 2 (Async) -> Thread 201 -> Process 1 (Normal) ->
   // Thread 101.
-  ASSERT_THAT(data.groups, SizeIs(4));
-  EXPECT_EQ(data.groups[0].name, std::string(kDataMotionLayersUtilization));
-  EXPECT_EQ(data.groups[2].name, "NormalProcess");
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name,
+            std::string(kDataMotionLayersUtilization));
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "NormalProcess");
 }
 
 TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadNamePriorityFlip) {
@@ -3344,14 +3406,15 @@ TEST_F(DataProviderTest, PopulateProcessTrackWithAsyncThreadNamePriorityFlip) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Process 2 (with kDma thread) should be prioritized over normal process 1,
   // even with a higher PID.
   // Track order: Process 2 Group -> Thread 201 Group -> Process 1 Group ->
   // Thread 101 Group.
-  ASSERT_THAT(data.groups, SizeIs(4));
-  EXPECT_EQ(data.groups[0].name, "AsyncThreadProcess");
-  EXPECT_EQ(data.groups[2].name, "NormalProcess");
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(4));
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "AsyncThreadProcess");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "NormalProcess");
 }
 
 TEST_F(DataProviderTest,
@@ -3370,6 +3433,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(456)");
 }
@@ -3390,6 +3454,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue(789)");
 }
@@ -3411,6 +3476,7 @@ TEST_F(
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
 }
@@ -3441,6 +3507,7 @@ TEST_F(DataProviderTest, AppendEventToTimelineDataViaXlaModulesThread) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // We expect 2 entries in entry_args:
   // 1. Task A (which gets decorated from XLA Modules)
   // 2. The module event in XLA Modules thread itself (which does not get
@@ -3487,6 +3554,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   // We expect 2 entries in entry_args:
   // 1. Task A (should NOT be decorated)
   // 2. The module event in XLA Modules thread itself
@@ -3517,12 +3585,14 @@ TEST_F(DataProviderTest, UnnamedProcessWithEvents) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(2));  // Process group and thread group
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(),
+              SizeIs(2));  // Process group and thread group
 
-  EXPECT_EQ(data.groups[0].name, "Process_4");  // Default name!
-  EXPECT_EQ(data.groups[0].nesting_level, 1);
-  EXPECT_EQ(data.groups[1].name, "Thread_401");  // Default name!
-  EXPECT_EQ(data.groups[1].nesting_level, 2);
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_4");  // Default name!
+  EXPECT_EQ(timeline_.flat_groups()[0]->nesting_level, 1);
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_401");  // Default name!
+  EXPECT_EQ(timeline_.flat_groups()[1]->nesting_level, 2);
 }
 
 TEST_F(DataProviderTest,
@@ -3542,6 +3612,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloOp)), "OpName");
 }
@@ -3561,6 +3632,7 @@ TEST_F(DataProviderTest,
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_args, SizeIs(1));
   EXPECT_EQ(data.entry_args[0].at(std::string(kHloModule)), "ModuleValue");
 }
@@ -3576,6 +3648,7 @@ TEST_F(DataProviderTest, IgnoredPhaseEvent) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   EXPECT_THAT(data.entry_start_times, IsEmpty());
 }
 
@@ -3596,6 +3669,7 @@ TEST_F(DataProviderTest, EventSortingWithTieBreaker) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_names, SizeIs(2));
   EXPECT_EQ(data.entry_names[0], "LongEvent");
   EXPECT_EQ(data.entry_names[1], "ShortEvent");
@@ -3618,7 +3692,8 @@ TEST_F(DataProviderTest, CounterSortingWithEmptyTimestamps) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, Not(IsEmpty()));
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), Not(IsEmpty()));
 }
 
 TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
@@ -3633,6 +3708,7 @@ TEST_F(DataProviderTest, SyncProcessWithAsyncEventsRetainsOriginalTids) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
   ASSERT_THAT(data.entry_tids, Not(IsEmpty()));
   EXPECT_EQ(data.entry_tids[0], 101);
   EXPECT_LT(data.entry_tids[0], 0x80000000);
@@ -3689,6 +3765,7 @@ TEST_F(DataProviderTest, HloModuleDecorationChecksProcessId) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   bool found = false;
   for (size_t i = 0; i < data.entry_names.size(); ++i) {
@@ -3736,6 +3813,7 @@ TEST_F(DataProviderTest, HloModuleDecorationChecksDuration) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   bool found = false;
   for (size_t i = 0; i < data.entry_names.size(); ++i) {
@@ -3765,8 +3843,9 @@ TEST_F(DataProviderTest, AsyncProcessNamedAsyncXlaOpsIsTreatedAsAsync) {
   data_provider_.ProcessTraceEvents(parsed_events, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
-  ASSERT_THAT(data.groups, SizeIs(Ge(2)));
-  EXPECT_EQ(data.groups[1].name, "AsyncOp");
+  (void)data;
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(testing::Ge(2)));
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "AsyncOp");
 }
 
 TEST_F(DataProviderTest, ProcessLargeIds) {
@@ -3791,14 +3870,15 @@ TEST_F(DataProviderTest, ProcessLargeIds) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // 1 process group + 2 thread groups = 3 groups total.
   // If IDs were truncated, they would be merged into 1 thread group.
-  ASSERT_THAT(data.groups, SizeIs(3));
+  ASSERT_THAT(timeline_.flat_groups(), SizeIs(3));
 
-  EXPECT_EQ(data.groups[0].name, "Process_1");
-  EXPECT_EQ(data.groups[1].name, "Thread_4294967297");
-  EXPECT_EQ(data.groups[2].name, "Thread_8589934593");
+  EXPECT_EQ(timeline_.flat_groups()[0]->name, "Process_1");
+  EXPECT_EQ(timeline_.flat_groups()[1]->name, "Thread_4294967297");
+  EXPECT_EQ(timeline_.flat_groups()[2]->name, "Thread_8589934593");
 
   EXPECT_THAT(data.entry_tids, ElementsAre(tid1, tid2));
 }
@@ -3862,6 +3942,7 @@ TEST_F(DataProviderTest, VerifyEventsByLevelSorting) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   // Verify the levels of each entry.
   // A (0), B (1), C (1), D (2), E (0), F (1).
@@ -3909,6 +3990,7 @@ TEST_F(DataProviderTest, PopulateSyncThreadTrackWithOverlapPreserved) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   EXPECT_THAT(data.entry_names, UnorderedElementsAre("EventA", "EventB"));
 
@@ -3943,6 +4025,7 @@ TEST_F(DataProviderTest, PopulateSyncThreadTrackWithNestedSameStartTieBreaker) {
   data_provider_.ProcessTraceEvents({events, {}}, timeline_);
 
   const FlameChartTimelineData& data = timeline_.timeline_data();
+  (void)data;
 
   EXPECT_THAT(data.entry_names, ElementsAre("EventA", "EventB"));
 

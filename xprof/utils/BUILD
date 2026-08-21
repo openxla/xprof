@@ -496,7 +496,6 @@ cc_test(
 cc_library(
     name = "lazy",
     hdrs = ["lazy.h"],
-    compatible_with = ["//buildenv/target:non_prod"],
     deps = [
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:any_invocable",

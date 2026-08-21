@@ -178,6 +178,10 @@ class HloModuleInterface {
   // Map of HloInstructionWrappers by name.
   using HloInstructionMap = absl::node_hash_map<absl::string_view, T>;
   HloInstructionMap instructions_by_name_;
+  // Map of HLO instruction name (in current HLO proto) to stable ID.
+  absl::flat_hash_map<std::string, int64_t> name_to_stable_id_;
+  // Map of HLO instruction stable ID to HLO instruction wrapper.
+  absl::flat_hash_map<int64_t, const T*> instructions_by_stable_id_;
 };
 
 // Wraps HLO module and provides an interface that maps HLO names to

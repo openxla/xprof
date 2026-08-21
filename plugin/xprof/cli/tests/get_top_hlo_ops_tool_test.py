@@ -134,8 +134,8 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     result_json = get_top_hlo_ops_tool.get_top_hlo_ops("test_session")
     result = json.loads(result_json)
 
-    self.assertIn("error", result)
-    self.assertEqual(result["error"], "No ops found")
+    self.assertEqual(result["top_by_time"], [])
+    self.assertEqual(result["total_matched"], 0)
 
   def test_get_top_hlo_ops_fetch_error(self):
     self.mock_client.fetch.return_value = None

@@ -312,6 +312,7 @@ def _fetch_modules_data(
     module_names: Sequence[str],
     min_size_mib: float,
     aggregate_instructions: bool = True,
+    bypass_cache: bool = False,
 ) -> Sequence[ModulePeakAllocations]:
   """Fetches and processes peak allocation data for all modules.
 
@@ -322,6 +323,7 @@ def _fetch_modules_data(
       min_size_mib: Buffers smaller than this threshold (in MiB) will be
         aggregated into an "Others" category.
       aggregate_instructions: Whether to aggregate instructions.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A sequence of ModulePeakAllocations objects containing processed peak
@@ -329,12 +331,15 @@ def _fetch_modules_data(
   """
   modules_data = []
   for module in module_names:
-    module_result = client.fetch(
-        tool_name="memory_viewer.json",
-        session_id=session_id,
-        format="json",
-        module_name=module,
-    )
+    fetch_kwargs: dict[str, Any] = {
+        "tool_name": "memory_viewer.json",
+        "session_id": session_id,
+        "format": "json",
+        "module_name": module,
+    }
+    if bypass_cache:
+      fetch_kwargs["bypass_cache"] = True
+    module_result = client.fetch(**fetch_kwargs)
     if isinstance(module_result, tuple) and len(module_result) == 2:
       _, mod_data = module_result
     else:
@@ -399,6 +404,7 @@ def get_peak_allocations(
     output_format: Literal["json", "markdown"] = "json",
     include_summary: bool = True,
     aggregate_instructions: bool = True,
+    bypass_cache: bool = False,
 ) -> str:
   """Fetches HLO modules and their peak memory allocations for a session.
 
@@ -416,6 +422,7 @@ def get_peak_allocations(
       include_summary: Whether to include a high-level summary at the top
         (default: True).
       aggregate_instructions: Whether to aggregate instructions (default: True).
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       HLO modules and their top buffers in the requested format.
@@ -429,7 +436,12 @@ def get_peak_allocations(
 
   try:
     modules_data = _fetch_modules_data(
-        client, session_id, module_names, min_size_mib, aggregate_instructions
+        client,
+        session_id,
+        module_names,
+        min_size_mib,
+        aggregate_instructions,
+        bypass_cache=bypass_cache,
     )
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(

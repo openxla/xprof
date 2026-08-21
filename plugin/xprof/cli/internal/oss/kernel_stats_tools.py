@@ -226,15 +226,21 @@ def get_kernel_stats(
       count = len(dur_list)
       total_us = sum(dur_list)
       avg_us = total_us / count if count > 0 else 0.0
+      # Extract compact canonical name (e.g. 'fusion.668')
+      canonical = name.strip().split(":")[0].strip().split()[0] if name else ""
       records.append({
           "kernel_name": name,
+          "canonical_name": canonical,
+          "short_name": canonical,
+          "hlo_op_name": canonical,
+          "raw_name": name,
           "total_duration_us": round(total_us, 4),
           "execution_count": count,
           "avg_duration_us": round(avg_us, 4),
       })
 
     records.sort(key=lambda x: x["total_duration_us"], reverse=True)
-    if not kernel_name:
+    if not kernel_name and limit > 0:
       records = records[:limit]
 
     if include_summary:

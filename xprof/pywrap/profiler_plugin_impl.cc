@@ -31,7 +31,6 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "xla/tsl/platform/errors.h"
-#include "xla/tsl/platform/types.h"
 #include "xla/tsl/profiler/rpc/client/capture_profile.h"
 #include "xla/tsl/profiler/utils/session_manager.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -61,7 +60,6 @@ static const absl::NoDestructor<absl::flat_hash_set<std::string>>
         "trace_viewer",
         "trace_viewer@",
         "op_profile",
-        "utilization_viewer",
         "perf_counters",
     });
 

@@ -494,6 +494,29 @@ cc_test(
 )
 
 cc_library(
+    name = "lazy",
+    hdrs = ["lazy.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/synchronization",
+    ],
+)
+
+cc_test(
+    name = "lazy_test",
+    srcs = ["lazy_test.cc"],
+    deps = [
+        ":lazy",
+        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "hlo_module_map",
     srcs = ["hlo_module_map.cc"],
     hdrs = ["hlo_module_map.h"],

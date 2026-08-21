@@ -87,6 +87,14 @@ export class SideNav implements OnInit, OnDestroy {
         this.selectedRunInternal = run;
       }
     });
+    this.communicationService.toolQueryParamsChange
+      .pipe(takeUntil(this.destroyed))
+      .subscribe((queryParams: NavigationEvent) => {
+        if (queryParams && queryParams.moduleName !== undefined) {
+          this.selectedModuleInternal = queryParams.moduleName;
+          this.navigateTools();
+        }
+      });
   }
 
   get is_hlo_tool() {
@@ -128,13 +136,7 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   get selectedModule() {
-    return (
-      this.moduleList.find(
-        (module) => module === this.selectedModuleInternal,
-      ) ||
-      this.moduleList[0] ||
-      ''
-    );
+    return this.selectedModuleInternal || this.moduleList[0] || '';
   }
 
   get selectedHosts() {
@@ -144,14 +146,18 @@ export class SideNav implements OnInit, OnDestroy {
   // https://github.com/angular/angular/issues/11023#issuecomment-752228784
   mergeRouteParams(): Map<string, string> {
     const params = new Map<string, string>();
-    const stack: ActivatedRouteSnapshot[] = [
-      this.router.routerState.snapshot.root,
-    ];
+    const rootSnapshot = this.router.routerState?.snapshot?.root;
+    const stack: ActivatedRouteSnapshot[] = rootSnapshot ? [rootSnapshot] : [];
     while (stack.length > 0) {
       const route = stack.pop();
       if (!route) continue;
-      for (const key in route.params) {
-        if (route.params.hasOwnProperty(key)) {
+      if (route.queryParams) {
+        for (const key of Object.keys(route.queryParams)) {
+          params.set(key, route.queryParams[key]);
+        }
+      }
+      if (route.params) {
+        for (const key of Object.keys(route.params)) {
           params.set(key, route.params[key]);
         }
       }
@@ -162,25 +168,72 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   navigateWithUrl() {
-    let params: Map<string, string> | URLSearchParams;
-    if (!!window.parent.location.search) {
-      params = new URLSearchParams(window.parent.location.search);
-    } else {
-      params = this.mergeRouteParams();
+    const parentParams = new Map<string, string>();
+    let parentHostsParam = '';
+    try {
+      if (window.parent?.location?.search) {
+        const urlParams = new URLSearchParams(window.parent.location.search);
+        urlParams.forEach((value, key) => {
+          parentParams.set(key, value);
+        });
+        const parentHosts = urlParams.getAll('hosts');
+        if (parentHosts.length > 0) {
+          parentHostsParam = parentHosts.join(',');
+        }
+      }
+    } catch {
+      // In case window.parent access is blocked by cross-origin iframe security
     }
-    const run = params.get('run') ?? '';
-    const tag = params.get('tool') ?? params.get('tag') ?? '';
-    const host = params.get('host') ?? '';
+    const routeParams = this.mergeRouteParams();
+
+    const run =
+      routeParams.get('run') ??
+      routeParams.get('sessionId') ??
+      parentParams.get('run') ??
+      parentParams.get('sessionId') ??
+      '';
+    const tag =
+      routeParams.get('tag') ??
+      routeParams.get('tool') ??
+      parentParams.get('tag') ??
+      parentParams.get('tool') ??
+      '';
+    const host = routeParams.get('host') ?? parentParams.get('host') ?? '';
     const hostsParam =
-      params instanceof URLSearchParams
-        ? params.getAll('hosts').join(',')
-        : params.get('hosts');
-    const sessionPath = params.get('session_path') ?? '';
-    const runPath = params.get('run_path') ?? '';
-    const baseSessionId = params.get('base_session_id') ?? '';
-    const label = params.get('label') ?? '';
-    const opName = params.get('node_name') ?? params.get('opName') ?? '';
-    const moduleName = params.get('module_name') ?? '';
+      routeParams.get('hosts') ??
+      (parentHostsParam || parentParams.get('hosts')) ??
+      null;
+    const sessionPath =
+      routeParams.get('session_path') ??
+      routeParams.get('sessionPath') ??
+      parentParams.get('session_path') ??
+      parentParams.get('sessionPath') ??
+      '';
+    const runPath =
+      routeParams.get('run_path') ??
+      routeParams.get('runPath') ??
+      parentParams.get('run_path') ??
+      parentParams.get('runPath') ??
+      '';
+    const baseSessionId =
+      routeParams.get('base_session_id') ??
+      routeParams.get('baseSessionId') ??
+      parentParams.get('base_session_id') ??
+      parentParams.get('baseSessionId') ??
+      '';
+    const label = routeParams.get('label') ?? parentParams.get('label') ?? '';
+    const opName =
+      routeParams.get('opName') ??
+      routeParams.get('node_name') ??
+      parentParams.get('opName') ??
+      parentParams.get('node_name') ??
+      '';
+    const moduleName =
+      routeParams.get('moduleName') ??
+      routeParams.get('module_name') ??
+      parentParams.get('moduleName') ??
+      parentParams.get('module_name') ??
+      '';
 
     const isHostsEqual = this.isMultiHostsEnabled
       ? this.selectedHostsInternal.join(',') === (hostsParam || '')
@@ -208,10 +261,11 @@ export class SideNav implements OnInit, OnDestroy {
     ) {
       return;
     }
-
     this.navigationParams['firstLoad'] = true;
     if (opName) {
       this.navigationParams['opName'] = opName;
+    } else {
+      delete this.navigationParams['opName'];
     }
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
@@ -273,6 +327,9 @@ export class SideNav implements OnInit, OnDestroy {
       navigationEvent.host = this.selectedHost;
     }
     if (this.is_hlo_tool) {
+      if (!this.selectedModuleInternal && this.moduleList.length > 0) {
+        this.selectedModuleInternal = this.moduleList[0];
+      }
       navigationEvent.moduleName = this.selectedModule;
     }
     if (this.runPathInternal) {
@@ -417,6 +474,13 @@ export class SideNav implements OnInit, OnDestroy {
 
       if (this.is_hlo_tool) {
         this.moduleList = await this.getModuleListForSelectedTag();
+        if (
+          this.moduleList.length > 0 &&
+          (!this.selectedModuleInternal ||
+            !this.moduleList.includes(this.selectedModuleInternal))
+        ) {
+          this.selectedModuleInternal = this.moduleList[0];
+        }
       }
 
       this.navigateTools();
@@ -453,6 +517,13 @@ export class SideNav implements OnInit, OnDestroy {
     }
     if (this.is_hlo_tool) {
       this.moduleList = await this.getModuleListForSelectedTag();
+      if (
+        this.moduleList.length > 0 &&
+        (!this.selectedModuleInternal ||
+          !this.moduleList.includes(this.selectedModuleInternal))
+      ) {
+        this.selectedModuleInternal = this.moduleList[0];
+      }
     }
 
     this.afterUpdateHost();
@@ -531,36 +602,41 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   updateUrlHistory() {
-    const navigationEvent = this.getNavigationEvent();
-    const queryParams: {
-      [key: string]: string | string[] | boolean | undefined;
-    } = {...navigationEvent};
+    try {
+      const navigationEvent = this.getNavigationEvent();
+      const queryParams: {
+        [key: string]: string | string[] | boolean | undefined;
+      } = {...navigationEvent};
 
-    if (this.isMultiHostsEnabled) {
-      // For Trace Viewer, ensure 'hosts' is a comma-separated string in the URL
-      if (queryParams['hosts'] && Array.isArray(queryParams['hosts'])) {
-        queryParams['hosts'] = (queryParams['hosts'] as string[]).join(',');
+      if (this.isMultiHostsEnabled) {
+        // For Trace Viewer, ensure 'hosts' is a comma-separated string in the URL
+        if (queryParams['hosts'] && Array.isArray(queryParams['hosts'])) {
+          queryParams['hosts'] = (queryParams['hosts'] as string[]).join(',');
+        }
+        delete queryParams['host']; // Remove single host param
+      } else {
+        // For other tools, ensure 'host' is used
+        delete queryParams['hosts']; // Remove multi-host param
       }
-      delete queryParams['host']; // Remove single host param
-    } else {
-      // For other tools, ensure 'host' is used
-      delete queryParams['hosts']; // Remove multi-host param
+
+      // Get current path to avoid changing the base URL
+      const pathname = window.parent?.location?.pathname ?? '';
+
+      // Use the custom serialization helper
+      const queryString = this.serializeQueryParams(queryParams);
+      const url = pathname + queryString;
+
+      window.parent?.history?.pushState({}, '', url);
+    } catch {
+      // In case window.parent access is blocked by cross-origin iframe security
     }
-
-    // Get current path to avoid changing the base URL
-    const pathname = window.parent.location.pathname;
-
-    // Use the custom serialization helper
-    const queryString = this.serializeQueryParams(queryParams);
-    const url = pathname + queryString;
-
-    window.parent.history.pushState({}, '', url);
   }
 
   navigateTools() {
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
 
+    this.updateUrlHistory();
     // This router.navigate call remains, as it's responsible for Angular
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
@@ -569,7 +645,6 @@ export class SideNav implements OnInit, OnDestroy {
       queryParams: navigationEvent,
     });
     delete this.navigationParams['firstLoad'];
-    this.updateUrlHistory();
     this.updateTitle();
   }
 

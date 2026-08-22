@@ -22,6 +22,7 @@ limitations under the License.
 #include <stack>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
@@ -154,15 +155,18 @@ void SetOpMetadataFromHloEventMetadata(
         case StatType::kTfOp:
           op_metrics->set_provenance(std::string(stat.StrOrRefValue()));
           break;
-        case StatType::kFlops:
-          op_metrics->set_flops(stat.IntOrUintValue());
-          op_metrics->set_flops_v2(static_cast<double>(stat.IntOrUintValue()));
+        case StatType::kFlops: {
+          int64_t flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_flops(flops);
+          op_metrics->set_flops_v2(static_cast<double>(flops));
           break;
-        case StatType::kModelFlops:
-          op_metrics->set_model_flops(stat.IntOrUintValue());
-          op_metrics->set_model_flops_v2(
-              static_cast<double>(stat.IntOrUintValue()));
+        }
+        case StatType::kModelFlops: {
+          int64_t model_flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_model_flops(model_flops);
+          op_metrics->set_model_flops_v2(static_cast<double>(model_flops));
           break;
+        }
         case StatType::kBytesAccessed:
           op_metrics->set_bytes_accessed(stat.IntOrUintValue());
           break;
@@ -265,18 +269,20 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
           op_metrics->set_bytes_accessed(op_metrics->bytes_accessed() +
                                          stat.IntOrUintValue());
           break;
-        case StatType::kModelFlops:
-          op_metrics->set_model_flops(op_metrics->model_flops() +
-                                      stat.IntOrUintValue());
-          op_metrics->set_model_flops_v2(
-              op_metrics->model_flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()));
+        case StatType::kModelFlops: {
+          int64_t model_flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_model_flops(op_metrics->model_flops() + model_flops);
+          op_metrics->set_model_flops_v2(op_metrics->model_flops_v2() +
+                                         static_cast<double>(model_flops));
           break;
-        case StatType::kFlops:
-          op_metrics->set_flops(op_metrics->flops() + stat.IntOrUintValue());
+        }
+        case StatType::kFlops: {
+          int64_t flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_flops(op_metrics->flops() + flops);
           op_metrics->set_flops_v2(op_metrics->flops_v2() +
-                                   static_cast<double>(stat.IntOrUintValue()));
+                                   static_cast<double>(flops));
           break;
+        }
         default:
           break;
       }

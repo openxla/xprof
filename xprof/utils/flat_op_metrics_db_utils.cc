@@ -136,19 +136,19 @@ void SetOpMetadataFromHloEventMetadata(
           op_metrics->set_provenance(std::string(stat.StrOrRefValue()));
           break;
 
-        case StatType::kFlops:
-          // Fill Performance Metrics.
-          // We populate both deprecated and v2 fields for compatibility.
-          op_metrics->set_flops(stat.IntOrUintValue());
-          op_metrics->set_flops_v2(static_cast<double>(stat.IntOrUintValue()));
+        case StatType::kFlops: {
+          int64_t flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_flops(flops);
+          op_metrics->set_flops_v2(static_cast<double>(flops));
           break;
+        }
 
-        case StatType::kModelFlops:
-          // Fill Performance Metrics.
-          op_metrics->set_model_flops(stat.IntOrUintValue());
-          op_metrics->set_model_flops_v2(
-              static_cast<double>(stat.IntOrUintValue()));
+        case StatType::kModelFlops: {
+          int64_t model_flops = std::max<int64_t>(0, stat.IntOrUintValue());
+          op_metrics->set_model_flops(model_flops);
+          op_metrics->set_model_flops_v2(static_cast<double>(model_flops));
           break;
+        }
 
         case StatType::kBytesAccessed:
           // Fill Performance Metrics.
@@ -288,21 +288,24 @@ void SetOpMetricsFromHloEvent(const tsl::profiler::XEventVisitor& hlo_event,
               flat_op_metrics->bytes_accessed() +
               stat.IntOrUintValue() * num_occurrences);
           break;
-        case StatType::kModelFlops:
+        case StatType::kModelFlops: {
+          int64_t model_flops = std::max<int64_t>(0, stat.IntOrUintValue());
           flat_op_metrics->set_model_flops(flat_op_metrics->model_flops() +
-                                           stat.IntOrUintValue() *
-                                               num_occurrences);
+                                           model_flops * num_occurrences);
           flat_op_metrics->set_model_flops_v2(
               flat_op_metrics->model_flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()) * num_occurrences);
+              static_cast<double>(model_flops) * num_occurrences);
           break;
-        case StatType::kFlops:
+        }
+        case StatType::kFlops: {
+          int64_t flops = std::max<int64_t>(0, stat.IntOrUintValue());
           flat_op_metrics->set_flops(flat_op_metrics->flops() +
-                                     stat.IntOrUintValue() * num_occurrences);
-          flat_op_metrics->set_flops_v2(
-              flat_op_metrics->flops_v2() +
-              static_cast<double>(stat.IntOrUintValue()) * num_occurrences);
+                                     flops * num_occurrences);
+          flat_op_metrics->set_flops_v2(flat_op_metrics->flops_v2() +
+                                        static_cast<double>(flops) *
+                                            num_occurrences);
           break;
+        }
         default:
           break;
       }

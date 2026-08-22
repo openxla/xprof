@@ -23,6 +23,7 @@ limitations under the License.
 
 #include "testing/base/public/gmock.h"
 #include "<gtest/gtest.h>"
+#include "xla/hlo/ir/hlo_opcode.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
@@ -558,6 +559,11 @@ TEST(ConvertXPlaneToOpStats, TpuPerfEnv) {
   device_plane.AddStatValue(*device_plane.GetOrCreateStatMetadata(
                                 "peak_vmem_wr_bw_gigabytes_per_second"),
                             kDevCapPeakVmemWrBwGigabytesPerSecond);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata("peak_sc_teraflops_per_second"),
+      50.0);
+  device_plane.AddStatValue(
+      *device_plane.GetOrCreateStatMetadata("num_sparse_core_tiles"), 16);
 
   OpStatsOptions options;
   options.generate_op_metrics_db = true;
@@ -572,6 +578,8 @@ TEST(ConvertXPlaneToOpStats, TpuPerfEnv) {
   const PerfEnv& perf_env = op_stats.perf_env();
   EXPECT_NEAR(kDevCapPeakTeraflopsPerSecond,
               perf_env.peak_tera_flops_per_second(), kMaxError);
+  EXPECT_NEAR(50.0, perf_env.peak_sc_tera_flops_per_second(), kMaxError);
+  EXPECT_EQ(16, perf_env.num_sparse_core_tiles());
   EXPECT_NEAR(
       kDevCapPeakHbmBwGigabytesPerSecond,
       perf_env.peak_bws_giga_bytes_per_second(MemBwType::MEM_BW_TYPE_HBM_RW),

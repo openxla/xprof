@@ -199,16 +199,11 @@ bool DrawExpandCollapseButton(
   return toggled;
 }
 
-// Gets the starting level index of the group immediately following the group
-// at the given index. If the given group is the last one, returns the total
-// number of levels.
 int GetNextGroupStartLevel(const FlameChartTimelineData& data,
                            int group_index) {
-  if (group_index + 1 < data.groups.size()) {
-    const auto& next_group = data.groups[group_index + 1];
-    if (next_group.nesting_level >= kProcessNestingLevel) {
-      return next_group.start_level;
-    }
+  if (group_index >= 0 && group_index < data.groups.size()) {
+    return data.groups[group_index].start_level +
+           data.groups[group_index].level_count;
   }
   return static_cast<int>(data.events_by_level.size());
 }
@@ -223,6 +218,32 @@ bool IsVirtualHeader(const Group* group) {
 // Formats the header text with the process count.
 std::string FormatHeaderText(absl::string_view name, int count) {
   return absl::StrCat(name, " (", count, ")");
+}
+
+// Infers parent-child links for flat inputs.
+void InferLinks(FlameChartTimelineData& data) {
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    auto& group = data.groups[i];
+    group.parent_index = -1;
+    group.child_indices.clear();
+    group.original_index = i;
+  }
+
+  std::vector<int> parent_stack;
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    const auto& group = data.groups[i];
+    while (!parent_stack.empty() &&
+           data.groups[parent_stack.back()].nesting_level >=
+               group.nesting_level) {
+      parent_stack.pop_back();
+    }
+    if (!parent_stack.empty()) {
+      int parent_idx = parent_stack.back();
+      data.groups[i].parent_index = parent_idx;
+      data.groups[parent_idx].child_indices.push_back(i);
+    }
+    parent_stack.push_back(i);
+  }
 }
 
 }  // namespace
@@ -282,23 +303,30 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   hidden_processes_count_ = 0;
   pinned_processes_count_ = 0;
 
+  if (data.groups.empty()) return;
+
+  auto visit_group_simple = [&](auto& self, int i) -> void {
+    if (i < 0 || i >= data.groups.size()) return;
+    const Group& group = data.groups[i];
+    flattened_groups_.push_back(&group);
+    if (group.nesting_level == kProcessNestingLevel) {
+      all_processes_count_++;
+    }
+    for (int child_idx : group.child_indices) {
+      self(self, child_idx);
+    }
+  };
+
   if (!track_management_enabled_) {
     flattened_groups_.reserve(group_count);
     for (int i = 0; i < group_count; ++i) {
-      flattened_groups_.push_back(&data.groups[i]);
-      if (data.groups[i].nesting_level == kProcessNestingLevel) {
-        all_processes_count_++;
+      if (data.groups[i].parent_index == -1) {
+        visit_group_simple(visit_group_simple, i);
       }
     }
     return;
   }
 
-  // Pre-categorize groups into hidden, pinned, and all sections.
-  // Since a process and all its nested subtracks form a visual block, we
-  // propagate the process's status (hidden/pinned) down to its descendant
-  // tracks. Retaining this state across iterations avoids performing
-  // redundant string-key lookup queries on `hidden_track_names_` and
-  // `pinned_track_names_` for every subtrack.
   std::vector<const Group*> hidden_groups;
   std::vector<const Group*> pinned_groups;
   std::vector<const Group*> all_groups;
@@ -306,54 +334,61 @@ void Timeline::BuildFlattenedGroups(const FlameChartTimelineData& data) {
   pinned_groups.reserve(group_count);
   all_groups.reserve(group_count);
 
-  bool current_process_hidden = false;
-  bool current_process_pinned = false;
-
-  for (int i = 0; i < group_count; ++i) {
+  auto visit_group = [&](auto& self, int i, bool parent_hidden,
+                         bool parent_pinned) -> void {
+    if (i < 0 || i >= data.groups.size()) return;
     const Group& group = data.groups[i];
-    if (group.nesting_level == kProcessNestingLevel) {
-      current_process_hidden = hidden_track_names_.contains(group.name);
-      current_process_pinned =
-          !current_process_hidden && pinned_track_names_.contains(group.name);
 
-      if (current_process_hidden) {
+    bool hidden = parent_hidden;
+    bool pinned = parent_pinned;
+
+    if (group.nesting_level == kProcessNestingLevel) {
+      hidden = hidden_track_names_.contains(group.name);
+      pinned = !hidden && pinned_track_names_.contains(group.name);
+
+      if (hidden) {
         hidden_processes_count_++;
-      } else if (current_process_pinned) {
+      } else if (pinned) {
         pinned_processes_count_++;
       } else {
         all_processes_count_++;
       }
     }
 
-    if (current_process_hidden) {
-      hidden_groups.push_back(&data.groups[i]);
-    } else if (current_process_pinned) {
-      pinned_groups.push_back(&data.groups[i]);
+    if (hidden) {
+      hidden_groups.push_back(&group);
+    } else if (pinned) {
+      pinned_groups.push_back(&group);
     } else {
-      all_groups.push_back(&data.groups[i]);
+      all_groups.push_back(&group);
+    }
+
+    for (int child_idx : group.child_indices) {
+      self(self, child_idx, hidden, pinned);
+    }
+  };
+
+  for (int i = 0; i < group_count; ++i) {
+    if (data.groups[i].parent_index == -1) {
+      visit_group(visit_group, i, false, false);
     }
   }
 
-  // Reserve capacity on flattened_groups_ to prevent multiple internal
-  // reallocations as elements are added (headers + groups).
   flattened_groups_.reserve(3 + hidden_groups.size() + pinned_groups.size() +
                             all_groups.size());
 
   // 1. Hidden processes / "Hidden" Header
   flattened_groups_.push_back(&header_hidden_);
-  // 2. Hidden processes and their children
   flattened_groups_.insert(flattened_groups_.end(), hidden_groups.begin(),
                            hidden_groups.end());
 
-  // 3. Pinned processes / "Pinned" Header
+  // 2. Pinned processes / "Pinned" Header
   flattened_groups_.push_back(&header_pinned_);
-  // 4. Pinned processes and their children
   flattened_groups_.insert(flattened_groups_.end(), pinned_groups.begin(),
                            pinned_groups.end());
 
-  // 5. All Processes / "All" Header
+  // 3. All Processes / "All" Header
   flattened_groups_.push_back(&header_all_);
-  // 6. All processes and their children
   flattened_groups_.insert(flattened_groups_.end(), all_groups.begin(),
                            all_groups.end());
 }
@@ -454,9 +489,7 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
     new_group_offsets[group_index] = current_offset;
     has_visible_group = true;
 
-    const bool has_children =
-        group_index + 1 < data.groups.size() &&
-        data.groups[group_index + 1].nesting_level > group.nesting_level;
+    const bool has_children = group.has_children;
     const bool has_multiple_levels =
         next_group_start_level - group.start_level > 1;
 
@@ -476,7 +509,6 @@ void Timeline::UpdateLevelPositions(const FlameChartTimelineData& data) {
                        (kEventHeight + kEventPaddingBottom);
       }
     }
-
     if (is_collapsed &&
         hidden_nesting_level == std::numeric_limits<int>::max()) {
       hidden_nesting_level = group.nesting_level;
@@ -526,6 +558,43 @@ void Timeline::SetVisibleRange(const TimeRange& range, bool animate) {
 }
 
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
+  // Check if structure is flat and needs parent/child link inference.
+  bool needs_infer = true;
+  for (const auto& group : data.groups) {
+    if (group.parent_index != -1 || !group.child_indices.empty()) {
+      needs_infer = false;
+      break;
+    }
+  }
+  if (needs_infer) {
+    InferLinks(data);
+  }
+
+  // Set original_index and backfill level_counts for child tracks.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    data.groups[i].original_index = i;
+    data.groups[i].has_children = !data.groups[i].child_indices.empty();
+    if (data.groups[i].level_count <= 0) {
+      int next_level = (i + 1 < data.groups.size())
+                           ? data.groups[i + 1].start_level
+                           : static_cast<int>(data.events_by_level.size());
+      data.groups[i].level_count =
+          std::max(1, next_level - data.groups[i].start_level);
+    }
+  }
+
+  // Calculate process level counts from the sum of their child level counts.
+  for (size_t i = 0; i < data.groups.size(); ++i) {
+    if (data.groups[i].nesting_level == kProcessNestingLevel &&
+        !data.groups[i].child_indices.empty()) {
+      int parent_level_count = 0;
+      for (int child_idx : data.groups[i].child_indices) {
+        parent_level_count += data.groups[child_idx].level_count;
+      }
+      data.groups[i].level_count = parent_level_count;
+    }
+  }
+
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
@@ -591,6 +660,13 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
 }
 
 void Timeline::Draw() {
+  if (pending_reorder_source_ != -1 && pending_reorder_target_ != -1) {
+    ReorderTrack(pending_reorder_source_, pending_reorder_target_,
+                 pending_reorder_drop_after_);
+    pending_reorder_source_ = -1;
+    pending_reorder_target_ = -1;
+  }
+  dnd_preview_line_y_ = -1.0f;
   hovered_event_index_ = -1;
   event_clicked_this_frame_ = false;
   bool needs_layout_update = false;
@@ -778,6 +854,15 @@ void Timeline::Draw() {
   }
 
   ProcessPendingScroll();
+
+  if (dnd_preview_line_y_ >= 0.0f) {
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const Pixel x_start = tracks_start_screen_pos.x;
+    const Pixel x_end = x_start + label_width_ + current_timeline_width_;
+    draw_list->AddLine(ImVec2(x_start, dnd_preview_line_y_),
+                       ImVec2(x_end, dnd_preview_line_y_),
+                       IM_COL32(66, 133, 244, 255), 3.0f);
+  }
 
   last_scroll_y_ = ImGui::GetScrollY();
   ImGui::EndChild();
@@ -1008,7 +1093,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
         ImVec2(tracks_start_screen_pos.x,
                tracks_start_screen_pos.y + group_offsets_[group_index]),
         ImVec2(tracks_start_screen_pos.x + content_region_avail_width,
-               tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+               tracks_start_screen_pos.y + group_offsets_[group_index] +
+                   group_heights_[group_index]),
         bg_color);
   }
 
@@ -1017,7 +1103,8 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
       ImVec2(tracks_start_screen_pos.x,
              tracks_start_screen_pos.y + group_offsets_[group_index]),
       ImVec2(tracks_start_screen_pos.x + label_width_ - kSplitterOffset,
-             tracks_start_screen_pos.y + group_offsets_[group_index + 1]),
+             tracks_start_screen_pos.y + group_offsets_[group_index] +
+                 group_heights_[group_index]),
       true);
 
   const bool has_children =
@@ -1040,8 +1127,7 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
     if (group.type == Group::Type::kCounter) {
       group_height = kCounterTrackHeight;
     } else if (group.type == Group::Type::kFlame) {
-      const int end_level =
-          GetNextGroupStartLevel(timeline_data_, group_index);
+      const int end_level = group.start_level + group.level_count;
       group_height = std::max(1, end_level - group.start_level) *
                      (kEventHeight + kEventPaddingBottom);
     }
@@ -1109,6 +1195,81 @@ bool Timeline::DrawTrackRow(int group_index, const ImVec2& tracks_start_pos,
   } else {
     DrawGroup(group_index, px_per_time_unit_val, scroll_y, window_height);
   }
+
+  if (track_management_enabled_) {
+    // Draw invisible button covering the left panel row label text to handle
+    // hover and drag-and-drop.
+    Pixel hover_zone_width = label_width_ - kSplitterOffset;
+    if (group.nesting_level == kProcessNestingLevel) {
+      hover_zone_width -= (kArrowSize * 2.0f + kButtonGap + 8.0f);
+    }
+
+    const bool is_dummy_hovered =
+        HandleTrackDragAndDrop(group_index, group, tracks_start_pos,
+                               tracks_start_screen_pos, group_height,
+                               hover_zone_width);
+
+    // Restore Hand cursor for hover of the label name
+    if (is_dummy_hovered) {
+      absl::string_view display_name = group.name;
+      if (has_subtitle) {
+        display_name.remove_prefix(group.subtitle.size() + 1);
+        if (!display_name.empty() && display_name.front() == '/') {
+          display_name.remove_prefix(1);
+        }
+      }
+      const Pixel text_start_screen_x =
+          tracks_start_screen_pos.x + indent_amount + kArrowSize +
+          kLabelPaddingLeft;
+      ImGui::PushFont(traceviewer::fonts::label_large);
+      const Pixel text_width =
+          ImGui::CalcTextSize(display_name.data(),
+                              display_name.data() + display_name.size())
+              .x;
+      ImGui::PopFont();
+      const Pixel text_end_screen_x = text_start_screen_x + text_width;
+
+      if (ImGui::GetIO().MousePos.x <= text_end_screen_x) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (ImGui::IsMouseClicked(0)) {
+          ImGui::SetClipboardText(group.name.c_str());
+          traceviewer::CopyToClipboard(group.name);
+
+          copied_track_name_ = group.name;
+          copy_notification_timer_ = 2.0f;
+        }
+      }
+    }
+
+    if (copy_notification_timer_ > 1.8f && copied_track_name_ == group.name) {
+      const Pixel text_start_screen_x =
+          tracks_start_screen_pos.x + indent_amount + kArrowSize +
+          kLabelPaddingLeft;
+      ImGui::PushFont(traceviewer::fonts::label_large);
+      absl::string_view display_name = group.name;
+      if (has_subtitle) {
+        display_name.remove_prefix(group.subtitle.size() + 1);
+        if (!display_name.empty() && display_name.front() == '/') {
+          display_name.remove_prefix(1);
+        }
+      }
+      const Pixel text_width =
+          ImGui::CalcTextSize(display_name.data(),
+                              display_name.data() + display_name.size())
+              .x;
+      ImGui::PopFont();
+      const Pixel text_end_screen_x = text_start_screen_x + text_width;
+
+      ImVec2 group_min =
+          ImVec2(text_start_screen_x,
+                 tracks_start_screen_pos.y + group_offsets_[group_index]);
+      ImVec2 group_max =
+          ImVec2(text_end_screen_x, group_min.y + group_heights_[group_index]);
+      ImGui::GetWindowDrawList()->AddRectFilled(
+          group_min, group_max, IM_COL32(66, 133, 244, 128));
+    }
+  }
+
   ImGui::PopID();
 
   return needs_layout_update;
@@ -2395,7 +2556,9 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
   const Group& group = timeline_data_.groups[group_index];
   const int start_level = group.start_level;
   int end_level = GetNextGroupStartLevel(timeline_data_, group_index);
-  if (group.type == Group::Type::kFlame && !group.expanded) {
+  if (group.type == Group::Type::kFlame &&
+      (!group.expanded ||
+       (group.nesting_level == kProcessNestingLevel && group.has_children))) {
     end_level = start_level;
   }
   // Ensure end_level is not less than start_level, to avoid negative height.
@@ -2436,16 +2599,7 @@ void Timeline::DrawGroup(int group_index, double px_per_time_unit_val,
       if (group.nesting_level == kProcessNestingLevel) {
         ImDrawList* const draw_list = ImGui::GetWindowDrawList();
         if (draw_list) {
-          // Find the next group that is NOT a child of the current group to
-          // determine the end level for the utilization chart.
-          int proc_end_level = timeline_data_.events_by_level.size();
-          for (size_t i = group_index + 1; i < timeline_data_.groups.size();
-               ++i) {
-            if (timeline_data_.groups[i].nesting_level <= group.nesting_level) {
-              proc_end_level = timeline_data_.groups[i].start_level;
-              break;
-            }
-          }
+          int proc_end_level = start_level + group.level_count;
           DrawUtilizationAreaChart(start_level, proc_end_level,
                                    px_per_time_unit_val, pos, group_height,
                                    draw_list);
@@ -4396,6 +4550,407 @@ void Timeline::RemoveBookmark(Microseconds time) {
     bookmarks_.erase(it);
     if (redraw_callback_) redraw_callback_();
   }
+}
+
+Timeline::ParentInfo Timeline::FindParentInfo(Group* target_group) {
+  ParentInfo info;
+  if (!target_group) return info;
+
+  if (target_group->parent_index != -1) {
+    info.parent = &timeline_data_.groups[target_group->parent_index];
+    info.siblings = &timeline_data_.groups;
+    const auto& child_indices = info.parent->child_indices;
+    for (size_t i = 0; i < child_indices.size(); ++i) {
+      if (timeline_data_.groups[child_indices[i]].original_index ==
+          target_group->original_index) {
+        info.index_in_siblings = i;
+        break;
+      }
+    }
+  } else {
+    info.parent = nullptr;
+    info.siblings = &timeline_data_.groups;
+    int root_count = 0;
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        if (timeline_data_.groups[i].original_index ==
+            target_group->original_index) {
+          info.index_in_siblings = root_count;
+          break;
+        }
+        root_count++;
+      }
+    }
+  }
+  return info;
+}
+
+Group* Timeline::GetGroupByOriginalIndex(int original_index) {
+  for (auto& group : timeline_data_.groups) {
+    if (group.original_index == original_index) {
+      return &group;
+    }
+  }
+  return nullptr;
+}
+
+int Timeline::FindFlatIndex(const Group* group) {
+  if (!group) return -1;
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (&timeline_data_.groups[i] == group) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void Timeline::UpdateStartLevels() {
+  int cur_level = 0;
+
+  auto update_group = [&](auto& self, int i) -> void {
+    if (i < 0 || i >= timeline_data_.groups.size()) return;
+    Group& group = timeline_data_.groups[i];
+    group.start_level = cur_level;
+
+    if (group.child_indices.empty()) {
+      cur_level += group.level_count;
+    } else {
+      int parent_level_count = 0;
+      for (int child_idx : group.child_indices) {
+        self(self, child_idx);
+        parent_level_count += timeline_data_.groups[child_idx].level_count;
+      }
+      group.level_count = parent_level_count;
+    }
+  };
+
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (timeline_data_.groups[i].parent_index == -1) {
+      update_group(update_group, i);
+    }
+  }
+}
+
+std::vector<int> Timeline::GetReorderedRoots(Group* parent,
+                                             int source_org_idx,
+                                             int target_org_idx,
+                                             bool drop_after) {
+  std::vector<int> roots;
+  if (parent) {
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        roots.push_back(i);
+      }
+    }
+
+    int src_pos = -1;
+    int dst_pos = -1;
+    for (size_t i = 0; i < parent->child_indices.size(); ++i) {
+      if (timeline_data_.groups[parent->child_indices[i]].original_index ==
+          source_org_idx) {
+        src_pos = i;
+      }
+      if (timeline_data_.groups[parent->child_indices[i]].original_index ==
+          target_org_idx) {
+        dst_pos = i;
+      }
+    }
+    if (src_pos == -1 || dst_pos == -1) return roots;
+
+    int new_pos = dst_pos;
+    if (drop_after) {
+      new_pos++;
+    }
+    if (src_pos == new_pos || src_pos + 1 == new_pos) return roots;
+
+    int temp_child_idx = parent->child_indices[src_pos];
+    parent->child_indices.erase(parent->child_indices.begin() + src_pos);
+    if (new_pos > src_pos) {
+      parent->child_indices.insert(
+          parent->child_indices.begin() + new_pos - 1, temp_child_idx);
+    } else {
+      parent->child_indices.insert(parent->child_indices.begin() + new_pos,
+                                   temp_child_idx);
+    }
+  } else {
+    std::vector<int> root_indices;
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      if (timeline_data_.groups[i].parent_index == -1) {
+        root_indices.push_back(i);
+      }
+    }
+    int src_pos = -1;
+    int dst_pos = -1;
+    for (size_t i = 0; i < root_indices.size(); ++i) {
+      if (timeline_data_.groups[root_indices[i]].original_index ==
+          source_org_idx) {
+        src_pos = i;
+      }
+      if (timeline_data_.groups[root_indices[i]].original_index ==
+          target_org_idx) {
+        dst_pos = i;
+      }
+    }
+    if (src_pos == -1 || dst_pos == -1) return roots;
+
+    int new_pos = dst_pos;
+    if (drop_after) {
+      new_pos++;
+    }
+    if (src_pos == new_pos || src_pos + 1 == new_pos) return roots;
+
+    int temp_idx = root_indices[src_pos];
+    root_indices.erase(root_indices.begin() + src_pos);
+    if (new_pos > src_pos) {
+      root_indices.insert(root_indices.begin() + new_pos - 1, temp_idx);
+    } else {
+      root_indices.insert(root_indices.begin() + new_pos, temp_idx);
+    }
+    roots = std::move(root_indices);
+  }
+  return roots;
+}
+
+std::vector<Group> Timeline::RebuildGroupsArray(
+    const std::vector<int>& roots, std::vector<int>& old_to_new_idx) {
+  std::vector<Group> new_groups;
+  new_groups.reserve(timeline_data_.groups.size());
+  std::fill(old_to_new_idx.begin(), old_to_new_idx.end(), -1);
+
+  auto add_to_new = [&](auto& self, int old_idx) -> void {
+    if (old_idx < 0 || old_idx >= timeline_data_.groups.size()) return;
+    int new_idx = new_groups.size();
+    old_to_new_idx[old_idx] = new_idx;
+    new_groups.push_back(timeline_data_.groups[old_idx]);
+
+    std::vector<int> old_children =
+        timeline_data_.groups[old_idx].child_indices;
+    for (int old_child_idx : old_children) {
+      self(self, old_child_idx);
+    }
+  };
+
+  for (int r_idx : roots) {
+    add_to_new(add_to_new, r_idx);
+  }
+
+  for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+    if (old_to_new_idx[i] == -1) {
+      int new_idx = new_groups.size();
+      old_to_new_idx[i] = new_idx;
+      new_groups.push_back(timeline_data_.groups[i]);
+    }
+  }
+
+  for (auto& group : new_groups) {
+    if (group.parent_index != -1) {
+      group.parent_index = old_to_new_idx[group.parent_index];
+    }
+    for (int& child_idx : group.child_indices) {
+      child_idx = old_to_new_idx[child_idx];
+    }
+  }
+  return new_groups;
+}
+
+std::vector<int> Timeline::RemapLevelIndices(
+    std::vector<Group>& new_groups, std::vector<int>& old_to_new_level) {
+  std::fill(old_to_new_level.begin(), old_to_new_level.end(), -1);
+  int cur_level = 0;
+
+  auto update_levels_and_map = [&](auto& self, int idx) -> void {
+    Group& group = new_groups[idx];
+    int old_start = group.start_level;
+    int count = group.level_count;
+
+    group.start_level = cur_level;
+
+    if (group.child_indices.empty()) {
+      for (int offset = 0; offset < count; ++offset) {
+        if (old_start + offset >= 0 &&
+            old_start + offset < old_to_new_level.size()) {
+          old_to_new_level[old_start + offset] = cur_level + offset;
+        }
+      }
+      cur_level += count;
+    } else {
+      int parent_level_count = 0;
+      for (int child_idx : group.child_indices) {
+        self(self, child_idx);
+        parent_level_count += new_groups[child_idx].level_count;
+      }
+      group.level_count = parent_level_count;
+    }
+  };
+
+  for (size_t i = 0; i < new_groups.size(); ++i) {
+    if (new_groups[i].parent_index == -1) {
+      update_levels_and_map(update_levels_and_map, i);
+    }
+  }
+
+  for (size_t i = 0; i < old_to_new_level.size(); ++i) {
+    if (old_to_new_level[i] == -1) {
+      old_to_new_level[i] = i;
+    }
+  }
+  return old_to_new_level;
+}
+
+void Timeline::RemapEventsAndFlows(const std::vector<int>& old_to_new_level) {
+  std::vector<std::vector<int>> new_events_by_level(
+      timeline_data_.events_by_level.size());
+  for (size_t old_l = 0; old_l < timeline_data_.events_by_level.size();
+       ++old_l) {
+    int new_l = old_to_new_level[old_l];
+    if (new_l >= 0 && new_l < new_events_by_level.size()) {
+      new_events_by_level[new_l] =
+          std::move(timeline_data_.events_by_level[old_l]);
+    }
+  }
+  timeline_data_.events_by_level = std::move(new_events_by_level);
+
+  for (int& lvl : timeline_data_.entry_levels) {
+    if (lvl >= 0 && lvl < old_to_new_level.size()) {
+      lvl = old_to_new_level[lvl];
+    }
+  }
+
+  for (auto& flow : timeline_data_.flow_lines) {
+    if (flow.source_level >= 0 &&
+        flow.source_level < old_to_new_level.size()) {
+      flow.source_level = old_to_new_level[flow.source_level];
+    }
+    if (flow.target_level >= 0 &&
+        flow.target_level < old_to_new_level.size()) {
+      flow.target_level = old_to_new_level[flow.target_level];
+    }
+  }
+
+  for (auto& [flow_id, flow_lines] : timeline_data_.flow_lines_by_flow_id) {
+    for (auto& flow : flow_lines) {
+      if (flow.source_level >= 0 &&
+          flow.source_level < old_to_new_level.size()) {
+        flow.source_level = old_to_new_level[flow.source_level];
+      }
+      if (flow.target_level >= 0 &&
+          flow.target_level < old_to_new_level.size()) {
+        flow.target_level = old_to_new_level[flow.target_level];
+      }
+    }
+  }
+}
+
+void Timeline::RemapCounterAndSelection(
+    const std::vector<int>& old_to_new_idx) {
+  std::map<int, CounterData> new_counter_data;
+  for (const auto& [old_idx, counter_data] :
+       timeline_data_.counter_data_by_group_index) {
+    if (old_idx >= 0 && old_idx < old_to_new_idx.size()) {
+      new_counter_data[old_to_new_idx[old_idx]] = counter_data;
+    }
+  }
+  timeline_data_.counter_data_by_group_index = std::move(new_counter_data);
+
+  if (selected_group_index_ >= 0 &&
+      selected_group_index_ < old_to_new_idx.size()) {
+    selected_group_index_ = old_to_new_idx[selected_group_index_];
+  }
+}
+
+void Timeline::ReorderTrack(int source_org_idx, int target_org_idx,
+                            bool drop_after) {
+  if (source_org_idx == target_org_idx) return;
+
+  Group* source_group = GetGroupByOriginalIndex(source_org_idx);
+  Group* target_group = GetGroupByOriginalIndex(target_org_idx);
+  if (!source_group || !target_group) return;
+
+  ParentInfo source_info = FindParentInfo(source_group);
+  ParentInfo target_info = FindParentInfo(target_group);
+  if (source_info.parent != target_info.parent) return;
+
+  std::vector<int> roots = GetReorderedRoots(
+      source_info.parent, source_org_idx, target_org_idx, drop_after);
+  if (roots.empty()) return;
+
+  std::vector<int> old_to_new_idx(timeline_data_.groups.size(), -1);
+  std::vector<Group> new_groups = RebuildGroupsArray(roots, old_to_new_idx);
+
+  std::vector<int> old_to_new_level(timeline_data_.events_by_level.size(), -1);
+  RemapLevelIndices(new_groups, old_to_new_level);
+
+  RemapEventsAndFlows(old_to_new_level);
+  RemapCounterAndSelection(old_to_new_idx);
+
+  timeline_data_.groups = std::move(new_groups);
+
+  UpdateLevelPositions(timeline_data_);
+}
+
+bool Timeline::HandleTrackDragAndDrop(int group_index, Group& group,
+                                      const ImVec2& tracks_start_pos,
+                                      const ImVec2& tracks_start_screen_pos,
+                                      Pixel group_height,
+                                      Pixel hover_zone_width) {
+  ImGui::SetCursorPos(
+      ImVec2(tracks_start_pos.x,
+             tracks_start_pos.y + group_offsets_[group_index]));
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 18950
+  ImGui::SetNextItemAllowOverlap();
+  ImGui::InvisibleButton(
+      "RowLabelHoverZone",
+      ImVec2(hover_zone_width, group_heights_[group_index]));
+#else
+  ImGui::InvisibleButton(
+      "RowLabelHoverZone",
+      ImVec2(hover_zone_width, group_heights_[group_index]));
+  ImGui::SetItemAllowOverlap();
+#endif
+  const bool is_dummy_hovered =
+      ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlapped);
+
+  if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+    Group* group_ptr_payload = &group;
+    ImGui::SetDragDropPayload("TRACK_REORDER", &group_ptr_payload,
+                              sizeof(Group*));
+    ImGui::Text("Moving track %s", group.name.c_str());
+    ImGui::EndDragDropSource();
+  }
+
+  if (ImGui::BeginDragDropTarget()) {
+    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+            "TRACK_REORDER", ImGuiDragDropFlags_AcceptBeforeDelivery |
+                             ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+      Group* source_group = *(Group**)payload->Data;
+      Group* target_group = &group;
+      if (source_group && target_group) {
+        ParentInfo source_info = FindParentInfo(source_group);
+        ParentInfo target_info = FindParentInfo(target_group);
+        if (source_info.parent == target_info.parent) {
+          Pixel line_y =
+              tracks_start_screen_pos.y + group_offsets_[group_index];
+          bool drop_after =
+              ImGui::GetIO().MousePos.y > line_y + group_height * 0.5f;
+          if (payload->IsDelivery()) {
+            pending_reorder_source_ = source_group->original_index;
+            pending_reorder_target_ = target_group->original_index;
+            pending_reorder_drop_after_ = drop_after;
+            if (redraw_callback_) redraw_callback_();
+          } else {
+            Pixel line_preview_y = line_y;
+            if (drop_after) {
+              line_preview_y += group_height;
+            }
+            dnd_preview_line_y_ = line_preview_y;
+          }
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
+
+  return is_dummy_hovered;
 }
 
 }  // namespace traceviewer

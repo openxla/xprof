@@ -524,6 +524,7 @@ cc_library(
         ":hlo_module_utils",
         ":hlo_proto_map",
         ":hlo_proto_to_module",
+        ":lazy",
         ":performance_info_wrapper",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:node_hash_map",
@@ -531,6 +532,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
+        "@tsl//tsl/platform:fingerprint",
         "@tsl//tsl/platform:path",
         "@tsl//tsl/profiler/lib:traceme_encode",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
@@ -538,6 +540,19 @@ cc_library(
         "@xla//xla/service:hlo_cost_analysis",
         "@xla//xla/service:hlo_proto_cc",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
+    ],
+)
+
+cc_test(
+    name = "hlo_module_map_test",
+    srcs = ["hlo_module_map_test.cc"],
+    deps = [
+        ":hlo_module_map",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/hlo/parser:hlo_parser",
     ],
 )
 

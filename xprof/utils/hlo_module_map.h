@@ -38,6 +38,7 @@ limitations under the License.
 #include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/utils/hlo_cost_analysis_wrapper.h"
 #include "xprof/utils/hlo_module_utils.h"
+#include "xprof/utils/lazy.h"
 #include "xprof/utils/performance_info_wrapper.h"
 
 namespace tensorflow {
@@ -67,6 +68,18 @@ class HloInstructionInterface {
   virtual tsl::profiler::OpSourceInfo SourceInfo() const = 0;
   virtual const ::tensorflow::profiler::PerformanceInfoWrapper*
   GetPerformanceInfoWrapper() const = 0;
+
+  // Returns string representations of the shapes of all input operands.
+  virtual std::vector<std::string> InputTensors() const = 0;
+
+  // Returns a single-element vector containing the string representation of the
+  // output shape. Note that for instructions with tuple outputs, this returns
+  // the entire tuple shape string (e.g., "(f32[10], f32[20])") rather than
+  // decomposing it into individual tensor shapes.
+  virtual std::vector<std::string> OutputTensors() const = 0;
+
+  // Returns the stable 64-bit fingerprint of this HLO instruction.
+  virtual uint64_t Fingerprint() const = 0;
 };
 
 // This wrapper allows caching the results of HloInstruction methods.
@@ -142,9 +155,14 @@ class HloInstructionWrapper : public HloInstructionInterface {
     return performance_info_wrapper_.get();
   }
 
+  std::vector<std::string> InputTensors() const override;
+  std::vector<std::string> OutputTensors() const override;
+  uint64_t Fingerprint() const override { return fingerprint_.Get(); }
+
  private:
   const xla::HloInstruction* instr_;
   std::vector<const HloInstructionWrapper*> fused_children_;
+  xprof::ThreadSafeLazy<uint64_t> fingerprint_;
   std::string op_full_name_;
   std::string tf_op_name_;
   size_t flops_ = 0;

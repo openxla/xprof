@@ -15,6 +15,17 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "check_host_boundness_tool",
+    srcs = ["check_host_boundness_tool.py"],
+    visibility = ["//plugin/xprof:__subpackages__"],
+    deps = [
+        ":get_utilization_viewer_tool",
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+    ],
+)
+
+pytype_strict_library(
     name = "get_overview_tool",
     srcs = ["get_overview_tool.py"],
     deps = [

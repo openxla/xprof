@@ -14,6 +14,19 @@ py_test(
 )
 
 py_test(
+    name = "check_host_boundness_tool_test",
+    srcs = ["check_host_boundness_tool_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:check_host_boundness_tool",
+        "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_test(
     name = "get_memory_profile_tool_test",
     srcs = ["get_memory_profile_tool_test.py"],
     visibility = ["//visibility:public"],

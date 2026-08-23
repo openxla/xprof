@@ -274,6 +274,102 @@ TEST(TfOpStatsToInputPipelineAnalysisTest,
   EXPECT_EQ(per_step_data.sc_step_time_ms(), 1000);
 }
 
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     MayFixTpuStepAnalysisFlatOpMetricsDb) {
+  uint64_t step_num = 1;
+  tensorflow::profiler::StepDetails step_details;
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_WAIT_INPUT,
+      tsl::profiler::Timespan::FromEndPoints(50, 100)));
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_TO_DEVICE,
+      tsl::profiler::Timespan::FromEndPoints(110, 200)));
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_TO_DEVICE,
+      tsl::profiler::Timespan::FromEndPoints(430, 500)));
+  StepEvents host_step_events = {{step_num, step_details}};
+  StepDatabaseResult step_db;
+  tensorflow::profiler::PerCoreStepInfo* pcsi = step_db.add_step_sequence();
+  pcsi->set_step_num(step_num);
+  tsl::protobuf::Map<uint32_t, tensorflow::profiler::StepInfoResult>& sipc_map =
+      *pcsi->mutable_step_info_per_core();
+  tensorflow::profiler::StepInfoResult& sir = sipc_map[/* core_id= */ 2];
+  sir.set_step_num(step_num);
+  sir.set_begin_ps(40);
+  sir.set_duration_ps(1000);
+  tensorflow::profiler::GenericStepBreakdown step_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& category_ps =
+      *step_breakdown.mutable_category_ps();
+  category_ps[tensorflow::profiler::kIdle] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kMultiply)] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kAllGather)] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kAsyncStart)] = 50;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kAsyncDone)] = 50;
+  sir.mutable_step_breakdown()->PackFrom(step_breakdown);
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  FlatOpMetricsDb flat_device_op_metrics_db;
+  MayFixTpuStepAnalysis(host_step_events, flat_device_op_metrics_db, step_db,
+                        core_details_map);
+  tensorflow::profiler::GenericStepBreakdown updated_step_breakdown;
+  sir.step_breakdown().UnpackTo(&updated_step_breakdown);
+  const tsl::protobuf::Map<std::string, uint64_t>& updated_category_ps =
+      updated_step_breakdown.category_ps();
+  EXPECT_EQ(updated_category_ps.at(tensorflow::profiler::kIdle), 90);
+  ASSERT_TRUE(updated_category_ps.contains(
+      xla::HloOpcodeString(xla::HloOpcode::kInfeed)));
+  EXPECT_EQ(
+      updated_category_ps.at(xla::HloOpcodeString(xla::HloOpcode::kInfeed)),
+      210);
+}
+
+TEST(TfOpStatsToInputPipelineAnalysisTest,
+     SkipMayFixTpuStepAnalysisWhenInfeedExistsFlatOpMetricsDb) {
+  uint64_t step_num = 1;
+  tensorflow::profiler::StepDetails step_details;
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_WAIT_INPUT,
+      tsl::profiler::Timespan::FromEndPoints(50, 100)));
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_TO_DEVICE,
+      tsl::profiler::Timespan::FromEndPoints(110, 200)));
+  step_details.AddEvent(tensorflow::profiler::EventTypeSpan(
+      tensorflow::profiler::EventType::HOST_TO_DEVICE,
+      tsl::profiler::Timespan::FromEndPoints(430, 500)));
+  StepEvents host_step_events = {{step_num, step_details}};
+  StepDatabaseResult step_db;
+  tensorflow::profiler::PerCoreStepInfo* pcsi = step_db.add_step_sequence();
+  pcsi->set_step_num(step_num);
+  tsl::protobuf::Map<uint32_t, tensorflow::profiler::StepInfoResult>& sipc_map =
+      *pcsi->mutable_step_info_per_core();
+  tensorflow::profiler::StepInfoResult& sir = sipc_map[/* core_id= */ 2];
+  sir.set_step_num(step_num);
+  sir.set_begin_ps(40);
+  sir.set_duration_ps(1000);
+  tensorflow::profiler::GenericStepBreakdown step_breakdown;
+  tsl::protobuf::Map<std::string, uint64_t>& category_ps =
+      *step_breakdown.mutable_category_ps();
+  category_ps[tensorflow::profiler::kIdle] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kMultiply)] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kAllGather)] = 300;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kAsyncStart)] = 50;
+  category_ps[xla::HloOpcodeString(xla::HloOpcode::kInfeed)] = 50;
+  sir.mutable_step_breakdown()->PackFrom(step_breakdown);
+  tsl::protobuf::Map<uint32_t, CoreDetails> core_details_map;
+  FlatOpMetricsDb flat_device_op_metrics_db;
+  flat_device_op_metrics_db.add_op_instances()->set_category(
+      std::string(xla::HloOpcodeString(xla::HloOpcode::kInfeed)));
+  MayFixTpuStepAnalysis(host_step_events, flat_device_op_metrics_db, step_db,
+                        core_details_map);
+  tensorflow::profiler::GenericStepBreakdown updated_step_breakdown;
+  sir.step_breakdown().UnpackTo(&updated_step_breakdown);
+  const tsl::protobuf::Map<std::string, uint64_t>& updated_category_ps =
+      updated_step_breakdown.category_ps();
+  EXPECT_EQ(updated_category_ps.at(tensorflow::profiler::kIdle), 300);
+  EXPECT_EQ(
+      updated_category_ps.at(xla::HloOpcodeString(xla::HloOpcode::kInfeed)),
+      50);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

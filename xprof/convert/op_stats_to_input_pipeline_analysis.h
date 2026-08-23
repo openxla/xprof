@@ -27,6 +27,7 @@ limitations under the License.
 #include "xla/tsl/util/stats_calculator.h"
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/hardware_types.pb.h"
 #include "plugin/xprof/protobuf/input_pipeline.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
@@ -90,6 +91,11 @@ InputPipelineAnalysisRecommendation GenerateRecommendation();
 void MayFixTpuStepAnalysis(
     const StepEvents& host_step_events, const OpMetricsDb& device_op_metrics_db,
     StepDatabaseResult& step_db,
+    const tsl::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
+
+void MayFixTpuStepAnalysis(
+    const StepEvents& host_step_events,
+    const FlatOpMetricsDb& flat_op_metrics_db, StepDatabaseResult& step_db,
     const tsl::protobuf::Map<uint32_t, CoreDetails>& core_details_map);
 
 // Returns a struct that describes the performance bottleneck of the

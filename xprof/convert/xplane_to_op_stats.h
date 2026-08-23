@@ -33,15 +33,14 @@ struct OpStatsOptions {
   bool generate_op_metrics_db = false;
   bool generate_step_db = false;
   bool generate_kernel_stats_db = false;
+  bool use_flat_op_metrics_db = false;
 };
 
-// Converts XSpace to FlatOpMetricsDb.
-absl::StatusOr<OpStats> ConvertXSpaceToFlatOpMetricsDb(
-    const XSpace& space, const OpStatsOptions& options);
+
 
 // NOTE: call GroupTfEvents before if OpStats.step_db needs to be generated.
-absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
-                                               const OpStatsOptions& options);
+absl::StatusOr<OpStats> ConvertXSpaceToOpStats(
+    const XSpace& space, const OpStatsOptions& options);
 
 // Populates the program_id_to_name map in OpStats.
 void SetProgramIdToNameMap(const HloProtoMap& hlo_proto_map,

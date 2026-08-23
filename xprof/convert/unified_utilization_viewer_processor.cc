@@ -21,7 +21,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "google/protobuf/arena.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/preprocess_single_host_xplane.h"
 #include "xprof/convert/tool_options.h"
 #include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_utilization_viewer.h"
@@ -44,6 +44,10 @@ absl::Status UnifiedUtilizationViewerProcessor::ProcessSession(
   if (!xspace.ok()) {
     return xspace.status();
   }
+
+  // Preprocess single host XSpace (step grouping & derived timeline).
+  tensorflow::profiler::PreprocessSingleHostXSpace(
+      *xspace, /*step_grouping=*/true, /*derived_timeline=*/true);
 
   absl::StatusOr<std::string> json_output =
       ConvertXSpaceToUtilizationViewer(**xspace);

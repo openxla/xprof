@@ -231,6 +231,27 @@ class DefectRegressionsTest(parameterized.TestCase):
       ranks = [op.get("rank") for op in top_ops if "rank" in op]
       self.assertEqual(len(ranks), len(set(ranks)))
 
+  def test_d16_perf_counters_non_null_payload(self):
+    """D-16: perf_counters returns valid DataTable JSON payload, never null."""
+    client = xprof_client.get_client()
+    content_type, data = client.fetch(
+        "perf_counters", self.t1_path, bypass_cache=True
+    )
+    self.assertEqual(content_type, "application/json")
+    self.assertIsNotNone(data)
+    self.assertNotEqual(data, "")
+    self.assertNotEqual(data, "null")
+
+    res = json.loads(data)
+    self.assertIsInstance(res, dict)
+    self.assertIn("cols", res)
+    self.assertIn("rows", res)
+    col_ids = [c.get("id") or c.get("label") for c in res["cols"]]
+    self.assertIn("Host", col_ids)
+    self.assertIn("Chip", col_ids)
+    self.assertIn("Kernel", col_ids)
+    self.assertIn("Counter", col_ids)
+
   def test_fingerprint_stability_and_cache_warmup(self):
     """Criteria 1 & 2: Consecutive calls produce stable fingerprint and sub-second warm execution."""
     temp_dir = tempfile.mkdtemp()

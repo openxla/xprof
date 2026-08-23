@@ -18,6 +18,7 @@ from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import check_host_boundness_tool
 from xprof.cli.tools import get_graph_viewer_tool
+from xprof.cli.tools import get_hlo_stats_tool
 from xprof.cli.tools import get_kernel_stats_tool
 from xprof.cli.tools import get_kpi_metrics_tool
 from xprof.cli.tools import get_llo_analysis_tool
@@ -29,7 +30,6 @@ from xprof.cli.tools import get_roofline_model_tool
 from xprof.cli.tools import get_top_hlo_ops_tool
 from xprof.cli.tools import get_utilization_viewer_tool
 from xprof.cli.tools import verify_numerical_parity_tool
-from xprof.cli.tools.oss import upload_trace_tool
 
 
 def cli_main() -> dict[str, Any]:
@@ -49,6 +49,7 @@ def cli_main() -> dict[str, Any]:
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,
       "get_hlo_neighborhood": hlo_tools.get_hlo_neighborhood,
       "get_hlo_op_profile": xprof_data.get_hlo_op_profile,
+      "get_hlo_stats": get_hlo_stats_tool.get_hlo_stats,
       "get_hlo_text": hlo_tools.get_hlo_text,
       "get_hosts": xprof_data.get_hosts,
       "get_kernel_stats": get_kernel_stats_tool.get_kernel_stats,
@@ -67,7 +68,6 @@ def cli_main() -> dict[str, Any]:
       "get_xspace_proto": xplane_tools.get_xspace_proto,
       "list_hlo_modules": hlo_tools.list_hlo_modules,
       "list_xplane_events": xplane_tools.list_xplane_events,
-      "upload_trace": upload_trace_tool.upload_trace,
       "verify_numerical_parity": (
           verify_numerical_parity_tool.verify_numerical_parity
       ),

@@ -1,6 +1,7 @@
 load("//plugin/xprof/build_utils:pytype.default.bzl", "pytype_library", "pytype_strict_binary", "pytype_strict_contrib_test", "pytype_strict_library")
 
 package(default_visibility = [
+    "//gdm/sys/l2p/exploratory/lumini:__subpackages__",
     "//plugin:internal",
     "@org_xprof//plugin:__subpackages__",
 ])
@@ -14,6 +15,7 @@ pytype_strict_library(
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:check_host_boundness_tool",
         "//plugin/xprof/cli/tools:get_graph_viewer_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",

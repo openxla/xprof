@@ -16,6 +16,7 @@ from xprof.cli.internal import xprof_data
 from xprof.cli.internal.oss import hlo_tools
 from xprof.cli.internal.oss import xplane_tools
 from xprof.cli.internal.oss import xprof_client
+from xprof.cli.tools import check_host_boundness_tool
 from xprof.cli.tools import get_graph_viewer_tool
 from xprof.cli.tools import get_kernel_stats_tool
 from xprof.cli.tools import get_kpi_metrics_tool
@@ -38,9 +39,11 @@ def cli_main() -> dict[str, Any]:
     A dictionary of tool names to functions.
   """
   return {
-      # 24 Core Tools (Available in both 1P and 3P):
+      # 26 Core Tools (Available in both 1P and 3P):
       # keep-sorted start
       "aggregate_xplane_events": xplane_tools.aggregate_xplane_events,
+      "check_host_boundness": check_host_boundness_tool.check_host_boundness,
+      "get_avg_step_time": get_kernel_stats_tool.get_avg_step_time,
       "get_device_information": xprof_data.get_device_information,
       "get_graph_viewer": get_graph_viewer_tool.get_graph_viewer,
       "get_hlo_module_content": hlo_tools.get_hlo_module_content,

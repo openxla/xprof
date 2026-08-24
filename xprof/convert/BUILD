@@ -2110,6 +2110,7 @@ cc_library(
         "@tsl//tsl/platform:path",
         "@xla//xla/tsl/platform:env",
         "@xla//xla/tsl/platform:errors",
+        "@xla//xla/tsl/platform:statusor",
     ],
 )
 

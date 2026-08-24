@@ -86,10 +86,10 @@ http_archive(
 # Details: https://github.com/google-ml-infra/rules_ml_toolchain
 http_archive(
     name = "rules_ml_toolchain",
-    sha256 = "40963e4bc262dfa9a43146f610140af0068b023ace8f3c50f1705a7b50de0830",
-    strip_prefix = "rules_ml_toolchain-cad1047facbac4fb3c1124da68bf2cb36c7eb9ac",
+    sha256 = "c9d0b6fd6fbd3e2a548e320890ae886198778c697186cee9956eba29fcb1d552",
+    strip_prefix = "rules_ml_toolchain-f9ab31989af8be3b729eb37bf9e4833eb62ddda7",
     urls = [
-        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/cad1047facbac4fb3c1124da68bf2cb36c7eb9ac.tar.gz",
+        "https://github.com/google-ml-infra/rules_ml_toolchain/archive/f9ab31989af8be3b729eb37bf9e4833eb62ddda7.tar.gz",
     ],
 )
 
@@ -119,11 +119,53 @@ http_archive(
     name = "xla",
     patch_args = ["-p1"],
     patches = ["//third_party:xla.patch"],
-    sha256 = "ac6dc34c07cf1e155927762997c8116641d7b7a42f91eb6d0773ec8581aca754",
-    strip_prefix = "xla-c520e3fb3f00ce8330d5088c08ee1a6f6067339f",
+    sha256 = "090ecbe792c713249037b1466e2452988a8878c06f5ef93ca771b24b6b6ad7c9",
+    strip_prefix = "xla-d36bdf5550766a16a3444287ac2b975a4fd65d04",
     urls = [
-        "https://github.com/openxla/xla/archive/c520e3fb3f00ce8330d5088c08ee1a6f6067339f.tar.gz",
+        "https://github.com/openxla/xla/archive/d36bdf5550766a16a3444287ac2b975a4fd65d04.zip",
     ],
+)
+
+# Initialize XLA's external dependencies (phases 4 and 3).
+load("@xla//:workspace4.bzl", "xla_workspace4")
+
+xla_workspace4()
+
+load("@xla//:workspace3.bzl", "xla_workspace3")
+
+xla_workspace3()
+
+load("@bazel_features//:deps.bzl", "bazel_features_deps")
+
+bazel_features_deps()
+
+_GRPC_PATCHES = [
+    "@xla//third_party/grpc:grpc.patch",
+    "//third_party:grpc.patch",
+]
+_GRPC_SHA256 = "41b695614b26652ff9e97ce50cfd4a6c7a3d45a9fe598d1454407746499bbf2c"
+_GRPC_STRIP_PREFIX = "grpc-1.81.0"
+_GRPC_URLS = ["https://github.com/grpc/grpc/archive/refs/tags/v1.81.0.tar.gz"]
+
+http_archive(
+    name = "com_github_grpc_grpc",
+    patch_args = ["-p1"],
+    patches = _GRPC_PATCHES,
+    sha256 = _GRPC_SHA256,
+    strip_prefix = _GRPC_STRIP_PREFIX,
+    urls = _GRPC_URLS,
+)
+
+http_archive(
+    name = "grpc",
+    patch_args = ["-p1"],
+    patches = _GRPC_PATCHES,
+    repo_mapping = {
+        "@com_github_grpc_grpc": "@grpc",
+    },
+    sha256 = _GRPC_SHA256,
+    strip_prefix = _GRPC_STRIP_PREFIX,
+    urls = _GRPC_URLS,
 )
 
 load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
@@ -168,15 +210,7 @@ load("@pypi//:requirements.bzl", "install_deps")
 
 install_deps()
 
-# Initialize XLA's external dependencies.
-load("@xla//:workspace4.bzl", "xla_workspace4")
-
-xla_workspace4()
-
-load("@xla//:workspace3.bzl", "xla_workspace3")
-
-xla_workspace3()
-
+# Initialize XLA's external dependencies (phases 2, 1, 0).
 load("@xla//:workspace2.bzl", "xla_workspace2")
 
 xla_workspace2()
@@ -188,6 +222,25 @@ xla_workspace1()
 load("@xla//:workspace0.bzl", "xla_workspace0")
 
 xla_workspace0()
+
+load(
+    "@io_bazel_rules_closure//closure:repositories.bzl",
+    "rules_closure_dependencies",
+    "rules_closure_toolchains",
+)
+
+rules_closure_dependencies(
+    omit_bazel_skylib = True,
+    omit_com_google_protobuf = True,
+    omit_rules_cc = True,
+    omit_rules_java = True,
+    omit_rules_jvm_external = True,
+    omit_rules_proto = True,
+    omit_rules_python = True,
+    omit_zlib = True,
+)
+
+rules_closure_toolchains()
 
 load(
     "@xla//third_party/py:python_wheel.bzl",

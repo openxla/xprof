@@ -321,6 +321,7 @@ cc_library(
     srcs = ["unified_utilization_viewer_processor.cc"],
     hdrs = ["unified_utilization_viewer_processor.h"],
     deps = [
+        ":preprocess_single_host_xplane",
         ":tool_options",
         ":unified_profile_processor",
         ":unified_session_snapshot",

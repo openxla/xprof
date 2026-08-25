@@ -104,7 +104,7 @@ ICR       | vf\_chip\_chiplet\_**icr\_icr\_data\_0\_debug\_domain\_icr\_data\_st
 
     ![Perf counters tool](./images/kernel_1.png)
 
-### Using default counter sets
+### Using Default Counter Sets
 
 To allow users to customize perf counter sampling options without having to
 memorize desired counter indices, we have provided a few counter sets geared

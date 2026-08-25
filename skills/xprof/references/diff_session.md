@@ -85,8 +85,8 @@ xprof get_kernel_stats /path/to/candidate_logdir --kernel_name="jit_update"
 Identify which HLO operations shifted in duration, FLOPs, or memory bandwidth:
 
 ```bash
-xprof get_top_hlo_ops /path/to/baseline_logdir --top_n=15
-xprof get_top_hlo_ops /path/to/candidate_logdir --top_n=15
+xprof get_top_hlo_ops /path/to/baseline_logdir --limit=15
+xprof get_top_hlo_ops /path/to/candidate_logdir --limit=15
 ```
 
 --------------------------------------------------------------------------------

@@ -245,6 +245,31 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_graph_viewer_processor",
+    srcs = ["unified_graph_viewer_processor.cc"],
+    hdrs = ["unified_graph_viewer_processor.h"],
+    deps = [
+        ":base_hlo_processor",
+        ":graph_viewer_processor",
+        ":hlo_proto_to_graph_view",
+        ":repository",
+        ":tool_options",
+        ":unified_session_snapshot",
+        ":xplane_to_hlo",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/utils:custom_call_utils",
+        "@org_xprof//xprof/utils:hlo_module_utils",
+        "@org_xprof//xprof/utils:hlo_proto_to_module",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/hlo/ir:hlo",
+        "@xla//xla/service:hlo_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "unified_framework_op_stats_processor",
     srcs = ["unified_framework_op_stats_processor.cc"],
     hdrs = ["unified_framework_op_stats_processor.h"],
@@ -1018,7 +1043,27 @@ cc_test(
         "//file/base:path",
         "@com_google_absl//absl/log:check",
         "@com_google_googletest//:gtest_main",
-        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "unified_graph_viewer_processor_test",
+    srcs = ["unified_graph_viewer_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_tools_registration",
+        "//file/base",
+        "//file/base:options_cc",
+        "//file/base:path",
+        "//net/proto2/contrib/parse_proto:parse_text_proto",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
@@ -3312,6 +3357,7 @@ cc_library(
     hdrs = ["unified_tools_registration.h"],
     deps = [
         ":unified_framework_op_stats_processor",
+        ":unified_graph_viewer_processor",
         ":unified_hlo_stats_processor",
         ":unified_input_pipeline_analyzer_processor",
         ":unified_memory_profile_processor",

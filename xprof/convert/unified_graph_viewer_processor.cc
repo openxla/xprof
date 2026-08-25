@@ -1,4 +1,4 @@
-/* Copyright 2025 The OpenXLA Authors. All Rights Reserved.
+/* Copyright 2026 The OpenXLA Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,66 +13,58 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "xprof/convert/graph_viewer_processor.h"
+#include "xprof/convert/unified_graph_viewer_processor.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 
-#include "absl/log/log.h"
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
+#include "absl/status/statusor.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/service/hlo.pb.h"
 #include "xla/tsl/platform/statusor.h"
-#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/hlo_proto_to_graph_view.h"
-#include "xprof/convert/profile_processor_factory.h"
 #include "xprof/convert/repository.h"
 #include "xprof/convert/tool_options.h"
+#include "xprof/convert/unified_session_snapshot.h"
 #include "xprof/convert/xplane_to_hlo.h"
-#include "plugin/xprof/protobuf/dcn_slack_analysis.pb.h"
-#include "plugin/xprof/protobuf/hardware_types.pb.h"
-#include "plugin/xprof/protobuf/inference_stats.pb.h"
-#include "plugin/xprof/protobuf/input_pipeline.pb.h"
-#include "plugin/xprof/protobuf/kernel_stats.pb.h"
-#include "plugin/xprof/protobuf/op_profile.pb.h"
-#include "plugin/xprof/protobuf/op_stats.pb.h"
-#include "plugin/xprof/protobuf/overview_page.pb.h"
-#include "plugin/xprof/protobuf/roofline_model.pb.h"
-#include "plugin/xprof/protobuf/tf_data_stats.pb.h"
-#include "plugin/xprof/protobuf/tf_stats.pb.h"
 #include "xprof/utils/custom_call_utils.h"
 #include "xprof/utils/hlo_module_utils.h"
 #include "xprof/utils/hlo_proto_to_module.h"
 
 namespace xprof {
-
 namespace {
 
 using ::tensorflow::profiler::ConvertHloProtoToGraph;
+using ::tensorflow::profiler::ConvertHloProtoToModule;
 using ::tensorflow::profiler::ConvertHloProtoToStringView;
+using ::tensorflow::profiler::FindInstruction;
 using ::tensorflow::profiler::GetAdjacentNodes;
 using ::tensorflow::profiler::GraphViewerParams;
 using ::tensorflow::profiler::kAdjacentNodes;
 using ::tensorflow::profiler::kCustomCallGraphTypeName;
 using ::tensorflow::profiler::kGraphTypeName;
 using ::tensorflow::profiler::ParseGraphViewerParams;
-using ::tensorflow::profiler::SessionSnapshot;
 using ::tensorflow::profiler::ToolOptions;
 
 absl::StatusOr<xla::HloProto> GetHloProto(
-    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
+    const tensorflow::profiler::SessionSnapshot& session_snapshot,
+    const tensorflow::profiler::ToolOptions& options) {
   absl::StatusOr<xla::HloProto> hlo_proto =
-      GetHloProtoByOptions(session_snapshot, options);
+      tensorflow::profiler::GetHloProtoByOptions(session_snapshot, options);
   if (hlo_proto.ok()) return hlo_proto;
 
   // Fallback: If module not found/provided, try searching by node name.
   absl::StatusOr<GraphViewerParams> params = ParseGraphViewerParams(options);
   if (params.ok() && !params->node_name.empty()) {
-    hlo_proto = GetHloProtoByNodeName(session_snapshot, params->node_name);
+    hlo_proto = tensorflow::profiler::GetHloProtoByNodeName(session_snapshot,
+                                                            params->node_name);
   }
   return hlo_proto;
 }
 
+}  // namespace
 absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
     const xla::HloProto& hlo_proto, const ToolOptions& options) {
   TF_ASSIGN_OR_RETURN(GraphViewerParams params,
@@ -82,11 +74,10 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
                                   params.graph_width, params.render_options,
                                   params.format);
   } else if (params.type == kCustomCallGraphTypeName) {
-    TF_ASSIGN_OR_RETURN(
-        std::unique_ptr<xla::HloModule> hlo_module,
-        tensorflow::profiler::ConvertHloProtoToModule(hlo_proto));
+    TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::HloModule> hlo_module,
+                        ConvertHloProtoToModule(hlo_proto));
     const xla::HloInstruction* hlo_instruction =
-        tensorflow::profiler::FindInstruction(*hlo_module, params.node_name);
+        FindInstruction(*hlo_module, params.node_name);
     if (hlo_instruction == nullptr) {
       return absl::InvalidArgumentError("Hlo Instruction not found.");
     }
@@ -100,29 +91,38 @@ absl::StatusOr<std::string> ConvertHloProtoToGraphViewer(
   }
 }
 
-}  // namespace
-
-absl::Status GraphViewerProcessor::ProcessSession(
-    const SessionSnapshot& session_snapshot, const ToolOptions& options) {
-  absl::StatusOr<xla::HloProto> hlo_proto =
-      GetHloProto(session_snapshot, options);
-
-  if (!hlo_proto.ok()) {
-    return hlo_proto.status();
+absl::Status UnifiedGraphViewerProcessor::ProcessSession(
+    const XprofSessionSnapshot& session_snapshot,
+    const tensorflow::profiler::ToolOptions& options) {
+  const tensorflow::profiler::SessionSnapshot* profiler_session_snapshot =
+      dynamic_cast<const tensorflow::profiler::SessionSnapshot*>(
+          &session_snapshot);
+  if (!profiler_session_snapshot) {
+    return absl::InvalidArgumentError(
+        "session_snapshot is not a tensorflow::profiler::SessionSnapshot");
   }
 
-  LOG(INFO) << "Processing graph viewer for  hlo module: "
-            << hlo_proto->hlo_module().name();
+  // Get HLO Proto.
+  TF_ASSIGN_OR_RETURN(xla::HloProto hlo_proto,
+                      GetHloProto(*profiler_session_snapshot, options));
 
-  std::string graph_viewer_json;
-
-  TF_ASSIGN_OR_RETURN(graph_viewer_json,
-                      ConvertHloProtoToGraphViewer(*hlo_proto, options));
-
-  SetOutput(graph_viewer_json, "application/json");
-  return absl::OkStatus();
+  return ProcessHlo(session_snapshot, hlo_proto, options);
 }
 
-REGISTER_PROFILE_PROCESSOR("graph_viewer", GraphViewerProcessor);
+absl::Status UnifiedGraphViewerProcessor::ProcessHlo(
+    const XprofSessionSnapshot& /*session_snapshot*/,
+    const xla::HloProto& hlo_proto,
+    const tensorflow::profiler::ToolOptions& options) {
+  TF_ASSIGN_OR_RETURN(std::string data,
+                      ConvertHloProtoToGraphViewer(hlo_proto, options));
+  std::optional<std::string> format =
+      ::tensorflow::profiler::GetParam<std::string>(options, "format");
+  if (format.has_value() && *format == "html") {
+    SetOutput(data, "text/html");
+  } else {
+    SetOutput(data, "application/json");
+  }
+  return absl::OkStatus();
+}
 
 }  // namespace xprof

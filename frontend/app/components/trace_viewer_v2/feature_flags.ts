@@ -38,6 +38,12 @@ const FEATURE_FLAGS = {
       'Enable user customization of timeline settings, including zooming/panning speed, color palettes, and shortcuts, etc.',
     default: false,
   },
+  'enable_gm3': {
+    name: 'Enable Google Material 3 (GM3) Update',
+    description:
+      'Enable Google Material 3 (GM3) styling and component modernization.',
+    default: false,
+  },
 } as const;
 
 /**

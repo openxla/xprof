@@ -1611,6 +1611,7 @@ cc_library(
         "@xla//xla/hlo/ir:hlo",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
         "@xla//xla/tsl/profiler/utils:math_utils",
+        "@xla//xla/tsl/profiler/utils:tf_op_utils",
         "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
         "@xla//xla/tsl/profiler/utils:timespan",
         "@xla//xla/tsl/profiler/utils:tpu_xplane_utils",

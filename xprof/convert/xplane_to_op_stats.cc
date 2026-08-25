@@ -38,6 +38,7 @@ limitations under the License.
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/tsl/profiler/convert/xla_op_utils.h"
 #include "xla/tsl/profiler/utils/math_utils.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
 #include "xla/tsl/profiler/utils/tf_xplane_visitor.h"
 #include "xla/tsl/profiler/utils/timespan.h"
 #include "xla/tsl/profiler/utils/tpu_xplane_utils.h"
@@ -685,7 +686,9 @@ absl::StatusOr<OpStats> ConvertXSpaceToOpStats(const XSpace& space,
                     GetHloInstruction(hlo_module_map, stats.program_id,
                                       stats.hlo_op_names.back());
                 if (hlo_instruction != nullptr) {
-                  kernel->set_op_name(std::string(hlo_instruction->TfOpName()));
+                  tsl::profiler::TfOp tf_op = tsl::profiler::ParseTfOpFullname(
+                      hlo_instruction->TfOpName());
+                  kernel->set_op_name(std::string(tf_op.name));
                   bool tc_eligible = IsOpTensorCoreEligible(kernel->op_name());
                   if (VLOG_IS_ON(1) && !tc_eligible &&
                       kernel->is_kernel_using_tensor_core()) {

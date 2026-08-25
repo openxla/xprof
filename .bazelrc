@@ -58,6 +58,14 @@ build:ci_windows_amd64 --host_copt=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
 build:ci_windows_amd64 --action_env=_LINK_="/FORCE:MULTIPLE"
 build:ci_windows_amd64 --host_action_env=_LINK_="/FORCE:MULTIPLE"
 
+# Suppress noisy third-party compiler warnings on Windows Clang-cl (protobuf offsetof, unused c++17 flags)
+build:ci_windows_amd64 --copt=-Wno-unknown-argument
+build:ci_windows_amd64 --host_copt=-Wno-unknown-argument
+build:ci_windows_amd64 --copt=-Wno-invalid-offsetof
+build:ci_windows_amd64 --host_copt=-Wno-invalid-offsetof
+build:ci_windows_amd64 --copt=-Wno-unused-command-line-argument
+build:ci_windows_amd64 --host_copt=-Wno-unused-command-line-argument
+
 # #############################################################################
 # RBE config options below. These inherit the CI configs above and set the
 # remote execution backend and authentication options required to run builds

@@ -1,4 +1,4 @@
-load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
+# load("//tools/build_defs/testing:bzl_library.bzl", "bzl_library")
 
 visibility = ["//plugin:internal"]
 

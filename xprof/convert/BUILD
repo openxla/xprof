@@ -1607,6 +1607,30 @@ cc_library(
 )
 
 cc_library(
+    name = "executor_factory",
+    srcs = ["executor_factory.cc"],
+    hdrs = ["executor_factory.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":executor_interface",
+        ":xprof_thread_pool_executor",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "executor_factory_test",
+    srcs = ["executor_factory_test.cc"],
+    deps = [
+        ":executor_factory",
+        ":executor_interface",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "custom_call_duty_cycle",
     srcs = ["custom_call_duty_cycle.cc"],
     hdrs = ["custom_call_duty_cycle.h"],

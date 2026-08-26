@@ -1467,6 +1467,44 @@ void Timeline::SelectNextEvent() {
   }
 }
 
+// Computes the bounding time range of the active selection, handling either
+// multiple selection (via selected_event_indices_) or single selection
+// (via selected_event_index_). Returns std::nullopt if no event is selected.
+std::optional<TimeRange> Timeline::GetSelectionTimeRange() const {
+  if (!selected_event_indices_.empty()) {
+    Microseconds min_start = std::numeric_limits<Microseconds>::infinity();
+    Microseconds max_end = -std::numeric_limits<Microseconds>::infinity();
+
+    for (int idx : selected_event_indices_) {
+      if (idx >= 0 && idx < timeline_data_.entry_start_times.size() &&
+          idx < timeline_data_.entry_total_times.size()) {
+        const Microseconds start = timeline_data_.entry_start_times[idx];
+        Microseconds duration = timeline_data_.entry_total_times[idx];
+        if (std::isnan(duration) || duration <= 0) {
+          duration = kMinVisibleEventDuration;
+        }
+        min_start = std::min(min_start, start);
+        max_end = std::max(max_end, start + duration);
+      }
+    }
+    if (min_start <= max_end) {
+      return TimeRange(min_start, max_end);
+    }
+  } else if (selected_event_index_ != -1 &&
+             selected_event_index_ < timeline_data_.entry_start_times.size() &&
+             selected_event_index_ < timeline_data_.entry_total_times.size()) {
+    const Microseconds start =
+        timeline_data_.entry_start_times[selected_event_index_];
+    Microseconds duration =
+        timeline_data_.entry_total_times[selected_event_index_];
+    if (std::isnan(duration) || duration <= 0) {
+      duration = kMinVisibleEventDuration;
+    }
+    return TimeRange(start, start + duration);
+  }
+  return std::nullopt;
+}
+
 void Timeline::ExpandRelatedTracks(int event_index) {
   int level = timeline_data_.entry_levels[event_index];
   int group_index = -1;
@@ -3284,17 +3322,19 @@ bool Timeline::HandleKeyboard() {
 
   // Mark interest range ('m')
   if (ImGui::IsKeyPressed(ImGuiKey_M)) {
-    if (selected_event_index_ != -1 &&
-        selected_event_index_ < timeline_data_.entry_start_times.size() &&
-        selected_event_index_ < timeline_data_.entry_total_times.size()) {
-      const Microseconds start =
-          timeline_data_.entry_start_times[selected_event_index_];
-      Microseconds duration =
-          timeline_data_.entry_total_times[selected_event_index_];
-      if (std::isnan(duration) || duration <= 0) {
-        duration = kMinVisibleEventDuration;
+    const std::optional<TimeRange> target_range = GetSelectionTimeRange();
+    if (target_range.has_value()) {
+      auto it = absl::c_find(selected_time_ranges_, *target_range);
+      if (it != selected_time_ranges_.end()) {
+        selected_time_ranges_.erase(it);
+      } else {
+        selected_time_ranges_.push_back(*target_range);
       }
-      selected_time_ranges_.push_back(TimeRange(start, start + duration));
+      is_interacting = true;
+    } else if (!selected_time_ranges_.empty()) {
+      // When no event is selected, pressing 'm' clears all marked interest
+      // ranges.
+      selected_time_ranges_.clear();
       is_interacting = true;
     }
   }

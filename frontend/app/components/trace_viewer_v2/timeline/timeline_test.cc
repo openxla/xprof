@@ -1658,7 +1658,8 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_Key0_ResetsViewport) {
   EXPECT_DOUBLE_EQ(timeline_.visible_range_target().end(), 1000.0);
 }
 
-TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyM_MarksInterestRange) {
+TEST_F(MockTimelineImGuiFixture,
+       HandleKeyboard_KeyM_MarksAndUnmarksInterestRange) {
   FlameChartTimelineData data = CreateTimelineData({{.name = "test_event",
                                                      .start_time = 100.0,
                                                      .total_time = 50.0,
@@ -1668,12 +1669,44 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_KeyM_MarksInterestRange) {
 
   EXPECT_TRUE(timeline_.selected_time_ranges().empty());
 
+  // First press marks the interest range.
   ImGui::GetIO().AddKeyEvent(ImGuiKey_M, true);
   SimulateFrame();
 
-  EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
   EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 150.0);
+
+  // Release key.
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_M, false);
+  SimulateFrame();
+
+  // Second press unmarks the interest range.
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
+TEST_F(MockTimelineImGuiFixture,
+       HandleKeyboard_KeyM_HandlesZeroOrNanDurationEvents) {
+  FlameChartTimelineData data = CreateTimelineData({
+      {.name = "zero_event",
+       .start_time = 100.0,
+       .total_time = 0.0,
+       .level = 0},
+  });
+  timeline_.SetTimelineData(std::move(data));
+  timeline_.RevealEvent(0);
+
+  ImGuiIO& io = ImGui::GetIO();
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 100.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(),
+                   100.0 + kMinVisibleEventDuration);
 }
 
 TEST_F(MockTimelineImGuiFixture, SelectPreviousAndNextEvent) {
@@ -7764,6 +7797,83 @@ TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsEmitsJson) {
   EXPECT_TRUE(callback_called);
   EXPECT_FALSE(captured_payload.empty());
   EXPECT_THAT(captured_payload, ::testing::HasSubstr("event1"));
+}
+
+TEST_F(TimelineMouseModeSelectTestSuite,
+       KeyM_MarksAndUnmarksMultiEventSelection) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Warm-up frame
+
+  // Drag selection covering event1 (start 0, dur 100) and event2 (start 0, dur
+  // 50).
+  io.MousePos = ImVec2(GetTimelineStartX() + 200.0f, 51.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+
+  SimulateFrame();
+
+  io.MousePos = ImVec2(GetTimelineStartX(), 150.0f);
+  SimulateFrame();
+
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+
+  // First press of 'm' marks the bounding interest range of selected events
+  // [0.0, 100.0].
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].start(), 0.0);
+  EXPECT_DOUBLE_EQ(timeline_.selected_time_ranges()[0].end(), 100.0);
+
+  // Release 'm'.
+  io.AddKeyEvent(ImGuiKey_M, false);
+  SimulateFrame();
+
+  // Second press of 'm' unmarks the interest range.
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
+}
+
+TEST_F(TimelineMouseModeSelectTestSuite,
+       KeyM_ClearsInterestRangesWhenNoEventSelected) {
+  ImGuiIO& io = ImGui::GetIO();
+  SimulateFrame();  // Warm-up frame
+
+  // Drag select events.
+  io.MousePos = ImVec2(GetTimelineStartX() + 200.0f, 51.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  SimulateFrame();
+  io.MousePos = ImVec2(GetTimelineStartX(), 150.0f);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  // Mark interest range.
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+  ASSERT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Click on empty space to deselect.
+  io.AddKeyEvent(ImGuiKey_M, false);
+  io.MousePos = ImVec2(GetTimelineStartX() + 500.0f, 250.0f);
+  io.AddMouseButtonEvent(0, true);
+  SimulateFrame();
+  io.AddMouseButtonEvent(0, false);
+  SimulateFrame();
+
+  EXPECT_EQ(timeline_.selected_time_ranges().size(), 1);
+
+  // Pressing 'm' with no events selected clears all marked interest ranges.
+  io.AddKeyEvent(ImGuiKey_M, true);
+  SimulateFrame();
+  EXPECT_TRUE(timeline_.selected_time_ranges().empty());
 }
 
 TEST_F(TimelineMouseModeSelectTestSuite, FindSelectedEventsSelectsCounters) {

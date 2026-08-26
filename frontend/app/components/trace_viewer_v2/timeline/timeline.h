@@ -614,6 +614,11 @@ class Timeline {
   // Returns true if a selection was made or a time range was added.
   bool HandleSelectionOrTimeRangeAddition();
 
+  // Computes the bounding time range of the active selection, handling either
+  // multiple selection (via selected_event_indices_) or single selection
+  // (via selected_event_index_). Returns std::nullopt if no event is selected.
+  std::optional<TimeRange> GetSelectionTimeRange() const;
+
   void FindSelectedEvents(const ImRect& selection_rect);
   void CalculateAndEmitMetrics();
   void DrawSelectionRectangle();

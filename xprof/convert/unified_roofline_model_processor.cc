@@ -35,10 +35,11 @@ using ::tensorflow::profiler::ToolOptions;
 absl::Status UnifiedRooflineModelProcessor::ProcessCombinedOpStats(
     const XprofSessionSnapshot& session_snapshot,
     const OpStats& combined_op_stats, const ToolOptions& options) {
-  RooflineModelDatabase result =
-      ConvertOpStatsToRooflineModel(combined_op_stats, true);
+  RooflineModelDatabase result = ConvertOpStatsToRooflineModel(
+      combined_op_stats, {.include_infeed_outfeed = true});
   RooflineModelDatabase result_without_infeed_outfeed =
-      ConvertOpStatsToRooflineModel(combined_op_stats, false);
+      ConvertOpStatsToRooflineModel(combined_op_stats,
+                                    {.include_infeed_outfeed = false});
 
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());

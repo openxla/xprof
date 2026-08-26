@@ -42,10 +42,11 @@ absl::Status RooflineModelProcessor::ProcessSession(
   OpStats combined_op_stats;
   TF_RETURN_IF_ERROR(ConvertMultiXSpaceToCombinedOpStatsWithCache(
       session_snapshot, &combined_op_stats));
-  RooflineModelDatabase result =
-      ConvertOpStatsToRooflineModel(combined_op_stats, true);
+  RooflineModelDatabase result = ConvertOpStatsToRooflineModel(
+      combined_op_stats, {.include_infeed_outfeed = true});
   RooflineModelDatabase result_without_infeed_outfeed =
-      ConvertOpStatsToRooflineModel(combined_op_stats, false);
+      ConvertOpStatsToRooflineModel(combined_op_stats,
+                                    {.include_infeed_outfeed = false});
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());
   SetOutput(RooflineModelToDataTableJson(result), "application/json");
@@ -55,10 +56,11 @@ absl::Status RooflineModelProcessor::ProcessSession(
 absl::Status RooflineModelProcessor::ProcessCombinedOpStats(
     const SessionSnapshot& session_snapshot, const OpStats& combined_op_stats,
     const tensorflow::profiler::ToolOptions& options) {
-  RooflineModelDatabase result =
-      ConvertOpStatsToRooflineModel(combined_op_stats, true);
+  RooflineModelDatabase result = ConvertOpStatsToRooflineModel(
+      combined_op_stats, {.include_infeed_outfeed = true});
   RooflineModelDatabase result_without_infeed_outfeed =
-      ConvertOpStatsToRooflineModel(combined_op_stats, false);
+      ConvertOpStatsToRooflineModel(combined_op_stats,
+                                    {.include_infeed_outfeed = false});
 
   result.mutable_roofline_model_record()->MergeFrom(
       result_without_infeed_outfeed.roofline_model_record());

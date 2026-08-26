@@ -162,7 +162,7 @@ class Animated : public Animation {
 
   bool Update(float delta_time) override {
     float factor = std::min(kSpeed * delta_time, 1.0f);
-    current_ = current_ * (1.0f - factor) + target_ * factor;
+    current_ = current_ + (target_ - current_) * factor;
     if (Converged()) {
       current_ = target_;
       return true;

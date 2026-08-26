@@ -32,6 +32,7 @@ wasm_cc_library(
     hdrs = ["time_range.h"],
     deps = [
         "@com_google_absl//absl/log",
+        "@org_xprof//frontend/app/components/trace_viewer_v2:animation",
         "@org_xprof//frontend/app/components/trace_viewer_v2/trace_helper:trace_event",
     ],
 )

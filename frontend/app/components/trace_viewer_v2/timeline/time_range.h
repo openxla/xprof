@@ -3,10 +3,45 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <utility>
 
+#include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
 
 namespace traceviewer {
+
+// Represents a 2D displacement/delta (start_delta, end_delta) between two
+// TimeRanges. Unlike TimeRange, start_delta and end_delta can have independent
+// signs and magnitudes.
+struct TimeRangeDiff {
+  Microseconds start_delta = 0.0;
+  Microseconds end_delta = 0.0;
+
+  TimeRangeDiff operator*(double factor) const {
+    return {start_delta * factor, end_delta * factor};
+  }
+
+  TimeRangeDiff operator+(const TimeRangeDiff& other) const {
+    return {start_delta + other.start_delta, end_delta + other.end_delta};
+  }
+
+  TimeRangeDiff operator-(const TimeRangeDiff& other) const {
+    return {start_delta - other.start_delta, end_delta - other.end_delta};
+  }
+
+  bool operator==(const TimeRangeDiff& other) const {
+    return start_delta == other.start_delta && end_delta == other.end_delta;
+  }
+
+  bool operator!=(const TimeRangeDiff& other) const {
+    return !(*this == other);
+  }
+};
+
+inline Microseconds abs(const TimeRangeDiff& diff) {
+  return std::fabs(diff.start_delta) + std::fabs(diff.end_delta);
+}
 
 // Represents a time interval [start, end].
 class TimeRange {
@@ -32,22 +67,22 @@ class TimeRange {
   }
 
   // Returns the intersection of this time range and the other.
-  // If the ranges do not overlap, returns a range with start > end (empty).
+  // If the ranges do not overlap, returns a zero-duration range.
   TimeRange Intersect(const TimeRange& other) const {
-    return {std::max(start_, other.start_), std::min(end_, other.end_)};
+    const Microseconds new_start = std::max(start_, other.start_);
+    const Microseconds new_end = std::min(end_, other.end_);
+    if (new_start > new_end) {
+      return {new_start, new_start};
+    }
+    return {new_start, new_end};
   }
 
   // Returns true if this time range fully contains the other (considering
   // floating point tolerances).
   bool Contains(const TimeRange& other) const {
-    // We use a tolerance to handle floating point inaccuracies, similar to
-    // Animation::Converged().
-
     auto almost_leq = [&](double a, double b) {
       double diff = a - b;
-      // If a <= b, diff <= 0.
       if (diff <= 0) return true;
-      // If a > b, check if diff is within tolerance.
       return diff < kAbsoluteTolerance;
     };
 
@@ -73,21 +108,23 @@ class TimeRange {
   // If zoom_factor > 1, it zooms out, if zoom_factor < 1, it zooms in.
   void Zoom(double zoom_factor, Microseconds pivot);
 
-  // Adds two TimeRanges. While not representing a real-world time range
-  // operation, this is used by `Animated<TimeRange>` for linear interpolation
-  // in its `Update` method.
-  TimeRange operator+(const TimeRange& other) const {
-    return {start_ + other.start_, end_ + other.end_};
-  }
-
-  // Subtracts two TimeRanges. While not representing a real-world time range
-  // operation, this is used by `Animated<TimeRange>` to calculate the
-  // difference between two TimeRanges, for example, to check if an animation
-  // has completed.
-  TimeRange operator-(const TimeRange& other) const {
+  // Computes the displacement vector from `other` to `this` (this - other).
+  TimeRangeDiff operator-(const TimeRange& other) const {
     return {start_ - other.start_, end_ - other.end_};
   }
 
+  // Translates this TimeRange by a TimeRangeDiff displacement vector.
+  TimeRange operator+(const TimeRangeDiff& diff) const {
+    return {start_ + diff.start_delta, end_ + diff.end_delta};
+  }
+
+  TimeRange& operator+=(const TimeRangeDiff& diff) {
+    start_ += diff.start_delta;
+    end_ += diff.end_delta;
+    return *this;
+  }
+
+  // Shifts the time range by a scalar time offset.
   TimeRange operator+(Microseconds val) const {
     return {start_ + val, end_ + val};
   }
@@ -95,8 +132,6 @@ class TimeRange {
   TimeRange operator-(Microseconds val) const {
     return {start_ - val, end_ - val};
   }
-
-  TimeRange operator*(double val) const { return {start_ * val, end_ * val}; }
 
   TimeRange& operator+=(Microseconds val) {
     start_ += val;
@@ -116,15 +151,8 @@ class TimeRange {
   static constexpr Microseconds kAbsoluteTolerance = 1e-4;
 };
 
-// Defines an abs() operation for TimeRange. This is used by
-// `Animated<TimeRange>::Update()` to check for convergence. The input `range`
-// is typically the result of `current_ - target_`. The sum of the absolute
-// values of `range.start()` and `range.end()` provides a metric for the total
-// magnitude of the difference between the two TimeRanges, considering both
-// their start and end points. Use lowercase to be found by Argument-Dependent
-// Lookup (ADL).
-// Defined as inline in the header to allow template instantiation
-// (e.g. Animated<TimeRange>) and prevent multiple definition errors.
+// Returns the magnitude of a TimeRange from origin, used by
+// Animated<T>::Converged() to compute relative tolerance thresholds.
 inline Microseconds abs(const TimeRange& range) {
   return std::fabs(range.start()) + std::fabs(range.end());
 }

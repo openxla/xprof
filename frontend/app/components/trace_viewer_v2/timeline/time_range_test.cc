@@ -145,12 +145,6 @@ TEST(TimeRangeTest, OperatorMinusScalar) {
   EXPECT_EQ(range - 5.0, TimeRange(5.0, 15.0));
 }
 
-TEST(TimeRangeTest, OperatorMultiplyScalar) {
-  TimeRange range(10.0, 20.0);
-
-  EXPECT_EQ(range * 2.0, TimeRange(20.0, 40.0));
-}
-
 TEST(TimeRangeTest, OperatorPlusEqualScalar) {
   TimeRange range(10.0, 20.0);
 
@@ -159,17 +153,34 @@ TEST(TimeRangeTest, OperatorPlusEqualScalar) {
   EXPECT_EQ(range, TimeRange(15.0, 25.0));
 }
 
-TEST(TimeRangeTest, OperatorMinus) {
-  TimeRange range1(10.0, 20.0);
-  TimeRange range2(5.0, 8.0);
+TEST(TimeRangeTest, DifferenceProducesTimeRangeDiff) {
+  TimeRange range1(100.0, 200.0);
+  TimeRange range2(50.0, 300.0);
 
-  EXPECT_EQ(range1 - range2, TimeRange(5.0, 12.0));
+  TimeRangeDiff diff = range1 - range2;
+  EXPECT_DOUBLE_EQ(diff.start_delta, 50.0);
+  EXPECT_DOUBLE_EQ(diff.end_delta, -100.0);
 }
 
-TEST(TimeRangeTest, Abs) {
-  TimeRange range(10.0, 20.0);
+TEST(TimeRangeTest, AddTimeRangeDiff) {
+  TimeRange range(100.0, 200.0);
+  TimeRangeDiff diff = {50.0, -50.0};
 
-  EXPECT_EQ(abs(range), 30.0);
+  TimeRange result = range + diff;
+  EXPECT_EQ(result, TimeRange(150.0, 150.0));
+
+  range += diff;
+  EXPECT_EQ(range, TimeRange(150.0, 150.0));
+}
+
+TEST(TimeRangeTest, TimeRangeDiffArithmeticAndNorm) {
+  TimeRangeDiff diff = {50.0, -100.0};
+
+  TimeRangeDiff scaled = diff * 0.5;
+  EXPECT_DOUBLE_EQ(scaled.start_delta, 25.0);
+  EXPECT_DOUBLE_EQ(scaled.end_delta, -50.0);
+
+  EXPECT_DOUBLE_EQ(abs(diff), 150.0);
 }
 
 TEST(TimeRangeTest, AnimatedTimeRangeBeforeUpdate) {

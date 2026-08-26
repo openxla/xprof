@@ -399,11 +399,17 @@ bool Application::IsFeatureEnabled(const std::string& name) {
 }
 
 void Application::Resize(float dpr, int width, int height) {
+  float old_dpr = CanvasState::Current().device_pixel_ratio();
+
   CanvasState::SetState(dpr, width, height);
   const CanvasState& canvas_state = CanvasState::Current();
   platform_->ResizeSurface(canvas_state);
 
   UpdateImGuiDisplaySize(canvas_state);
+
+  if (dpr != old_dpr) {
+    fonts::LoadFonts(canvas_state.device_pixel_ratio());
+  }
 
   if (frame_active_) {
     // If a frame draw is already active (re-entrant call during drawing),

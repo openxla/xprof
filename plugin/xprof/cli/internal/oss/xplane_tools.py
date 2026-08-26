@@ -11,12 +11,12 @@ from typing import Any, Iterator
 
 # pylint: disable=g-import-not-at-top
 try:
-  from xprof import profile_data as profiler  # pyrefly: ignore[missing-import]
+  from xprof import profile_data as profiler  # pyrefly: ignore[missing-import,missing-module-attribute]
 except ImportError:
   try:
-    from xprof import profile_data as profiler  # pyrefly: ignore[missing-import]
+    from xprof import profile_data as profiler  # pyrefly: ignore[missing-import,missing-module-attribute]
   except ImportError:
-    from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pyrefly: ignore[missing-import]
+    from google3.perftools.accelerators.xprof.api.python.profile_data import profile_data as profiler  # pyrefly: ignore[missing-import,missing-module-attribute]
 
 from xprof.cli.internal import decorators
 

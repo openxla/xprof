@@ -127,7 +127,6 @@ pytype_strict_library(
     name = "get_graph_viewer_tool",
     srcs = ["get_graph_viewer_tool.py"],
     deps = [
-        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
     ],

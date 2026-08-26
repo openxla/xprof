@@ -287,6 +287,9 @@ py_test(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":oracles",
+        "//plugin/xprof/cli/internal/oss:xplane_tools",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",
         "//plugin/xprof/cli/tools:get_memory_profile_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",

@@ -119,8 +119,6 @@ class AgentAnalysisRubricsTest(parameterized.TestCase):
 
 if __name__ == "__main__":
   try:
-    from absl.testing import absltest
-
     absltest.main()
-  except ImportError:
+  except NameError:
     absltest.main()

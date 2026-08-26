@@ -14,7 +14,7 @@ from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import hlo_stats_pb2
 
 try:
-  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top
+  from google3.net.rpc.python import pywraprpc  # pylint: disable=g-import-not-at-top  # pyrefly: ignore[missing-module-attribute]
 except ImportError:
   pywraprpc = None
 

@@ -65,3 +65,49 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_visitor",
     ],
 )
+
+cc_library(
+    name = "record_consumer",
+    hdrs = ["record_consumer.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_library(
+    name = "custom_trace_parser",
+    srcs = ["custom_trace_parser.cc"],
+    hdrs = ["custom_trace_parser.h"],
+    deps = [
+        ":event_utils",
+        ":record_consumer",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:tf_xplane_visitor",
+        "@xla//xla/tsl/profiler/utils:xplane_visitor",
+    ],
+)
+
+cc_test(
+    name = "custom_trace_parser_test",
+    srcs = ["custom_trace_parser_test.cc"],
+    deps = [
+        ":custom_trace_parser",
+        ":event_utils",
+        ":record_consumer",
+        ":schema",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+    ],
+)

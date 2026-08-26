@@ -21,6 +21,7 @@ limitations under the License.
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
 #include "xprof/convert/events_db/schema.h"
 
 namespace xprof::events_db::internal {
@@ -124,6 +125,25 @@ std::optional<uint64_t> GetProgramIdFromHloModuleName(
 std::string FormatTraceArgs(
     absl::Span<const std::pair<absl::string_view, std::string>>
         key_value_pairs);
+
+// Extracts DCN collective network communication fields if the event is a valid
+// DCN event.
+//
+// Requires that any indices populated in `output` are either not already
+// present in `output` or, if present, hold values matching the expected type
+// associated with each `TypedFieldIndex` in `indices`.
+void ExtractDcnEvent(const tsl::profiler::XEventVisitor& event,
+                     const FieldIndices& indices, Record& output);
+
+// Extracts baseline timing and identity information common across lines.
+//
+// Requires that any fields populated in `output` are either not already present
+// in `output` or, if present, hold values matching the expected type associated
+// with each `TypedFieldIndex` in `indices`.
+void ExtractCommonInfo(absl::string_view device_name,
+                       const tsl::profiler::XLineVisitor& line,
+                       const tsl::profiler::XEventVisitor& event,
+                       const FieldIndices& indices, Record& output);
 
 }  // namespace xprof::events_db::internal
 

@@ -18,12 +18,17 @@ limitations under the License.
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/types/span.h"
+#include "xla/tsl/profiler/utils/tf_op_utils.h"
+#include "xla/tsl/profiler/utils/xplane_schema.h"
+#include "xla/tsl/profiler/utils/xplane_visitor.h"
+#include "xprof/convert/dcn_utils.h"
 #include "xprof/convert/events_db/schema.h"
 
 namespace xprof::events_db::internal {
@@ -92,6 +97,72 @@ std::string FormatTraceArgs(
     absl::Span<const std::pair<absl::string_view, std::string>>
         key_value_pairs) {
   return absl::StrJoin(key_value_pairs, ",", absl::PairFormatter("="));
+}
+
+void ExtractDcnEvent(const tsl::profiler::XEventVisitor& event,
+                     const FieldIndices& indices, Record& output) {
+  if (!tensorflow::profiler::IsDcnEvent(event)) return;
+  tensorflow::profiler::DcnMessage message =
+      tensorflow::profiler::GetDcnMessageFromXEvent(event);
+  if (message.validity_info != tensorflow::profiler::DCN_MESSAGE_VALID &&
+      message.validity_info !=
+          tensorflow::profiler::DCN_MESSAGE_VALID_LOOPBACK) {
+    return;
+  }
+  output[indices.dcn_src_slice_id] = message.slice_src;
+  output[indices.dcn_dst_slice_id] = message.slice_dst;
+  output[indices.dcn_src_logical_device_id] = message.tpu_src;
+  output[indices.dcn_dst_logical_device_id] = message.tpu_dst;
+  output[indices.dcn_collective_name] = std::move(message.collective_name);
+  output[indices.dcn_payload_size_bytes] = message.size_bytes;
+  output[indices.dcn_duration_us] = message.duration_us;
+}
+
+void ExtractCommonInfo(absl::string_view device_name,
+                       const tsl::profiler::XLineVisitor& line,
+                       const tsl::profiler::XEventVisitor& event,
+                       const FieldIndices& indices, Record& output) {
+  output[indices.device] = device_name;
+  output[indices.category] = line.Name();
+  output[indices.stream_id] = static_cast<uint32_t>(line.Id());
+  output[indices.start_ns] = static_cast<uint64_t>(event.TimestampNs());
+  output[indices.end_ns] = static_cast<uint64_t>(event.EndTimestampNs());
+  output[indices.self_time_ns] = static_cast<uint64_t>(event.DurationNs());
+
+  std::vector<std::pair<absl::string_view, std::string>> key_value_pairs;
+  // Duplicated keys are allowed in the final `trace_args` field.
+  auto for_each_stat = [&](const tsl::profiler::XStatVisitor& stat) {
+    if (stat.Type().has_value()) {
+      // If recognized types are duplicated, the last one wins.
+      switch (stat.Type().value()) {
+        case tsl::profiler::StatType::kFlops:
+          output[indices.flops] = stat.IntOrUintValue();
+          return;
+        case tsl::profiler::StatType::kBytesAccessed:
+          output[indices.memory_accessed] = stat.IntOrUintValue();
+          return;
+        case tsl::profiler::StatType::kTfOp: {
+          tsl::profiler::TfOp tf_op =
+              tsl::profiler::ParseTfOpFullname(stat.StrOrRefValue());
+          output[indices.tf_op_name] = tf_op.name;
+          output[indices.tf_op_type] = tf_op.type;
+          return;
+        }
+        case tsl::profiler::StatType::kSourceInfo:
+          output[indices.source_line] = stat.StrOrRefValue();
+          return;
+      }
+    }
+
+    key_value_pairs.emplace_back(stat.Name(), stat.ToString());
+  };
+
+  event.Metadata().ForEachStat(for_each_stat);
+  event.ForEachStat(for_each_stat);
+
+  if (!key_value_pairs.empty()) {
+    output[indices.trace_args] = FormatTraceArgs(key_value_pairs);
+  }
 }
 
 }  // namespace xprof::events_db::internal

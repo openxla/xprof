@@ -13,11 +13,14 @@ limitations under the License.
 #ifndef THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_SCHEMA_H_
 #define THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_SCHEMA_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
@@ -28,6 +31,7 @@ limitations under the License.
 namespace xprof::events_db {
 
 class Schema;
+class Record;
 
 // Opaque token representing a field. Wraps a `uint32_t` for O(1) hashing and
 // lookup. Pass by value.
@@ -59,6 +63,7 @@ class FieldIndex {
 
  private:
   friend class Schema;
+  friend class Record;
   explicit FieldIndex(uint32_t id) : id_(id) {}
 
   static constexpr uint32_t kInvalidId = 0xFFFFFFFF;
@@ -141,6 +146,122 @@ class Schema {
   absl::node_hash_map<std::string, uint32_t> id_by_name_
       ABSL_GUARDED_BY(mutex_);
   std::vector<absl::string_view> name_by_id_ ABSL_GUARDED_BY(mutex_);
+};
+
+// Dynamically typed field value in a Record. `std::monostate` represents a
+// null, unset, or missing value.
+using FieldValue = std::variant<std::monostate, bool, int32_t, uint32_t,
+                                int64_t, uint64_t, double, std::string,
+                                std::vector<int32_t>, std::vector<uint32_t>,
+                                std::vector<int64_t>, std::vector<uint64_t>,
+                                std::vector<double>, std::vector<std::string>>;
+
+// Represents an extensible, row-oriented record mapping field indices to
+// dynamically typed values. Unset fields implicitly hold `std::monostate`.
+// Not thread-safe.
+class Record {
+ public:
+  Record() = default;
+
+  // Two records are considered equal if all set fields have matching values.
+  // Unset fields (holding `std::monostate`) do not affect equality.
+  bool operator==(const Record& other) const;
+
+  // Checks if the field has a set value in the record (i.e. not
+  // `std::monostate`).
+  bool HasField(FieldIndex field) const {
+    return field.id_ < fields_.size() &&
+           !std::holds_alternative<std::monostate>(fields_[field.id_]);
+  }
+
+  // Checks if the field is set in the record and holds a value of type `T`.
+  template <typename T>
+  bool HasField(TypedFieldIndex<T> field) const {
+    VerifyNonMonostate<T>();
+    const FieldIndex untyped = field.untyped();
+    return untyped.id_ < fields_.size() &&
+           std::holds_alternative<T>(fields_[untyped.id_]);
+  }
+
+  // Retrieves the value associated with the given field. Returns
+  // `std::monostate` if the field is unset or missing.
+  const FieldValue& operator[](FieldIndex field) const;
+
+  // Retrieves a mutable reference to the value associated with the given
+  // field. If the field was not previously set, it is initialized to
+  // `std::monostate`.
+  FieldValue& operator[](FieldIndex field);
+
+  // Retrieves the value associated with the given field. Returns
+  // `std::monostate` if the field is unset or missing.
+  const FieldValue& Get(FieldIndex field) const { return operator[](field); }
+
+  // Retrieves a const reference to the value associated with `field`. The
+  // caller must ensure that the field is set and holds type `T` (e.g. via
+  // `HasField`).
+  template <typename T>
+  const T& operator[](TypedFieldIndex<T> field) const {
+    VerifyNonMonostate<T>();
+    return std::get<T>(operator[](field.untyped()));
+  }
+
+  // Retrieves a mutable reference to the value associated with `field`. The
+  // caller must ensure that the field is either unset or holds type `T` (e.g.
+  // via `HasField`). If the field is unset, a default-constructed `T` is
+  // emplaced and returned.
+  template <typename T>
+  T& operator[](TypedFieldIndex<T> field) {
+    static_assert(std::is_default_constructible_v<T>);
+    VerifyNonMonostate<T>();
+    FieldValue& val = operator[](field.untyped());
+    if (std::holds_alternative<std::monostate>(val)) {
+      val.emplace<T>();
+    }
+    return std::get<T>(val);
+  }
+
+  // Retrieves a const reference to the value associated with `field`. The
+  // caller must ensure that the field is set and holds type `T` (e.g. via
+  // `HasField`).
+  template <typename T>
+  const T& Get(TypedFieldIndex<T> field) const {
+    return operator[](field);
+  }
+
+  // Retrieves a const pointer to the value associated with `field`. Returns
+  // `nullptr` if the field is unset or holds a different type than `T`.
+  template <typename T>
+  const T* TryGet(TypedFieldIndex<T> field) const {
+    VerifyNonMonostate<T>();
+    const FieldIndex untyped = field.untyped();
+    if (untyped.id_ >= fields_.size()) return nullptr;
+    return std::get_if<T>(&fields_[untyped.id_]);
+  }
+
+  // Retrieves a mutable pointer to the value associated with `field`. Returns
+  // `nullptr` if the field is unset or holds a different type than `T`.
+  template <typename T>
+  T* TryGet(TypedFieldIndex<T> field) {
+    VerifyNonMonostate<T>();
+    const FieldIndex untyped = field.untyped();
+    if (untyped.id_ >= fields_.size()) return nullptr;
+    return std::get_if<T>(&fields_[untyped.id_]);
+  }
+
+  // Returns the number of field entries currently tracked in the record.
+  size_t size() const { return fields_.size(); }
+
+  // Removes all fields from the record.
+  void clear() { fields_.clear(); }
+
+ private:
+  template <typename T>
+  consteval static void VerifyNonMonostate() noexcept {
+    static_assert(!std::is_same_v<T, std::monostate>,
+                  "std::monostate represents missing values and cannot be "
+                  "queried as a field type.");
+  }
+  std::vector<FieldValue> fields_;
 };
 
 }  // namespace xprof::events_db

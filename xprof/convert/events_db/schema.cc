@@ -12,10 +12,16 @@ limitations under the License.
 
 #include "xprof/convert/events_db/schema.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
+#include <vector>
 
+#include "absl/base/no_destructor.h"
+#include "absl/log/check.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 
@@ -54,6 +60,40 @@ std::optional<FieldIndex> Schema::LookupFieldIndex(
 uint32_t Schema::size() const {
   absl::ReaderMutexLock lock(mutex_);
   return static_cast<uint32_t>(name_by_id_.size());
+}
+
+bool Record::operator==(const Record& other) const {
+  constexpr auto is_unset = [](const FieldValue& v) {
+    return std::holds_alternative<std::monostate>(v);
+  };
+  const size_t min_size = std::min(fields_.size(), other.fields_.size());
+  const std::vector<FieldValue>& longer =
+      (fields_.size() > other.fields_.size()) ? fields_ : other.fields_;
+  return std::all_of(longer.begin() + min_size, longer.end(), is_unset) &&
+         std::equal(fields_.begin(), fields_.begin() + min_size,
+                    other.fields_.begin());
+}
+
+FieldValue& Record::operator[](FieldIndex field) {
+  DCHECK(field.is_valid());
+  if (field.id_ >= fields_.size()) {
+    fields_.resize(field.id_ + 1);
+  }
+  return fields_[field.id_];
+}
+
+const FieldValue& Record::operator[](FieldIndex field) const {
+  DCHECK(field.is_valid());
+  if (field.id_ >= fields_.size()) {
+    // Use `absl::NoDestructor` because `FieldValue` (`std::variant`) contains
+    // `std::string` and `std::vector`, which are not trivially destructible. A
+    // raw static variable of a non-trivially-destructible type is forbidden in
+    // Google C++ style to prevent static-destruction-order issues at program
+    // exit.
+    static const absl::NoDestructor<FieldValue> kNullValue(std::monostate{});
+    return *kNullValue;
+  }
+  return fields_[field.id_];
 }
 
 }  // namespace xprof::events_db

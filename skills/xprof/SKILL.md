@@ -98,6 +98,67 @@ When asked to find performance bottlenecks for a session:
 6.  **Report** findings directly to the user with concrete data points derived
     from the analysis.
 
+### Low Level Optimizer (LLO) & Custom Call Profiling
+
+> ⚠️ **EXPERIMENTAL FEATURE**: Low Level Optimizer (LLO) analysis and custom
+> call profiling are **experimental**. To access these features and all CLI
+> subcommands (`verify_numerical_parity`, `get_kernel_stats`,
+> `get_llo_analysis`, `get_llo_debug_string`), users **MUST install
+> `xprof-nightly`** (`pip install xprof-nightly` or `uv pip install
+> xprof-nightly 'jax[tpu]'`), as the main `xprof` PyPI release (2.23.1) lacks
+> these subcommands.
+
+When capturing or analyzing fine-grained LLO traces for custom kernels (e.g.
+Pallas or Mosaic):
+
+1.  **Toolchain Prerequisites**: Workload VMs must run **Python 3.11+** (Python
+    3.12 recommended via `uv`) and **JAX >= 0.11.0**. (Default Cloud TPU VM
+    images running Python 3.10 cap JAX at 0.6.2 and pull `libtpu` 0.0.17 which
+    lacks LLO flag support and causes `ERROR: Unknown command line flag`).
+2.  **Environment Initialization**: `LIBTPU_INIT_ARGS` must be exported
+    **strictly before `import jax`**:
+
+    ```bash
+    export LIBTPU_INIT_ARGS="--xla_xprof_enable_custom_call_tracing=true --xla_xprof_register_llo_debug_info=true"
+    python your_jax_workload.py
+    ```
+3.  **Hardware Compatibility**:
+
+    *   LLO analysis, disassembly, and custom call tracing work on **any
+        supported TPU** (v6e, v5e, v4, etc.) — it is **NOT** gated to v7x.
+    *   Periodic hardware runtime counters
+        (`tpu_enable_periodic_counter_sampling`) require Ironwood TPU7x+.
+4.  **Flag Symbol Verification (Optional Diagnostic)**: Inspect installed
+    `*libtpu*.so` to verify supported flags before launching:
+
+    ```python
+    import glob, libtpu, os
+    so = glob.glob(os.path.dirname(libtpu.__file__) + "/*libtpu*.so")[0]
+    blob = open(so, "rb").read()
+    for f in (b"xla_xprof_register_llo_debug_info", b"xla_xprof_enable_custom_call_tracing"):
+      print(f.decode(), "PRESENT" if f in blob else "ABSENT")
+    ```
+5.  **Canonical Flags**:
+
+    *   `--xla_xprof_enable_custom_call_tracing=true`: Canonical flag
+        (reconciles legacy `--xla_enable_custom_call_region_trace=true`).
+    *   `--xla_xprof_register_llo_debug_info=true`: Registers LLO debug info and
+        disassembly in XProf traces.
+6.  **Analysis Execution & Metrics Interpretation**:
+
+    *   `xprof get_llo_analysis <logdir_or_session_id>`: Extracts instruction
+        counts, cycle estimates, and execution schedules.
+    *   `xprof get_llo_debug_string <logdir_or_session_id>`: Disassembles Low
+        Level Optimizer (LLO) instructions (inner loops appear as `// Loop body
+        not available in lite proto`).
+    *   `xprof get_kernel_stats <logdir_or_session_id>`: Provides kernel
+        latency. *(Note: `get_roofline_model` and `get_overview` will report 0.0
+        GFLOP/s and 0% MXU for `tpu_custom_call` because XLA has no cost model
+        for custom calls; use `get_kernel_stats` for latency and
+        `get_llo_analysis` for instruction counts).*
+    *   **Trace Validation**: Test LLO presence by calling `get_llo_analysis`
+        and reading `success`, not by inspecting trace line names.
+
 <h2 id="supported-capabilities--references">Supported Capabilities & References</h2>
 
 -   **[Get Graph Viewer Data](references/get_graph_viewer.md)**: Get graph
@@ -130,3 +191,7 @@ When asked to find performance bottlenecks for a session:
     numerical equivalence between baseline and candidate kernels using
     multi-regime distributions, discrete bounded indices, monotonic segment IDs,
     boolean masks, and ULP distance metrics.
+-   **[Custom Call & LLO Profiling][custom-call-doc]**: Trace custom kernel
+    execution, instruction metrics, and register LLO debug info.
+
+[custom-call-doc]: https://openxla.org/xprof/custom_call_profiling

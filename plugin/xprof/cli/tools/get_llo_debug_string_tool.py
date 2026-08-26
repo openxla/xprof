@@ -67,9 +67,20 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
         return json.dumps(
             dict(
                 status="UNAVAILABLE",
+                reason="LLO_DATA_ABSENT",
                 error=(
                     "Failed to extract LLO debug string (LLO trace data is not"
                     " available in this session)."
+                ),
+                remediation=(
+                    "To enable LLO tracing, ensure the workload is executed"
+                    " with"
+                    ' LIBTPU_INIT_ARGS="--xla_xprof_enable_custom_call_tracing=true'
+                    ' --xla_xprof_register_llo_debug_info=true" exported'
+                    " strictly BEFORE 'import jax'. Prerequisites: Python 3.11+"
+                    " (Python 3.12 recommended via uv), JAX >= 0.11.0 (default"
+                    " Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2"
+                    " and lack LLO flag support), and xprof-nightly."
                 ),
             ),
             indent=2,

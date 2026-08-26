@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import tempfile
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -366,6 +367,69 @@ class DefectRegressionsTest(parameterized.TestCase):
 
     fp = decorators.compute_path_fingerprint(temp_dir)
     self.assertEqual(fp, "NO_TRACE_INPUTS")
+
+  def test_d16_llo_remediation_when_absent(self):
+    """D-16: LLO tools return actionable remediation when LLO data is absent."""
+    mock_client = mock.MagicMock()
+    mock_client.resolve_session_and_host.return_value = (
+        "test_session",
+        "host1",
+    )
+    mock_client.get_hosts.return_value = ["host1"]
+    mock_client.get_serialized_xspace.return_value = b"dummy_xspace"
+
+    with mock.patch.object(
+        get_llo_analysis_tool.xprof_client,
+        "get_client",
+        return_value=mock_client,
+    ), mock.patch.object(
+        get_llo_analysis_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "built_with_embedded",
+        return_value=True,
+    ), mock.patch.object(
+        get_llo_analysis_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "analyze_llo",
+        return_value={"success": False},
+    ):
+      res_raw = get_llo_analysis_tool.get_llo_analysis(
+          self.t1_path, bypass_cache=True
+      )
+      res = json.loads(res_raw)
+      self.assertIsInstance(res, dict)
+      self.assertEqual(res.get("status"), "UNAVAILABLE")
+      self.assertEqual(res.get("reason"), "LLO_DATA_ABSENT")
+      self.assertIn("remediation", res)
+      self.assertIn("LIBTPU_INIT_ARGS", res["remediation"])
+      self.assertIn(
+          "--xla_xprof_enable_custom_call_tracing=true", res["remediation"]
+      )
+      self.assertIn("Python 3.11+", res["remediation"])
+      self.assertIn("JAX >= 0.11.0", res["remediation"])
+      self.assertIn("xprof-nightly", res["remediation"])
+
+    with mock.patch.object(
+        get_llo_debug_string_tool.xprof_client,
+        "get_client",
+        return_value=mock_client,
+    ), mock.patch.object(
+        get_llo_debug_string_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "built_with_embedded",
+        return_value=True,
+    ), mock.patch.object(
+        get_llo_debug_string_tool._pywrap_profiler_plugin,  # pylint: disable=protected-access
+        "get_llo_debug_string",
+        return_value="",
+    ):
+      res_dbg_raw = get_llo_debug_string_tool.get_llo_debug_string(
+          self.t1_path, bypass_cache=True
+      )
+      res_dbg = json.loads(res_dbg_raw)
+      self.assertIsInstance(res_dbg, dict)
+      self.assertEqual(res_dbg.get("status"), "UNAVAILABLE")
+      self.assertEqual(res_dbg.get("reason"), "LLO_DATA_ABSENT")
+      self.assertIn("remediation", res_dbg)
+      self.assertIn("LIBTPU_INIT_ARGS", res_dbg["remediation"])
+      self.assertIn("xprof-nightly", res_dbg["remediation"])
 
 
 if __name__ == "__main__":

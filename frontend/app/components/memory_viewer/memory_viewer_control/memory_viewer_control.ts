@@ -1,9 +1,9 @@
-import {Component, EventEmitter, Input, Output, ChangeDetectionStrategy} from '@angular/core';
+import {Component, EventEmitter, Input, Output} from '@angular/core';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 
-/** A side navigation component. */
+/** Control panel for the Memory Viewer component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  standalone: false,
   selector: 'memory-viewer-control',
   templateUrl: './memory_viewer_control.ng.html',
   styleUrls: ['./memory_viewer_control.scss'],
@@ -38,8 +38,9 @@ export class MemoryViewerControl {
   selectedModule = '';
   selectedMemorySpaceColor = '';
 
-  emitUpdateEvent() {
+  emitUpdateEvent(): void {
     this.changed.emit({
+      module_name: this.selectedModule,
       moduleName: this.selectedModule,
       memorySpaceColor: this.selectedMemorySpaceColor,
     });

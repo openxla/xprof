@@ -1,18 +1,27 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  inject,
   OnDestroy,
   OnInit,
+  Pipe,
+  PipeTransform,
 } from '@angular/core';
 import {MatCheckboxChange} from '@angular/material/checkbox';
-import {ActivatedRouteSnapshot, NavigationEnd, Router} from '@angular/router';
-import {Store} from '@ngrx/store';
 import {
-  DEFAULT_HOST,
-  HLO_TOOLS,
-} from 'org_xprof/frontend/app/common/constants/constants';
+  ActivatedRouteSnapshot,
+  NavigationEnd,
+  Params,
+  Router,
+} from '@angular/router';
+import {Store} from '@ngrx/store';
+import {DEFAULT_HOST} from 'org_xprof/frontend/app/common/constants/constants';
 import {NavigationEvent} from 'org_xprof/frontend/app/common/interfaces/navigation_event';
 import {RunToolsMap} from 'org_xprof/frontend/app/common/interfaces/tool';
+import {
+  cleanParentHash,
+  getParentLocationParams,
+} from 'org_xprof/frontend/app/common/utils/utils';
 import {CommunicationService} from 'org_xprof/frontend/app/services/communication_service/communication_service';
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {
@@ -27,25 +36,7 @@ import {
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
 import {defaultIfEmpty, filter, takeUntil} from 'rxjs/operators';
 
-/** Extracts query parameters from window.parent location search. */
-export function getParentLocationParams(): Map<string, string> {
-  const parentParams = new Map<string, string>();
-  try {
-    if (window.parent?.location?.search) {
-      const urlParams = new URLSearchParams(window.parent.location.search);
-      for (const [key, value] of urlParams) {
-        parentParams.set(key, value);
-      }
-      const parentHosts = urlParams.getAll('hosts');
-      if (parentHosts.length > 0) {
-        parentParams.set('hosts', parentHosts.join(','));
-      }
-    }
-  } catch {
-    // In case window.parent access is blocked by cross-origin iframe security
-  }
-  return parentParams;
-}
+export {getParentLocationParams};
 
 /** Interface for normalized navigation parameters. */
 export interface NavigationParamsRecord {
@@ -103,6 +94,46 @@ export function serializeQueryParams(params: {
   return queryString ? `?${queryString}` : '';
 }
 
+const TOOLS_DISPLAY_MAP: ReadonlyMap<string, string> = new Map([
+  ['overview_page', 'Overview Page'],
+  ['framework_op_stats', 'Framework Op Stats'],
+  ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
+  ['memory_profile', 'Memory Profile'],
+  ['pod_viewer', 'Pod Viewer'],
+  ['op_profile', 'HLO Op Profile'],
+  ['memory_viewer', 'Memory Viewer'],
+  ['graph_viewer', 'Graph Viewer'],
+  ['hlo_stats', 'HLO Op Stats'],
+  ['inference_profile', 'Inference Profile'],
+  ['roofline_model', 'Roofline Model'],
+  ['kernel_stats', 'Kernel Stats'],
+  ['trace_viewer', 'Trace Viewer'],
+  ['megascale_stats', 'Megascale Viewer'],
+  ['perf_counters', 'Perf Counters'],
+  ['utilization_viewer', 'Utilization Viewer'],
+]);
+
+/** Returns human readable display name for tool tag. */
+export function getDisplayTagName(tag: string): string {
+  const normalizedTag = tag || '';
+  const tagName = normalizedTag.endsWith('@')
+    ? normalizedTag.slice(0, -1)
+    : normalizedTag;
+  return TOOLS_DISPLAY_MAP.get(tagName) ?? tagName;
+}
+
+/** Pure pipe to display human-readable tool tag names. */
+@Pipe({
+  standalone: false,
+  name: 'displayTagName',
+  pure: true,
+})
+export class DisplayTagNamePipe implements PipeTransform {
+  transform(tag: string): string {
+    return getDisplayTagName(tag);
+  }
+}
+
 /** A side navigation component. */
 @Component({
   changeDetection: ChangeDetectionStrategy.Default,
@@ -121,7 +152,6 @@ export class SideNav implements OnInit, OnDestroy {
   runs: string[] = [];
   tags: string[] = [];
   hosts: string[] = [];
-  moduleList: string[] = [];
   selectedRunInternal = '';
   selectedTagInternal = '';
   selectedHostInternal = '';
@@ -130,22 +160,22 @@ export class SideNav implements OnInit, OnDestroy {
   labelInternal = '';
   selectedHostsInternal: string[] = [];
   selectedHostsPending: string[] = [];
-  selectedModuleInternal = '';
   navigationParams: {[key: string]: string | boolean} = {};
+  private toolResetParams: Record<string, null> = {};
   multiHostEnabledTools: string[] = ['trace_viewer', 'trace_viewer@'];
   allHostsSelected = false;
 
   hideCaptureProfileButton = false;
   enableTabNameLabel = false;
 
-  constructor(
-    private readonly router: Router,
-    // Using DataServiceV2 because methods used in sidenav is not defined in
-    // the interface. (b/423713470)
-    private readonly dataService: DataServiceV2,
-    private readonly communicationService: CommunicationService,
-    private readonly store: Store<{}>,
-  ) {
+  private readonly router = inject(Router);
+  // Using DataServiceV2 because methods used in sidenav is not defined in
+  // the interface. (b/423713470)
+  private readonly dataService = inject(DataServiceV2);
+  private readonly communicationService = inject(CommunicationService);
+  private readonly store = inject(Store<{}>);
+
+  constructor() {
     this.runToolsMap$ = this.store
       .select(getRunToolsMap)
       .pipe(takeUntil(this.destroyed));
@@ -163,10 +193,6 @@ export class SideNav implements OnInit, OnDestroy {
         this.selectedRunInternal = run;
       }
     });
-  }
-
-  get is_hlo_tool() {
-    return HLO_TOOLS.includes(this.selectedTag);
   }
 
   get isMultiHostsEnabled() {
@@ -201,10 +227,6 @@ export class SideNav implements OnInit, OnDestroy {
       this.hosts[0] ||
       ''
     );
-  }
-
-  get selectedModule(): string {
-    return this.selectedModuleInternal || this.moduleList[0] || '';
   }
 
   get selectedHosts() {
@@ -250,44 +272,36 @@ export class SideNav implements OnInit, OnDestroy {
     const runPath = route.runPath || parent.runPath;
     const baseSessionId = route.baseSessionId || parent.baseSessionId;
     const label = route.label || parent.label;
-    const opName = route.opName || parent.opName;
-    const moduleName = route.moduleName || parent.moduleName;
-
     const isHostsEqual = this.isMultiHostsEnabled
       ? this.selectedHostsInternal.join(',') === hostsParam
       : this.selectedHostInternal === host;
+    const currentBaseSessionId = this.dataService.getBaseSessionId() || '';
+    const newBaseSessionId = baseSessionId || '';
+    const isBaseSessionIdEqual = currentBaseSessionId === newBaseSessionId;
 
-    // Guard to prevent infinite navigation loops on identical route params.
-    // In Angular 18, navigating to the same route triggers NavigationEnd because
-    // getNavigationEvent() returns a new object reference on every call, which
-    // is treated as a parameter change by reference comparison.
-    //
-    // TODO: b/536901902 - Refactor SideNav routing to follow a reactive, one-way
-    // data flow (URL as single source of truth) where UI dropdowns only trigger
-    // navigations, and an ActivatedRoute queryParams subscription handles all
-    // state syncs and data fetches. See xprof_angular_routing_refactor_proposal.md.
-    if (
-      this.selectedRunInternal === run &&
-      this.selectedTagInternal === tag &&
-      this.selectedModuleInternal === moduleName &&
-      this.runPathInternal === runPath &&
-      this.sessionPathInternal === sessionPath &&
-      this.labelInternal === label &&
-      (this.navigationParams['opName'] || '') === opName &&
-      (this.dataService.getBaseSessionId() ?? '') === baseSessionId &&
-      isHostsEqual
-    ) {
+    // Guard to prevent infinite navigation loops on identical route params
+    // and ignore tool-scoped parameter updates (e.g. module_name) to avoid
+    // cyclic re-navigation double-load storms.
+    const globalParamsChanged =
+      this.selectedRunInternal !== run ||
+      this.selectedTagInternal !== tag ||
+      this.runPathInternal !== runPath ||
+      this.sessionPathInternal !== sessionPath ||
+      this.labelInternal !== label ||
+      !isBaseSessionIdEqual ||
+      !isHostsEqual;
+
+    if (!globalParamsChanged) {
+      // Navigation was triggered by a tool-scoped parameter update (e.g. module_name).
+      // Do NOT re-fetch hosts, do NOT flash loading spinner, do NOT re-navigate.
       return;
     }
     this.navigationParams['firstLoad'] = true;
-    if (opName) {
-      this.navigationParams['opName'] = opName;
-    } else {
-      delete this.navigationParams['opName'];
-    }
+    delete this.navigationParams['opName'];
+    delete this.navigationParams['moduleName'];
+    delete this.navigationParams['module_name'];
     this.selectedRunInternal = run;
     this.selectedTagInternal = tag;
-    this.selectedModuleInternal = moduleName;
     this.runPathInternal = runPath;
     this.sessionPathInternal = sessionPath;
     this.labelInternal = label;
@@ -324,7 +338,9 @@ export class SideNav implements OnInit, OnDestroy {
 
   async fetchProfilerConfig() {
     const config = await firstValueFrom(
-      this.dataService.getConfig().pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
+      this.dataService
+        .getConfig()
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));
@@ -344,12 +360,6 @@ export class SideNav implements OnInit, OnDestroy {
     } else {
       navigationEvent.host = this.selectedHost;
     }
-    if (this.is_hlo_tool) {
-      if (this.moduleList.length > 0 && !this.selectedModuleInternal) {
-        this.selectedModuleInternal = this.moduleList[0];
-      }
-      navigationEvent.moduleName = this.selectedModule;
-    }
     if (this.runPathInternal) {
       navigationEvent.run_path = this.runPathInternal;
     }
@@ -364,33 +374,10 @@ export class SideNav implements OnInit, OnDestroy {
   }
 
   getDisplayTagName(tag: string): string {
-    const tagName =
-      tag && tag.length && tag[tag.length - 1] === '@'
-        ? tag.slice(0, -1)
-        : tag || '';
-
-    const toolsDisplayMap = new Map([
-      ['overview_page', 'Overview Page'],
-      ['framework_op_stats', 'Framework Op Stats'],
-      ['input_pipeline_analyzer', 'Input Pipeline Analysis'],
-      ['memory_profile', 'Memory Profile'],
-      ['pod_viewer', 'Pod Viewer'],
-      ['op_profile', 'HLO Op Profile'],
-      ['memory_viewer', 'Memory Viewer'],
-      ['graph_viewer', 'Graph Viewer'],
-      ['hlo_stats', 'HLO Op Stats'],
-      ['inference_profile', 'Inference Profile'],
-      ['roofline_model', 'Roofline Model'],
-      ['kernel_stats', 'Kernel Stats'],
-      ['trace_viewer', 'Trace Viewer'],
-      ['megascale_stats', 'Megascale Viewer'],
-      ['perf_counters', 'Perf Counters'],
-      ['utilization_viewer', 'Utilization Viewer'],
-    ]);
-    return toolsDisplayMap.get(tagName) || tagName;
+    return getDisplayTagName(tag);
   }
 
-  async getToolsForSelectedRun() {
+  async getToolsForSelectedRun(): Promise<string[]> {
     const tools = await firstValueFrom(
       this.dataService
         .getRunTools(this.selectedRun)
@@ -406,7 +393,7 @@ export class SideNav implements OnInit, OnDestroy {
     return tools;
   }
 
-  async getHostsForSelectedTag() {
+  async getHostsForSelectedTag(): Promise<string[]> {
     if (!this.selectedRun || !this.selectedTag) return [];
     const response = await firstValueFrom(
       this.dataService
@@ -429,31 +416,21 @@ export class SideNav implements OnInit, OnDestroy {
     return hosts;
   }
 
-  async getModuleListForSelectedTag() {
-    if (!this.selectedRun || !this.selectedTag) return [];
-    const response = await firstValueFrom(
-      this.dataService
-        .getModuleList(this.selectedRun)
-        .pipe(takeUntil(this.destroyed), defaultIfEmpty('')),
-    );
-    return response ? response.split(',') : [];
-  }
-
   onRunSelectionChange(run: string) {
     this.selectedRunInternal = run;
     this.afterUpdateRun();
   }
 
-  afterUpdateRun() {
+  async afterUpdateRun(): Promise<void> {
     this.store.dispatch(
       setCurrentRunAction({
         currentRun: this.selectedRun,
       }),
     );
-    this.updateTags();
+    await this.updateTags();
   }
 
-  async updateTags() {
+  async updateTags(): Promise<void> {
     this.tags = this.runToolsMap[this.selectedRun] || [];
     if (!this.tags.length) {
       this.tags = ((await this.getToolsForSelectedRun()) || []) as string[];
@@ -461,7 +438,7 @@ export class SideNav implements OnInit, OnDestroy {
     this.afterUpdateTag();
   }
 
-  async onTagSelectionChange(tag: string) {
+  async onTagSelectionChange(tag: string): Promise<void> {
     const previousSelectedTag = this.selectedTagInternal;
     this.selectedTagInternal = tag;
 
@@ -469,11 +446,16 @@ export class SideNav implements OnInit, OnDestroy {
       !previousSelectedTag ||
       (this.isMultiHostsEnabled && previousSelectedTag !== this.selectedTag);
 
-    // Reset module and op selection when tool changes
+    // Reset module and op selection when tool changes.
     if (previousSelectedTag !== tag) {
-      this.selectedModuleInternal = '';
       delete this.navigationParams['opName'];
       delete this.navigationParams['moduleName'];
+      delete this.navigationParams['module_name'];
+      this.toolResetParams = {
+        'module_name': null,
+        'moduleName': null,
+        'opName': null,
+      };
     }
 
     this.selectedHostsInternal = [];
@@ -486,38 +468,17 @@ export class SideNav implements OnInit, OnDestroy {
       this.selectedHostsPending = [...this.selectedHostsInternal];
       this.updateAllHostsSelectedState();
 
-      await this.syncHloModuleList();
-
       this.navigateTools();
     } else {
       this.afterUpdateTag();
     }
   }
 
-  afterUpdateTag() {
+  afterUpdateTag(): void {
     this.updateHosts();
   }
 
-  /**
-   * Synchronizes the HLO module list for the selected tag and ensures a valid
-   * module is selected.
-   */
-  private async syncHloModuleList(): Promise<void> {
-    if (this.is_hlo_tool) {
-      this.moduleList = await this.getModuleListForSelectedTag();
-      if (
-        this.moduleList.length > 0 &&
-        (!this.selectedModuleInternal ||
-          !this.moduleList.includes(this.selectedModuleInternal))
-      ) {
-        this.selectedModuleInternal = this.moduleList[0];
-      }
-    }
-  }
-
-  // Hosts and ModuleLit used to share the same variable.
-  // Keep them under the same update function as initial step of the separation.
-  async updateHosts() {
+  async updateHosts(): Promise<void> {
     this.hosts = await this.getHostsForSelectedTag();
 
     if (this.isMultiHostsEnabled) {
@@ -537,7 +498,6 @@ export class SideNav implements OnInit, OnDestroy {
         this.selectedHostInternal = this.hosts[0];
       }
     }
-    await this.syncHloModuleList();
 
     this.afterUpdateHost();
   }
@@ -577,26 +537,24 @@ export class SideNav implements OnInit, OnDestroy {
     this.navigateTools();
   }
 
-  onModuleSelectionChange(module: string) {
-    this.selectedModuleInternal = module;
-    this.navigateTools();
-  }
-
-  afterUpdateHost() {
+  afterUpdateHost(): void {
     this.navigateTools();
   }
 
   updateUrlHistory(): void {
     try {
       const navigationEvent = this.getNavigationEvent();
-      const queryParams: {
-        [key: string]: string | string[] | boolean | undefined;
-      } = {...navigationEvent};
+      const queryParams: Record<
+        string,
+        string | string[] | boolean | undefined
+      > = {
+        ...navigationEvent,
+      };
 
       if (this.isMultiHostsEnabled) {
         const hosts = queryParams['hosts'];
         if (Array.isArray(hosts)) {
-          queryParams['hosts'] = hosts.join(',');
+          queryParams['hosts'] = hosts.join(','); // Valid comma separation (no space)
         }
         delete queryParams['host']; // Remove single host param
       } else {
@@ -604,20 +562,33 @@ export class SideNav implements OnInit, OnDestroy {
         delete queryParams['hosts']; // Remove multi-host param
       }
 
+      // Preserve existing tool-scoped parameters not owned by SideNav
+      const search = window.parent.location.search || '';
+      const currentParentParams = search
+        ? new URLSearchParams(search)
+        : getParentLocationParams();
+      for (const [key, value] of currentParentParams.entries()) {
+        if (value && !(key in queryParams) && !(key in this.toolResetParams)) {
+          queryParams[key] = value;
+        }
+      }
+
       // Get current path to avoid changing the base URL
-      const pathname = window.parent?.location?.pathname ?? '';
+      const pathname = window.parent.location.pathname;
+      const rawHash = window.parent.location.hash || '';
+      const hash = cleanParentHash(rawHash);
 
       // Use the custom serialization helper
       const queryString = serializeQueryParams(queryParams);
-      const url = pathname + queryString;
+      const url = `${pathname}${queryString}${hash}`;
 
-      window.parent?.history?.pushState({}, '', url);
-    } catch (error) {
+      window.parent.history.pushState({}, '', url);
+    } catch (error: unknown) {
       console.error('Failed to update URL history:', error);
     }
   }
 
-  navigateTools() {
+  navigateTools(): void {
     const navigationEvent = this.getNavigationEvent();
     this.communicationService.onNavigateReady(navigationEvent);
 
@@ -626,9 +597,15 @@ export class SideNav implements OnInit, OnDestroy {
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
     // are subscribing to the queryParams in the components.
+    const queryParams: Params = {
+      ...navigationEvent,
+      ...this.toolResetParams,
+    };
     this.router.navigate([this.selectedTag || 'empty'], {
-      queryParams: navigationEvent,
+      queryParams,
+      queryParamsHandling: 'merge',
     });
+    this.toolResetParams = {};
     delete this.navigationParams['firstLoad'];
     this.updateTitle();
   }

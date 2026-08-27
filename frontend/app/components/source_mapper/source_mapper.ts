@@ -163,6 +163,18 @@ export class SourceMapper implements OnDestroy, OnChanges {
     return this.tags.includes('has_original_hlo_proto');
   }
 
+  get irFileName(): string {
+    switch (this.selectedCompilerPass) {
+      case CompilerPass.HLO_OPTIMIZED:
+      case CompilerPass.HLO_UNOPTIMIZED:
+        return 'source.hlo';
+      case CompilerPass.MOSAIC_ORIGINAL:
+        return 'source.mlir';
+      default:
+        return 'source.txt';
+    }
+  }
+
   get irTextLink(): string {
     return '';
   }

@@ -35,6 +35,37 @@ cc_test(
 )
 
 cc_library(
+    name = "parent_event_tracker",
+    srcs = ["parent_event_tracker.cc"],
+    hdrs = ["parent_event_tracker.h"],
+    deps = [
+        ":event_utils",
+        ":record_consumer",
+        ":schema",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_test(
+    name = "parent_event_tracker_test",
+    srcs = ["parent_event_tracker_test.cc"],
+    deps = [
+        ":event_utils",
+        ":parent_event_tracker",
+        ":record_consumer",
+        ":schema",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "event_utils",
     srcs = ["event_utils.cc"],
     hdrs = ["event_utils.h"],

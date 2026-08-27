@@ -80,6 +80,7 @@ TRACE_VIEWER_V2_JS_ROUTE = '/trace_viewer_v2.js'
 TRACE_VIEWER_V2_WASM_ROUTE = '/trace_viewer_v2.wasm'
 ZONE_JS_ROUTE = '/zone.js'
 RUNTIME_JS_ROUTE = '/runtime.js'
+ROBOTO_FONT_ROUTE = '/assets/Roboto-Regular.ttf'
 DATA_ROUTE = '/data'
 DATA_CSV_ROUTE = '/data_csv'
 VERSION_ROUTE = '/version'
@@ -817,6 +818,7 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
             TRACE_VIEWER_V2_WASM_ROUTE: self.static_file_route,
             ZONE_JS_ROUTE: self.static_file_route,
             RUNTIME_JS_ROUTE: self.static_file_route,
+            ROBOTO_FONT_ROUTE: self.static_file_route,
             RUNS_ROUTE: self.runs_route,
             RUN_TOOLS_ROUTE: self.run_tools_route,
             HOSTS_ROUTE: self.hosts_route,

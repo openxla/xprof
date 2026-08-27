@@ -13,7 +13,7 @@
         }
       },
       "root": "",
-      "sourceRoot": "",
+      "sourceRoot": ".",
       "prefix": "app",
       "architect": {
         "build": {
@@ -30,7 +30,13 @@
                 "../"
               ]
             },
-            "assets": [],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "app/components/trace_viewer_v2/assets",
+                "output": "/assets"
+              }
+            ],
             "styles": [
               "styles.scss"
             ],

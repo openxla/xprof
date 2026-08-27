@@ -7,6 +7,13 @@
 #include "imgui.h"
 
 namespace traceviewer::fonts {
+namespace {
+std::vector<uint8_t> roboto_font_buffer;
+}
+
+void RegisterRobotoFont(const uint8_t* data, int size) {
+  roboto_font_buffer.assign(data, data + size);
+}
 
 ImFont* body_large = nullptr;
 ImFont* caption = nullptr;
@@ -39,7 +46,64 @@ void LoadFonts(float pixel_ratio) {
       0,
   };
 
-  io.Fonts->AddFontDefault(&config);
+  const void* font_data = nullptr;
+  int font_size_bytes = 0;
+  bool is_base85 = false;
+
+  if (!roboto_font_buffer.empty()) {
+    font_data = roboto_font_buffer.data();
+    font_size_bytes = roboto_font_buffer.size();
+    is_base85 = false;
+  } else {
+  }
+
+  if (font_data == nullptr) {
+    io.Fonts->AddFontDefault(&config);
+    ImFont* default_font = io.Fonts->Fonts.back();
+    body_large = default_font;
+    caption = default_font;
+    label_large = default_font;
+    label_medium = default_font;
+    label_small = default_font;
+    title_small = default_font;
+    io.FontDefault = body_large;
+    return;
+  }
+
+  ImFontConfig config_large = config;
+  // Typography tracking for Label Large: requires +0.1 space, but ImGui removed
+  // ExtraSpacing.
+
+  ImFontConfig config_medium = config;
+  // Typography tracking for Label Medium: requires +0.5 space.
+
+  // TODO: b/444025890 - Get the fonts and sizes from the UX design.
+  auto styles = std::vector{
+      std::tuple(&body_large, kBodyLargeFontSize, &config),
+      std::tuple(&label_large, kLabelLargeFontSize, &config_large),
+      std::tuple(&label_medium, kLabelMediumFontSize, &config_medium),
+      std::tuple(&label_small, kLabelSmallFontSize, &config),
+      std::tuple(&title_small, kLabelSectionHeaderFontSize, &config_medium)};
+
+  for (const auto& [font_ptr, base_size, font_config] : styles) {
+    if (is_base85) {
+      *(font_ptr) = io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+          static_cast<const char*>(font_data), base_size, font_config,
+          kRangesBasic);
+    } else {
+      ImFontConfig font_config_copy = *font_config;
+      font_config_copy.FontDataOwnedByAtlas = false;
+      *(font_ptr) = io.Fonts->AddFontFromMemoryTTF(
+          const_cast<void*>(font_data), font_size_bytes, base_size,
+          &font_config_copy, kRangesBasic);
+    }
+
+    if (*(font_ptr) == nullptr) {
+      LOG(ERROR) << "Failed to load font size " << base_size
+                 << ". Using default.";
+      *(font_ptr) = io.Fonts->AddFontDefault();
+    }
+  }
   io.FontDefault = body_large;
 }
 

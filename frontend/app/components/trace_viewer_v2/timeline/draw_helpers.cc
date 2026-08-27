@@ -5,8 +5,25 @@
 
 namespace traceviewer {
 
+ImTextureID pin_icon_tex = 0;
+ImTextureID visibility_icon_tex = 0;
+ImTextureID visibility_off_icon_tex = 0;
+
 void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                  Pixel icon_draw_size, ImU32 icon_col, bool is_pinned) {
+  if (pin_icon_tex != 0) {
+    float r = icon_draw_size * 0.5f;
+    ImVec2 p_min(center_x - r, center_y - r);
+    ImVec2 p_max(center_x + r, center_y + r);
+    ImU32 col = icon_col;
+    if (!is_pinned) {
+      col = (icon_col & 0x00FFFFFF) | 0x80000000;
+    }
+    draw_list->AddImage(pin_icon_tex, p_min, p_max, ImVec2(0, 0), ImVec2(1, 1),
+                        col);
+    return;
+  }
+
   float r = icon_draw_size * 0.5f;
 
   // Horizontal head bar at the top
@@ -31,6 +48,17 @@ void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
 
 void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                   Pixel icon_draw_size, ImU32 icon_col, bool is_track_hidden) {
+  ImTextureID tex =
+      is_track_hidden ? visibility_off_icon_tex : visibility_icon_tex;
+  if (tex != 0) {
+    float r = icon_draw_size * 0.5f;
+    ImVec2 p_min(center_x - r, center_y - r);
+    ImVec2 p_max(center_x + r, center_y + r);
+    draw_list->AddImage(tex, p_min, p_max, ImVec2(0, 0), ImVec2(1, 1),
+                        icon_col);
+    return;
+  }
+
   float r = icon_draw_size * 0.5f;
 
   // Curve approximation using segments

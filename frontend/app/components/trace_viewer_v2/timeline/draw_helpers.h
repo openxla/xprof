@@ -6,6 +6,10 @@
 
 namespace traceviewer {
 
+extern ImTextureID pin_icon_tex;
+extern ImTextureID visibility_icon_tex;
+extern ImTextureID visibility_off_icon_tex;
+
 // Draws a pushpin icon inside a square area.
 void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
                  Pixel icon_draw_size, ImU32 icon_col, bool is_pinned);

@@ -121,7 +121,11 @@
     <as-split direction="vertical" (dragEnd)="onDragEnd($event)">
       <as-split-area [size]="timelineHeightPercent">
         <div class="canvas-container" #canvasContainer>
-          <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()"></canvas>
+          <canvas class="emscripten" id="canvas" layoutsubtree oncontextmenu="event.preventDefault()" (mousedown)="blurActiveElement()">
+            <div id="pin-icon" class="material-icons" style="font-size: 24px; width: 24px; height: 24px; line-height: 24px; text-align: center; color: white; background: transparent; pointer-events: none;">push_pin</div>
+            <div id="visibility-icon" class="material-icons" style="font-size: 24px; width: 24px; height: 24px; line-height: 24px; text-align: center; color: white; background: transparent; pointer-events: none;">visibility</div>
+            <div id="visibility-off-icon" class="material-icons" style="font-size: 24px; width: 24px; height: 24px; line-height: 24px; text-align: center; color: white; background: transparent; pointer-events: none;">visibility_off</div>
+          </canvas>
         </div>
       </as-split-area>
       <as-split-area [size]="detailHeightPercent" [visible]="!!selectedEvent">

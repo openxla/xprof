@@ -288,6 +288,10 @@ EXPORT_C int GetOpcodeAtIndex(LloAnalysisHandle handle, int index) {
 EXPORT_C int GetOpcodeCountAtIndex(LloAnalysisHandle handle, int index) {
   return GetOpcodeCountAtIndexImpl(handle, index);
 }
+EXPORT_C const char* GetLloAnalysisJson(LloAnalysisHandle handle,
+                                        const char* kernel_filter) {
+  return GetLloAnalysisJsonImpl(handle, kernel_filter);
+}
 EXPORT_C const char* GetLloDebugString(LloAnalysisHandle handle) {
   return GetLloDebugStringImpl(handle);
 }

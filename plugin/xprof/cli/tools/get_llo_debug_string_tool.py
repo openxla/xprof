@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import tempfile
 import traceback
 
@@ -15,7 +16,7 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
   """Fetches xspace and runs LLO analysis to return the debug string.
 
   Args:
-      session_id: The unique XProf session ID.
+      session_id: The unique XProf session ID or xplane file path.
       host: The host to get the xspace for.
 
   Returns:
@@ -37,6 +38,46 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
           ),
           indent=2,
       )
+
+    session_str = str(session_id)
+    if (
+        os.path.exists(session_str)
+        or session_str.startswith(("/", ".", "\\"))
+        or session_str.endswith((".xplane.pb", ".xspace.pb"))
+    ):
+      target_file = session_str
+      if os.path.isdir(target_file):
+        for root, _, files in os.walk(target_file):
+          for f in files:
+            if f.endswith((".xplane.pb", ".xspace.pb")):
+              target_file = os.path.join(root, f)
+              break
+          if target_file != session_str:
+            break
+      debug_str = _pywrap_profiler_plugin.get_llo_debug_string(target_file)
+      if not debug_str:
+        return json.dumps(
+            dict(
+                status="UNAVAILABLE",
+                reason="LLO_DATA_ABSENT",
+                error=(
+                    "Failed to extract LLO debug string (LLO trace data is not"
+                    " available in this session)."
+                ),
+                remediation=(
+                    "To enable LLO tracing, ensure the workload is executed"
+                    " with"
+                    ' LIBTPU_INIT_ARGS="--xla_xprof_enable_custom_call_tracing=true'
+                    ' --xla_xprof_register_llo_debug_info=true" exported'
+                    " strictly BEFORE 'import jax'. Prerequisites: Python 3.11+"
+                    " (Python 3.12 recommended via uv), JAX >= 0.11.0 (default"
+                    " Cloud TPU VM images running Python 3.10 cap JAX at 0.6.2"
+                    " and lack LLO flag support), and xprof-nightly."
+                ),
+            ),
+            indent=2,
+        )
+      return json.dumps({"debug_string": debug_str}, indent=2)
 
     hosts = client.get_hosts(session_id, with_metadata=False)
     available_hosts = hosts if hosts else []

@@ -271,11 +271,15 @@ py_test(
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
+        "//plugin/xprof/cli/tools:get_llo_analysis_tool",
+        "//plugin/xprof/cli/tools:get_llo_debug_string_tool",
         "//plugin/xprof/cli/tools:get_overview_tool",
         "//plugin/xprof/cli/tools:get_top_hlo_ops_tool",
         "//plugin/xprof/cli/tools:get_utilization_viewer_tool",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@org_xprof//xprof/embedded/llo_analysis:llo_lite_py_pb2",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_py_proto",
     ],
 )
 

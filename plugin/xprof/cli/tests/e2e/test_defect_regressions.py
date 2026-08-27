@@ -1,6 +1,6 @@
-"""Tier D: Defect Regressions Test Suite (D-01 to D-13).
+"""Tier D: Defect Regressions Test Suite (D-01 to D-17).
 
-Guarantees that all 13 discovered defects from the E2E Trace Analysis
+Guarantees that all 17 discovered defects from the E2E Trace Analysis
 specification remain permanently resolved.
 """
 
@@ -15,6 +15,8 @@ from absl.testing import parameterized
 # pylint: disable=g-import-not-at-top
 try:
   from absl.testing import absltest
+  from tensorflow.tsl.profiler.protobuf import xplane_pb2  # pylint: disable=g-direct-tensorflow-import
+  from google3.third_party.xprof.embedded.llo_analysis import llo_lite_pb2
   from xprof.cli.internal import decorators
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
@@ -252,6 +254,99 @@ class DefectRegressionsTest(parameterized.TestCase):
     self.assertIn("Chip", col_ids)
     self.assertIn("Kernel", col_ids)
     self.assertIn("Counter", col_ids)
+
+  def test_d17_llo_analysis_opcode_resolution_and_multi_module(self):
+    """D-17: LLO analysis resolves string opcodes and handles multi-modules."""
+    try:
+      from xprof.convert import _pywrap_profiler_plugin  # pylint: disable=g-import-not-at-top
+
+      built_with_embedded = _pywrap_profiler_plugin.built_with_embedded()
+    except (ImportError, AttributeError):
+      built_with_embedded = False
+
+    if not built_with_embedded:
+      self.skipTest("Embedded LLO analysis is required for D-17.")
+
+    # 1. Test against trace without LLO data (t1_path)
+    res_raw = get_llo_analysis_tool.get_llo_analysis(self.t1_path)
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertEqual(res.get("status"), "UNAVAILABLE")
+    self.assertIn("not available", res.get("error", ""))
+
+    # 2. Test against synthetic trace with LLO module data
+    if "xplane_pb2" in globals() and "llo_lite_pb2" in globals():
+      temp_dir = tempfile.mkdtemp()
+      self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+      synth_file = os.path.join(temp_dir, "synth_llo.xplane.pb")
+
+      xspace = xplane_pb2.XSpace()
+      plane = xspace.planes.add()
+      plane.name = "/device:TPU:0"
+      line = plane.lines.add()
+      line.name = "Steps"
+      event_meta = plane.event_metadata[1]
+      event_meta.id = 1
+      event_meta.name = "pallas_matmul_kernel"
+      event = line.events.add()
+      event.metadata_id = 1
+
+      llo_mod = llo_lite_pb2.LloModuleProto()
+      llo_mod.hlo_instruction_name = "pallas_matmul_hlo"
+      member1 = llo_mod.top_region.members.add()
+      member1.instruction.opcode = 321  # VECTOR_ADD_F32
+      member2 = llo_mod.top_region.members.add()
+      member2.instruction.opcode = 185  # VECTOR_MATMUL
+      member3 = llo_mod.top_region.members.add()
+      member3.instruction.opcode = 99999  # Unknown opcode
+
+      stat_meta = plane.stat_metadata[1]
+      stat_meta.name = "llo_bundle"
+      stat_meta.id = 1
+
+      stat = event.stats.add()
+      stat.metadata_id = 1
+      stat.bytes_value = llo_mod.SerializeToString()
+
+      with open(synth_file, "wb") as f:
+        f.write(xspace.SerializeToString())
+
+      res_synth_raw = get_llo_analysis_tool.get_llo_analysis(synth_file)
+      res_synth = json.loads(res_synth_raw)
+      self.assertTrue(res_synth.get("success", False))
+      self.assertEqual(res_synth.get("total_modules"), 1)
+      self.assertLen(res_synth.get("modules", []), 1)
+
+      mod = res_synth["modules"][0]
+      self.assertEqual(mod.get("kernel_name"), "pallas_matmul_kernel")
+      self.assertIn("OPCODE_VECTOR_ADD_F32", mod.get("opcode_histogram", {}))
+      self.assertIn("OPCODE_VECTOR_MATMUL", mod.get("opcode_histogram", {}))
+      self.assertIn("OPCODE_UNKNOWN_99999", mod.get("opcode_histogram", {}))
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_VECTOR_ADD_F32"], 1)
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_VECTOR_MATMUL"], 1)
+      self.assertEqual(mod["opcode_histogram"]["OPCODE_UNKNOWN_99999"], 1)
+
+      exec_units = mod.get("execution_unit_summary", {})
+      self.assertIn("VALU", exec_units)
+      self.assertIn("MXU", exec_units)
+      self.assertIn("OTHER", exec_units)
+      self.assertEqual(exec_units["VALU"], 1)
+      self.assertEqual(exec_units["MXU"], 1)
+      self.assertEqual(exec_units["OTHER"], 1)
+
+      # Test kernel filtering
+      res_filtered_raw = get_llo_analysis_tool.get_llo_analysis(
+          synth_file, kernel="non_existent_kernel"
+      )
+      res_filtered = json.loads(res_filtered_raw)
+      self.assertEqual(res_filtered.get("status"), "UNAVAILABLE")
+
+      res_matched_raw = get_llo_analysis_tool.get_llo_analysis(
+          synth_file, kernel="pallas_matmul"
+      )
+      res_matched = json.loads(res_matched_raw)
+      self.assertTrue(res_matched.get("success", False))
+      self.assertEqual(res_matched.get("total_modules"), 1)
 
   def test_fingerprint_stability_and_cache_warmup(self):
     """Criteria 1 & 2: Consecutive calls produce stable fingerprint and sub-second warm execution."""

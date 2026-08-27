@@ -8,6 +8,7 @@ import dataclasses
 import enum
 import glob
 import itertools
+import json
 import os
 from typing import Any
 
@@ -546,44 +547,26 @@ if built_with_embedded():
   _lib.GetOpcodeCountAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
   _lib.GetOpcodeCountAtIndex.restype = ctypes.c_int
 
+  _lib.GetLloAnalysisJson.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+  _lib.GetLloAnalysisJson.restype = ctypes.c_char_p
+
   _lib.GetLloDebugString.argtypes = [ctypes.c_void_p]
   _lib.GetLloDebugString.restype = ctypes.c_char_p
 
   _lib.FreeLloAnalysis.argtypes = [ctypes.c_void_p]
   _lib.FreeLloAnalysis.restype = None
 
-  def analyze_llo(xspace_filename: str) -> dict[str, Any]:
+  def analyze_llo(xspace_filename: str, kernel: str = "") -> dict[str, Any]:
     """Analyzes an LLO file."""
     handle = _lib.CreateLloAnalysis(xspace_filename.encode("utf-8"))
     if not handle:
       return {"success": False}
-
     try:
-      total_instructions = _lib.GetTotalInstructions(handle)
-      unique_registers = _lib.GetUniqueRegisters(handle)
-      num_opcodes = _lib.GetNumUniqueOpcodes(handle)
-
-      if (
-          total_instructions == -1
-          or unique_registers == -1
-          or num_opcodes == -1
-      ):
+      kernel_bytes = kernel.encode("utf-8") if kernel else None
+      json_str = _lib.GetLloAnalysisJson(handle, kernel_bytes)
+      if not json_str:
         return {"success": False}
-
-      opcodes = {}
-      for i in range(num_opcodes):
-        opcode = _lib.GetOpcodeAtIndex(handle, i)
-        count = _lib.GetOpcodeCountAtIndex(handle, i)
-        if opcode == -1 or count == -1:
-          return {"success": False}
-        opcodes[opcode] = count
-
-      return {
-          "success": True,
-          "total_instructions": total_instructions,
-          "unique_registers": unique_registers,
-          "opcode_histogram": opcodes,
-      }
+      return json.loads(json_str.decode("utf-8"))
     finally:
       _lib.FreeLloAnalysis(handle)
 
@@ -604,8 +587,8 @@ if built_with_embedded():
 
 else:
 
-  def analyze_llo(xspace_filename: str) -> dict[str, Any]:
-    del xspace_filename
+  def analyze_llo(xspace_filename: str, kernel: str = "") -> dict[str, Any]:
+    del xspace_filename, kernel
     raise NotImplementedError("analyze_llo is not supported in this build")
 
   def get_llo_debug_string(xspace_filename: str) -> str:

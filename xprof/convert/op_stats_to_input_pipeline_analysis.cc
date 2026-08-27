@@ -1880,14 +1880,14 @@ DataTable GenerateTpuInputPipelineAnalysisDataTable(
   const StepSummary& step_time_summary = result.step_time_summary();
   data_table.AddCustomProperty("hardware_type", result.hardware_type());
   data_table.AddCustomProperty("steptime_ms_average",
-                               OneDigit(step_time_summary.average()));
+                               TwoDigits(step_time_summary.average()));
   data_table.AddCustomProperty(
       "steptime_ms_standard_deviation",
-      OneDigit(step_time_summary.standard_deviation()));
+      TwoDigits(step_time_summary.standard_deviation()));
   data_table.AddCustomProperty("steptime_ms_minimum",
-                               OneDigit(step_time_summary.minimum()));
+                               TwoDigits(step_time_summary.minimum()));
   data_table.AddCustomProperty("steptime_ms_maximum",
-                               OneDigit(step_time_summary.maximum()));
+                               TwoDigits(step_time_summary.maximum()));
 
   const StepSummary& input_percent_summary = result.input_percent_summary();
   data_table.AddCustomProperty("infeed_percent_average",

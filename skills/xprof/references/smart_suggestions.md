@@ -8,9 +8,8 @@ HLO graph patterns.
 
 ## 1. Dynamic Metric-Based Bottleneck Rules
 
-The open-source smart-suggestion engine exposes a single dynamic,
-metric-based bottleneck rule to third-party (3P) users; the remaining rules are
-internal-only. Use `xprof get_overview` and `xprof get_kpi_metrics` to extract
+The open-source smart-suggestion engine exposes a single dynamic, metric-based
+bottleneck rule. Use `xprof get_overview` and `xprof get_kpi_metrics` to extract
 the runtime utilization metrics this rule relies on.
 
 ### Barrier / Synchronization Bound (`BarrierCoresRule`)

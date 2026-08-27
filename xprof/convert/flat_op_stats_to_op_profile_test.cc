@@ -230,6 +230,130 @@ TEST(FlatOpStatsToOpProfileTest, HighlyNestedProvenance) {
   EXPECT_EQ(layer1_node->children(0).name(), "block1");
 }
 
+TEST(FlatOpStatsToOpProfileTest,
+     DeduplicationGroupingWithAndWithoutDuplicates) {
+  OpStats op_stats;
+  FlatOpMetricsDb& db = *op_stats.mutable_flat_device_op_metrics_db();
+  db.set_total_time_ps(10000);
+  db.set_total_op_time_ps(8000);
+
+  auto* perf_env = op_stats.mutable_perf_env();
+  perf_env->set_peak_tera_flops_per_second(10.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+  perf_env->add_peak_bws_giga_bytes_per_second(100.0);
+
+  // Category 1: "convolution" with duplicate ops and a single op without
+  // duplicates. Duplicate ops sharing deduplicated_name "conv_dedup".
+  auto conv_op1 = CreateOpMetrics("conv_op_1", 1, 500, "convolution");
+  conv_op1.set_deduplicated_name("conv_dedup");
+  *db.add_op_instances() = conv_op1;
+
+  auto conv_op2 = CreateOpMetrics("conv_op_2", 2, 400, "convolution");
+  conv_op2.set_deduplicated_name("conv_dedup");
+  *db.add_op_instances() = conv_op2;
+
+  // Single op with empty deduplicated_name in the same category.
+  auto conv_single = CreateOpMetrics("conv_single_op", 3, 300, "convolution");
+  conv_single.set_deduplicated_name("");
+  *db.add_op_instances() = conv_single;
+
+  // Category 2: "fusion" with mixed deduplication.
+  // Duplicate ops sharing deduplicated_name "fusion_dedup".
+  auto fusion_op1 = CreateOpMetrics("fusion_op_1", 4, 600, "fusion");
+  fusion_op1.set_deduplicated_name("fusion_dedup");
+  *db.add_op_instances() = fusion_op1;
+
+  auto fusion_op2 = CreateOpMetrics("fusion_op_2", 5, 200, "fusion");
+  fusion_op2.set_deduplicated_name("fusion_dedup");
+  *db.add_op_instances() = fusion_op2;
+
+  // Single op with empty deduplicated_name in "fusion".
+  auto fusion_single = CreateOpMetrics("fusion_single_op", 6, 700, "fusion");
+  fusion_single.set_deduplicated_name("");
+  *db.add_op_instances() = fusion_single;
+
+  // Category 3: "dense" with only a single op having empty deduplicated_name.
+  auto dense_single = CreateOpMetrics("dense_single_op", 7, 800, "dense");
+  dense_single.set_deduplicated_name("");
+  *db.add_op_instances() = dense_single;
+
+  op_profile::Profile profile;
+  ConvertFlatOpStatsToOpProfile(op_stats, HardwareType::TPU, profile, 100,
+                                OpProfileGrouping::kByCategory);
+
+  ASSERT_TRUE(profile.has_by_category());
+  const auto& by_cat = profile.by_category();
+
+  // Root should have 3 categories: convolution, fusion, dense.
+  ASSERT_EQ(by_cat.children_size(), 3);
+
+  // Find category nodes.
+  const Node* conv_cat = nullptr;
+  const Node* fusion_cat = nullptr;
+  const Node* dense_cat = nullptr;
+  for (const auto& cat_node : by_cat.children()) {
+    if (cat_node.name() == "convolution") conv_cat = &cat_node;
+    if (cat_node.name() == "fusion") fusion_cat = &cat_node;
+    if (cat_node.name() == "dense") dense_cat = &cat_node;
+  }
+
+  ASSERT_NE(conv_cat, nullptr);
+  ASSERT_NE(fusion_cat, nullptr);
+  ASSERT_NE(dense_cat, nullptr);
+
+  // Validate "convolution" category:
+  // Should have 2 children: 1 deduplication group node and 1 standalone single
+  // op node.
+  ASSERT_EQ(conv_cat->children_size(), 2);
+  const Node* conv_dedup_node = nullptr;
+  const Node* conv_single_node = nullptr;
+  for (const auto& child : conv_cat->children()) {
+    if (child.name() == "conv_op_1 and its duplicate(s)") {
+      conv_dedup_node = &child;
+    } else if (child.name() == "conv_single_op") {
+      conv_single_node = &child;
+    }
+  }
+  ASSERT_NE(conv_dedup_node, nullptr);
+  EXPECT_EQ(conv_dedup_node->children_size(), 2);
+  EXPECT_EQ(conv_dedup_node->children(0).name(), "conv_op_1");
+  EXPECT_EQ(conv_dedup_node->children(1).name(), "conv_op_2");
+
+  ASSERT_NE(conv_single_node, nullptr);
+  // Single op wrapper is flattened directly into category without "... and its
+  // duplicate(s)" wrapper.
+  EXPECT_EQ(conv_single_node->children_size(), 0);
+
+  // Validate "fusion" category:
+  // Should have 2 children: 1 deduplication group and 1 standalone single op
+  // node.
+  ASSERT_EQ(fusion_cat->children_size(), 2);
+  const Node* fusion_dedup_node = nullptr;
+  const Node* fusion_single_node = nullptr;
+  for (const auto& child : fusion_cat->children()) {
+    if (child.name() == "fusion_op_1 and its duplicate(s)") {
+      fusion_dedup_node = &child;
+    } else if (child.name() == "fusion_single_op") {
+      fusion_single_node = &child;
+    }
+  }
+  ASSERT_NE(fusion_dedup_node, nullptr);
+  EXPECT_EQ(fusion_dedup_node->children_size(), 2);
+  EXPECT_EQ(fusion_dedup_node->children(0).name(), "fusion_op_1");
+  EXPECT_EQ(fusion_dedup_node->children(1).name(), "fusion_op_2");
+
+  ASSERT_NE(fusion_single_node, nullptr);
+  EXPECT_EQ(fusion_single_node->children_size(), 0);
+
+  // Validate "dense" category:
+  // Should have 1 child which is flattened directly without deduplication
+  // grouping node.
+  ASSERT_EQ(dense_cat->children_size(), 1);
+  EXPECT_EQ(dense_cat->children(0).name(), "dense_single_op");
+  EXPECT_EQ(dense_cat->children(0).children_size(), 0);
+}
+
 }  // namespace
 }  // namespace profiler
 }  // namespace tensorflow

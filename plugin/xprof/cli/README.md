@@ -33,6 +33,8 @@ The CLI provides 24 core tools for comprehensive accelerator profile analysis:
 
 ### HLO & Compiler Analysis
 
+> **Prerequisite (optional):** Tools that parse the raw HLO proto rely on the generated `hlo_pb2` Python bindings, which ship in the `tensorflow` package (`tensorflow/compiler/xla/service/hlo_pb2.py`). If HLO-proto-based output is empty or reported as unavailable, install `tensorflow` (or the lighter `tensorflow-cpu`) into the same environment; xprof auto-detects it and no code change is required. Note that `jax`/`jaxlib` do **not** provide these bindings.
+
 *   **`get_top_hlo_ops`**: Fetches the most expensive HLO operations sorted by execution time, FLOPs, or memory traffic.
 *   **`get_hlo_op_profile`**: Formatted HLO operation profile breakdown table.
 *   **`list_hlo_modules`**: Lists all HLO modules available in the profile session.

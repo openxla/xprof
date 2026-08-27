@@ -71,6 +71,9 @@
 :host ::ng-deep .ir-text-panel .mat-expansion-panel-body {
   padding: 0 0 0 2px; // Distance between the panel and the content start
   margin: 0;
+}
+
+.legacy-table-wrapper {
   white-space: nowrap;
   overflow-x: auto; // Horizontal scroll if needed
 }

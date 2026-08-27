@@ -4,14 +4,15 @@ import {GRAPH_TYPE_DEFAULT, GRAPH_TYPE_ORIGINAL_HLO} from 'org_xprof/frontend/ap
 import {FileExtensionType} from 'org_xprof/frontend/app/common/constants/enums';
 import {ProfilerConfig} from 'org_xprof/frontend/app/common/interfaces/capture_profile';
 import {DATA_SERVICE_INTERFACE_TOKEN, DataServiceV2Interface} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2_interface';
-import {Address} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
+import {Address, Content} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getProfilerConfig, getTagsState} from 'org_xprof/frontend/app/store/selectors';
 import {ReplaySubject} from 'rxjs';
 import {takeUntil} from 'rxjs/operators';
 
 const CUSTOM_CALL_CATEGORY = 'custom-call';
 
-enum CompilerPass {
+/** Definitions for the current compiler pass used to generate IR. */
+export enum CompilerPass {
   HLO_OPTIMIZED = 'HLO(optimized)',
   HLO_UNOPTIMIZED = 'HLO(original)',
   MOSAIC_ORIGINAL = 'Mosaic(original)',
@@ -211,23 +212,24 @@ export class SourceMapper implements OnDestroy, OnChanges {
   }
 
   get irTextFocusLineIndex(): number {
+    let index = 0;
     switch (this.selectedCompilerPass) {
       case CompilerPass.HLO_OPTIMIZED:
-        return this.irTextLines.findIndex(
-                   (line: string) => line.includes(`${this.opName} =`)) ||
-            0;
-      case CompilerPass.HLO_UNOPTIMIZED:
-        // Currently not able to map from HLO op to its original text line.
-        return 0;
+        index = this.irTextLines.findIndex(
+                   (line: string) => line.includes(`${this.opName} =`));
+        break;
       case CompilerPass.MOSAIC_ORIGINAL:
         // Assumptions: the MLIR text contains the key word kernel in the kernel
         // definition line.
-        return this.irTextLines.findIndex(
-                   (line: string) => line.includes('kernel')) ||
-            0;
+        index = this.irTextLines.findIndex(
+                   (line: string) => line.includes('kernel'));
+        break;
+      case CompilerPass.HLO_UNOPTIMIZED:
       default:
-        return 0;
+        index = 0;
+        break;
     }
+    return index !== -1 ? index : 0;
   }
 
   get irTextLinesForDisplay(): string[] {
@@ -242,7 +244,60 @@ export class SourceMapper implements OnDestroy, OnChanges {
         this.irTextLines.length - 1,
         this.irTextFocusLineIndex + this.sourceContextWindow / 2,
     );
-    return this.irTextLines.slice(minLineIndex, maxLineIndex);
+    return this.irTextLines.slice(minLineIndex, maxLineIndex + 1);
+  }
+
+  private lastIrTextForFrame = '';
+  private lastFocusLineIndex: number = -1;
+  private lastContextWindow: number = -1;
+  private irTextFrameCache: Content | undefined = undefined;
+  private focusLineIndexForDisplayCache: number | undefined = undefined;
+
+  get irTextFrame(): Content | undefined {
+    this.updateFrameCacheIfNeeded();
+    return this.irTextFrameCache;
+  }
+
+  get focusLineIndexForDisplay(): number | undefined {
+    this.updateFrameCacheIfNeeded();
+    return this.focusLineIndexForDisplayCache;
+  }
+
+  /**
+   * Caches the computed frame object to preserve object identity across Angular
+   * digest cycles. Without caching, returning a new object literal would cause
+   * the child `source-code-editor` component to detect an input reference change
+   * and unnecessarily destroy/recreate the heavy Monaco editor instance.
+   */
+  private updateFrameCacheIfNeeded(): void {
+    const currentIrText = this.irText;
+    const currentFocus = this.irTextFocusLineIndex;
+    if (
+      this.lastIrTextForFrame !== currentIrText ||
+      this.lastFocusLineIndex !== currentFocus ||
+      this.lastContextWindow !== this.sourceContextWindow
+    ) {
+      this.lastIrTextForFrame = currentIrText;
+      this.lastFocusLineIndex = currentFocus;
+      this.lastContextWindow = this.sourceContextWindow;
+
+      const lines = this.irTextLinesForDisplay;
+
+      const minLineIndex = Math.max(
+        0,
+        currentFocus - this.sourceContextWindow / 2,
+      );
+      this.focusLineIndexForDisplayCache = currentFocus - minLineIndex + 1;
+
+      const address = new Address(
+        'ir_text',
+        this.focusLineIndexForDisplayCache,
+        this.focusLineIndexForDisplayCache - 1, // Lines before this makes firstLine = 1
+        Math.max(0, lines.length - this.focusLineIndexForDisplayCache) // Lines after
+      );
+
+      this.irTextFrameCache = new Content(address, lines, []);
+    }
   }
 
   trackByIndex(index: number, item: string): number {

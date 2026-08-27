@@ -46,30 +46,36 @@
         </mat-expansion-panel-header>
 
         <div *ngIf="loaded" class="ir-text-content">
-            <table>
-              <thead>
-                <tr>
-                  <th><pre class="line-number"></pre></th>
-                  <th><pre class="line-content"></pre></th>
-                </tr>
-              </thead>
-            <tbody>
-              <ng-container *ngIf="irText && irText.length > 0; else noLines">
-                <tr
-                  *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
-                  [class.line-selected]="isFocusLine(line)">
-                  <td><pre class="line-number"><code>{{ 1 + lineIndex }}</code></pre></td>
-                  <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
-                </tr>
-              </ng-container>
+          <div class="legacy-table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th><pre class="line-number"></pre></th>
+                <th><pre class="line-content"></pre></th>
+              </tr>
+            </thead>
+          <tbody>
+            <ng-container *ngIf="irText && irText.length > 0; else noLines">
+              <tr
+                *ngFor="let line of irTextLinesForDisplay; let lineIndex = index; trackBy: trackByIndex"
+                [class.line-selected]="isFocusLine(line)">
+                <td><pre class="line-number"><code>{{ 1 + lineIndex }}</code></pre></td>
+                <td><pre class="line-content"><code [innerHTML]="line"></code></pre></td>
+              </tr>
+            </ng-container>
 
-              <ng-template #noLines>
-                <tr>
-                  <td colspan="2">There are no lines to display.</td>
-                </tr>
-              </ng-template>
-            </tbody>
-          </table>
+            <ng-template #noLines>
+              <tr>
+                <td colspan="2">There are no lines to display.</td>
+              </tr>
+            </ng-template>
+          </tbody>
+        </table>
+        </div>
+
+          <ng-template #noLines>
+            <div>There are no lines to display.</div>
+          </ng-template>
         </div>
 
         <div *ngIf="!loaded">Loading...</div>

@@ -78,6 +78,24 @@ struct Group {
   int start_level = 0;
   int nesting_level = 0;
   bool expanded = false;
+
+  // Parent index in groups vector, or -1 for top-level processes.
+  int parent_index = -1;
+  // List of child process/thread indices in the groups vector.
+  // Typically 2-10 children per process group.
+  std::vector<int> child_indices = {};
+
+  // Number of timeline event levels occupied by this track.
+  int level_count = 0;
+  // Indicates if this group has nested child tracks.
+  bool has_children = false;
+
+  // Cached layout offset (screen Y coordinate in pixels).
+  mutable Pixel offset = 0.0f;
+  // Cached full height (in pixels) of the track based on level count.
+  mutable Pixel height = 0.0f;
+  // Indicates if the track is visible (not hidden by a collapsed parent).
+  mutable bool visible = true;
 };
 
 struct FlowLine {
@@ -346,6 +364,11 @@ class Timeline {
 
   void UpdateLevelPositions(const FlameChartTimelineData& data);
   void BuildFlattenedGroups(const FlameChartTimelineData& data);
+  void CategorizeGroupsForTrackManagement(
+      const FlameChartTimelineData& data,
+      std::vector<const Group*>& hidden_groups,
+      std::vector<const Group*>& pinned_groups,
+      std::vector<const Group*>& all_groups);
 
   // Expands the minimum necessary tracks to make the event visible.
   void ExpandRelatedTracks(int event_index);
@@ -414,6 +437,12 @@ class Timeline {
   static void CalculateBezierControlPoints(float start_x, float start_y,
                                            float end_x, float end_y,
                                            ImVec2& cp0, ImVec2& cp1);
+
+  // Gets the starting level index of the group immediately following the group
+  // at the given index. If the given group is the last one, returns the total
+  // number of levels.
+  static int GetNextGroupStartLevel(const FlameChartTimelineData& data,
+                                    int group_index);
 
   // Checks if the visible time range is close to the edge of the loaded data
   // range. If the user pans or zooms to an area where data might soon be
@@ -489,6 +518,7 @@ class Timeline {
   absl::flat_hash_set<int> matching_event_indices_;
 
   void NavigateToSearchResult(const SearchResult& result);
+  void BackfillGroupLevelCount(FlameChartTimelineData& data);
 
   // Applies snapping to selected time ranges for the given range.
   void ApplySnapping(TimeRange& range);
@@ -806,6 +836,9 @@ class Timeline {
 
   // Flattened sequence of virtual headers and group tracks.
   // Pre-calculated in UpdateLevelPositions to avoid CPU overhead in Draw().
+  // This is the primary data structure used for rendering data as it
+  // currently appears in the timeline, including collapsed groups and hidden
+  // tracks.
   std::vector<const Group*> flattened_groups_;
 };
 

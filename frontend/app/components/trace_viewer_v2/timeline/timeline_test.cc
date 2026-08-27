@@ -187,6 +187,27 @@ TEST(TimelineTest, BezierControlPointCalculation) {
   EXPECT_FLOAT_EQ(cp1.y, 150.0f);
 }
 
+TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
+  FlameChartTimelineData data;
+  data.events_by_level.resize(5);
+
+  Group group;
+  group.start_level = 1;
+  group.level_count = 2;
+  data.groups.push_back(group);
+
+  // In-bounds should return start_level + level_count = 3
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 0), 3);
+
+  // Out-of-bounds (negative index) should safely
+  // return events_by_level size = 5
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, -1), 5);
+
+  // Out-of-bounds (too large index) should safely
+  // return events_by_level size = 5
+  EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
+}
+
 TEST(TimelineTest, CalculateEventRect_EventCompletelyOutsideLeft) {
   ColorPalette palette = ColorPalette::Default();
   Timeline timeline(palette);
@@ -8366,6 +8387,8 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
       .start_level = 0,
       .nesting_level = 0,
       .expanded = false,
+      .child_indices = {1},
+      .has_children = true,
   });
 
   // Group 1: Child (nesting_level = 1)
@@ -8375,6 +8398,8 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
       .start_level = 1,
       .nesting_level = 1,
       .expanded = true,
+      .parent_index = 0,
+      .has_children = true,
   });
 
   timeline_.SetTimelineData(std::move(data));
@@ -8404,6 +8429,8 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
+      .child_indices = {1},
+      .has_children = true,
   });
 
   // Group 1: Parent (Collapsed, nesting_level = 1)
@@ -8413,6 +8440,9 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
+      .parent_index = 0,
+      .child_indices = {2},
+      .has_children = true,
   });
 
   // Group 2: Child (nesting_level = 2)
@@ -8422,6 +8452,8 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
+      .parent_index = 1,
+      .has_children = false,
   });
 
   timeline_.SetTimelineData(std::move(data));
@@ -8447,6 +8479,8 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 0,
       .nesting_level = 0,
       .expanded = true,
+      .child_indices = {1, 3},
+      .has_children = true,
   });
 
   // Group 1: Child A (Collapsed, nesting_level = 1)
@@ -8456,6 +8490,9 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 1,
       .nesting_level = 1,
       .expanded = false,
+      .parent_index = 0,
+      .child_indices = {2},
+      .has_children = true,
   });
 
   // Group 2: Grandchild A (nesting_level = 2)
@@ -8465,6 +8502,8 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 2,
       .nesting_level = 2,
       .expanded = true,
+      .parent_index = 1,
+      .has_children = false,
   });
 
   // Group 3: Child B (Expanded, nesting_level = 1, sibling of Child A)
@@ -8474,6 +8513,8 @@ TEST_F(MockTimelineImGuiFixture,
       .start_level = 3,
       .nesting_level = 1,
       .expanded = true,
+      .parent_index = 0,
+      .has_children = false,
   });
 
   timeline_.SetTimelineData(std::move(data));

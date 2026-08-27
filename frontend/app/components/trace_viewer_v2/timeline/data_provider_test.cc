@@ -1246,11 +1246,15 @@ TEST_F(DataProviderTest, ProcessSingleCounterEvent) {
 
   EXPECT_EQ(data.groups[0].name, "Process_1");
   EXPECT_EQ(data.groups[0].nesting_level, 1);
+  EXPECT_EQ(data.groups[0].level_count, 1);
+  EXPECT_TRUE(data.groups[0].has_children);
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1));
 
   EXPECT_EQ(data.groups[1].name, "Counter A");
   EXPECT_EQ(data.groups[1].type, Group::Type::kCounter);
   EXPECT_EQ(data.groups[1].nesting_level, 2);
   EXPECT_TRUE(data.groups[1].expanded);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
 
   ASSERT_TRUE(data.counter_data_by_group_index.count(1));
 
@@ -1442,14 +1446,25 @@ TEST_F(DataProviderTest, CounterTrackIncrementsLevel) {
 
   ASSERT_THAT(data.groups, SizeIs(5));
 
+  EXPECT_EQ(data.groups[0].level_count, 2);
+  EXPECT_TRUE(data.groups[0].has_children);
+  EXPECT_THAT(data.groups[0].child_indices, ElementsAre(1, 2));
+
   EXPECT_EQ(data.groups[1].name, "Thread_1");
   EXPECT_EQ(data.groups[1].start_level, 0);
+  EXPECT_EQ(data.groups[1].parent_index, 0);
 
   EXPECT_EQ(data.groups[2].name, "CounterA");
   EXPECT_EQ(data.groups[2].start_level, 1);
+  EXPECT_EQ(data.groups[2].parent_index, 0);
+
+  EXPECT_EQ(data.groups[3].level_count, 1);
+  EXPECT_TRUE(data.groups[3].has_children);
+  EXPECT_THAT(data.groups[3].child_indices, ElementsAre(4));
 
   EXPECT_EQ(data.groups[4].name, "Thread_2");
   EXPECT_EQ(data.groups[4].start_level, 2);
+  EXPECT_EQ(data.groups[4].parent_index, 3);
 }
 
 TEST_F(DataProviderTest, ProcessCounterEventReservesCapacityCorrectly) {

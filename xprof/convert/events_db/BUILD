@@ -98,6 +98,11 @@ cc_test(
 )
 
 cc_library(
+    name = "tpu_component",
+    hdrs = ["tpu_component.h"],
+)
+
+cc_library(
     name = "record_consumer",
     hdrs = ["record_consumer.h"],
     visibility = ["//visibility:public"],

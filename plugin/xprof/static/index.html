@@ -53,10 +53,12 @@
 
     function setReloadOfIFrame() {
       try {
-        const iFrame = window.parent.document.querySelector('iframe');
-        iFrame.reload = () => {
-          document.dispatchEvent(new Event('tensorboard-reload'));
-        };
+        const iFrame = window.parent?.document?.querySelector('iframe');
+        if (iFrame) {
+          iFrame.reload = () => {
+            document.dispatchEvent(new Event('tensorboard-reload'));
+          };
+        }
       } catch (err) {
         console.error(err);
       }

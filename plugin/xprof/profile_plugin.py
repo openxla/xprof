@@ -1408,8 +1408,8 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
       return respond(str(e), 'text/plain', code=500)
     except ValueError as e:
       return respond(str(e), 'text/plain', code=500)
-    except FileNotFoundError as e:
-      return respond(str(e), 'text/plain', code=500)
+    except (KeyError, FileNotFoundError) as e:
+      return respond(str(e), 'text/plain', code=404)
     except IOError as e:
       return respond(str(e), 'text/plain', code=500)
 

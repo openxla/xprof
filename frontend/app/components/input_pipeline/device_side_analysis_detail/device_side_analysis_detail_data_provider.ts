@@ -16,8 +16,12 @@ export class DeviceSideAnalysisDetailDataProvider extends DefaultDataProvider {
     const dataTable = new google.visualization.DataTable(data);
     const dataView = new google.visualization.DataView(dataTable);
 
-    dataView.setColumns(
-        this.columnIds.map(columnId => dataTable.getColumnIndex(columnId)));
+    const validColumns = this.columnIds
+        .map(columnId => dataTable.getColumnIndex(columnId))
+        .filter(idx => idx >= 0);
+    if (validColumns.length > 0) {
+      dataView.setColumns(validColumns);
+    }
 
     this.dataTable = dataView.toDataTable();
   }

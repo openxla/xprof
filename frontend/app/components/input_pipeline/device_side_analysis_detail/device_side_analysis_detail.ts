@@ -124,7 +124,7 @@ export class DeviceSideAnalysisDetail implements OnChanges {
     dataProvider: this.dataProviderForLineChart,
     options: {
       hAxis: {title: 'Step Number'},
-      vAxis: {title: '% of step time', format: '###.###\'%\''},
+      vAxis: {title: '% of step time', format: '###.###\'%\'', minValue: 0, viewWindow: {min: 0, max: 100}},
       chartArea: {
         left: 100,
         top: 10,

@@ -25,7 +25,7 @@ import {
   getRunToolsMap,
 } from 'org_xprof/frontend/app/store/selectors';
 import {firstValueFrom, Observable, ReplaySubject} from 'rxjs';
-import {filter, takeUntil} from 'rxjs/operators';
+import {defaultIfEmpty, filter, takeUntil} from 'rxjs/operators';
 
 /** Extracts query parameters from window.parent location search. */
 export function getParentLocationParams(): Map<string, string> {
@@ -324,7 +324,7 @@ export class SideNav implements OnInit, OnDestroy {
 
   async fetchProfilerConfig() {
     const config = await firstValueFrom(
-      this.dataService.getConfig().pipe(takeUntil(this.destroyed)),
+      this.dataService.getConfig().pipe(takeUntil(this.destroyed), defaultIfEmpty(null)),
     );
     if (config) {
       this.store.dispatch(setProfilerConfigAction({config}));
@@ -394,7 +394,7 @@ export class SideNav implements OnInit, OnDestroy {
     const tools = await firstValueFrom(
       this.dataService
         .getRunTools(this.selectedRun)
-        .pipe(takeUntil(this.destroyed)),
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty([])),
     );
 
     this.store.dispatch(
@@ -411,7 +411,7 @@ export class SideNav implements OnInit, OnDestroy {
     const response = await firstValueFrom(
       this.dataService
         .getHosts(this.selectedRun, this.selectedTag)
-        .pipe(takeUntil(this.destroyed)),
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty([])),
     );
 
     let hosts = response.map((host) => host.hostname) || [];
@@ -434,9 +434,9 @@ export class SideNav implements OnInit, OnDestroy {
     const response = await firstValueFrom(
       this.dataService
         .getModuleList(this.selectedRun)
-        .pipe(takeUntil(this.destroyed)),
+        .pipe(takeUntil(this.destroyed), defaultIfEmpty('')),
     );
-    return response.split(',');
+    return response ? response.split(',') : [];
   }
 
   onRunSelectionChange(run: string) {
@@ -626,7 +626,7 @@ export class SideNav implements OnInit, OnDestroy {
     // routing
     // TODO - b/401596855: Deprecate the navigationEvent in route.params as we
     // are subscribing to the queryParams in the components.
-    this.router.navigate([this.selectedTag || 'empty', navigationEvent], {
+    this.router.navigate([this.selectedTag || 'empty'], {
       queryParams: navigationEvent,
     });
     delete this.navigationParams['firstLoad'];

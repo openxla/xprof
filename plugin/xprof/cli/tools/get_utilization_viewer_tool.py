@@ -173,7 +173,7 @@ def _format_utilization_viewer_output(
 
     has_name = "Name" in fieldnames or any("Name" in r for r in rows)
     if not has_name:
-      return json.dumps({"error": "Missing required column: Name"}, indent=2)
+      raise ValueError("Missing required column: Name")
 
     warnings = []
     node_rows = rows
@@ -279,19 +279,16 @@ def _format_utilization_viewer_output(
 
     return json.dumps(filtered_results, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-except
     logging.exception(
         "Error formatting utilization viewer output for session %s:", session_id
     )
-    return json.dumps(
-        {
-            "error": (
-                "Error formatting utilization viewer output for session"
-                f" {session_id}: {e!r}"
-            )
-        },
-        indent=2,
-    )
+    raise RuntimeError(
+        "Error formatting utilization viewer output for session"
+        f" {session_id}: {e!r}"
+    ) from e
 
 
 @decorators.cached(expire=86_400)
@@ -323,19 +320,16 @@ def get_utilization_viewer(
         tqx="out:csv",
         bypass_cache=bypass_cache,
     )
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-except
     logging.exception(
         "Error fetching utilization_viewer.json for session %s", session_id
     )
-    return json.dumps(
-        {
-            "error": (
-                "Error fetching utilization_viewer.json for session"
-                f" {session_id}: {e!r}"
-            )
-        },
-        indent=2,
-    )
+    raise RuntimeError(
+        f"Error fetching utilization_viewer.json for session {session_id}:"
+        f" {e!r}"
+    ) from e
   else:
     raw_data = (
         result[1]

@@ -281,15 +281,11 @@ def get_roofline_model(
 
     return json.dumps(output, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error fetching roofline model")
-    return json.dumps(
-        dict(
-            error=(
-                "Error fetching roofline model:"
-                f" {''.join(traceback.format_exception_only(e)).strip()}"
-            ),
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
+    logging.exception(
+        "Error fetching roofline model for session %s", session_id
     )
+    error_msg = "".join(traceback.format_exception_only(type(e), e)).strip()
+    raise RuntimeError(f"Error fetching roofline model: {error_msg}") from e

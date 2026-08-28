@@ -172,34 +172,6 @@ def _wrap_with_logdir(tool_func):
 
     res = tool_func(*args, **kwargs)
 
-    # Inspect JSON result for DATA_ABSENT or CORRUPT_TRACE
-    if (
-        isinstance(res, str)
-        and res.strip().startswith("{")
-        and res.strip().endswith("}")
-    ):
-      try:
-        data = json.loads(res)
-        if isinstance(data, dict) and "error" in data:
-          err_msg = str(data["error"])
-          err_lower = err_msg.lower()
-          if (
-              "no .xplane.pb or .xspace.pb files found" in err_lower
-              or "data_absent" in err_lower
-          ):
-            raise FileNotFoundError(err_msg)
-          if (
-              "corrupt" in err_lower
-              or "invalid wire type" in err_lower
-              or "error parsing message" in err_lower
-              or "failed to parse" in err_lower
-              or "cannot load hlo proto" in err_lower
-              or "no overview data returned for the session" in err_lower
-          ):
-            raise ValueError(f"CORRUPT_TRACE: {err_msg}")
-      except (json.JSONDecodeError, KeyError):
-        pass
-
     # Enforce volume spill guard (X-6) if output exceeds 10 MB.
     if isinstance(res, (str, bytes)):
       byte_len = (

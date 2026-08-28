@@ -7,7 +7,6 @@ sorted by Self Time, FLOPs, and Bytes Accessed.
 import heapq
 import json
 import logging
-import traceback
 from typing import Any, Dict, Generator
 
 from google.protobuf import json_format
@@ -40,6 +39,10 @@ def get_top_hlo_ops(
   Returns:
       A JSON-formatted string containing three lists of top operations with
       mandatory source provenance metadata whenever available.
+
+  Raises:
+      FileNotFoundError: If no HLO op_profile data is found in the trace.
+      RuntimeError: If fetching or parsing op_profile data fails.
   """
   client = xprof_client.get_client()
   fetch_kwargs: dict[str, Any] = {
@@ -56,46 +59,34 @@ def get_top_hlo_ops(
     ):
       fetch_kwargs["tool_name"] = "hlo_op_profile.json"
       op_profile_result = client.fetch(**fetch_kwargs)
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error fetching top HLO ops for session %s", session_id)
-    return json.dumps(
-        dict(
-            error=f"Error fetching top HLO ops for session {session_id}: {e!r}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    raise RuntimeError(
+        f"Error fetching top HLO ops for session {session_id}: {e!r}"
+    ) from e
 
   op_profile = op_profile_pb2.Profile()
 
   # Guard clauses for op_profile_result processing
   if not isinstance(op_profile_result, (tuple, bytes)):
-    return json.dumps(
-        dict(error=f"Failed to fetch op_profile: {op_profile_result}"), indent=2
-    )
+    raise RuntimeError(f"Failed to fetch op_profile: {op_profile_result}")
 
   if isinstance(op_profile_result, tuple):
     if len(op_profile_result) != 2:
-      return json.dumps(dict(error="Unexpected tuple length"), indent=2)
+      raise RuntimeError("Unexpected tuple length")
     content_type, data = op_profile_result
     if isinstance(data, str):
       data = data.encode("utf-8")
     if not isinstance(data, bytes):
       if data is None or not data:
-        return json.dumps(
-            {
-                "error": "NO_HLO_DATA_IN_PROFILE",
-                "message": (
-                    "No HLO op_profile found in trace. For JAX traces, ensure"
-                    " compilation is captured in the trace or pass"
-                    " XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'."
-                ),
-            },
-            indent=2,
+        raise FileNotFoundError(
+            "No HLO op_profile found in trace. For JAX traces, ensure"
+            " compilation is captured in the trace or pass"
+            " XLA_FLAGS='--xla_dump_to=<path> --xla_dump_hlo_as_proto'."
         )
-      return json.dumps(
-          dict(error=f"Unexpected data type: {type(data)}"), indent=2
-      )
+      raise RuntimeError(f"Unexpected data type: {type(data)}")
 
     if content_type == 81 or data.strip().startswith(b"{"):
       try:

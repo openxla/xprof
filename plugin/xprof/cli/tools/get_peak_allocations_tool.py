@@ -7,7 +7,6 @@ import heapq
 import json
 import logging
 import re
-import traceback
 from typing import Any, Literal
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import hlo_tools
@@ -380,21 +379,6 @@ def _fetch_modules_data(
   return modules_data
 
 
-def _format_error(session_id: str, error: Exception, output_format: str) -> str:
-  """Formats an error message in the requested format."""
-  formatted_error = "".join(
-      traceback.format_exception_only(type(error), error)
-  ).strip()
-  error_msg = (
-      f"Failed to get peak allocations for session {session_id}: "
-      f"{formatted_error}"
-  )
-  if output_format == "markdown":
-    return f"# Error\n{error_msg}\n"
-  else:
-    return json.dumps({"error": error_msg}, indent=2)
-
-
 @decorators.cached(expire=86400)
 def get_peak_allocations(
     session_id: str,
@@ -429,10 +413,7 @@ def get_peak_allocations(
   """
   client = xprof_client.get_client()
 
-  try:
-    module_names = _get_module_names(client, session_id)
-  except ValueError as e:
-    return _format_error(session_id, e, output_format)
+  module_names = _get_module_names(client, session_id)
 
   try:
     modules_data = _fetch_modules_data(
@@ -443,11 +424,15 @@ def get_peak_allocations(
         aggregate_instructions,
         bypass_cache=bypass_cache,
     )
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Failed to get peak allocations for session %s", session_id
     )
-    return _format_error(session_id, e, output_format)
+    raise RuntimeError(
+        f"Failed to get peak allocations for session {session_id}: {e}"
+    ) from e
 
   sorted_modules_data = (
       heapq.nlargest(limit, modules_data, key=lambda x: x.total_hbm_mib)

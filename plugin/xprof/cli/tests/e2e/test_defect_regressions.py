@@ -25,9 +25,11 @@ try:
   from xprof.cli.tools import get_llo_debug_string_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
+  from xprof.cli import xprof_cli
   from xprof.cli.tools import get_top_hlo_ops_tool
   from xprof.cli.tools import get_utilization_viewer_tool
 except ImportError:
+  from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
@@ -525,6 +527,37 @@ class DefectRegressionsTest(parameterized.TestCase):
       self.assertIn("remediation", res_dbg)
       self.assertIn("LIBTPU_INIT_ARGS", res_dbg["remediation"])
       self.assertIn("xprof-nightly", res_dbg["remediation"])
+
+  def test_d18_standardized_cli_error_codes(self):
+    """D-18: Standardized POSIX exit codes and structured JSON errors on failure."""
+    # 1. PATH_ERROR -> Exit code 3
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_path,
+    ):
+      xprof_cli.main(["xprof", "get_overview", "/nonexistent/path/to/trace"])
+    self.assertEqual(cm_path.exception.code, 3)
+
+    # 2. INVALID_VALUE -> Exit code 4
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_val,
+    ):
+      xprof_cli.main(
+          ["xprof", "get_graph_viewer", "--session_id=s", "--symbol_id=sym"]
+      )
+    self.assertEqual(cm_val.exception.code, 4)
+
+    # 3. USAGE_ERROR -> Exit code 2
+    with (
+        mock.patch("sys.stdout"),
+        mock.patch("sys.stderr"),
+        self.assertRaises(SystemExit) as cm_usage,
+    ):
+      xprof_cli.main(["xprof", "get_overview", "--invalid_flag_xyz=123"])
+    self.assertEqual(cm_usage.exception.code, 2)
 
 
 if __name__ == "__main__":

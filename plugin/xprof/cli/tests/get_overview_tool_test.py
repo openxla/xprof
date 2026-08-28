@@ -109,11 +109,9 @@ class GetOverviewToolTest(absltest.TestCase):
   def test_get_overview_error(self):
     self.mock_client.fetch.side_effect = Exception("RPC Fail")
 
-    result = get_overview_tool.get_overview("session_123")
-    result_json = json.loads(result)
-
-    self.assertIn("error", result_json)
-    self.assertIn("RPC Fail", result_json["error"])
+    with self.assertRaises(RuntimeError) as cm:
+      get_overview_tool.get_overview("session_123")
+    self.assertIn("RPC Fail", str(cm.exception))
 
   def test_get_overview_roofline_fallback(self):
     overview_data = [{

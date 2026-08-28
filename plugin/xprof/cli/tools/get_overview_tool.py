@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import traceback
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -200,16 +199,12 @@ def get_overview(
     else:
       data = result
     if not data:
-      return json.dumps(
-          dict(error="No overview data returned for the session"), indent=2
-      )
+      raise FileNotFoundError("No overview data returned for the session")
     if isinstance(data, bytes):
       data = data.decode("utf-8", errors="replace")
     overview_data = json.loads(data)
     if not isinstance(overview_data, list) or not overview_data:
-      return json.dumps(
-          dict(error="Unexpected overview page data format"), indent=2
-      )
+      raise ValueError("Unexpected overview page data format")
     # Aggregate p_dict from all sections
     all_p_dict = {}
     for section in overview_data:
@@ -272,12 +267,8 @@ def get_overview(
     }
 
     return json.dumps(output, indent=2)
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception("Error fetching overview data")
-    return json.dumps(
-        dict(
-            error=f"Error fetching overview data: {e}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    logging.exception("Error fetching overview data for session %s", session_id)
+    raise RuntimeError(f"Error fetching overview data: {e}") from e

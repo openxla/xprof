@@ -140,11 +140,9 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
   def test_get_top_hlo_ops_fetch_error(self):
     self.mock_client.fetch.return_value = None
 
-    result_json = get_top_hlo_ops_tool.get_top_hlo_ops("test_session")
-    result = json.loads(result_json)
-
-    self.assertIn("error", result)
-    self.assertStartsWith(result["error"], "Failed to fetch op_profile")
+    with self.assertRaises(RuntimeError) as cm:
+      get_top_hlo_ops_tool.get_top_hlo_ops("test_session")
+    self.assertIn("Failed to fetch op_profile", str(cm.exception))
 
   def test_get_top_hlo_ops_source_info(self):
     real_profile = self._create_fake_profile()
@@ -173,13 +171,11 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     self.assertEqual(result["top_by_time"][0]["name"], "root/Op2")
 
   def test_missing_hlo_returns_clean_diagnostic(self):
-    """Verifies trace without HLO returns clean diagnostic without crash."""
+    """Verifies trace without HLO raises FileNotFoundError."""
     self.mock_client.fetch.return_value = (None, None)
-    result_str = get_top_hlo_ops_tool.get_top_hlo_ops("session_without_hlo")
-    data = json.loads(result_str)
-    self.assertIn("error", data)
-    self.assertEqual(data.get("error"), "NO_HLO_DATA_IN_PROFILE")
-    self.assertNotIn("Traceback", result_str)
+    with self.assertRaises(FileNotFoundError) as cm:
+      get_top_hlo_ops_tool.get_top_hlo_ops("session_without_hlo")
+    self.assertIn("No HLO op_profile found in trace", str(cm.exception))
 
 
 if __name__ == "__main__":

@@ -251,32 +251,24 @@ class GetHloStatsToolTest(parameterized.TestCase):
   def test_error_fetch_failure(self):
     self.mock_client.fetch.side_effect = RuntimeError("Connection Refused")
 
-    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
-    result = json.loads(result_str)
-
-    self.assertIn("error", result)
-    self.assertIn("Connection Refused", result["error"])
+    with self.assertRaises(RuntimeError) as cm:
+      get_hlo_stats_tool.get_hlo_stats("session_123")
+    self.assertIn("Connection Refused", str(cm.exception))
 
   def test_error_empty_result(self):
     self.mock_client.fetch.return_value = None
 
-    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
-    result = json.loads(result_str)
-
-    self.assertIn("error", result)
-    self.assertEqual(
-        result["error"], "Failed to fetch hlo_stats for session session_123"
-    )
+    with self.assertRaises(RuntimeError) as cm:
+      get_hlo_stats_tool.get_hlo_stats("session_123")
+    self.assertIn("Failed to fetch hlo_stats", str(cm.exception))
 
   def test_error_empty_records(self):
     db = hlo_stats_pb2.HloStatsDatabase()
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
-    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
-    result = json.loads(result_str)
-
-    self.assertIn("error", result)
-    self.assertEqual(result["error"], "No HLO stats records found")
+    with self.assertRaises(FileNotFoundError) as cm:
+      get_hlo_stats_tool.get_hlo_stats("session_123")
+    self.assertIn("No HLO stats records found", str(cm.exception))
 
 
 if __name__ == "__main__":

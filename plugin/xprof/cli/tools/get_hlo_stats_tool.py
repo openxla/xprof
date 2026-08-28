@@ -4,7 +4,6 @@ import dataclasses
 import json
 import logging
 import re
-import traceback
 
 from google.protobuf import json_format
 from google.protobuf import message as proto_message
@@ -82,6 +81,10 @@ def get_hlo_stats(
 
   Returns:
     A Markdown table or JSON-formatted string of HLO operation statistics.
+
+  Raises:
+    FileNotFoundError: If no HLO stats records are found for the session.
+    RuntimeError: If fetching or parsing HLO stats fails.
   """
   fetch_errors: list[type[Exception]] = [ValueError, OSError, RuntimeError]
   if pywraprpc is not None:
@@ -97,19 +100,12 @@ def get_hlo_stats(
     )
   except tuple(fetch_errors) as e:
     logging.exception("Error fetching HLO stats for session %s", session_id)
-    return json.dumps(
-        dict(
-            error=f"Error fetching HLO stats for session {session_id}: {e!r}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    raise RuntimeError(
+        f"Error fetching HLO stats for session {session_id}: {e!r}"
+    ) from e
 
   if result is None:
-    return json.dumps(
-        dict(error=f"Failed to fetch hlo_stats for session {session_id}"),
-        indent=2,
-    )
+    raise RuntimeError(f"Failed to fetch hlo_stats for session {session_id}")
 
   if isinstance(result, tuple) and len(result) == 2:
     _, data = result
@@ -117,10 +113,7 @@ def get_hlo_stats(
     data = result
 
   if not isinstance(data, (bytes, str)):
-    return json.dumps(
-        dict(error=f"Unexpected data type returned: {type(data)}"),
-        indent=2,
-    )
+    raise RuntimeError(f"Unexpected data type returned: {type(data)}")
 
   hlo_stats_db = hlo_stats_pb2.HloStatsDatabase()
   if isinstance(data, bytes):
@@ -131,28 +124,27 @@ def get_hlo_stats(
       decoded_data = data.decode("utf-8", errors="replace")
       try:
         json_format.Parse(decoded_data, hlo_stats_db)
-      except (json_format.ParseError, json.JSONDecodeError) as parse_err:
+      except (
+          json_format.ParseError,
+          json.JSONDecodeError,
+      ) as parse_err:
         logging.exception("Failed to parse data as HloStatsDatabase proto")
-        return json.dumps(
-            dict(
-                error=f"Failed to parse HloStatsDatabase proto: {parse_err!r}"
-            ),
-            indent=2,
-        )
+        raise ValueError(
+            f"Failed to parse HloStatsDatabase proto: {parse_err!r}"
+        ) from parse_err
   else:  # data is str
     try:
       json_format.Parse(data, hlo_stats_db)
     except (json_format.ParseError, json.JSONDecodeError) as parse_err:
       logging.exception("Failed to parse data as HloStatsDatabase proto")
-      return json.dumps(
-          dict(error=f"Failed to parse HloStatsDatabase proto: {parse_err!r}"),
-          indent=2,
-      )
+      raise ValueError(
+          f"Failed to parse HloStatsDatabase proto: {parse_err!r}"
+      ) from parse_err
 
   # Check if records exist
   records = hlo_stats_db.hlo_stats_record
   if not records:
-    return json.dumps(dict(error="No HLO stats records found"), indent=2)
+    raise FileNotFoundError("No HLO stats records found")
 
   # Extract, filter, and format the records using HloOperationStats dataclass
   extracted_records: list[HloOperationStats] = []

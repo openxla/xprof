@@ -7,7 +7,6 @@ a concise set of key performance indicators.
 import collections
 import json
 import logging
-import traceback
 
 from xprof.cli.tools import get_memory_profile_tool
 from xprof.cli.tools import get_overview_tool
@@ -36,41 +35,28 @@ def get_kpi_metrics(session_id: str, *, bypass_cache: bool = False) -> str:
     overview_json = get_overview_tool.get_overview(
         session_id, bypass_cache=bypass_cache
     )
+    overview_data = json.loads(overview_json)
+  except (FileNotFoundError, ValueError):
+    raise
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.exception(
+        "Error fetching overview for session %s in get_kpi_metrics", session_id
+    )
+    raise RuntimeError(f"Error in get_overview: {e}") from e
+
+  try:
     memory_json = get_memory_profile_tool.get_memory_profile(
         session_id, bypass_cache=bypass_cache
     )
-
-    overview_data = json.loads(overview_json)
     memory_data = json.loads(memory_json)
+    peak_hbm_data = memory_data
   except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.exception(
-        "Error fetching or parsing XProf tool outputs for session %s",
-        session_id,
-    )
-    error_message = "".join(traceback.format_exception_only(type(e), e)).strip()
-    return json.dumps(
-        {
-            "error": f"Error: {error_message}",
-            "traceback": traceback.format_exc(),
-        },
-        indent=2,
-    )
-
-  if "error" in overview_data:
-    return json.dumps(
-        {"error": f"Error in get_overview: {overview_data['error']}"},
-        indent=2,
-    )
-
-  if "error" in memory_data:
     logging.warning(
         "get_memory_profile failed for session %s: %s",
         session_id,
-        memory_data["error"],
+        e,
     )
     peak_hbm_data = {"peak_memory_usage_gib": "N/A"}
-  else:
-    peak_hbm_data = memory_data
 
   perf_summary_raw = overview_data.get("performance_summary", {})
   perf_summary = collections.defaultdict(lambda: "N/A", perf_summary_raw)

@@ -3,7 +3,6 @@
 import dataclasses
 import json
 import logging
-import traceback
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -308,14 +307,10 @@ def get_memory_profile(
         },
     }
     return json.dumps(output, indent=2)
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error fetching memory profile for session %s", session_id
     )
-    return json.dumps(
-        dict(
-            error=f"Error fetching memory profile: {e}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    raise RuntimeError(f"Error fetching memory profile: {e}") from e

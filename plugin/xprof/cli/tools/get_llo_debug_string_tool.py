@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import tempfile
-import traceback
 
 from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
@@ -129,14 +128,10 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
 
       return json.dumps({"debug_string": debug_str}, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error fetching/analyzing LLO data for session %s", session_id
     )
-    return json.dumps(
-        dict(
-            error=f"Error analyzing LLO data: {e}",
-            traceback=traceback.format_exc(),
-        ),
-        indent=2,
-    )
+    raise RuntimeError(f"Error analyzing LLO data: {e}") from e

@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import traceback
 from typing import Any
 
 from xprof.cli.internal import decorators
@@ -598,17 +597,10 @@ def check_host_boundness(session_id: str, func_name: str | None = None) -> str:
         indent=2,
     )
 
-  except Exception:  # pylint: disable=broad-exception-caught
+  except (FileNotFoundError, ValueError):
+    raise
+  except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error checking host boundness for session %s", session_id
     )
-    return json.dumps(
-        {
-            "status": "UNKNOWN",
-            "error": (
-                "Error during host boundness check:"
-                f" {traceback.format_exc().strip()}"
-            ),
-        },
-        indent=2,
-    )
+    raise RuntimeError(f"Error during host boundness check: {e}") from e

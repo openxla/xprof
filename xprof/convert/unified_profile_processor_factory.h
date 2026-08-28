@@ -60,11 +60,11 @@ class RegisterUnifiedProfileProcessor {
       UnifiedProfileProcessorFactory::Creator creator);
 };
 
-#define REGISTER_UNIFIED_PROFILE_PROCESSOR(tool_name, ClassName)    \
-  ABSL_ATTRIBUTE_UNUSED static const ::xprof::RegisterUnifiedProfileProcessor \
-      register_##ClassName(                                                  \
-          tool_name, [](const tensorflow::profiler::ToolOptions& options) {  \
-            return std::make_unique<ClassName>(options);                     \
+#define REGISTER_UNIFIED_PROFILE_PROCESSOR(tool_name, ClassName)            \
+  [[maybe_unused]] static const ::xprof::RegisterUnifiedProfileProcessor    \
+      register_##ClassName(                                                 \
+          tool_name, [](const tensorflow::profiler::ToolOptions& options) { \
+            return std::make_unique<ClassName>(options);                    \
           });
 
 }  // namespace xprof

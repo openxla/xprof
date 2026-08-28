@@ -44,6 +44,11 @@ const FEATURE_FLAGS = {
       'Enable Google Material 3 (GM3) styling and component modernization.',
     default: false,
   },
+  'enable_timeline_player': {
+    name: 'Enable Timeline Player',
+    description: 'Enable the timeline player component for trace playback.',
+    default: false,
+  },
 } as const;
 
 /**

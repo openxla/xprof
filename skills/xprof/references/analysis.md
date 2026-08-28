@@ -91,8 +91,10 @@ xprof aggregate_xplane_events /path/to/logdir \
     (Compute vs. Host vs. Communication).
 2.  **Verify Roofline & KPIs:** Run `get_kpi_metrics` to inspect compute
     utilization, memory bandwidth, and step times.
-3.  **Find Expensive Ops:** If compute-bound, run `get_hlo_op_profile` or
-    `get_top_hlo_ops` to identify long-running operations.
+3.  **Find Expensive Ops:** If compute-bound, run `get_hlo_op_profile` (see
+    [get_hlo_op_profile](get_hlo_op_profile.md)) with `--view=category` for
+    macro category breakdown, then drill down into specific categories with
+    `--category='<name>'` (or `get_top_hlo_ops` for top leaf lists).
 4.  **Inspect HLO Neighborhoods:** Run `get_hlo_neighborhood` around expensive
     fusions to diagnose layout transformations, copies, or fusion blockers.
 5.  **Root-Cause Debugging:** Run `get_graph_viewer` with

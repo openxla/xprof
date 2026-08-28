@@ -109,43 +109,40 @@ class GetHloStatsToolTest(parameterized.TestCase):
 
     return db
 
-  def test_get_hlo_stats_markdown_default(self):
+  def test_get_hlo_stats_json_default(self):
     db = self._create_fake_database()
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
     result = get_hlo_stats_tool.get_hlo_stats("session_123")
-
-    self.assertIn("| Rank | Category | Op Name | Occurrences |", result)
-    self.assertIn("convolution.1", result)
-    self.assertIn("fusion.2", result)
-    self.assertIn("tuple.3", result)
-    self.assertIn("model.py:42", result)
-
-  def test_get_hlo_stats_json_success(self):
-    db = self._create_fake_database()
-    self.mock_client.fetch.return_value = (None, db.SerializeToString())
-
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", output_format="json"
-    )
-    records = json.loads(result_str)
+    records = json.loads(result)
 
     self.assertLen(records, 3)
     self.assertEqual(records[0]["op_name"], "convolution.1")
     self.assertEqual(records[1]["op_name"], "fusion.2")
     self.assertEqual(records[2]["op_name"], "tuple.3")
     self.assertEqual(records[0]["self_time_percent"], 50.0)
-    self.assertEqual(records[0]["flops"], 500.0)
-    self.assertEqual(records[2]["flops"], 10.0)
+    self.assertEqual(records[0]["source_file"], "model.py")
+    self.assertEqual(records[0]["source_line"], 42)
+
+  def test_get_hlo_stats_bypass_cache_forwarded(self):
+    db = self._create_fake_database()
+    self.mock_client.fetch.return_value = (None, db.SerializeToString())
+
+    get_hlo_stats_tool.get_hlo_stats("session_123", bypass_cache=True)
+    self.mock_client.fetch.assert_called_with(
+        tool_name="hlo_stats.json",
+        session_id="session_123",
+        format="json",
+        tqx="out:pb",
+        bypass_cache=True,
+    )
 
   def test_json_fallback_parsing(self):
     db = self._create_fake_database()
     json_str = json_format.MessageToJson(db)
     self.mock_client.fetch.return_value = (None, json_str.encode("utf-8"))
 
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", output_format="json"
-    )
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
     records = json.loads(result_str)
 
     self.assertLen(records, 3)
@@ -155,9 +152,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
     db = self._create_fake_database()
     self.mock_client.fetch.return_value = db.SerializeToString()
 
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", output_format="json"
-    )
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
     records = json.loads(result_str)
 
     self.assertLen(records, 3)
@@ -176,9 +171,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
 
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", output_format="json"
-    )
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
     records = json.loads(result_str)
 
     self.assertLen(records, 1)
@@ -200,9 +193,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
 
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", output_format="json"
-    )
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
     records = json.loads(result_str)
 
     self.assertLen(records, 1)
@@ -221,7 +212,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
     result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", sort_by=sort_by, output_format="json"
+        "session_123", sort_by=sort_by
     )
     records = json.loads(result_str)
     actual_order = [r["op_name"] for r in records]
@@ -232,7 +223,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
     result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", category_filter="Convolution", output_format="json"
+        "session_123", category_filter="Convolution"
     )
     records = json.loads(result_str)
     self.assertLen(records, 1)
@@ -242,9 +233,7 @@ class GetHloStatsToolTest(parameterized.TestCase):
     db = self._create_fake_database()
     self.mock_client.fetch.return_value = (None, db.SerializeToString())
 
-    result_str = get_hlo_stats_tool.get_hlo_stats(
-        "session_123", limit=2, output_format="json"
-    )
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123", limit=2)
     records = json.loads(result_str)
     self.assertLen(records, 2)
 
@@ -261,6 +250,267 @@ class GetHloStatsToolTest(parameterized.TestCase):
     with self.assertRaises(RuntimeError) as cm:
       get_hlo_stats_tool.get_hlo_stats("session_123")
     self.assertIn("Failed to fetch hlo_stats", str(cm.exception))
+
+  def test_get_hlo_stats_datatable_json_success(self):
+    datatable_json = {
+        "cols": [
+            {"id": "rank", "label": "Rank", "type": "number"},
+            {"id": "program_id", "label": "Program ID", "type": "number"},
+            {"id": "hlo_category", "label": "Category", "type": "string"},
+            {
+                "id": "hlo_expression",
+                "label": "HLO Expression",
+                "type": "string",
+            },
+            {"id": "tf_op_name", "label": "TF Op Name", "type": "string"},
+            {"id": "occurrences", "label": "Occurrences", "type": "number"},
+            {
+                "id": "total_time_in_us",
+                "label": "Total Time (us)",
+                "type": "number",
+            },
+            {
+                "id": "total_self_time_in_us",
+                "label": "Total Self Time (us)",
+                "type": "number",
+            },
+            {
+                "id": "total_self_time_as_fraction",
+                "label": "Fraction",
+                "type": "number",
+            },
+            {
+                "id": "measured_flop_rate",
+                "label": "FLOP Rate",
+                "type": "number",
+            },
+            {"id": "flops", "label": "FLOPs", "type": "number"},
+            {
+                "id": "measured_memory_bw",
+                "label": "Memory BW",
+                "type": "number",
+            },
+            {"id": "bound_by", "label": "Bound By", "type": "string"},
+            {"id": "source_file", "label": "Source File", "type": "string"},
+            {"id": "source_line", "label": "Source Line", "type": "number"},
+        ],
+        "rows": [
+            {
+                "c": [
+                    {"v": 1},
+                    {"v": 11111},
+                    {"v": "Convolution"},
+                    {"v": "%convolution.1 = ..."},
+                    {"v": "conv2d"},
+                    {"v": 10},
+                    {"v": 1200.0},
+                    {"v": 1000.0},
+                    {"v": 0.5},
+                    {"v": 0.8},
+                    {"v": 500.0},
+                    {"v": 50.0},
+                    {"v": "Compute"},
+                    {"v": "model.py"},
+                    {"v": 42},
+                ]
+            },
+            {
+                "c": [
+                    {"v": 2},
+                    {"v": 22222},
+                    {"v": "Fusion"},
+                    {"v": "%fusion.2 = ..."},
+                    {"v": "gelu"},
+                    {"v": 5},
+                    {"v": 900.0},
+                    {"v": 800.0},
+                    {"v": 0.4},
+                    {"v": 0.2},
+                    {"v": 100.0},
+                    {"v": 80.0},
+                    {"v": "HBM"},
+                    {"v": ""},
+                    {"v": 0},
+                ]
+            },
+        ],
+    }
+    self.mock_client.fetch.return_value = (
+        None,
+        json.dumps(datatable_json).encode("utf-8"),
+    )
+
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_123")
+    records = json.loads(result_str)
+
+    self.assertLen(records, 2)
+    self.assertEqual(records[0]["op_name"], "convolution.1")
+    self.assertEqual(records[1]["op_name"], "fusion.2")
+    self.assertEqual(records[0]["self_time_percent"], 50.0)
+    self.assertEqual(records[0]["flops"], 500.0)
+
+  def test_get_hlo_stats_server_datatable_schema_exact(self):
+    """Tests the exact DataTable column IDs produced by C++ op_stats_to_hlo_stats."""
+    server_datatable_json = {
+        "cols": [
+            {"id": "rank", "label": "Rank", "type": "number"},
+            {"id": "program_id", "label": "Program id", "type": "string"},
+            {"id": "category", "label": "HLO op category", "type": "string"},
+            {"id": "hlo_op_name", "label": "HLO op name", "type": "string"},
+            {
+                "id": "hlo_op_expression",
+                "label": "HLO op text",
+                "type": "string",
+            },
+            {
+                "id": "tf_op_name",
+                "label": "Framework op name",
+                "type": "string",
+            },
+            {"id": "occurrences", "label": "#Occurrences", "type": "number"},
+            {"id": "total_time", "label": "Total time (us)", "type": "number"},
+            {"id": "avg_time", "label": "Avg. time (us)", "type": "number"},
+            {
+                "id": "total_self_time",
+                "label": "Total self time (us)",
+                "type": "number",
+            },
+            {
+                "id": "avg_self_time",
+                "label": "Avg. self time (us)",
+                "type": "number",
+            },
+            {
+                "id": "total_self_time_percent",
+                "label": "Total self time (%)",
+                "type": "number",
+            },
+            {
+                "id": "cumulative_total_self_time_percent",
+                "label": "Cumulative total self time (%)",
+                "type": "number",
+            },
+            {
+                "id": "dma_stall_percent",
+                "label": "%time stalled by DMA",
+                "type": "number",
+            },
+            {
+                "id": "model_flop_rate",
+                "label": "Model GFLOP/s",
+                "type": "number",
+            },
+            {
+                "id": "normalized_flop_rate",
+                "label": "Normalized GFLOP/s",
+                "type": "number",
+            },
+            {
+                "id": "measured_memory_bw",
+                "label": "Measured memory BW (GiB/s)",
+                "type": "number",
+            },
+            {"id": "hbm_bw", "label": "HBM BW (GiB/s)", "type": "number"},
+            {
+                "id": "cmem_read_bw",
+                "label": "CMEM Read BW (GiB/s)",
+                "type": "number",
+            },
+            {
+                "id": "cmem_write_bw",
+                "label": "CMEM Write BW (GiB/s)",
+                "type": "number",
+            },
+            {
+                "id": "operational_intensity",
+                "label": "Operational intensity (FLOPS/Byte)",
+                "type": "number",
+            },
+            {"id": "bound_by", "label": "Bound by", "type": "string"},
+            {
+                "id": "hlo_rematerialization",
+                "label": "Rematerialization",
+                "type": "string",
+            },
+            {
+                "id": "outside_compilation",
+                "label": "Outside Compilation",
+                "type": "string",
+            },
+            {"id": "autotuned", "label": "Autotuned", "type": "string"},
+            {"id": "source_info", "label": "Source Info", "type": "string"},
+            {"id": "core_type", "label": "TPU core type", "type": "string"},
+            {
+                "id": "parent_op_name",
+                "label": "Parent op name",
+                "type": "string",
+            },
+            {"id": "vdd_energy", "label": "VDD Energy (J)", "type": "number"},
+        ],
+        "rows": [{
+            "c": [
+                {"v": 1},
+                {"v": "15845321592809624413"},
+                {"v": "convolution fusion"},
+                {"v": "fusion.12341"},
+                {
+                    "v": (
+                        "%fusion.12341 ="
+                        " (f32[32,128,128], f32[32,128,128])"
+                        " fusion(%arg0, %arg1), kind=kCustom,"
+                        " calls=%fused_computation.12341"
+                    )
+                },
+                {"v": "conv2d"},
+                {"v": 3},
+                {"v": 1318200.0},
+                {"v": 439400.0},
+                {"v": 974132.5},
+                {"v": 324710.8},
+                {"v": 99.77},
+                {"v": 99.77},
+                {"v": 0.0},
+                {"v": 1200.5},
+                {"v": 1150.0},
+                {"v": 650.2},
+                {"v": 650.2},
+                {"v": 0.0},
+                {"v": 0.0},
+                {"v": 15.8},
+                {"v": "Compute"},
+                {"v": "No"},
+                {"v": "No"},
+                {"v": "No"},
+                {"v": "transformer.py:5841"},
+                {"v": "TensorCore"},
+                {"v": "root"},
+                {"v": 0.0},
+            ]
+        }],
+    }
+    self.mock_client.fetch.return_value = (
+        None,
+        json.dumps(server_datatable_json).encode("utf-8"),
+    )
+
+    result_str = get_hlo_stats_tool.get_hlo_stats("session_server_datatable")
+    records = json.loads(result_str)
+
+    self.assertLen(records, 1)
+    self.assertEqual(records[0]["rank"], 1)
+    self.assertEqual(records[0]["program_id"], 15845321592809624413)
+    self.assertEqual(records[0]["category"], "convolution fusion")
+    self.assertEqual(records[0]["op_name"], "fusion.12341")
+    self.assertEqual(records[0]["tf_op_name"], "conv2d")
+    self.assertEqual(records[0]["occurrences"], 3)
+    self.assertEqual(records[0]["total_time_us"], 1318200.0)
+    self.assertEqual(records[0]["total_self_time_us"], 974132.5)
+    self.assertEqual(records[0]["self_time_percent"], 99.77)
+    self.assertEqual(records[0]["measured_flop_rate"], 1200.5)
+    self.assertEqual(records[0]["measured_memory_bw_gbs"], 650.2)
+    self.assertEqual(records[0]["bound_by"], "Compute")
+    self.assertEqual(records[0]["source_file"], "transformer.py")
+    self.assertEqual(records[0]["source_line"], 5841)
 
   def test_error_empty_records(self):
     db = hlo_stats_pb2.HloStatsDatabase()

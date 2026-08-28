@@ -1,6 +1,7 @@
 import json
 from unittest import mock
 from absl.testing import absltest
+from xprof.cli.internal import decorators
 from xprof.cli.internal.oss import xprof_client
 from xprof.cli.tools import get_roofline_model_tool
 
@@ -9,6 +10,19 @@ class GetRooflineModelToolTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
+    mock_cache = mock.create_autospec(
+        decorators.Cache, instance=True, spec_set=True
+    )
+    mock_cache.get.return_value = decorators.Cache.UNKNOWN
+    self.enter_context(
+        mock.patch.object(
+            decorators,
+            "get_cache",
+            return_value=mock_cache,
+            autospec=True,
+            spec_set=True,
+        )
+    )
     self.mock_client = mock.create_autospec(xprof_client.CachedXprofClient)
     self.enter_context(
         mock.patch.object(
@@ -127,6 +141,99 @@ class GetRooflineModelToolTest(absltest.TestCase):
     self.assertEqual(op["bound_by"], "HBM")
     self.assertEqual(op["roofline_efficiency_percent"], "16.31%")
     self.assertEqual(op["source_info"], "file.py:10")
+
+  def test_get_roofline_model_custom_call_opaque(self):
+    roofline_raw_data = [{
+        "cols": [
+            {"id": "step", "type": "string"},
+            {"id": "rank", "type": "number"},
+            {"id": "category", "type": "string"},
+            {"id": "operation", "type": "string"},
+            {"id": "occurrences", "type": "number"},
+            {"id": "total_time", "type": "number"},
+            {"id": "total_self_time", "type": "number"},
+            {"id": "total_self_time_percent", "type": "number"},
+            {"id": "measured_flop_rate", "type": "number"},
+            {"id": "model_flop_rate", "type": "number"},
+            {"id": "measured_memory_bw", "type": "number"},
+            {"id": "hbm_bw", "type": "number"},
+            {"id": "operational_intensity", "type": "number"},
+            {"id": "bound_by", "type": "string"},
+            {"id": "roofline_efficiency", "type": "number"},
+            {"id": "compute_efficiency", "type": "number"},
+            {"id": "max_mem_bw_utilization", "type": "number"},
+            {"id": "hlo_module_id", "type": "string"},
+            {"id": "source_info", "type": "string"},
+        ],
+        "p": {
+            "device_type": "TPU v6 Lite",
+            "peak_flop_rate": "946700",
+            "peak_hbm_bw": "1525.5",
+            "hbm_ridge_point": "577.96",
+        },
+        "rows": [
+            {
+                "c": [
+                    {"v": "Total"},
+                    {"v": 0.0},
+                    {"v": "Program"},
+                    {"v": "Program"},
+                    {"v": 1.0},
+                    {"v": 100000.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": "Unknown"},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": "0"},
+                    {"v": ""},
+                ]
+            },
+            {
+                "c": [
+                    {"v": "Total"},
+                    {"v": 1.0},
+                    {"v": "custom-call"},
+                    {"v": "custom-call.1"},
+                    {"v": 1.0},
+                    {"v": 50000.0},
+                    {"v": 50000.0},
+                    {"v": 1.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": "Unknown"},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": 0.0},
+                    {"v": "12345"},
+                    {"v": ""},
+                ]
+            },
+        ],
+    }]
+
+    roofline_json = json.dumps(roofline_raw_data).encode("utf-8")
+    self.mock_client.fetch.return_value = ("application/json", roofline_json)
+
+    result = get_roofline_model_tool.get_roofline_model("test_session", top_n=5)
+    parsed = json.loads(result)
+
+    self.assertEqual(parsed["program"]["bound_by"], "CustomCall (opaque)")
+    self.assertLen(parsed["top_operations"], 1)
+    self.assertEqual(
+        parsed["top_operations"][0]["bound_by"], "CustomCall (opaque)"
+    )
+    self.assertIn("guidance", parsed)
+    self.assertIn("Pallas kernels", parsed["guidance"])
 
   def test_get_roofline_model_no_data(self):
     self.mock_client.fetch.return_value = ("application/json", None)

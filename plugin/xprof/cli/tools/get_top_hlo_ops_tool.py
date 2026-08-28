@@ -7,6 +7,7 @@ sorted by Self Time, FLOPs, and Bytes Accessed.
 import heapq
 import json
 import logging
+import re
 from typing import Any, Dict, Generator
 
 from google.protobuf import json_format
@@ -17,6 +18,9 @@ from xprof.cli.internal.oss import xprof_client
 from xprof.protobuf import op_profile_pb2
 
 DecodeError = message.DecodeError
+
+
+_CUSTOM_CALL_TARGET_RE = re.compile(r'custom_call_target="([^"]+)"')
 
 
 @decorators.cached(expire=86400)
@@ -114,11 +118,36 @@ def get_top_hlo_ops(
       node: op_profile_pb2.Node, current_name_prefix: str = ""
   ) -> Generator[Dict[str, Any], None, None]:
     name = node.name
-    full_name = f"{current_name_prefix}/{name}" if current_name_prefix else name
     metrics = node.metrics
 
     # Only add leaf nodes (instructions) that have XLA info
     if node.HasField("xla") and metrics.raw_time > 0:
+      category = node.xla.category
+      op_label = name
+      if node.xla.provenance:
+        if name in ("IDLE", "idle", "unknown", "") or category.lower() in (
+            "custom-call",
+            "custom_call",
+        ):
+          op_label = (
+              f"{name} [{node.xla.provenance}]"
+              if name != node.xla.provenance
+              else name
+          )
+      elif node.xla.expression and category.lower() in (
+          "custom-call",
+          "custom_call",
+      ):
+        match = _CUSTOM_CALL_TARGET_RE.search(node.xla.expression)
+        if match:
+          target = match.group(1)
+          op_label = f"{name} [{target}]" if name != target else name
+
+      full_name = (
+          f"{current_name_prefix}/{op_label}"
+          if current_name_prefix
+          else op_label
+      )
       total_bytes = (
           sum(metrics.raw_bytes_accessed_array)
           if metrics.raw_bytes_accessed_array
@@ -126,7 +155,7 @@ def get_top_hlo_ops(
       )
       item = {
           "name": full_name,
-          "category": node.xla.category,
+          "category": category,
           "total_self_time_ms": metrics.raw_time / 1e9,
           "occurrences": metrics.occurrences,
           "flops": metrics.raw_flops,
@@ -140,7 +169,10 @@ def get_top_hlo_ops(
       yield item
 
     for child in node.children:
-      yield from traverse(child, full_name)
+      child_prefix = (
+          f"{current_name_prefix}/{name}" if current_name_prefix else name
+      )
+      yield from traverse(child, child_prefix)
 
   if (
       op_profile.HasField("by_category")
@@ -190,12 +222,22 @@ def get_top_hlo_ops(
         flat_ops, key=lambda x: x["bytes_accessed"], reverse=True
     )
 
-  return json.dumps(
-      {
-          "top_by_time": top_by_time,
-          "top_by_flops": top_by_flops,
-          "top_by_bytes_accessed": top_by_bytes,
-          "total_matched": len(flat_ops),
-      },
-      indent=2,
+  has_custom_call = any(
+      op.get("category", "").lower() in ("custom-call", "custom_call")
+      or "custom-call" in op.get("name", "").lower()
+      for op in top_by_time + top_by_flops + top_by_bytes
   )
+
+  result_payload: dict[str, Any] = {
+      "top_by_time": top_by_time,
+      "top_by_flops": top_by_flops,
+      "top_by_bytes_accessed": top_by_bytes,
+      "total_matched": len(flat_ops),
+  }
+  if has_custom_call:
+    result_payload["guidance"] = (
+        "Op-level metrics unavailable for custom calls. Use get_llo_analysis,"
+        " get_llo_debug_string, and aggregate_xplane_events for Pallas kernels."
+    )
+
+  return json.dumps(result_payload, indent=2)

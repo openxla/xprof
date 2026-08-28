@@ -12,11 +12,14 @@ from absl.testing import parameterized
 # pylint: disable=g-import-not-at-top
 try:
   from absl.testing import absltest
+  from xprof.cli.internal import xprof_data
   from xprof.cli.tools import get_memory_profile_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
   from xprof.cli.tools import get_top_hlo_ops_tool
 except ImportError:
+  absltest = None
+  from xprof.cli.internal import xprof_data
   from xprof.cli.tools import get_memory_profile_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
@@ -115,6 +118,93 @@ class AgentAnalysisRubricsTest(parameterized.TestCase):
     res_raw = get_memory_profile_tool.get_memory_profile(self.t1_path)
     res = json.loads(res_raw)
     self.assertIsInstance(res, dict)
+
+  def test_a06_hlo_op_profile_category_macro_breakdown_rubric(self):
+    """A-6: Agent rubric for macro category breakdown."""
+    res_raw = xprof_data.get_hlo_op_profile(self.t1_path, view="category")
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertIn("category_summary", res)
+    self.assertNotIn("grouped_operations", res)
+    self.assertIn("navigation_hints", res)
+    self.assertIn("available_categories", res["navigation_hints"])
+    self.assertIn("drill_down_into_top_category", res["navigation_hints"])
+    for cat in res["category_summary"]:
+      self.assertIn("category", cat)
+      self.assertIn("total_self_time_ms", cat)
+      self.assertIn("fraction_of_total_time", cat)
+
+  def test_a07_hlo_op_profile_grouped_navigation_rubric(self):
+    """A-7: Agent rubric for macro category summary with grouped operations."""
+    res_raw = xprof_data.get_hlo_op_profile(
+        self.t1_path, view="grouped", top_n=3
+    )
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertIn("category_summary", res)
+    self.assertIn("grouped_operations", res)
+    self.assertIn("navigation_hints", res)
+    self.assertIn("drill_down_category", res["navigation_hints"])
+    self.assertIn("available_categories", res["navigation_hints"])
+    for _, ops in res["grouped_operations"].items():
+      self.assertIsInstance(ops, list)
+      for op in ops:
+        self.assertIn("name", op)
+        self.assertIn("category", op)
+        self.assertIn("category_fraction", op)
+        self.assertIn("total_self_time_ms", op)
+
+  def test_a08_hlo_op_profile_category_drill_down_rubric(self):
+    """A-8: Agent rubric for single category drill-down."""
+    macro_raw = xprof_data.get_hlo_op_profile(self.t1_path, view="category")
+    macro = json.loads(macro_raw)
+    self.assertTrue(macro["category_summary"])
+    target_category = macro["category_summary"][0]["category"]
+
+    res_raw = xprof_data.get_hlo_op_profile(
+        self.t1_path, category=target_category, top_n=5
+    )
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertEqual(res["category"], target_category)
+    self.assertIn("total_self_time_ms", res)
+    self.assertIn("fraction_of_total_time", res)
+    self.assertIn("operations", res)
+    self.assertIn("navigation_hints", res)
+    self.assertIn("inspect_top_op_ast", res["navigation_hints"])
+    self.assertIn("inspect_graph", res["navigation_hints"])
+    self.assertIn("back_to_categories", res["navigation_hints"])
+    for op in res["operations"]:
+      self.assertIn("name", op)
+      self.assertIn("total_self_time_ms", op)
+      self.assertIn("category_fraction", op)
+
+  def test_a09_hlo_op_profile_tree_view_rubric(self):
+    """A-9: Agent rubric for hierarchical tree exploration."""
+    res_raw = xprof_data.get_hlo_op_profile(
+        self.t1_path, view="tree", path="by_category", depth=2
+    )
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, dict)
+    self.assertIn(res["current_path"], ("by_category", "by_program", "root"))
+    self.assertEqual(res["depth_limit"], 2)
+    self.assertIn("tree", res)
+    self.assertIn("navigation_hints", res)
+    self.assertIn("available_child_paths", res["navigation_hints"])
+    self.assertIn("navigate_deeper_into_child", res["navigation_hints"])
+    self.assertIn("name", res["tree"])
+    self.assertIn("children", res["tree"])
+
+  def test_a10_hlo_op_profile_flat_backward_compatibility_rubric(self):
+    """A-10: Agent rubric for legacy flat top-N leaf list."""
+    res_raw = xprof_data.get_hlo_op_profile(self.t1_path, view="flat", top_n=5)
+    res = json.loads(res_raw)
+    self.assertIsInstance(res, list)
+    self.assertLessEqual(len(res), 5)
+    for op in res:
+      self.assertIn("name", op)
+      self.assertIn("category", op)
+      self.assertIn("total_self_time_ms", op)
 
 
 if __name__ == "__main__":

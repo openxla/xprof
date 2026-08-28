@@ -36,12 +36,12 @@ class XprofDataTest(absltest.TestCase):
     xprof_client.set_client_override(None)
     super().tearDown()
 
-  def test_get_hlo_op_profile_success(self):
-    profile = op_profile_pb2.Profile(
+  def _create_mock_profile(self) -> op_profile_pb2.Profile:
+    return op_profile_pb2.Profile(
         by_category=op_profile_pb2.Node(
-            name="root",
+            name="by_category",
             metrics=op_profile_pb2.Metrics(
-                raw_time=1, occurrences=0, raw_flops=0
+                raw_time=100000000000, occurrences=15, raw_flops=1500
             ),
             children=[
                 op_profile_pb2.Node(
@@ -60,26 +60,111 @@ class XprofDataTest(absltest.TestCase):
                         category="FusionCategory"
                     ),
                     metrics=op_profile_pb2.Metrics(
-                        raw_time=30000000000, occurrences=5, raw_flops=500
+                        raw_time=40000000000, occurrences=5, raw_flops=500
                     ),
                 ),
             ],
         )
     )
 
+  def test_get_hlo_op_profile_grouped_default(self):
+    profile = self._create_mock_profile()
     self.mock_client.fetch.return_value = (None, profile.SerializeToString())
     result = xprof_data.get_hlo_op_profile("session_op")
+    result_json = json.loads(result)
 
-    with self.subTest(name="MatMul_Assertions"):
-      self.assertIn('"name": "root/MatMul"', result)
-      self.assertIn('"category": "Category: MatMul"', result)
-      self.assertIn('"total_self_time_ms": 60.0', result)
-      self.assertIn('"bytes_accessed": 300', result)  # 100+200
-    with self.subTest(name="Fusion_Assertions"):
-      self.assertIn('"name": "root/Fusion"', result)
-      self.assertIn('"category": "FusionCategory"', result)
-      self.assertIn('"total_self_time_ms": 30.0', result)
-      self.assertIn('"bytes_accessed": 0', result)
+    self.assertIn("category_summary", result_json)
+    self.assertIn("grouped_operations", result_json)
+    self.assertIn("navigation_hints", result_json)
+
+    categories = [c["category"] for c in result_json["category_summary"]]
+    self.assertIn("Category: MatMul", categories)
+    self.assertIn("FusionCategory", categories)
+
+    self.assertIn("drill_down_category", result_json["navigation_hints"])
+    self.assertIn("available_categories", result_json["navigation_hints"])
+
+  def test_get_hlo_op_profile_category_view(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    result = xprof_data.get_hlo_op_profile("session_op", view="category")
+    result_json = json.loads(result)
+
+    self.assertIn("category_summary", result_json)
+    self.assertNotIn("grouped_operations", result_json)
+    self.assertLen(result_json["category_summary"], 2)
+    self.assertEqual(
+        result_json["category_summary"][0]["category"], "Category: MatMul"
+    )
+    self.assertEqual(
+        result_json["category_summary"][0]["total_self_time_ms"], 60.0
+    )
+
+  def test_get_hlo_op_profile_category_filter(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    result = xprof_data.get_hlo_op_profile("session_op", category="Fusion")
+    result_json = json.loads(result)
+
+    self.assertEqual(result_json["category"], "FusionCategory")
+    self.assertEqual(result_json["total_self_time_ms"], 40.0)
+    self.assertLen(result_json["operations"], 1)
+    self.assertEqual(result_json["operations"][0]["name"], "by_category/Fusion")
+
+  def test_get_hlo_op_profile_category_not_found(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile("session_op", category="NonExistent")
+
+  def test_get_hlo_op_profile_flat_view(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    result = xprof_data.get_hlo_op_profile("session_op", view="flat")
+    result_json = json.loads(result)
+
+    self.assertIsInstance(result_json, list)
+    self.assertLen(result_json, 2)
+    self.assertEqual(result_json[0]["name"], "by_category/MatMul")
+    self.assertEqual(result_json[0]["total_self_time_ms"], 60.0)
+    self.assertEqual(result_json[1]["name"], "by_category/Fusion")
+    self.assertEqual(result_json[1]["total_self_time_ms"], 40.0)
+
+  def test_get_hlo_op_profile_tree_view(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+    result = xprof_data.get_hlo_op_profile("session_op", view="tree", depth=2)
+    result_json = json.loads(result)
+
+    self.assertIn("tree", result_json)
+    self.assertIn("current_path", result_json)
+    self.assertIn("navigation_hints", result_json)
+    self.assertEqual(result_json["current_path"], "by_category")
+    self.assertLen(result_json["tree"]["children"], 2)
+
+  def test_get_hlo_op_profile_tree_path_not_found(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile(
+          "session_op", view="tree", path="invalid/path"
+      )
+
+  def test_get_hlo_op_profile_invalid_view(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile("session_op", view="unsupported_view")
+
+  def test_get_hlo_op_profile_invalid_sort_by(self):
+    profile = self._create_mock_profile()
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile("session_op", sort_by="unsupported_sort")
 
   def test_get_profile_summary_success(self):
     profile = op_profile_pb2.Profile(
@@ -123,11 +208,14 @@ class XprofDataTest(absltest.TestCase):
   def test_get_hosts_error(self):
     self.mock_client.get_hosts.side_effect = Exception("RPC Fail")
 
-    result = xprof_data.get_hosts("session_hosts")
-    result_json = json.loads(result)
+    with self.assertRaises(RuntimeError):
+      xprof_data.get_hosts("session_hosts")
 
-    self.assertIn("error", result_json)
-    self.assertIn("RPC Fail", result_json["error"])
+  def test_get_hosts_empty(self):
+    self.mock_client.get_hosts.return_value = []
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hosts("session_hosts")
 
   def test_get_device_information_success(self):
     roofline_json = json.dumps([{
@@ -151,11 +239,26 @@ class XprofDataTest(absltest.TestCase):
   def test_get_device_information_error(self):
     self.mock_client.fetch.side_effect = Exception("RPC Fail")
 
-    result = xprof_data.get_device_information("session_device")
-    result_json = json.loads(result)
+    with self.assertRaises(RuntimeError):
+      xprof_data.get_device_information("session_device")
 
-    self.assertIn("error", result_json)
-    self.assertIn("RPC Fail", result_json["error"])
+  def test_get_device_information_empty(self):
+    self.mock_client.fetch.return_value = (81, b"")
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_device_information("session_device")
+
+  def test_get_profile_summary_missing_data(self):
+    self.mock_client.fetch.return_value = (None, None)
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_profile_summary("session_missing")
+
+  def test_get_hlo_op_profile_missing_data(self):
+    self.mock_client.fetch.return_value = (None, None)
+
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile("session_missing")
 
 
 if __name__ == "__main__":

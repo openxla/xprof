@@ -17,22 +17,27 @@ try:
   from absl.testing import absltest
   from tensorflow.tsl.profiler.protobuf import xplane_pb2  # pylint: disable=g-direct-tensorflow-import
   from google3.third_party.xprof.embedded.llo_analysis import llo_lite_pb2
+  from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
+  from xprof.cli.internal import xprof_data
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
+  from xprof.cli.tools import get_hlo_stats_tool
   from xprof.cli.tools import get_kernel_stats_tool
   from xprof.cli.tools import get_llo_analysis_tool
   from xprof.cli.tools import get_llo_debug_string_tool
   from xprof.cli.tools import get_overview_tool
   from xprof.cli.tools import get_roofline_model_tool
-  from xprof.cli import xprof_cli
   from xprof.cli.tools import get_top_hlo_ops_tool
   from xprof.cli.tools import get_utilization_viewer_tool
 except ImportError:
+  absltest = None
   from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
+  from xprof.cli.internal import xprof_data
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
+  from xprof.cli.tools import get_hlo_stats_tool
   from xprof.cli.tools import get_kernel_stats_tool
   from xprof.cli.tools import get_llo_analysis_tool
   from xprof.cli.tools import get_llo_debug_string_tool
@@ -558,6 +563,68 @@ class DefectRegressionsTest(parameterized.TestCase):
     ):
       xprof_cli.main(["xprof", "get_overview", "--invalid_flag_xyz=123"])
     self.assertEqual(cm_usage.exception.code, 2)
+
+  def test_d19_hlo_op_profile_exception_contracts(self):
+    """D-19: Exception contracts for get_hlo_op_profile invalid inputs."""
+    # 1. Nonexistent category -> FileNotFoundError
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, category="completely_nonexistent_category_xyz"
+      )
+
+    # 2. Nonexistent tree path -> FileNotFoundError
+    with self.assertRaises(FileNotFoundError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, view="tree", path="nonexistent/tree/path/xyz"
+      )
+
+    # 3. Invalid view -> ValueError
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile(
+          self.t1_path, view="invalid_unsupported_view"
+      )
+
+    # 4. Invalid sort_by -> ValueError
+    with self.assertRaises(ValueError):
+      xprof_data.get_hlo_op_profile(self.t1_path, sort_by="invalid_sort_key")
+
+  def test_d20_hlo_stats_datatable_schema_fidelity(self):
+    """D-20: get_hlo_stats parses production DataTable schema without corrupt trace error."""
+    # 1. Test live execution on real v6e trace (t1_path)
+    res_raw = get_hlo_stats_tool.get_hlo_stats(self.t1_path, limit=10)
+    records = json.loads(res_raw)
+    self.assertIsInstance(records, list)
+    self.assertNotEmpty(records)
+
+    top_record = records[0]
+    self.assertIn("rank", top_record)
+    self.assertIn("program_id", top_record)
+    self.assertIn("category", top_record)
+    self.assertIn("op_name", top_record)
+    self.assertIn("total_self_time_us", top_record)
+    self.assertIn("self_time_percent", top_record)
+    self.assertIn("measured_flop_rate", top_record)
+    self.assertIn("measured_memory_bw_gbs", top_record)
+    self.assertIn("bound_by", top_record)
+    self.assertIn("source_file", top_record)
+    self.assertIn("source_line", top_record)
+
+    # 2. Test bypass_cache parameter
+    res_bypass_raw = get_hlo_stats_tool.get_hlo_stats(
+        self.t1_path, limit=5, bypass_cache=True
+    )
+    records_bypass = json.loads(res_bypass_raw)
+    self.assertLen(records_bypass, 5)
+
+    # 3. Test sorting
+    res_sort_raw = get_hlo_stats_tool.get_hlo_stats(
+        self.t1_path, limit=5, sort_by="total_time"
+    )
+    records_sort = json.loads(res_sort_raw)
+    self.assertLen(records_sort, 5)
+    self.assertGreaterEqual(
+        records_sort[0]["total_time_us"], records_sort[1]["total_time_us"]
+    )
 
 
 if __name__ == "__main__":

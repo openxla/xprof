@@ -99,6 +99,7 @@ py_test(
     srcs = ["get_roofline_model_tool_test.py"],
     visibility = ["//visibility:public"],
     deps = [
+        "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_roofline_model_tool",
         "@absl_py//absl/testing:absltest",
@@ -267,9 +268,11 @@ py_test(
     deps = [
         "//plugin/xprof/cli:xprof_cli_lib",
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/cli/tools:get_hlo_stats_tool",
         "//plugin/xprof/cli/tools:get_kernel_stats_tool",
         "//plugin/xprof/cli/tools:get_llo_analysis_tool",
         "//plugin/xprof/cli/tools:get_llo_debug_string_tool",
@@ -293,6 +296,7 @@ py_test(
     visibility = ["//visibility:public"],
     deps = [
         ":oracles",
+        "//plugin/xprof/cli/internal:xprof_data",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "//plugin/xprof/cli/tools:get_kpi_metrics_tool",

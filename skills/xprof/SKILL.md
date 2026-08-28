@@ -89,8 +89,10 @@ When asked to find performance bottlenecks for a session:
     Host vs Communication).
 2.  **Verify** if the workload is compute-bound, memory-bound, or host-bound
     using `get_device_information` hardware roofline constants.
-3.  **Execute** `get_top_hlo_ops` or `get_hlo_op_profile` to find expensive
-    operations if HLO profiles are available.
+3.  **Execute** `get_hlo_op_profile` (see
+    [get_hlo_op_profile](references/get_hlo_op_profile.md)) or `get_top_hlo_ops`
+    for progressive macro-to-micro category breakdown and expensive operations
+    if HLO profiles are available.
 4.  **Execute** `list_xplane_events --max_events=200000` for detailed timeline
     attribution and step-time evaluation.
 5.  **Inspect** HLO code using `list_hlo_modules` and `get_hlo_module_content`

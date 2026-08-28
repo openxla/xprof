@@ -170,6 +170,28 @@ class GetTopHloOpsToolTest(parameterized.TestCase):
     self.assertLen(result["top_by_time"], 1)
     self.assertEqual(result["top_by_time"][0]["name"], "root/Op2")
 
+  def test_get_top_hlo_ops_custom_call_provenance(self):
+    profile = op_profile_pb2.Profile()
+    root = profile.by_category
+    root.metrics.raw_time = 1000000000
+
+    child = root.children.add()
+    child.name = "IDLE"
+    child.metrics.raw_time = 1000000000
+    child.metrics.raw_flops = 0
+    child.xla.category = "custom-call"
+    child.xla.provenance = "pallas_call"
+
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    result = json.loads(
+        get_top_hlo_ops_tool.get_top_hlo_ops("test_session", limit=1)
+    )
+    self.assertLen(result["top_by_time"], 1)
+    self.assertEqual(result["top_by_time"][0]["name"], "IDLE [pallas_call]")
+    self.assertIn("guidance", result)
+    self.assertIn("Pallas kernels", result["guidance"])
+
   def test_missing_hlo_returns_clean_diagnostic(self):
     """Verifies trace without HLO raises FileNotFoundError."""
     self.mock_client.fetch.return_value = (None, None)

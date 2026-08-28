@@ -67,6 +67,13 @@ ClassifiedPlanes ClassifyPlanes(const tensorflow::profiler::XSpace& space) {
   return result;
 }
 
+tsl::profiler::GroupMetadataMap BuildGroupMetadataMap(
+    tensorflow::profiler::XSpace& space) {
+  tsl::profiler::EventForest event_forest;
+  tsl::profiler::GroupTfEvents(&space, &event_forest);
+  return event_forest.GetGroupMetadataMap();
+}
+
 tensorflow::profiler::HloModuleMap BuildHloModuleMap(
     const tensorflow::profiler::XSpace& space) {
   tensorflow::profiler::HloModuleMap hlo_module_map;
@@ -177,6 +184,21 @@ absl::StatusOr<ParseStatus> ParseXSpace(
   return stopped_early.test(std::memory_order_relaxed)
              ? ParseStatus::kStoppedEarly
              : ParseStatus::kComplete;
+}
+
+absl::StatusOr<ParseStatus> ParseXSpace(
+    tensorflow::profiler::XSpace& xspace, Schema& schema,
+    RecordConsumerRef consumer,
+    absl::optional_ref<const tensorflow::profiler::HloModuleMap> hlo_module_map,
+    absl::optional_ref<const tsl::profiler::GroupMetadataMap>
+        group_metadata_map,
+    tensorflow::profiler::ExecutorFactoryRef executor_factory) {
+  if (group_metadata_map.has_value()) {
+    return ParseXSpace(xspace, *group_metadata_map, schema, consumer,
+                       hlo_module_map, executor_factory);
+  }
+  return ParseXSpace(xspace, BuildGroupMetadataMap(xspace), schema, consumer,
+                     hlo_module_map, executor_factory);
 }
 
 }  // namespace xprof::events_db

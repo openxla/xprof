@@ -744,7 +744,7 @@ TEST(XSpaceParserTest, UsesPrecomputedHloModuleMap) {
   EXPECT_EQ(records[0][indices.tf_op_name], "model/layer/Dense");
 }
 
-TEST(XSpaceParserTest, ParsesEventsWithEmptyGroupMetadataMap) {
+TEST(XSpaceParserTest, AutoGroupsEventsWhenGroupMetadataMapOmitted) {
   tensorflow::profiler::XSpace xspace;
 
   tensorflow::profiler::XPlane* host_plane = xspace.add_planes();
@@ -752,27 +752,40 @@ TEST(XSpaceParserTest, ParsesEventsWithEmptyGroupMetadataMap) {
   tsl::profiler::XPlaneBuilder host_builder(host_plane);
   tsl::profiler::XLineBuilder host_line = host_builder.GetOrCreateLine(1);
   host_line.SetName("MainThread");
-  tsl::profiler::XEventBuilder host_event =
-      host_line.AddEvent(*host_builder.GetOrCreateEventMetadata("host_kernel"));
+  tsl::profiler::XEventBuilder host_event = host_line.AddEvent(
+      *host_builder.GetOrCreateEventMetadata(tsl::profiler::GetHostEventTypeStr(
+          tsl::profiler::HostEventType::kTraceContext)));
   host_event.SetTimestampNs(100);
   host_event.SetDurationNs(200);
+  host_event.AddStatValue(
+      *host_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kGraphType)),
+      "train");
+  host_event.AddStatValue(
+      *host_builder.GetOrCreateStatMetadata(
+          tsl::profiler::GetStatTypeStr(tsl::profiler::StatType::kStepNum)),
+      123);
 
   Schema schema;
   const internal::FieldIndices indices(schema);
 
   std::vector<Record> records;
   const absl::StatusOr<ParseStatus> status_or = ParseXSpace(
-      xspace, {}, schema,
+      xspace, schema,
       [&](Record& record) -> absl::StatusOr<StepControl> {
         records.push_back(record);
         return StepControl::kContinue;
       },
       /*hlo_module_map=*/std::nullopt,
+      /*group_metadata_map=*/std::nullopt,
       tensorflow::profiler::InlineExecutorFactory);
 
   EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kComplete)));
   ASSERT_EQ(records.size(), 1);
-  EXPECT_EQ(records[0][indices.kernel_name], "host_kernel");
+  EXPECT_EQ(records[0][indices.kernel_name],
+            tsl::profiler::GetHostEventTypeStr(
+                tsl::profiler::HostEventType::kTraceContext));
+  EXPECT_EQ(records[0][indices.step], "train 123");
 }
 
 TEST(XSpaceParserTest, HandlesEmptyXSpaceGracefully) {

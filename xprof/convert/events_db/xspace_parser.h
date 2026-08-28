@@ -54,6 +54,26 @@ absl::StatusOr<ParseStatus> ParseXSpace(
     tensorflow::profiler::ExecutorFactoryRef executor_factory =
         tensorflow::profiler::DefaultExecutorFactory);
 
+// Ingests profiler trace events from `xspace` and streams each parsed `Record`
+// to `consumer`.
+//
+// Convenience overload that automatically groups TensorFlow/XLA events in
+// `xspace` when `group_metadata_map` is omitted (std::nullopt). Note that
+// `xspace` is modified in-place during event grouping. If `group_metadata_map`
+// is provided, in-place event grouping is skipped.
+//
+// See the overload above for details on `hlo_module_map`, concurrency,
+// thread-safety, early termination, and return values.
+absl::StatusOr<ParseStatus> ParseXSpace(
+    tensorflow::profiler::XSpace& xspace, Schema& schema,
+    RecordConsumerRef consumer,
+    absl::optional_ref<const tensorflow::profiler::HloModuleMap>
+        hlo_module_map = std::nullopt,
+    absl::optional_ref<const tsl::profiler::GroupMetadataMap>
+        group_metadata_map = std::nullopt,
+    tensorflow::profiler::ExecutorFactoryRef executor_factory =
+        tensorflow::profiler::DefaultExecutorFactory);
+
 }  // namespace xprof::events_db
 
 #endif  // THIRD_PARTY_XPROF_CONVERT_EVENTS_DB_XSPACE_PARSER_H_

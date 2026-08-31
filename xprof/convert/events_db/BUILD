@@ -375,9 +375,15 @@ cc_library(
     srcs = ["arrow_utils.cc"],
     hdrs = ["arrow_utils.h"],
     deps = [
+        ":schema",
         "//third_party/arrow",
+        "//third_party/arrow:array_hdrs",
+        "//third_party/arrow:util_hdrs",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -386,6 +392,7 @@ cc_test(
     srcs = ["arrow_utils_test.cc"],
     deps = [
         ":arrow_utils",
+        ":schema",
         "//third_party/arrow",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",

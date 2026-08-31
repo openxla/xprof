@@ -29,10 +29,10 @@ limitations under the License.
 #include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/api.h"
-#include "third_party/arrow/array/util.h"
-#include "third_party/arrow/type_traits.h"
-#include "third_party/arrow/util/bit_util.h"
+#include "arrow/api.h"  // from @arrow
+#include "arrow/array/util.h"  // from @arrow
+#include "arrow/type_traits.h"  // from @arrow
+#include "arrow/util/bit_util.h"  // from @arrow
 #include "xprof/convert/events_db/schema.h"
 
 namespace xprof::events_db::internal {

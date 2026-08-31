@@ -19,9 +19,9 @@ limitations under the License.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/io/interfaces.h"
-#include "third_party/arrow/result.h"
-#include "third_party/arrow/status.h"
+#include "arrow/io/interfaces.h"  // from @arrow
+#include "arrow/result.h"  // from @arrow
+#include "arrow/status.h"  // from @arrow
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 

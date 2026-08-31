@@ -21,7 +21,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/util/type_fwd.h"
+#include "arrow/util/type_fwd.h"  // from @arrow
 #include "xprof/convert/events_db/record_consumer.h"
 #include "xprof/convert/events_db/schema.h"
 #include "xprof/convert/executor.h"

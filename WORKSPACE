@@ -47,6 +47,17 @@ cc_library(
     urls = ["https://github.com/open-telemetry/opentelemetry-cpp/archive/v1.18.0.tar.gz"],
 )
 
+# Apache Arrow and Parquet C++ libraries (matches google3 //third_party/arrow/METADATA commit ee4d09ebef61c663c1efbfa4c18e518a03b798be)
+http_archive(
+    name = "arrow",
+    build_file = "//third_party:arrow.BUILD",
+    sha256 = "46d72113d776592195162ebd9f0b181ed224cdc3262f78508a0e7ef72e08cf74",
+    strip_prefix = "arrow-ee4d09ebef61c663c1efbfa4c18e518a03b798be",
+    urls = [
+        "https://github.com/apache/arrow/archive/ee4d09ebef61c663c1efbfa4c18e518a03b798be.zip",
+    ],
+)
+
 http_archive(
     name = "com_github_googlecloudplatform_google_cloud_cpp",
     repo_mapping = {

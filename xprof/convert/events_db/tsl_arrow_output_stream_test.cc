@@ -22,7 +22,7 @@ limitations under the License.
 #include "absl/status/status_matchers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/result.h"
+#include "arrow/result.h"  // from @arrow
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 

@@ -22,8 +22,8 @@ limitations under the License.
 #include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/result.h"
-#include "third_party/arrow/status.h"
+#include "arrow/result.h"  // from @arrow
+#include "arrow/status.h"  // from @arrow
 #include "xla/tsl/platform/env.h"
 #include "xla/tsl/platform/file_system.h"
 #include "xprof/convert/events_db/arrow_utils.h"

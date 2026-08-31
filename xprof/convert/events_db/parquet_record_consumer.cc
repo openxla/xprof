@@ -28,9 +28,9 @@ limitations under the License.
 #include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "third_party/arrow/api.h"
-#include "third_party/arrow/io/api.h"  // IWYU pragma: keep
-#include "third_party/parquet_cpp/src2/parquet/arrow/writer.h"
+#include "arrow/api.h"  // from @arrow
+#include "arrow/io/api.h"  // from @arrow  // IWYU pragma: keep
+#include "parquet/arrow/writer.h"  // from @arrow
 #include "xprof/convert/events_db/arrow_utils.h"
 #include "xprof/convert/events_db/event_utils.h"
 #include "xprof/convert/events_db/record_consumer.h"

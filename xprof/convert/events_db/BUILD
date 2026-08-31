@@ -1,5 +1,4 @@
 # load("//third_party/bazel_rules/rules_cc/cc:cc_test.bzl", "cc_test")
-load("//plugin/xprof/build_utils/oss:build_config.bzl", "cc_library")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//xprof:license"],
@@ -376,9 +375,9 @@ cc_library(
     hdrs = ["arrow_utils.h"],
     deps = [
         ":schema",
-        "//third_party/arrow",
-        "//third_party/arrow:array_hdrs",
-        "//third_party/arrow:util_hdrs",
+        "@arrow",
+        "@arrow//:array_hdrs",
+        "@arrow//:util_hdrs",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
@@ -393,7 +392,7 @@ cc_test(
     deps = [
         ":arrow_utils",
         ":schema",
-        "//third_party/arrow",
+        "@arrow",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
@@ -408,7 +407,7 @@ cc_library(
     hdrs = ["tsl_arrow_output_stream.h"],
     deps = [
         ":arrow_utils",
-        "//third_party/arrow:arrow_core",
+        "@arrow//:arrow_core",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
@@ -423,7 +422,7 @@ cc_test(
     srcs = ["tsl_arrow_output_stream_test.cc"],
     deps = [
         ":tsl_arrow_output_stream",
-        "//third_party/arrow:arrow_core",
+        "@arrow//:arrow_core",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/strings",
@@ -443,9 +442,9 @@ cc_library(
         ":record_consumer",
         ":schema",
         ":tsl_arrow_output_stream",
-        "//third_party/arrow",
-        "//third_party/arrow:util_hdrs",
-        "//third_party/parquet_cpp:parquet_cpp2",
+        "@arrow",
+        "@arrow//:parquet_cpp2",
+        "@arrow//:util_hdrs",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_macros",
         "@com_google_absl//absl/status:statusor",
@@ -464,9 +463,9 @@ cc_test(
         ":parquet_record_consumer",
         ":record_consumer",
         ":schema",
-        "//third_party/arrow",
-        "//third_party/arrow:util_hdrs",
-        "//third_party/parquet_cpp:parquet_cpp2",
+        "@arrow",
+        "@arrow//:parquet_cpp2",
+        "@arrow//:util_hdrs",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",

@@ -13,7 +13,7 @@ limitations under the License.
 #include "xprof/convert/events_db/arrow_utils.h"
 
 #include "absl/status/status.h"
-#include "third_party/arrow/api.h"
+#include "arrow/api.h"  // from @arrow
 
 namespace xprof::events_db::internal {
 

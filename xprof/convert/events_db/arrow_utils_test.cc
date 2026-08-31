@@ -28,7 +28,7 @@ limitations under the License.
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
-#include "third_party/arrow/api.h"
+#include "arrow/api.h"  // from @arrow
 #include "xprof/convert/events_db/schema.h"
 
 namespace xprof::events_db::internal {

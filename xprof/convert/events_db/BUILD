@@ -369,3 +369,28 @@ cc_test(
         "@xla//xla/tsl/profiler/utils:xplane_schema",
     ],
 )
+
+cc_library(
+    name = "arrow_utils",
+    srcs = ["arrow_utils.cc"],
+    hdrs = ["arrow_utils.h"],
+    deps = [
+        "//third_party/arrow",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_test(
+    name = "arrow_utils_test",
+    srcs = ["arrow_utils_test.cc"],
+    deps = [
+        ":arrow_utils",
+        "//third_party/arrow",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

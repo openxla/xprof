@@ -401,3 +401,33 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+cc_library(
+    name = "tsl_arrow_output_stream",
+    srcs = ["tsl_arrow_output_stream.cc"],
+    hdrs = ["tsl_arrow_output_stream.h"],
+    deps = [
+        ":arrow_utils",
+        "//third_party/arrow:arrow_core",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@xla//xla/tsl/platform:env",
+    ],
+)
+
+cc_test(
+    name = "tsl_arrow_output_stream_test",
+    srcs = ["tsl_arrow_output_stream_test.cc"],
+    deps = [
+        ":tsl_arrow_output_stream",
+        "//third_party/arrow:arrow_core",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@xla//xla/tsl/platform:env",
+    ],
+)

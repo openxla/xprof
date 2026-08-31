@@ -11,15 +11,24 @@ from xprof.convert import _pywrap_profiler_plugin
 
 
 @decorators.cached(expire=86400)
-def get_llo_debug_string(session_id: str, host: str = "") -> str:
+def get_llo_debug_string(
+    session_id: str,
+    host: str = "",
+    bypass_cache: bool = False,
+) -> str:
   """Fetches xspace and runs LLO analysis to return the debug string.
 
   Args:
       session_id: The unique XProf session ID or xplane file path.
       host: The host to get the xspace for.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted string containing LLO debug string.
+
+  Raises:
+      ValueError: If an invalid host is specified.
+      RuntimeError: If fetching or analyzing LLO data fails.
   """
   session_id = str(session_id)
   client = xprof_client.get_client()
@@ -87,15 +96,13 @@ def get_llo_debug_string(session_id: str, host: str = "") -> str:
       else:
         host = ""
     elif host not in available_hosts:
-      return json.dumps(
-          dict(
-              error=f"Invalid host: '{host}'.",
-              available_hosts=available_hosts,
-          ),
-          indent=2,
+      raise ValueError(
+          f"Invalid host: '{host}'. Available hosts: {available_hosts}"
       )
 
-    serialized_xspace = client.get_serialized_xspace(session_id, host)
+    serialized_xspace = client.get_serialized_xspace(
+        session_id, host, bypass_cache=bypass_cache
+    )
 
     with tempfile.NamedTemporaryFile() as temp_file:
       temp_file.write(serialized_xspace)

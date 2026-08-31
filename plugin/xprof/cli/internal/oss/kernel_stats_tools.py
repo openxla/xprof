@@ -100,6 +100,7 @@ def get_kernel_stats(
     include_summary: bool = False,
     device_to_use: str | None = "TPU:0",  # pylint: disable=unused-argument
     trace_matchers: tuple[str, ...] | None = None,
+    bypass_cache: bool = False,
 ) -> Any:
   """Computes performance metrics for operations from local XPlanes in OSS.
 
@@ -119,10 +120,14 @@ def get_kernel_stats(
       Disjoint Interval Union alongside per-kernel records.
     device_to_use: Device plane to target (e.g., "TPU:0").
     trace_matchers: Optional tuple of event name matchers for filtering.
+    bypass_cache: Whether to bypass cache.
 
   Returns:
       A formatted string, list of dict records, or enriched summary dict.
   """
+  del bypass_cache
+  if isinstance(source, (int, float)):
+    source = str(source)
   try:
     if isinstance(source, (dict, list)):
       records = (
@@ -275,16 +280,13 @@ def get_kernel_stats(
       return format_markdown_table(records, kernel_name)
     return json.dumps(records, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error in OSS get_kernel_stats for source %r", source
     )
-    if output_format == "dict":
-      raise
-    error_msg = f"Failed to get kernel stats: {e!r}"
-    if output_format == "markdown":
-      return f"# Error\n{error_msg}\n"
-    return json.dumps({"error": error_msg}, indent=2)
+    raise RuntimeError(f"Failed to get kernel stats: {e}") from e
 
 
 def get_avg_step_time(
@@ -292,8 +294,12 @@ def get_avg_step_time(
     *,
     func_name: str | None = None,
     output_format: Literal["json", "dict"] = "json",
+    bypass_cache: bool = False,
 ) -> Any:
   """Computes average step time from local XPlane 'XLA Modules' envelopes in OSS."""
+  del bypass_cache
+  if isinstance(source, (int, float)):
+    source = str(source)
   try:
     step_durations_ms = []
 
@@ -313,15 +319,9 @@ def get_avg_step_time(
           step_durations_ms.append(float(event.duration_ns) / 1_000_000.0)
 
     if not step_durations_ms:
-      res_err = {
-          "error": (
-              f"No steps matching func_name '{func_name}' found in"
-              f" {source}."
-          )
-      }
-      if output_format == "dict":
-        return res_err
-      return json.dumps(res_err, indent=2)
+      raise ValueError(
+          f"No steps matching func_name '{func_name}' found in {source}."
+      )
 
     step_count = len(step_durations_ms)
     avg_ms = sum(step_durations_ms) / step_count
@@ -331,10 +331,8 @@ def get_avg_step_time(
     }
     return res if output_format == "dict" else json.dumps(res, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception("Error across OSS get_avg_step_time")
-    if output_format == "dict":
-      raise
-    return json.dumps(
-        {"error": f"Failed to get average step time: {e!r}"}, indent=2
-    )
+    raise RuntimeError(f"Failed to get average step time: {e}") from e

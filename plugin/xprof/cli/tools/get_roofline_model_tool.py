@@ -87,9 +87,8 @@ def get_roofline_model(
 
     roofline_data = json.loads(data)
     if not isinstance(roofline_data, list) or not roofline_data:
-      return json.dumps(
-          dict(error="Unexpected roofline model data format: expected list"),
-          indent=2,
+      raise ValueError(
+          "Unexpected roofline model data format: expected non-empty list"
       )
 
     table_data = roofline_data[0]

@@ -626,6 +626,52 @@ class DefectRegressionsTest(parameterized.TestCase):
         records_sort[0]["total_time_us"], records_sort[1]["total_time_us"]
     )
 
+  def test_d21_cache_collision_prevention_across_distinct_logdirs_with_same_session_id(
+      self,
+  ):
+    """D-21: Distinct logdirs sharing a session ID do not collide in SQLite cache."""
+    temp_dir = tempfile.mkdtemp()
+    self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+
+    dir_a = os.path.join(temp_dir, "dir_a")
+    dir_c = os.path.join(temp_dir, "dir_c")
+    sid = "2026_08_24_06_33_12"
+
+    os.makedirs(os.path.join(dir_a, "plugins", "profile", sid), exist_ok=True)
+    os.makedirs(os.path.join(dir_c, "plugins", "profile", sid), exist_ok=True)
+
+    trace_a = os.path.join(dir_a, "plugins", "profile", sid, "trace.xplane.pb")
+    trace_c = os.path.join(dir_c, "plugins", "profile", sid, "trace.xplane.pb")
+
+    shutil.copyfile(self.t1_path, trace_a)
+    shutil.copyfile(self.t2_path, trace_c)
+
+    # 1. Content fingerprints must be distinct despite identical subpaths or
+    # filenames.
+    fp_a = decorators.compute_path_fingerprint(os.path.dirname(trace_a))
+    fp_c = decorators.compute_path_fingerprint(os.path.dirname(trace_c))
+    self.assertNotEqual(fp_a, fp_c)
+
+    # 2. Query dir_a vs dir_c via XProfCli wrapper with logdir
+    cli = xprof_cli.XProfCli()
+    res_a_raw = cli.get_overview(sid, logdir=dir_a)
+    res_a = json.loads(res_a_raw) if isinstance(res_a_raw, str) else res_a_raw
+
+    res_c_raw = cli.get_overview(sid, logdir=dir_c)
+    res_c = json.loads(res_c_raw) if isinstance(res_c_raw, str) else res_c_raw
+
+    self.assertNotEqual(
+        res_a,
+        res_c,
+        msg="Traces in dir_a and dir_c must not collide on shared session_id",
+    )
+
+  def test_d22_empty_session_id_rejection(self):
+    """D-22: Empty string session ID is rejected with ValueError."""
+    cli = xprof_cli.XProfCli()
+    with self.assertRaises(ValueError):
+      cli.get_overview("")
+
 
 if __name__ == "__main__":
   try:

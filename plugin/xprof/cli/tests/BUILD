@@ -260,6 +260,7 @@ py_test(
 
 py_test(
     name = "test_defect_regressions",
+    timeout = "moderate",
     srcs = ["e2e/test_defect_regressions.py"],
     data = [
         "//xprof:demo_traces",

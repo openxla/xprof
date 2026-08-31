@@ -218,6 +218,54 @@ class XProfCliTest(unittest.TestCase):
     mock_stderr.write.assert_called()
     self.assertIn('INTERNAL_ERROR', mock_stderr.write.call_args[0][0])
 
+  def test_empty_session_id_raises_value_error(self):
+    """Ensures empty session_id is rejected with ValueError."""
+    def dummy_tool(session_id: str):
+      return session_id
+
+    wrapped = xprof_cli._wrap_with_logdir(dummy_tool)
+    with self.assertRaises(ValueError):
+      wrapped('')
+    with self.assertRaises(ValueError):
+      wrapped(session_id='')
+
+  def test_preprocess_argv_quotes_timestamp_tokens(self):
+    """Ensures timestamp tokens with underscores are quoted to prevent PEP 515 parsing."""
+    raw_args = [
+        'get_kernel_stats',
+        '2026_08_24_06_33_12',
+        '--logdir=/tmp/trace',
+        '--session_id=2026_08_28_05_52_00',
+    ]
+    processed = xprof_cli._preprocess_argv(raw_args)
+    self.assertEqual(
+        processed,
+        [
+            'get_kernel_stats',
+            '"2026_08_24_06_33_12"',
+            '--logdir=/tmp/trace',
+            '--session_id="2026_08_28_05_52_00"',
+        ],
+    )
+
+  def test_preprocess_argv_preserves_numeric_and_standard_flags(self):
+    """Ensures standard numeric flags without underscores are not quoted."""
+    raw_args = ['list_xplane_events', 'sess1', '--limit=10', '-k=5']
+    processed = xprof_cli._preprocess_argv(raw_args)
+    self.assertEqual(
+        processed, ['list_xplane_events', 'sess1', '--limit=10', '-k=5']
+    )
+
+  def test_wrap_with_logdir_coerces_int_to_str(self):
+    """Ensures int session_id and source parameters are coerced to string."""
+    def dummy_tool(source: str, limit: int = 10):
+      return {'source': source, 'limit': limit}
+
+    wrapped = xprof_cli._wrap_with_logdir(dummy_tool)
+    res = wrapped(20260824063312, limit=5)
+    self.assertEqual(res['source'], '20260824063312')
+    self.assertEqual(res['limit'], 5)
+
 
 if __name__ == '__main__':
   unittest.main()

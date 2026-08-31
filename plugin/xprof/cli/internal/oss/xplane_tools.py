@@ -117,6 +117,7 @@ def list_xplane_events(
     end_time_ps: int | None = None,
     max_events: int = 100,
     offset: int = 0,
+    bypass_cache: bool = False,
 ) -> str:
   """Searches and filters timeline events across XPlanes.
 
@@ -139,10 +140,17 @@ def list_xplane_events(
     end_time_ps: Filter by ending time in picoseconds.
     max_events: Limit results to this count (default 100).
     offset: Skip this many events before returning (useful for pagination).
+    bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
     A JSON-formatted list of matching timeline events.
+
+  Raises:
+    FileNotFoundError: If path or session run is not found.
+    ValueError: If parameters are invalid.
+    RuntimeError: If listing events fails.
   """
+  del bypass_cache
   try:
     events = []
     total_matched = 0
@@ -205,6 +213,8 @@ def list_xplane_events(
     }
     return json.dumps(result_payload, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error listing XPlane events for session_id=%r, plane_regex=%r,"
@@ -213,7 +223,9 @@ def list_xplane_events(
         plane_regex,
         event_regex,
     )
-    return f"Error listing XPlane events: {e!r}"
+    raise RuntimeError(
+        f"Error listing XPlane events for session {session_id}: {e}"
+    ) from e
 
 
 @decorators.cached(expire=86_400)
@@ -221,6 +233,7 @@ def aggregate_xplane_events(
     session_id: str,
     plane_regex: str = ".*",
     event_regex: str = ".*",
+    bypass_cache: bool = False,
 ) -> str:
   """Calculates statistical aggregates for matching timeline events.
 
@@ -238,10 +251,17 @@ def aggregate_xplane_events(
     session_id: The unique XProf session ID.
     plane_regex: Regex to filter XPlanes.
     event_regex: Regex to filter event names.
+    bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
     A JSON string containing statistical aggregates grouped by event name.
+
+  Raises:
+    FileNotFoundError: If path or session run is not found.
+    ValueError: If parameters are invalid.
+    RuntimeError: If aggregating events fails.
   """
+  del bypass_cache
   try:
     p_re = re.compile(plane_regex)
     e_re = re.compile(event_regex)
@@ -307,6 +327,8 @@ def aggregate_xplane_events(
     }
     return json.dumps(result_payload, indent=2)
 
+  except (FileNotFoundError, ValueError):
+    raise
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.exception(
         "Error aggregating XPlane events for session_id=%r, plane_regex=%r,"
@@ -315,13 +337,16 @@ def aggregate_xplane_events(
         plane_regex,
         event_regex,
     )
-    return f"Error aggregating XPlane events: {e!r}"
+    raise RuntimeError(
+        f"Error aggregating XPlane events for session {session_id}: {e}"
+    ) from e
 
 
 def get_xspace_proto(
     session_id: str,
     as_text: bool = False,
     output_path: str | None = None,
+    bypass_cache: bool = False,
     **kwargs,
 ) -> str | bytes:
   """Returns or saves the serialized XSpace proto for a session."""
@@ -333,7 +358,7 @@ def get_xspace_proto(
     )
 
   client = xprof_client.get_client()
-  data = client.get_serialized_xspace(session_id)
+  data = client.get_serialized_xspace(session_id, bypass_cache=bypass_cache)
 
   if output_path:
     p = pathlib.Path(output_path)

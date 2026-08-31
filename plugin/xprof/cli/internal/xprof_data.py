@@ -11,7 +11,10 @@ from xprof.protobuf import op_profile_pb2
 
 
 @decorators.cached(expire=86400)
-def get_profile_summary(session_id: str) -> str:
+def get_profile_summary(
+    session_id: str,
+    bypass_cache: bool = False,
+) -> str:
   """Provides a high-level performance summary of an XProf session.
 
   **START HERE.** This tool identifies the top bottlenecks, step time, and HBM
@@ -19,6 +22,7 @@ def get_profile_summary(session_id: str) -> str:
 
   Args:
     session_id: The unique XProf session ID.
+    bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
     A executive-level text summary of the profile's performance landscape.
@@ -35,6 +39,7 @@ def get_profile_summary(session_id: str) -> str:
         tool_name="op_profile",
         session_id=session_id,
         format="json",
+        bypass_cache=bypass_cache,
     )
     if not op_profile_result or (
         isinstance(op_profile_result, tuple) and not op_profile_result[1]
@@ -43,6 +48,7 @@ def get_profile_summary(session_id: str) -> str:
           tool_name="hlo_op_profile.json",
           session_id=session_id,
           format="json",
+          bypass_cache=bypass_cache,
       )
     op_profile = op_profile_pb2.Profile()
 
@@ -653,7 +659,10 @@ def get_hlo_op_profile(
 
 
 @decorators.cached(expire=86400)
-def get_hosts(session_id: str) -> str:
+def get_hosts(
+    session_id: str,
+    bypass_cache: bool = False,
+) -> str:
   """Returns the list of hosts profiled in the session.
 
   **Use this** to see which machines participated in the profile, including
@@ -661,6 +670,7 @@ def get_hosts(session_id: str) -> str:
 
   Args:
       session_id: The unique XProf session ID.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted dict containing a list of hosts or an error.
@@ -669,6 +679,7 @@ def get_hosts(session_id: str) -> str:
       FileNotFoundError: If no hosts are found for the session.
       RuntimeError: If fetching hosts fails.
   """
+  del bypass_cache
   client = xprof_client.get_client()
   try:
     hosts_data = client.get_hosts(session_id, with_metadata=True)
@@ -686,7 +697,10 @@ def get_hosts(session_id: str) -> str:
 
 
 @decorators.cached(expire=86400)
-def get_device_information(session_id: str) -> str:
+def get_device_information(
+    session_id: str,
+    bypass_cache: bool = False,
+) -> str:
   """Returns hardware device information from the Roofline Model analysis.
 
   **Use this** to retrieve device specs such as the accelerator type,
@@ -694,6 +708,7 @@ def get_device_information(session_id: str) -> str:
 
   Args:
       session_id: The unique XProf session ID.
+      bypass_cache: Whether to bypass cache and recompute metrics.
 
   Returns:
       A JSON-formatted dict of device information properties extracted
@@ -710,6 +725,7 @@ def get_device_information(session_id: str) -> str:
     result = client.fetch(
         tool_name="roofline_model.json",
         session_id=session_id,
+        bypass_cache=bypass_cache,
     )
 
     if isinstance(result, tuple) and len(result) == 2:

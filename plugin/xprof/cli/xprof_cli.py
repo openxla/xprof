@@ -4,6 +4,7 @@ import functools
 import inspect
 import json
 import pathlib
+import re
 import sys
 from typing import Any
 
@@ -123,6 +124,12 @@ def _wrap_with_logdir(tool_func):
     if isinstance(logdir, bool):
       raise fire.core.FireError("The --logdir flag requires a value.")
 
+    # Reject empty session_id when --logdir is given or as positional arg
+    if args and not args[0]:
+      raise ValueError("session_id cannot be an empty string.")
+    if "session_id" in kwargs and not kwargs["session_id"]:
+      raise ValueError("session_id cannot be an empty string.")
+
     target_path = None
     if logdir is not None:
       target_path = str(logdir)
@@ -133,12 +140,13 @@ def _wrap_with_logdir(tool_func):
       ):
         target_path = first_arg
 
-    if target_path is not None and _is_oss():
+    if target_path is not None:
       if (
           "destination" not in sig.parameters
           and "run_name" not in sig.parameters
       ):
-        if not target_path.startswith("gs://"):
+        skip_local_check = target_path.startswith("gs://")
+        if not skip_local_check:
           p = pathlib.Path(target_path).expanduser()
           if not p.exists():
             raise FileNotFoundError(
@@ -161,6 +169,47 @@ def _wrap_with_logdir(tool_func):
             and not args
         ):
           kwargs["session_id"] = str(logdir)
+        elif (
+            "source" in sig.parameters
+            and "source" not in kwargs
+            and not args
+        ):
+          kwargs["source"] = str(logdir)
+
+    args_list = list(args)
+    for i, p in enumerate(sig.parameters.values()):
+      if i < len(args_list) and p.name in {
+          "session_id",
+          "source",
+          "baseline_session_id",
+          "optimized_session_id",
+          "run_name",
+          "module_name",
+          "instruction_name",
+          "func_name",
+          "kernel_name",
+          "host_name",
+          "host",
+      }:
+        if isinstance(args_list[i], (int, float)):
+          args_list[i] = str(args_list[i])
+    args = tuple(args_list)
+
+    for k in (
+        "session_id",
+        "source",
+        "baseline_session_id",
+        "optimized_session_id",
+        "run_name",
+        "module_name",
+        "instruction_name",
+        "func_name",
+        "kernel_name",
+        "host_name",
+        "host",
+    ):
+      if k in kwargs and isinstance(kwargs[k], (int, float)):
+        kwargs[k] = str(kwargs[k])
 
     if "bypass_cache" not in sig.parameters:
       if not (
@@ -342,14 +391,44 @@ def _emit_error(reason: str, message: str, exit_code: int) -> None:
   sys.exit(exit_code)
 
 
+_UNDERSCORE_NUM_PATTERN = re.compile(r"^\d+(_\d+)+$")
+
+
+def _preprocess_argv(argv: list[str] | None) -> list[str] | None:
+  """Preprocesses CLI arguments so timestamp session IDs with underscores are preserved as strings in Fire."""
+  if not argv:
+    return argv
+  processed = []
+  for arg in argv:
+    if arg.startswith("--") and "=" in arg:
+      key, val = arg.split("=", 1)
+      if _UNDERSCORE_NUM_PATTERN.match(val) and not (
+          val.startswith(('"', "'")) and val.endswith(('"', "'"))
+      ):
+        processed.append(f'{key}="{val}"')
+      else:
+        processed.append(arg)
+    elif arg.startswith("-"):
+      processed.append(arg)
+    else:
+      if _UNDERSCORE_NUM_PATTERN.match(arg) and not (
+          arg.startswith(('"', "'")) and arg.endswith(('"', "'"))
+      ):
+        processed.append(f'"{arg}"')
+      else:
+        processed.append(arg)
+  return processed
+
+
 def main(argv=None) -> None:
   """Main function for the xprof CLI."""
   import logging  # pylint: disable=g-import-not-at-top
 
   _check_xprof_version()
 
+  processed_command = _preprocess_argv(argv[1:] if argv else None)
   try:
-    fire.Fire(XProfCli(), command=argv[1:] if argv else None, name="xprof")
+    fire.Fire(XProfCli(), command=processed_command, name="xprof")
   except (fire.core.FireError, TypeError) as e:
     _emit_error("USAGE_ERROR", str(e), 2)
   except FileNotFoundError as e:

@@ -10,6 +10,7 @@ import json
 import pathlib
 import random
 import sqlite3
+import sys
 import tempfile
 import textwrap
 import time
@@ -213,10 +214,37 @@ def _is_error_payload(value: Any) -> bool:
   return False
 
 
+def _resolve_session_path_via_client(val: str) -> pathlib.Path | None:
+  """Dynamically resolves a session ID against the active xprof client if present."""
+  mod_names = ("xprof.cli.internal.oss.xprof_client",)
+  for mod_name in mod_names:
+    client = None
+    if mod_name in sys.modules:
+      client = getattr(sys.modules[mod_name], "get_client")()
+    else:
+      try:
+        import importlib  # pylint: disable=g-import-not-at-top
+
+        mod = importlib.import_module(mod_name)
+        client = getattr(mod, "get_client")()
+      except Exception:  # pylint: disable=broad-except
+        pass
+    if client and getattr(client, "_logdir", None) and hasattr(
+        client, "get_run_dir"
+    ):
+      try:
+        resolved = client.get_run_dir(val)
+        if resolved and pathlib.Path(resolved).exists():
+          return pathlib.Path(resolved)
+      except Exception:  # pylint: disable=broad-except
+        pass
+  return None
+
+
 def _compute_path_fingerprint(
     val: Any, xspace_paths: Sequence[str] | None = None
 ) -> str:
-  """Computes a timestamp+size fingerprint covering exact raw trace inputs."""
+  """Computes a content-addressable SHA-256 fingerprint covering raw trace inputs."""
   if not isinstance(val, (str, pathlib.Path)) and not xspace_paths:
     return "NO_TRACE_INPUTS"
 
@@ -230,13 +258,29 @@ def _compute_path_fingerprint(
       except (OSError, ValueError):
         continue
   else:
+    if not val:
+      return "NO_TRACE_INPUTS"
     try:
       p = pathlib.Path(val).expanduser()
+      if not p.exists():
+        resolved_p = _resolve_session_path_via_client(str(val))
+        if resolved_p is not None:
+          p = resolved_p
       if not p.exists():
         return "NONEXISTENT"
       if p.is_file():
         st = p.stat()
-        return f"f:{st.st_mtime_ns}:{st.st_size}"
+        hasher = hashlib.sha256()
+        hasher.update(f"{p.name}:{st.st_size}:".encode("utf-8"))
+        try:
+          with open(p, "rb") as fp:
+            hasher.update(fp.read(64 * 1024))
+            if st.st_size > 128 * 1024:
+              fp.seek(-64 * 1024, 2)
+              hasher.update(fp.read(64 * 1024))
+        except (OSError, ValueError):
+          pass
+        return f"f:{hasher.hexdigest()[:16]}"
     except (OSError, ValueError):
       return "NONEXISTENT"
 
@@ -268,28 +312,21 @@ def _compute_path_fingerprint(
   if not files:
     return "NO_TRACE_INPUTS"
 
-  base_dir = (
-      pathlib.Path(val)
-      if isinstance(val, (str, pathlib.Path)) and pathlib.Path(val).is_dir()
-      else files[0].parent
-  )
-  stats = []
+  hasher = hashlib.sha256()
   for f in files:
     try:
       if f.is_file():
         st = f.stat()
-        rel = (
-            str(f.relative_to(base_dir))
-            if f.is_relative_to(base_dir)
-            else f.name
-        )
-        stats.append(f"{rel}:{st.st_mtime_ns}:{st.st_size}")
+        hasher.update(f"{f.name}:{st.st_size}:".encode("utf-8"))
+        with open(f, "rb") as fp:
+          hasher.update(fp.read(64 * 1024))
+          if st.st_size > 128 * 1024:
+            fp.seek(-64 * 1024, 2)
+            hasher.update(fp.read(64 * 1024))
     except (OSError, ValueError):
       continue
 
-  if not stats:
-    return "NO_TRACE_INPUTS"
-  return hashlib.sha256(";".join(stats).encode("utf-8")).hexdigest()[:16]
+  return hasher.hexdigest()[:16]
 
 
 def _add_cache_indicator(value: Any, set_time: float | None = None) -> Any:
@@ -322,6 +359,7 @@ def _get_cache_dir() -> pathlib.Path:
 
 get_cache_dir = _get_cache_dir
 compute_path_fingerprint = _compute_path_fingerprint
+
 
 _GLOBAL_CACHE: Cache | None = None
 
@@ -378,24 +416,41 @@ def cached(
       else:
         bypass_cache = kwargs_call.pop("bypass_cache", False)
 
-      # 1. Compute a stable key with path fingerprinting.
+      # 1. Compute a stable key with path and content signature normalization.
       key_kwargs = {
           k: v
           for k, v in kwargs_call.items()
           if k not in ignore and k != "bypass_cache"
       }
+
+      normalized_args = []
+      for arg in args:
+        fp = _compute_path_fingerprint(arg)
+        if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
+          normalized_args.append(f"trace_sig:{fp}")
+        else:
+          normalized_args.append(arg)
+
+      normalized_kwargs = {}
+      for k, v in key_kwargs.items():
+        fp = _compute_path_fingerprint(v)
+        if fp not in ("NO_TRACE_INPUTS", "NONEXISTENT"):
+          normalized_kwargs[k] = f"trace_sig:{fp}"
+        else:
+          normalized_kwargs[k] = v
+
       fingerprints = [_compute_path_fingerprint(arg) for arg in args] + [
           _compute_path_fingerprint(v) for v in key_kwargs.values()
       ]
       fingerprint_str = ";".join(f for f in fingerprints if f)
       try:
         # Sort items to ensure order stability for JSON dict kwargs.
-        key_kwargs_sorted = sorted(key_kwargs.items())
+        key_kwargs_sorted = sorted(normalized_kwargs.items())
         key = json.dumps(
             [
                 getattr(func, "__module__", ""),
                 getattr(func, "__qualname__", ""),
-                args,
+                normalized_args,
                 key_kwargs_sorted,
                 fingerprint_str,
             ],

@@ -241,6 +241,22 @@ class GetRooflineModelToolTest(absltest.TestCase):
     parsed = json.loads(result)
     self.assertEqual(parsed["status"], "NO_DATA")
 
+  def test_get_roofline_model_invalid_data(self):
+    self.mock_client.fetch.return_value = ("application/json", b"{}")
+    with self.assertRaises(ValueError):
+      get_roofline_model_tool.get_roofline_model("test_session")
+
+  def test_get_roofline_model_bypass_cache(self):
+    self.mock_client.fetch.return_value = ("application/json", None)
+    get_roofline_model_tool.get_roofline_model(
+        "test_session", bypass_cache=True
+    )
+    self.mock_client.fetch.assert_any_call(
+        tool_name="roofline_model.json",
+        session_id="test_session",
+        bypass_cache=True,
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

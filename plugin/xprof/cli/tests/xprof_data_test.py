@@ -180,9 +180,30 @@ class XprofDataTest(absltest.TestCase):
         tool_name="op_profile",
         session_id="session_summary",
         format="json",
+        bypass_cache=False,
     )
     self.assertIn("Profile Summary", result)
     self.assertIn("Total Time:", result)
+
+  def test_get_profile_summary_bypass_cache(self):
+    profile = op_profile_pb2.Profile(
+        by_category=op_profile_pb2.Node(
+            name="root", metrics=op_profile_pb2.Metrics(raw_time=100e12)
+        )
+    )
+    self.mock_client.fetch.return_value = (None, profile.SerializeToString())
+
+    result = xprof_data.get_profile_summary(
+        "session_summary", bypass_cache=True
+    )
+
+    self.mock_client.fetch.assert_called_with(
+        tool_name="op_profile",
+        session_id="session_summary",
+        format="json",
+        bypass_cache=True,
+    )
+    self.assertIn("Profile Summary", result)
 
   def test_get_hosts(self):
     self.mock_client.get_hosts.return_value = [

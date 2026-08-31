@@ -50,6 +50,7 @@ using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
 using ::testing::Eq;
 using ::testing::IsEmpty;
+using ::testing::Optional;
 
 constexpr absl::string_view kHloText = R"(
   HloModule test_module
@@ -821,6 +822,197 @@ TEST(XSpaceParserTest, ReturnsErrorWhenExecutorFactoryReturnsNull) {
       });
 
   EXPECT_THAT(status_or.status(), StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST(XSpaceParserTest, CallsFinalizeOnStatefulConsumer) {
+  tensorflow::profiler::XSpace xspace;
+  Schema schema;
+
+  struct StatefulConsumer {
+    int records_seen = 0;
+    bool finalized = false;
+    std::optional<ParseStatus> parse_outcome;
+
+    absl::StatusOr<StepControl> Consume(Record&) {
+      records_seen++;
+      return StepControl::kContinue;
+    }
+
+    absl::Status Finalize(const absl::StatusOr<ParseStatus>& result) {
+      finalized = true;
+      if (result.ok()) {
+        parse_outcome = *result;
+      }
+      return absl::OkStatus();
+    }
+  };
+
+  StatefulConsumer consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kComplete)));
+  EXPECT_TRUE(consumer.finalized);
+  EXPECT_THAT(consumer.parse_outcome, Optional(Eq(ParseStatus::kComplete)));
+}
+
+TEST(XSpaceParserTest, FinalizeReceivesStoppedEarlyResult) {
+  tensorflow::profiler::XSpace xspace;
+  tensorflow::profiler::XPlane* host_plane = xspace.add_planes();
+  host_plane->set_name(tsl::profiler::kHostThreadsPlaneName);
+  tsl::profiler::XPlaneBuilder host_builder(host_plane);
+  tsl::profiler::XLineBuilder host_line = host_builder.GetOrCreateLine(1);
+  for (int i = 0; i < 3; ++i) {
+    tsl::profiler::XEventBuilder ev =
+        host_line.AddEvent(*host_builder.GetOrCreateEventMetadata("event"));
+    ev.SetTimestampNs(100 * (i + 1));
+    ev.SetDurationNs(50);
+  }
+
+  Schema schema;
+
+  struct EarlyStoppingConsumer {
+    int records_seen = 0;
+    bool finalized = false;
+    std::optional<ParseStatus> parse_outcome;
+
+    absl::StatusOr<StepControl> Consume(Record&) {
+      records_seen++;
+      return StepControl::kStop;
+    }
+
+    absl::Status Finalize(const absl::StatusOr<ParseStatus>& result) {
+      finalized = true;
+      if (result.ok()) {
+        parse_outcome = *result;
+      }
+      return absl::OkStatus();
+    }
+  };
+
+  EarlyStoppingConsumer consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kStoppedEarly)));
+  EXPECT_TRUE(consumer.finalized);
+  EXPECT_THAT(consumer.parse_outcome, Optional(Eq(ParseStatus::kStoppedEarly)));
+}
+
+TEST(XSpaceParserTest, FinalizeReceivesErrorResultOnFailure) {
+  tensorflow::profiler::XSpace xspace;
+  tensorflow::profiler::XPlane* host_plane = xspace.add_planes();
+  host_plane->set_name(tsl::profiler::kHostThreadsPlaneName);
+  tsl::profiler::XPlaneBuilder host_builder(host_plane);
+  tsl::profiler::XLineBuilder host_line = host_builder.GetOrCreateLine(1);
+  tsl::profiler::XEventBuilder ev =
+      host_line.AddEvent(*host_builder.GetOrCreateEventMetadata("event"));
+  ev.SetTimestampNs(100);
+  ev.SetDurationNs(50);
+
+  Schema schema;
+
+  struct FailingConsumerWithFinalize {
+    bool finalized = false;
+    absl::Status received_error;
+
+    absl::StatusOr<StepControl> Consume(Record&) {
+      return absl::InternalError("worker failed");
+    }
+
+    absl::Status Finalize(const absl::StatusOr<ParseStatus>& result) {
+      finalized = true;
+      if (!result.ok()) {
+        received_error = result.status();
+      }
+      return absl::OkStatus();
+    }
+  };
+
+  FailingConsumerWithFinalize consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or,
+              StatusIs(absl::StatusCode::kInternal, "worker failed"));
+  EXPECT_TRUE(consumer.finalized);
+  EXPECT_THAT(consumer.received_error,
+              StatusIs(absl::StatusCode::kInternal, "worker failed"));
+}
+
+TEST(XSpaceParserTest, PropagatesFinalizeError) {
+  tensorflow::profiler::XSpace xspace;
+  Schema schema;
+
+  struct FailingFinalizeConsumer {
+    absl::StatusOr<StepControl> Consume(Record&) {
+      return StepControl::kContinue;
+    }
+
+    absl::Status Finalize() {
+      return absl::InternalError("flush failed during finalize");
+    }
+  };
+
+  FailingFinalizeConsumer consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or.status(), StatusIs(absl::StatusCode::kInternal,
+                                           "flush failed during finalize"));
+}
+
+TEST(XSpaceParserTest, WorksWithStatefulConsumerWithoutFinalize) {
+  tensorflow::profiler::XSpace xspace;
+  Schema schema;
+
+  struct ConsumerWithoutFinalize {
+    int count = 0;
+    absl::StatusOr<StepControl> Consume(Record&) {
+      count++;
+      return StepControl::kContinue;
+    }
+  };
+
+  ConsumerWithoutFinalize consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kComplete)));
+}
+
+TEST(XSpaceParserTest, WorksWithVoidFinalizeConsumer) {
+  tensorflow::profiler::XSpace xspace;
+  Schema schema;
+
+  struct VoidFinalizeConsumer {
+    int count = 0;
+    bool finalized = false;
+    absl::StatusOr<StepControl> Consume(Record&) {
+      count++;
+      return StepControl::kContinue;
+    }
+    void Finalize() { finalized = true; }
+  };
+
+  VoidFinalizeConsumer consumer;
+  const absl::StatusOr<ParseStatus> status_or =
+      ParseXSpace(xspace, {}, schema, consumer,
+                  /*hlo_module_map=*/std::nullopt,
+                  tensorflow::profiler::InlineExecutorFactory);
+
+  EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kComplete)));
+  EXPECT_TRUE(consumer.finalized);
 }
 
 }  // namespace

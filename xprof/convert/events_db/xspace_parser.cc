@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
+#include "absl/status/status_macros.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -180,10 +181,17 @@ absl::StatusOr<ParseStatus> ParseXSpace(
 
   executor->JoinAll();
 
-  if (failure_occurred.test(std::memory_order_relaxed)) return failure_status;
-  return stopped_early.test(std::memory_order_relaxed)
-             ? ParseStatus::kStoppedEarly
-             : ParseStatus::kComplete;
+  absl::StatusOr<ParseStatus> result;
+  if (failure_occurred.test(std::memory_order_relaxed)) {
+    result = std::move(failure_status);
+  } else if (stopped_early.test(std::memory_order_relaxed)) {
+    result = ParseStatus::kStoppedEarly;
+  } else {
+    result = ParseStatus::kComplete;
+  }
+
+  RETURN_IF_ERROR(consumer.Finalize(result));
+  return result;
 }
 
 absl::StatusOr<ParseStatus> ParseXSpace(

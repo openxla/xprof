@@ -829,6 +829,26 @@ void Timeline::Draw() {
   DrawBookmarks(current_timeline_width_, px_per_time_unit_val);
   DrawSelectionRectangle();
 
+  // =========================================================================
+  // TIMELINE PLAYER SYNCHRONIZATION LOGIC
+  // =========================================================================
+  DrawTimelinePlayerSync();
+
+  // Render the red vertical playhead (scrubber line) slicing across all tracks.
+  // Only rendered if the feature flag is on and playhead is on-screen.
+  if (timeline_player_enabled_) {
+    if (current_play_time_ >= visible_range().start() &&
+        current_play_time_ <= visible_range().end()) {
+      const ImRect timeline_area = GetTimelineArea();
+      const Pixel screen_x_offset = timeline_area.Min.x;
+      const Pixel x = TimeToScreenX(current_play_time_, screen_x_offset,
+                                    px_per_time_unit_val);
+      ImGui::GetForegroundDrawList()->AddLine(ImVec2(x, timeline_area.Min.y),
+                                              ImVec2(x, timeline_area.Max.y),
+                                              IM_COL32(255, 0, 0, 255), 2.0f);
+    }
+  }
+
   // Draw vertical split line between sidebar and tracks
   // Drawn last inside SelectionOverlay so it sits on top of other elements,
   // and extends upwards to the beginning of the ruler.

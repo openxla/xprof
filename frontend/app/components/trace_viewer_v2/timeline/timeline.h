@@ -151,6 +151,16 @@ struct FlameChartTimelineData {
 // zooming, panning, and rendering of events grouped into lanes.
 class Timeline {
  public:
+  void SetPlaybackState(bool is_playing, double current_progress_us,
+                        double play_speed) {
+    is_playing_ = is_playing;
+    if (current_progress_us >= 0) {
+      current_play_time_ = visible_range().start() + current_progress_us;
+    }
+    play_speed_ = play_speed;
+    if (redraw_callback_) redraw_callback_();
+  }
+
   struct SearchResult {
     EventId event_id;
     int level;
@@ -329,6 +339,10 @@ class Timeline {
     track_management_enabled_ = enabled;
   }
   bool track_management_enabled() const { return track_management_enabled_; }
+  void set_timeline_player_enabled(bool enabled) {
+    timeline_player_enabled_ = enabled;
+  }
+  bool timeline_player_enabled() const { return timeline_player_enabled_; }
 
   void set_panning_speed(float speed) { panning_speed_ = speed; }
   float panning_speed() const { return panning_speed_; }
@@ -453,6 +467,8 @@ class Timeline {
   void MaybeRequestData();
   double px_per_time_unit() const;
   double px_per_time_unit(Pixel timeline_width) const;
+  void DrawTimelinePlayerSync();
+
 
   // Calculates the layout for the delete button and its hover area.
   // Exposed for testing.
@@ -778,6 +794,7 @@ class Timeline {
   int last_reported_hovered_event_index_ = -1;
   bool bookmarks_enabled_ = false;
   bool track_management_enabled_ = false;
+  bool timeline_player_enabled_ = false;
 
   float panning_speed_ = kPanningSpeed;
   float zoom_speed_ = kZoomSpeed;
@@ -828,6 +845,16 @@ class Timeline {
   // Current color palette.
   ColorPalette& palette_;
 
+  // Timeline Player states
+
+  bool is_playing_ = false;
+
+  Microseconds current_play_time_ = -1.0;
+  double previous_play_time_ = -2.0;
+  double previous_visible_start_ = -2.0;
+  double previous_visible_duration_ = -2.0;
+
+  double play_speed_ = 1.0;
   bool show_grid_ = true;
 
  protected:

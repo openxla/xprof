@@ -55,11 +55,12 @@ emscripten::val AnyToVal(const absl::any& any_val) {
   if (any_val.type() == typeid(EventData)) {
     return EventDataToVal(absl::any_cast<EventData>(any_val));
   }
-  if (any_val.type() == typeid(uint64_t)) {
-    return emscripten::val(absl::any_cast<uint64_t>(any_val));
-  }
-  if (any_val.type() == typeid(int64_t)) {
-    return emscripten::val(absl::any_cast<int64_t>(any_val));
+  if (any_val.type() == typeid(std::vector<EventData>)) {
+    emscripten::val array = emscripten::val::array();
+    for (const EventData& e : absl::any_cast<std::vector<EventData>>(any_val)) {
+      array.call<void>("push", EventDataToVal(e));
+    }
+    return array;
   }
   // Add more types in the future if needed.
 

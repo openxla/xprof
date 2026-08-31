@@ -93,6 +93,13 @@ class Application {
     }
   }
 
+  void SetPlaybackState(bool is_playing, double current_progress_us,
+                        double play_speed) {
+    if (timeline_) {
+      timeline_->SetPlaybackState(is_playing, current_progress_us, play_speed);
+    }
+  }
+
   void SetMouseWheelZoomSpeed(float speed) {
     if (timeline_) {
       timeline_->set_mouse_wheel_zoom_speed(speed);

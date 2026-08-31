@@ -116,6 +116,13 @@ EMSCRIPTEN_KEEPALIVE void SetCustomTraceColors(
   Application::Instance().RequestRedraw();
 }
 
+void RequestRedraw() { Application::Instance().RequestRedraw(); }
+
+void SetPlaybackState(bool is_playing, double current_time, double play_speed) {
+  Application::Instance().SetPlaybackState(is_playing, current_time,
+                                           play_speed);
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
@@ -123,6 +130,8 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetZoomSpeed", &SetZoomSpeed);
   emscripten::function("SetMouseWheelZoomSpeed", &SetMouseWheelZoomSpeed);
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
+  emscripten::function("RequestRedraw", &RequestRedraw);
+  emscripten::function("SetPlaybackState", &SetPlaybackState);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {
@@ -199,6 +208,8 @@ void Application::Initialize() {
   timeline_ = std::make_unique<Timeline>(palette_);
   timeline_->set_track_management_enabled(
       IsFeatureEnabled("enable_track_management"));
+  timeline_->set_timeline_player_enabled(
+      IsFeatureEnabled("enable_timeline_player"));
   timeline_->set_bookmarks_enabled(IsFeatureEnabled("bookmarks"));
   timeline_->set_event_callback(
       [](absl::string_view type, const EventData& event_data) {

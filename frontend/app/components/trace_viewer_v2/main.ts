@@ -149,6 +149,12 @@ declare global {
   SetZoomSpeed?(speed: number): void;
   SetMouseWheelZoomSpeed?(speed: number): void;
   SetCustomTraceColors?(colors: number[]): void;
+  RequestRedraw?(): void;
+  SetPlaybackState?(
+    isPlaying: boolean,
+    currentTime: number,
+    playSpeed: number,
+  ): void;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;
@@ -213,6 +219,7 @@ declare global {
       setMouseMode(mode: number): void;
       setVisibleFlowCategory(categoryId: number): void;
       setVisibleFlowCategories(categoryIds: number[]): void;
+      scheduleForcedRedraw(): void;
     };
   };
 }

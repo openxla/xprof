@@ -245,6 +245,30 @@ cc_library(
 )
 
 cc_library(
+    name = "unified_trace_viewer_processor",
+    srcs = ["unified_trace_viewer_processor.cc"],
+    hdrs = ["unified_trace_viewer_processor.h"],
+    deps = [
+        ":preprocess_single_host_xplane",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_session_snapshot",
+        ":xplane_to_trace_container",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
+        "@org_xprof//xprof/convert/trace_viewer:trace_options",
+        "@org_xprof//xprof/convert/trace_viewer/delta_series:trace_data_to_compressed_delta_series_proto",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:statusor",
+    ],
+)
+
+cc_library(
     name = "unified_graph_viewer_processor",
     srcs = ["unified_graph_viewer_processor.cc"],
     hdrs = ["unified_graph_viewer_processor.h"],
@@ -546,6 +570,8 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "@com_google_protobuf//:protobuf",
+        "@org_xprof//xprof/convert/trace_viewer:trace_events_to_json",
+        "@org_xprof//xprof/convert/trace_viewer:trace_options",
         "@org_xprof//xprof/convert/trace_viewer/delta_series:trace_data_to_compressed_delta_series_proto",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
         "@xla//xla/tsl/platform:errors",
@@ -1044,6 +1070,29 @@ cc_test(
         "@com_google_absl//absl/log:check",
         "@com_google_googletest//:gtest_main",
         "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+    ],
+)
+
+cc_test(
+    name = "unified_trace_viewer_processor_test",
+    srcs = ["unified_trace_viewer_processor_test.cc"],
+    deps = [
+        ":file_utils",
+        ":repository",
+        ":tool_options",
+        ":unified_profile_processor",
+        ":unified_profile_processor_factory",
+        ":unified_session_snapshot",
+        ":unified_tools_registration",
+        ":unified_trace_viewer_processor",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
+        "@tsl//tsl/platform:path",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/platform:env",
     ],
 )
 
@@ -3380,6 +3429,7 @@ cc_library(
     srcs = ["unified_tools_registration.cc"],
     hdrs = ["unified_tools_registration.h"],
     deps = [
+        ":tool_options",
         ":unified_framework_op_stats_processor",
         ":unified_graph_viewer_processor",
         ":unified_hlo_stats_processor",
@@ -3391,6 +3441,7 @@ cc_library(
         ":unified_perf_counters_processor",
         ":unified_profile_processor_factory",
         ":unified_roofline_model_processor",
+        ":unified_trace_viewer_processor",
         ":unified_utilization_viewer_processor",
     ],
     alwayslink = 1,

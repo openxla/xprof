@@ -1,15 +1,15 @@
-diff -ruN xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/tools/toolchains/python/python_repo.bzl xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/tools/toolchains/python/python_repo.bzl
---- xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/tools/toolchains/python/python_repo.bzl	2026-08-22 14:08:12.000000000 +0000
-+++ xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/tools/toolchains/python/python_repo.bzl	2026-08-24 10:26:36.308452743 +0000
+diff -ruN xla-f0791dddea19cf902a8708e822c9b7206a8612d9/tools/toolchains/python/python_repo.bzl xla-f0791dddea19cf902a8708e822c9b7206a8612d9/tools/toolchains/python/python_repo.bzl
+--- xla-f0791dddea19cf902a8708e822c9b7206a8612d9/tools/toolchains/python/python_repo.bzl	2026-08-22 14:08:12.000000000 +0000
++++ xla-f0791dddea19cf902a8708e822c9b7206a8612d9/tools/toolchains/python/python_repo.bzl	2026-08-24 10:26:36.308452743 +0000
 @@ -55,3 +55,5 @@
      implementation = _python_repository_impl,
      environ = ["TF_PYTHON_VERSION", "WHEEL_NAME", "WHEEL_COLLAB"],
  )
 +
 +USE_PYWRAP_RULES = "False"
-diff -ruN xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/xla/tsl/platform/cloud/BUILD xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/xla/tsl/platform/cloud/BUILD
---- xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/xla/tsl/platform/cloud/BUILD	2026-08-22 14:08:12.000000000 +0000
-+++ xla-d36bdf5550766a16a3444287ac2b975a4fd65d04/xla/tsl/platform/cloud/BUILD	2026-08-24 10:26:36.308831513 +0000
+diff -ruN xla-f0791dddea19cf902a8708e822c9b7206a8612d9/xla/tsl/platform/cloud/BUILD xla-f0791dddea19cf902a8708e822c9b7206a8612d9/xla/tsl/platform/cloud/BUILD
+--- xla-f0791dddea19cf902a8708e822c9b7206a8612d9/xla/tsl/platform/cloud/BUILD	2026-08-22 14:08:12.000000000 +0000
++++ xla-f0791dddea19cf902a8708e822c9b7206a8612d9/xla/tsl/platform/cloud/BUILD	2026-08-24 10:26:36.308831513 +0000
 @@ -241,6 +241,10 @@
      srcs = ["curl_http_request.cc"],
      hdrs = ["curl_http_request.h"],

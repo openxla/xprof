@@ -1,0 +1,35 @@
+<div class="timeline-player-container">
+  <div class="progress-bar-container">
+     <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
+     <input type="range" class="progress-bar"
+            [min]="0" [max]="duration()" step="any"
+            [value]="currentTime()"
+            (pointerdown)="onScrubStart()"
+            (pointerup)="onScrubEnd($event)"
+            (pointercancel)="onScrubEnd($event)"
+            (input)="onSeek($event)">
+  </div>
+
+  <mat-menu #speedMenu="matMenu">
+    <button mat-menu-item (click)="onSpeedChange(0.25)">0.25x</button>
+    <button mat-menu-item (click)="onSpeedChange(0.5)">0.5x</button>
+    <button mat-menu-item (click)="onSpeedChange(1)">Normal</button>
+    <button mat-menu-item (click)="onSpeedChange(1.5)">1.5x</button>
+    <button mat-menu-item (click)="onSpeedChange(2)">2x</button>
+  </mat-menu>
+
+  <div class="controls-container">
+    <div class="left-controls">
+      <button mat-icon-button class="control-button" (click)="togglePlay()">
+        <mat-icon>{{ isPlaying() ? 'pause' : 'play_arrow' }}</mat-icon>
+      </button>
+
+      <div class="time-display">
+        {{ currentTime() | timeFormat }} / {{ duration() | timeFormat }}
+      </div>
+      <button mat-icon-button [matMenuTriggerFor]="speedMenu" class="control-button">
+        <mat-icon>settings</mat-icon>
+      </button>
+    </div>
+  </div>
+</div>

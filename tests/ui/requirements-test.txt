@@ -1,0 +1,9 @@
+# Dependencies for the XProf UI test suite (tests/ui).
+# Install into a venv that also has `xprof` on PATH, then:
+#   playwright install chromium
+pytest
+pytest-playwright
+pytest-xdist
+playwright
+pillow
+numpy

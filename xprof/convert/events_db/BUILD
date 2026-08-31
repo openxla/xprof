@@ -431,3 +431,48 @@ cc_test(
         "@xla//xla/tsl/platform:env",
     ],
 )
+
+cc_library(
+    name = "parquet_record_consumer",
+    srcs = ["parquet_record_consumer.cc"],
+    hdrs = ["parquet_record_consumer.h"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":arrow_utils",
+        ":event_utils",
+        ":record_consumer",
+        ":schema",
+        ":tsl_arrow_output_stream",
+        "//third_party/arrow",
+        "//third_party/arrow:util_hdrs",
+        "//third_party/parquet_cpp:parquet_cpp2",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_macros",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@org_xprof//xprof/convert:executor_factory",
+        "@org_xprof//xprof/convert:executor_interface",
+    ],
+)
+
+cc_test(
+    name = "parquet_record_consumer_test",
+    srcs = ["parquet_record_consumer_test.cc"],
+    deps = [
+        ":arrow_utils",
+        ":event_utils",
+        ":parquet_record_consumer",
+        ":record_consumer",
+        ":schema",
+        "//third_party/arrow",
+        "//third_party/arrow:util_hdrs",
+        "//third_party/parquet_cpp:parquet_cpp2",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/convert:executor_interface",
+    ],
+)

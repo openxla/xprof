@@ -83,6 +83,19 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "get_kernel_utilization_tool",
+    srcs = ["get_kernel_utilization_tool.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+    ],
+    deps = [
+        "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal/oss:xprof_client",
+        "//plugin/xprof/convert:raw_to_tool_data",
+    ],
+)
+
+pytype_strict_library(
     name = "get_utilization_viewer_tool",
     srcs = ["get_utilization_viewer_tool.py"],
     deps = [

@@ -367,6 +367,22 @@ absl::StatusOr<std::string> ConvertMultiXSpacesToToolData(
     tool_data = ConvertMultiXSpacesToInferenceStats(session_snapshot, options);
   } else if (tool_name == "smart_suggestion") {
     tool_data = ConvertMultiXSpacesToSmartSuggestion(session_snapshot, options);
+  } else if (tool_name == "kernel_utilization") {
+    if (session_snapshot.XSpaceSize() != 1) {
+      tool_data = absl::InvalidArgumentError(absl::StrCat(
+          "Kernel utilization tool expects only 1 XSpace path but gets ",
+          session_snapshot.XSpaceSize()));
+    } else {
+      google::protobuf::Arena arena;
+      auto xspace = session_snapshot.GetXSpace(0, &arena);
+      if (xspace.ok()) {
+        PreprocessSingleHostXSpace(*xspace, /*step_grouping=*/true,
+                                   /*derived_timeline=*/true);
+        tool_data = xprof::ConvertXSpaceToKernelUtilization(**xspace, options);
+      } else {
+        tool_data = xspace.status();
+      }
+    }
   } else if (tool_name == "utilization_viewer") {
     if (session_snapshot.XSpaceSize() != 1) {
       tool_data = absl::InvalidArgumentError(absl::StrCat(

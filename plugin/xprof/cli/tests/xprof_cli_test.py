@@ -91,6 +91,13 @@ class XProfCliTest(unittest.TestCase):
     self.cli.get_kpi_metrics('session_123')
     mock_get_kpi.assert_called_with('session_123')
 
+  @mock.patch.object(
+      xprof_cli.XProfCli, 'get_kernel_utilization', autospec=True
+  )
+  def test_get_kernel_utilization(self, mock_get_kernel_util):
+    self.cli.get_kernel_utilization('session_123', kernel_name='matmul')
+    mock_get_kernel_util.assert_called_with('session_123', kernel_name='matmul')
+
   @mock.patch.object(xprof_cli.fire, 'Fire')
   def test_main(self, mock_fire):
     xprof_cli.main([])

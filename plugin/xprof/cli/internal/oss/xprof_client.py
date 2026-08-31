@@ -34,6 +34,7 @@ KNOWN_TOOLS: frozenset[str] = frozenset({
     "inference_profile",
     "perf_counters",
     "utilization_viewer",
+    "kernel_utilization",
     "smart_suggestion",
     "trace_viewer",
     "trace_viewer@",
@@ -207,8 +208,6 @@ class LocalXprofClient:
 
     fetch_params = dict(kwargs)
     bypass_cache = fetch_params.pop("bypass_cache", False)
-
-    current_fp = None
     if xspace_paths:
       try:
         current_fp = decorators.compute_path_fingerprint(

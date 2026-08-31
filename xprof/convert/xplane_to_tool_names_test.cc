@@ -174,7 +174,7 @@ INSTANTIATE_TEST_SUITE_P(
          false,
          false,
          true,
-         {"perf_counters", "utilization_viewer"}},
+         {"perf_counters", "utilization_viewer", "kernel_utilization"}},
     }),
     [](const ::testing::TestParamInfo<XPlaneToToolsTest::ParamType>& info) {
       return info.param.test_name;

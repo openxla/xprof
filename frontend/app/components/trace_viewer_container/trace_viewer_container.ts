@@ -32,8 +32,10 @@ import {MatSort, MatSortModule} from '@angular/material/sort';
 import {MatTableDataSource, MatTableModule} from '@angular/material/table';
 import {MatTabsModule} from '@angular/material/tabs';
 import {MatTooltipModule} from '@angular/material/tooltip';
-import {AngularSplitModule} from 'angular-split';
 import {ActivatedRoute} from '@angular/router';
+import {AngularSplitModule} from 'angular-split';
+
+import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 
 import {
@@ -245,6 +247,7 @@ declare interface TfTraceViewer {
     MatIconModule,
     MatProgressBarModule,
     PipesModule,
+    TimelinePlayer,
     FormsModule,
     MatButtonModule,
     MatFormFieldModule,
@@ -266,6 +269,14 @@ export class TraceViewerContainer
   @Input() selectedEvent?: SelectedEvent | null;
   @Input() searching = false;
 
+  /** Whether the timeline player applies */
+  enableTimelinePlayer = false;
+
+  private handleTimelineRedrawRequest = () => {
+    if (!this.traceViewerModule) return;
+    this.traceViewerModule.application.instance().scheduleForcedRedraw();
+  };
+
   hoveredEvent?: SelectedEvent | null;
   hoveredEventMouseX = 0;
   hoveredEventMouseY = 0;
@@ -282,17 +293,22 @@ export class TraceViewerContainer
   /** Whether the component is currently in fullscreen mode. */
   isFullscreen = false;
 
-  get enableSourceCodeTooltip(): boolean {
+  private readFeatureFlag(flagName: string): boolean {
     try {
-      const stored = window.localStorage.getItem('xprof_ff_enable_source_code_tooltip');
+      const stored = window.localStorage.getItem(`xprof_ff_${flagName}`);
       if (stored !== null) {
         return stored === 'true';
       }
     } catch {
       // ignore
     }
-    return getDefaultFeatureFlag('enable_source_code_tooltip');
+    return getDefaultFeatureFlag(flagName);
   }
+
+  get enableSourceCodeTooltip(): boolean {
+    return this.readFeatureFlag('enable_source_code_tooltip');
+  }
+
 
   /** Toggles the fullscreen mode for the trace viewer component. */
   toggleFullscreen(): void {
@@ -502,6 +518,14 @@ export class TraceViewerContainer
 
     clearDeprecatedStorageKeys();
 
+    this.enableTimelinePlayer = this.readFeatureFlag('enable_timeline_player');
+
+    this.handleTimelineRedrawRequest =
+      this.handleTimelineRedrawRequest.bind(this);
+    window.addEventListener(
+      'timeline-player-redraw-request',
+      this.handleTimelineRedrawRequest,
+    );
     window.addEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -543,6 +567,10 @@ export class TraceViewerContainer
   }
 
   ngOnDestroy() {
+    window.removeEventListener(
+      'timeline-player-redraw-request',
+      this.handleTimelineRedrawRequest,
+    );
     window.removeEventListener(
       LOADING_STATUS_UPDATE_EVENT_NAME,
       this.loadingStatusUpdateEventListener,
@@ -635,6 +663,43 @@ export class TraceViewerContainer
       default:
         break;
     }
+  }
+  @ViewChild(TimelinePlayer) timelinePlayer?: TimelinePlayer;
+
+  onPlay() {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      true,
+      this.timelinePlayer.currentTime(),
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onPause() {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      false,
+      this.timelinePlayer.currentTime(),
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onSeek(time: number) {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      this.timelinePlayer.isPlaying(),
+      time,
+      this.timelinePlayer.playbackRate(),
+    );
+  }
+
+  onSpeedChange(speed: number) {
+    if (!this.traceViewerModule || !this.timelinePlayer) return;
+    this.traceViewerModule.SetPlaybackState?.(
+      this.timelinePlayer.isPlaying(),
+      this.timelinePlayer.currentTime(),
+      speed,
+    );
   }
 
   private readonly mouseUpEventListener = (event: Event) => {

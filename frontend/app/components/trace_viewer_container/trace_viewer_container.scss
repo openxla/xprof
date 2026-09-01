@@ -69,6 +69,8 @@ iframe {
   background: var(--md-sys-color-surface);
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 canvas {
@@ -76,6 +78,11 @@ canvas {
   height: 100%;
   box-sizing: border-box;
   border-style: unset;
+}
+
+canvas.emscripten {
+  flex: 1;
+  min-height: 0;
 }
 
 .hovered-source-code-tooltip {

@@ -9108,6 +9108,21 @@ TEST_F(RealTimelineImGuiFixture, DrawHideIcon_HiddenIconIsCovered) {
   ImGui::EndFrame();
 }
 
+TEST_F(RealTimelineImGuiFixture, DrawPinIcon_Covered) {
+  ImGui::NewFrame();
+  ImGui::Begin("TestWindow");
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ASSERT_NE(draw_list, nullptr);
+
+  DrawPinIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+              /*is_pinned=*/true);
+  DrawPinIcon(draw_list, 10.0f, 10.0f, 10.0f, 0xFFFFFFFF,
+              /*is_pinned=*/false);
+
+  ImGui::End();
+  ImGui::EndFrame();
+}
+
 TEST_F(RealTimelineImGuiFixture, DrawTrackManagementHiddenTrackPopIDCovered) {
   FlameChartTimelineData data;
   data.entry_levels = {0};
@@ -13692,6 +13707,41 @@ TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
   timeline.SetTimelineData(std::move(update_data));
 
   EXPECT_EQ(timeline.selected_event_index(), 1);
+}
+
+TEST(TimelineTest, DrawWithoutDataDoesNotCrash) {
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1920, 1080);
+  io.DeltaTime = 0.1f;
+  io.Fonts->Build();
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+
+  ImGui::NewFrame();
+  timeline.Draw();
+  ImGui::EndFrame();
+
+  ImGui::DestroyContext();
+}
+
+TEST(TimelineTest, DrawWithEmptyTimelineDataDoesNotCrash) {
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(1920, 1080);
+  io.DeltaTime = 0.1f;
+  io.Fonts->Build();
+
+  ColorPalette palette = ColorPalette::Default();
+  Timeline timeline(palette);
+  timeline.SetTimelineData({});
+
+  ImGui::NewFrame();
+  timeline.Draw();
+  ImGui::EndFrame();
+
+  ImGui::DestroyContext();
 }
 
 }  // namespace

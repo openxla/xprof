@@ -10,10 +10,10 @@ from typing import Any
 
 # pylint: disable=g-import-not-at-top
 try:
-  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
+  from xprof.cli.internal import path_util  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 except ImportError:
-  from xprof.cli.internal import decorators  # pyrefly: ignore[missing-import]
+  from xprof.cli.internal import path_util  # pyrefly: ignore[missing-import]
   from xprof.convert import raw_to_tool_data as convert  # pyrefly: ignore[missing-import]
 
 
@@ -210,7 +210,7 @@ class LocalXprofClient:
     bypass_cache = fetch_params.pop("bypass_cache", False)
     if xspace_paths:
       try:
-        current_fp = decorators.compute_path_fingerprint(
+        current_fp = path_util.compute_path_fingerprint(
             run_dir, xspace_paths=xspace_paths
         )
       except Exception:  # pylint: disable=broad-exception-caught
@@ -218,7 +218,7 @@ class LocalXprofClient:
     else:
       current_fp = "NO_TRACE_INPUTS"
 
-    fp_dir = decorators.get_cache_dir() / "fingerprints"
+    fp_dir = path_util.get_cache_dir() / "fingerprints"
     fp_dir.mkdir(parents=True, exist_ok=True)
     run_dir_hash = hashlib.sha256(str(run_dir).encode("utf-8")).hexdigest()[:16]
     fp_file = fp_dir / f"{run_dir_hash}.fp"
@@ -381,3 +381,6 @@ def set_client(client: LocalXprofClient):
 CachedXprofClient = LocalXprofClient
 XprofAnalysisClient = LocalXprofClient
 set_client_override = set_client
+
+# Register session path resolver for path_util
+path_util.register_session_resolver(lambda s: get_client().get_run_dir(s))

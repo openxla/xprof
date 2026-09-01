@@ -1,0 +1,16 @@
+<div class="approval-card" id="approval-card">
+  <div class="approval-title">Reviewer Certification & Approval Portal</div>
+  <p style="font-size: 13px; color: #5f6368; margin-bottom: 12px;">
+    Unapproved visual or structural deltas detected. Reviewers may certify intentional changes below.
+  </p>
+  <textarea id="rationale-input" style="width:100%; min-height:60px; padding:8px; border:1px solid #dadce0; border-radius:4px; font-size:13px;" placeholder="Rationale: e.g. Updated Step-Time formatting per RFC #42"></textarea>
+  <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+    <button class="btn-approve" onclick="signApproval()">Approve & Generate Manifest Entry</button>
+  </div>
+</div>
+<div class="certified-banner" id="certified-banner">
+  <h4>✅ Presubmit Certified: Approved as Intentional Change</h4>
+  <p style="font-size: 13px; margin: 8px 0 4px 0;">Add this configuration to <code>approved_manifest.json</code> to register approval:</p>
+  <pre id="manifest-code" style="background:#282c34; color:#abb2bf; padding:12px; border-radius:6px; font-family:monospace; font-size:12px; overflow-x:auto; white-space:pre; margin-bottom:8px;"></pre>
+  <button class="btn-approve" onclick="copyManifestJson()" style="padding:6px 12px; font-size:12px;">Copy JSON to Clipboard</button>
+</div>

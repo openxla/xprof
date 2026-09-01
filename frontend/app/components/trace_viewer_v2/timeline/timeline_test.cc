@@ -189,7 +189,7 @@ TEST(TimelineTest, BezierControlPointCalculation) {
 
 TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   FlameChartTimelineData data;
-  data.events_by_level.resize(5);
+  data.level_offsets.assign(6, 0);
 
   Group group;
   group.start_level = 1;
@@ -200,11 +200,11 @@ TEST(TimelineTest, GetNextGroupStartLevelOutOfBounds) {
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 0), 3);
 
   // Out-of-bounds (negative index) should safely
-  // return events_by_level size = 5
+  // return total_levels() = 5
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, -1), 5);
 
   // Out-of-bounds (too large index) should safely
-  // return events_by_level size = 5
+  // return total_levels() = 5
   EXPECT_EQ(Timeline::GetNextGroupStartLevel(data, 1), 5);
 }
 
@@ -1304,22 +1304,12 @@ class TimelineImGuiTestFixture : public Test {
     io.DeltaTime = 0.1f;
     // The font atlas must be built before ImGui::NewFrame() is called.
     io.Fonts->Build();
-    timeline_.SetTimelineData(
-        {{},  // Pass ColorPalette::Default() to constructor
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {},
-         {{.name = "group",
-           .start_level = 0,
-           .nesting_level = kThreadNestingLevel,
-           .expanded = true}},
-         {},
-         {}});
+    FlameChartTimelineData data;
+    data.groups.push_back({.name = "group",
+                           .start_level = 0,
+                           .nesting_level = kThreadNestingLevel,
+                           .expanded = true});
+    timeline_.SetTimelineData(std::move(data));
   }
 
   void TearDown() override { ImGui::DestroyContext(); }
@@ -1394,25 +1384,79 @@ class TimelineImGuiTestFixture : public Test {
   FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events,
                                             absl::Span<const Group> groups) {
     FlameChartTimelineData data;
-    data.groups.assign(groups.begin(), groups.end());
+    if (!groups.empty()) {
+      data.groups.assign(groups.begin(), groups.end());
+    } else {
+      std::map<int, std::pair<ProcessId, ThreadId>> level_to_pid_tid;
+      for (const auto& ev : events) {
+        if (ev.level >= 0) {
+          level_to_pid_tid.try_emplace(ev.level,
+                                       std::make_pair(ev.pid, ev.tid));
+        }
+      }
+      if (level_to_pid_tid.empty()) {
+        data.groups.push_back({.type = Group::Type::kFlame,
+                               .name = "Group 1",
+                               .start_level = 0,
+                               .pid = (!events.empty() ? events[0].pid : 0),
+                               .tid = (!events.empty() ? events[0].tid : 0)});
+      } else {
+        int g_idx = 1;
+        for (const auto& [lvl, pid_tid] : level_to_pid_tid) {
+          data.groups.push_back({.type = Group::Type::kFlame,
+                                 .name = absl::StrCat("Group ", g_idx++),
+                                 .start_level = lvl,
+                                 .pid = pid_tid.first,
+                                 .tid = pid_tid.second});
+        }
+      }
+    }
+    int max_level = -1;
     for (const auto& ev : events) {
       data.entry_names.push_back(std::string(ev.name));
       data.entry_start_times.push_back(ev.start_time);
       data.entry_total_times.push_back(ev.total_time);
       data.entry_levels.push_back(ev.level);
-      data.entry_pids.push_back(ev.pid);
-      data.entry_tids.push_back(ev.tid);
       data.entry_event_ids.push_back(ev.event_id);
       data.entry_args.push_back({});
+      if (ev.level > max_level) {
+        max_level = ev.level;
+      }
+      if (!data.groups.empty()) {
+        auto it = std::upper_bound(
+            data.groups.begin(), data.groups.end(), ev.level,
+            [](int lvl, const Group& g) { return lvl < g.start_level; });
+        if (it != data.groups.begin()) {
+          auto& grp = *std::prev(it);
+          if (grp.pid == 0) grp.pid = ev.pid;
+          if (grp.tid == 0) grp.tid = ev.tid;
+        } else if (ev.level < 0) {
+          if (data.groups[0].pid == 0) data.groups[0].pid = ev.pid;
+          if (data.groups[0].tid == 0) data.groups[0].tid = ev.tid;
+        }
+      }
+    }
+    if (max_level >= 0) {
+      std::vector<std::vector<int>> events_by_lvl(max_level + 1);
+      for (size_t i = 0; i < events.size(); ++i) {
+        if (events[i].level >= 0) {
+          events_by_lvl[events[i].level].push_back(i);
+        }
+      }
+      data.level_offsets.clear();
+      data.level_event_indices.clear();
+      data.level_offsets.push_back(0);
+      for (const auto& lvl_events : events_by_lvl) {
+        data.level_event_indices.insert(data.level_event_indices.end(),
+                                        lvl_events.begin(), lvl_events.end());
+        data.level_offsets.push_back(data.level_event_indices.size());
+      }
     }
     return data;
   }
 
   FlameChartTimelineData CreateTimelineData(absl::Span<const EventDef> events) {
-    return CreateTimelineData(events,
-                              std::vector<Group>{{.type = Group::Type::kFlame,
-                                                  .name = "Group 1",
-                                                  .start_level = 0}});
+    return CreateTimelineData(events, {});
   }
 
   ParsedTraceEvents CreateSearchResults(absl::Span<const EventDef> events) {
@@ -1736,7 +1780,8 @@ TEST_F(MockTimelineImGuiFixture, SelectPreviousAndNextEvent) {
       {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
       {.name = "event_2", .start_time = 300.0, .total_time = 50.0, .level = 0},
   });
-  data.events_by_level.push_back({0, 1, 2});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
   timeline_.SetTimelineData(std::move(data));
   timeline_.RevealEvent(0);
 
@@ -1760,7 +1805,8 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_SelectNextAndPrevShortcuts) {
       {.name = "event_0", .start_time = 100.0, .total_time = 50.0, .level = 0},
       {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
   });
-  data.events_by_level.push_back({0, 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(std::move(data));
   timeline_.RevealEvent(0);
 
@@ -1785,7 +1831,8 @@ TEST_F(MockTimelineImGuiFixture, HandleKeyboard_TabAndShiftTabSelectEvents) {
       {.name = "event_0", .start_time = 100.0, .total_time = 50.0, .level = 0},
       {.name = "event_1", .start_time = 200.0, .total_time = 50.0, .level = 0},
   });
-  data.events_by_level.push_back({0, 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(std::move(data));
   timeline_.RevealEvent(0);
 
@@ -1814,8 +1861,10 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   data.entry_names.push_back("apple");
   data.entry_names.push_back("apricot");
   data.entry_levels.push_back(0);
@@ -1824,10 +1873,6 @@ TEST(TimelineTest, NavigateSearchQueryResult) {
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -1865,10 +1910,6 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallback) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -1897,10 +1938,6 @@ TEST(TimelineTest, NavigateToNextSearchResultCallsRedrawCallbackCount) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -1927,8 +1964,6 @@ TEST(TimelineTest, NavigateToNextSearchResultEmptyResultsDoesNothing) {
   data.entry_start_times.push_back(10.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -1955,10 +1990,6 @@ TEST(TimelineTest, NavigateToPrevSearchResultCallsRedrawCallbackCount) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -1985,8 +2016,6 @@ TEST(TimelineTest, NavigateToPrevSearchResultEmptyResultsDoesNothing) {
   data.entry_start_times.push_back(10.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2013,10 +2042,6 @@ TEST(TimelineTest, NavigateToPrevSearchResultWrapping) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(5.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -2059,13 +2084,14 @@ TEST(TimelineTest, RevealEventAlreadyInView) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(50000.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 100000.0});
@@ -2086,20 +2112,22 @@ TEST(TimelineTest, RevealEventExpandsCollapsedTracks) {
   data.groups.push_back({.name = "Process 1",
                          .start_level = 0,
                          .nesting_level = kProcessNestingLevel,
-                         .expanded = false});
+                         .expanded = false,
+                         .pid = 1});
   data.groups.push_back({.name = "Thread 1",
                          .start_level = 1,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = false});
+                         .expanded = false,
+                         .pid = 1,
+                         .tid = 1});
 
-  data.events_by_level.resize(2);
-  data.events_by_level[1].push_back(0);
+  data.level_offsets = {0, 0, 1};
+  data.level_event_indices = {0};
 
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(1);
   data.entry_start_times.push_back(50.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   timeline.SetTimelineData(std::move(data));
@@ -2224,13 +2252,14 @@ TEST(TimelineTest, RevealEventOutOfView) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 20000.0});
@@ -2251,13 +2280,14 @@ TEST(TimelineTest, RevealEventOutOfViewRight) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10000.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 20000.0});
@@ -2277,13 +2307,14 @@ TEST(TimelineTest, RevealEventOutToRight) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10000.0);
   data.entry_total_times.push_back(1000.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 30000.0});
@@ -2304,13 +2335,14 @@ TEST(TimelineTest, RevealEventOutToRightLarge) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(300000.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 6000000.0});
@@ -2334,7 +2366,6 @@ TEST(TimelineTest, RevealEventTriggersCallback) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
 
@@ -2378,7 +2409,6 @@ TEST(TimelineTest, RevealEventWithIndexOutOfBounds) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
@@ -2396,7 +2426,6 @@ TEST(TimelineTest, RevealEventWithNegativeIndex) {
   Timeline timeline(palette);
   FlameChartTimelineData data;
   data.entry_start_times.push_back(10.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   TimeRange initial_range(0.0, 50.0);
@@ -2416,8 +2445,10 @@ TEST(TimelineTest, SetSearchQuery) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0, 1});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   data.entry_names.push_back("apple");
   data.entry_names.push_back("banana");
   data.entry_levels.push_back(0);
@@ -2426,10 +2457,6 @@ TEST(TimelineTest, SetSearchQuery) {
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -2463,8 +2490,6 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallback) {
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2485,8 +2510,6 @@ TEST(TimelineTest, SetSearchQueryCallsRedrawCallbackCount) {
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2508,14 +2531,14 @@ TEST(TimelineTest, SetSearchQueryEmptyClearsResultsAndTriggersRedraw) {
   data.groups.push_back({.name = "Group 1",
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
-                         .expanded = true});
-  data.events_by_level.push_back({0});
+                         .expanded = true,
+                         .pid = 1});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("apple");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
@@ -2564,14 +2587,6 @@ TEST(TimelineTest, SetSearchQueryFiltering) {
   data.entry_total_times.push_back(5.0);
   data.entry_total_times.push_back(5.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_event_ids.push_back(3);
@@ -2605,10 +2620,6 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByStartTime) {
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
@@ -2638,8 +2649,6 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
   data.entry_start_times.push_back(100.0);
   data.entry_levels.push_back(1);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
 
@@ -2648,8 +2657,6 @@ TEST(TimelineTest, SetSearchQuerySortsResultsByLevel) {
   data.entry_start_times.push_back(200.0);
   data.entry_levels.push_back(0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(0);
-  data.entry_tids.push_back(0);
   data.entry_event_ids.push_back(2);
   data.entry_args.push_back({});
 
@@ -2678,7 +2685,6 @@ TEST(TimelineTest, SetTimelineData) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   timeline.SetTimelineData(std::move(data));
@@ -2779,12 +2785,12 @@ TEST(TimelineTest, ZoomEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10000.0);
   data.entry_total_times.push_back(1000.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline.SetTimelineData(std::move(data));
   timeline.set_data_time_range({0.0, 30000.0});
@@ -3198,12 +3204,12 @@ TEST_F(MockTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.255);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3224,12 +3230,12 @@ TEST_F(MockTimelineImGuiFixture, DrawEventNameTextHiddenWhenTooNarrow) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.001);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3252,12 +3258,12 @@ TEST_F(MockTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("instant_event");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.0);  // Instant event
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3314,12 +3320,12 @@ TEST_F(MockTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("instant_event");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(0.0);  // Instant event
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -3387,14 +3393,14 @@ TEST_F(MockTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
                          .expanded = true});
-  data.events_by_level.push_back({0, 1, 2});
+  data.level_offsets = {0, 3};
+  data.level_event_indices = {0, 1, 2};
 
   // Event 0: Outside left
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Event 1: Visible
@@ -3402,7 +3408,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(25.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Event 2: Outside right
@@ -3410,7 +3415,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(45.0);
   data.entry_total_times.push_back(5.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   timeline_.SetTimelineData(std::move(data));
@@ -3455,8 +3459,8 @@ TEST_F(MockTimelineImGuiFixture,
                            .start_level = i,
                            .nesting_level = kThreadNestingLevel,
                            .expanded = true});
-    data.events_by_level.push_back({});
   }
+  data.level_offsets.assign(21, 0);
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -3480,14 +3484,15 @@ TEST_F(MockTimelineImGuiFixture,
                          .nesting_level = 1,
                          .expanded = true});
   for (int i = 0; i < 100; ++i) {
-    data.events_by_level.push_back({i});  // One event per level
+    data.level_offsets.push_back(i);
+    data.level_event_indices.push_back(i);
     data.entry_names.push_back("event" + std::to_string(i));
     data.entry_levels.push_back(i);
     data.entry_start_times.push_back(0.0);
     data.entry_total_times.push_back(100.0);
-    data.entry_pids.push_back(1);
     data.entry_args.push_back({});
   }
+  data.level_offsets.push_back(100);
 
   timeline_.SetTimelineData(std::move(data));
 
@@ -4366,12 +4371,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaClearsSelectionIndices) {
                          .start_level = 0,
                          .nesting_level = kThreadNestingLevel,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4404,13 +4409,13 @@ FlameChartTimelineData GetTestFlowData() {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0, 1});
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   data.entry_names = {"event0", "event1"};
   data.entry_event_ids = {1000, 2000};
   data.entry_levels = {0, 0};
   data.entry_start_times = {10.0, 50.0};
   data.entry_total_times = {5.0, 5.0};
-  data.entry_pids = {1, 2};
   data.entry_args = {{}, {}};
   FlowLine flow1 = {.source_ts = 12.0,
                     .target_ts = 52.0,
@@ -4437,12 +4442,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4487,12 +4492,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaDeselectsOnlyOnce) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4543,12 +4548,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEmptyAreaWhenNoEventSelectedDoesNothing) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4576,12 +4581,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSelectsEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4623,12 +4628,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEventWithArgsSelectsEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event_with_args");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
 
   absl::flat_hash_map<std::string, std::string> args;
   args["uid"] = "12345";
@@ -4675,12 +4680,12 @@ TEST_F(RealTimelineImGuiFixture, ClickEventSetsSelectionIndices) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4705,12 +4710,12 @@ TEST_F(RealTimelineImGuiFixture, ClickOutsideEventDoesNotSelectEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4738,12 +4743,12 @@ TEST_F(RealTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4838,12 +4843,12 @@ TEST_F(RealTimelineImGuiFixture, DragOverEventDoesNotSelectEvent) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -4959,13 +4964,12 @@ TEST_F(RealTimelineImGuiFixture, DrawUtilizationAreaChartLastBinOnly) {
        .expanded = true});
 
   // Add one event covering the very end of visible range [99.95, 100.0]
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(99.95);
   data.entry_total_times.push_back(0.05);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1);
   data.entry_args.push_back({});
 
@@ -5010,9 +5014,8 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
                          .nesting_level = 2,
                          .expanded = false});  // Collapsed triggers preview
 
-  data.events_by_level.push_back({0});
-  // Add one more real event on a new level to make the group expandable.
-  data.events_by_level.push_back({1});
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
   data.entry_levels.push_back(0);
@@ -5021,8 +5024,6 @@ TEST_F(RealTimelineImGuiFixture, DrawFlameGroupPreview) {
   data.entry_start_times.push_back(15.0);
   data.entry_total_times.push_back(20.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
 
@@ -5326,15 +5327,14 @@ TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
                          .nesting_level = 1,
                          .expanded = false});
 
-  data.events_by_level.push_back({0});  // Level 0 has event 0
-  data.events_by_level.push_back({1});  // Level 1 has event 1
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
 
   // Event 0 on level 0
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Event 1 on level 1
@@ -5342,7 +5342,6 @@ TEST_F(RealTimelineImGuiFixture, DrawProcessTrackUtilizationAreaChart) {
   data.entry_levels.push_back(1);
   data.entry_start_times.push_back(40.0);
   data.entry_total_times.push_back(20.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   timeline_.SetTimelineData(std::move(data));
@@ -5688,13 +5687,12 @@ TEST_F(RealTimelineImGuiFixture, HoverInstantEventUsesExpandedHitbox) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.resize(1);
-  data.events_by_level[0].push_back(0);
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("instant_event");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(0.000001);  // IS_INSTANT
-  data.entry_pids.push_back(1);
   data.entry_event_ids.push_back(0);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
@@ -5804,7 +5802,6 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   data.entry_levels.push_back(30);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Event 1 is at level 50, increasing content height to avoid clamp
@@ -5812,12 +5809,12 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollRevealsBottom) {
   data.entry_levels.push_back(50);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
-  data.events_by_level.resize(51);
-  data.events_by_level[30].push_back(0);
-  data.events_by_level[50].push_back(1);
+  data.level_offsets.assign(31, 0);
+  data.level_offsets.insert(data.level_offsets.end(), 20, 1);
+  data.level_offsets.push_back(2);
+  data.level_event_indices = {0, 1};
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 20000.0});
@@ -5868,7 +5865,6 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   data.entry_levels.push_back(5);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Event 1 at level 50 to force content size to be larger than scroll target.
@@ -5876,12 +5872,12 @@ TEST_F(RealTimelineImGuiFixture, ProcessPendingScrollScrollsUp) {
   data.entry_levels.push_back(50);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
-  data.events_by_level.resize(51);
-  data.events_by_level[5].push_back(0);
-  data.events_by_level[50].push_back(1);
+  data.level_offsets.assign(6, 0);
+  data.level_offsets.insert(data.level_offsets.end(), 45, 1);
+  data.level_offsets.push_back(2);
+  data.level_event_indices = {0, 1};
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 20000.0});
@@ -5925,12 +5921,12 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinFetchDuration) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(0.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 20000.0});
@@ -5950,12 +5946,12 @@ TEST_F(RealTimelineImGuiFixture, RevealEventClampsToMinVisibleWidth) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event0");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 20000.0});
@@ -5999,10 +5995,10 @@ TEST_F(RealTimelineImGuiFixture, RevealEventScrollsVertically) {
   data.entry_levels.push_back(100);  // High level to trigger scrolling
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
-  data.events_by_level.resize(101);
-  data.events_by_level[100].push_back(0);
+  data.level_offsets.assign(101, 0);
+  data.level_offsets.push_back(1);
+  data.level_event_indices = {0};
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 20000.0});
@@ -6042,10 +6038,10 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_levels.push_back(100);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
-  data.events_by_level.resize(101);
-  data.events_by_level[100].push_back(0);
+  data.level_offsets.assign(101, 0);
+  data.level_offsets.push_back(1);
+  data.level_event_indices = {0};
 
   FlameChartTimelineData data_copy = data;
 
@@ -6089,10 +6085,9 @@ TEST_F(RealTimelineImGuiFixture, RevealEventSetsVisibleRangeDuration) {
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(1.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
-  data.events_by_level.resize(1);
-  data.events_by_level[0].push_back(0);
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
 
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({-1000.0, 20000.0});
@@ -6118,12 +6113,12 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithNaNDurationSetsMinDuration) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(1000.0);
   data.entry_total_times.push_back(std::numeric_limits<double>::quiet_NaN());
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
 
@@ -6143,12 +6138,12 @@ TEST_F(RealTimelineImGuiFixture, RevealEventWithZeroDurationSetsMinDuration) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(1000.0);
   data.entry_total_times.push_back(0.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
 
@@ -6169,12 +6164,12 @@ TEST_F(RealTimelineImGuiFixture, SelectionMutualExclusion) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(0.0);
   data.entry_total_times.push_back(100.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   // Group 1: Counter Events
@@ -6289,12 +6284,12 @@ TEST_F(RealTimelineImGuiFixture, ShiftClickEventTogglesCurtain) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0});
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   data.entry_names.push_back("event1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(20.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.SetVisibleRange({0.0, 100.0});
@@ -6335,7 +6330,8 @@ TEST_F(RealTimelineImGuiFixture,
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0, 1});  // event 0 and 1 on level 0
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};  // event 0 and 1 on level 0
   data.entry_names.push_back("event1");
   data.entry_names.push_back("event2");
   data.entry_levels.push_back(0);
@@ -6344,8 +6340,6 @@ TEST_F(RealTimelineImGuiFixture,
   data.entry_start_times.push_back(50.0);
   data.entry_total_times.push_back(20.0);
   data.entry_total_times.push_back(10.0);
-  data.entry_pids.push_back(1);
-  data.entry_pids.push_back(2);
   data.entry_args.push_back({});
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
@@ -6583,12 +6577,11 @@ class TimelineMouseModeSelectTestSuite : public TimelineDragSelectionTest {
     data.entry_start_times = {0.0, 0.0};
     data.entry_names = {"event1", "event2"};
     data.entry_event_ids = {1, 2};
-    data.entry_pids = {1, 1};
-    data.entry_tids = {1, 1};
     data.entry_args = {{}, {}};
     data.groups = {
         {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-    data.events_by_level = {{0}, {1}};
+    data.level_offsets = {0, 1, 2};
+    data.level_event_indices = {0, 1};
     timeline_.SetTimelineData(data);
   }
 };
@@ -6971,12 +6964,11 @@ TEST_F(TimelineDragSelectionTest, SnapsToEventEdgeWhenEnabled) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7008,13 +7000,12 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupSnaps) {
   data.entry_start_times = {100.0, 120.0};
   data.entry_names = {"event1", "event2"};
   data.entry_event_ids = {1, 2};
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
       {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
       {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {1}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7049,13 +7040,12 @@ TEST_F(TimelineDragSelectionTest, SnapScopingToHoveredGroupIgnoresOthers) {
   data.entry_start_times = {100.0, 120.0};
   data.entry_names = {"event1", "event2"};
   data.entry_event_ids = {1, 2};
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
       {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, true},
       {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {1}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7230,12 +7220,11 @@ TEST_F(TimelineDragSelectionTest, DoesNotSnapOutsideThreshold) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7268,12 +7257,11 @@ TEST_F(TimelineDragSelectionTest, SnapSelectsClosestEdge) {
   data.entry_start_times = {100.0, 102.0};
   data.entry_names = {"event1", "event2"};
   data.entry_event_ids = {1, 2};
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0, 1}};
+  data.level_offsets = {0, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7308,12 +7296,11 @@ TEST_F(TimelineDragSelectionTest, SnapWithPanDuration) {
   data.entry_start_times = {60.0};  // Event from 60.0 to 70.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   // Set visible range with duration 50.0us
@@ -7356,13 +7343,12 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsWhenCollapsed) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, false}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7396,14 +7382,13 @@ TEST_F(TimelineDragSelectionTest,
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is NOT expanded, and has multiple levels so it is expandable.
   // But it is NOT kFlame!
   data.groups = {
       {Group::Type::kCounter, "group", "", 0, kCounterNestingLevel, false}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7438,8 +7423,6 @@ TEST_F(TimelineDragSelectionTest,
   data.entry_start_times = {100.0, 500.0};
   data.entry_names = {"event1", "event2"};
   data.entry_event_ids = {1, 2};
-  data.entry_pids = {1, 2};
-  data.entry_tids = {1, 2};
   data.entry_args = {{}, {}};
 
   // Group 0 has another group after it, but it's not a child (nesting level is
@@ -7448,7 +7431,8 @@ TEST_F(TimelineDragSelectionTest,
   data.groups = {
       {Group::Type::kFlame, "group1", "", 0, kThreadNestingLevel, false},
       {Group::Type::kFlame, "group2", "", 1, kThreadNestingLevel, false}};
-  data.events_by_level = {{0}, {1}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7483,13 +7467,12 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactBottomEdgeOfWindow) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is expanded.
   data.groups = {
       {Group::Type::kFlame, "group", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   // Use a window height of 36.0f and a scroll of 0 so that the top edge of the
@@ -7528,12 +7511,11 @@ TEST_F(TimelineDragSelectionTest, SnapIncludesEventsAtExactTopEdgeOfWindow) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is expanded.
   data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   // Use a scroll of 23.0f (which is just below y_bottom) so that the bottom
@@ -7570,11 +7552,10 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelBelowWindow) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
 
   // Verify strict viewport culling logic at the lower boundary.
   // Manipulate ImGui style padding to precisely position the event
@@ -7626,11 +7607,10 @@ TEST_F(TimelineDragSelectionTest, SnapIgnoresEventsExactlyOnePixelAboveWindow) {
   data.entry_start_times = {100.0};  // Event from 100.0 to 200.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
 
   // Verify strict viewport culling logic at the upper boundary.
   // Manipulate ImGui style padding to precisely position the event
@@ -7684,12 +7664,11 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForExpandedTrackWithMultipleLevels) {
   data.entry_start_times = {100.0, 100.0};  // Events at 100.0
   data.entry_names = {"event1", "event2"};
   data.entry_event_ids = {1, 2};
-  data.entry_pids = {1, 1};
-  data.entry_tids = {1, 1};
   data.entry_args = {{}, {}};
   // Group is expanded and has multiple levels.
   data.groups = {{Group::Type::kFlame, "group", "", 0, 0, true}};
-  data.events_by_level = {{0}, {1}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7719,12 +7698,11 @@ TEST_F(TimelineDragSelectionTest, SnapWorksForNonExpandableCollapsedTrack) {
   data.entry_start_times = {100.0};  // Event at 100.0
   data.entry_names = {"event1"};
   data.entry_event_ids = {1};
-  data.entry_pids = {1};
-  data.entry_tids = {1};
   data.entry_args = {{}};
   // Group is NOT expanded, but it is NOT expandable (only 1 level, no children)
   data.groups = {{Group::Type::kFlame, "group", "", 0, 0, false}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -7970,7 +7948,7 @@ TEST_F(TimelineImGuiFixture, LevelYPositionsCalculation) {
   // Level 0, 1 in Group 0
   // Level 2 in Group 1
   // Level 3, 4, 5 in Group 2
-  data.events_by_level.resize(6);
+  data.level_offsets.assign(7, 0);
   timeline_.SetTimelineData(std::move(data));
 
   SimulateFrame();
@@ -8009,14 +7987,14 @@ TEST_F(TimelineImGuiFixture, SelectEvents) {
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
-  data.events_by_level.resize(1);
-  data.events_by_level[0].push_back(0);
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+
   data.entry_names.push_back("Event 1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(50.0);
   data.entry_self_times.push_back(50.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
 
   timeline_.SetTimelineData(std::move(data));
@@ -8110,14 +8088,14 @@ TEST_F(TimelineImGuiFixture, ZoomMode) {
   FlameChartTimelineData data;
   data.groups.push_back(
       {.name = "Group 1", .start_level = 0, .expanded = true});
-  data.events_by_level.resize(1);
-  data.events_by_level[0].push_back(0);
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
+
   data.entry_names.push_back("Event 1");
   data.entry_levels.push_back(0);
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(900.0);
   data.entry_self_times.push_back(900.0);
-  data.entry_pids.push_back(1);
   data.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data));
   timeline_.set_data_time_range({0.0, 1000.0});
@@ -8293,7 +8271,8 @@ TEST_F(RealTimelineImGuiFixture, HoverTrackLabelChangesCursor) {
   data.entry_names = {"event"};
   data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
                   kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -8320,7 +8299,8 @@ TEST_F(RealTimelineImGuiFixture, ClickTrackLabelCopiesNameToClipboard) {
   data.entry_names = {"event"};
   data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
                   kThreadNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -8352,7 +8332,8 @@ TEST_F(RealTimelineImGuiFixture,
   // levels.
   data.groups = {{Group::Type::kFlame, "Test Group Name", "", 0,
                   kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};  // 2 levels, second level empty
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};  // 2 levels, second level empty
   timeline_.SetTimelineData(data);
 
   SimulateFrame();
@@ -8378,7 +8359,7 @@ TEST_F(RealTimelineImGuiFixture,
 
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
   FlameChartTimelineData data;
-  data.events_by_level.resize(5);
+  data.level_offsets.assign(6, 0);
 
   // Group 0: Parent (Collapsed, nesting_level = 0)
   data.groups.push_back({
@@ -8420,7 +8401,7 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_SelfCollapse) {
 
 TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
   FlameChartTimelineData data;
-  data.events_by_level.resize(5);
+  data.level_offsets.assign(6, 0);
 
   // Group 0: Grand Parent (Expanded, nesting_level = 0)
   data.groups.push_back({
@@ -8470,7 +8451,7 @@ TEST_F(MockTimelineImGuiFixture, FindFirstVisibleAncestorIndex_ParentCollapse) {
 TEST_F(MockTimelineImGuiFixture,
        FindFirstVisibleAncestorIndex_SiblingCollapse) {
   FlameChartTimelineData data;
-  data.events_by_level.resize(5);
+  data.level_offsets.assign(6, 0);
 
   // Group 0: Parent (Expanded, nesting_level = 0)
   data.groups.push_back({
@@ -8538,7 +8519,7 @@ TEST_F(MockTimelineImGuiFixture,
 
 TEST_F(MockTimelineImGuiFixture, HideProcessTrack_FeatureFlagToggle) {
   FlameChartTimelineData data;
-  data.events_by_level.resize(5);
+  data.level_offsets.assign(6, 0);
 
   // Group 0: Process A
   data.groups.push_back({
@@ -8639,7 +8620,8 @@ TEST_F(RealTimelineImGuiFixture, ClickHideButtonOnCollapsedTrackHidesIt) {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true},
       {Group::Type::kFlame, "Process B", "", 1, kProcessNestingLevel, false}};
-  data.events_by_level = {{0}, {}, {}};
+  data.level_offsets = {0, 1, 1, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
 
@@ -8672,7 +8654,8 @@ TEST_F(RealTimelineImGuiFixture, CannotHideLastVisibleProcess) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
 
@@ -8713,7 +8696,8 @@ TEST_F(RealTimelineImGuiFixture, CollapseAllHeaderHidesGroups) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
 
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8755,7 +8739,8 @@ TEST_F(RealTimelineImGuiFixture, ExpandHiddenHeaderShowsHiddenGroups) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
 
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8799,7 +8784,8 @@ TEST_F(RealTimelineImGuiFixture, ClickUnhideButtonOnHiddenTrackUnhidesIt) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, false},
       {Group::Type::kFlame, "Thread A1", "", 0, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {}};
+  data.level_offsets = {0, 1, 1};
+  data.level_event_indices = {0};
 
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8863,7 +8849,8 @@ TEST_F(RealTimelineImGuiFixture, DisplayNamePrefixStripping) {
   // Group with name "MySubtitle//MyTrack" and subtitle "MySubtitle"
   data.groups = {{Group::Type::kFlame, "MySubtitle//MyTrack", "MySubtitle", 0,
                   kProcessNestingLevel, false}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
 
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
@@ -8901,7 +8888,8 @@ TEST_F(RealTimelineImGuiFixture, DrawTrackManagementHiddenTrackPopIDCovered) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
 
   // Set track management to false so "Process A" isn't marked invisible in
@@ -8930,7 +8918,8 @@ TEST_F(RealTimelineImGuiFixture, TrackManagement_HideButtonLayout) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true},
       {Group::Type::kFlame, "Thread A1", "", 1, kThreadNestingLevel, true}};
-  data.events_by_level = {{0}, {1}};
+  data.level_offsets = {0, 1, 2};
+  data.level_event_indices = {0, 1};
   timeline_.SetTimelineData(data);
   timeline_.set_track_management_enabled(true);
 
@@ -8987,7 +8976,8 @@ TEST_F(RealTimelineImGuiFixture, PinUnpinnedTrack) {
   data.entry_names = {"event"};
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
 
@@ -9019,7 +9009,8 @@ TEST_F(RealTimelineImGuiFixture, PinPinnedTrackDoesNothing) {
   data.entry_names = {"event"};
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   // Pre-pin programmatically
   timeline_.pinned_track_names_.insert("Process A");
@@ -9047,7 +9038,8 @@ TEST_F(RealTimelineImGuiFixture, UnpinPinnedTrack) {
   data.entry_names = {"event"};
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   // Pre-pin programmatically
   timeline_.pinned_track_names_.insert("Process A");
@@ -9082,7 +9074,8 @@ TEST_F(RealTimelineImGuiFixture, UnpinUnpinnedTrackDoesNothing) {
   data.entry_names = {"event"};
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
 
@@ -9108,7 +9101,8 @@ TEST_F(RealTimelineImGuiFixture, PinAndUnpinTrackWorksWell) {
   data.entry_names = {"event"};
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, kProcessNestingLevel, true}};
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.set_track_management_enabled(true);
   timeline_.SetTimelineData(data);
 
@@ -9312,7 +9306,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeSnapsToEventsInHoveredTrack) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
 
@@ -9339,7 +9334,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeDoesNotSnapWhenOutsideTrack) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
 
@@ -9364,7 +9360,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeStartEdgeSnapsToEvents) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
 
@@ -9390,7 +9387,8 @@ TEST_F(TimelineTimeRangeResizeTest, ResizeCrossoverSnapsToEvents) {
   data.groups = {
       {Group::Type::kFlame, "Process A", "", 0, 0, true},
   };
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(data);
   timeline_.set_mouse_mode(MouseMode::kTiming);
 
@@ -9486,10 +9484,10 @@ TEST_P(ReconciliationMismatchTest, MismatchFailsReconciliation) {
       std::vector<EventDef> new_events = {{"dummy", 0.0, 10.0, 0, 1, 1, 3003}};
       switch (GetParam()) {
         case MismatchType::kPid:
-          new_events.push_back({"eventA", 100.0, 50.0, 0, 2, 1, 2002});
+          new_events.push_back({"eventA", 100.0, 50.0, 1, 2, 1, 2002});
           break;
         case MismatchType::kTid:
-          new_events.push_back({"eventA", 100.0, 50.0, 0, 1, 2, 2002});
+          new_events.push_back({"eventA", 100.0, 50.0, 1, 1, 2, 2002});
           break;
         case MismatchType::kName:
           new_events.push_back({"eventB", 100.0, 50.0, 0, 1, 1, 2002});
@@ -10163,7 +10161,8 @@ TEST_F(MockTimelineImGuiFixture, ZoomEventExpandsRelatedTracks) {
                                              .start_level = 0,
                                              .nesting_level = 0,
                                              .expanded = false}});
-  data.events_by_level = {{0}};
+  data.level_offsets = {0, 1};
+  data.level_event_indices = {0};
   timeline_.SetTimelineData(std::move(data));
 
   EXPECT_FALSE(timeline_.timeline_data().groups[0].expanded);
@@ -10186,15 +10185,14 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
                          .start_level = 0,
                          .nesting_level = 0,
                          .expanded = true});
-  data.events_by_level.push_back({0, 1, 2, 3});
+  data.level_offsets = {0, 4};
+  data.level_event_indices = {0, 1, 2, 3};
 
   // Event 0: matching_2 (starts at 10.0, duration 40.0)
   data.entry_names.push_back("matching_2");
   data.entry_start_times.push_back(10.0);
   data.entry_total_times.push_back(40.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1001);
   data.entry_args.push_back({});
 
@@ -10203,8 +10201,6 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
   data.entry_start_times.push_back(60.0);
   data.entry_total_times.push_back(40.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1002);
   data.entry_args.push_back({});
 
@@ -10214,8 +10210,6 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
   data.entry_start_times.push_back(120.0);
   data.entry_total_times.push_back(0.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1003);
   data.entry_args.push_back({});
 
@@ -10225,8 +10219,6 @@ TEST_F(RealTimelineImGuiFixture, SearchQueryRenderingColors) {
   data.entry_start_times.push_back(140.0);
   data.entry_total_times.push_back(0.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1004);
   data.entry_args.push_back({});
 
@@ -10328,13 +10320,15 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
   data1.entry_levels.push_back(0);
-  data1.entry_pids.push_back(1);
-  data1.entry_tids.push_back(1);
   data1.entry_event_ids.push_back(1001);
   data1.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data1));
@@ -10354,13 +10348,15 @@ TEST_F(MockTimelineImGuiFixture,
   // must remain -1.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
   data2.entry_names.push_back("eventB");
   data2.entry_start_times.push_back(200.0);
   data2.entry_total_times.push_back(50.0);
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(2);
-  data2.entry_tids.push_back(2);
   data2.entry_event_ids.push_back(1002);
   data2.entry_args.push_back({});
 
@@ -10379,13 +10375,15 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
   data1.entry_levels.push_back(0);
-  data1.entry_pids.push_back(1);
-  data1.entry_tids.push_back(1);
   data1.entry_event_ids.push_back(1001);
   data1.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data1));
@@ -10415,15 +10413,17 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
   // Event 2 (index 1): Duration 50.0 (Matches old search result).
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
 
   // Event 1: Different duration
   data2.entry_names.push_back("eventA");
   data2.entry_start_times.push_back(100.0);
   data2.entry_total_times.push_back(100.0);  // Different duration
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(1);
-  data2.entry_tids.push_back(1);
   data2.entry_event_ids.push_back(2001);  // Different ID to force fallback
   data2.entry_args.push_back({});
 
@@ -10432,8 +10432,6 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataDifferentiatesByDuration) {
   data2.entry_start_times.push_back(100.0);
   data2.entry_total_times.push_back(50.0);  // Matching duration
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(1);
-  data2.entry_tids.push_back(1);
   data2.entry_event_ids.push_back(2002);  // Different ID to force fallback
   data2.entry_args.push_back({});
 
@@ -10448,13 +10446,15 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
   data1.entry_levels.push_back(0);
-  data1.entry_pids.push_back(1);
-  data1.entry_tids.push_back(1);
   data1.entry_event_ids.push_back(1001);
   data1.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data1));
@@ -10483,15 +10483,17 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
   // Reconciliation should set selected_event_index_ to 0.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
 
   // Add a dummy event at index 0
   data2.entry_names.push_back("dummy");
   data2.entry_start_times.push_back(0.0);
   data2.entry_total_times.push_back(10.0);
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(1);
-  data2.entry_tids.push_back(1);
   data2.entry_event_ids.push_back(999);
   data2.entry_args.push_back({});
 
@@ -10500,8 +10502,6 @@ TEST_F(MockTimelineImGuiFixture, SetTimelineDataReconcilesSearchActiveIndex) {
   data2.entry_start_times.push_back(100.0);
   data2.entry_total_times.push_back(50.0);
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(1);
-  data2.entry_tids.push_back(1);
   data2.entry_event_ids.push_back(1001);
   data2.entry_args.push_back({});
 
@@ -10516,13 +10516,15 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Set up initial timeline data with one event
   FlameChartTimelineData data1;
   data1.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
   data1.entry_names.push_back("eventA");
   data1.entry_start_times.push_back(100.0);
   data1.entry_total_times.push_back(50.0);
   data1.entry_levels.push_back(0);
-  data1.entry_pids.push_back(1);
-  data1.entry_tids.push_back(1);
   data1.entry_event_ids.push_back(1001);
   data1.entry_args.push_back({});
   timeline_.SetTimelineData(std::move(data1));
@@ -10551,15 +10553,17 @@ TEST_F(MockTimelineImGuiFixture,
   // Reconciliation should set selected_event_index_ to -1.
   FlameChartTimelineData data2;
   data2.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
 
   // Add a dummy event that doesn't match
   data2.entry_names.push_back("dummy");
   data2.entry_start_times.push_back(0.0);
   data2.entry_total_times.push_back(10.0);
   data2.entry_levels.push_back(0);
-  data2.entry_pids.push_back(1);
-  data2.entry_tids.push_back(1);
   data2.entry_event_ids.push_back(999);
   data2.entry_args.push_back({});
 
@@ -10574,15 +10578,17 @@ TEST_F(MockTimelineImGuiFixture,
   // 1. Load data with one thread having two events on the same level (0)
   FlameChartTimelineData data;
   data.groups.push_back(
-      {.type = Group::Type::kFlame, .name = "Group 1", .start_level = 0});
+      {.type = Group::Type::kFlame,
+       .name = "Group 1",
+       .start_level = 0,
+       .pid = 1,
+       .tid = 1});
 
   // Event X (will be loaded at index 0): start_time = 200.0 (later)
   data.entry_names.push_back("eventA");
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1001);
   data.entry_args.push_back({});
 
@@ -10591,8 +10597,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(1002);
   data.entry_args.push_back({});
 
@@ -10646,8 +10650,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchResultsPreservesActiveSelectionZoom) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(100);
   data.entry_args.push_back({});
 
@@ -10655,8 +10657,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchResultsPreservesActiveSelectionZoom) {
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(101);
   data.entry_args.push_back({});
 
@@ -10716,8 +10716,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(100);
   data.entry_args.push_back({});
 
@@ -10778,12 +10776,12 @@ TEST_F(MockTimelineImGuiFixture,
                           .start_level = 0,
                           .nesting_level = kThreadNestingLevel,
                           .expanded = true});
-  data1.events_by_level.push_back({0});
+  data1.level_offsets = {0, 1};
+  data1.level_event_indices = {0};
   data1.entry_names.push_back("");
   data1.entry_levels.push_back(0);
   data1.entry_start_times.push_back(25.0);
   data1.entry_total_times.push_back(0.0);
-  data1.entry_pids.push_back(1);
   data1.entry_args.push_back({});
 
   timeline_.SetTimelineData(std::move(data1));
@@ -10810,12 +10808,12 @@ TEST_F(MockTimelineImGuiFixture,
                           .start_level = 0,
                           .nesting_level = kThreadNestingLevel,
                           .expanded = true});
-  data2.events_by_level.push_back({0});
+  data2.level_offsets = {0, 1};
+  data2.level_event_indices = {0};
   data2.entry_names.push_back("");
   data2.entry_levels.push_back(0);
   data2.entry_start_times.push_back(25.0);
   data2.entry_total_times.push_back(10.0);
-  data2.entry_pids.push_back(1);
   data2.entry_args.push_back({});
 
   timeline_.SetTimelineData(std::move(data2));
@@ -10852,8 +10850,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(100);
   data.entry_args.push_back({});
 
@@ -10861,8 +10857,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
   data.entry_start_times.push_back(110.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(101);
   data.entry_args.push_back({});
 
@@ -10871,8 +10865,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(102);
   data.entry_args.push_back({});
 
@@ -10880,8 +10872,6 @@ TEST_F(MockTimelineImGuiFixture, SetSearchQueryClearsPreviousResults) {
   data.entry_start_times.push_back(210.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(103);
   data.entry_args.push_back({});
 
@@ -10922,8 +10912,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(1);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(100);
   data.entry_args.push_back({});
 
@@ -10992,8 +10980,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_start_times.push_back(200.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(2);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(100);
   data.entry_args.push_back({});
 
@@ -11002,8 +10988,6 @@ TEST_F(MockTimelineImGuiFixture,
   data.entry_start_times.push_back(100.0);
   data.entry_total_times.push_back(10.0);
   data.entry_levels.push_back(0);
-  data.entry_pids.push_back(1);
-  data.entry_tids.push_back(1);
   data.entry_event_ids.push_back(101);
   data.entry_args.push_back({});
 
@@ -11799,6 +11783,37 @@ TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
 
   EXPECT_DOUBLE_EQ(actual_min, 0.0);
   EXPECT_DOUBLE_EQ(actual_max, 400.0);
+}
+
+
+TEST_F(MockTimelineImGuiFixture, GetEventSelected_EmptyGroups) {
+  FlameChartTimelineData data;
+  data.entry_names.push_back("Event A");
+  data.entry_start_times.push_back(100.0);
+  data.entry_total_times.push_back(50.0);
+  data.entry_levels.push_back(0);
+  data.entry_event_ids.push_back(1);
+  data.entry_args.push_back({});
+  // data.groups is left empty.
+
+  timeline_.SetTimelineData(std::move(data));
+
+  EventData received_data;
+  bool callback_invoked = false;
+  timeline_.set_event_callback(
+      [&](absl::string_view type, const EventData& detail) {
+        if (type == kEventSelected) {
+          callback_invoked = true;
+          received_data = detail;
+        }
+      });
+
+  timeline_.RevealEvent(0);
+
+  EXPECT_TRUE(callback_invoked);
+  auto it = received_data.find(std::string(kEventSelectedPid));
+  ASSERT_NE(it, received_data.end());
+  EXPECT_EQ(std::any_cast<double>(it->second), 0.0);
 }
 
 }  // namespace

@@ -56,7 +56,8 @@ void Timeline::DrawTimelinePlayerSync() {
     payload["duration"] = (double)visible_duration;
     payload["isPlaying"] = is_playing_;
 
-    std::vector<int> level_to_group(timeline_data_.events_by_level.size(), -1);
+    const int total_levels = timeline_data_.total_levels();
+    std::vector<int> level_to_group(total_levels, -1);
     for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
       for (int l = timeline_data_.groups[i].start_level;
            l < level_to_group.size(); ++l) {
@@ -65,9 +66,8 @@ void Timeline::DrawTimelinePlayerSync() {
     }
 
     std::vector<EventData> active_events;
-    for (int level = 0; level < timeline_data_.events_by_level.size();
-         ++level) {
-      for (int event_idx : timeline_data_.events_by_level[level]) {
+    for (int level = 0; level < total_levels; ++level) {
+      for (int event_idx : timeline_data_.get_level_events(level)) {
         double start = timeline_data_.entry_start_times[event_idx];
         double duration = timeline_data_.entry_total_times[event_idx];
         if (current_play_time_ >= start &&

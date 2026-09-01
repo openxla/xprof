@@ -3063,6 +3063,27 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "inference_stats_test",
+    srcs = ["inference_stats_test.cc"],
+    tags = [
+        "no_oss",
+    ],
+    deps = [
+        ":inference_stats",
+        "//plugin/xprof/protobuf:inference_stats_proto_cc",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@org_xprof//xprof/utils:event_span",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
+        "@xla//xla/tsl/profiler/utils:device_utils",
+        "@xla//xla/tsl/profiler/utils:group_events",
+        "@xla//xla/tsl/profiler/utils:xplane_builder",
+        "@xla//xla/tsl/profiler/utils:xplane_schema",
+        "@xla//xla/tsl/profiler/utils:xplane_test_utils",
+    ],
+)
+
 cc_library(
     name = "compute_inference_latency",
     srcs = ["compute_inference_latency.cc"],

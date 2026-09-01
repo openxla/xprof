@@ -30,6 +30,7 @@ limitations under the License.
 #include "absl/base/macros.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -1072,18 +1073,31 @@ std::string GenerateTensorPattern(
   std::vector<std::string> sub_patterns;
   sub_patterns.reserve(tensor_events.size());
   for (const XEventVisitor* tensor_event : tensor_events) {
-    std::optional<XStatVisitor> shape =
-        tensor_event->GetStat(StatType::kTensorShapes);
-    if (!shape.has_value()) return "";
+    if (tensor_event == nullptr) return "";
+    std::string shape_str;
+    if (std::optional<XStatVisitor> shape =
+            tensor_event->GetStat(StatType::kTensorShapes)) {
+      shape_str = shape->StrOrRefValue();
+    } else if (std::optional<XStatVisitor> dims =
+                   tensor_event->GetStat(StatType::kDimensions)) {
+      if (std::optional<XStatVisitor> type =
+              tensor_event->GetStat(StatType::kType)) {
+        shape_str = absl::StrCat(absl::AsciiStrToLower(type->StrOrRefValue()),
+                                 dims->StrOrRefValue());
+      } else {
+        shape_str = dims->StrOrRefValue();
+      }
+    }
+    if (shape_str.empty()) return "";
+
     std::optional<XStatVisitor> layout =
         tensor_event->GetStat(StatType::kTensorLayout);
     if (!layout.has_value()) return "";
-    sub_patterns.push_back(absl::StrCat(tensor_event->Name(), " ",
-                                        shape->StrOrRefValue(), " ",
-                                        layout->StrOrRefValue()));
+    sub_patterns.push_back(absl::StrCat(tensor_event->Name(), " ", shape_str,
+                                        " ", layout->StrOrRefValue()));
   }
   // Sort the sub patterns to get a deterministic result.
-  std::sort(sub_patterns.begin(), sub_patterns.end());
+  absl::c_sort(sub_patterns);
   // The final tensor pattern is generated as the concatenation of all sub
   // patterns. Use <br> as separator so it can be displayed properly in
   // frontend.

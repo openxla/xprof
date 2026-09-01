@@ -28,13 +28,26 @@ ts_library(
 )
 
 ts_library(
+    name = "chart_utils",
+    srcs = [
+        "chart_utils.ts",
+    ],
+    deps = [
+        "//:node_modules/@types/google.visualization",
+    ],
+)
+
+ts_library(
     name = "tests",
     testonly = True,
     srcs = [
+        "chart_utils_test.ts",
         "diff_utils_test.ts",
         "utils_test.ts",
     ],
     deps = [
+        ":chart_utils",
+        ":testing",
         ":utils",
         "//javascript/angular2/testing/catalyst/fake_async",
         "//third_party/javascript/typings/jasmine",

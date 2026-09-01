@@ -168,6 +168,48 @@ class ServerTest(absltest.TestCase, parameterized.TestCase):
       server.start_server(**mock_args_dict)
     self.mock_launch_server.assert_not_called()
 
+  def test_make_wsgi_app_routes(self):
+    """Verifies WSGI app routing, prefix stripping, and 404 handling."""
+    # Arrange
+    mock_plugin = mock.MagicMock()
+    mock_plugin.default_handler.return_value = [b'default']
+    mock_app_handler = mock.MagicMock(return_value=[b'app_response'])
+    mock_plugin.get_plugin_apps.return_value = {
+        '/index.html': mock_app_handler,
+        '/data': mock_app_handler,
+    }
+    app = server.make_wsgi_app(mock_plugin)
+    start_response = mock.MagicMock()
+
+    # Act: root paths route to default_handler
+    response_root = app({'PATH_INFO': ''}, start_response)
+    response_slash = app({'PATH_INFO': '/'}, start_response)
+
+    # Assert
+    self.assertEqual(response_root, [b'default'])
+    self.assertEqual(response_slash, [b'default'])
+    self.assertEqual(mock_plugin.default_handler.call_count, 2)
+
+    # Act: path with prefix routes to mapped app handler
+    mock_app_handler.reset_mock()
+    response_data = app(
+        {'PATH_INFO': '/data/plugin/profile/data'}, start_response
+    )
+
+    # Assert
+    mock_app_handler.assert_called_once()
+    self.assertEqual(response_data, [b'app_response'])
+
+    # Act: unmapped route returns HTTP 404
+    start_response.reset_mock()
+    response_404 = app({'PATH_INFO': '/unmapped_route'}, start_response)
+
+    # Assert
+    start_response.assert_called_once_with(
+        '404 Not Found', [('Content-Type', 'text/plain')]
+    )
+    self.assertEqual(response_404, [b'Not Found'])
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -229,6 +229,11 @@ struct JsonTraceOptions {
   bool use_new_backend = false;
   bool mpmd_pipeline_view = false;
   std::string code_link;
+  // The absolute walltime timestamp in nanoseconds used as the baseline for
+  // this snapshot's trace events (computed via `xprof::GetHostStartNs`). This
+  // is set only by the live trace viewer to allow the frontend to align
+  // timestamps across live streaming snapshots.
+  std::optional<uint64_t> snapshot_baseline_ns;
 };
 
 // Counts generated JSON events by type.
@@ -775,6 +780,11 @@ void TraceEventsToJson(const JsonTraceOptions& options,
   output->Append(
       R"({"displayTimeUnit":"ns","metadata":{"highres-ticks":true}, "codeLink":")",
       options.code_link, R"(",)");
+
+  if (options.snapshot_baseline_ns.has_value()) {
+    output->Append(R"("snapshot_baseline_ns":)", *options.snapshot_baseline_ns,
+                   R"(,)");
+  }
 
   output->Append(absl::StrFormat(R"("useNewBackend": %s,)",
                                  options.use_new_backend ? "true" : "false"));

@@ -1,5 +1,20 @@
 <div class="timeline-player-container">
   <div class="progress-bar-container">
+     <div class="loop-region" *ngIf="loopState === 'ACTIVE'"
+          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+          [style.width.%]="duration() ? ((loopEnd! - loopStart!) / duration()) * 100 : 0"></div>
+
+     <div class="loop-marker start" *ngIf="loopState !== 'INACTIVE'"
+          [style.left.%]="duration() ? (loopStart! / duration()) * 100 : 0"
+          (pointerdown)="onStartMarkerPointerDown($event)">
+          <span class="loop-flag">A</span>
+     </div>
+
+     <div class="loop-marker end" *ngIf="loopState === 'ACTIVE'"
+          [style.left.%]="duration() ? (loopEnd! / duration()) * 100 : 0"
+          (pointerdown)="onEndMarkerPointerDown($event)">
+          <span class="loop-flag">B</span>
+     </div>
      <div class="progress-fill" [style.width.%]="duration() ? (currentTime() / duration()) * 100 : 0"></div>
      <input type="range" class="progress-bar"
             [min]="0" [max]="duration()" step="any"
@@ -12,8 +27,23 @@
 
   <div class="controls-container">
     <div class="left-controls">
+      <button mat-icon-button class="control-button loop-button"
+              [ngClass]="getLoopClass()"
+              (click)="toggleLoop()"
+              [matTooltip]="getLoopTitle()">
+        <mat-icon>repeat</mat-icon>
+      </button>
+
+      <button mat-icon-button class="control-button" (click)="stepBackward()" matTooltip="Step Backward">
+        <mat-icon>skip_previous</mat-icon>
+      </button>
+
       <button mat-icon-button class="control-button" (click)="togglePlay()" matTooltip="{{ isPlaying() ? 'Pause' : 'Play' }}">
         <mat-icon>{{ isPlaying() ? 'pause' : 'play_arrow' }}</mat-icon>
+      </button>
+
+      <button mat-icon-button class="control-button" (click)="stepForward()" matTooltip="Step Forward">
+        <mat-icon>skip_next</mat-icon>
       </button>
 
       <div class="time-display">

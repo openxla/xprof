@@ -171,6 +171,17 @@ py_test(
     visibility = ["//visibility:public"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:path_util",
+        "@absl_py//absl/testing:absltest",
+    ],
+)
+
+py_test(
+    name = "path_util_test",
+    srcs = ["path_util_test.py"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//plugin/xprof/cli/internal:path_util",
         "@absl_py//absl/testing:absltest",
     ],
 )
@@ -181,6 +192,7 @@ py_test(
     visibility = ["//visibility:public"],
     deps = [
         "//plugin/xprof/cli/internal:decorators",
+        "//plugin/xprof/cli/internal:path_util",
         "//plugin/xprof/cli/internal/oss:xprof_client",
         "@absl_py//absl/testing:absltest",
     ],

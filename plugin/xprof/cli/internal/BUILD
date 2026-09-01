@@ -16,9 +16,20 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "path_util",
+    srcs = ["path_util.py"],
+    visibility = [
+        "//plugin/xprof:__subpackages__",
+    ],
+)
+
+pytype_strict_library(
     name = "decorators",
     srcs = ["decorators.py"],
-    deps = ["@absl_py//absl/logging"],
+    deps = [
+        ":path_util",
+        "@absl_py//absl/logging",
+    ],
 )
 
 pytype_strict_library(

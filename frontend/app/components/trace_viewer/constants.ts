@@ -210,3 +210,20 @@ export const CUSTOM_PALETTE_NAME = 'Custom';
  * Local storage key for persisting custom trace colors as a JSON array of hex strings.
  */
 export const CUSTOM_COLORS_STORAGE_KEY = 'trace_viewer_custom_colors';
+
+/**
+ * Local storage key for persisting panning navigation speed.
+ */
+export const NAV_PAN_SPEED_STORAGE_KEY = 'trace_viewer_nav_pan_speed';
+
+/**
+ * Local storage key for persisting keyboard zoom navigation speed.
+ */
+export const NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY =
+  'trace_viewer_nav_keyboard_zoom_speed';
+
+/**
+ * Local storage key for persisting mouse wheel zoom navigation speed.
+ */
+export const NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY =
+  'trace_viewer_nav_wheel_zoom_speed';

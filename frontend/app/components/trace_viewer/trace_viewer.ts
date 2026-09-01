@@ -71,6 +71,9 @@ import {
   FILTER_OPERATORS,
   FILTER_PROPERTY_SEPARATOR,
   FILTER_SEPARATOR,
+  NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+  NAV_PAN_SPEED_STORAGE_KEY,
+  NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -264,6 +267,11 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   COLOR_PALETTES = COLOR_PALETTES;
   readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
   customColors: string[] = [];
+
+  panningSpeed = 1.0;
+  keyboardZoomSpeed = 1.0;
+  wheelZoomSpeed = 1.0;
+
   flowCategories: FlowCategory[] = [];
   allFlowCategories: FlowCategory[] = [];
   selectedFlowCategoryIds = new Set<number>();
@@ -502,6 +510,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   ngOnInit(): void {
     this.loadCustomColors();
+    this.loadGeneralSettings();
     this.searchQuery
       .pipe(
         takeUntil(this.destroyed),
@@ -579,6 +588,9 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         this.selectedPalette = savedPalette;
         this.traceViewerModule.SetPalette(savedPalette);
       }
+
+      this.loadGeneralSettings();
+      this.applyNavigationSpeeds();
 
       if (
         this.traceViewerModule &&
@@ -1393,6 +1405,79 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         LOADING_STATUS_UPDATE_EVENT_NAME,
         loadingStatusListener,
       );
+    }
+  }
+
+  applyNavigationSpeeds(): void {
+    if (this.traceViewerModule) {
+      this.traceViewerModule.SetPanningSpeed?.(1000 * this.panningSpeed);
+      this.traceViewerModule.SetZoomSpeed?.(1.5 * this.keyboardZoomSpeed);
+      this.traceViewerModule.SetMouseWheelZoomSpeed?.(
+        0.2 * this.wheelZoomSpeed,
+      );
+    }
+  }
+
+  resetNavigationSpeed(): void {
+    this.panningSpeed = 1.0;
+    this.keyboardZoomSpeed = 1.0;
+    this.wheelZoomSpeed = 1.0;
+    window.localStorage.setItem(NAV_PAN_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    this.applyNavigationSpeeds();
+  }
+
+  onPanningSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.panningSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_PAN_SPEED_STORAGE_KEY,
+      this.panningSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onKeyboardZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.keyboardZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      this.keyboardZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onWheelZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.wheelZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      this.wheelZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  private loadGeneralSettings(): void {
+    try {
+      const panSpeed = window.localStorage.getItem(NAV_PAN_SPEED_STORAGE_KEY);
+      if (panSpeed !== null) {
+        this.panningSpeed = Number(panSpeed) || 1.0;
+      }
+      const kbZoom = window.localStorage.getItem(
+        NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (kbZoom !== null) {
+        this.keyboardZoomSpeed = Number(kbZoom) || 1.0;
+      }
+      const wheelZoom = window.localStorage.getItem(
+        NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (wheelZoom !== null) {
+        this.wheelZoomSpeed = Number(wheelZoom) || 1.0;
+      }
+    } catch {
+      // Ignore storage errors.
     }
   }
 

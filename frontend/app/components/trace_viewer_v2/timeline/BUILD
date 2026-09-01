@@ -139,6 +139,7 @@ cc_test(
     name = "data_provider_test",
     srcs = ["data_provider_test.cc"],
     deps = [
+        ":constants",
         ":data_provider",
         ":time_range",
         ":timeline",

@@ -65,6 +65,28 @@ struct CounterData {
   std::string event_stats;
 };
 
+// Represents a stable key for identifying a group/track across data reloads.
+struct GroupKey {
+  int nesting_level = 0;
+  std::string name;
+  std::string parent_name;
+
+  bool operator==(const GroupKey& other) const {
+    return nesting_level == other.nesting_level && name == other.name &&
+           parent_name == other.parent_name;
+  }
+
+  bool operator<(const GroupKey& other) const {
+    return std::tie(nesting_level, name, parent_name) <
+           std::tie(other.nesting_level, other.name, other.parent_name);
+  }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const GroupKey& k) {
+    return H::combine(std::move(h), k.nesting_level, k.name, k.parent_name);
+  }
+};
+
 // Represents a grouping of timeline tracks, such as processes, threads, or
 // counters.
 struct Group {

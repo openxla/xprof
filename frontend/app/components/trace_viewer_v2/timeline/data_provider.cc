@@ -42,17 +42,6 @@ namespace traceviewer {
 
 namespace {
 
-struct GroupKey {
-  int nesting_level;
-  std::string name;
-  std::string parent_name;
-
-  bool operator<(const GroupKey& other) const {
-    return std::tie(nesting_level, name, parent_name) <
-           std::tie(other.nesting_level, other.name, other.parent_name);
-  }
-};
-
 bool GetExpandedState(int nesting_level, absl::string_view name,
                       absl::string_view parent_name, bool default_expanded,
                       const absl::btree_map<GroupKey, bool>& expanded_states) {
@@ -73,7 +62,12 @@ absl::btree_map<GroupKey, bool> GetRestoredExpandedStates(
       current_process_name = group.name;
       expanded_states[{kProcessNestingLevel, group.name, ""}] = group.expanded;
     } else {
-      expanded_states[{group.nesting_level, group.name, current_process_name}] =
+      const std::string parent =
+          (group.parent_index != -1 &&
+           group.parent_index < static_cast<int>(groups.size()))
+              ? groups[group.parent_index].name
+              : current_process_name;
+      expanded_states[{group.nesting_level, group.name, parent}] =
           group.expanded;
     }
   }
@@ -624,7 +618,11 @@ void PopulateThreadTrack(
   current_level = max_level + 1;
   thread_levels[{pid, tid}] = {start_level, current_level};
 
-  if (max_level == start_level) {
+  if (max_level == start_level && !expanded_states.contains(GroupKey{
+                                      .nesting_level = kThreadNestingLevel,
+                                      .name = thread_group_name,
+                                      .parent_name = process_group_name,
+                                  })) {
     data.groups.back().expanded = true;
   }
 }

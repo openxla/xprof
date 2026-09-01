@@ -16,6 +16,7 @@
 #include "imgui.h"
 #include "tsl/profiler/lib/context_types.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/constants.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/time_range.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/trace_helper/trace_event.h"
@@ -2835,9 +2836,9 @@ TEST_F(DataProviderTest, ProcessTraceEventsPreservesExpandedState) {
   EXPECT_TRUE(timeline_.timeline_data()
                   .groups[2]
                   .expanded);  // Process 2 (PRESERVED true)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[3]
-                  .expanded);  // Thread 201 (FORCED TRUE, single-level)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[3]
+                   .expanded);  // Thread 201 (PRESERVED false, single-level)
 }
 
 TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
@@ -2871,10 +2872,10 @@ TEST_F(DataProviderTest, ProcessTraceEventsForcesExpansionForOneLineThreads) {
   // Reload same data (simulate update)
   provider.ProcessTraceEvents(parsed_events, timeline_);
 
-  // One-line threads should be expanded by default on initial load, but
-  // even if collapsed by user, the current implementation overrides it to true
+  // One-line threads should be expanded by default on initial load, and
+  // if collapsed by user, that collapse preference should be preserved
   // upon reload.
-  EXPECT_TRUE(timeline_.timeline_data().groups[1].expanded);
+  EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
 }
 
 TEST_F(DataProviderTest,
@@ -2936,9 +2937,9 @@ TEST_F(DataProviderTest,
   EXPECT_FALSE(timeline_.timeline_data()
                    .groups[0]
                    .expanded);  // Process 1 (PRESERVED false)
-  EXPECT_TRUE(timeline_.timeline_data()
-                  .groups[1]
-                  .expanded);  // Thread 101 (FORCED TRUE)
+  EXPECT_FALSE(timeline_.timeline_data()
+                   .groups[1]
+                   .expanded);  // Thread 101 (PRESERVED false)
   EXPECT_TRUE(timeline_.timeline_data()
                   .groups[2]
                   .expanded);  // Test Counter (FORCED TRUE)
@@ -4060,6 +4061,110 @@ TEST_F(DataProviderTest, InvalidSortIndexBoundsIgnored) {
   EXPECT_EQ(data.groups[0].name, "ProcessD");
   EXPECT_EQ(data.groups[1].name, "ThreadB");
   EXPECT_EQ(data.groups[2].name, "ThreadA");
+}
+
+TEST_F(DataProviderTest, ExpandedState_PreservedAcrossParentIndexVariations) {
+  const std::vector<TraceEvent> events = {
+      CreateProcessEvent(1, "Process 1"),
+      CreateThreadEvent(1, 101, "Worker"),
+      CreateCompleteEvent(1, 101, "task", 100.0, 50.0),
+  };
+
+  struct TestCase {
+    absl::string_view description;
+    std::vector<Group> initial_groups;
+  };
+
+  const std::vector<TestCase> test_cases = {
+      {
+          .description = "Parent differs from preceding process",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Process 2",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 0,
+                  },
+              },
+      },
+      {
+          .description = "Parent index unset (-1)",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = -1,
+                  },
+              },
+      },
+      {
+          .description = "Parent index at exact out-of-bounds boundary (size)",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 2,
+                  },
+              },
+      },
+      {
+          .description = "Parent index far out-of-bounds",
+          .initial_groups =
+              {
+                  Group{
+                      .name = "Process 1",
+                      .nesting_level = kProcessNestingLevel,
+                      .expanded = true,
+                      .parent_index = -1,
+                  },
+                  Group{
+                      .name = "Worker",
+                      .nesting_level = kThreadNestingLevel,
+                      .expanded = false,
+                      .parent_index = 999,
+                  },
+              },
+      },
+  };
+
+  for (const TestCase& test_case : test_cases) {
+    SCOPED_TRACE(test_case.description);
+    timeline_.SetTimelineData(
+        FlameChartTimelineData{.groups = test_case.initial_groups});
+    data_provider_.ProcessTraceEvents(ParsedTraceEvents{.flame_events = events},
+                                      timeline_);
+    ASSERT_THAT(timeline_.timeline_data().groups, SizeIs(2));
+    EXPECT_FALSE(timeline_.timeline_data().groups[1].expanded);
+  }
 }
 
 }  // namespace

@@ -43,7 +43,6 @@ from xprof.standalone.tensorboard_shim import base_plugin
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.convert import _pywrap_profiler_plugin
 
-
 logger = logging.getLogger('tensorboard.plugins.profile')
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -858,14 +857,23 @@ class ProfilePlugin(base_plugin.TBPlugin):  # pyrefly: ignore[invalid-inheritanc
     """Reads contents from a filename.
 
     Args:
-      filename (str): Name of the file.
+      filename: Name of the file.
 
     Returns:
       Contents of the file.
     Raises:
       IOError: File could not be read or found.
     """
-    filepath = os.path.join(os.path.dirname(__file__), 'static', filename)
+    static_dir = os.environ.get('XPROF_STATIC_DIR')
+    if static_dir and os.path.isdir(static_dir):
+      base_dir = static_dir
+    else:
+      base_dir = os.path.join(os.path.dirname(__file__), 'static')
+
+    resolved_base = os.path.realpath(base_dir)
+    filepath = os.path.realpath(os.path.join(resolved_base, filename))
+    if os.path.commonpath([resolved_base, filepath]) != resolved_base:
+      raise IOError('Access denied: path traversal detected.')
 
     try:
       with open(filepath, 'rb') as infile:

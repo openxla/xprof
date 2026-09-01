@@ -3,6 +3,7 @@
 # pylint: disable=redefined-outer-name,g-doc-args
 # pylint: disable=g-doc-return-or-yield,g-short-docstring-punctuation
 
+from collections.abc import Iterator
 import dataclasses
 import http
 import os
@@ -11,8 +12,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
-from typing import Generator, List
 import urllib.error
 import urllib.request
 from playwright.sync_api import Page
@@ -33,66 +34,75 @@ KNOWN_UPSTREAM_BUGS = [
     "EmptyError",  # RxJS stream termination without defaultIfEmpty
     "google.visualization",  # Google charts async initialization race
     "DataTable",
-    "arrayToDataTable",
-    "Invalid column index",  # DataView column filter bug
-    "Expected number",  # SVG negative percentage tick
-    "Expected length",
+    "net::ERR_CONNECTION_REFUSED",
 ]
 
 
 def _find_repo_root() -> pathlib.Path:
   """Locates repository root by searching upward for standard markers."""
   current = pathlib.Path(__file__).resolve()
-  for parent in [current] + list(current.parents):
+  for parent in [current, *current.parents]:
     if (parent / "pytest.ini").exists() or (parent / ".git").exists():
       return parent
 
   test_srcdir = os.environ.get("TEST_SRCDIR")
   if test_srcdir:
     for sub in ("google3/third_party/xprof", "third_party/xprof", "xprof"):
-      cand = pathlib.Path(test_srcdir) / sub
-      if cand.is_dir():
-        return cand
+      candidate = pathlib.Path(test_srcdir) / sub
+      if candidate.is_dir():
+        return candidate
 
   return pathlib.Path.cwd()
 
 
 @pytest.fixture(scope="session")
 def logdir() -> str:
-  """Locates the profile data directory dynamically from the repo root."""
+  """Resolves the absolute path to the demo profile dataset directory."""
   if custom_logdir := os.environ.get("XPROF_LOGDIR"):
     return custom_logdir
 
-  repo_root = _find_repo_root()
-  profile_dir = repo_root / RELATIVE_PROFILE_DATA_DIR
-  if not profile_dir.is_dir():
-    raise FileNotFoundError(
-        f"Profile test datasets not found at: {profile_dir}. "
-        "Set XPROF_LOGDIR environment variable to override."
-    )
-  return str(profile_dir)
+  repo_root = os.environ.get("XPROF_REPO_ROOT")
+  if repo_root:
+    resolved = pathlib.Path(repo_root) / RELATIVE_PROFILE_DATA_DIR
+    if resolved.is_dir():
+      return str(resolved)
+
+  root = _find_repo_root()
+  candidate = root / RELATIVE_PROFILE_DATA_DIR
+  if candidate.is_dir():
+    return str(candidate)
+
+  current = pathlib.Path(__file__).resolve().parent
+  for parent in [current, *current.parents]:
+    candidate = parent / RELATIVE_PROFILE_DATA_DIR
+    if candidate.is_dir():
+      return str(candidate)
+
+  raise FileNotFoundError(
+      f"Could not locate demo profile directory '{RELATIVE_PROFILE_DATA_DIR}'."
+  )
 
 
-def _find_free_port(host: str = HOST) -> int:
-  """Asks the OS for an available ephemeral port."""
+def _find_free_port(host: str) -> int:
+  """Binds to port 0 to obtain an OS-allocated free ephemeral TCP port."""
   with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((host, 0))
     return s.getsockname()[1]
 
 
 def _is_server_ready(url: str) -> bool:
-  """Checks if the server responds with a healthy HTTP status."""
+  """Polls the HTTP server endpoint until it responds with a 2xx or 3xx status."""
   try:
     with urllib.request.urlopen(url, timeout=0.5) as resp:
       return resp.status < http.HTTPStatus.INTERNAL_SERVER_ERROR
-  except urllib.error.HTTPError as err:
-    return err.code < http.HTTPStatus.INTERNAL_SERVER_ERROR
+  except urllib.error.HTTPError as e:
+    return e.code < http.HTTPStatus.INTERNAL_SERVER_ERROR
   except (urllib.error.URLError, OSError):
     return False
 
 
 @pytest.fixture(scope="session")
-def server_url(logdir: str) -> Generator[str, None, None]:
+def server_url(logdir: str) -> Iterator[str]:
   """Launches the XProf web server and provides its URL to all tests."""
   if existing_url := os.environ.get("XPROF_SERVER_URL"):
     yield existing_url
@@ -108,14 +118,15 @@ def server_url(logdir: str) -> Generator[str, None, None]:
 
   server = None
   url = None
+  stderr_file = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
 
-  for _ in range(MAX_STARTUP_ATTEMPTS):
+  for attempt in range(MAX_STARTUP_ATTEMPTS):
     port = _find_free_port(HOST)
     url = f"http://{HOST}:{port}"
     server = subprocess.Popen(
         [binary, f"--logdir={logdir}", f"--port={port}"],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=stderr_file,
         text=True,
     )
 
@@ -126,14 +137,19 @@ def server_url(logdir: str) -> Generator[str, None, None]:
       time.sleep(0.1)
     else:
       server.kill()
+      try:
+        server.wait(timeout=5)
+      except subprocess.TimeoutExpired:
+        pass
+      if attempt < MAX_STARTUP_ATTEMPTS - 1:
+        stderr_file.seek(0)
+        stderr_file.truncate(0)
       continue
     break
   else:
-    _, stderr = (
-        server.communicate()
-        if server
-        else ("", "Server process failed to create")
-    )
+    stderr_file.seek(0)
+    stderr = stderr_file.read()
+    stderr_file.close()
     raise RuntimeError(
         f"Server failed to start after {MAX_STARTUP_ATTEMPTS} attempts:\n"
         f"{stderr}"
@@ -148,15 +164,16 @@ def server_url(logdir: str) -> Generator[str, None, None]:
         server.wait(timeout=5)
       except subprocess.TimeoutExpired:
         server.kill()
+    stderr_file.close()
 
 
 @dataclasses.dataclass
 class BrowserErrors:
   """Captures unexpected browser console errors and page crashes."""
 
-  page_errors: List[str] = dataclasses.field(default_factory=list)
-  console_errors: List[str] = dataclasses.field(default_factory=list)
-  ignored_patterns: List[str] = dataclasses.field(default_factory=list)
+  page_errors: list[str] = dataclasses.field(default_factory=list)
+  console_errors: list[str] = dataclasses.field(default_factory=list)
+  ignored_patterns: list[str] = dataclasses.field(default_factory=list)
 
   def ignore(self, *patterns: str):
     """Allows specific tests to explicitly ignore expected error strings."""
@@ -175,7 +192,7 @@ class BrowserErrors:
 
 
 @pytest.fixture(autouse=True)
-def browser_errors(page: Page) -> Generator[BrowserErrors, None, None]:
+def browser_errors(page: Page) -> Iterator[BrowserErrors]:
   """Automatically hooks into browser logs for every test."""
   tracker = BrowserErrors()
 

@@ -48,7 +48,6 @@ from xprof.protobuf import trace_events_pb2
 from xprof.standalone.tensorboard_shim import plugin_asset_util
 from xprof.standalone.tensorboard_shim import plugin_event_multiplexer
 
-
 RUN_TO_TOOLS = {
     'foo': ['trace_viewer', 'trace_viewer@'],
     'bar': ['unsupported'],
@@ -836,6 +835,92 @@ class ProfilePluginTest(absltest.TestCase):
       tools = self.plugin.run_tools_imp('gcs_run')
       self.assertIn('overview_page', tools)
 
+  def test_read_static_file_with_xprof_static_dir_success(self):
+    """Verifies reading a static file when XPROF_STATIC_DIR is set to a valid directory."""
+    temp_dir = self.create_tempdir().full_path
+    test_file = os.path.join(temp_dir, 'bundle.js')
+    with open(test_file, 'wb') as f:
+      f.write(b'console.log("xprof");')
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': temp_dir}):
+      contents = self.plugin._read_static_file_impl('bundle.js')
+      self.assertEqual(contents, b'console.log("xprof");')
+
+  def test_read_static_file_path_traversal_rejected(self):
+    """Verifies path traversal attempts raise IOError with access denied message."""
+    temp_dir = self.create_tempdir().full_path
+    sibling_dir = temp_dir + '_sibling'
+    os.makedirs(sibling_dir, exist_ok=True)
+    secret_file = os.path.join(sibling_dir, 'secret.txt')
+    with open(secret_file, 'wb') as f:
+      f.write(b'sensitive_data')
+
+    parent_secret = os.path.join(os.path.dirname(temp_dir), 'parent_secret.txt')
+    with open(parent_secret, 'wb') as f:
+      f.write(b'top_secret')
+
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': temp_dir}):
+      # Sibling directory sharing same prefix string must be rejected
+      with self.assertRaisesRegex(
+          IOError, 'Access denied: path traversal detected.'
+      ):
+        self.plugin._read_static_file_impl(
+            '../' + os.path.basename(sibling_dir) + '/secret.txt'
+        )
+
+      # Parent directory escape must be rejected
+      with self.assertRaisesRegex(
+          IOError, 'Access denied: path traversal detected.'
+      ):
+        self.plugin._read_static_file_impl('../parent_secret.txt')
+
+      # Multi-level traversal must be rejected
+      with self.assertRaisesRegex(
+          IOError, 'Access denied: path traversal detected.'
+      ):
+        self.plugin._read_static_file_impl('../../etc/passwd')
+
+      # Absolute path outside base directory must be rejected
+      with self.assertRaisesRegex(
+          IOError, 'Access denied: path traversal detected.'
+      ):
+        self.plugin._read_static_file_impl('/etc/passwd')
+
+    # Traversal must also be rejected when XPROF_STATIC_DIR is unset
+    # (default static directory).
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': ''}):
+      with self.assertRaisesRegex(
+          IOError, 'Access denied: path traversal detected.'
+      ):
+        self.plugin._read_static_file_impl('../../etc/passwd')
+
+  def test_read_static_file_fallback_when_env_unset(self):
+    """Verifies falling back to default static directory when XPROF_STATIC_DIR is unset."""
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': ''}):
+      with mock.patch(
+          'builtins.open', mock.mock_open(read_data=b'<html>index</html>')
+      ) as mock_file:
+        contents = self.plugin._read_static_file_impl('index.html')
+        self.assertEqual(contents, b'<html>index</html>')
+        expected_path = os.path.join(
+            os.path.dirname(profile_plugin.__file__), 'static', 'index.html'
+        )
+        mock_file.assert_called_once_with(expected_path, 'rb')
+
+  def test_read_static_file_fallback_when_env_not_a_directory(self):
+    """Verifies falling back to default static directory when XPROF_STATIC_DIR is invalid."""
+    temp_dir = self.create_tempdir().full_path
+    non_existent = os.path.join(temp_dir, 'does_not_exist')
+    with mock.patch.dict(os.environ, {'XPROF_STATIC_DIR': non_existent}):
+      with mock.patch(
+          'builtins.open', mock.mock_open(read_data=b'<html>fallback</html>')
+      ) as mock_file:
+        contents = self.plugin._read_static_file_impl('index.html')
+        self.assertEqual(contents, b'<html>fallback</html>')
+        expected_path = os.path.join(
+            os.path.dirname(profile_plugin.__file__), 'static', 'index.html'
+        )
+        mock_file.assert_called_once_with(expected_path, 'rb')
+
 
 class GenerateCacheTaskTest(absltest.TestCase):
 
@@ -1018,9 +1103,7 @@ class GenerateCacheImplTest(parameterized.TestCase):
     response = self.plugin._generate_cache_impl(request)
 
     self.assertEqual(response.status_code, 404)
-    self.assertIn(
-        b'No XPlane files found', _get_response_data(response)
-    )
+    self.assertIn(b'No XPlane files found', _get_response_data(response))
 
   @parameterized.named_parameters(
       dict(
@@ -1067,9 +1150,7 @@ class GenerateCacheImplTest(parameterized.TestCase):
     response = self.plugin._generate_cache_impl(request)
 
     self.assertEqual(response.status_code, 400)
-    self.assertIn(
-        b'No valid XPlane tools', _get_response_data(response)
-    )
+    self.assertIn(b'No valid XPlane tools', _get_response_data(response))
 
   def test_generate_cache_fails_on_thread_pool_error(self):
     session_path = self.create_tempdir().full_path
@@ -1082,9 +1163,7 @@ class GenerateCacheImplTest(parameterized.TestCase):
     response = self.plugin._generate_cache_impl(request)
 
     self.assertEqual(response.status_code, 500)
-    self.assertIn(
-        b'Failed to schedule task', _get_response_data(response)
-    )
+    self.assertIn(b'Failed to schedule task', _get_response_data(response))
 
   @parameterized.named_parameters(
       dict(

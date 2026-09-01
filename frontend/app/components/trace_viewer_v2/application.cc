@@ -29,8 +29,10 @@
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
+#include "frontend/app/components/trace_viewer_v2/imgui_webgpu_backend.h"
 #include "frontend/app/components/trace_viewer_v2/input_handler.h"
 #include "frontend/app/components/trace_viewer_v2/scheduler.h"
+#include "frontend/app/components/trace_viewer_v2/timeline/draw_helpers.h"
 #include "frontend/app/components/trace_viewer_v2/timeline/timeline.h"
 #include "frontend/app/components/trace_viewer_v2/webgpu_render_platform.h"
 
@@ -123,6 +125,36 @@ void SetPlaybackState(bool is_playing, double current_time, double play_speed) {
                                            play_speed);
 }
 
+void RegisterRobotoFont(int data_ptr, int size) {
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(data_ptr);
+  traceviewer::fonts::RegisterRobotoFont(data, size);
+}
+
+void ReloadFonts() {
+  const CanvasState& canvas_state = CanvasState::Current();
+  traceviewer::fonts::LoadFonts(canvas_state.device_pixel_ratio());
+  ImGui_ImplWGPU_InvalidateDeviceObjects();
+  ImGui_ImplWGPU_CreateDeviceObjects();
+  Application::Instance().RequestRedraw();
+}
+
+void SetIconTexture(const std::string& name, int texture_handle) {
+  wgpu::Texture texture =
+      wgpu::Texture::Acquire(reinterpret_cast<WGPUTexture>(texture_handle));
+  wgpu::TextureViewDescriptor desc{};
+  wgpu::TextureView view = texture.CreateView(&desc);
+  ImTextureID tex_id = reinterpret_cast<ImTextureID>(view.MoveToCHandle());
+
+  if (name == "pin") {
+    traceviewer::pin_icon_tex = tex_id;
+  } else if (name == "visibility") {
+    traceviewer::visibility_icon_tex = tex_id;
+  } else if (name == "visibility_off") {
+    traceviewer::visibility_off_icon_tex = tex_id;
+  }
+  Application::Instance().RequestRedraw();
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
@@ -132,6 +164,10 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
   emscripten::function("SetPlaybackState", &SetPlaybackState);
+  // The following functions are related to fonts
+  emscripten::function("RegisterRobotoFont", &RegisterRobotoFont);
+  emscripten::function("ReloadFonts", &ReloadFonts);
+  emscripten::function("SetIconTexture", &SetIconTexture);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {

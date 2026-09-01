@@ -767,8 +767,9 @@ void Timeline::Draw() {
   // Handle label resizing manually since we removed the table
   ImGui::SetCursorPos(ImVec2(
       tracks_start_pos.x + label_width_ - kSplitterOffset, tracks_start_pos.y));
+  const Pixel resizer_height = std::max(1.0f, group_offsets_.back());
   ImGui::InvisibleButton("##LabelResizer",
-                         ImVec2(kSplitterWidth, group_offsets_.back()));
+                         ImVec2(kSplitterWidth, resizer_height));
   if (ImGui::IsItemActive()) {
     label_width_ += ImGui::GetIO().MouseDelta.x;
     label_width_ = std::max(10.0f, label_width_);

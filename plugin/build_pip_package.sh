@@ -112,6 +112,7 @@ cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.html" .
 cp "$PLUGIN_RUNFILE_DIR/trace_viewer/trace_viewer_index.js" .
 cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.js" .
 cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/trace_viewer_v2_wasm/trace_viewer_v2.wasm" .
+cp "$FRONTEND_RUNFILE_DIR/app/components/trace_viewer_v2/assets/Roboto-Regular.ttf" .
 cp -LR "$FRONTEND_RUNFILE_DIR/bundle.js" .
 cp -LR "$FRONTEND_RUNFILE_DIR/styles.css" .
 cp -LR "$FRONTEND_RUNFILE_DIR/zone.js" .

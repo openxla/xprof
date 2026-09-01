@@ -3017,6 +3017,14 @@ TEST_F(MockTimelineImGuiFixture, DrawBookmarks_InvalidPxPerTimeUnit) {
   EXPECT_THAT(timeline_.bookmarks(), ElementsAre(100.0));
 }
 
+TEST_F(MockTimelineImGuiFixture, Draw_EmptyGroups) {
+  // Clear groups in timeline_data_
+  timeline_.SetTimelineData(
+      {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}});
+
+  SimulateFrame();
+}
+
 TEST_F(MockTimelineImGuiFixture, DrawPinButton_Insert) {
   // Frame 1: Register window and layout
   ImGui::NewFrame();

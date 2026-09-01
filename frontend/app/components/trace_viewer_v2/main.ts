@@ -155,6 +155,12 @@ declare global {
     currentTime: number,
     playSpeed: number,
   ): void;
+  RegisterRobotoFont(ptr: number, size: number): void;
+  ReloadFonts(): void;
+  SetIconTexture(name: string, textureHandle: number): void;
+  WebGPU: {
+    importJsTexture(texture: GPUTexture): number;
+  };
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;
@@ -381,6 +387,79 @@ function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
   });
 }
 
+async function fetchAndRegisterFont(
+  module: TraceViewerV2Module,
+  fontFamilyName: string,
+) {
+  let fontUrl: string | null = null;
+  // Get font URL from CSS rules.
+  try {
+    for (let i = 0; i < document.styleSheets.length; i++) {
+      try {
+        const sheet = document.styleSheets[i];
+        const rules = sheet.cssRules || sheet.rules;
+        if (!rules) continue;
+        for (let j = 0; j < rules.length; j++) {
+          const rule = rules[j];
+          if (rule.type === CSSRule.FONT_FACE_RULE) {
+            const fontFaceRule = rule as CSSFontFaceRule;
+            if (
+              fontFaceRule.style.fontFamily
+                .replace(/['"]/g, '')
+                .toLowerCase() === fontFamilyName.toLowerCase()
+            ) {
+              const src = fontFaceRule.style.getPropertyValue('src');
+              const match = src.match(/url\(['"]?([^'")]+)['"]?\)/);
+              if (match) {
+                fontUrl = match[1];
+                try {
+                  fontUrl = new URL(fontUrl, window.location.href).href;
+                } catch (e) {
+                  // Keep relative url
+                }
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // CORS restriction
+      }
+      if (fontUrl) break;
+    }
+  } catch (e) {
+    // Ignore stylesheet parsing errors
+  }
+
+  if (fontUrl) {
+    try {
+      const response = await fetch(fontUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const buffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+
+      if (
+        typeof module.RegisterRobotoFont === 'function' &&
+        typeof module.ReloadFonts === 'function'
+      ) {
+        const ptr = module._malloc(bytes.length);
+        module.HEAPU8.set(bytes, ptr);
+
+        module.RegisterRobotoFont(ptr, bytes.length);
+        module._free(ptr);
+        module.ReloadFonts();
+      }
+    } catch (error) {
+      console.error(
+        `Failed to fetch and register font ${fontFamilyName} from ${fontUrl}:`,
+        error,
+      );
+    }
+  }
+}
+
 async function loadAndStartWasm(
   canvas: HTMLCanvasElement,
   device: GPUDevice,
@@ -408,6 +487,8 @@ async function loadAndStartWasm(
 
   performance.mark('appInitEnd');
   performance.measure('appInitializationTime', 'appInitStart', 'appInitEnd');
+
+  void fetchAndRegisterFont(traceviewerModule, 'Roboto');
 
   return traceviewerModule;
 }

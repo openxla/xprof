@@ -242,6 +242,7 @@ rollup_bundle(
 filegroup(
     name = "static_files",
     srcs = [
+        "assets/Roboto-Regular.ttf",
         "index.html",
         ":app_bundle.js",
         ":trace_viewer_v2_wasm",

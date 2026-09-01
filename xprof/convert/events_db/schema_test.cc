@@ -560,5 +560,154 @@ TEST(RecordTest, VectorDynamicExpansion) {
   }
 }
 
+TEST(RecordTest, SetScalarMethods) {
+  Schema schema;
+  FieldIndex b_idx = schema.RegisterFieldName("bool_field");
+  FieldIndex i32_idx = schema.RegisterFieldName("i32_field");
+  FieldIndex u32_idx = schema.RegisterFieldName("u32_field");
+  FieldIndex i64_idx = schema.RegisterFieldName("i64_field");
+  FieldIndex u64_idx = schema.RegisterFieldName("u64_field");
+  FieldIndex d_idx = schema.RegisterFieldName("double_field");
+  FieldIndex s_idx = schema.RegisterFieldName("str_field");
+  FieldIndex sv_idx = schema.RegisterFieldName("sv_field");
+
+  Record record;
+  record.SetBool(b_idx, true);
+  record.SetInt32(i32_idx, -42);
+  record.SetUint32(u32_idx, 100);
+  record.SetInt64(i64_idx, -10000000000LL);
+  record.SetUint64(u64_idx, 18446744073709551615ULL);
+  record.SetDouble(d_idx, 3.14159);
+  record.SetString(s_idx, std::string("owned_string"));
+  record.SetString(sv_idx, absl::string_view("view_string"));
+
+  EXPECT_EQ(std::get<bool>(record[b_idx]), true);
+  EXPECT_EQ(std::get<int32_t>(record[i32_idx]), -42);
+  EXPECT_EQ(std::get<uint32_t>(record[u32_idx]), 100);
+  EXPECT_EQ(std::get<int64_t>(record[i64_idx]), -10000000000LL);
+  EXPECT_EQ(std::get<uint64_t>(record[u64_idx]), 18446744073709551615ULL);
+  EXPECT_DOUBLE_EQ(std::get<double>(record[d_idx]), 3.14159);
+  EXPECT_EQ(std::get<std::string>(record[s_idx]), "owned_string");
+  EXPECT_EQ(std::get<std::string>(record[sv_idx]), "view_string");
+}
+
+TEST(RecordTest, SetSequenceMethods) {
+  Schema schema;
+  FieldIndex vec_i32_idx = schema.RegisterFieldName("vec_i32");
+  FieldIndex vec_u32_idx = schema.RegisterFieldName("vec_u32");
+  FieldIndex vec_i64_idx = schema.RegisterFieldName("vec_i64");
+  FieldIndex vec_u64_idx = schema.RegisterFieldName("vec_u64");
+  FieldIndex vec_d_idx = schema.RegisterFieldName("vec_double");
+  FieldIndex vec_s_idx = schema.RegisterFieldName("vec_str");
+
+  Record record;
+  record.SetInt32Sequence(vec_i32_idx, {-1, 0, 1});
+  record.SetUint32Sequence(vec_u32_idx, {10, 20});
+  record.SetInt64Sequence(vec_i64_idx, {-100, 200});
+  record.SetUint64Sequence(vec_u64_idx, {1000ULL, 2000ULL});
+  record.SetDoubleSequence(vec_d_idx, {0.1, 0.2});
+  record.SetStringSequence(vec_s_idx, {"a", "b"});
+
+  EXPECT_THAT(std::get<std::vector<int32_t>>(record[vec_i32_idx]),
+              ElementsAre(-1, 0, 1));
+  EXPECT_THAT(std::get<std::vector<uint32_t>>(record[vec_u32_idx]),
+              ElementsAre(10, 20));
+  EXPECT_THAT(std::get<std::vector<int64_t>>(record[vec_i64_idx]),
+              ElementsAre(-100, 200));
+  EXPECT_THAT(std::get<std::vector<uint64_t>>(record[vec_u64_idx]),
+              ElementsAre(1000ULL, 2000ULL));
+  EXPECT_THAT(std::get<std::vector<double>>(record[vec_d_idx]),
+              ElementsAre(0.1, 0.2));
+  EXPECT_THAT(std::get<std::vector<std::string>>(record[vec_s_idx]),
+              ElementsAre("a", "b"));
+}
+
+TEST(RecordTest, GenericSetMethod) {
+  Schema schema;
+  FieldIndex untyped_idx = schema.RegisterFieldName("untyped");
+  TypedFieldIndex<int64_t> typed_i64 =
+      schema.RegisterFieldName<int64_t>("typed_i64");
+  TypedFieldIndex<std::string> typed_str =
+      schema.RegisterFieldName<std::string>("typed_str");
+  TypedFieldIndex<double> typed_dbl =
+      schema.RegisterFieldName<double>("typed_dbl");
+  TypedFieldIndex<std::vector<int64_t>> typed_vec =
+      schema.RegisterFieldName<std::vector<int64_t>>("typed_vec");
+
+  Record record;
+
+  // Untyped FieldIndex: rvalue and lvalue
+  record.Set(untyped_idx, int32_t{42});
+  EXPECT_EQ(std::get<int32_t>(record[untyped_idx]), 42);
+  int32_t untyped_lvalue = 84;
+  record.Set(untyped_idx, untyped_lvalue);
+  EXPECT_EQ(std::get<int32_t>(record[untyped_idx]), 84);
+
+  // TypedFieldIndex: rvalue
+  record.Set(typed_i64, int64_t{99});
+  EXPECT_EQ(record[typed_i64], 99);
+
+  // TypedFieldIndex: lvalue variable
+  int64_t i64_lvalue = 123;
+  record.Set(typed_i64, i64_lvalue);
+  EXPECT_EQ(record[typed_i64], 123);
+
+  // TypedFieldIndex: implicit type conversion (int literal converted to
+  // int64_t) Ensures value is stored as int64_t in variant, avoiding
+  // std::bad_variant_access.
+  record.Set(typed_i64, 456);
+  EXPECT_EQ(record[typed_i64], 456);
+
+  // TypedFieldIndex<std::string>: implicit conversion from string literal
+  record.Set(typed_str, "literal_value");
+  EXPECT_EQ(record[typed_str], "literal_value");
+
+  // TypedFieldIndex<std::string>: lvalue and rvalue std::string
+  std::string str_lvalue = "lvalue_value";
+  record.Set(typed_str, str_lvalue);
+  EXPECT_EQ(record[typed_str], "lvalue_value");
+  record.Set(typed_str, std::string("rvalue_value"));
+  EXPECT_EQ(record[typed_str], "rvalue_value");
+
+  // TypedFieldIndex<double>: implicit conversion from int literal
+  record.Set(typed_dbl, 10);
+  EXPECT_DOUBLE_EQ(record[typed_dbl], 10.0);
+
+  // TypedFieldIndex<std::vector<int64_t>>: lvalue and rvalue vector
+  std::vector<int64_t> vec_lvalue = {1, 2, 3};
+  record.Set(typed_vec, vec_lvalue);
+  EXPECT_THAT(record[typed_vec], ElementsAre(1, 2, 3));
+  record.Set(typed_vec, std::vector<int64_t>{4, 5});
+  EXPECT_THAT(record[typed_vec], ElementsAre(4, 5));
+}
+
+TEST(RecordTest, OverwriteFieldWithDifferentTypes) {
+  Schema schema;
+  FieldIndex field = schema.RegisterFieldName("dynamic_field");
+
+  Record record;
+  // Initially int32
+  record.SetInt32(field, 123);
+  EXPECT_TRUE(record.HasField(field));
+  EXPECT_EQ(std::get<int32_t>(record[field]), 123);
+
+  // Overwrite with double
+  record.SetDouble(field, 3.14);
+  EXPECT_DOUBLE_EQ(std::get<double>(record[field]), 3.14);
+
+  // Overwrite with string
+  record.SetString(field, "hello");
+  EXPECT_EQ(std::get<std::string>(record[field]), "hello");
+
+  // Overwrite with sequence
+  record.SetInt32Sequence(field, {-1, 0, 1});
+  EXPECT_THAT(std::get<std::vector<int32_t>>(record[field]),
+              ElementsAre(-1, 0, 1));
+
+  // Overwrite with generic Set
+  record.Set(field, uint64_t{9999999999ULL});
+  EXPECT_EQ(std::get<uint64_t>(record[field]), 9999999999ULL);
+}
+
 }  // namespace
 }  // namespace xprof::events_db

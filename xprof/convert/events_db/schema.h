@@ -196,6 +196,14 @@ class Record {
   // `std::monostate` if the field is unset or missing.
   const FieldValue& Get(FieldIndex field) const { return operator[](field); }
 
+  // Sets the value associated with the given field. It is OK if the field was
+  // previously unset or held a different type.
+  template <typename T>
+  void Set(FieldIndex field, T&& value) {
+    VerifyNonMonostate<T>();
+    operator[](field) = std::forward<T>(value);
+  }
+
   // Retrieves a const reference to the value associated with `field`. The
   // caller must ensure that the field is set and holds type `T` (e.g. via
   // `HasField`).
@@ -228,6 +236,17 @@ class Record {
     return operator[](field);
   }
 
+  // Sets the value associated with the given typed field. It is OK if the field
+  // was previously unset or held a different type.
+  template <typename T, typename U = T>
+  void Set(TypedFieldIndex<T> field, U&& value) {
+    VerifyNonMonostate<T>();
+    if constexpr (std::is_same_v<T, std::remove_cvref_t<U>>)
+      operator[](field.untyped()) = std::forward<U>(value);
+    else
+      operator[](field.untyped()) = static_cast<T>(std::forward<U>(value));
+  }
+
   // Retrieves a const pointer to the value associated with `field`. Returns
   // `nullptr` if the field is unset or holds a different type than `T`.
   template <typename T>
@@ -254,10 +273,49 @@ class Record {
   // Removes all fields from the record.
   void clear() { fields_.clear(); }
 
+  void SetBool(FieldIndex field, bool value) { operator[](field) = value; }
+  void SetInt32(FieldIndex field, int32_t value) { operator[](field) = value; }
+  void SetUint32(FieldIndex field, uint32_t value) {
+    operator[](field) = value;
+  }
+  void SetInt64(FieldIndex field, int64_t value) { operator[](field) = value; }
+  void SetUint64(FieldIndex field, uint64_t value) {
+    operator[](field) = value;
+  }
+  void SetDouble(FieldIndex field, double value) { operator[](field) = value; }
+  void SetString(FieldIndex field, absl::string_view value) {
+    operator[](field) = std::string(value);
+  }
+  void SetString(FieldIndex field, const char* value) {
+    operator[](field) = std::string(value);
+  }
+  void SetString(FieldIndex field, std::string&& value) {
+    operator[](field) = std::move(value);
+  }
+
+  void SetInt32Sequence(FieldIndex field, std::vector<int32_t> value) {
+    operator[](field) = std::move(value);
+  }
+  void SetUint32Sequence(FieldIndex field, std::vector<uint32_t> value) {
+    operator[](field) = std::move(value);
+  }
+  void SetInt64Sequence(FieldIndex field, std::vector<int64_t> value) {
+    operator[](field) = std::move(value);
+  }
+  void SetUint64Sequence(FieldIndex field, std::vector<uint64_t> value) {
+    operator[](field) = std::move(value);
+  }
+  void SetDoubleSequence(FieldIndex field, std::vector<double> value) {
+    operator[](field) = std::move(value);
+  }
+  void SetStringSequence(FieldIndex field, std::vector<std::string> value) {
+    operator[](field) = std::move(value);
+  }
+
  private:
   template <typename T>
   consteval static void VerifyNonMonostate() noexcept {
-    static_assert(!std::is_same_v<T, std::monostate>,
+    static_assert(!std::is_same_v<std::remove_cvref_t<T>, std::monostate>,
                   "std::monostate represents missing values and cannot be "
                   "queried as a field type.");
   }

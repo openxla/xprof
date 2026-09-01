@@ -28,10 +28,13 @@ except ImportError:
   hlo_proto_dump_pb2 = None
 
 # Pre-compile regexes to improve performance.
-_COMP_NAME_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*\(")
+# Computation header: "ENTRY entry {" (short_txt) or "%fused_computation (..) {"
+# (long_txt). short_txt emits bare names with no leading "%"; anchoring on the
+# trailing "{" reliably distinguishes headers from instruction/module lines.
+_COMP_NAME_RE = re.compile(r"(?:ENTRY\s+)?%?([a-zA-Z0-9._-]+)\b.*\{\s*$")
 _INSTR_RE = re.compile(r"%?([a-zA-Z0-9._-]+)\s*=(.*)")
 _METADATA_RE = re.compile(r"metadata={.*?}", re.DOTALL)
-_OPERAND_RE = re.compile(r"%([a-zA-Z0-9._-]+)")
+_OPERAND_RE = re.compile(r"(?:^|[\s,(])%?([a-zA-Z0-9._-]+)(?=[\s,)]|$)")
 
 
 class _DebugInfoCollection:
@@ -350,13 +353,16 @@ def get_hlo_neighborhood(
     current_comp = "unknown"
 
     for line in full_text.splitlines():
-      if line.startswith("%"):
-        m = _COMP_NAME_RE.match(line)
-        if m:
-          current_comp = m.group(1)
+      stripped = line.strip()
+
+      # Detect computation headers in both renderers. short_txt emits bare names
+      # (e.g. "ENTRY entry {") with no leading "%", so header detection must not
+      # gate on "%". Instruction lines contain "=" and are handled below.
+      m_comp = _COMP_NAME_RE.match(stripped)
+      if m_comp and "=" not in stripped and not stripped.startswith("ROOT "):
+        current_comp = m_comp.group(1)
         continue
 
-      stripped = line.strip()
       clean_line = stripped[5:] if stripped.startswith("ROOT ") else stripped
 
       m = _INSTR_RE.fullmatch(clean_line)

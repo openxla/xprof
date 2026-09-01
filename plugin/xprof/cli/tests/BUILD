@@ -270,6 +270,7 @@ py_test(
         "//plugin/xprof/cli:xprof_cli_lib",
         "//plugin/xprof/cli/internal:decorators",
         "//plugin/xprof/cli/internal:xprof_data",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
         "//plugin/xprof/cli/internal/oss:kernel_stats_tools",
         "//plugin/xprof/cli/internal/oss:xplane_tools",
         "//plugin/xprof/cli/internal/oss:xprof_client",

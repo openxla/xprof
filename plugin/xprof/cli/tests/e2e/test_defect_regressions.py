@@ -6,6 +6,7 @@ specification remain permanently resolved.
 
 import json
 import os
+import pathlib
 import shutil
 import tempfile
 from unittest import mock
@@ -20,6 +21,7 @@ try:
   from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
   from xprof.cli.internal import xprof_data
+  from xprof.cli.internal.oss import hlo_tools
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
   from xprof.cli.tools import get_hlo_stats_tool
@@ -35,6 +37,7 @@ except ImportError:
   from xprof.cli import xprof_cli
   from xprof.cli.internal import decorators
   from xprof.cli.internal import xprof_data
+  from xprof.cli.internal.oss import hlo_tools
   from xprof.cli.internal.oss import xplane_tools
   from xprof.cli.internal.oss import xprof_client
   from xprof.cli.tools import get_hlo_stats_tool
@@ -354,6 +357,46 @@ class DefectRegressionsTest(parameterized.TestCase):
       res_matched = json.loads(res_matched_raw)
       self.assertTrue(res_matched.get("success", False))
       self.assertEqual(res_matched.get("total_modules"), 1)
+
+  def test_d23_get_hlo_neighborhood_default_mode_bfs_expansion(self):
+    """D-23: get_hlo_neighborhood expands BFS in default mode (short_txt)."""
+    session_dir = self.create_tempdir().full_path
+    proto_file = (
+        pathlib.Path(session_dir) / "module_0001.jit_compute.hlo_proto.pb"
+    )
+
+    # short_txt output (print_metadata=False): operands carry NO '%' prefix.
+    short_txt_graph = (
+        "ENTRY entry {\n"
+        "  x = f32[10] parameter(0)\n"
+        "  w = f32[10] parameter(1)\n"
+        "  mul = f32[10] multiply(x, w)\n"
+        "  ROOT neg = f32[10] negate(mul)\n"
+        "}\n"
+    )
+    mock_client = mock.create_autospec(
+        xprof_client.LocalXprofClient, instance=True
+    )
+    mock_client.fetch.return_value = (None, short_txt_graph.encode("utf-8"))
+
+    with mock.patch.object(
+        hlo_tools,
+        "_get_hlo_proto_files",
+        return_value=[proto_file],
+        autospec=True,
+    ), mock.patch.object(
+        xprof_client, "get_client", return_value=mock_client, autospec=True
+    ):
+      neighborhood = hlo_tools.get_hlo_neighborhood(
+          session_dir, instruction_name="mul", radius=2, bypass_cache=True
+      )
+
+    # BFS must expand beyond the center: 'mul' has operands x, w and user neg.
+    self.assertContainsInOrder(["[dist=1]", "neg", "w", "x"], neighborhood)
+    # The computation label must be resolved from the bare "ENTRY entry {"
+    # header (short_txt carries no "%" prefix), not fall back to "[unknown]".
+    self.assertIn("[entry]", neighborhood)
+    self.assertNotIn("[unknown]", neighborhood)
 
   def test_fingerprint_stability_and_cache_warmup(self):
     """Criteria 1 & 2: Consecutive calls produce stable fingerprint and sub-second warm execution."""

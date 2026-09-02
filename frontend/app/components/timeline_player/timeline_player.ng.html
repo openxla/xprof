@@ -34,7 +34,7 @@
         <mat-icon>repeat</mat-icon>
       </button>
 
-      <button mat-icon-button class="control-button" (click)="stepBackward()" matTooltip="Step Backward">
+      <button mat-icon-button class="control-button" (click)="stepBackward()" matTooltip="Step Backward ({{ stepAmount() | timeFormat }})">
         <mat-icon>skip_previous</mat-icon>
       </button>
 
@@ -42,7 +42,7 @@
         <mat-icon>{{ isPlaying() ? 'pause' : 'play_arrow' }}</mat-icon>
       </button>
 
-      <button mat-icon-button class="control-button" (click)="stepForward()" matTooltip="Step Forward">
+      <button mat-icon-button class="control-button" (click)="stepForward()" matTooltip="Step Forward ({{ stepAmount() | timeFormat }})">
         <mat-icon>skip_next</mat-icon>
       </button>
 

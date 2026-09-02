@@ -9,6 +9,7 @@ import {
   OnInit,
   model,
   output,
+  computed,
 } from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
@@ -66,7 +67,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   activeEvents: Array<Record<string, string | number | boolean>> = [];
   activeCounters: Array<Record<string, string | number | boolean>> = [];
 
-  stepAmount = 5; // Configurable step amount in ms or ticks
+  readonly stepAmount = computed(() => this.duration() * 0.05);
   loopStart: number | null = null;
   loopEnd: number | null = null;
   loopState: 'INACTIVE' | 'A_SET' | 'ACTIVE' = 'INACTIVE';
@@ -140,7 +141,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   };
 
   stepBackward() {
-    let newTime = this.currentTime() - this.stepAmount;
+    let newTime = this.currentTime() - this.stepAmount();
     if (newTime < 0) {
       newTime = 0;
     }
@@ -149,7 +150,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   }
 
   stepForward() {
-    let newTime = this.currentTime() + this.stepAmount;
+    let newTime = this.currentTime() + this.stepAmount();
     if (newTime > this.duration()) {
       newTime = this.duration();
     }

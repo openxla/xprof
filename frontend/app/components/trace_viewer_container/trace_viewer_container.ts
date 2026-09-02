@@ -634,6 +634,9 @@ export class TraceViewerContainer
     } else if (event.key === '?') {
       this.openHelpDialog();
       event.preventDefault();
+    } else if (event.key === ' ' && this.enableTimelinePlayer && this.timelinePlayer) {
+      this.timelinePlayer.togglePlay();
+      event.preventDefault();
     }
   }
 

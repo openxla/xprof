@@ -421,6 +421,7 @@ export class TraceViewerContainer
     new EventEmitter<EventsSelectedEventDetail | null>();
   @Output() readonly searchEvents = new EventEmitter<SearchEventsEventDetail>();
   @Output() readonly initializeWasm = new EventEmitter<void>();
+  @Output() readonly toggleSettings = new EventEmitter<void>();
 
   @Output() readonly requestHoveredEventArgs =
     new EventEmitter<SelectedEvent>();
@@ -636,6 +637,9 @@ export class TraceViewerContainer
       event.preventDefault();
     } else if (event.key === ' ' && this.enableTimelinePlayer && this.timelinePlayer) {
       this.timelinePlayer.togglePlay();
+      event.preventDefault();
+    } else if (event.key === ';') {
+      this.toggleSettings.emit();
       event.preventDefault();
     }
   }

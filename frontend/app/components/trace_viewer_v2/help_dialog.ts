@@ -324,27 +324,19 @@ export class TraceViewerHelpDialog extends LitElement {
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Box select events</span>
-                <span class="shortcut-keys"
-                  ><kbd>Drag</kbd> (Mode 1)</span
-                >
+                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 1)</span>
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Pan timeline</span>
-                <span class="shortcut-keys"
-                  ><kbd>Drag</kbd> (Mode 2)</span
-                >
+                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 2)</span>
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Vertical zoom</span>
-                <span class="shortcut-keys"
-                  ><kbd>Drag</kbd> (Mode 3)</span
-                >
+                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 3)</span>
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Measure time range</span>
-                <span class="shortcut-keys"
-                  ><kbd>Drag</kbd> (Mode 4)</span
-                >
+                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 4)</span>
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Add selection / measure</span>
@@ -367,6 +359,10 @@ export class TraceViewerHelpDialog extends LitElement {
               <div class="shortcut-row">
                 <span class="action-label">Bookmark selection</span>
                 <span class="shortcut-keys"><kbd>M</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="action-label">Open Settings</span>
+                <span class="shortcut-keys"><kbd>;</kbd></span>
               </div>
               <div class="shortcut-row">
                 <span class="action-label">Open Help menu</span>

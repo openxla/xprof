@@ -38,7 +38,7 @@
         Switch to the old frontend
       </button>
       <div class="settings-button-wrapper">
-        <button mat-icon-button [matMenuTriggerFor]="settingsMenu" #settingsTrigger="matMenuTrigger" aria-label="Settings">
+        <button mat-icon-button (click)="toggleSettings()" #settingsButton aria-label="Settings" i18n-aria-label="Settings" matTooltip="Settings (;)">
           <mat-icon>settings</mat-icon>
         </button>
 
@@ -49,25 +49,13 @@
             We’ve refreshed the Trace Viewer colors for better clarity. If you’re a fan of the V1 classics, you can easily toggle them back in Settings.
           </div>
           <div class="coach-mark-actions">
-            <button mat-button color="primary" class="coach-mark-button" (click)="settingsTrigger.openMenu(); dismissColorOnboarding();">Open Settings</button>
+            <button mat-button color="primary" class="coach-mark-button" (click)="openSettings(SettingsTab.COLOR); dismissColorOnboarding();">Open Settings</button>
             <button mat-button class="coach-mark-button" (click)="dismissColorOnboarding()">Got it</button>
           </div>
           <!-- Arrow -->
           <div class="coach-mark-arrow"></div>
         </div>
       </div>
-
-      <mat-menu #settingsMenu="matMenu">
-        <button mat-menu-item (click)="openColorPaletteSettings()">
-          <mat-icon>palette</mat-icon> Color Palette
-        </button>
-        <button mat-menu-item (click)="openCustomizationSettings()" *ngIf="enableCustomization">
-          <mat-icon>tune</mat-icon> Preferences
-        </button>
-        <button mat-menu-item (click)="openFeatureFlagsSettings()">
-          <mat-icon>flag</mat-icon> Feature Flags
-        </button>
-      </mat-menu>
     </div>
   </ng-container>
   <ng-container *ngIf="!useTraceViewerV2">
@@ -93,64 +81,289 @@
                         (initializeWasm)="onInitializeWasm()">
 </trace-viewer-container>
 
-<ng-template #paletteDialog let-dialogRef="dialogRef">
-  <h2 mat-dialog-title class="palette-dialog-title">Select Color Palette</h2>
-  <mat-dialog-content class="palette-dialog-content">
-    <div class="radio-group">
-      <label *ngFor="let palette of COLOR_PALETTES">
-        <input type="radio" name="palette" [value]="palette" (change)="onPaletteChange(palette)" [checked]="selectedPalette === palette"> {{palette}}
-      </label>
-      <label *ngIf="enableCustomization">
-        <input type="radio" name="palette" [value]="CUSTOM_PALETTE_NAME" (change)="onPaletteChange(CUSTOM_PALETTE_NAME)" [checked]="selectedPalette === CUSTOM_PALETTE_NAME"> {{CUSTOM_PALETTE_NAME}}
-      </label>
+<ng-template #settingsDialog #paletteDialog #featureFlagsDialog let-dialogRef="dialogRef">
+  <div class="settings-dialog-container">
+    <!-- Header with title & close button -->
+    <div class="settings-dialog-header">
+      <div class="settings-dialog-header-title">Settings</div>
+      <button mat-icon-button class="settings-dialog-close-btn" (click)="dialogRef.close()" aria-label="Close settings">
+        <mat-icon>close</mat-icon>
+      </button>
     </div>
 
-    <div *ngIf="selectedPalette === CUSTOM_PALETTE_NAME && enableCustomization" class="custom-colors-container">
-      <div class="custom-colors-header">Trace Colors ({{customColors.length}} / 23)</div>
-      <div class="custom-colors-grid">
-        <div *ngFor="let color of customColors; let i = index; trackBy: trackByIndex" class="custom-color-item">
-          <input type="color" [value]="color" (input)="onCustomColorChange(i, $event)" (change)="onCustomColorChange(i, $event)" class="custom-color-input" [attr.aria-label]="'Custom color ' + (i + 1)">
-          <button *ngIf="customColors.length > 4" (click)="removeCustomColor(i); $event.stopPropagation();" class="custom-color-remove-button" aria-label="Remove color" title="Remove color">
-            <mat-icon class="custom-color-remove-icon">close</mat-icon>
-          </button>
-        </div>
-        <button *ngIf="customColors.length < 23" mat-icon-button (click)="addCustomColor()" class="custom-color-add-button" aria-label="Add color">
-          <mat-icon class="custom-color-add-icon">add</mat-icon>
+    <div class="settings-dialog-body">
+      <!-- Left Sidebar Navigation -->
+      <div class="settings-sidebar">
+        <button
+          type="button"
+          class="settings-nav-item"
+          [class.active]="activeSettingsTab === SettingsTab.GENERAL"
+          (click)="setSettingsTab(SettingsTab.GENERAL)"
+        >
+          <mat-icon class="settings-nav-icon">settings</mat-icon>
+          <span class="settings-nav-label">General</span>
+        </button>
+
+        <button
+          type="button"
+          class="settings-nav-item"
+          [class.active]="activeSettingsTab === SettingsTab.COLOR"
+          (click)="setSettingsTab(SettingsTab.COLOR)"
+        >
+          <mat-icon class="settings-nav-icon">palette</mat-icon>
+          <span class="settings-nav-label">Color settings</span>
+        </button>
+
+        <button
+          type="button"
+          class="settings-nav-item"
+          [class.active]="activeSettingsTab === SettingsTab.FLAGS"
+          (click)="setSettingsTab(SettingsTab.FLAGS)"
+        >
+          <mat-icon class="settings-nav-icon">flag</mat-icon>
+          <span class="settings-nav-label">Feature flags</span>
         </button>
       </div>
-      <div class="custom-colors-hint">Minimum 4 colors, maximum 23 colors.</div>
-    </div>
-  </mat-dialog-content>
-  <mat-dialog-actions align="end" class="palette-dialog-actions">
-    <button mat-button color="primary" (click)="dialogRef.close(selectedPalette)">
-      Save
-    </button>
-    <button mat-button color="primary" (click)="dialogRef.close()">
-      Close
-    </button>
-  </mat-dialog-actions>
-</ng-template>
 
-<ng-template #featureFlagsDialog let-dialogRef="dialogRef">
-  <h2 mat-dialog-title>Feature Flags (Experiments)</h2>
-  <mat-dialog-content class="feature-flags-dialog-content">
-    <div *ngFor="let flag of featureFlags" class="feature-flag-item">
-      <mat-checkbox [checked]="flag.value" (change)="onFeatureFlagChange(flag.id, $event.checked)">
-        <strong>{{flag.name}}</strong>
-      </mat-checkbox>
-      <div class="feature-flag-description">{{flag.description}}</div>
+      <!-- Right Content Area -->
+      <div class="settings-content-pane">
+        <!-- Tab 1: General -->
+        <div *ngIf="activeSettingsTab === SettingsTab.GENERAL" class="settings-tab-pane">
+          <div class="settings-section-header settings-section-header-with-actions">
+            <div>
+              <div class="settings-section-title">Navigation Speed</div>
+              <div class="settings-section-subtitle">Adjust keyboard panning, zooming, and mouse wheel sensitivity</div>
+            </div>
+            <button
+              type="button"
+              class="settings-reset-btn"
+              [disabled]="isNavigationSpeedDefault"
+              [class.active]="!isNavigationSpeedDefault"
+              (click)="resetNavigationSpeed()"
+            >
+              <mat-icon class="settings-reset-icon">refresh</mat-icon>
+              <span>Reset to default</span>
+            </button>
+          </div>
+
+          <div class="settings-speed-card">
+            <!-- Pan speed -->
+            <div class="settings-slider-row">
+              <div class="settings-slider-info">
+                <div class="settings-slider-title">Panning Speed (A/D & Left/Right)</div>
+                <div class="settings-slider-subtitle">Controls horizontal timeline pan multiplier</div>
+              </div>
+              <div class="settings-slider-control">
+                <input
+                  type="range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  [value]="panningSpeed"
+                  (input)="onPanningSpeedChange($event)"
+                  class="settings-slider-input"
+                >
+                <span class="settings-slider-badge">{{ panningSpeed.toFixed(1) }}x</span>
+              </div>
+            </div>
+
+            <!-- Keyboard zoom speed -->
+            <div class="settings-slider-row">
+              <div class="settings-slider-info">
+                <div class="settings-slider-title">Keyboard Zoom Speed (W/S & Up/Down)</div>
+                <div class="settings-slider-subtitle">Controls keyboard zoom-in and zoom-out speed</div>
+              </div>
+              <div class="settings-slider-control">
+                <input
+                  type="range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  [value]="keyboardZoomSpeed"
+                  (input)="onKeyboardZoomSpeedChange($event)"
+                  class="settings-slider-input"
+                >
+                <span class="settings-slider-badge">{{ keyboardZoomSpeed.toFixed(1) }}x</span>
+              </div>
+            </div>
+
+            <!-- Wheel zoom speed -->
+            <div class="settings-slider-row">
+              <div class="settings-slider-info">
+                <div class="settings-slider-title">Wheel Zoom Speed (Scroll / Trackpad)</div>
+                <div class="settings-slider-subtitle">Controls mouse wheel scroll & pinch zoom sensitivity</div>
+              </div>
+              <div class="settings-slider-control">
+                <input
+                  type="range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  [value]="wheelZoomSpeed"
+                  (input)="onWheelZoomSpeedChange($event)"
+                  class="settings-slider-input"
+                >
+                <span class="settings-slider-badge">{{ wheelZoomSpeed.toFixed(1) }}x</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Color settings -->
+        <div *ngIf="activeSettingsTab === SettingsTab.COLOR" class="settings-tab-pane">
+          <div class="settings-section-header">
+            <div class="settings-section-title">Select Color Palette</div>
+            <div class="settings-section-subtitle">Controls the color scheme and visual rendering style for trace event tracks</div>
+          </div>
+
+          <div class="settings-palette-list">
+            <label
+              *ngFor="let palette of COLOR_PALETTES"
+              class="settings-palette-option"
+              [class.selected]="selectedPalette === palette"
+            >
+              <div class="settings-palette-option-left">
+                <input
+                  type="radio"
+                  name="palette"
+                  [value]="palette"
+                  (change)="onPaletteChange(palette)"
+                  [checked]="selectedPalette === palette"
+                  class="settings-radio-input"
+                >
+                <span class="settings-palette-name">{{ palette }}</span>
+              </div>
+              <div class="settings-palette-dots" *ngIf="palettePreviews[palette]">
+                <span
+                  *ngFor="let dotColor of palettePreviews[palette]"
+                  class="settings-palette-dot"
+                  [style.background-color]="dotColor"
+                ></span>
+              </div>
+            </label>
+
+            <!-- Custom Palette Option -->
+            <label
+              class="settings-palette-option"
+              [class.selected]="selectedPalette === CUSTOM_PALETTE_NAME"
+            >
+              <div class="settings-palette-option-left">
+                <input
+                  type="radio"
+                  name="palette"
+                  [value]="CUSTOM_PALETTE_NAME"
+                  (change)="onPaletteChange(CUSTOM_PALETTE_NAME)"
+                  [checked]="selectedPalette === CUSTOM_PALETTE_NAME"
+                  class="settings-radio-input"
+                >
+                <span class="settings-palette-name">{{ CUSTOM_PALETTE_NAME }}</span>
+              </div>
+              <div class="settings-palette-dots">
+                <span
+                  *ngFor="let dotColor of customColors.slice(0, 3)"
+                  class="settings-palette-dot"
+                  [style.background-color]="dotColor"
+                ></span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Custom Color Swatches -->
+          <div *ngIf="selectedPalette === CUSTOM_PALETTE_NAME" class="custom-colors-container">
+            <div class="custom-colors-header">Trace Colors ({{customColors.length}} / 23)</div>
+            <div class="custom-colors-grid">
+              <div *ngFor="let color of customColors; let i = index; trackBy: trackByIndex" class="custom-color-item">
+                <input
+                  type="color"
+                  [value]="color"
+                  (input)="onCustomColorChange(i, $event)"
+                  (change)="onCustomColorChange(i, $event)"
+                  class="custom-color-input"
+                  [attr.aria-label]="'Custom color ' + (i + 1)"
+                >
+                <button
+                  *ngIf="customColors.length > 4"
+                  type="button"
+                  (click)="removeCustomColor(i); $event.stopPropagation();"
+                  class="custom-color-remove-button"
+                  aria-label="Remove color"
+                  title="Remove color"
+                >
+                  <mat-icon class="custom-color-remove-icon">close</mat-icon>
+                </button>
+              </div>
+              <button
+                *ngIf="customColors.length < 23"
+                type="button"
+                mat-icon-button
+                (click)="addCustomColor()"
+                class="custom-color-add-button"
+                aria-label="Add color"
+              >
+                <mat-icon class="custom-color-add-icon">add</mat-icon>
+              </button>
+            </div>
+            <div class="custom-colors-hint">Minimum 4 colors, maximum 23 colors.</div>
+          </div>
+
+          <!-- Save/Close actions for Color Settings -->
+          <div class="settings-actions">
+            <button mat-button color="primary" (click)="saveColorSettings(); dialogRef.close(selectedPalette)">
+              Save
+            </button>
+            <button mat-button (click)="dialogRef.close()">
+              Close
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 3: Feature flags -->
+        <div *ngIf="activeSettingsTab === SettingsTab.FLAGS" class="settings-tab-pane">
+          <div class="settings-section-header">
+            <div class="settings-section-title">Experimental Feature Flags</div>
+            <div class="settings-section-subtitle">Enable or disable preview features in XProf Trace Viewer</div>
+          </div>
+
+          <div class="feature-flags-list">
+            <div *ngFor="let flag of featureFlags" class="feature-flag-row">
+              <div class="feature-flag-info">
+                <div class="feature-flag-name-container">
+                  <span class="feature-flag-name">{{ flag.name }}</span>
+                  <span *ngIf="flag.badge" class="feature-flag-badge">{{ flag.badge }}</span>
+                </div>
+                <div class="feature-flag-description">{{ flag.description }}</div>
+              </div>
+              <button
+                type="button"
+                class="settings-switch-btn"
+                [class.checked]="flag.value"
+                (click)="onFeatureFlagChange(flag.id, !flag.value)"
+                role="switch"
+                [attr.aria-checked]="flag.value"
+              >
+                <div class="settings-switch-thumb">
+                  <mat-icon class="settings-switch-icon" *ngIf="flag.value">check</mat-icon>
+                  <mat-icon class="settings-switch-icon" *ngIf="!flag.value">close</mat-icon>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div *ngIf="hasFeatureFlagChanges" class="feature-flag-warning">
+            <mat-icon class="feature-flag-warning-icon">warning</mat-icon>
+            <span>Changes will take effect after page refresh.</span>
+          </div>
+
+          <div class="settings-actions">
+            <button mat-button color="primary" [disabled]="!hasFeatureFlagChanges" (click)="saveFeatureFlags()">
+              Save
+            </button>
+            <button mat-button (click)="dialogRef.close()">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div *ngIf="hasFeatureFlagChanges" class="feature-flag-warning">
-      <mat-icon class="feature-flag-warning-icon">warning</mat-icon>
-      <span>Changes will take effect after page refresh.</span>
-    </div>
-  </mat-dialog-content>
-  <mat-dialog-actions align="end">
-    <button mat-button color="primary" [disabled]="!hasFeatureFlagChanges" (click)="saveFeatureFlags()">
-      Save
-    </button>
-    <button mat-button color="primary" (click)="dialogRef.close()">
-      Cancel
-    </button>
-  </mat-dialog-actions>
+  </div>
 </ng-template>

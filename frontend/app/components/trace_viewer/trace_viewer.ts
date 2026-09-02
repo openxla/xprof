@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   inject,
   Injector,
   OnDestroy,
@@ -12,9 +13,20 @@ import {
   TemplateRef,
   ViewChild,
 } from '@angular/core';
-import {MatDialog, MatDialogConfig} from '@angular/material/dialog';
+import {MatDialog, MatDialogRef} from '@angular/material/dialog';
 import {ActivatedRoute, Router} from '@angular/router';
 import {Store} from '@ngrx/store';
+import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  finalize,
+  switchMap,
+  takeUntil,
+  tap,
+} from 'rxjs/operators';
+
 import {
   API_PREFIX,
   PLUGIN_NAME,
@@ -48,16 +60,6 @@ import {
 import {DataServiceV2} from 'org_xprof/frontend/app/services/data_service_v2/data_service_v2';
 import {SOURCE_CODE_SERVICE_INTERFACE_TOKEN} from 'org_xprof/frontend/app/services/source_code_service/source_code_service_interface';
 import {getHostsState} from 'org_xprof/frontend/app/store/selectors';
-import {combineLatest, Observable, of, ReplaySubject} from 'rxjs';
-import {
-  catchError,
-  debounceTime,
-  distinctUntilChanged,
-  finalize,
-  switchMap,
-  takeUntil,
-  tap,
-} from 'rxjs/operators';
 import {
   COLOR_PALETTE_PROMPTED_STORAGE_KEY,
   COLOR_PALETTE_STORAGE_KEY,
@@ -74,6 +76,8 @@ import {
   NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
   NAV_PAN_SPEED_STORAGE_KEY,
   NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+  PALETTE_PREVIEWS,
+  SettingsTab,
 } from './constants';
 import {AdjacentNodesResponse} from './interfaces';
 import {
@@ -251,11 +255,18 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild(TraceViewerContainer, {static: false})
   container?: TraceViewerContainer;
 
-  @ViewChild('paletteDialog', {static: true})
+  @ViewChild('settingsDialog', {static: false})
+  settingsDialog!: TemplateRef<{}>;
+
+  @ViewChild('paletteDialog', {static: false})
   paletteDialog!: TemplateRef<{}>;
 
-  @ViewChild('featureFlagsDialog', {static: true})
+  @ViewChild('featureFlagsDialog', {static: false})
   featureFlagsDialog!: TemplateRef<{}>;
+
+  @ViewChild('settingsButton') settingsButton!: ElementRef<HTMLButtonElement>;
+
+  settingsDialogRef: MatDialogRef<unknown> | null = null;
 
   selectedFilters: FilterEntry[] = [];
   validFilterFields = FILTER_FIELDS;
@@ -263,8 +274,13 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   processesListFromJson: string[] = [];
   isUploadMode = false;
   fileUploaded = false;
+
+  readonly SettingsTab = SettingsTab;
+  activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
+  readonly palettePreviews = PALETTE_PREVIEWS;
+
   selectedPalette = 'Default';
-  COLOR_PALETTES = COLOR_PALETTES;
+  readonly COLOR_PALETTES = COLOR_PALETTES;
   readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
   customColors: string[] = [];
 
@@ -348,20 +364,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Opens the feature flags settings dialog and captures initial state.
    */
   openFeatureFlagsSettings(): void {
-    // Reset this.featureFlags to the values currently in local storage.
-    // This ensures that if a user made changes and canceled previously,
-    // the dialog reopens with the persisted state.
-    this.featureFlags = loadFeatureFlagsFromStorage();
-
-    // Capture the initial state after resetting from local storage.
-    const newInitialFeatureFlags = new Map<string, boolean>();
-    for (const f of this.featureFlags) {
-      newInitialFeatureFlags.set(f.id, f.value);
-    }
-    this.initialFeatureFlags = newInitialFeatureFlags;
-    this.dialog.open(this.featureFlagsDialog, {
-      width: '400px',
-    });
+    this.openSettings(SettingsTab.FLAGS);
   }
 
   get filterSelectedHosts(): string[] {
@@ -1285,15 +1288,134 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   // START Support of color palettes selection
 
-  openColorPaletteSettings() {
-    this.loadCustomColors();
-    const config: MatDialogConfig = {
-      maxWidth: 450,
-      disableClose: true,
-    };
-    const dialogRef = this.dialog.open(this.paletteDialog, config);
+  get isNavigationSpeedDefault(): boolean {
+    return (
+      this.panningSpeed === 1.0 &&
+      this.keyboardZoomSpeed === 1.0 &&
+      this.wheelZoomSpeed === 1.0
+    );
+  }
 
-    dialogRef.afterClosed().subscribe((result: string | undefined) => {
+  applyNavigationSpeeds(): void {
+    if (this.traceViewerModule) {
+      this.traceViewerModule.SetPanningSpeed?.(1000 * this.panningSpeed);
+      this.traceViewerModule.SetZoomSpeed?.(1.5 * this.keyboardZoomSpeed);
+      this.traceViewerModule.SetMouseWheelZoomSpeed?.(
+        0.2 * this.wheelZoomSpeed,
+      );
+    }
+  }
+
+  resetNavigationSpeed(): void {
+    this.panningSpeed = 1.0;
+    this.keyboardZoomSpeed = 1.0;
+    this.wheelZoomSpeed = 1.0;
+    window.localStorage.setItem(NAV_PAN_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    window.localStorage.setItem(NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY, '1.0');
+    this.applyNavigationSpeeds();
+  }
+
+  onPanningSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.panningSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_PAN_SPEED_STORAGE_KEY,
+      this.panningSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onKeyboardZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.keyboardZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      this.keyboardZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  onWheelZoomSpeedChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.wheelZoomSpeed = Number(input.value);
+    window.localStorage.setItem(
+      NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      this.wheelZoomSpeed.toString(),
+    );
+    this.applyNavigationSpeeds();
+  }
+
+  setSettingsTab(tab: SettingsTab): void {
+    this.activeSettingsTab = tab;
+  }
+
+  private loadGeneralSettings(): void {
+    try {
+      const panSpeed = window.localStorage.getItem(NAV_PAN_SPEED_STORAGE_KEY);
+      if (panSpeed !== null) {
+        this.panningSpeed = Number(panSpeed) || 1.0;
+      }
+      const kbZoom = window.localStorage.getItem(
+        NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (kbZoom !== null) {
+        this.keyboardZoomSpeed = Number(kbZoom) || 1.0;
+      }
+      const wheelZoom = window.localStorage.getItem(
+        NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
+      );
+      if (wheelZoom !== null) {
+        this.wheelZoomSpeed = Number(wheelZoom) || 1.0;
+      }
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  toggleSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
+    if (this.settingsDialogRef) {
+      this.settingsDialogRef.close();
+      this.settingsDialogRef = null;
+      return;
+    }
+    this.openSettings(tab);
+  }
+
+  openSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
+    if (this.settingsDialogRef) {
+      this.setSettingsTab(tab);
+      return;
+    }
+
+    this.activeSettingsTab = tab;
+    this.loadGeneralSettings();
+    this.loadCustomColors();
+
+    const savedPalette = window.localStorage.getItem(COLOR_PALETTE_STORAGE_KEY);
+    if (savedPalette) {
+      this.selectedPalette = savedPalette;
+    }
+
+    this.featureFlags = loadFeatureFlagsFromStorage();
+    const newInitialFeatureFlags = new Map<string, boolean>();
+    for (const f of this.featureFlags) {
+      newInitialFeatureFlags.set(f.id, f.value);
+    }
+    this.initialFeatureFlags = newInitialFeatureFlags;
+
+    const dialogTemplate =
+      this.settingsDialog || this.paletteDialog || this.featureFlagsDialog;
+    const dialogRef = this.dialog.open(dialogTemplate, {
+      width: '760px',
+      maxWidth: '95vw',
+      panelClass: 'settings-dialog-mat-dialog-container',
+      disableClose: false,
+    });
+    this.settingsDialogRef = dialogRef;
+
+    dialogRef?.afterClosed().subscribe((result: string | undefined) => {
+      this.settingsDialogRef = null;
       if (result && this.traceViewerModule) {
         this.selectedPalette = result;
         if (result === CUSTOM_PALETTE_NAME) {
@@ -1305,6 +1427,25 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         window.localStorage.setItem(COLOR_PALETTE_STORAGE_KEY, result);
       }
     });
+  }
+
+  saveColorSettings(): void {
+    if (this.traceViewerModule) {
+      if (this.selectedPalette === CUSTOM_PALETTE_NAME) {
+        this.saveCustomColors();
+        this.applyCustomColors();
+      } else {
+        this.traceViewerModule.SetPalette(this.selectedPalette);
+      }
+      window.localStorage.setItem(
+        COLOR_PALETTE_STORAGE_KEY,
+        this.selectedPalette,
+      );
+    }
+  }
+
+  openColorPaletteSettings() {
+    this.openSettings(SettingsTab.COLOR);
   }
 
   onPaletteChange(palette: string) {
@@ -1407,80 +1548,6 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
       );
     }
   }
-
-  applyNavigationSpeeds(): void {
-    if (this.traceViewerModule) {
-      this.traceViewerModule.SetPanningSpeed?.(1000 * this.panningSpeed);
-      this.traceViewerModule.SetZoomSpeed?.(1.5 * this.keyboardZoomSpeed);
-      this.traceViewerModule.SetMouseWheelZoomSpeed?.(
-        0.2 * this.wheelZoomSpeed,
-      );
-    }
-  }
-
-  resetNavigationSpeed(): void {
-    this.panningSpeed = 1.0;
-    this.keyboardZoomSpeed = 1.0;
-    this.wheelZoomSpeed = 1.0;
-    window.localStorage.setItem(NAV_PAN_SPEED_STORAGE_KEY, '1.0');
-    window.localStorage.setItem(NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY, '1.0');
-    window.localStorage.setItem(NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY, '1.0');
-    this.applyNavigationSpeeds();
-  }
-
-  onPanningSpeedChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.panningSpeed = Number(input.value);
-    window.localStorage.setItem(
-      NAV_PAN_SPEED_STORAGE_KEY,
-      this.panningSpeed.toString(),
-    );
-    this.applyNavigationSpeeds();
-  }
-
-  onKeyboardZoomSpeedChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.keyboardZoomSpeed = Number(input.value);
-    window.localStorage.setItem(
-      NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
-      this.keyboardZoomSpeed.toString(),
-    );
-    this.applyNavigationSpeeds();
-  }
-
-  onWheelZoomSpeedChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    this.wheelZoomSpeed = Number(input.value);
-    window.localStorage.setItem(
-      NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
-      this.wheelZoomSpeed.toString(),
-    );
-    this.applyNavigationSpeeds();
-  }
-
-  private loadGeneralSettings(): void {
-    try {
-      const panSpeed = window.localStorage.getItem(NAV_PAN_SPEED_STORAGE_KEY);
-      if (panSpeed !== null) {
-        this.panningSpeed = Number(panSpeed) || 1.0;
-      }
-      const kbZoom = window.localStorage.getItem(
-        NAV_KEYBOARD_ZOOM_SPEED_STORAGE_KEY,
-      );
-      if (kbZoom !== null) {
-        this.keyboardZoomSpeed = Number(kbZoom) || 1.0;
-      }
-      const wheelZoom = window.localStorage.getItem(
-        NAV_WHEEL_ZOOM_SPEED_STORAGE_KEY,
-      );
-      if (wheelZoom !== null) {
-        this.wheelZoomSpeed = Number(wheelZoom) || 1.0;
-      }
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
   dismissColorOnboarding() {
     this.showColorOnboarding = false;
     try {

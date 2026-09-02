@@ -10,6 +10,8 @@ export declare interface FeatureFlag {
   description: string;
   /** The default value of the feature flag. */
   default: boolean;
+  /** Optional badge tag displayed next to flag name. */
+  badge?: string;
 }
 
 /**

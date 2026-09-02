@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  HostListener,
   NgZone,
   OnDestroy,
   OnInit,
@@ -65,6 +66,11 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   activeEvents: Array<Record<string, string | number | boolean>> = [];
   activeCounters: Array<Record<string, string | number | boolean>> = [];
 
+  stepAmount = 5; // Configurable step amount in ms or ticks
+  loopStart: number | null = null;
+  loopEnd: number | null = null;
+  loopState: 'INACTIVE' | 'A_SET' | 'ACTIVE' = 'INACTIVE';
+
   constructor(
     private readonly cdr: ChangeDetectorRef,
     private readonly ngZone: NgZone,
@@ -97,7 +103,23 @@ export class TimelinePlayer implements OnInit, OnDestroy {
         dirty = true;
       }
       if (customEvent.detail.currentTime !== undefined && !this.isScrubbing) {
-        this.currentTime.set(customEvent.detail.currentTime);
+        let newTime = customEvent.detail.currentTime;
+        if (
+          this.loopState === 'ACTIVE' &&
+          this.loopEnd !== null &&
+          newTime >= this.loopEnd
+        ) {
+          newTime = this.loopStart ?? 0;
+          this.currentTime.set(newTime);
+          this.seek.emit(newTime);
+          // If paused out of bounds, start playing again upon loop reset
+          if (!this.isPlaying()) {
+            this.isPlaying.set(true);
+            this.play.emit();
+          }
+        } else {
+          this.currentTime.set(newTime);
+        }
         dirty = true;
       }
       if (customEvent.detail.duration !== undefined) {
@@ -116,6 +138,71 @@ export class TimelinePlayer implements OnInit, OnDestroy {
       }
     }
   };
+
+  stepBackward() {
+    let newTime = this.currentTime() - this.stepAmount;
+    if (newTime < 0) {
+      newTime = 0;
+    }
+    this.currentTime.set(newTime);
+    this.seek.emit(newTime);
+  }
+
+  stepForward() {
+    let newTime = this.currentTime() + this.stepAmount;
+    if (newTime > this.duration()) {
+      newTime = this.duration();
+    }
+    this.currentTime.set(newTime);
+    this.seek.emit(newTime);
+  }
+
+  toggleLoop() {
+    if (this.loopState === 'INACTIVE') {
+      this.loopState = 'A_SET';
+      this.loopStart = this.currentTime();
+      this.loopEnd = null;
+    } else if (this.loopState === 'A_SET') {
+      this.loopState = 'ACTIVE';
+      this.loopEnd = this.currentTime();
+      if (this.loopEnd < this.loopStart!) {
+        // Swap bounds if selected in reverse
+        const temp = this.loopStart;
+        this.loopStart = this.loopEnd;
+        this.loopEnd = temp;
+      }
+    } else {
+      this.loopState = 'INACTIVE';
+      this.loopStart = null;
+      this.loopEnd = null;
+    }
+  }
+
+  getLoopClass() {
+    switch (this.loopState) {
+      case 'INACTIVE':
+        return '';
+      case 'A_SET':
+        return 'loop-a-set';
+      case 'ACTIVE':
+        return 'loop-active';
+      default:
+        return '';
+    }
+  }
+
+  getLoopTitle() {
+    switch (this.loopState) {
+      case 'INACTIVE':
+        return 'Set Loop Start (A)';
+      case 'A_SET':
+        return 'Set Loop End (B)';
+      case 'ACTIVE':
+        return 'Clear Loop';
+      default:
+        return '';
+    }
+  }
 
   togglePlay() {
     this.isPlaying.set(!this.isPlaying());
@@ -152,5 +239,53 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   onScrubEnd(event: Event) {
     this.isScrubbing = false;
     this.onSeek(event);
+  }
+
+  isDraggingStartMarker = false;
+  isDraggingEndMarker = false;
+
+  @HostListener('window:pointermove', ['$event'])
+  onPointerMove(event: PointerEvent) {
+    if (!this.isDraggingStartMarker && !this.isDraggingEndMarker) {
+      return;
+    }
+    const container = document.querySelector(
+      '.progress-bar-container',
+    ) as HTMLElement;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+    const percentage = x / rect.width;
+    const newTime = percentage * this.duration();
+
+    if (this.isDraggingStartMarker) {
+      const maxTime = this.loopEnd !== null ? this.loopEnd : this.duration();
+      this.loopStart = Math.min(newTime, maxTime);
+      this.seek.emit(this.loopStart);
+      this.currentTime.set(this.loopStart);
+    } else if (this.isDraggingEndMarker) {
+      const minTime = this.loopStart !== null ? this.loopStart : 0;
+      this.loopEnd = Math.max(newTime, minTime);
+      this.seek.emit(this.loopEnd);
+      this.currentTime.set(this.loopEnd);
+    }
+  }
+
+  @HostListener('window:pointerup', ['$event'])
+  onPointerUpMarker(event: PointerEvent) {
+    this.isDraggingStartMarker = false;
+    this.isDraggingEndMarker = false;
+  }
+
+  onStartMarkerPointerDown(event: PointerEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    this.isDraggingStartMarker = true;
+  }
+
+  onEndMarkerPointerDown(event: PointerEvent) {
+    event.stopPropagation();
+    event.preventDefault();
+    this.isDraggingEndMarker = true;
   }
 }

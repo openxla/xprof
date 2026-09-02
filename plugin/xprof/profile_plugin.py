@@ -146,6 +146,7 @@ XPLANE_TOOLS = [
     'megascale_stats',
     'perf_counters',
     'utilization_viewer',
+    'kernel_utilization',
     'smart_suggestion',
 ]
 

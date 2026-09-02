@@ -794,3 +794,131 @@ export function parseFrameworkOpType(provenance?: string): string {
   }
   return parsedOpType || '-';
 }
+
+/**
+ * Sanitizes window.parent hash by stripping query parameters and dangling '#'
+ * symbols.
+ */
+export function cleanParentHash(rawHash: string): string {
+  const cleanHash = rawHash.split('?')[0].split('&')[0];
+  return cleanHash && cleanHash !== '#' ? cleanHash : '';
+}
+
+/**
+ * Returns whether targetKey appears with an explicit '=' in the query string.
+ * Prevents substring collisions when query contains similar parameter names.
+ */
+function hasExplicitKeyEqual(query: string, targetKey: string): boolean {
+  for (const part of query.split('&')) {
+    const eqIndex = part.indexOf('=');
+    if (eqIndex >= 0 && part.slice(0, eqIndex) === targetKey) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Extracts query parameters from window.parent location search and hash. */
+export function getParentLocationParams(): Map<string, string> {
+  const parentParams = new Map<string, string>();
+  let search = '';
+  let hash = '';
+
+  try {
+    search = window.parent?.location?.search ?? '';
+    hash = window.parent?.location?.hash ?? '';
+  } catch {
+    // Suppress cross-origin security exceptions
+    return parentParams;
+  }
+
+  if (search) {
+    const searchParams = new URLSearchParams(search);
+    for (const [key, value] of searchParams) {
+      parentParams.set(key, value);
+    }
+    const hosts = searchParams.getAll('hosts');
+    if (hosts.length > 0) {
+      parentParams.set('hosts', hosts.join(','));
+    }
+  }
+
+  if (hash) {
+    if (hash.startsWith('#')) {
+      hash = hash.slice(1);
+    }
+    let hashQuery = '';
+    const questionIndex = hash.indexOf('?');
+    const ampersandIndex = hash.indexOf('&');
+    if (questionIndex >= 0) {
+      hashQuery = hash.slice(questionIndex + 1);
+    } else if (ampersandIndex >= 0) {
+      hashQuery = hash.slice(ampersandIndex + 1);
+    }
+    if (hashQuery) {
+      const hashParams = new URLSearchParams(hashQuery);
+      for (const [key, value] of hashParams) {
+        if (value || hasExplicitKeyEqual(hashQuery, key)) {
+          parentParams.set(key, value);
+        }
+      }
+      const hashHosts = hashParams.getAll('hosts');
+      if (hashHosts.length > 0) {
+        parentParams.set('hosts', hashHosts.join(','));
+      }
+    }
+  }
+
+  return parentParams;
+}
+
+/** Synchronizes parameters to window.parent URL history, preserving hash. */
+export function syncParentUrlParams(
+  urlParamsToSync: Readonly<Record<string, string>>,
+  legacyParamsToDelete: readonly string[] = [],
+): void {
+  let search = '';
+  let pathname = '';
+  let rawHash = '';
+
+  try {
+    search = window.parent?.location?.search ?? '';
+    pathname = window.parent?.location?.pathname ?? '';
+    rawHash = window.parent?.location?.hash ?? '';
+  } catch {
+    // Suppress cross-origin security exceptions
+    return;
+  }
+
+  const parentParams = getParentLocationParams();
+  const searchParams = new URLSearchParams(search);
+
+  // Seed searchParams with existing parent parameters from hash/search
+  for (const [key, value] of parentParams.entries()) {
+    if (value && !searchParams.has(key)) {
+      searchParams.set(key, value);
+    }
+  }
+
+  for (const [key, value] of Object.entries(urlParamsToSync)) {
+    if (value) {
+      searchParams.set(key, value);
+    } else {
+      searchParams.delete(key);
+    }
+  }
+
+  for (const legacyKey of legacyParamsToDelete) {
+    searchParams.delete(legacyKey);
+  }
+
+  const hash = cleanParentHash(rawHash);
+  const queryString = searchParams.toString();
+  const url = `${pathname}${queryString ? `?${queryString}` : ''}${hash}`;
+
+  try {
+    window.parent?.history?.replaceState({}, '', url);
+  } catch (error: unknown) {
+    console.error('Failed to sync URL parameters:', error);
+  }
+}

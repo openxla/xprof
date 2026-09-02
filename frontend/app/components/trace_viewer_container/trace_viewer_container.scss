@@ -11,11 +11,11 @@ $search-bar-height: 56px;
   flex: 1;
   min-height: 0;
   position: relative;
-  background: var(--md-sys-color-surface-container-low);
+  background: var(--mat-sys-surface-container-low);
 }
 
 :host:fullscreen {
-  background: var(--md-sys-color-surface-container-low);
+  background: var(--mat-sys-surface-container-low);
   padding: 16px;
   width: 100vw;
   height: 100vh;
@@ -66,7 +66,7 @@ iframe {
   width: 100%;
   height: 100%;
   border-radius: 16px;
-  background: var(--md-sys-color-surface);
+  background: var(--mat-sys-surface);
   overflow: hidden;
   position: relative;
   display: flex;
@@ -89,8 +89,8 @@ canvas.emscripten {
   position: absolute;
   z-index: 100;
   pointer-events: none;
-  background: var(--md-sys-color--surface, white);
-  // border: 1px solid var(--md-sys-color--outline, #ccc);
+  background: var(--mat-sys-surface, white);
+  // border: 1px solid var(--mat-sys-outline, #ccc);
   border-radius: 4px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   // padding: 8px;
@@ -109,7 +109,7 @@ canvas.emscripten {
 .search-container {
   display: flex;
   align-items: center;
-  background-color: var(--md-sys-color-surface-container);
+  background-color: var(--mat-sys-surface-container);
   border-radius: 24px;
   height: 40px;
   padding: 0 12px;
@@ -129,13 +129,13 @@ canvas.emscripten {
       display: flex;
       align-items: center;
       height: 28px;
-      background-color: var(--md-sys-color-surface);
+      background-color: var(--mat-sys-surface);
       border-radius: 24px;
       padding: 0 12px 0 0;
       box-sizing: border-box;
 
       &:focus-within {
-        outline: 2px solid var(--md-sys-color-primary);
+        outline: 2px solid var(--mat-sys-primary);
         outline-offset: 2px;
       }
     }
@@ -175,7 +175,7 @@ canvas.emscripten {
         font-size: 20px;
         width: 20px;
         height: 20px;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--mat-sys-on-surface-variant);
       }
     }
 
@@ -183,8 +183,8 @@ canvas.emscripten {
       padding: 0;
       height: 28px;
       font-size: 13px;
-      color: var(--md-sys-color-on-surface);
-      caret-color: var(--md-sys-color-primary);
+      color: var(--mat-sys-on-surface);
+      caret-color: var(--mat-sys-primary);
       background: transparent;
     }
   }
@@ -208,7 +208,7 @@ canvas.emscripten {
 .search-divider {
   width: 1px;
   height: 16px;
-  background-color: var(--md-sys-color-outline-variant);
+  background-color: var(--mat-sys-outline-variant);
   margin: 0 4px;
 }
 
@@ -241,7 +241,7 @@ canvas.emscripten {
     padding: 0;
     min-width: unset;
     border-radius: 4px;
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--mat-sys-on-surface-variant);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -256,13 +256,13 @@ canvas.emscripten {
 
     &:hover,
     &:focus-visible {
-      background-color: var(--md-sys-color-primary-container);
+      background-color: var(--mat-sys-primary-container);
       outline: none;
     }
 
     &.active {
-      background-color: var(--md-sys-color-primary-container);
-      color: var(--md-sys-color-primary);
+      background-color: var(--mat-sys-primary-container);
+      color: var(--mat-sys-primary);
     }
 
     mat-icon,
@@ -283,7 +283,7 @@ canvas.emscripten {
   height: calc(100% - 16px);
   margin-top: 8px;
   margin-bottom: 8px;
-  background-color: var(--md-sys-color-surface);
+  background-color: var(--mat-sys-surface);
   box-sizing: border-box;
   overflow: auto;
   border-radius: 16px;
@@ -313,7 +313,7 @@ canvas.emscripten {
 
     tr.mat-mdc-header-row,
     tr.mat-mdc-footer-row {
-      background-color: var(--md-sys-color-surface-container);
+      background-color: var(--mat-sys-surface-container);
     }
 
     th.mat-mdc-header-cell,
@@ -322,7 +322,7 @@ canvas.emscripten {
     }
 
     th.mat-mdc-header-cell {
-      background-color: var(--md-sys-color-surface-container);
+      background-color: var(--mat-sys-surface-container);
     }
 
     tr.mat-mdc-header-row {
@@ -352,14 +352,14 @@ canvas.emscripten {
   .single-event-details {
     padding: 16px;
     border-radius: 8px;
-    background-color: var(--md-sys-color-surface);
+    background-color: var(--mat-sys-surface);
     margin-bottom: 16px;
     border: none;
 
     h3 {
       margin-top: 0;
       margin-bottom: 12px;
-      color: var(--md-sys-color-on-surface);
+      color: var(--mat-sys-on-surface);
     }
 
     .split-area-left {
@@ -368,7 +368,7 @@ canvas.emscripten {
       overflow: visible;
 
       .split-area-inner {
-        background-color: var(--md-sys-color-surface);
+        background-color: var(--mat-sys-surface);
       }
     }
 
@@ -378,7 +378,7 @@ canvas.emscripten {
       overflow: visible;
 
       .split-area-inner {
-        background-color: var(--md-sys-color-surface-container);
+        background-color: var(--mat-sys-surface-container);
       }
     }
 
@@ -399,11 +399,11 @@ canvas.emscripten {
         font-weight: 600;
         width: 150px;
         flex-shrink: 0;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--mat-sys-on-surface-variant);
       }
 
       .detail-value {
-        color: var(--md-sys-color-on-surface);
+        color: var(--mat-sys-on-surface);
         word-break: break-word;
       }
     }
@@ -418,8 +418,8 @@ canvas.emscripten {
         display: inline-block;
         padding: 6px 12px;
         border-radius: 4px;
-        background-color: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background-color: var(--mat-sys-primary-container);
+        color: var(--mat-sys-on-primary-container);
         text-decoration: none;
         font-size: 12px;
         font-weight: 500;
@@ -448,7 +448,7 @@ canvas.emscripten {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  background-color: var(--md-sys-color-surface);
+  background-color: var(--mat-sys-surface);
   color: red;
 
   mat-icon {
@@ -505,8 +505,8 @@ canvas.emscripten {
   top: 40px;
   right: 0;
   width: 250px;
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--mat-sys-surface);
+  border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   padding: 12px;
@@ -517,13 +517,13 @@ canvas.emscripten {
 .coach-mark-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--md-sys-color-on-surface);
+  color: var(--mat-sys-on-surface);
   margin-bottom: 6px;
 }
 
 .coach-mark-content {
   font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--mat-sys-on-surface-variant);
   line-height: 1.4;
   margin-bottom: 10px;
 }
@@ -543,9 +543,9 @@ canvas.emscripten {
   right: 12px;
   width: 10px;
   height: 10px;
-  background: var(--md-sys-color-surface);
-  border-left: 1px solid var(--md-sys-color-outline-variant);
-  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--mat-sys-surface);
+  border-left: 1px solid var(--mat-sys-outline-variant);
+  border-top: 1px solid var(--mat-sys-outline-variant);
   transform: rotate(45deg);
 }
 

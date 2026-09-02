@@ -38,8 +38,8 @@
         <mat-icon>skip_previous</mat-icon>
       </button>
 
-      <button mat-icon-button class="control-button" (click)="togglePlay()" matTooltip="{{ isPlaying() ? 'Pause' : 'Play' }}">
-        <mat-icon>{{ isPlaying() ? 'pause' : 'play_arrow' }}</mat-icon>
+      <button mat-icon-button class="control-button" (click)="togglePlay()" matTooltip="{{ isFinished() ? 'Replay' : (isPlaying() ? 'Pause' : 'Play') }}">
+        <mat-icon>{{ isFinished() ? 'replay' : (isPlaying() ? 'pause' : 'play_arrow') }}</mat-icon>
       </button>
 
       <button mat-icon-button class="control-button" (click)="stepForward()" matTooltip="Step Forward ({{ stepAmount() | timeFormat }})">

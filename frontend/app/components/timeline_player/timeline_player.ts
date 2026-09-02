@@ -58,6 +58,7 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   readonly duration = model(100);
   readonly isPlaying = model(false);
   readonly playbackRate = model(1);
+  readonly isFinished = computed(() => this.currentTime() >= this.duration());
 
   readonly play = output<void>();
   readonly pause = output<void>();
@@ -206,6 +207,14 @@ export class TimelinePlayer implements OnInit, OnDestroy {
   }
 
   togglePlay() {
+    if (this.isFinished()) {
+      this.currentTime.set(0);
+      this.seek.emit(0);
+      this.isPlaying.set(true);
+      this.play.emit();
+      return;
+    }
+
     this.isPlaying.set(!this.isPlaying());
 
     if (!this.isPlaying()) {

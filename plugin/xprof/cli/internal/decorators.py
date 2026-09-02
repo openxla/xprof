@@ -219,16 +219,19 @@ def _resolve_session_path_via_client(val: str) -> pathlib.Path | None:
   mod_names = ("xprof.cli.internal.oss.xprof_client",)
   for mod_name in mod_names:
     client = None
-    if mod_name in sys.modules:
-      client = getattr(sys.modules[mod_name], "get_client")()
-    else:
-      try:
+    try:
+      if mod_name in sys.modules:
+        mod = sys.modules[mod_name]
+      else:
         import importlib  # pylint: disable=g-import-not-at-top
 
         mod = importlib.import_module(mod_name)
-        client = getattr(mod, "get_client")()
-      except Exception:  # pylint: disable=broad-except
-        pass
+      get_client_fn = getattr(mod, "get_client", None)
+      if callable(get_client_fn):
+        client = get_client_fn()
+    except Exception:  # pylint: disable=broad-except
+      client = None
+
     if client and getattr(client, "_logdir", None) and hasattr(
         client, "get_run_dir"
     ):

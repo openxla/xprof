@@ -78,13 +78,6 @@ To get the most recent release version of XProf, install it via pip:
 $ pip install xprof
 ```
 
-> [!NOTE]
-> For Python 3.12+ users, if you encounter `ModuleNotFoundError: No module
-> named 'pkg_resources'`, install an older version of setuptools:
-> ```
-> pip install "setuptools<70"
-> ```
-
 **Alternative installation options:**
 
 <details>

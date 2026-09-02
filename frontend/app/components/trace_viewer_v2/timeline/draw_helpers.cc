@@ -10,23 +10,23 @@ void DrawPinIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,
   float r = icon_draw_size * 0.5f;
 
   // Horizontal head bar at the top
-  draw_list->AddLine(ImVec2(center_x - r * 0.6f, center_y - r * 0.6f),
-                     ImVec2(center_x + r * 0.6f, center_y - r * 0.6f), icon_col,
+  draw_list->AddLine(ImVec2(center_x - r * 0.6f, center_y - r * 0.7f),
+                     ImVec2(center_x + r * 0.6f, center_y - r * 0.7f), icon_col,
                      1.2f);
   // Head connection stem
-  draw_list->AddLine(ImVec2(center_x, center_y - r * 0.6f),
-                     ImVec2(center_x, center_y - r * 0.4f), icon_col, 1.2f);
+  draw_list->AddLine(ImVec2(center_x, center_y - r * 0.7f),
+                     ImVec2(center_x, center_y - r * 0.5f), icon_col, 1.2f);
   // Body center cylinder (filled if pinned, outline if unpinned)
-  ImVec2 body_min(center_x - r * 0.4f, center_y - r * 0.4f);
-  ImVec2 body_max(center_x + r * 0.4f, center_y + r * 0.2f);
+  ImVec2 body_min(center_x - r * 0.4f, center_y - r * 0.5f);
+  ImVec2 body_max(center_x + r * 0.4f, center_y + r * 0.1f);
   if (is_pinned) {
     draw_list->AddRectFilled(body_min, body_max, icon_col);
   } else {
     draw_list->AddRect(body_min, body_max, icon_col, 0.0f, 0, 1.2f);
   }
   // Pin point needle pointing down
-  draw_list->AddLine(ImVec2(center_x, center_y + r * 0.2f),
-                     ImVec2(center_x, center_y + r * 0.8f), icon_col, 1.2f);
+  draw_list->AddLine(ImVec2(center_x, center_y + r * 0.1f),
+                     ImVec2(center_x, center_y + r * 0.7f), icon_col, 1.2f);
 }
 
 void DrawHideIcon(ImDrawList* draw_list, Pixel center_x, Pixel center_y,

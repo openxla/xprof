@@ -155,6 +155,7 @@ declare global {
     currentTime: number,
     playSpeed: number,
   ): void;
+  GetPresetPalettes?(): Array<{name: string; previewColors: string[]}>;
   canvas: HTMLCanvasElement;
   callMain(args: string[]): void;
   preinitializedWebGPUDevice: GPUDevice | null;

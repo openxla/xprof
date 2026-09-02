@@ -277,10 +277,10 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
 
   readonly SettingsTab = SettingsTab;
   activeSettingsTab: SettingsTab = SettingsTab.GENERAL;
-  readonly palettePreviews = PALETTE_PREVIEWS;
+  palettePreviews: Record<string, string[]> = PALETTE_PREVIEWS;
 
   selectedPalette = 'Default';
-  readonly COLOR_PALETTES = COLOR_PALETTES;
+  COLOR_PALETTES = COLOR_PALETTES;
   readonly CUSTOM_PALETTE_NAME = CUSTOM_PALETTE_NAME;
   customColors: string[] = [];
 
@@ -578,6 +578,8 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
         }
         return;
       }
+
+      this.loadPresetPalettes();
 
       let savedPalette: string | null = null;
       try {
@@ -1382,6 +1384,20 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     this.openSettings(tab);
   }
 
+  loadPresetPalettes(): void {
+    if (this.traceViewerModule?.GetPresetPalettes) {
+      const presets = this.traceViewerModule.GetPresetPalettes();
+      if (presets && presets.length > 0) {
+        this.COLOR_PALETTES = presets.map((p) => p.name);
+        const previews: Record<string, string[]> = {};
+        for (const p of presets) {
+          previews[p.name] = p.previewColors;
+        }
+        this.palettePreviews = previews;
+      }
+    }
+  }
+
   openSettings(tab: SettingsTab = SettingsTab.GENERAL): void {
     if (this.settingsDialogRef) {
       this.setSettingsTab(tab);
@@ -1389,6 +1405,7 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
     }
 
     this.activeSettingsTab = tab;
+    this.loadPresetPalettes();
     this.loadGeneralSettings();
     this.loadCustomColors();
 

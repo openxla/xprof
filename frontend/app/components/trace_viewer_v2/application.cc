@@ -19,6 +19,7 @@
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -26,6 +27,7 @@
 #include "frontend/app/components/trace_viewer_v2/animation.h"
 #include "frontend/app/components/trace_viewer_v2/canvas_state.h"
 #include "frontend/app/components/trace_viewer_v2/color/colors.h"
+#include "frontend/app/components/trace_viewer_v2/color/palettes.h"
 #include "frontend/app/components/trace_viewer_v2/event_data.h"
 #include "frontend/app/components/trace_viewer_v2/event_manager.h"
 #include "frontend/app/components/trace_viewer_v2/fonts/fonts.h"
@@ -123,6 +125,41 @@ void SetPlaybackState(bool is_playing, double current_time, double play_speed) {
                                            play_speed);
 }
 
+EMSCRIPTEN_KEEPALIVE emscripten::val GetPresetPalettes() {
+  emscripten::val result = emscripten::val::array();
+
+  auto add_palette = [&result](absl::string_view name,
+                               const ColorPalette::Preset& preset) {
+    emscripten::val palette_obj = emscripten::val::object();
+    palette_obj.set("name", std::string(name));
+    emscripten::val preview_colors = emscripten::val::array();
+    for (size_t i = 0; i < std::min<size_t>(3, preset.trace_colors.size());
+         ++i) {
+      ImU32 c = preset.trace_colors[i];
+      uint32_t r = c & 0xFF;
+      uint32_t g = (c >> 8) & 0xFF;
+      uint32_t b = (c >> 16) & 0xFF;
+      preview_colors.call<void>("push",
+                                absl::StrFormat("#%02x%02x%02x", r, g, b));
+    }
+    palette_obj.set("previewColors", preview_colors);
+    result.call<void>("push", palette_obj);
+  };
+
+  add_palette("Default", ColorPalette::Preset::Default());
+
+  const std::vector<std::string> preset_names = {
+      "Material",       "Dracula",         "Monokai",
+      "Solarized Dark", "Solarized Light", "Catapult"};
+  for (const auto& name : preset_names) {
+    auto it = kPresetPalettes.find(name);
+    if (it != kPresetPalettes.end()) {
+      add_palette(name, it->second);
+    }
+  }
+  return result;
+}
+
 EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetPalette", &SetPalette);
   emscripten::function("SetColor", &SetColor);
@@ -132,6 +169,7 @@ EMSCRIPTEN_BINDINGS(traceviewer) {
   emscripten::function("SetCustomTraceColors", &SetCustomTraceColors);
   emscripten::function("RequestRedraw", &RequestRedraw);
   emscripten::function("SetPlaybackState", &SetPlaybackState);
+  emscripten::function("GetPresetPalettes", &GetPresetPalettes);
 }
 
 EMSCRIPTEN_BINDINGS(colors) {

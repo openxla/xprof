@@ -1196,3 +1196,7 @@ export async function traceViewerV2Main(
 
   return traceviewerModule;
 }
+
+// Expose to window for integration tests.
+// tslint:disable-next-line:no-any
+(window as any)['traceViewerV2Main'] = traceViewerV2Main;

@@ -17,6 +17,8 @@ xprof_ng_module(
         "@org_xprof//frontend/app/common/angular:angular_material_button",
         "@org_xprof//frontend/app/common/angular:angular_material_icon",
         "@org_xprof//frontend/app/common/angular:angular_material_menu",
+        "@org_xprof//frontend/app/common/angular:angular_material_slider",
+        "@org_xprof//frontend/app/common/angular:angular_material_tooltip",
     ],
 )
 

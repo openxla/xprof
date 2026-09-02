@@ -12,6 +12,8 @@ import {
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatMenuModule} from '@angular/material/menu';
+import {MatSliderModule} from '@angular/material/slider';
+import {MatTooltipModule} from '@angular/material/tooltip';
 import {TimeFormatPipe} from './time_format.pipe';
 
 // TODO(b/554087917): Add Karma Scuba screenshot tests for the Timeline Player component.
@@ -42,6 +44,8 @@ export interface SyncEventDetail {
     MatButtonModule,
     MatIconModule,
     MatMenuModule,
+    MatSliderModule,
+    MatTooltipModule,
     TimeFormatPipe,
   ],
   templateUrl: 'timeline_player.ng.html',

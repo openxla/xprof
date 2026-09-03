@@ -11,6 +11,8 @@ namespace traceviewer {
 
 void Timeline::DrawTimelinePlayerSync() {
 #ifdef __EMSCRIPTEN__
+  if (!timeline_player_enabled_) return;
+
   if (!timeline_data_.groups.empty()) {
     Microseconds visible_duration = visible_range().duration();
 

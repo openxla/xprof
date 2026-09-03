@@ -175,6 +175,7 @@ class Timeline {
  public:
   void SetPlaybackState(bool is_playing, double current_progress_us,
                         double play_speed) {
+    if (!timeline_player_enabled_) return;
     is_playing_ = is_playing;
     if (current_progress_us >= 0) {
       current_play_time_ = visible_range().start() + current_progress_us;

@@ -372,7 +372,7 @@ async function getWebGpuDevice(): Promise<GPUDevice> {
 }
 
 function configureCanvas(canvas: HTMLCanvasElement, device: GPUDevice) {
-  const context = canvas.getContext('webgpu');
+  const context = canvas.getContext('webgpu') as GPUCanvasContext | null;
   if (!context) {
     throw new Error('Context not found for canvas.');
   }

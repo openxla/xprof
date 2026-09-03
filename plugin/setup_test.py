@@ -1,4 +1,4 @@
-"""Tests that setup.py correctly parses requirements.in and configures packaging."""
+"""Tests that setup.py parses requirements.in and configures packaging."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -92,6 +92,28 @@ class SetupTest(absltest.TestCase):
     readme = setup.get_readme()
     self.assertIsInstance(readme, str)
     self.assertNotEmpty(readme)
+
+  def test_package_data_contains_skills(self):
+    self.assertIn('xprof', setup.PACKAGE_DATA)
+    self.assertIn('skills/**', setup.PACKAGE_DATA['xprof'])
+
+  def test_skills_markdown_files_present_in_source_tree(self):
+    skills_dir = os.path.join(
+        os.path.dirname(__file__), '..', 'skills', 'xprof'
+    )
+    skill_md = os.path.join(skills_dir, 'SKILL.md')
+    roofline_md = os.path.join(
+        skills_dir, 'references', 'get_roofline_model.md'
+    )
+    self.assertTrue(os.path.isfile(skill_md), f'Missing {skill_md}')
+    self.assertTrue(os.path.isfile(roofline_md), f'Missing {roofline_md}')
+    with open(roofline_md, 'r', encoding='utf-8') as f:
+      content = f.read()
+    self.assertNotIn('/google/bin/releases', content)
+    self.assertNotIn('.par', content)
+    self.assertIn('"program":', content)
+    self.assertIn('"device_info":', content)
+    self.assertIn('"top_operations":', content)
 
 
 if __name__ == '__main__':

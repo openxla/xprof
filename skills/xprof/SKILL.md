@@ -175,6 +175,8 @@ Pallas or Mosaic):
     HLO operations by time, FLOPs, or bytes accessed.
 -   **[Get KPI Metrics](references/get_kpi_metrics.md)**: Fetch consolidated KPI
     metrics (step time, duty cycle, MXU utilization, roofline) for a session.
+-   **[Get Roofline Model](references/get_roofline_model.md)**: Identify
+    compute vs memory bandwidth bottlenecks at program and per-operation level.
 -   **[Get HLO Neighborhood](references/get_hlo_neighborhood.md)**: Fetch the
     BFS neighborhood of an HLO instruction to identify fusion blockers.
 -   **[Get Utilization Viewer](references/get_utilization_viewer.md)**: Fetch

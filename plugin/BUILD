@@ -21,6 +21,7 @@ sh_binary(
         "setup.py",
         "//:README.md",
         "//:requirements.in",
+        "//:skills_files",
         "@org_xprof//frontend:bundle.js",
         "@org_xprof//frontend:css",
         "@org_xprof//frontend:runtime.js",

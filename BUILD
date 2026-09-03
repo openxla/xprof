@@ -23,6 +23,12 @@ exports_files([
     "tsconfig.json",
 ])
 
+filegroup(
+    name = "skills_files",
+    srcs = glob(["skills/**"]),
+    visibility = ["//visibility:public"],
+)
+
 bool_flag(
     name = "enable_embedded_features",
     build_setting_default = False,

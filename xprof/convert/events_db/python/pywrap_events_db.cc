@@ -411,6 +411,13 @@ struct type_caster<xprof::events_db::RecordConsumerRef> {
   bool from_python(handle src, uint8_t flags, cleanup_list* cleanup) noexcept {
     if (src.is_none()) return false;
 
+    if (isinstance<xprof::events_db::ParquetRecordConsumer>(src)) {
+      xprof::events_db::ParquetRecordConsumer& c =
+          cast<xprof::events_db::ParquetRecordConsumer&>(src);
+      value.emplace(c);
+      return true;
+    }
+
     if (isinstance<xprof::events_db::PyRecordConsumer>(src)) {
       xprof::events_db::PyRecordConsumer& c =
           cast<xprof::events_db::PyRecordConsumer&>(src);
@@ -900,6 +907,51 @@ NB_MODULE(pywrap_events_db, m) {
   // Test helper for `ParquetExportOptions` `type_caster`.
   m.def("_test_roundtrip_parquet_export_options",
         [](xprof::events_db::ParquetExportOptions options) { return options; });
+
+  nb::class_<ParquetRecordConsumer>(
+      m, "ParquetRecordConsumer",
+      "Thread-safe consumer that streams and writes Record instances to an "
+      "Apache Parquet file in batches.")
+      .def(
+          "__init__",
+          [](ParquetRecordConsumer* self, Schema& schema,
+             std::string_view file_path,
+             std::optional<ParquetExportOptions> options) {
+            absl::StatusOr<ParquetRecordConsumer> consumer =
+                ParquetRecordConsumer::Build(
+                    schema, file_path,
+                    options.value_or(ParquetExportOptions{}));
+            if (!consumer.ok())
+              throw std::runtime_error(
+                  std::string(consumer.status().message()));
+            new (self) ParquetRecordConsumer(std::move(*consumer));
+          },
+          "schema"_a, "file_path"_a, "options"_a.none() = nb::none(),
+          nb::call_guard<nb::gil_scoped_release>(),
+          "Constructs a ParquetRecordConsumer with the given schema and "
+          "destination path.")
+      .def(
+          "consume",
+          [](ParquetRecordConsumer& self, Record& record) -> StepControl {
+            const absl::StatusOr<StepControl> step = self.Consume(record);
+            if (step.ok()) return *step;
+            throw std::runtime_error(std::string(step.status().message()));
+          },
+          "record"_a, nb::call_guard<nb::gil_scoped_release>(),
+          "Appends a record to the in-memory batch, flushing when batch_size "
+          "is reached.")
+      .def(
+          "finalize",
+          [](ParquetRecordConsumer& self, std::optional<ParseStatus> status) {
+            absl::Status finalize_status =
+                status.has_value() ? self.Finalize(*status) : self.Finalize();
+            if (!finalize_status.ok())
+              throw std::runtime_error(std::string(finalize_status.message()));
+          },
+          "result"_a.none() = nb::none(),
+          nb::call_guard<nb::gil_scoped_release>(),
+          "Flushes any remaining buffered records and closes the Parquet "
+          "file.");
 }
 
 }  // namespace xprof::events_db

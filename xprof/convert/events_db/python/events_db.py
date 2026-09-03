@@ -52,13 +52,36 @@ Record Consumer Semantics & Lifecycle (Transient Record Views):
             tensors_field: tuple(record[tensors_field]),
         })
       ```
+
+Parquet Exporting & Streaming:
+  Events DB provides `ParquetRecordConsumer` for streaming trace events
+  directly to Apache Parquet files without materializing intermediate records
+  in Python.
+
+  - Direct Zero-GIL C++ Streaming:
+    When passed to `parse_xspace_file` or `parse_xspace_bytes`, the C++ parser
+    detects `ParquetRecordConsumer` and streams records directly into batched
+    Parquet row groups across multiple worker threads without acquiring the
+    Python GIL.
+
+    ```py
+    schema = events_db.Schema()
+    events_db.parse_xspace_file(
+        "trace.xplane.pb",
+        schema,
+        events_db.ParquetRecordConsumer(
+            schema,
+            "trace.parquet",
+            events_db.ParquetExportOptions(
+                batch_size=65536,
+                compression_type=events_db.ArrowCompressionType.SNAPPY)))
+    ```
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 import dataclasses
-
 import enum
 from typing import TypeAlias
 
@@ -67,6 +90,7 @@ from xprof.convert.events_db.python import pywrap_events_db
 # Re-export core C++ classes, enums, and parser functions
 # go/keep-sorted start
 FieldIndex = pywrap_events_db.FieldIndex
+ParquetRecordConsumer = pywrap_events_db.ParquetRecordConsumer
 ParseStatus = pywrap_events_db.ParseStatus
 Record = pywrap_events_db.Record
 RecordConsumerRef = pywrap_events_db.RecordConsumerRef
@@ -210,6 +234,7 @@ __all__ = [
     "FieldIndex",
     "FieldValue",
     "ParquetExportOptions",
+    "ParquetRecordConsumer",
     "ParseStatus",
     "Record",
     "RecordConsumerRef",

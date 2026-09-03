@@ -17,6 +17,7 @@
 from collections.abc import Sequence
 import copy
 import operator
+import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -1199,6 +1200,112 @@ class ParquetExportOptionsCasterTest(parameterized.TestCase):
         ValueError, "compression_level requires compression_type to be set."
     ):
       events_db.ParquetExportOptions(compression_level=3)
+
+
+class ParquetRecordConsumerTest(parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls) -> None:
+    super().setUpClass()
+    file_path = runfiles.Create().Rlocation(_TEST_DATA_PATH)
+    cls._xspace_path = file_path
+    with open(file_path, "rb") as f:
+      cls._xspace = f.read()
+
+  def test_invalid_path_raises(self):
+    schema = events_db.Schema()
+    with self.assertRaisesRegex(
+        RuntimeError, r"/nonexistent_directory_12345/test\.parquet"
+    ):
+      events_db.ParquetRecordConsumer(
+          schema, "/nonexistent_directory_12345/test.parquet"
+      )
+
+  def test_empty_consumer_finalize_creates_valid_parquet(self):
+    temp_path = self.create_tempfile("empty.parquet").full_path
+    schema = events_db.Schema()
+    consumer = events_db.ParquetRecordConsumer(schema, temp_path)
+    consumer.finalize()
+    self.assertTrue(os.path.exists(temp_path))
+    self.assertGreater(os.path.getsize(temp_path), 0)
+    with open(temp_path, "rb") as f:
+      content = f.read()
+      self.assertTrue(content.startswith(b"PAR1"))
+      self.assertTrue(content.endswith(b"PAR1"))
+
+  def test_manual_consume_and_finalize(self):
+    temp_path = self.create_tempfile("manual.parquet").full_path
+    schema = events_db.Schema()
+    kernel_name_field = schema.register_field_name("kernel_name")
+    consumer = events_db.ParquetRecordConsumer(schema, temp_path)
+
+    record = events_db.Record()
+    record[kernel_name_field] = "matmul_kernel"
+    step = consumer.consume(record)
+    self.assertEqual(step, events_db.StepControl.CONTINUE)
+
+    consumer.finalize()
+    self.assertTrue(os.path.exists(temp_path))
+    self.assertGreater(os.path.getsize(temp_path), 0)
+    with open(temp_path, "rb") as f:
+      content = f.read()
+      self.assertTrue(content.startswith(b"PAR1"))
+      self.assertTrue(content.endswith(b"PAR1"))
+
+  def test_parse_xspace_file_streaming(self):
+    temp_path = self.create_tempfile("trace.parquet").full_path
+    schema = events_db.Schema()
+    options = events_db.ParquetExportOptions(
+        batch_size=1024,
+        compression_type=events_db.ArrowCompressionType.SNAPPY,
+    )
+    consumer = events_db.ParquetRecordConsumer(schema, temp_path, options)
+    status = events_db.parse_xspace_file(self._xspace_path, schema, consumer)
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertTrue(os.path.exists(temp_path))
+    self.assertGreater(os.path.getsize(temp_path), 0)
+    with open(temp_path, "rb") as f:
+      content = f.read()
+      self.assertTrue(content.startswith(b"PAR1"))
+      self.assertTrue(content.endswith(b"PAR1"))
+
+  def test_parse_xspace_bytes_streaming(self):
+    temp_path = self.create_tempfile("trace_bytes.parquet").full_path
+    schema = events_db.Schema()
+    consumer = events_db.ParquetRecordConsumer(schema, temp_path)
+    status = events_db.parse_xspace_bytes(self._xspace, schema, consumer)
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertTrue(os.path.exists(temp_path))
+    self.assertGreater(os.path.getsize(temp_path), 0)
+    with open(temp_path, "rb") as f:
+      content = f.read()
+      self.assertTrue(content.startswith(b"PAR1"))
+      self.assertTrue(content.endswith(b"PAR1"))
+
+  def test_max_record_count_stops_early(self):
+    temp_path = self.create_tempfile("early_stop.parquet").full_path
+    schema = events_db.Schema()
+    kernel_name_field = schema.register_field_name("kernel_name")
+    options = events_db.ParquetExportOptions(batch_size=2, max_record_count=2)
+    consumer = events_db.ParquetRecordConsumer(schema, temp_path, options)
+
+    record = events_db.Record()
+    record[kernel_name_field] = "k0"
+    self.assertEqual(consumer.consume(record), events_db.StepControl.CONTINUE)
+
+    record[kernel_name_field] = "k1"
+    self.assertEqual(consumer.consume(record), events_db.StepControl.CONTINUE)
+
+    record[kernel_name_field] = "k2"
+    self.assertEqual(consumer.consume(record), events_db.StepControl.STOP)
+
+    consumer.finalize()
+    self.assertTrue(os.path.exists(temp_path))
+    self.assertGreater(os.path.getsize(temp_path), 0)
+    with open(temp_path, "rb") as f:
+      content = f.read()
+      self.assertTrue(content.startswith(b"PAR1"))
+      self.assertTrue(content.endswith(b"PAR1"))
 
 
 if __name__ == "__main__":

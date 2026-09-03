@@ -37,6 +37,11 @@ import {AngularSplitModule} from 'angular-split';
 
 import {TimelinePlayer} from 'org_xprof/frontend/app/components/timeline_player/timeline_player';
 import {getDefaultFeatureFlag} from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
+import {
+  getMouseModeStatusConfig,
+  MouseMode,
+  MouseModeStatusConfig,
+} from 'org_xprof/frontend/app/components/trace_viewer_v2/shortcuts';
 
 import {
   isSearchEventsEvent,
@@ -161,17 +166,6 @@ export declare interface SelectedEventProperty {
   property?: string;
   value?: string | number;
   [key: string]: string | number | undefined;
-}
-
-/**
- * Mouse modes for trace viewer interaction.
- * Must match the values in C++ MouseMode enum.
- */
-export enum MouseMode {
-  SELECT = 1,
-  PAN = 2,
-  ZOOM = 3,
-  TIMING = 4,
 }
 
 /** Event name for mouse mode changes. */
@@ -465,6 +459,10 @@ export class TraceViewerContainer
   traceViewerV2ErrorMessage?: string;
   readonly MouseMode = MouseMode;
   currentMouseMode = MouseMode.PAN;
+
+  get currentMouseModeConfig(): MouseModeStatusConfig | undefined {
+    return getMouseModeStatusConfig(this.currentMouseMode);
+  }
   showTimingOnboarding = false;
   private readonly TIMING_PROMPTED_STORAGE_KEY =
     'trace_viewer_timing_prompted_v2';

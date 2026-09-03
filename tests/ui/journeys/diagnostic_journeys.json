@@ -1,0 +1,247 @@
+[
+  {
+    "id": "triage.pipeline_and_hardware_bounds",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "Input Pipeline Analysis",
+        "expected_selector": "input-pipeline"
+      },
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Op Profile",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Roofline Model",
+        "expected_selector": "roofline-model, .roofline-container"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Trace Viewer",
+        "expected_selector": "iframe"
+      }
+    ]
+  },
+  {
+    "id": "memory.cross_hardware_tpu_to_v6e",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Memory Viewer",
+        "expected_selector": "memory-viewer"
+      },
+      {
+        "action": "goto",
+        "target": "v6e-4-training/overview_page",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Roofline Model",
+        "expected_selector": "roofline-model, .roofline-container"
+      },
+      {
+        "action": "goto",
+        "target": "v6e-4-training/overview_page",
+        "expected_selector": "overview-page, overview-viewer"
+      }
+    ]
+  },
+  {
+    "id": "compiler.graph_and_multihost_scale",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Graph Viewer",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "goto",
+        "target": "v6e-4-training/overview_page",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "select_host",
+        "target": "t1v-n-9bfa07b4-w-0",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Trace Viewer",
+        "expected_selector": "iframe"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Overview Page",
+        "expected_selector": "overview-page, overview-viewer"
+      }
+    ]
+  },
+  {
+    "id": "compute.op_profile_and_stats",
+    "fixture": "v6e-4-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Profile",
+        "expected_selector": "op-profile, op-profile-base"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Framework Op Stats",
+        "expected_selector": "framework-op-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Roofline Model",
+        "expected_selector": "roofline-model, .roofline-container"
+      }
+    ]
+  },
+  {
+    "id": "routing.popstate_resilience_loop",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "go_back",
+        "target": "Overview Page",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "go_forward",
+        "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Input Pipeline Analysis",
+        "expected_selector": "input-pipeline"
+      },
+      {
+        "action": "go_back",
+        "target": "Memory Profile",
+        "expected_selector": "memory-viewer, memory-profile"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Op Profile",
+        "expected_selector": "op-profile, op-profile-base"
+      }
+    ]
+  },
+  {
+    "id": "distributed.host_retention_and_trace",
+    "fixture": "v6e-4-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "select_host",
+        "target": "t1v-n-9bfa07b4-w-0",
+        "expected_selector": "overview-page, overview-viewer"
+      },
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Trace Viewer",
+        "expected_selector": "iframe"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Overview Page",
+        "expected_selector": "overview-page, overview-viewer"
+      }
+    ]
+  },
+  {
+    "id": "full_spectrum.multimodal_endurance",
+    "fixture": "tpu-training",
+    "initial_tool": "overview_page",
+    "steps": [
+      {
+        "action": "switch_tool",
+        "target": "Roofline Model",
+        "expected_selector": "roofline-model, .roofline-container"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Memory Viewer",
+        "expected_selector": "memory-viewer"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Trace Viewer",
+        "expected_selector": "iframe"
+      },
+      {
+        "action": "switch_tool",
+        "target": "HLO Op Stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "goto",
+        "target": "v6e-4-training/hlo_stats",
+        "expected_selector": "google-chart, .google-visualization-table, hlo-stats"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Graph Viewer",
+        "expected_selector": "graph-viewer, iframe.graph-viewer-iframe, .graph-viewer-container"
+      },
+      {
+        "action": "switch_tool",
+        "target": "Input Pipeline Analysis",
+        "expected_selector": "input-pipeline"
+      },
+      {
+        "action": "goto",
+        "target": "v6e-4-training/overview_page",
+        "expected_selector": "overview-page, overview-viewer"
+      }
+    ]
+  }
+]
+

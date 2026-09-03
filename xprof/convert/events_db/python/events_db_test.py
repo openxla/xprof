@@ -14,6 +14,7 @@
 # ==============================================================================
 """Tests for events_db Python bindings (Schema and Record)."""
 
+from collections.abc import Sequence
 import operator
 
 from absl.testing import absltest
@@ -107,6 +108,424 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
     fn = schema.register_field_name("name")
     test_dict = {fn: "name_val"}
     self.assertEqual(test_dict[fn], "name_val")
+
+  def test_record_empty_initial_state(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    record = events_db.Record()
+    self.assertEqual(
+        (len(record), record.has_field(fn), fn in record, record.get(fn)),
+        (0, False, False, None),
+    )
+
+  def test_record_get_default_value(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    record = events_db.Record()
+    self.assertEqual(record.get(fn, default="fallback"), "fallback")
+
+  def test_record_getitem_missing_field_raises_key_error(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    record = events_db.Record()
+    with self.assertRaisesRegex(KeyError, "Field not found in Record"):
+      _ = record[fn]
+
+  def test_record_setitem_invalid_field_raises_value_error(self):
+    record = events_db.Record()
+    invalid_field = events_db.FieldIndex()
+    with self.assertRaisesRegex(
+        ValueError, "Cannot set field on invalid FieldIndex"
+    ):
+      record[invalid_field] = "value"
+
+  @parameterized.named_parameters(
+      ("bool", "is_kernel", True),
+      ("str", "kernel_name", "matmul_kernel"),
+      ("int", "duration_ns", 5000),
+      ("float", "utilization", 0.85),
+  )
+  def test_record_scalar_roundtrip(self, field_name, value):
+    schema = events_db.Schema()
+    fn = schema.register_field_name(field_name)
+    record = events_db.Record()
+    record[fn] = value
+    self.assertEqual(
+        (record.has_field(fn), record.get(fn), record[fn]),
+        (True, value, value),
+    )
+
+  def test_record_overwrite_field(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("device")
+    record = events_db.Record()
+    record[fn] = "/device:TPU:0"
+    record[fn] = "/device:GPU:0"
+    self.assertEqual(record[fn], "/device:GPU:0")
+
+  def test_record_clear(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    record = events_db.Record()
+    record[fn] = "kernel"
+    record.clear()
+    self.assertEqual((len(record), record.has_field(fn)), (0, False))
+
+  @parameterized.named_parameters(
+      ("string_tuple", ("tensor_x", "tensor_y"), ["tensor_x", "tensor_y"]),
+      ("int_list", [10, 20, 30], [10, 20, 30]),
+      ("range_sequence", range(4), [0, 1, 2, 3]),
+  )
+  def test_record_repeated_field_roundtrip(self, input_val, expected_list):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("repeated_field")
+    record = events_db.Record()
+    record[fn] = input_val
+    self.assertEqual(
+        (isinstance(record[fn], Sequence), list(record[fn])),
+        (True, expected_list),
+    )
+
+  @parameterized.named_parameters(
+      ("equal_to_list", [10, 20, 30], True),
+      ("equal_to_tuple", (10, 20, 30), True),
+      ("equal_to_float_list", [10.0, 20.0, 30.0], True),
+      ("unequal_float_list", [10.5, 20.0, 30.0], False),
+      ("unequal_str_list", ["10", "20", "30"], False),
+      ("unequal_other_type", "not_a_seq", False),
+  )
+  def test_sequence_equality(self, compare_target, should_equal):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("counts")
+    record = events_db.Record()
+    record[fn] = [10, 20, 30]
+    if should_equal:
+      self.assertEqual(record[fn], compare_target)
+    else:
+      self.assertNotEqual(record[fn], compare_target)
+
+  def test_cross_sequence_view_equality(self):
+    schema = events_db.Schema()
+    fn_counts = schema.register_field_name("counts")
+    fn_ratios = schema.register_field_name("ratios")
+    record = events_db.Record()
+    record[fn_counts] = [10, 20, 30]
+    record[fn_ratios] = [10.0, 20.0, 30.0]
+    self.assertEqual(record[fn_counts], record[fn_ratios])
+
+  def test_cross_sequence_view_inequality(self):
+    schema = events_db.Schema()
+    fn_counts = schema.register_field_name("counts")
+    fn_tensors = schema.register_field_name("tensors")
+    record = events_db.Record()
+    record[fn_counts] = [10, 20, 30]
+    record[fn_tensors] = ["tensor_x", "tensor_y", "tensor_z"]
+    self.assertNotEqual(record[fn_counts], record[fn_tensors])
+
+  def test_record_equality_same_fields(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    r1, r2 = events_db.Record(), events_db.Record()
+    r1[fn] = "op_a"
+    r2[fn] = "op_a"
+    self.assertEqual(r1, r2)
+
+  def test_record_equality_different_values(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("name")
+    r1, r2 = events_db.Record(), events_db.Record()
+    r1[fn] = "op_a"
+    r2[fn] = "op_b"
+    self.assertNotEqual(r1, r2)
+
+  def test_sequence_views_are_abc_sequences(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    record.set_int32_sequence(fn, [1, 2, 3])
+    seq = record[fn]
+    self.assertIsInstance(seq, Sequence)
+    self.assertEqual(list(seq), [1, 2, 3])
+
+  def test_events_db_exports(self):
+    self.assertCountEqual(
+        events_db.__all__,
+        ["FieldIndex", "FieldValue", "Record", "Schema"],
+    )
+
+  def test_bytes_rejected_with_type_error(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("bytes_field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(
+        TypeError, "bytes is not a supported FieldValue; use str"
+    ):
+      record[fn] = b"abc"
+
+  def test_unsupported_type_rejected_with_type_error(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("unsupported_field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(
+        TypeError, "Unsupported value type for FieldValue"
+    ):
+      record[fn] = object()
+
+  @parameterized.named_parameters(
+      ("schema", events_db.Schema, "mapping between string names and indices"),
+      ("record", events_db.Record, "row-oriented record"),
+      (
+          "field_index",
+          events_db.FieldIndex,
+          "Opaque token representing a field",
+      ),
+  )
+  def test_class_docstrings(self, cls, expected_phrase):
+    self.assertIn(expected_phrase, cls.__doc__)
+
+  @parameterized.named_parameters(
+      ("bool", "set_bool", True, True),
+      ("int32", "set_int32", -42, -42),
+      ("uint32", "set_uint32", 100, 100),
+      ("int64", "set_int64", -100000, -100000),
+      ("uint64", "set_uint64", 18446744073709551615, 18446744073709551615),
+      ("double", "set_double", 3.14159, 3.14159),
+      ("string", "set_string", "test_str", "test_str"),
+      ("int32_seq", "set_int32_sequence", [-1, 0, 1], [-1, 0, 1]),
+      ("int32_seq_range", "set_int32_sequence", range(3), [0, 1, 2]),
+      ("uint32_seq", "set_uint32_sequence", [10, 20], [10, 20]),
+      ("int64_seq", "set_int64_sequence", [-100, 200], [-100, 200]),
+      (
+          "uint64_seq",
+          "set_uint64_sequence",
+          [1000, 18446744073709551615],
+          [1000, 18446744073709551615],
+      ),
+      ("double_seq", "set_double_sequence", [0.1, 0.2], [0.1, 0.2]),
+      ("string_seq", "set_string_sequence", ["a", "b"], ["a", "b"]),
+  )
+  def test_typed_setter_methods(self, method_name, input_val, expected_val):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    getattr(record, method_name)(fn, input_val)
+    if isinstance(expected_val, float):
+      self.assertAlmostEqual(record[fn], expected_val, places=5)
+    elif isinstance(expected_val, list):
+      self.assertEqual(list(record[fn]), expected_val)
+    else:
+      self.assertEqual(record[fn], expected_val)
+
+  def test_typed_setter_overwrite_different_types(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+
+    record.set_int32(fn, 123)
+    self.assertEqual(record[fn], 123)
+
+    record.set_string(fn, "hello")
+    self.assertEqual(record[fn], "hello")
+
+    record.set_int32_sequence(fn, [1, 2, 3])
+    self.assertEqual(list(record[fn]), [1, 2, 3])
+
+  @parameterized.named_parameters(
+      ("set_bool", "set_bool", True),
+      ("set_int32", "set_int32", 1),
+      ("set_uint32", "set_uint32", 1),
+      ("set_int64", "set_int64", 1),
+      ("set_uint64", "set_uint64", 1),
+      ("set_double", "set_double", 1.0),
+      ("set_string", "set_string", "a"),
+      ("set_int32_sequence", "set_int32_sequence", [1]),
+      ("set_uint32_sequence", "set_uint32_sequence", [1]),
+      ("set_int64_sequence", "set_int64_sequence", [1]),
+      ("set_uint64_sequence", "set_uint64_sequence", [1]),
+      ("set_double_sequence", "set_double_sequence", [1.0]),
+      ("set_string_sequence", "set_string_sequence", ["a"]),
+  )
+  def test_typed_setter_invalid_field_raises_value_error(
+      self, method_name, val
+  ):
+    record = events_db.Record()
+    invalid_field = events_db.FieldIndex()
+    with self.assertRaisesRegex(
+        ValueError, "Cannot set field on invalid FieldIndex"
+    ):
+      getattr(record, method_name)(invalid_field, val)
+
+  @parameterized.named_parameters(
+      ("set_string", "set_string"),
+      ("set_int32_sequence", "set_int32_sequence"),
+      ("set_string_sequence", "set_string_sequence"),
+  )
+  def test_typed_setter_bytes_rejected_with_type_error(self, method_name):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(
+        TypeError, "bytes is not a supported FieldValue; use str"
+    ):
+      getattr(record, method_name)(fn, b"abc")
+
+  @parameterized.named_parameters(
+      ("set_int32_sequence", "set_int32_sequence", {1, 2}),
+      ("set_uint32_sequence", "set_uint32_sequence", {1, 2}),
+      ("set_int64_sequence", "set_int64_sequence", {1, 2}),
+      ("set_uint64_sequence", "set_uint64_sequence", {1, 2}),
+      ("set_double_sequence", "set_double_sequence", {1.0, 2.0}),
+      ("set_string_sequence", "set_string_sequence", {"a", "b"}),
+  )
+  def test_typed_sequence_setter_rejects_set_with_type_error(
+      self, method_name, val
+  ):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(TypeError, "Expected a sequence"):
+      getattr(record, method_name)(fn, val)
+
+  def test_typed_sequence_setter_rejects_string_with_type_error(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(
+        TypeError, "str is not a supported sequence; use list or tuple"
+    ):
+      record.set_string_sequence(fn, "hello")
+
+  @parameterized.named_parameters(
+      ("empty_int", "set_int32_sequence", [], "[]"),
+      ("int_sequence", "set_int32_sequence", [1, 2], "[1, 2]"),
+      ("string_sequence", "set_string_sequence", ["a", "b"], '["a", "b"]'),
+  )
+  def test_sequence_view_repr(self, setter, val, expected_repr):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    getattr(record, setter)(fn, val)
+    self.assertEqual(repr(record[fn]), expected_repr)
+
+  def test_sequence_view_direct_equality(self):
+    schema = events_db.Schema()
+    fn1 = schema.register_field_name("fn1")
+    fn2 = schema.register_field_name("fn2")
+    r1, r2 = events_db.Record(), events_db.Record()
+    r1.set_int32_sequence(fn1, [1, 2, 3])
+    r2.set_int32_sequence(fn2, [1, 2, 3])
+    self.assertEqual(r1[fn1], r2[fn2])
+
+    r2.set_int32_sequence(fn2, [1, 2, 4])
+    self.assertNotEqual(r1[fn1], r2[fn2])
+
+  def test_sequence_view_equality_exception_returns_false(self):
+    class ErrorOnEq:
+
+      def __eq__(self, other):
+        raise RuntimeError("comparison error")
+
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    record.set_int32_sequence(fn, [1])
+    self.assertNotEqual(record[fn], [ErrorOnEq()])
+
+  def test_sequence_view_equality_keyboard_interrupt_propagates(self):
+    class InterruptOnEq:
+
+      def __eq__(self, other):
+        raise KeyboardInterrupt()
+
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    record.set_int32_sequence(fn, [1])
+    with self.assertRaises(KeyboardInterrupt):
+      _ = record[fn] == [InterruptOnEq()]
+
+  def test_sequence_view_slicing(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("seq")
+    record = events_db.Record()
+    record.set_int32_sequence(fn, [0, 1, 2, 3, 4, 5])
+    seq = record[fn]
+
+    with self.subTest(name="basic_slice"):
+      sliced = seq[1:4]
+      self.assertIs(type(sliced), type(seq))
+      self.assertEqual(sliced, [1, 2, 3])
+
+    with self.subTest(name="open_bounds_and_step"):
+      self.assertEqual(seq[:3], [0, 1, 2])
+      self.assertEqual(seq[3:], [3, 4, 5])
+      self.assertEqual(seq[:], [0, 1, 2, 3, 4, 5])
+      self.assertEqual(seq[::2], [0, 2, 4])
+
+    with self.subTest(name="negative_indices_and_reversed_slice"):
+      self.assertEqual(seq[-3:-1], [3, 4])
+      self.assertEqual(seq[::-1], [5, 4, 3, 2, 1, 0])
+
+    with self.subTest(name="empty_slice"):
+      self.assertEqual(seq[4:2], [])
+      self.assertEmpty(seq[4:2])
+
+    with self.subTest(name="reassign_sliced_sequence"):
+      fn2 = schema.register_field_name("seq2")
+      record2 = events_db.Record()
+      record2[fn2] = sliced
+      self.assertEqual(record2[fn2], [1, 2, 3])
+
+  def test_large_uint64_via_generic_setter(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    record[fn] = 18446744073709551615
+    self.assertEqual(record[fn], 18446744073709551615)
+
+  @parameterized.named_parameters(
+      ("int32", "set_int32_sequence", [1, 2]),
+      ("uint32", "set_uint32_sequence", [10, 20]),
+      ("int64", "set_int64_sequence", [-100, 200]),
+      ("uint64", "set_uint64_sequence", [1000, 2000]),
+      ("double", "set_double_sequence", [1.5, 2.5]),
+      ("string", "set_string_sequence", ["a", "b"]),
+  )
+  def test_assign_existing_sequence_view_to_record(self, setter, val):
+    schema = events_db.Schema()
+    fn1 = schema.register_field_name("fn1")
+    fn2 = schema.register_field_name("fn2")
+    r1, r2 = events_db.Record(), events_db.Record()
+    getattr(r1, setter)(fn1, val)
+    r2[fn2] = r1[fn1]
+    if isinstance(val[0], float):
+      for actual, expected in zip(r2[fn2], val):
+        self.assertAlmostEqual(actual, expected)
+    else:
+      self.assertEqual(list(r2[fn2]), val)
+
+  def test_record_set_method(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    record.set(fn, 123)
+    self.assertEqual(record[fn], 123)
+
+  def test_record_set_invalid_field_raises_value_error(self):
+    record = events_db.Record()
+    invalid_field = events_db.FieldIndex()
+    with self.assertRaisesRegex(
+        ValueError, "Cannot set field on invalid FieldIndex"
+    ):
+      record.set(invalid_field, 123)
+
+  def test_set_string_non_string_raises_type_error(self):
+    schema = events_db.Schema()
+    fn = schema.register_field_name("field")
+    record = events_db.Record()
+    with self.assertRaisesRegex(TypeError, "Expected str"):
+      record.set_string(fn, 123)
+
 
 if __name__ == "__main__":
   absltest.main()

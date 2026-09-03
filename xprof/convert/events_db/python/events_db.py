@@ -24,6 +24,7 @@ from xprof.convert.events_db.python import pywrap_events_db
 # Re-export core C++ classes
 FieldIndex = pywrap_events_db.FieldIndex
 Schema = pywrap_events_db.Schema
+Record = pywrap_events_db.Record
 
 FieldValue: TypeAlias = (
     None
@@ -110,4 +111,5 @@ __all__ = [
     "FieldIndex",
     "FieldValue",
     "Schema",
+    "Record",
 ]

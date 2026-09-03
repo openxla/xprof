@@ -6,4 +6,3 @@ pytest-playwright
 pytest-xdist
 playwright
 pillow
-numpy

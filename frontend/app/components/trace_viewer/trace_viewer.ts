@@ -43,6 +43,8 @@ import {
 import {
   FeatureFlag,
   getFeatureFlags,
+  getStoredFeatureFlag,
+  saveFeatureFlag,
 } from 'org_xprof/frontend/app/components/trace_viewer_v2/feature_flags';
 import {
   DETAILS_RECEIVED_EVENT_NAME,
@@ -66,7 +68,6 @@ import {
   COLOR_PALETTES,
   CUSTOM_COLORS_STORAGE_KEY,
   CUSTOM_PALETTE_NAME,
-  FEATURE_FLAG_STORAGE_PREFIX,
   FILTER_CONFIG,
   FILTER_FIELD_EVENT_DURATION,
   FILTER_FIELDS,
@@ -149,28 +150,13 @@ function parseHostsList(hosts: unknown): string[] {
   return Array.isArray(hosts) ? hosts : [];
 }
 
-/**
- * Loads feature flags from local storage.
- */
 function loadFeatureFlagsFromStorage(): FeatureFlagWithValue[] {
-  try {
-    return getFeatureFlags().map((flag): FeatureFlagWithValue => {
-      const storedValue = window.localStorage.getItem(
-        FEATURE_FLAG_STORAGE_PREFIX + flag.id,
-      );
-      return {
-        ...flag,
-        value: storedValue === null ? flag.default : storedValue === 'true',
-      };
-    });
-  } catch {
-    return getFeatureFlags().map(
-      (flag): FeatureFlagWithValue => ({
-        ...flag,
-        value: flag.default,
-      }),
-    );
-  }
+  return getFeatureFlags().map(
+    (flag): FeatureFlagWithValue => ({
+      ...flag,
+      value: getStoredFeatureFlag(flag.id),
+    }),
+  );
 }
 
 /** A trace viewer component. */
@@ -230,18 +216,24 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
   private queryString = '';
   searching = false;
   private readonly searchQuery = new ReplaySubject<string>(1);
-  /** Returns whether compressed protobuf trace format (.pb) is enabled via query/localStorage. */
   get usePb(): boolean {
+    if (!this.useTraceViewerV2) {
+      return false;
+    }
+    const searchParams = new URLSearchParams(window.location.search);
+    const isJsonFormat =
+      searchParams.get('format') === 'json' ||
+      searchParams.get('use_pb') === 'false';
+    if (isJsonFormat) {
+      return false;
+    }
     const isPbFormat =
-      new URLSearchParams(window.location.search).get('format') === 'pb';
+      searchParams.get('format') === 'pb' ||
+      searchParams.get('use_pb') === 'true';
     if (isPbFormat) {
       return true;
     }
-    try {
-      return window.localStorage.getItem('use_pb_format') === 'true';
-    } catch {
-      return false;
-    }
+    return getStoredFeatureFlag('use_pb');
   }
   /** @export */
   get searchQueryForTesting(): Observable<string> {
@@ -324,15 +316,15 @@ export class TraceViewer implements OnInit, AfterViewInit, OnDestroy {
    * Saves the current feature flag values to local storage and reloads the page.
    */
   saveFeatureFlags(): void {
-    for (const f of this.featureFlags) {
-      const key = FEATURE_FLAG_STORAGE_PREFIX + f.id;
-      if (f.value === f.default) {
-        window.localStorage.removeItem(key);
-      } else {
-        window.localStorage.setItem(key, f.value ? 'true' : 'false');
-      }
+    for (const flag of this.featureFlags) {
+      saveFeatureFlag(flag.id, flag.value, flag.default);
     }
     this.dialog.closeAll();
+    this.reload();
+  }
+
+  /** @visibleForTesting */
+  reload(): void {
     window.location.reload();
   }
 

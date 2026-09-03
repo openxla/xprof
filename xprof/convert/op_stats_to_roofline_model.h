@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "tsl/platform/protobuf.h"
 #include "xprof/convert/data_table_utils.h"
+#include "plugin/xprof/protobuf/flat_op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_metrics.pb.h"
 #include "plugin/xprof/protobuf/op_stats.pb.h"
 #include "plugin/xprof/protobuf/roofline_model.pb.h"
@@ -38,22 +39,35 @@ using tensorflow::profiler::roofline_model::RooflineModelRecord;
 struct RooflineModelOptions {
   bool include_infeed_outfeed = true;
   bool apply_time_scale_multiplier = false;
+  bool use_flat_op_metrics_db = false;
 };
 
+template <typename Func>
+auto VisitDeviceOpMetricsDb(const OpStats& op_stats, bool use_flat,
+                            Func&& func) {
+  if (use_flat && op_stats.has_flat_device_op_metrics_db()) {
+    return func(op_stats.flat_device_op_metrics_db());
+  }
+  return func(op_stats.device_op_metrics_db());
+}
+
+template <typename MetricsT>
 RooflineModelRecord ConvertOpMetricsToRooflineModelRecord(
-    const OpStats& op_stats, const OpMetrics& metrics, RecordType record_type,
+    const OpStats& op_stats, const MetricsT& metrics, RecordType record_type,
     uint32_t step_num, uint64_t total_time_ps,
     const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {});
 
+template <typename MetricsDbT>
 RooflineModelRecord GenerateRooflineModelProgramRecord(
-    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {});
 
+template <typename MetricsDbT>
 tsl::protobuf::RepeatedPtrField<RooflineModelRecord>
 ConvertOpMetricsDbToRooflineModelRecords(
-    const OpStats& op_stats, const OpMetricsDb& db, RecordType record_type,
+    const OpStats& op_stats, const MetricsDbT& db, RecordType record_type,
     uint32_t step_num, const RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {});
 
@@ -64,15 +78,19 @@ ConvertOpStatsToRooflineModel(const tensorflow::profiler::OpStats& tf_op_stats,
 tensorflow::profiler::roofline_model::RooflineModelDatabase
 InitializeRooflineModelDatabaseFromOpStats(
     const OpStats& op_stats, const RooflineModelOptions& options = {});
+
 // Generate RooflineModelRecord for the HLO DB over the entire profiling
 // duration including incomplete steps.
 inline void AddRooflineModelRecordForProfileDuration(
     const OpStats& op_stats, RooflineModelDatabase& roofline_model_db,
     const RooflineModelOptions& options = {}) {
-  *roofline_model_db.mutable_roofline_model_record() =
-      ConvertOpMetricsDbToRooflineModelRecords(
-          op_stats, op_stats.device_op_metrics_db(), RecordType::ALL,
-          /*step_num=*/0, roofline_model_db, options);
+  VisitDeviceOpMetricsDb(op_stats, options.use_flat_op_metrics_db,
+                         [&](const auto& db) {
+    *roofline_model_db.mutable_roofline_model_record() =
+        ConvertOpMetricsDbToRooflineModelRecords(
+            op_stats, db, RecordType::ALL,
+            /*step_num=*/0, roofline_model_db, options);
+  });
 }
 
 // Generate RooflineModelRecord for the HLO DB over complete steps only.

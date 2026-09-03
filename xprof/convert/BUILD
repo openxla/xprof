@@ -494,6 +494,7 @@ cc_library(
         ":tool_options",
         ":xplane_to_hlo",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:inference_stats_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -528,6 +529,7 @@ cc_library(
         ":tool_options",
         ":xplane_to_hlo",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:inference_stats_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -697,6 +699,7 @@ cc_library(
         ":tool_options",
         ":xplane_to_dcn_collective_stats",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:inference_stats_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
@@ -1233,6 +1236,7 @@ cc_library(
     srcs = ["op_metrics_to_record.cc"],
     hdrs = ["op_metrics_to_record.h"],
     deps = [
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -1250,37 +1254,6 @@ cc_test(
     deps = [
         ":op_metrics_to_record",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_library(
-    name = "flat_op_metrics_to_record",
-    srcs = ["flat_op_metrics_to_record.cc"],
-    hdrs = ["flat_op_metrics_to_record.h"],
-    deps = [
-        ":op_metrics_to_record",
-        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
-        "//plugin/xprof/protobuf:hardware_types_proto_cc",
-        "//plugin/xprof/protobuf:op_metrics_proto_cc",
-        "//plugin/xprof/protobuf:op_stats_proto_cc",
-        "@com_google_absl//absl/algorithm:container",
-        "@com_google_absl//absl/strings",
-        "@tsl//tsl/platform:protobuf",
-        "@xla//xla/hlo/ir:hlo",
-        "@xla//xla/tsl/profiler/utils:math_utils",
-    ],
-)
-
-cc_test(
-    name = "flat_op_metrics_to_record_test",
-    srcs = ["flat_op_metrics_to_record_test.cc"],
-    deps = [
-        ":flat_op_metrics_to_record",
-        ":op_metrics_to_record",
-        "//net/proto2/contrib/parse_proto:parse_text_proto",
-        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
-        "//plugin/xprof/protobuf:roofline_model_proto_cc",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1338,9 +1311,11 @@ cc_library(
     hdrs = ["op_stats_to_roofline_model.h"],
     deps = [
         ":data_table_utils",
+        ":flat_op_metrics_db_combiner",
         ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":source_info_utils",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
@@ -1350,6 +1325,7 @@ cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/utils:diagnostics",
+        "@org_xprof//xprof/utils:hardware_type_utils",
         "@org_xprof//xprof/utils:roofline_model_utils",
         "@tsl//tsl/platform:protobuf",
         "@xla//xla/tsl/profiler/convert:xla_op_utils",
@@ -1364,6 +1340,7 @@ cc_library(
     deps = [
         ":op_profile_builder",
         ":tool_options",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
         "//plugin/xprof/protobuf:op_profile_proto_cc",
@@ -1384,6 +1361,7 @@ cc_library(
         ":op_metrics_db_combiner",
         ":op_metrics_to_record",
         ":op_stats_to_input_pipeline_analysis",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",
         "//plugin/xprof/protobuf:kernel_stats_proto_cc",
@@ -2001,6 +1979,7 @@ cc_library(
         ":op_metrics_db_combiner",
         ":xplane_to_tf_functions",
         "//plugin/xprof/protobuf:diagnostics_proto_cc",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:kernel_stats_proto_cc",
         "//plugin/xprof/protobuf:op_metrics_proto_cc",
@@ -2024,6 +2003,7 @@ cc_test(
     srcs = ["op_stats_combiner_test.cc"],
     deps = [
         ":op_stats_combiner",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:op_stats_proto_cc",
         "//plugin/xprof/protobuf:power_metrics_proto_cc",
@@ -2156,6 +2136,7 @@ cc_library(
         ":xplane_to_trace_container",
         ":xplane_to_utilization_viewer",
         "//plugin/xprof/protobuf:dcn_slack_analysis_proto_cc",
+        "//plugin/xprof/protobuf:flat_op_metrics_proto_cc",
         "//plugin/xprof/protobuf:hardware_types_proto_cc",
         "//plugin/xprof/protobuf:inference_stats_proto_cc",
         "//plugin/xprof/protobuf:input_pipeline_proto_cc",

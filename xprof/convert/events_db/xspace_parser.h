@@ -16,6 +16,7 @@ limitations under the License.
 #include <optional>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/optional_ref.h"
 #include "xla/tsl/profiler/utils/group_events.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
@@ -67,6 +68,21 @@ absl::StatusOr<ParseStatus> ParseXSpace(
 absl::StatusOr<ParseStatus> ParseXSpace(
     tensorflow::profiler::XSpace& xspace, Schema& schema,
     RecordConsumerRef consumer,
+    absl::optional_ref<const tensorflow::profiler::HloModuleMap>
+        hlo_module_map = std::nullopt,
+    absl::optional_ref<const tsl::profiler::GroupMetadataMap>
+        group_metadata_map = std::nullopt,
+    tensorflow::profiler::ExecutorFactoryRef executor_factory =
+        tensorflow::profiler::DefaultExecutorFactory);
+
+// Ingests profiler trace events from the binary XSpace protobuf file at
+// `file_path` and streams each parsed `Record` to `consumer`.
+//
+// See the overloads above for details on `hlo_module_map`,
+// `group_metadata_map`, concurrency, thread-safety, early termination, and
+// return values.
+absl::StatusOr<ParseStatus> ParseXSpace(
+    absl::string_view file_path, Schema& schema, RecordConsumerRef consumer,
     absl::optional_ref<const tensorflow::profiler::HloModuleMap>
         hlo_module_map = std::nullopt,
     absl::optional_ref<const tsl::profiler::GroupMetadataMap>

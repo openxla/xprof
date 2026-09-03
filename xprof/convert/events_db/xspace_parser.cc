@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/optional_ref.h"
 #include "xla/service/hlo.pb.h"
 #include "xla/tsl/profiler/utils/device_utils.h"
@@ -40,6 +41,7 @@ limitations under the License.
 #include "xprof/convert/events_db/tpu_trace_parser.h"
 #include "xprof/convert/executor.h"
 #include "xprof/convert/executor_factory.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/utils/hlo_module_map.h"
 #include "xprof/utils/hlo_proto_map.h"
 
@@ -207,6 +209,19 @@ absl::StatusOr<ParseStatus> ParseXSpace(
   }
   return ParseXSpace(xspace, BuildGroupMetadataMap(xspace), schema, consumer,
                      hlo_module_map, executor_factory);
+}
+
+absl::StatusOr<ParseStatus> ParseXSpace(
+    absl::string_view file_path, Schema& schema,
+    RecordConsumerRef consumer,
+    absl::optional_ref<const tensorflow::profiler::HloModuleMap> hlo_module_map,
+    absl::optional_ref<const tsl::profiler::GroupMetadataMap>
+        group_metadata_map,
+    tensorflow::profiler::ExecutorFactoryRef executor_factory) {
+  tensorflow::profiler::XSpace xspace;
+  RETURN_IF_ERROR(xprof::ReadBinaryProto(file_path, &xspace));
+  return ParseXSpace(xspace, schema, consumer, hlo_module_map,
+                     group_metadata_map, executor_factory);
 }
 
 }  // namespace xprof::events_db

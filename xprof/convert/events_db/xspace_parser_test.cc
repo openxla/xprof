@@ -41,6 +41,7 @@ limitations under the License.
 #include "xprof/convert/events_db/tpu_component.h"
 #include "xprof/convert/executor.h"
 #include "xprof/convert/executor_factory.h"
+#include "xprof/convert/file_utils.h"
 #include "xprof/utils/hlo_module_map.h"
 
 namespace xprof::events_db {
@@ -1013,6 +1014,44 @@ TEST(XSpaceParserTest, WorksWithVoidFinalizeConsumer) {
 
   EXPECT_THAT(status_or, IsOkAndHolds(Eq(ParseStatus::kComplete)));
   EXPECT_TRUE(consumer.finalized);
+}
+
+TEST(XSpaceParserTest, ParsesXSpaceFromFilePath) {
+  tensorflow::profiler::XSpace xspace;
+  tensorflow::profiler::XPlane* host_plane = xspace.add_planes();
+  host_plane->set_name(tsl::profiler::kHostThreadsPlaneName);
+  tsl::profiler::XPlaneBuilder host_builder(host_plane);
+  tsl::profiler::XLineBuilder host_line = host_builder.GetOrCreateLine(1);
+  host_line.SetName("MainThread");
+  tsl::profiler::XEventBuilder host_event =
+      host_line.AddEvent(*host_builder.GetOrCreateEventMetadata("step"));
+  host_event.SetTimestampNs(100);
+  host_event.SetDurationNs(200);
+
+  const std::string file_path =
+      absl::StrCat(testing::TempDir(), "/test_file.xplane.pb");
+  ASSERT_OK(xprof::WriteBinaryProto(file_path, xspace));
+
+  Schema schema;
+  int record_count = 0;
+  auto consumer = [&](Record&) -> absl::StatusOr<StepControl> {
+    record_count++;
+    return StepControl::kContinue;
+  };
+
+  EXPECT_THAT(ParseXSpace(file_path, schema, consumer,
+                          /*hlo_module_map=*/std::nullopt,
+                          /*group_metadata_map=*/std::nullopt,
+                          tensorflow::profiler::InlineExecutorFactory),
+              IsOkAndHolds(Eq(ParseStatus::kComplete)));
+  EXPECT_EQ(record_count, 1);
+}
+
+TEST(XSpaceParserTest, ParseXSpaceFileReturnsErrorOnNonExistentPath) {
+  Schema schema;
+  auto consumer = [](Record&) { return StepControl::kContinue; };
+  EXPECT_THAT(ParseXSpace("/non_existent/path/trace.pb", schema, consumer),
+              StatusIs(absl::StatusCode::kNotFound));
 }
 
 }  // namespace

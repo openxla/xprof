@@ -15,6 +15,7 @@
 """Tests for events_db Python bindings."""
 
 from collections.abc import Sequence
+import copy
 import operator
 
 from absl.testing import absltest
@@ -257,6 +258,7 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
             "Schema",
             "StepControl",
             "ParseStatus",
+            "RecordConsumerRef",
         ],
     )
 
@@ -286,9 +288,17 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
           events_db.FieldIndex,
           "Opaque token representing a field",
       ),
+      (
+          "record_consumer_ref",
+          events_db.RecordConsumerRef,
+          "Wrapper and adapter for a record consumer",
+      ),
   )
   def test_class_docstrings(self, cls, expected_phrase):
     self.assertIn(expected_phrase, cls.__doc__)
+
+  def test_module_docstring_contains_record_consumer_lifecycle(self):
+    self.assertIn("Record Consumer Semantics & Lifecycle", events_db.__doc__)
 
   @parameterized.named_parameters(
       ("bool", "set_bool", True, True),
@@ -429,7 +439,7 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
   def test_sequence_view_equality_exception_returns_false(self):
     class ErrorOnEq:
 
-      def __eq__(self, other):
+      def __eq__(self, other: object) -> bool:
         raise RuntimeError("comparison error")
 
     schema = events_db.Schema()
@@ -441,7 +451,7 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
   def test_sequence_view_equality_keyboard_interrupt_propagates(self):
     class InterruptOnEq:
 
-      def __eq__(self, other):
+      def __eq__(self, other: object) -> bool:
         raise KeyboardInterrupt()
 
     schema = events_db.Schema()
@@ -598,6 +608,317 @@ class ParseStatusTest(parameterized.TestCase):
     self.assertEqual(
         status_dict[events_db.ParseStatus.STOPPED_EARLY], "stopped_early"
     )
+
+
+class RecordConsumerRefTest(parameterized.TestCase):
+
+  def test_construct_from_callable_function(self):
+    def consumer(record: events_db.Record) -> events_db.StepControl:
+      del record  # Unused.
+      return events_db.StepControl.CONTINUE
+
+    ref = events_db.RecordConsumerRef(consumer)
+    record = events_db.Record()
+    self.assertEqual(ref.consume(record), events_db.StepControl.CONTINUE)
+    self.assertEqual(ref(record), events_db.StepControl.CONTINUE)
+
+  def test_construct_from_lambda(self):
+    ref = events_db.RecordConsumerRef(lambda r: events_db.StepControl.STOP)
+    record = events_db.Record()
+    self.assertEqual(ref(record), events_db.StepControl.STOP)
+
+  def test_construct_from_consumer_method(self):
+    class MethodConsumer:
+
+      def __init__(self):
+        self.call_count = 0
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del record  # Unused.
+        self.call_count += 1
+        return events_db.StepControl.CONTINUE
+
+    consumer = MethodConsumer()
+    ref = events_db.RecordConsumerRef(consumer)
+    record = events_db.Record()
+    self.assertEqual(ref(record), events_db.StepControl.CONTINUE)
+    self.assertEqual(consumer.call_count, 1)
+
+  def test_prioritizes_consume_over_call(self):
+    class DualConsumer:
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def __call__(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.STOP
+
+    ref = events_db.RecordConsumerRef(DualConsumer())
+    record = events_db.Record()
+    self.assertEqual(ref(record), events_db.StepControl.CONTINUE)
+
+  @parameterized.named_parameters(
+      ("return_none", lambda r: None, events_db.StepControl.CONTINUE),
+      ("return_true", lambda r: True, events_db.StepControl.CONTINUE),
+      ("return_false", lambda r: False, events_db.StepControl.STOP),
+      (
+          "return_continue",
+          lambda r: events_db.StepControl.CONTINUE,
+          events_db.StepControl.CONTINUE,
+      ),
+      (
+          "return_stop",
+          lambda r: events_db.StepControl.STOP,
+          events_db.StepControl.STOP,
+      ),
+  )
+  def test_consumer_return_values(self, callback, expected_control):
+    ref = events_db.RecordConsumerRef(callback)
+    record = events_db.Record()
+    self.assertEqual(ref(record), expected_control)
+
+  @parameterized.named_parameters(
+      ("int", 42),
+      ("string", "unexpected"),
+      ("list", [1, 2, 3]),
+  )
+  def test_invalid_return_type_raises_type_error(self, return_value):
+    ref = events_db.RecordConsumerRef(lambda r: return_value)
+    record = events_db.Record()
+    with self.assertRaisesRegex(
+        TypeError, "Record consumer must return StepControl, bool, or None"
+    ):
+      ref(record)
+
+  @parameterized.named_parameters(
+      ("int", 123),
+      ("none", None),
+      ("string", "not_callable"),
+      ("object_without_consume", object()),
+  )
+  def test_invalid_target_raises_type_error(self, target):
+    with self.assertRaisesRegex(
+        TypeError,
+        "RecordConsumerRef target must be callable or provide a callable"
+        " 'consume' method",
+    ):
+      events_db.RecordConsumerRef(target)
+
+  def test_target_property(self):
+    def my_fn(record: events_db.Record) -> None:
+      del record  # Unused.
+
+    ref = events_db.RecordConsumerRef(my_fn)
+    self.assertIs(ref.target, my_fn)
+
+  def test_repr(self):
+    def custom_target(record: events_db.Record) -> None:
+      del record  # Unused.
+
+    ref = events_db.RecordConsumerRef(custom_target)
+    self.assertIn("RecordConsumerRef(target=", repr(ref))
+    self.assertIn("custom_target", repr(ref))
+
+  def test_copy_constructor(self):
+    ref1 = events_db.RecordConsumerRef(lambda r: events_db.StepControl.STOP)
+    ref2 = events_db.RecordConsumerRef(ref1)
+    self.assertIs(ref2.target, ref1.target)
+    ref3 = copy.copy(ref1)
+    self.assertIs(ref3.target, ref1.target)
+    record = events_db.Record()
+    self.assertEqual(ref2(record), events_db.StepControl.STOP)
+    self.assertEqual(ref3(record), events_db.StepControl.STOP)
+
+  def test_finalize_signature_inspection_failure_falls_back_to_taking_arg(self):
+    class UninspectableFinalize:
+
+      def __init__(self) -> None:
+        self.called_with: events_db.ParseStatus | None = None
+
+      @property
+      def __signature__(self) -> None:
+        raise ValueError("Cannot inspect signature")
+
+      def __call__(self, arg: events_db.ParseStatus) -> None:
+        self.called_with = arg
+
+    class Target:
+
+      def __init__(self, finalize_fn: UninspectableFinalize) -> None:
+        self.finalize = finalize_fn
+
+      def consume(self, record: events_db.Record) -> None:
+        del self, record  # Unused.
+
+    fin = UninspectableFinalize()
+    ref = events_db.RecordConsumerRef(Target(fin))
+    ref.finalize(events_db.ParseStatus.COMPLETE)
+    self.assertEqual(fin.called_with, events_db.ParseStatus.COMPLETE)
+
+  def test_unhandled_finalize_attribute_raises_type_error(self):
+    class BadFinalize:
+
+      def consume(self, record: events_db.Record) -> None:
+        del self, record  # Unused.
+
+      finalize = 123
+
+    with self.assertRaisesRegex(
+        TypeError, "'finalize' attribute must be callable"
+    ):
+      events_db.RecordConsumerRef(BadFinalize())
+
+  def test_noop_finalize_when_target_has_no_finalize(self):
+    ref = events_db.RecordConsumerRef(lambda r: events_db.StepControl.CONTINUE)
+    ref.finalize()
+    ref.finalize(events_db.ParseStatus.STOPPED_EARLY)
+
+  @parameterized.named_parameters(
+      ("default", None, events_db.ParseStatus.COMPLETE),
+      (
+          "complete",
+          events_db.ParseStatus.COMPLETE,
+          events_db.ParseStatus.COMPLETE,
+      ),
+      (
+          "stopped_early",
+          events_db.ParseStatus.STOPPED_EARLY,
+          events_db.ParseStatus.STOPPED_EARLY,
+      ),
+  )
+  def test_finalize_with_status_argument(self, pass_status, expected_received):
+    class FinalizeConsumer:
+
+      def __init__(self):
+        self.received = None
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self, status: events_db.ParseStatus) -> None:
+        self.received = status
+
+    consumer = FinalizeConsumer()
+    ref = events_db.RecordConsumerRef(consumer)
+    if pass_status is None:
+      ref.finalize()
+    else:
+      ref.finalize(pass_status)
+    self.assertEqual(consumer.received, expected_received)
+
+  @parameterized.named_parameters(
+      ("default", None),
+      ("complete", events_db.ParseStatus.COMPLETE),
+      ("stopped_early", events_db.ParseStatus.STOPPED_EARLY),
+  )
+  def test_parameterless_finalize(self, pass_status):
+    class ParameterlessFinalizeConsumer:
+
+      def __init__(self):
+        self.finalize_calls = 0
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self) -> None:
+        self.finalize_calls += 1
+
+    consumer = ParameterlessFinalizeConsumer()
+    ref = events_db.RecordConsumerRef(consumer)
+    if pass_status is None:
+      ref.finalize()
+    else:
+      ref.finalize(pass_status)
+    self.assertEqual(consumer.finalize_calls, 1)
+
+  def test_consume_exception_propagates(self):
+    def faulty_consumer(record: events_db.Record) -> None:
+      del record  # Unused.
+      raise ValueError("custom consume failure")
+
+    ref = events_db.RecordConsumerRef(faulty_consumer)
+    with self.assertRaisesRegex(ValueError, "custom consume failure"):
+      ref(events_db.Record())
+
+  def test_finalize_exception_propagates(self):
+    class FaultyFinalizeConsumer:
+
+      def consume(self, record: events_db.Record) -> None:
+        del self, record  # Unused.
+
+      def finalize(self) -> None:
+        raise RuntimeError("custom finalize failure")
+
+    ref = events_db.RecordConsumerRef(FaultyFinalizeConsumer())
+    with self.assertRaisesRegex(RuntimeError, "custom finalize failure"):
+      ref.finalize()
+
+  def test_finalize_with_exception_argument(self):
+    class FinalizeWithOutcomeConsumer:
+
+      def __init__(self):
+        self.received = None
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self, outcome: Exception | events_db.ParseStatus) -> None:
+        self.received = outcome
+
+    consumer = FinalizeWithOutcomeConsumer()
+    ref = events_db.RecordConsumerRef(consumer)
+    err = RuntimeError("worker thread failed")
+    ref.finalize(err)
+    self.assertIs(consumer.received, err)
+
+  def test_parameterless_finalize_skipped_on_exception(self):
+    class ParameterlessFinalizeConsumer:
+
+      def __init__(self):
+        self.finalize_calls = 0
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self) -> None:
+        self.finalize_calls += 1
+
+    consumer = ParameterlessFinalizeConsumer()
+    ref = events_db.RecordConsumerRef(consumer)
+    ref.finalize(RuntimeError("worker failed"))
+    self.assertEqual(consumer.finalize_calls, 0)
+
+  @parameterized.named_parameters(
+      ("int", 123),
+      ("str", "invalid"),
+      ("dict", {}),
+  )
+  def test_invalid_finalize_argument_raises_type_error(self, arg):
+    ref = events_db.RecordConsumerRef(lambda r: events_db.StepControl.CONTINUE)
+    with self.assertRaisesRegex(
+        TypeError,
+        "finalize argument must be a ParseStatus, an Exception, or None",
+    ):
+      ref.finalize(arg)
+
+  def test_record_mutation_in_consumer(self):
+    schema = events_db.Schema()
+    tag_field = schema.register_field_name("tag")
+
+    def mutating_consumer(record: events_db.Record) -> events_db.StepControl:
+      record[tag_field] = "mutated"
+      return events_db.StepControl.CONTINUE
+
+    ref = events_db.RecordConsumerRef(mutating_consumer)
+    record = events_db.Record()
+    self.assertEqual(ref(record), events_db.StepControl.CONTINUE)
+    self.assertEqual(record[tag_field], "mutated")
 
 
 if __name__ == "__main__":

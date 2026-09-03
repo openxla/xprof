@@ -12,7 +12,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Events DB Python API for high-performance accelerator trace analysis."""
+"""Events DB Python API for high-performance accelerator trace analysis.
+
+Record Consumer Semantics & Lifecycle (Transient Record Views):
+  When consuming streamed events (via `RecordConsumerRef` or callbacks passed
+  to trace parsers), the `Record` instance passed to `consume(record)` is a
+  transient, non-owning view directly referencing memory managed by the C++
+  parser.
+
+  - Parser Ownership & Memory Reuse:
+    To maximize parsing throughput and avoid allocation churn across millions
+    of events, the C++ parser retains ownership of the underlying `Record`
+    buffer and reuses it across iterations.
+
+  - Lifetime & Cross-Thread Invalidation Warning:
+    Consumers MUST NOT retain references or pointers to the `Record` after the
+    callback returns, nor pass the `Record` instance to other threads (e.g.
+    `threading.Thread`, `queue.Queue`, or thread pools). Doing so causes data
+    races, memory corruption, or segmentation faults when the parser clears,
+    reuses, or destructs the underlying C++ record:
+
+      ```py
+      # DANGEROUS: Storing raw `Record` instances retains transient views!
+      def bad_consumer(record: events_db.Record):
+        records_list.append(record)  # BUG: Cleared/mutated on next iteration!
+        background_queue.put(record)  # BUG: Not thread-safe! Data race!
+      ```
+
+  - Safe Usage:
+    Extract required field values or copy needed data into independent Python
+    structures (such as `dict`, `tuple`, or dataclasses) during the callback:
+
+      ```py
+      # SAFE: Extract field values into independent Python objects
+      def safe_consumer(record: events_db.Record):
+        records_list.append({
+            name_field: record[name_field],
+            dur_field: record[dur_field],
+            tensors_field: tuple(record[tensors_field]),
+        })
+      ```
+"""
 
 from __future__ import annotations
 
@@ -27,6 +67,7 @@ Schema = pywrap_events_db.Schema
 Record = pywrap_events_db.Record
 StepControl = pywrap_events_db.StepControl
 ParseStatus = pywrap_events_db.ParseStatus
+RecordConsumerRef = pywrap_events_db.RecordConsumerRef
 
 FieldValue: TypeAlias = (
     None
@@ -116,4 +157,5 @@ __all__ = [
     "Record",
     "StepControl",
     "ParseStatus",
+    "RecordConsumerRef",
 ]

@@ -25,6 +25,8 @@ limitations under the License.
 #include <vector>
 
 #include "absl/hash/hash.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "third_party/nanobind/include/nanobind/make_iterator.h"
 #include "third_party/nanobind/include/nanobind/nanobind.h"
@@ -208,7 +210,224 @@ FieldValue PyObjectToFieldValue(nb::handle obj) {
   }
 }
 
+class PyRecordConsumer {
+ public:
+  explicit PyRecordConsumer(nb::handle target) {
+    nb::gil_scoped_acquire gil;
+    target_ = nb::borrow<nb::object>(target);
+
+    if (nb::hasattr(target, "consume")) {
+      nb::object consume_attr = target.attr("consume");
+      if (PyCallable_Check(consume_attr.ptr()))
+        consume_fn_ = std::move(consume_attr);
+    }
+
+    if (!consume_fn_.is_valid() && PyCallable_Check(target.ptr()))
+      consume_fn_ = nb::borrow<nb::object>(target);
+
+    if (!consume_fn_.is_valid()) {
+      throw nb::type_error(
+          "RecordConsumerRef target must be callable or provide a callable "
+          "'consume' method");
+    }
+
+    if (nb::hasattr(target, "finalize")) {
+      nb::object finalize_attr = target.attr("finalize");
+      if (!PyCallable_Check(finalize_attr.ptr()))
+        throw nb::type_error("'finalize' attribute must be callable");
+      finalize_fn_ = std::move(finalize_attr);
+      has_finalize_ = true;
+
+      try {
+        const nb::object inspect_mod = nb::module_::import_("inspect");
+        const nb::object sig = inspect_mod.attr("signature")(finalize_fn_);
+        const nb::object params = sig.attr("parameters");
+        finalize_takes_arg_ = nb::len(params) > 0;
+      } catch (const nb::python_error&) {
+        finalize_takes_arg_ = true;
+      }
+    }
+  }
+
+  PyRecordConsumer(const PyRecordConsumer& other) {
+    if (nb::is_alive()) {
+      nb::gil_scoped_acquire gil;
+      target_ = other.target_;
+      consume_fn_ = other.consume_fn_;
+      finalize_fn_ = other.finalize_fn_;
+    }
+    has_finalize_ = other.has_finalize_;
+    finalize_takes_arg_ = other.finalize_takes_arg_;
+  }
+
+  PyRecordConsumer(PyRecordConsumer&& other) noexcept = default;
+  PyRecordConsumer& operator=(const PyRecordConsumer&) = delete;
+  PyRecordConsumer& operator=(PyRecordConsumer&&) = delete;
+
+  ~PyRecordConsumer() {
+    if (nb::is_alive()) {
+      nb::gil_scoped_acquire gil;
+      target_.reset();
+      consume_fn_.reset();
+      finalize_fn_.reset();
+    } else {
+      target_.release();
+      consume_fn_.release();
+      finalize_fn_.release();
+    }
+  }
+
+  absl::StatusOr<StepControl> operator()(Record& record) const {
+    return Consume(record);
+  }
+
+  absl::StatusOr<StepControl> Consume(Record& record) const noexcept {
+    try {
+      return InvokeConsume(record);
+    } catch (const std::exception& e) {
+      return absl::UnknownError(e.what());
+    }
+  }
+
+  StepControl PyConsume(Record& record) const { return InvokeConsume(record); }
+
+  absl::Status Finalize(
+      const absl::StatusOr<ParseStatus>& result) const noexcept {
+    try {
+      InvokeFinalize(result);
+      return absl::OkStatus();
+    } catch (const std::exception& e) {
+      return absl::UnknownError(e.what());
+    }
+  }
+
+  void PyFinalize(nb::handle result = nb::none()) const {
+    nb::gil_scoped_acquire gil;
+    if (!result.is_none() && !nb::isinstance<ParseStatus>(result) &&
+        !PyExceptionInstance_Check(result.ptr())) {
+      throw nb::type_error(
+          "finalize argument must be a ParseStatus, an Exception, or None");
+    }
+    if (!has_finalize_) return;
+
+    if (!finalize_takes_arg_) {
+      if (!PyExceptionInstance_Check(result.ptr())) finalize_fn_();
+      return;
+    }
+
+    if (result.is_none())
+      finalize_fn_(nb::cast(ParseStatus::kComplete));
+    else
+      finalize_fn_(result);
+  }
+
+  RecordConsumerRef AsRef() const noexcept { return RecordConsumerRef(*this); }
+
+  nb::object target() const {
+    nb::gil_scoped_acquire gil;
+    return target_;
+  }
+
+ private:
+  StepControl InvokeConsume(Record& record) const {
+    nb::gil_scoped_acquire gil;
+    nb::object py_record = nb::cast(&record, nb::rv_policy::reference);
+    nb::object py_result = consume_fn_(py_record);
+
+    if (py_result.is_none()) return StepControl::kContinue;
+    if (nb::isinstance<nb::bool_>(py_result))
+      return nb::cast<bool>(py_result) ? StepControl::kContinue
+                                       : StepControl::kStop;
+    if (nb::isinstance<StepControl>(py_result))
+      return nb::cast<StepControl>(py_result);
+    throw nb::type_error(
+        "Record consumer must return StepControl, bool, or None");
+  }
+
+  void InvokeFinalize(const absl::StatusOr<ParseStatus>& result) const {
+    if (!has_finalize_) return;
+
+    nb::gil_scoped_acquire gil;
+    if (finalize_takes_arg_) {
+      if (result.ok()) {
+        finalize_fn_(nb::cast(*result));
+      } else {
+        const absl::Status& status = result.status();
+        const nb::handle exc = nb::handle(PyExc_RuntimeError);
+        if (status.message().empty())
+          finalize_fn_(exc(status.ToString()));
+        else
+          finalize_fn_(exc(status.message()));
+      }
+    } else {
+      if (result.ok()) finalize_fn_();
+    }
+  }
+
+  nb::object target_;
+  nb::object consume_fn_;
+  nb::object finalize_fn_;
+  bool has_finalize_ = false;
+  bool finalize_takes_arg_ = false;
+};
+
+static_assert(std::is_constructible_v<RecordConsumerRef, PyRecordConsumer&>);
+static_assert(
+    std::is_constructible_v<RecordConsumerRef, const PyRecordConsumer&>);
+
 }  // namespace
+}  // namespace xprof::events_db
+
+namespace nanobind::detail {
+
+template <>
+struct type_caster<xprof::events_db::RecordConsumerRef> {
+  static constexpr auto Name = const_name("RecordConsumerRef");
+  template <typename T_>
+  using Cast = movable_cast_t<T_>;
+  template <typename T_>
+  static constexpr bool can_cast() {
+    return true;
+  }
+
+  std::optional<xprof::events_db::PyRecordConsumer> holder;
+  std::optional<xprof::events_db::RecordConsumerRef> value;
+
+  bool from_python(handle src, uint8_t flags, cleanup_list* cleanup) noexcept {
+    if (src.is_none()) return false;
+
+    if (isinstance<xprof::events_db::PyRecordConsumer>(src)) {
+      xprof::events_db::PyRecordConsumer& c =
+          cast<xprof::events_db::PyRecordConsumer&>(src);
+      value.emplace(c.AsRef());
+      return true;
+    }
+
+    if (!PyCallable_Check(src.ptr()) && !hasattr(src, "consume")) return false;
+
+    try {
+      holder.emplace(borrow<object>(src));
+      value.emplace(holder->AsRef());
+      return true;
+    } catch (const std::exception&) {
+      return false;
+    }
+  }
+
+  static handle from_cpp(xprof::events_db::RecordConsumerRef src,
+                         rv_policy policy,
+                         cleanup_list* cleanup) noexcept = delete;
+
+  explicit operator xprof::events_db::RecordConsumerRef*() { return &*value; }
+  explicit operator xprof::events_db::RecordConsumerRef&() { return *value; }
+  explicit operator xprof::events_db::RecordConsumerRef&&() {
+    return (xprof::events_db::RecordConsumerRef&&)*value;
+  }
+};
+
+}  // namespace nanobind::detail
+
+namespace xprof::events_db {
 
 NB_MODULE(pywrap_events_db, m) {
   m.doc() = "Native C++ bindings for XProf Events DB Schema and Record";
@@ -288,7 +507,8 @@ NB_MODULE(pywrap_events_db, m) {
   nb::class_<Record>(
       m, "Record",
       "An extensible, row-oriented record mapping field indices to dynamically "
-      "typed values. Not thread-safe.")
+      "typed values. Not thread-safe. When received via a consumer callback, "
+      "the `Record` is transient and valid only for the duration of the call.")
       .def(nb::init<>())
       .def(
           "has_field",
@@ -475,6 +695,45 @@ NB_MODULE(pywrap_events_db, m) {
       .value("STOPPED_EARLY", ParseStatus::kStoppedEarly,
              "Parsing stopped early and cleanly because consumer returned "
              "`StepControl.STOP`.");
+
+  // Bind `RecordConsumerRef`
+  nb::class_<PyRecordConsumer>(
+      m, "RecordConsumerRef",
+      "Wrapper and adapter for a record consumer and its completion "
+      "lifecycle.\n\n"
+      "Note: The `Record` passed to `consume` is a transient view owned by the "
+      "parser and must not be retained beyond the callback invocation or "
+      "shared across threads.")
+      .def(nb::init<const PyRecordConsumer&>(), "other"_a,
+           "Copy-constructs a RecordConsumerRef.")
+      .def(nb::init<nb::handle>(), "target"_a.none(),
+           "Constructs a RecordConsumerRef from a callable or object with a "
+           "`consume` method.")
+      .def(
+          "__copy__",
+          [](const PyRecordConsumer& self) { return PyRecordConsumer(self); },
+          "Returns a copy of this RecordConsumerRef.")
+      .def("consume", &PyRecordConsumer::PyConsume, "record"_a,
+           "Processes a streamed transient `Record` and returns a "
+           "`StepControl` decision. The `record` reference must not be stored "
+           "beyond this call.")
+      .def("__call__", &PyRecordConsumer::PyConsume, "record"_a,
+           "Processes a streamed transient `Record` and returns a "
+           "`StepControl` decision. The `record` reference must not be stored "
+           "beyond this call.")
+      .def("finalize", &PyRecordConsumer::PyFinalize,
+           "result"_a.none() = nb::none(),
+           "Finalizes the consumer with the given `ParseStatus` or `Exception` "
+           "(defaults to `ParseStatus.COMPLETE`).")
+      .def_prop_ro("target", &PyRecordConsumer::target,
+                   "The underlying Python consumer target.")
+      .def("__repr__", [](const PyRecordConsumer& self) {
+        nb::gil_scoped_acquire gil;
+        std::ostringstream oss;
+        oss << "RecordConsumerRef(target="
+            << nb::cast<std::string>(nb::repr(self.target())) << ")";
+        return oss.str();
+      });
 }
 
 }  // namespace xprof::events_db

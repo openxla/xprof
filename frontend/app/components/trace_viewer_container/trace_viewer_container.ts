@@ -1004,14 +1004,22 @@ export class TraceViewerContainer
   openHelpDialog(): void {
     const dialog = this.el.nativeElement.querySelector(
       'trace-viewer-help-dialog',
-    ) as (HTMLElement & {openDialog?: () => void; open?: boolean}) | null;
-    // Call openDialog() on the upgraded Lit web component instance if available;
-    // fallback to setting the `open` property directly if custom element definition
+    ) as (HTMLElement & {openDialog?: () => void; closeDialog?: () => void, open?: boolean}) | null;
+    // Call openDialog() or closeDialog() on the upgraded Lit web component instance if available;
+    // fallback to setting the \`open\` property directly if custom element definition
     // upgrade is still pending.
-    if (dialog?.openDialog) {
-      dialog.openDialog();
-    } else if (dialog) {
-      dialog.open = true;
+    if (dialog?.open) {
+      if (dialog.closeDialog) {
+        dialog.closeDialog();
+      } else {
+        dialog.open = false;
+      }
+    } else {
+      if (dialog?.openDialog) {
+        dialog.openDialog();
+      } else if (dialog) {
+        dialog.open = true;
+      }
     }
   }
 }

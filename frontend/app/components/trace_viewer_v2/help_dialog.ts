@@ -4,6 +4,11 @@ import '@material/web/iconbutton/icon-button';
 import type {MdDialog} from '@material/web/dialog/dialog';
 import {css, html, LitElement} from 'lit';
 import {customElement, property} from 'lit/decorators.js';
+import {
+  ShortcutItem,
+  ShortcutSection,
+  TRACE_VIEWER_SHORTCUTS,
+} from './shortcuts';
 
 const selectIcon = html`<svg
   width="15"
@@ -113,14 +118,13 @@ export class TraceViewerHelpDialog extends LitElement {
       --md-sys-color-on-surface-variant: #444746;
       --md-dialog-container-min-width: 860px;
       --md-dialog-container-max-width: 940px;
+      /* Remove the default limit so the dialog expands to fit all content */
+      --md-dialog-container-max-height: unset;
       min-width: 860px;
       max-width: 940px;
+      max-height: unset;
     }
     md-icon-button {
-      --md-focus-ring-color: transparent;
-      --md-icon-button-state-layer-color: transparent;
-      --md-icon-button-hover-state-layer-color: transparent;
-      --md-icon-button-pressed-state-layer-color: transparent;
       outline: none;
     }
     .dialog-headline {
@@ -135,18 +139,11 @@ export class TraceViewerHelpDialog extends LitElement {
       padding: 0px 24px 20px;
       box-sizing: border-box;
       overflow: visible;
-      max-height: none;
-      outline: none;
     }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 36px;
-    }
-    @media (max-width: 768px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
     }
     .section {
       display: flex;
@@ -157,50 +154,64 @@ export class TraceViewerHelpDialog extends LitElement {
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
       color: #444746;
       margin-top: 8px;
       margin-bottom: 4px;
       padding-bottom: 3px;
       border-bottom: 1px solid #e0e0e0;
     }
-    .section:first-child .section-title {
-      margin-top: 0;
-    }
     .shortcut-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 14px;
-      line-height: 22px;
-      color: #1f1f1f;
+      line-height: 24px;
+      color: var(--md-sys-color-on-surface, #1f1f1f);
+      padding: 5px 8px;
+      border-radius: 8px;
+      transition: background-color 0.2s ease;
+      margin-bottom: 2px;
       white-space: nowrap;
+    }
+    .shortcut-row:hover {
+      background-color: var(--md-sys-color-surface-container-highest, #f8f9fa);
     }
     .shortcut-keys {
       display: flex;
-      gap: 3px;
+      gap: 4px;
       align-items: center;
       white-space: nowrap;
     }
     kbd {
-      background-color: #f1f3f4;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      color: #3c4043;
-      font-family: Roboto, 'Google Sans', monospace;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 1px 6px;
-      min-width: 16px;
-      text-align: center;
-      box-shadow: none;
-    }
-    .action-label {
-      color: #444746;
-      font-size: 14px;
-      white-space: nowrap;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      background: linear-gradient(
+        180deg,
+        var(--md-sys-color-surface, #ffffff) 0%,
+        var(--md-sys-color-surface-container, #f1f3f4) 100%
+      );
+      border: 1px solid var(--md-sys-color-outline-variant, #dadce0);
+      border-bottom: 2.5px solid var(--md-sys-color-outline, #9aa0a6);
+      border-radius: 6px;
+      color: var(--md-sys-color-on-surface, #202124);
+      font-family: 'Google Sans Text', 'Roboto Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 8px;
+      line-height: 16px;
+      min-width: 14px;
+      box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+    }
+    .action-label {
+      color: var(--md-sys-color-on-surface-variant, #3c4043);
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      font-weight: 500;
+      white-space: nowrap;
     }
     .close-btn {
       margin-top: -8px;
@@ -251,7 +262,51 @@ export class TraceViewerHelpDialog extends LitElement {
     this.open = false;
   }
 
+  private renderIcon(iconName?: string) {
+    switch (iconName) {
+      case 'select':
+        return selectIcon;
+      case 'pan':
+        return panIcon;
+      case 'zoom':
+        return zoomIcon;
+      case 'measure':
+        return measureIcon;
+      default:
+        return '';
+    }
+  }
+
+  private renderShortcutItem(item: ShortcutItem) {
+    const keysHtml = item.keys.map(
+      (key, index) => html`
+        <kbd>${key}</kbd>${index < item.keys.length - 1
+          ? item.separator || ' / '
+          : ''}
+      `,
+    );
+
+    return html`
+      <div class="shortcut-row">
+        <span class="action-label"
+          >${this.renderIcon(item.iconName)} ${item.description}</span
+        >
+        <span class="shortcut-keys">${keysHtml}</span>
+      </div>
+    `;
+  }
+
+  private renderShortcutSection(section: ShortcutSection) {
+    return html`
+      <div class="section-title">${section.title}</div>
+      ${section.items.map((item) => this.renderShortcutItem(item))}
+    `;
+  }
+
   override render() {
+    const leftSections = TRACE_VIEWER_SHORTCUTS.slice(0, 2);
+    const rightSections = TRACE_VIEWER_SHORTCUTS.slice(2, 4);
+
     return html`
       <md-dialog
         ?open=${this.open}
@@ -271,103 +326,14 @@ export class TraceViewerHelpDialog extends LitElement {
         <div slot="content" class="dialog-content" tabindex="-1">
           <div class="grid">
             <div class="section">
-              <div class="section-title">Navigation</div>
-              <div class="shortcut-row">
-                <span class="action-label">Zoom in / out</span>
-                <span class="shortcut-keys"><kbd>W</kbd> / <kbd>S</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Pan left / right</span>
-                <span class="shortcut-keys"><kbd>A</kbd> / <kbd>D</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Select prev / next event</span>
-                <span class="shortcut-keys"><kbd>←</kbd> / <kbd>→</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Zoom to fit selection</span>
-                <span class="shortcut-keys"><kbd>F</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Reset zoom and pan</span>
-                <span class="shortcut-keys"><kbd>Z</kbd> / <kbd>0</kbd></span>
-              </div>
-
-              <div class="section-title">Mouse Modes</div>
-              <div class="shortcut-row">
-                <span class="action-label">${selectIcon} Select Mode</span>
-                <span class="shortcut-keys"><kbd>1</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">${panIcon} Pan Mode</span>
-                <span class="shortcut-keys"><kbd>2</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">${zoomIcon} Zoom Mode</span>
-                <span class="shortcut-keys"><kbd>3</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">${measureIcon} Measure Mode</span>
-                <span class="shortcut-keys"><kbd>4</kbd></span>
-              </div>
+              ${leftSections.map((section) =>
+                this.renderShortcutSection(section),
+              )}
             </div>
-
             <div class="section">
-              <div class="section-title">Mouse Controls</div>
-              <div class="shortcut-row">
-                <span class="action-label">Select event</span>
-                <span class="shortcut-keys"><kbd>Click</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Zoom in / out</span>
-                <span class="shortcut-keys"><kbd>Scroll Wheel</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Box select events</span>
-                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 1)</span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Pan timeline</span>
-                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 2)</span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Vertical zoom</span>
-                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 3)</span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Measure time range</span>
-                <span class="shortcut-keys"><kbd>Drag</kbd> (Mode 4)</span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Add selection / measure</span>
-                <span class="shortcut-keys"
-                  ><kbd>Shift</kbd> + <kbd>Click/Drag</kbd></span
-                >
-              </div>
-
-              <div class="section-title">General</div>
-              <div class="shortcut-row">
-                <span class="action-label">Search events</span>
-                <span class="shortcut-keys"><kbd>/</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Next / prev search result</span>
-                <span class="shortcut-keys"
-                  ><kbd>Enter</kbd> / <kbd>Shift+Enter</kbd></span
-                >
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Bookmark selection</span>
-                <span class="shortcut-keys"><kbd>M</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Open Settings</span>
-                <span class="shortcut-keys"><kbd>;</kbd></span>
-              </div>
-              <div class="shortcut-row">
-                <span class="action-label">Open Help menu</span>
-                <span class="shortcut-keys"><kbd>?</kbd></span>
-              </div>
+              ${rightSections.map((section) =>
+                this.renderShortcutSection(section),
+              )}
             </div>
           </div>
         </div>

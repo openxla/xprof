@@ -21,7 +21,13 @@ import operator
 from absl.testing import absltest
 from absl.testing import parameterized
 
+from python.runfiles import runfiles
+
 from xprof.convert.events_db.python import events_db
+
+_TEST_DATA_PATH = (
+    "org_xprof/xprof/convert/events_db/python/test_data/test.xplane.pb"
+)
 
 
 class EventsDbSchemaAndRecordTest(parameterized.TestCase):
@@ -259,6 +265,8 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
             "StepControl",
             "ParseStatus",
             "RecordConsumerRef",
+            "parse_xspace_file",
+            "parse_xspace_bytes",
         ],
     )
 
@@ -919,6 +927,228 @@ class RecordConsumerRefTest(parameterized.TestCase):
     record = events_db.Record()
     self.assertEqual(ref(record), events_db.StepControl.CONTINUE)
     self.assertEqual(record[tag_field], "mutated")
+
+
+class EventsDbParseXSpaceFileTest(absltest.TestCase):
+
+  def test_success(self):
+    file_path = runfiles.Create().Rlocation(_TEST_DATA_PATH)
+    schema = events_db.Schema()
+    record_count = 0
+
+    def consumer(record: events_db.Record) -> events_db.StepControl:
+      nonlocal record_count
+      del record  # Unused.
+      record_count += 1
+      return events_db.StepControl.CONTINUE
+
+    status = events_db.parse_xspace_file(file_path, schema, consumer)
+
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertGreater(record_count, 0)
+
+  def test_file_not_found(self):
+    schema = events_db.Schema()
+    with self.assertRaisesRegex(
+        RuntimeError, r"/non_existent/path/trace\.xplane\.pb"
+    ):
+      events_db.parse_xspace_file(
+          "/non_existent/path/trace.xplane.pb",
+          schema,
+          lambda r: events_db.StepControl.CONTINUE,
+      )
+
+
+class EventsDbParseXSpaceBytesTest(parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls) -> None:
+    super().setUpClass()
+    file_path = runfiles.Create().Rlocation(_TEST_DATA_PATH)
+    with open(file_path, "rb") as f:
+      cls._xspace = f.read()
+
+  def test_success(self):
+    schema = events_db.Schema()
+    record_count = 0
+
+    def consumer(record: events_db.Record) -> events_db.StepControl:
+      nonlocal record_count
+      del record  # Unused.
+      record_count += 1
+      return events_db.StepControl.CONTINUE
+
+    status = events_db.parse_xspace_bytes(self._xspace, schema, consumer)
+
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertGreater(record_count, 0)
+
+  def test_bytes_corrupt(self):
+    schema = events_db.Schema()
+    with self.assertRaisesRegex(
+        RuntimeError, "Failed to parse binary XSpace protobuf"
+    ):
+      events_db.parse_xspace_bytes(
+          b"corrupt non-proto bytes",
+          schema,
+          lambda r: events_db.StepControl.CONTINUE,
+      )
+
+  def test_early_stop(self):
+    schema = events_db.Schema()
+    status = events_db.parse_xspace_bytes(
+        self._xspace,
+        schema,
+        lambda r: events_db.StepControl.STOP,
+    )
+    self.assertEqual(status, events_db.ParseStatus.STOPPED_EARLY)
+
+  @parameterized.named_parameters(
+      (
+          "continue",
+          events_db.StepControl.CONTINUE,
+          events_db.ParseStatus.COMPLETE,
+      ),
+      ("stop", events_db.StepControl.STOP, events_db.ParseStatus.STOPPED_EARLY),
+  )
+  def test_finalizes_consumer(
+      self,
+      step_control: events_db.StepControl,
+      expected_status: events_db.ParseStatus,
+  ):
+    class FinalizingConsumer:
+
+      def __init__(self):
+        self.finalized = False
+        self.status = None
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return step_control
+
+      def finalize(self, result: events_db.ParseStatus) -> None:
+        self.finalized = True
+        self.status = result
+
+    consumer = FinalizingConsumer()
+    status = events_db.parse_xspace_bytes(
+        self._xspace, events_db.Schema(), consumer
+    )
+    self.assertEqual(status, expected_status)
+    self.assertTrue(consumer.finalized)
+    self.assertEqual(consumer.status, expected_status)
+
+  def test_consumer_raises_exception(self):
+    def faulty_consumer(record: events_db.Record) -> events_db.StepControl:
+      del record  # Unused.
+      raise ValueError("custom consumer failure")
+
+    with self.assertRaisesRegex(RuntimeError, "custom consumer failure"):
+      events_db.parse_xspace_bytes(
+          self._xspace,
+          events_db.Schema(),
+          faulty_consumer,
+      )
+
+  def test_record_consumer_ref_instance(self):
+    schema = events_db.Schema()
+    record_count = 0
+
+    def consumer(record: events_db.Record) -> events_db.StepControl:
+      nonlocal record_count
+      del record  # Unused.
+      record_count += 1
+      return events_db.StepControl.CONTINUE
+
+    status = events_db.parse_xspace_bytes(
+        self._xspace,
+        schema,
+        events_db.RecordConsumerRef(consumer),
+    )
+
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertGreater(record_count, 0)
+
+  def test_parameterless_finalize(self):
+    class ParameterlessFinalizeConsumer:
+
+      def __init__(self):
+        self.finalized = False
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self) -> None:
+        self.finalized = True
+
+    consumer = ParameterlessFinalizeConsumer()
+    status = events_db.parse_xspace_bytes(
+        self._xspace,
+        events_db.Schema(),
+        consumer,
+    )
+    self.assertEqual(status, events_db.ParseStatus.COMPLETE)
+    self.assertTrue(consumer.finalized)
+
+  def test_finalize_called_on_consumer_failure(self):
+    class FinalizeOnFailureConsumer:
+
+      def __init__(self):
+        self.outcome = None
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        raise ValueError("consume failure")
+
+      def finalize(self, outcome: Exception) -> None:
+        self.outcome = outcome
+
+    consumer = FinalizeOnFailureConsumer()
+    with self.assertRaisesRegex(RuntimeError, "consume failure"):
+      events_db.parse_xspace_bytes(
+          self._xspace,
+          events_db.Schema(),
+          consumer,
+      )
+
+    self.assertIsInstance(consumer.outcome, RuntimeError)
+    self.assertIn("consume failure", str(consumer.outcome))
+
+  def test_finalize_raises_exception_propagates(self):
+    class FaultyFinalizeConsumer:
+
+      def consume(self, record: events_db.Record) -> events_db.StepControl:
+        del self, record  # Unused.
+        return events_db.StepControl.CONTINUE
+
+      def finalize(self, result: events_db.ParseStatus) -> None:
+        del result  # Unused.
+        raise RuntimeError("custom finalize failure")
+
+    with self.assertRaisesRegex(RuntimeError, "custom finalize failure"):
+      events_db.parse_xspace_bytes(
+          self._xspace,
+          events_db.Schema(),
+          FaultyFinalizeConsumer(),
+      )
+
+  @parameterized.named_parameters(
+      ("consume", "consume"),
+      ("finalize", "finalize"),
+  )
+  def test_uncallable_attribute(self, name: str):
+    class InvalidConsumer:
+
+      def __init__(self):
+        setattr(self, name, 123)
+
+    with self.assertRaisesRegex(TypeError, "incompatible function arguments"):
+      events_db.parse_xspace_bytes(
+          self._xspace,
+          events_db.Schema(),
+          InvalidConsumer(),
+      )
 
 
 if __name__ == "__main__":

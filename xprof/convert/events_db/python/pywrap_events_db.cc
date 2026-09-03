@@ -17,6 +17,7 @@ limitations under the License.
 #include <new>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -35,8 +36,10 @@ limitations under the License.
 #include "third_party/nanobind/include/nanobind/stl/string.h"
 #include "third_party/nanobind/include/nanobind/stl/string_view.h"
 #include "third_party/nanobind/include/nanobind/stl/variant.h"
+#include "tsl/profiler/protobuf/xplane.pb.h"
 #include "xprof/convert/events_db/record_consumer.h"
 #include "xprof/convert/events_db/schema.h"
+#include "xprof/convert/events_db/xspace_parser.h"
 
 namespace nb = nanobind;
 using nanobind::literals::operator""_a;
@@ -734,6 +737,45 @@ NB_MODULE(pywrap_events_db, m) {
             << nb::cast<std::string>(nb::repr(self.target())) << ")";
         return oss.str();
       });
+
+  // Expose parse_xspace_file and parse_xspace_bytes.
+  // Releases the GIL during execution so multithreaded parser worker threads
+  // can acquire the GIL in InvokeConsume without deadlocking.
+  m.def(
+      "parse_xspace_file",
+      [](absl::string_view file_path, Schema& schema,
+         RecordConsumerRef consumer) -> ParseStatus {
+        absl::StatusOr<ParseStatus> parse_status;
+        {
+          nb::gil_scoped_release nogil;
+          parse_status = ParseXSpace(file_path, schema, consumer);
+        }
+        if (parse_status.ok()) return *parse_status;
+        throw std::runtime_error(std::string(parse_status.status().message()));
+      },
+      "file_path"_a, "schema"_a, "consumer"_a,
+      "Parses an XSpace binary protobuf file into the record consumer.");
+
+  m.def(
+      "parse_xspace_bytes",
+      [](nb::bytes bytes, Schema& schema,
+         RecordConsumerRef consumer) -> ParseStatus {
+        const void* data = bytes.data();
+        const size_t size = bytes.size();
+        tensorflow::profiler::XSpace xspace;
+        absl::StatusOr<ParseStatus> parse_status;
+        {
+          nb::gil_scoped_release nogil;
+          if (!xspace.ParseFromArray(data, size))
+            throw std::runtime_error("Failed to parse binary XSpace protobuf.");
+          parse_status = ParseXSpace(xspace, schema, consumer);
+        }
+        if (parse_status.ok()) return *parse_status;
+        throw std::runtime_error(std::string(parse_status.status().message()));
+      },
+      "bytes"_a, "schema"_a, "consumer"_a,
+      "Parses an in-memory binary XSpace protobuf buffer into the record "
+      "consumer.");
 }
 
 }  // namespace xprof::events_db

@@ -18,6 +18,8 @@ nanobind_extension(
         "@com_google_absl//absl/strings",
         "@org_xprof//xprof/convert/events_db:record_consumer",
         "@org_xprof//xprof/convert/events_db:schema",
+        "@org_xprof//xprof/convert/events_db:xspace_parser",
+        "@tsl//tsl/profiler/protobuf:xplane_proto_cc",
     ],
 )
 
@@ -36,9 +38,11 @@ py_library(
 py_test(
     name = "events_db_test",
     srcs = ["events_db_test.py"],
+    data = ["test_data/test.xplane.pb"],
     deps = [
         ":events_db",
         "@absl_py//absl/testing:absltest",
         "@absl_py//absl/testing:parameterized",
+        "@rules_python//python/runfiles",
     ],
 )

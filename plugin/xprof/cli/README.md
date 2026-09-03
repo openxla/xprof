@@ -33,6 +33,8 @@ The CLI provides 24 core tools for comprehensive accelerator profile analysis:
 
 ### HLO & Compiler Analysis
 
+> **Prerequisite for HLO-proto tools:** The static HLO detectors (`detect_*`) and other tools that parse the raw HLO proto rely on the generated `hlo_pb2` Python bindings, which ship in the `tensorflow` package (`tensorflow/compiler/xla/service/hlo_pb2.py`). Install `tensorflow` (or the lighter `tensorflow-cpu`) into the same environment; xprof auto-detects it and no code change is required. Without it, these tools report the HLO proto as unavailable and degrade gracefully. Note that `jax`/`jaxlib` do **not** provide these bindings.
+
 *   **`get_top_hlo_ops`**: Fetches the most expensive HLO operations sorted by execution time, FLOPs, or memory traffic.
 *   **`get_hlo_op_profile`**: Formatted HLO operation profile breakdown table.
 *   **`list_hlo_modules`**: Lists all HLO modules available in the profile session.
@@ -40,6 +42,16 @@ The CLI provides 24 core tools for comprehensive accelerator profile analysis:
 *   **`get_hlo_module_content`**: Fetches full HLO instruction graph for a selected module.
 *   **`get_hlo_neighborhood`**: Traverses BFS neighborhood (operands and users) around a target HLO instruction.
 *   **`get_graph_viewer`**: Fetches DOT/pbtxt/text AST graph representation of HLO computation graphs.
+
+### Static HLO Detectors
+
+> These detectors parse the raw HLO proto and require the `tensorflow` prerequisite noted above.
+
+*   **`detect_unfused_reshapes`**: Flags reshape ops that materialize large tensors to HBM instead of being fused, adding avoidable memory traffic.
+*   **`detect_unfused_updates`**: Detects unfused sequences of small elementwise/update ops that could be fused to reduce HBM round-trips.
+*   **`detect_layout_mismatch_copies`**: Finds copy ops inserted solely to reconcile layout mismatches, causing avoidable HBM overhead.
+*   **`detect_unnecessary_convert_reduce`**: Identifies unnecessary f32 promotions around reduction ops.
+*   **`detect_unnecessary_convert_dynamic_scale`**: Identifies unnecessary f32 upcasts during dynamic-scale calculation and quantization.
 
 ### Timeline & XPlane Inspection
 

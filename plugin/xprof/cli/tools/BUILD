@@ -146,6 +146,51 @@ pytype_strict_library(
 )
 
 pytype_strict_library(
+    name = "detect_layout_mismatch_copies_tool",
+    srcs = ["detect_layout_mismatch_copies_tool.py"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)
+
+pytype_strict_library(
+    name = "detect_unfused_reshapes_tool",
+    srcs = ["detect_unfused_reshapes_tool.py"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)
+
+pytype_strict_library(
+    name = "detect_unfused_updates_tool",
+    srcs = ["detect_unfused_updates_tool.py"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)
+
+pytype_strict_library(
+    name = "detect_unnecessary_convert_dynamic_scale_tool",
+    srcs = ["detect_unnecessary_convert_dynamic_scale_tool.py"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)
+
+pytype_strict_library(
+    name = "detect_unnecessary_convert_reduce_tool",
+    srcs = ["detect_unnecessary_convert_reduce_tool.py"],
+    deps = [
+        ":get_top_hlo_ops_tool",
+        "//plugin/xprof/cli/internal/oss:hlo_tools",
+    ],
+)
+
+pytype_strict_library(
     name = "verify_numerical_parity_tool",
     srcs = ["verify_numerical_parity_tool.py"],
     deps = [

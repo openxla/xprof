@@ -22,6 +22,7 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
+#include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "re2/re2.h"
 #include "xla/tsl/platform/logging.h"
@@ -33,7 +34,7 @@ namespace {
 // We use "HLO Proto" for the legacy HLO Proto stat name.
 constexpr absl::string_view kHloStatNameLegacy = "HLO Proto";
 // Matches the program ID in parentheses at the end of the name.
-static const RE2* kProgIdRegex = new RE2(".*\\((\\d+)\\)");
+static const RE2* kProgIdRegex = new RE2(".*\\((-?\\d+)\\)");
 
 // Returns the stat ID for HLO Proto. If legacy name "HLO Proto" is found,
 // it is renamed to the expected name.
@@ -74,13 +75,21 @@ void FixHloEventMetadataIds(tensorflow::profiler::XPlane* plane,
     }
 
     if (has_stat) {
-      uint64_t program_id;
-      if (RE2::FullMatch(event_meta.name(), *kProgIdRegex, &program_id)) {
-        int64_t prog_id = static_cast<int64_t>(program_id);
-        if (event_meta.id() != prog_id) {
+      absl::string_view program_id_str;
+      if (RE2::FullMatch(event_meta.name(), *kProgIdRegex, &program_id_str)) {
+        int64_t program_id = 0;
+        if (!absl::SimpleAtoi(program_id_str, &program_id)) {
+          uint64_t uprogram_id = 0;
+          if (absl::SimpleAtoi(program_id_str, &uprogram_id)) {
+            program_id = static_cast<int64_t>(uprogram_id);
+          } else {
+            continue;
+          }
+        }
+        if (event_meta.id() != program_id) {
           VLOG(1) << "Updating event metadata ID for " << event_meta.name()
-                  << " from " << event_meta.id() << " to " << prog_id;
-          program_id_to_event_meta[prog_id] = std::move(event_meta);
+                  << " from " << event_meta.id() << " to " << program_id;
+          program_id_to_event_meta[program_id] = std::move(event_meta);
           event_metadata_ids_to_delete.push_back(kv.first);
         }
       }

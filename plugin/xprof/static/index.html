@@ -23,7 +23,10 @@
 <body>
   <app></app>
   <script>
+    let bundleLoaded = false;
     function loadBundle() {
+      if (bundleLoaded) return;
+      bundleLoaded = true;
       const runtimeScript = document.createElement('script');
       runtimeScript.src = 'runtime.js';
       document.body.appendChild(runtimeScript);
@@ -47,7 +50,7 @@
       document.body.appendChild(script);
       script.onload = () => {
         loadBundle();
-      }
+      };
       return script;
     }
 
@@ -67,10 +70,27 @@
     const script = loadChart('www.gstatic.com');
     script.onerror = () => {
       script.onerror = null;
-      document.body.removeChild(script);
+      if (script.parentNode) {
+        document.body.removeChild(script);
+      }
 
-      loadChart('www.gstatic.cn');
-    }
+      if (!bundleLoaded) {
+        const backupScript = loadChart('www.gstatic.cn');
+        backupScript.onerror = () => {
+          backupScript.onerror = null;
+          if (backupScript.parentNode) {
+            document.body.removeChild(backupScript);
+          }
+          loadBundle();
+        };
+      }
+    };
+
+    // Ensure Angular bundle boots within 2.5s even on offline/blocked networks
+    setTimeout(() => {
+      loadBundle();
+    }, 2500);
+
     setReloadOfIFrame();
   </script>
 </body>

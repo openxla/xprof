@@ -1,6 +1,19 @@
-import {AfterViewInit, Component, ElementRef, HostListener, Input, OnChanges, SimpleChanges, ViewChild, ChangeDetectionStrategy, EventEmitter, Output} from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import {STACK_CHART_FILL_COLORS} from 'org_xprof/frontend/app/common/constants/constants';
 import {type InputPipelineAnalysis} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
 
 const MAX_CHART_WIDTH = 800;
 const COLORS_FOR_GPU = [
@@ -17,14 +30,15 @@ const COLORS_FOR_GPU = [
 
 /** A step-time graph view component. */
 @Component({
-  changeDetection: ChangeDetectionStrategy.Default,standalone: false,
+  changeDetection: ChangeDetectionStrategy.Default,
+  standalone: false,
   selector: 'step-time-graph',
   templateUrl: './step_time_graph.ng.html',
-  styleUrls: ['./step_time_graph.scss']
+  styleUrls: ['./step_time_graph.scss'],
 })
 export class StepTimeGraph implements AfterViewInit, OnChanges {
   /** The input pipeline analyis data. */
-  @Input() inputPipelineAnalysis: InputPipelineAnalysis|null = null;
+  @Input() inputPipelineAnalysis: InputPipelineAnalysis | null = null;
 
   /** The default column colors. */
   @Input() columnColors = STACK_CHART_FILL_COLORS;
@@ -35,7 +49,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
   title = 'Step-time Graph';
   height = 300;
   width = 0;
-  chart: google.visualization.AreaChart|null = null;
+  chart: google.visualization.AreaChart | null = null;
 
   ngAfterViewInit() {
     this.loadGoogleChart();
@@ -56,17 +70,21 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       return;
     }
 
-    const newWidth =
-        Math.min(MAX_CHART_WIDTH, this.chartRef.nativeElement.offsetWidth);
+    const newWidth = Math.min(
+      MAX_CHART_WIDTH,
+      this.chartRef.nativeElement.offsetWidth,
+    );
 
     if (!this.chart || !this.inputPipelineAnalysis || this.width === newWidth) {
       return;
     }
 
-    const dataTable =
-        new google.visualization.DataTable(this.inputPipelineAnalysis);
-    const columnsIds =
-        dataTable.getTableProperty('step_time_graph_column_ids').split(',');
+    const dataTable = new google.visualization.DataTable(
+      this.inputPipelineAnalysis,
+    );
+    const columnsIds = dataTable
+      .getTableProperty('step_time_graph_column_ids')
+      .split(',');
     let colors = this.columnColors;
     this.height = 300;
     this.inputPipelineAnalysis.p = this.inputPipelineAnalysis.p || {};
@@ -84,8 +102,12 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       i++;
     }
 
-    const showTextEvery =
-        Math.max(1, Math.floor(dataTable.getNumberOfRows() / 10));
+    clampDataTableNumericValues(dataTable, /* startCol= */ 1);
+
+    const showTextEvery = Math.max(
+      1,
+      Math.floor(dataTable.getNumberOfRows() / 10),
+    );
     const options = {
       title: 'Step Time (in milliseconds)',
       titleTextStyle: {bold: true},
@@ -97,6 +119,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       vAxis: {
         format: '###.####',
         minValue: 0,
+        viewWindow: {min: 0},
         textStyle: {bold: true},
       },
       chartArea: {left: 50, width: '60%'},
@@ -112,6 +135,7 @@ export class StepTimeGraph implements AfterViewInit, OnChanges {
       setTimeout(() => {
         this.loadGoogleChart();
       }, 100);
+      return;
     }
 
     google.charts.safeLoad({'packages': ['corechart']});

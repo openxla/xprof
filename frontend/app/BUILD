@@ -38,6 +38,7 @@ xprof_ng_module(
     name = "tests",
     testonly = True,
     srcs = [
+        "app_module_test.ts",
         "app_test.ts",
     ],
     deps = [

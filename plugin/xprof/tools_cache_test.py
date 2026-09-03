@@ -42,6 +42,19 @@ class ToolsCacheTest(absltest.TestCase):
     self.assertEqual(self.cache._cache_file, self.cache_file)
     self.assertFalse(self.cache_file.exists())
 
+  def test_initialization_demo_redirect(self):
+    """Verifies demo run directory redirects cache file to user temp dir."""
+    demo_run_dir = epath.Path('/workspace/demo/plugins/profile/tpu-run')
+    demo_cache = profile_plugin.ToolsCache(
+        demo_run_dir,
+        profile_io.get_file_system(str(demo_run_dir)),
+    )
+    user_id = os.getuid() if hasattr(os, 'getuid') else 'default'
+    self.assertIn(f'xprof_{user_id}', str(demo_cache._cache_file))
+    self.assertNotIn(
+        '/workspace/demo/plugins/profile/tpu-run', str(demo_cache._cache_file)
+    )
+
   def test_save_and_load(self):
     self._create_xplane_file(_XPLANE_FILE_1)
     self._create_xplane_file(_XPLANE_FILE_2)

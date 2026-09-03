@@ -20,12 +20,15 @@ from __future__ import print_function
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import concurrent.futures
+import getpass
 import gzip
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 from typing import Any, TextIO, TypedDict
@@ -494,7 +497,17 @@ class ToolsCache:
       fs: The file system object to use for file operations.
     """
     self._profile_run_dir = profile_run_dir
-    self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+    run_dir_str = str(profile_run_dir)
+    if re.search(r'(^|/)demo/plugins/profile(/|$)', run_dir_str):
+      cache_key = hashlib.sha256(run_dir_str.encode()).hexdigest()[:16]
+      user_id = os.getuid() if hasattr(os, 'getuid') else getpass.getuser()
+      temp_dir = epath.Path(tempfile.gettempdir()) / f'xprof_{user_id}'
+      temp_dir.mkdir(parents=True, exist_ok=True)
+      self._cache_file = temp_dir / f'xprof_{cache_key}_{self.CACHE_FILE_NAME}'
+      self._cache_fs = profile_io.get_file_system(str(self._cache_file))
+    else:
+      self._cache_file = self._profile_run_dir / self.CACHE_FILE_NAME
+      self._cache_fs = fs
     self._fs = fs
     logger.info('ToolsCache initialized for %s', self._cache_file)
 
@@ -507,7 +520,7 @@ class ToolsCache:
     Returns:
       A list of tool names if the cache is valid, otherwise None.
     """
-    cached_data = self._fs.read_json(str(self._cache_file))
+    cached_data = self._cache_fs.read_json(str(self._cache_file))
     if cached_data is None:
       return None
 
@@ -563,11 +576,11 @@ class ToolsCache:
         'files': current_files_for_cache,
         'tools': tools,
     }
-    self._fs.write_json(str(self._cache_file), new_cache_data)
+    self._cache_fs.write_json(str(self._cache_file), new_cache_data)
 
   def invalidate(self) -> None:
     """Deletes the cache file, forcing regeneration on the next load."""
-    self._fs.delete_file(str(self._cache_file))
+    self._cache_fs.delete_file(str(self._cache_file))
 
 
 class _TfProfiler:

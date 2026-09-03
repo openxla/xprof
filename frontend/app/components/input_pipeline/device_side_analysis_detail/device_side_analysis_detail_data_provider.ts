@@ -1,4 +1,5 @@
 import {SimpleDataTable} from 'org_xprof/frontend/app/common/interfaces/data_table';
+import {clampDataTableNumericValues} from 'org_xprof/frontend/app/common/utils/chart_utils';
 import {DefaultDataProvider} from 'org_xprof/frontend/app/components/chart/default_data_provider';
 
 /** A device side analysis detail data provider. */
@@ -10,19 +11,21 @@ export class DeviceSideAnalysisDetailDataProvider extends DefaultDataProvider {
   }
 
   override parseData(
-      data: SimpleDataTable|Array<Array<(string | number)>>|null) {
+    data: SimpleDataTable | Array<Array<string | number>> | null,
+  ) {
     if (!data) return;
 
     const dataTable = new google.visualization.DataTable(data);
     const dataView = new google.visualization.DataView(dataTable);
 
     const validColumns = this.columnIds
-        .map(columnId => dataTable.getColumnIndex(columnId))
-        .filter(idx => idx >= 0);
+      .map((columnId) => dataTable.getColumnIndex(columnId))
+      .filter((idx) => idx >= 0);
     if (validColumns.length > 0) {
       dataView.setColumns(validColumns);
     }
 
     this.dataTable = dataView.toDataTable();
+    clampDataTableNumericValues(this.dataTable);
   }
 }

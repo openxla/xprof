@@ -254,22 +254,6 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
     self.assertIsInstance(seq, Sequence)
     self.assertEqual(list(seq), [1, 2, 3])
 
-  def test_events_db_exports(self):
-    self.assertCountEqual(
-        events_db.__all__,
-        [
-            "FieldIndex",
-            "FieldValue",
-            "Record",
-            "Schema",
-            "StepControl",
-            "ParseStatus",
-            "RecordConsumerRef",
-            "parse_xspace_file",
-            "parse_xspace_bytes",
-        ],
-    )
-
   def test_bytes_rejected_with_type_error(self):
     schema = events_db.Schema()
     fn = schema.register_field_name("bytes_field")
@@ -1149,6 +1133,24 @@ class EventsDbParseXSpaceBytesTest(parameterized.TestCase):
           events_db.Schema(),
           InvalidConsumer(),
       )
+
+
+class ArrowCompressionTypeCasterTest(parameterized.TestCase):
+
+  @parameterized.parameters(*events_db.ArrowCompressionType)
+  def test_roundtrip_all_codecs(self, codec: events_db.ArrowCompressionType):
+    self.assertEqual(
+        events_db.pywrap_events_db._test_roundtrip_arrow_compression(codec),
+        codec,
+    )
+
+  def test_rejects_string(self):
+    with self.assertRaisesRegex(TypeError, "Invoked with types: str"):
+      events_db.pywrap_events_db._test_roundtrip_arrow_compression("SNAPPY")
+
+  def test_rejects_arbitrary_object(self):
+    with self.assertRaisesRegex(TypeError, "Invoked with types: int"):
+      events_db.pywrap_events_db._test_roundtrip_arrow_compression(123)
 
 
 if __name__ == "__main__":

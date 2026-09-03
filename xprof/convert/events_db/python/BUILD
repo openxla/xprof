@@ -12,7 +12,9 @@ nanobind_extension(
     name = "pywrap_events_db",
     srcs = ["pywrap_events_db.cc"],
     deps = [
+        "//third_party/arrow:util_hdrs",
         "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

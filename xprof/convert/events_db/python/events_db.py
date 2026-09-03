@@ -57,19 +57,22 @@ Record Consumer Semantics & Lifecycle (Transient Record Views):
 from __future__ import annotations
 
 from collections.abc import Sequence
+import enum
 from typing import TypeAlias
 
 from xprof.convert.events_db.python import pywrap_events_db
 
 # Re-export core C++ classes, enums, and parser functions
+# go/keep-sorted start
 FieldIndex = pywrap_events_db.FieldIndex
-Schema = pywrap_events_db.Schema
-Record = pywrap_events_db.Record
-StepControl = pywrap_events_db.StepControl
 ParseStatus = pywrap_events_db.ParseStatus
+Record = pywrap_events_db.Record
 RecordConsumerRef = pywrap_events_db.RecordConsumerRef
-parse_xspace_file = pywrap_events_db.parse_xspace_file
+Schema = pywrap_events_db.Schema
+StepControl = pywrap_events_db.StepControl
 parse_xspace_bytes = pywrap_events_db.parse_xspace_bytes
+parse_xspace_file = pywrap_events_db.parse_xspace_file
+# go/keep-sorted end
 
 FieldValue: TypeAlias = (
     None
@@ -152,14 +155,35 @@ Repeated Field Semantics (Zero-Copy Sequence Views):
       ```
 """
 
+
+class ArrowCompressionType(enum.Enum):
+  """Compression codec applied to Parquet data pages."""
+
+  # go/keep-sorted start
+  BROTLI = "BROTLI"
+  BZ2 = "BZ2"
+  GZIP = "GZIP"
+  LZ4 = "LZ4"
+  LZ4_FRAME = "LZ4_FRAME"
+  LZ4_HADOOP = "LZ4_HADOOP"
+  LZO = "LZO"
+  SNAPPY = "SNAPPY"
+  UNCOMPRESSED = "UNCOMPRESSED"
+  ZSTD = "ZSTD"
+  # go/keep-sorted end
+
+
 __all__ = [
+    # go/keep-sorted start
+    "ArrowCompressionType",
     "FieldIndex",
     "FieldValue",
-    "Schema",
-    "Record",
-    "StepControl",
     "ParseStatus",
+    "Record",
     "RecordConsumerRef",
-    "parse_xspace_file",
+    "Schema",
+    "StepControl",
     "parse_xspace_bytes",
+    "parse_xspace_file",
+    # go/keep-sorted end
 ]

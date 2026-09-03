@@ -28,7 +28,7 @@ limitations under the License.
 #include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
+#include "third_party/arrow/util/type_fwd.h"
 #include "third_party/nanobind/include/nanobind/make_iterator.h"
 #include "third_party/nanobind/include/nanobind/nanobind.h"
 #include "third_party/nanobind/include/nanobind/operators.h"
@@ -43,6 +43,17 @@ limitations under the License.
 
 namespace nb = nanobind;
 using nanobind::literals::operator""_a;
+
+namespace {
+
+constexpr std::string_view kModuleName =
+    "xprof.convert.events_db.python.events_db";
+
+nb::object import_python_class(std::string_view name) {
+  return nb::module_::import_(kModuleName.data()).attr(name.data());
+}
+
+}  // namespace
 
 namespace xprof::events_db {
 namespace {
@@ -428,6 +439,69 @@ struct type_caster<xprof::events_db::RecordConsumerRef> {
   }
 };
 
+template <>
+struct type_caster<arrow::Compression::type> {
+  static constexpr char kName[] = "ArrowCompressionType";
+  NB_TYPE_CASTER(arrow::Compression::type, const_name(kName))
+
+  bool from_python(handle src, uint8_t flags, cleanup_list* cleanup) noexcept {
+    std::string_view name;
+    try {
+      if (!isinstance(src, import_python_class(kName))) return false;
+      name = cast<std::string_view>(src.attr("name"));
+    } catch (const std::exception&) {
+      // Defensive fallback: module import and attribute access on a valid enum
+      // instance are expected to succeed. This prevents unexpected runtime or
+      // C-API exceptions from escaping `noexcept` into `std::terminate()`.
+      return false;
+    }
+    for (const auto& [type, type_name] : kCompressionCodecs) {
+      if (name == type_name) {
+        value = type;
+        return true;
+      }
+    }
+    // Signal conversion failure to nanobind so it raises a standard Python
+    // TypeError.
+    return false;
+  }
+
+  static handle from_cpp(arrow::Compression::type src, rv_policy /*policy*/,
+                         cleanup_list* /*cleanup*/) noexcept {
+    for (const auto& [type, type_name] : kCompressionCodecs) {
+      if (type == src) {
+        try {
+          return object(import_python_class(kName).attr(type_name.data()))
+              .release();
+        } catch (const std::exception&) {
+          // Defensive fallback: module import and attribute lookup are expected
+          // to always succeed for known enum members. This catch prevents
+          // unexpected Python/C-API exceptions from escaping `noexcept` into
+          // `std::terminate()`.
+          return handle();
+        }
+      }
+    }
+    // Return an empty handle so nanobind signals a conversion failure.
+    return handle();
+  }
+
+ private:
+  static constexpr std::pair<arrow::Compression::type, std::string_view>
+      kCompressionCodecs[] = {
+          {arrow::Compression::UNCOMPRESSED, "UNCOMPRESSED"},
+          {arrow::Compression::SNAPPY, "SNAPPY"},
+          {arrow::Compression::GZIP, "GZIP"},
+          {arrow::Compression::BROTLI, "BROTLI"},
+          {arrow::Compression::ZSTD, "ZSTD"},
+          {arrow::Compression::LZ4, "LZ4"},
+          {arrow::Compression::LZ4_FRAME, "LZ4_FRAME"},
+          {arrow::Compression::LZO, "LZO"},
+          {arrow::Compression::BZ2, "BZ2"},
+          {arrow::Compression::LZ4_HADOOP, "LZ4_HADOOP"},
+      };
+};
+
 }  // namespace nanobind::detail
 
 namespace xprof::events_db {
@@ -620,7 +694,7 @@ NB_MODULE(pywrap_events_db, m) {
             if (!field.is_valid())
               throw nb::value_error("Cannot set field on invalid FieldIndex");
             if (nb::isinstance<nb::str>(value))
-              self.SetString(field, nb::cast<absl::string_view>(value));
+              self.SetString(field, nb::cast<std::string_view>(value));
             else if (nb::isinstance<nb::bytes>(value))
               throw nb::type_error(
                   "bytes is not a supported FieldValue; use str");
@@ -743,7 +817,7 @@ NB_MODULE(pywrap_events_db, m) {
   // can acquire the GIL in InvokeConsume without deadlocking.
   m.def(
       "parse_xspace_file",
-      [](absl::string_view file_path, Schema& schema,
+      [](std::string_view file_path, Schema& schema,
          RecordConsumerRef consumer) -> ParseStatus {
         absl::StatusOr<ParseStatus> parse_status;
         {
@@ -776,6 +850,10 @@ NB_MODULE(pywrap_events_db, m) {
       "bytes"_a, "schema"_a, "consumer"_a,
       "Parses an in-memory binary XSpace protobuf buffer into the record "
       "consumer.");
+
+  // Test helper for `arrow::Compression::type` `type_caster`.
+  m.def("_test_roundtrip_arrow_compression",
+        [](arrow::Compression::type c) { return c; });
 }
 
 }  // namespace xprof::events_db

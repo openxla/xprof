@@ -1153,5 +1153,53 @@ class ArrowCompressionTypeCasterTest(parameterized.TestCase):
       events_db.pywrap_events_db._test_roundtrip_arrow_compression(123)
 
 
+class ParquetExportOptionsCasterTest(parameterized.TestCase):
+
+  def test_roundtrip_default_options(self):
+    opts = events_db.ParquetExportOptions()
+    self.assertEqual(
+        events_db.pywrap_events_db._test_roundtrip_parquet_export_options(opts),
+        opts,
+    )
+
+  def test_roundtrip_custom_options(self):
+    opts = events_db.ParquetExportOptions(
+        max_record_count=1000,
+        batch_size=1024,
+        compression_type=events_db.ArrowCompressionType.SNAPPY,
+        compression_level=3,
+    )
+    self.assertEqual(
+        events_db.pywrap_events_db._test_roundtrip_parquet_export_options(opts),
+        opts,
+    )
+
+  def test_rejects_invalid_type(self):
+    with self.assertRaisesRegex(TypeError, "incompatible function arguments"):
+      events_db.pywrap_events_db._test_roundtrip_parquet_export_options(
+          {"batch_size": 1024}
+      )
+
+  @parameterized.parameters(0, -1)
+  def test_rejects_non_positive_batch_size(self, batch_size: int):
+    with self.assertRaisesRegex(
+        ValueError, f"batch_size must be positive, got {batch_size}"
+    ):
+      events_db.ParquetExportOptions(batch_size=batch_size)
+
+  @parameterized.parameters(0, -1)
+  def test_rejects_non_positive_max_record_count(self, max_record_count: int):
+    with self.assertRaisesRegex(
+        ValueError, f"max_record_count must be positive, got {max_record_count}"
+    ):
+      events_db.ParquetExportOptions(max_record_count=max_record_count)
+
+  def test_rejects_compression_level_without_type(self):
+    with self.assertRaisesRegex(
+        ValueError, "compression_level requires compression_type to be set."
+    ):
+      events_db.ParquetExportOptions(compression_level=3)
+
+
 if __name__ == "__main__":
   absltest.main()

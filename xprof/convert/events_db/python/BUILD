@@ -18,6 +18,7 @@ nanobind_extension(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@org_xprof//xprof/convert/events_db:parquet_record_consumer",
         "@org_xprof//xprof/convert/events_db:record_consumer",
         "@org_xprof//xprof/convert/events_db:schema",
         "@org_xprof//xprof/convert/events_db:xspace_parser",

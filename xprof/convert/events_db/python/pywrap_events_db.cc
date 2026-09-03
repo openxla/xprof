@@ -37,6 +37,7 @@ limitations under the License.
 #include "third_party/nanobind/include/nanobind/stl/string_view.h"
 #include "third_party/nanobind/include/nanobind/stl/variant.h"
 #include "tsl/profiler/protobuf/xplane.pb.h"
+#include "xprof/convert/events_db/parquet_record_consumer.h"
 #include "xprof/convert/events_db/record_consumer.h"
 #include "xprof/convert/events_db/schema.h"
 #include "xprof/convert/events_db/xspace_parser.h"
@@ -502,6 +503,47 @@ struct type_caster<arrow::Compression::type> {
       };
 };
 
+template <>
+struct type_caster<xprof::events_db::ParquetExportOptions> {
+  static constexpr char kName[] = "ParquetExportOptions";
+  NB_TYPE_CASTER(xprof::events_db::ParquetExportOptions, const_name(kName))
+
+  bool from_python(handle src, uint8_t flags, cleanup_list* cleanup) noexcept {
+    try {
+      if (!isinstance(src, import_python_class(kName))) return false;
+      value.max_record_count =
+          cast<std::optional<uint64_t>>(src.attr("max_record_count"));
+      value.batch_size = cast<uint32_t>(src.attr("batch_size"));
+      value.compression_type = cast<std::optional<arrow::Compression::type>>(
+          src.attr("compression_type"));
+      value.compression_level =
+          cast<std::optional<int>>(src.attr("compression_level"));
+      return true;
+    } catch (const std::exception&) {
+      // See the rationale in the `ArrowCompressionType` type caster for why we
+      // catch exceptions here.
+      return false;
+    }
+  }
+
+  static handle from_cpp(const xprof::events_db::ParquetExportOptions& src,
+                         rv_policy /*policy*/,
+                         cleanup_list* /*cleanup*/) noexcept {
+    try {
+      return import_python_class(kName)(
+                 "max_record_count"_a = src.max_record_count,
+                 "batch_size"_a = src.batch_size,
+                 "compression_type"_a = src.compression_type,
+                 "compression_level"_a = src.compression_level)
+          .release();
+    } catch (const std::exception&) {
+      // See the rationale in the `ArrowCompressionType` type caster for why we
+      // catch exceptions here.
+      return handle();
+    }
+  }
+};
+
 }  // namespace nanobind::detail
 
 namespace xprof::events_db {
@@ -854,6 +896,10 @@ NB_MODULE(pywrap_events_db, m) {
   // Test helper for `arrow::Compression::type` `type_caster`.
   m.def("_test_roundtrip_arrow_compression",
         [](arrow::Compression::type c) { return c; });
+
+  // Test helper for `ParquetExportOptions` `type_caster`.
+  m.def("_test_roundtrip_parquet_export_options",
+        [](xprof::events_db::ParquetExportOptions options) { return options; });
 }
 
 }  // namespace xprof::events_db

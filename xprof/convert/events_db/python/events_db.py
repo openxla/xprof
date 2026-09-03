@@ -57,6 +57,8 @@ Record Consumer Semantics & Lifecycle (Transient Record Views):
 from __future__ import annotations
 
 from collections.abc import Sequence
+import dataclasses
+
 import enum
 from typing import TypeAlias
 
@@ -173,11 +175,41 @@ class ArrowCompressionType(enum.Enum):
   # go/keep-sorted end
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ParquetExportOptions:
+  """Configuration options for exporting events DB records to Apache Parquet.
+
+  Attributes:
+    max_record_count: If set, at most this many records will be written before
+      early stopping.
+    batch_size: Number of records buffered before flushing a batch to disk.
+    compression_type: Compression codec applied to Parquet data pages.
+    compression_level: Compressor-specific compression level.
+  """
+
+  max_record_count: int | None = None
+  batch_size: int = 65536
+  compression_type: ArrowCompressionType | None = None
+  compression_level: int | None = None
+
+  def __post_init__(self) -> None:
+    """Validate the options."""
+    if self.max_record_count is not None and self.max_record_count <= 0:
+      raise ValueError(
+          f"max_record_count must be positive, got {self.max_record_count}"
+      )
+    if self.batch_size <= 0:
+      raise ValueError(f"batch_size must be positive, got {self.batch_size}")
+    if self.compression_level is not None and self.compression_type is None:
+      raise ValueError("compression_level requires compression_type to be set.")
+
+
 __all__ = [
     # go/keep-sorted start
     "ArrowCompressionType",
     "FieldIndex",
     "FieldValue",
+    "ParquetExportOptions",
     "ParseStatus",
     "Record",
     "RecordConsumerRef",

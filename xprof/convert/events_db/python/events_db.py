@@ -21,10 +21,12 @@ from typing import TypeAlias
 
 from xprof.convert.events_db.python import pywrap_events_db
 
-# Re-export core C++ classes
+# Re-export core C++ classes and enums
 FieldIndex = pywrap_events_db.FieldIndex
 Schema = pywrap_events_db.Schema
 Record = pywrap_events_db.Record
+StepControl = pywrap_events_db.StepControl
+ParseStatus = pywrap_events_db.ParseStatus
 
 FieldValue: TypeAlias = (
     None
@@ -112,4 +114,6 @@ __all__ = [
     "FieldValue",
     "Schema",
     "Record",
+    "StepControl",
+    "ParseStatus",
 ]

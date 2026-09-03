@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Tests for events_db Python bindings (Schema and Record)."""
+"""Tests for events_db Python bindings."""
 
 from collections.abc import Sequence
 import operator
@@ -250,7 +250,14 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
   def test_events_db_exports(self):
     self.assertCountEqual(
         events_db.__all__,
-        ["FieldIndex", "FieldValue", "Record", "Schema"],
+        [
+            "FieldIndex",
+            "FieldValue",
+            "Record",
+            "Schema",
+            "StepControl",
+            "ParseStatus",
+        ],
     )
 
   def test_bytes_rejected_with_type_error(self):
@@ -525,6 +532,72 @@ class EventsDbSchemaAndRecordTest(parameterized.TestCase):
     record = events_db.Record()
     with self.assertRaisesRegex(TypeError, "Expected str"):
       record.set_string(fn, 123)
+
+
+class StepControlTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ("continue", events_db.StepControl.CONTINUE, "CONTINUE", 0),
+      ("stop", events_db.StepControl.STOP, "STOP", 1),
+  )
+  def test_member_properties_and_lookup(
+      self,
+      member: events_db.StepControl,
+      expected_name: str,
+      expected_value: int,
+  ):
+    self.assertEqual(member.name, expected_name)
+    self.assertEqual(member.value, expected_value)
+    self.assertIs(events_db.StepControl[expected_name], member)
+    self.assertIs(events_db.StepControl(expected_value), member)
+
+  def test_members_are_distinct(self):
+    self.assertNotEqual(
+        events_db.StepControl.CONTINUE, events_db.StepControl.STOP
+    )
+
+  def test_usable_in_set(self):
+    control_set = {events_db.StepControl.CONTINUE, events_db.StepControl.STOP}
+    self.assertIn(events_db.StepControl.CONTINUE, control_set)
+    self.assertIn(events_db.StepControl.STOP, control_set)
+
+
+class ParseStatusTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ("complete", events_db.ParseStatus.COMPLETE, "COMPLETE", 0),
+      (
+          "stopped_early",
+          events_db.ParseStatus.STOPPED_EARLY,
+          "STOPPED_EARLY",
+          1,
+      ),
+  )
+  def test_member_properties_and_lookup(
+      self,
+      member: events_db.ParseStatus,
+      expected_name: str,
+      expected_value: int,
+  ):
+    self.assertEqual(member.name, expected_name)
+    self.assertEqual(member.value, expected_value)
+    self.assertIs(events_db.ParseStatus[expected_name], member)
+    self.assertIs(events_db.ParseStatus(expected_value), member)
+
+  def test_members_are_distinct(self):
+    self.assertNotEqual(
+        events_db.ParseStatus.COMPLETE, events_db.ParseStatus.STOPPED_EARLY
+    )
+
+  def test_usable_in_dict(self):
+    status_dict = {
+        events_db.ParseStatus.COMPLETE: "complete",
+        events_db.ParseStatus.STOPPED_EARLY: "stopped_early",
+    }
+    self.assertEqual(status_dict[events_db.ParseStatus.COMPLETE], "complete")
+    self.assertEqual(
+        status_dict[events_db.ParseStatus.STOPPED_EARLY], "stopped_early"
+    )
 
 
 if __name__ == "__main__":

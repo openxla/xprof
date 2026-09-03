@@ -130,13 +130,17 @@ OverviewInferenceLatency ComputeInferenceLatencyResult(
             [](const LatencyBreakdown& a, const LatencyBreakdown& b) {
               return a.total_latency_us < b.total_latency_us;
             });
+  // Set the average latency stats first before the percentiles.
+  // Respective change made in:
+  // google3/third_party/xprof/convert/op_stats_to_overview_page.cc
+  // function "GenerateInferenceLatencyDataTable"
+  SetLatencyBreakdown(avg, result.add_latency_breakdowns());
+
   for (const auto& percent : kTargetPercentiles) {
     result.add_percentile_numbers(percent);
     int64_t index = percent / 100.0 * sessions.size();
     SetLatencyBreakdown(sessions[index], result.add_latency_breakdowns());
   }
-  // Set the average latency stats.
-  SetLatencyBreakdown(avg, result.add_latency_breakdowns());
 
   return result;
 }

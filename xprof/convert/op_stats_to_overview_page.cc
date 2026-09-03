@@ -645,15 +645,23 @@ std::unique_ptr<DataTable> GenerateInferenceLatencyDataTable(
     data_table->AddColumn(TableColumn(column[0], column[1], column[2]));
   }
 
+  // The first element of latency_breakdowns in the proto is assumed to be the
+  // Average latency breakdown, followed by the percentile latency breakdowns.
+  // Respective change made in:
+  // google3/third_party/xprof/convert/compute_inference_latency.cc
+  // function "ComputeInferenceLatencyResult"
   if (result.latency_breakdowns_size() > 0) {
     AddLatencyRow(data_table.get(), "Avg",
-                  *result.latency_breakdowns().begin());
+                  result.latency_breakdowns().Get(0));
   }
   for (int i = 0; i < result.percentile_numbers_size(); i++) {
-    AddLatencyRow(
-        data_table.get(),
-        absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
-        result.latency_breakdowns().Get(i));
+    int breakdown_index = i + 1;
+    if (breakdown_index < result.latency_breakdowns_size()) {
+      AddLatencyRow(
+          data_table.get(),
+          absl::StrFormat("%.1f%%", (result.percentile_numbers().Get(i))),
+          result.latency_breakdowns().Get(breakdown_index));
+    }
   }
   return data_table;
 }

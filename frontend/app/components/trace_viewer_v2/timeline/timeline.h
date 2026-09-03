@@ -249,7 +249,7 @@ class Timeline {
   // Applies a deterministic vertical scroll offset (in pixels) for tests,
   // reusing the production scroll-restore path so the offset takes effect
   // on the next Draw().
-  void set_scroll_offset_for_test(float scroll_y) {
+  void set_scroll_offset_for_test(Pixel scroll_y) {
     last_scroll_y_ = scroll_y;
     should_restore_scroll_ = true;
   }
@@ -501,6 +501,31 @@ class Timeline {
                                            const ImRect& full_range_rect) const;
 
   const ColorPalette& GetPalette() const { return palette_; }
+
+  // ---------------------------------------------------------------------------
+  // Accessors for testing
+  // ---------------------------------------------------------------------------
+  Pixel last_scroll_y_for_test() const { return last_scroll_y_; }
+  void set_last_scroll_y_for_test(Pixel y) { last_scroll_y_ = y; }
+  void set_selected_event_index_for_test(int idx) {
+    selected_event_index_ = idx;
+  }
+  void set_group_visible_for_test(int idx, bool visible) {
+    if (idx >= 0 && idx < static_cast<int>(group_visible_.size())) {
+      group_visible_[idx] = visible;
+    }
+  }
+  void set_header_all_expanded_for_test(bool expanded) {
+    header_all_expanded_ = expanded;
+  }
+  const Group& header_hidden_for_test() const { return header_hidden_; }
+  const Group& header_pinned_for_test() const { return header_pinned_; }
+  void set_search_results_for_test(std::vector<SearchResult> results) {
+    search_results_ = std::move(results);
+  }
+  void set_current_search_result_index_for_test(int idx) {
+    current_search_result_index_ = idx;
+  }
 
  protected:
   // Virtual method to allow mocking in tests.

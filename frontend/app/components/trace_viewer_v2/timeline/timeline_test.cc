@@ -9209,6 +9209,20 @@ TEST_F(RealTimelineImGuiFixture, GetGroupTopBottom_RegularGroups) {
   EXPECT_GE(timeline_.GetGroupTop(group_a), 0.0f);
   EXPECT_GE(timeline_.GetGroupBottom(group_a), timeline_.GetGroupTop(group_a));
   EXPECT_GE(timeline_.GetGroupTop(group_1), timeline_.GetGroupBottom(group_a));
+
+  // Invalid pointers (null, before start, past the end) should safely return
+  // 0.0f.
+  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(nullptr), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(nullptr), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(group_a - 1), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(group_a - 1), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(groups.data() + groups.size()), 0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(groups.data() + groups.size()),
+                  0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupTop(groups.data() + groups.size() + 5),
+                  0.0f);
+  EXPECT_FLOAT_EQ(timeline_.GetGroupBottom(groups.data() + groups.size() + 5),
+                  0.0f);
 }
 
 class TimelineTimeRangeResizeTest : public RealTimelineImGuiFixture {
@@ -11799,6 +11813,959 @@ TEST(TimelineTest, ZoomEmitsViewportChangedWithCorrectRange) {
 
   EXPECT_DOUBLE_EQ(actual_min, 0.0);
   EXPECT_DOUBLE_EQ(actual_max, 400.0);
+}
+
+// Helpers for concise timeline test data construction and verification.
+Group MakeProcessGroup(absl::string_view name, int start_level = 0,
+                       int level_count = 1, bool expanded = true) {
+  return {.type = Group::Type::kFlame,
+          .name = std::string(name),
+          .start_level = start_level,
+          .nesting_level = kProcessNestingLevel,
+          .expanded = expanded,
+          .level_count = level_count};
+}
+
+Group MakeThreadGroup(absl::string_view name, int parent_index,
+                      int start_level = 0, int level_count = 1,
+                      bool expanded = true) {
+  return {.type = Group::Type::kFlame,
+          .name = std::string(name),
+          .start_level = start_level,
+          .nesting_level = kThreadNestingLevel,
+          .expanded = expanded,
+          .parent_index = parent_index,
+          .level_count = level_count};
+}
+
+FlameChartTimelineData MakeTimelineData(std::vector<Group> groups,
+                                        int num_levels = 1) {
+  FlameChartTimelineData data;
+  data.groups = std::move(groups);
+  data.events_by_level.resize(num_levels);
+  return data;
+}
+
+ImGuiWindow* FindTracksWindow() {
+  for (ImGuiWindow* const window : ImGui::GetCurrentContext()->Windows) {
+    if (absl::StrContains(window->Name, "Tracks")) {
+      return window;
+    }
+  }
+  return nullptr;
+}
+
+void StepImGuiFrames(Timeline& timeline, int count) {
+  for (int i = 0; i < count; ++i) {
+    ImGui::NewFrame();
+    timeline.Draw();
+    Animation::UpdateAll(ImGui::GetIO().DeltaTime);
+    ImGui::Render();
+  }
+}
+
+void VerifyScrollAnchorRestoration(TestTimeline& timeline,
+                                   FlameChartTimelineData initial_data,
+                                   int initial_anchor_group_index,
+                                   FlameChartTimelineData update_data,
+                                   int updated_anchor_group_index) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline.SetTimelineData(std::move(initial_data));
+  timeline.set_is_incremental_loading(true);
+  StepImGuiFrames(timeline, 2);
+
+  ImGuiWindow* const tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+
+  const Pixel anchor_top = timeline.GetGroupTop(
+      &timeline.timeline_data().groups[initial_anchor_group_index]);
+  timeline.set_last_scroll_y_for_test(anchor_top);
+  tracks_window->Scroll.y = anchor_top;
+  StepImGuiFrames(timeline, 2);
+
+  timeline.SetTimelineData(std::move(update_data));
+  StepImGuiFrames(timeline, 3);
+
+  const Pixel new_anchor_top = timeline.GetGroupTop(
+      &timeline.timeline_data().groups[updated_anchor_group_index]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_anchor_top);
+  EXPECT_FLOAT_EQ(tracks_window->Scroll.y, new_anchor_top);
+  EXPECT_FLOAT_EQ(new_anchor_top - tracks_window->Scroll.y, 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ScrollRestorationPreservesAnchorWhenPrecedingTrackExpands) {
+  VerifyScrollAnchorRestoration(
+      timeline_,
+      MakeTimelineData(
+          {MakeProcessGroup("Process A"),
+           MakeThreadGroup("Thread A.1", /*parent_index=*/0),
+           MakeThreadGroup("Thread A.2", /*parent_index=*/0, /*start_level=*/1),
+           MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/2,
+                           /*level_count=*/50)},
+          /*num_levels=*/52),
+      /*initial_anchor_group_index=*/2,
+      MakeTimelineData(
+          {MakeProcessGroup("Process A"),
+           MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                           /*level_count=*/6),
+           MakeThreadGroup("Thread A.2", /*parent_index=*/0, /*start_level=*/6),
+           MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/7,
+                           /*level_count=*/50)},
+          /*num_levels=*/57),
+      /*updated_anchor_group_index=*/2);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ScrollRestorationPreservesAnchorWhenPrecedingTrackDespawns) {
+  VerifyScrollAnchorRestoration(
+      timeline_,
+      MakeTimelineData(
+          {MakeProcessGroup("Process A"),
+           MakeThreadGroup("Thread A.1", /*parent_index=*/0),
+           MakeThreadGroup("Thread A.2", /*parent_index=*/0, /*start_level=*/1,
+                           /*level_count=*/2),
+           MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/3,
+                           /*level_count=*/50)},
+          /*num_levels=*/53),
+      /*initial_anchor_group_index=*/2,
+      MakeTimelineData(
+          {MakeProcessGroup("Process A"),
+           MakeThreadGroup("Thread A.2", /*parent_index=*/0, /*start_level=*/0,
+                           /*level_count=*/2),
+           MakeThreadGroup("Padding", /*parent_index=*/0, /*start_level=*/2,
+                           /*level_count=*/50)},
+          /*num_levels=*/52),
+      /*updated_anchor_group_index=*/1);
+}
+
+TEST(TimelineTest, ScrollRestorationFallsBackToParentWhenAnchorThreadDespawns) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0)}));
+
+  const Pixel thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  timeline.set_last_scroll_y_for_test(thread_top + 12.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process Preceding 1"),
+       MakeProcessGroup("Process Preceding 2"), MakeProcessGroup("Process A")},
+      /*num_levels=*/3));
+
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupTop(&timeline.timeline_data().groups[2]));
+}
+
+TEST(TimelineTest,
+     ScrollRestorationFallsBackToPrecedingTrackWhenProcessDespawns) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/10),
+       MakeProcessGroup("Process B", /*start_level=*/10, /*level_count=*/1)},
+      /*num_levels=*/11));
+
+  const Pixel process_b_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  timeline.set_last_scroll_y_for_test(process_b_top);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/10)},
+      /*num_levels=*/10));
+
+  const Pixel surviving_thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), surviving_thread_top);
+  EXPECT_LE(timeline.last_scroll_y_for_test(), process_b_top);
+  EXPECT_GT(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, SelectionRemapPreservesSelectedIndexWithoutMutatingScroll) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"eventA", "eventB"};
+  initial_data.entry_event_ids = {100, 200};
+  initial_data.entry_pids = {1, 1};
+  initial_data.entry_tids = {1, 1};
+  initial_data.entry_start_times = {10.0, 50.0};
+  initial_data.entry_total_times = {5.0, 5.0};
+  initial_data.entry_levels = {0, 0};
+  initial_data.events_by_level = {{0, 1}};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  timeline.set_selected_event_index_for_test(0);
+  timeline.set_last_scroll_y_for_test(1500.0f);
+
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"eventB", "eventA"};
+  update_data.entry_event_ids = {200, 100};
+  update_data.entry_pids = {1, 1};
+  update_data.entry_tids = {1, 1};
+  update_data.entry_start_times = {50.0, 10.0};
+  update_data.entry_total_times = {5.0, 5.0};
+  update_data.entry_levels = {0, 0};
+  update_data.events_by_level = {{0, 1}};
+  update_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 1500.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationEmptyTraceDataClampsScrollToZero) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  timeline.set_last_scroll_y_for_test(500.0f);
+
+  timeline.SetTimelineData(FlameChartTimelineData{});
+
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationNegativeScrollClampsToZeroWhenNoAnchor) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Initial load with negative scroll Y clamps to 0.0f.
+  timeline.set_last_scroll_y_for_test(-50.0f);
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+
+  // Subsequent load when scroll Y is negative (scrolled above tracks) also
+  // clamps to 0.0f.
+  timeline.set_last_scroll_y_for_test(-25.0f);
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"), MakeProcessGroup("Process B")},
+      /*num_levels=*/2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, NonIncrementalLoadingNegativeScrollClampsToZero) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(false);
+
+  timeline.set_last_scroll_y_for_test(-50.0f);
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ScrollRestorationScrollExceedsCanvasHeightClampsToMaxScroll) {
+  ImGui::GetIO().DisplaySize = ImVec2(800.0f, 200.0f);
+  timeline_.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0)}));
+  timeline_.set_is_incremental_loading(true);
+  timeline_.set_last_scroll_y_for_test(50000.0f);
+
+  timeline_.SetTimelineData(MakeTimelineData({MakeProcessGroup("Process A")}));
+  StepImGuiFrames(timeline_, 2);
+
+  ImGuiWindow* const tracks_window = FindTracksWindow();
+  ASSERT_NE(tracks_window, nullptr);
+
+  EXPECT_LE(tracks_window->Scroll.y, tracks_window->ScrollMax.y);
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), tracks_window->Scroll.y);
+}
+
+TEST(TimelineTest,
+     ScrollRestorationDistinguishesDuplicateThreadNamesAcrossProcesses) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("Worker", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/1),
+       MakeProcessGroup("Process B", /*start_level=*/1, /*level_count=*/1),
+       MakeThreadGroup("Worker", /*parent_index=*/2, /*start_level=*/1,
+                       /*level_count=*/1)},
+      /*num_levels=*/2));
+
+  const Pixel proc_b_worker_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[3]);
+  timeline.set_last_scroll_y_for_test(proc_b_worker_top);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("Worker", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/6),
+       MakeProcessGroup("Process B", /*start_level=*/6, /*level_count=*/1),
+       MakeThreadGroup("Worker", /*parent_index=*/2, /*start_level=*/6,
+                       /*level_count=*/1)},
+      /*num_levels=*/7));
+
+  const Pixel new_proc_b_worker_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[3]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_proc_b_worker_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  proc_b_worker_top + 120.0f);
+}
+
+TEST(TimelineTest,
+     SelectionRemapClearsSelectedEventIndexWhenSelectedEventDespawns) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"eventA"};
+  initial_data.entry_event_ids = {100};
+  initial_data.entry_pids = {1};
+  initial_data.entry_tids = {1};
+  initial_data.entry_start_times = {10.0};
+  initial_data.entry_total_times = {5.0};
+  initial_data.entry_levels = {0};
+  initial_data.events_by_level = {{0}};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  timeline.set_selected_event_index_for_test(0);
+  timeline.set_last_scroll_y_for_test(800.0f);
+
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"eventB"};
+  update_data.entry_event_ids = {200};
+  update_data.entry_pids = {2};
+  update_data.entry_tids = {2};
+  update_data.entry_start_times = {50.0};
+  update_data.entry_total_times = {5.0};
+  update_data.entry_levels = {0};
+  update_data.events_by_level = {{0}};
+  update_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 800.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       ScrollRestorationVirtualHeaderAnchorPreservesTopOfTimeline) {
+  timeline_.set_track_management_enabled(true);
+  timeline_.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0)}));
+  timeline_.set_is_incremental_loading(true);
+  timeline_.set_last_scroll_y_for_test(0.0f);
+
+  timeline_.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/6)},
+      /*num_levels=*/6));
+
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, AnchorTrackShrinkClampsLocalPixelOffset) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/10)},
+      /*num_levels=*/10));
+
+  const Pixel thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  timeline.set_last_scroll_y_for_test(thread_top + 100.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/1)},
+      /*num_levels=*/1));
+
+  const Pixel new_thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  const Pixel expected_clamped_offset =
+      std::max(0.0f, (kEventHeight + kEventPaddingBottom) - kEventHeight);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  new_thread_top + expected_clamped_offset);
+  EXPECT_LT(timeline.last_scroll_y_for_test(), new_thread_top + 100.0f);
+}
+
+TEST_F(RealTimelineImGuiFixture,
+       TopOfCanvasScrollRemainsZeroWhenTrackManagementEnabled) {
+  timeline_.set_track_management_enabled(true);
+  timeline_.set_is_incremental_loading(true);
+  timeline_.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0)}));
+  timeline_.set_last_scroll_y_for_test(0.0f);
+
+  timeline_.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/10)},
+      /*num_levels=*/10));
+
+  EXPECT_FLOAT_EQ(timeline_.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, DuplicateProcessDisambiguation) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("python3", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("MainThread", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/1),
+       MakeProcessGroup("python3", /*start_level=*/1, /*level_count=*/1),
+       MakeThreadGroup("WorkerThread", /*parent_index=*/2, /*start_level=*/1,
+                       /*level_count=*/1)},
+      /*num_levels=*/2));
+
+  const Pixel worker_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[3]);
+  timeline.set_last_scroll_y_for_test(worker_top);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("python3", /*start_level=*/0, /*level_count=*/1),
+       MakeThreadGroup("MainThread", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/6),
+       MakeProcessGroup("python3", /*start_level=*/6, /*level_count=*/1),
+       MakeThreadGroup("WorkerThread", /*parent_index=*/2, /*start_level=*/6,
+                       /*level_count=*/1)},
+      /*num_levels=*/7));
+
+  const Pixel new_worker_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[3]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_worker_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  worker_top + 5 * (kEventHeight + kEventPaddingBottom));
+}
+
+TEST(TimelineTest, AnchorInCollapsedParentTrack) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"),
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4)},
+      /*num_levels=*/4));
+
+  const Pixel thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  timeline.set_last_scroll_y_for_test(thread_top + 20.0f);
+
+  Group collapsed_process = MakeProcessGroup(
+      "Process A", /*start_level=*/0, /*level_count=*/1, /*expanded=*/false);
+  collapsed_process.has_children = true;
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {collapsed_process,
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/4)},
+      /*num_levels=*/4));
+
+  const Pixel child_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), child_top);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  timeline.GetGroupBottom(&timeline.timeline_data().groups[0]));
+  EXPECT_LT(timeline.last_scroll_y_for_test(), child_top + 20.0f);
+}
+
+TEST(TimelineTest, GetGroupBoundsBoundaryConditions) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+
+  Group external_group{.name = "External"};
+
+  // When timeline data is empty:
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(nullptr), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(nullptr), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(&external_group), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(&external_group), 0.0f);
+
+  // When timeline data is non-empty:
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(&external_group), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(&external_group), 0.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationDespawnFallbackExhaustsTiers) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_track_management_enabled(true);
+  timeline.set_is_incremental_loading(true);
+  timeline.pinned_track_names_ = {"PinnedProcess"};
+
+  // Initial data: Anchor on PinnedProcess.
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("PinnedProcess")}));
+  timeline.set_last_scroll_y_for_test(60.0f);
+
+  // Update data: PinnedProcess despawned (Tier 1 and Tier 2 fail).
+  // In Tier 3:
+  // - Process B (index 2) is visible, but its top (122.0f) is > last_scroll_y_
+  //   (60.0f), so it does not break and reaches the bottom of the loop body.
+  // - Thread A.1 (index 1) is invisible (inside collapsed Process A) and
+  //   skipped via continue.
+  // - Process A (index 0) is visible, but its top (72.0f) is > last_scroll_y_
+  //   (60.0f), so it reaches the bottom of the loop body.
+  // Loop completes without match (Tier 3 fails).
+  // Tier 4 clamps to std::max(0.0f, last_scroll_y_).
+  timeline.pinned_track_names_.clear();
+  Group collapsed_a =
+      MakeProcessGroup("Process A", /*start_level=*/0, /*level_count=*/1,
+                       /*expanded=*/false);
+  collapsed_a.has_children = true;
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {collapsed_a,
+       MakeThreadGroup("Thread A.1", /*parent_index=*/0, /*start_level=*/0,
+                       /*level_count=*/1),
+       MakeProcessGroup("Process B", /*start_level=*/0, /*level_count=*/1)},
+      /*num_levels=*/2));
+
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 60.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationAnchoredTraceDespawnsToEmptyData) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  timeline.set_last_scroll_y_for_test(10.0f);
+
+  // Data empties after anchor was captured; scroll resets strictly to 0.0f.
+  timeline.SetTimelineData(FlameChartTimelineData{});
+
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 0.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationAnchorSkipsVirtualHeader) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_track_management_enabled(true);
+  timeline.set_is_incremental_loading(true);
+  timeline.pinned_track_names_ = {"PinnedProcess"};
+
+  // Flattened layout:
+  // header_hidden_ (0..24)
+  // header_pinned_ (24..48)
+  // PinnedProcess  (48..98)
+  // header_all_    (98..122)
+  // AllProcess     (122..172)
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("PinnedProcess"), MakeProcessGroup("AllProcess")},
+      /*num_levels=*/2));
+
+  // Position scroll inside header_all_ (between PinnedProcess and AllProcess)
+  // so lower_bound selects header_all_, and SetTimelineData skips it to
+  // anchor on AllProcess.
+  const Pixel all_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  timeline.set_last_scroll_y_for_test(all_top - 10.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("PinnedProcess"),
+       MakeProcessGroup("AllProcess", /*start_level=*/0, /*level_count=*/5)},
+      /*num_levels=*/6));
+
+  const Pixel new_all_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), new_all_top);
+}
+
+TEST(TimelineTest, ScrollRestorationAnchorSkipsInvisibleGroup) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0),
+                        MakeProcessGroup("Process B")},
+                       /*num_levels=*/2));
+
+  timeline.set_group_visible_for_test(0, false);
+  timeline.set_group_visible_for_test(1, false);
+  timeline.set_last_scroll_y_for_test(10.0f);
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0),
+                        MakeProcessGroup("Process B")},
+                       /*num_levels=*/2));
+
+  const Pixel process_b_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[2]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), process_b_top);
+}
+
+TEST(TimelineTest, GetGroupBoundsNegativePointerOffset) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  const Group* const negative_group =
+      timeline.timeline_data().groups.data() - 1;
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(negative_group), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(negative_group), 0.0f);
+
+  const Group* const positive_out_of_bounds_group =
+      timeline.timeline_data().groups.data() +
+      timeline.timeline_data().groups.size() + 5;
+  EXPECT_FLOAT_EQ(timeline.GetGroupTop(positive_out_of_bounds_group), 0.0f);
+  EXPECT_FLOAT_EQ(timeline.GetGroupBottom(positive_out_of_bounds_group), 0.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationOnlyVirtualHeadersInFlattenedGroups) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  // Exercise is_incremental_loading_ == false path on line 575.
+  timeline.set_is_incremental_loading(false);
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+
+  // Exercise is_incremental_loading_ == true path with only virtual headers in
+  // flattened_groups_.
+  timeline.set_is_incremental_loading(true);
+  timeline.set_last_scroll_y_for_test(50.0f);
+
+  timeline.flattened_groups_ = {
+      &timeline.header_hidden_for_test(),
+      &timeline.header_pinned_for_test(),
+  };
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process B")}, /*num_levels=*/1));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 50.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationAllGroupsInvisibleExhaustsAnchorLoop) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"), MakeProcessGroup("Process B")},
+      /*num_levels=*/2));
+  timeline.set_group_visible_for_test(0, false);
+  timeline.set_group_visible_for_test(1, false);
+  timeline.set_last_scroll_y_for_test(10.0f);
+
+  // Trigger update: anchor scan advances past both invisible groups and hits
+  // end().
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"), MakeProcessGroup("Process B")},
+      /*num_levels=*/2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 10.0f);
+}
+
+TEST(TimelineTest, ScrollRestorationAnchorGroupOutOfBoundsParentIndex) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+  Group corrupt_group =
+      MakeThreadGroup("Thread Corrupt", /*parent_index=*/9999);
+  timeline.SetTimelineData(MakeTimelineData({corrupt_group}, /*num_levels=*/1));
+  timeline.set_last_scroll_y_for_test(5.0f);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process A"), corrupt_group}, /*num_levels=*/2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 55.0f);
+}
+
+TEST(TimelineTest, SelectionCaptureAsymmetricSparseEntryArrays) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  FlameChartTimelineData sparse_data;
+  sparse_data.entry_names = {"sparse_event"};
+  // Leave entry_event_ids, entry_pids, entry_tids, entry_start_times,
+  // entry_total_times empty.
+  sparse_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(sparse_data));
+  timeline.set_selected_event_index_for_test(0);
+
+  // Updating triggers selection capture with out-of-bounds auxiliary arrays.
+  timeline.SetTimelineData(FlameChartTimelineData{});
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+}
+
+TEST(TimelineTest, SelectionCaptureIndexExceedsEntryNamesSize) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"eventA"};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+  timeline.set_selected_event_index_for_test(99);
+
+  timeline.SetTimelineData(FlameChartTimelineData{});
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+}
+
+TEST(TimelineTest, ScrollRestorationTier2ParentTrackAlsoDespawns) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Initial: Anchor on Thread A.1 (parent is Process A).
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A"),
+                        MakeThreadGroup("Thread A.1", /*parent_index=*/0)},
+                       /*num_levels=*/2));
+  const Pixel thread_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  timeline.set_last_scroll_y_for_test(thread_top + 10.0f);
+
+  // Update: Both Process A and Thread A.1 despawned.
+  // Group with parent_index = 999 exercises L679 false branch in Tier 1.
+  // Tier 2 scans groups:
+  // - Process X: nesting 0 < 1, name "Process X" != "Process A" (L695 name
+  // false).
+  // - Thread X.1: nesting 1 not < 1 (L695 nesting false).
+  // Loop finishes without match (L693 loop exit).
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process X"),
+                        MakeThreadGroup("Thread X.1", /*parent_index=*/999)},
+                       /*num_levels=*/2));
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(), 54.0f);
+}
+
+TEST(TimelineTest, SelectionRemapZeroEventIdAndReusesLazyFallbackMap) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Setup search results that will trigger lazy_loaded_events fallback.
+  Timeline::SearchResult sr;
+  sr.event_id = 999;  // Not in new data -> triggers BuildFallbackMap.
+  sr.name = "eventA";
+  sr.pid = 1;
+  sr.tid = 1;
+  sr.start_time = 10.0;
+  sr.duration = 5.0;
+  timeline.set_search_results_for_test({sr});
+  timeline.set_current_search_result_index_for_test(-1);
+
+  // Initial data has event with event_id = 0.
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"eventA"};
+  initial_data.entry_event_ids = {0};  // selected_event_id == 0.
+  initial_data.entry_pids = {1};
+  initial_data.entry_tids = {1};
+  initial_data.entry_start_times = {10.0};
+  initial_data.entry_total_times = {5.0};
+  initial_data.entry_levels = {0};
+  initial_data.events_by_level = {{0}};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  timeline.set_selected_event_index_for_test(0);
+
+  // Update data: Search result 999 triggers BuildFallbackMap at line 759.
+  // Then selection reconciliation runs:
+  // - selected_event_id == 0 -> skips line 793 (L793 false path taken).
+  // - new_selected_index == -1 -> line 800 checks
+  // !lazy_loaded_events.has_value().
+  // - lazy_loaded_events already populated -> line 800 false path taken.
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"eventA"};
+  update_data.entry_event_ids = {500};
+  update_data.entry_pids = {1};
+  update_data.entry_tids = {1};
+  update_data.entry_start_times = {10.0};
+  update_data.entry_total_times = {5.0};
+  update_data.entry_levels = {0};
+  update_data.events_by_level = {{0}};
+  update_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SelectionRemapSearchResultIndexOutOfBounds) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.set_search_results_for_test({});
+  timeline.set_current_search_result_index_for_test(10);  // >= 0 but >= size().
+
+  timeline.SetTimelineData(
+      MakeTimelineData({MakeProcessGroup("Process A")}, /*num_levels=*/1));
+  EXPECT_EQ(timeline.selected_event_index(), -1);
+}
+
+TEST(TimelineTest, ScrollRestorationAnchorPreservesNonZeroLocalPixelOffset) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+       MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/5)},
+      /*num_levels=*/6));
+
+  const Pixel anchor_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  constexpr Pixel kLocalOffset = 15.0f;
+  timeline.set_last_scroll_y_for_test(anchor_top + kLocalOffset);
+
+  // Preceding track expands from 1 level to 5 levels, shifting Process 2 down.
+  timeline.SetTimelineData(MakeTimelineData(
+      {MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/5),
+       MakeProcessGroup("Process 2", /*start_level=*/5, /*level_count=*/5)},
+      /*num_levels=*/10));
+
+  const Pixel new_anchor_top =
+      timeline.GetGroupTop(&timeline.timeline_data().groups[1]);
+  EXPECT_FLOAT_EQ(timeline.last_scroll_y_for_test(),
+                  new_anchor_top + kLocalOffset);
+}
+
+TEST(TimelineTest, SelectionRemapMatchesFastPathByEventIdEvenWhenNameChanges) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"OriginalName"};
+  initial_data.entry_event_ids = {101};
+  initial_data.entry_pids = {1};
+  initial_data.entry_tids = {1};
+  initial_data.entry_start_times = {10.0};
+  initial_data.entry_total_times = {5.0};
+  initial_data.entry_levels = {0};
+  initial_data.events_by_level = {{0}};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  timeline.set_selected_event_index_for_test(0);
+
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"RenamedEvent"};
+  update_data.entry_event_ids = {101};
+  update_data.entry_pids = {1};
+  update_data.entry_tids = {1};
+  update_data.entry_start_times = {10.0};
+  update_data.entry_total_times = {8.0};
+  update_data.entry_levels = {0};
+  update_data.events_by_level = {{0}};
+  update_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 0);
+}
+
+TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByPidAcrossProcesses) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Two events sharing identical name, start time, and duration across distinct
+  // processes (PIDs 10 and 20).
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"SharedTask", "SharedTask"};
+  initial_data.entry_event_ids = {0, 0};  // Forces 5-tuple fallback matching.
+  initial_data.entry_pids = {10, 20};
+  initial_data.entry_tids = {1, 1};
+  initial_data.entry_start_times = {10.0, 10.0};
+  initial_data.entry_total_times = {5.0, 5.0};
+  initial_data.entry_levels = {0, 1};
+  initial_data.events_by_level = {{0}, {1}};
+  initial_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  // Select the second event (index 1 on Process 2, PID 20).
+  timeline.set_selected_event_index_for_test(1);
+
+  // Update data: Both events assigned new event IDs. Fallback matching must
+  // disambiguate by selected_pid and restore selection to index 1.
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"SharedTask", "SharedTask"};
+  update_data.entry_event_ids = {101, 202};
+  update_data.entry_pids = {10, 20};
+  update_data.entry_tids = {1, 1};
+  update_data.entry_start_times = {10.0, 10.0};
+  update_data.entry_total_times = {5.0, 5.0};
+  update_data.entry_levels = {0, 1};
+  update_data.events_by_level = {{0}, {1}};
+  update_data.groups = {
+      MakeProcessGroup("Process 1", /*start_level=*/0, /*level_count=*/1),
+      MakeProcessGroup("Process 2", /*start_level=*/1, /*level_count=*/1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
+}
+
+TEST(TimelineTest, SelectionRemapFallbackDisambiguatesByTidAcrossThreads) {
+  ColorPalette palette = ColorPalette::Default();
+  TestTimeline timeline(palette);
+  timeline.set_is_incremental_loading(true);
+
+  // Two events sharing identical name, start time, duration, and PID across
+  // distinct threads (TIDs 100 and 200).
+  FlameChartTimelineData initial_data;
+  initial_data.entry_names = {"WorkerTask", "WorkerTask"};
+  initial_data.entry_event_ids = {0, 0};  // Forces 5-tuple fallback matching.
+  initial_data.entry_pids = {1, 1};
+  initial_data.entry_tids = {100, 200};
+  initial_data.entry_start_times = {10.0, 10.0};
+  initial_data.entry_total_times = {5.0, 5.0};
+  initial_data.entry_levels = {0, 1};
+  initial_data.events_by_level = {{0}, {1}};
+  initial_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1),
+                         MakeThreadGroup("Thread 2", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(initial_data));
+
+  // Select the second event (index 1 on Thread 2, TID 200).
+  timeline.set_selected_event_index_for_test(1);
+
+  // Update data: Both events assigned new event IDs. Fallback matching must
+  // disambiguate by selected_tid and restore selection to index 1.
+  FlameChartTimelineData update_data;
+  update_data.entry_names = {"WorkerTask", "WorkerTask"};
+  update_data.entry_event_ids = {301, 402};
+  update_data.entry_pids = {1, 1};
+  update_data.entry_tids = {100, 200};
+  update_data.entry_start_times = {10.0, 10.0};
+  update_data.entry_total_times = {5.0, 5.0};
+  update_data.entry_levels = {0, 1};
+  update_data.events_by_level = {{0}, {1}};
+  update_data.groups = {MakeThreadGroup("Thread 1", /*parent_index=*/-1),
+                        MakeThreadGroup("Thread 2", /*parent_index=*/-1)};
+  timeline.SetTimelineData(std::move(update_data));
+
+  EXPECT_EQ(timeline.selected_event_index(), 1);
 }
 
 }  // namespace

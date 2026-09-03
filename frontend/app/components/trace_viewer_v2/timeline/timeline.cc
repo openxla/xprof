@@ -247,16 +247,25 @@ int Timeline::FindFirstVisibleAncestorIndex(int start_idx) const {
 }
 
 Pixel Timeline::GetGroupTop(const Group* group) const {
+  if (group == nullptr) return 0.0f;
   if (IsVirtualHeader(group)) {
     if (group->name == kHiddenHeaderName) return header_hidden_offset_;
     if (group->name == kAllHeaderName) return header_all_offset_;
-    if (group->name == kPinnedHeaderName) return header_pinned_offset_;
+    return header_pinned_offset_;
   }
-  int group_index = group - &timeline_data_.groups[0];
+  if (timeline_data_.groups.empty()) {
+    return 0.0f;
+  }
+  const int group_index = group - timeline_data_.groups.data();
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return 0.0f;
+  }
   return group_offsets_[group_index];
 }
 
 Pixel Timeline::GetGroupBottom(const Group* group) const {
+  if (group == nullptr) return 0.0f;
   if (IsVirtualHeader(group)) {
     if (group->name == kHiddenHeaderName) {
       return header_hidden_offset_ + kVirtualHeaderHeight;
@@ -264,11 +273,16 @@ Pixel Timeline::GetGroupBottom(const Group* group) const {
     if (group->name == kAllHeaderName) {
       return header_all_offset_ + kVirtualHeaderHeight;
     }
-    if (group->name == kPinnedHeaderName) {
-      return header_pinned_offset_ + kVirtualHeaderHeight;
-    }
+    return header_pinned_offset_ + kVirtualHeaderHeight;
   }
-  int group_index = group - &timeline_data_.groups[0];
+  if (timeline_data_.groups.empty()) {
+    return 0.0f;
+  }
+  const int group_index = group - timeline_data_.groups.data();
+  if (group_index < 0 ||
+      group_index >= static_cast<int>(timeline_data_.groups.size())) {
+    return 0.0f;
+  }
   return group_offsets_[group_index] + group_heights_[group_index];
 }
 
@@ -552,10 +566,178 @@ void Timeline::BackfillGroupLevelCount(FlameChartTimelineData& data) {
 
 void Timeline::SetTimelineData(FlameChartTimelineData data) {
   BackfillGroupLevelCount(data);
+
+  // Capture anchor track and local pixel offset prior to updating layout.
+  GroupKey anchor_group_key = {};
+  Pixel local_pixel_offset = 0.0f;
+  bool has_anchor = false;
+
+  if (is_incremental_loading_ && !flattened_groups_.empty()) {
+    const Group* first_concrete_track = nullptr;
+    for (const Group* group : flattened_groups_) {
+      if (!IsVirtualHeader(group)) {
+        first_concrete_track = group;
+        break;
+      }
+    }
+
+    // NOMUTANTS(LCR): If first_concrete_track is null, all flattened groups are
+    // virtual headers so has_anchor is never set, making short-circuiting a
+    // semantic no-op.
+    if (first_concrete_track != nullptr &&
+        last_scroll_y_ >= GetGroupTop(first_concrete_track)) {
+      auto it =
+          std::lower_bound(flattened_groups_.begin(), flattened_groups_.end(),
+                           last_scroll_y_, [this](const Group* group, Pixel y) {
+                             return this->GetGroupBottom(group) < y;
+                           });
+
+      // Advance past virtual headers and invisible groups to anchor on a
+      // concrete visible track.
+      while (it != flattened_groups_.end()) {
+        if (IsVirtualHeader(*it)) {
+          ++it;
+          continue;
+        }
+        const int group_idx = *it - timeline_data_.groups.data();
+        if (group_idx < 0 ||
+            group_idx >= static_cast<int>(timeline_data_.groups.size())) {
+          ++it;
+          continue;
+        }
+        if (group_idx < static_cast<int>(group_visible_.size()) &&
+            !group_visible_[group_idx]) {
+          ++it;
+          continue;
+        }
+        break;
+      }
+
+      if (it != flattened_groups_.end()) {
+        const Group* const anchor_group = *it;
+        anchor_group_key.nesting_level = anchor_group->nesting_level;
+        anchor_group_key.name = anchor_group->name;
+        anchor_group_key.parent_name =
+            (anchor_group->parent_index >= 0 &&
+             anchor_group->parent_index <
+                 static_cast<int>(timeline_data_.groups.size()))
+                ? timeline_data_.groups[anchor_group->parent_index].name
+                : "";
+        local_pixel_offset =
+            std::max(0.0f, last_scroll_y_ - GetGroupTop(anchor_group));
+        has_anchor = true;
+      }
+    }
+  }
+
+  // Capture selection 5-tuple prior to replacing timeline_data_.
+  bool had_selected_event = false;
+  EventId selected_event_id = 0;
+  ProcessId selected_pid = 0;
+  ThreadId selected_tid = 0;
+  std::string selected_name;
+  Microseconds selected_start = 0.0;
+  Microseconds selected_dur = 0.0;
+
+  if (selected_event_index_ >= 0 &&
+      selected_event_index_ <
+          static_cast<int>(timeline_data_.entry_names.size())) {
+    had_selected_event = true;
+    selected_event_id =
+        (selected_event_index_ <
+         static_cast<int>(timeline_data_.entry_event_ids.size()))
+            ? timeline_data_.entry_event_ids[selected_event_index_]
+            : 0;
+    selected_pid = (selected_event_index_ <
+                    static_cast<int>(timeline_data_.entry_pids.size()))
+                       ? timeline_data_.entry_pids[selected_event_index_]
+                       : 0;
+    selected_tid = (selected_event_index_ <
+                    static_cast<int>(timeline_data_.entry_tids.size()))
+                       ? timeline_data_.entry_tids[selected_event_index_]
+                       : 0;
+    selected_name = timeline_data_.entry_names[selected_event_index_];
+    selected_start =
+        (selected_event_index_ <
+         static_cast<int>(timeline_data_.entry_start_times.size()))
+            ? timeline_data_.entry_start_times[selected_event_index_]
+            : 0.0;
+    selected_dur = (selected_event_index_ <
+                    static_cast<int>(timeline_data_.entry_total_times.size()))
+                       ? timeline_data_.entry_total_times[selected_event_index_]
+                       : 0.0;
+  }
+
   // Pre-calculate the level positions to avoid partial state and per-frame
   // layout recalculations before saving the newly arrived timeline_data.
   UpdateLevelPositions(data);
   timeline_data_ = std::move(data);
+
+  // Execute 4-tier despawn fallback to restore compensated scroll offset.
+  if (has_anchor) {
+    int new_group_index = -1;
+
+    // Tier 1: Exact GroupKey match.
+    for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+      const Group& g = timeline_data_.groups[i];
+      const absl::string_view parent =
+          (g.parent_index >= 0 &&
+           g.parent_index < static_cast<int>(timeline_data_.groups.size()))
+              ? absl::string_view(timeline_data_.groups[g.parent_index].name)
+              : "";
+      if (g.nesting_level == anchor_group_key.nesting_level &&
+          g.name == anchor_group_key.name &&
+          parent == anchor_group_key.parent_name) {
+        new_group_index = static_cast<int>(i);
+        break;
+      }
+    }
+
+    // Tier 2: Match Parent Track if child track despawned.
+    if (new_group_index == -1 && !anchor_group_key.parent_name.empty()) {
+      for (size_t i = 0; i < timeline_data_.groups.size(); ++i) {
+        if (timeline_data_.groups[i].nesting_level <
+                anchor_group_key.nesting_level &&
+            timeline_data_.groups[i].name == anchor_group_key.parent_name) {
+          new_group_index = static_cast<int>(i);
+          local_pixel_offset = 0.0f;
+          break;
+        }
+      }
+    }
+
+    // Tier 3: Match Nearest Preceding Surviving Track.
+    if (new_group_index == -1) {
+      for (int i = static_cast<int>(timeline_data_.groups.size()) - 1; i >= 0;
+           --i) {
+        if (i < static_cast<int>(group_visible_.size()) && !group_visible_[i]) {
+          continue;
+        }
+        if (GetGroupTop(&timeline_data_.groups[i]) <= last_scroll_y_) {
+          new_group_index = i;
+          local_pixel_offset = 0.0f;
+          break;
+        }
+      }
+    }
+
+    // Tier 4: Apply Compensated Scroll Offset or Clamp to Bounds.
+    if (timeline_data_.groups.empty()) {
+      last_scroll_y_ = 0.0f;
+    } else if (new_group_index != -1) {
+      const Pixel track_height = group_heights_[new_group_index];
+      local_pixel_offset = std::min(
+          local_pixel_offset, std::max(0.0f, track_height - kEventHeight));
+      last_scroll_y_ = GetGroupTop(&timeline_data_.groups[new_group_index]) +
+                       local_pixel_offset;
+    } else {
+      last_scroll_y_ = std::max(0.0f, last_scroll_y_);
+    }
+  } else if (timeline_data_.groups.empty()) {
+    last_scroll_y_ = 0.0f;
+  } else {
+    last_scroll_y_ = std::max(0.0f, last_scroll_y_);
+  }
 
   // Reconcile loaded_index for all search results against the new
   // timeline_data_.
@@ -607,6 +789,26 @@ void Timeline::SetTimelineData(FlameChartTimelineData data) {
     const SearchResult& active =
         search_results_.at(current_search_result_index_);
     selected_event_index_ = active.loaded_index;
+  } else if (had_selected_event) {
+    // Decouple selection re-indexing without mutating viewport scroll.
+    int new_selected_index = -1;
+    if (selected_event_id != 0) {
+      if (const auto it = event_id_to_loaded_index.find(selected_event_id);
+          it != event_id_to_loaded_index.end()) {
+        new_selected_index = it->second;
+      }
+    }
+    if (new_selected_index == -1) {
+      if (!lazy_loaded_events.has_value()) {
+        lazy_loaded_events = BuildFallbackMap(timeline_data_);
+      }
+      new_selected_index = FindFallbackMatchedIndex(
+          *lazy_loaded_events, timeline_data_, selected_pid, selected_tid,
+          selected_name, selected_start, selected_dur);
+    }
+    selected_event_index_ = new_selected_index;
+  } else if (current_search_result_index_ < 0) {
+    selected_event_index_ = -1;
   }
 
   if (is_incremental_loading_) {

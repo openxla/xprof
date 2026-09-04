@@ -74,6 +74,7 @@ using tensorflow::profiler::TableRow;
 using tsl::profiler::OneDigit;
 using tsl::profiler::ThreeDigits;
 using tsl::profiler::TwoDigits;
+using tsl::profiler::FourSigFigs;
 
 // If the percentage of step time that spends on SparseCoreV0 is more than
 // kModeratelySparseCoreV0BoundThresholdInPercent, it is considered highly
@@ -1880,14 +1881,14 @@ DataTable GenerateTpuInputPipelineAnalysisDataTable(
   const StepSummary& step_time_summary = result.step_time_summary();
   data_table.AddCustomProperty("hardware_type", result.hardware_type());
   data_table.AddCustomProperty("steptime_ms_average",
-                               OneDigit(step_time_summary.average()));
+                               FourSigFigs(step_time_summary.average()));
   data_table.AddCustomProperty(
       "steptime_ms_standard_deviation",
-      OneDigit(step_time_summary.standard_deviation()));
+      FourSigFigs(step_time_summary.standard_deviation()));
   data_table.AddCustomProperty("steptime_ms_minimum",
-                               OneDigit(step_time_summary.minimum()));
+                               FourSigFigs(step_time_summary.minimum()));
   data_table.AddCustomProperty("steptime_ms_maximum",
-                               OneDigit(step_time_summary.maximum()));
+                               FourSigFigs(step_time_summary.maximum()));
 
   const StepSummary& input_percent_summary = result.input_percent_summary();
   data_table.AddCustomProperty("infeed_percent_average",
